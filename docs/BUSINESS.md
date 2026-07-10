@@ -119,6 +119,33 @@ relay ($5/mo) — so the project doesn't depend on donations.
   the API-key/DB test above — operations and credentials, not capability on your own box.
 - Attention: no ads, no telemetry beyond opt-in crash reports.
 
+## The SaaS control plane (relay business only)
+
+The paid relay splits into a stateless **data plane** (the open-source envelope routers — no
+accounts, no database) and a small **control plane** that exists only because money and orgs
+do. Stack, pinned:
+
+- **Sign-in:** GitHub + Google OAuth and email magic links — no passwords. Implemented with
+  **Better Auth** (open-source TS auth library running inside our control plane — not
+  Auth0/Clerk, so self-hosters of the relay aren't dragged into a third-party auth SaaS).
+  Enterprise SSO/SAML later via its SSO plugin, only if demand. The native apps never show a
+  login: they're paid up front and pair with your switchboard by QR — which also keeps us
+  outside Apple's sign-in-with-Apple mandate (it only binds apps that offer third-party login).
+- **Storage:** one **Postgres** for control-plane metadata: accounts (email, OAuth ids), orgs
+  (id, display name, member emails for invites), roles, device *public* keys, push tokens,
+  plan/quota counters, bridge configs (bot tokens encrypted at rest), and the mailbox's sealed
+  blobs with TTL cleanup. No message content, no room names, no ledger data — the data plane
+  never writes here.
+- **Billing:** **Stripe** (Checkout + Customer Portal + webhooks). Stripe holds the payment
+  identity; our Postgres holds the mapping from account → org → device keys → quotas.
+- **Web:** the commercial site (marketing + account/billing dashboard) is a **Next.js** app —
+  the one place Next earns its keep (SEO, server-side Stripe/auth flows). The *product* web
+  app stays a Vite SPA served by your own switchboard; it never talks to the control plane
+  except the optional "connect to Wireroom Relay" pairing.
+
+The privacy framing stays intact: the product requires no account ever; the paid relay adds a
+billing account (an email) that maps to keys and quotas — never to content.
+
 ## Sequencing
 
 Monetization work starts **after** M5's open-source launch — credibility first. The relay is
