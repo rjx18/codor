@@ -38,6 +38,14 @@ assumptions:
       outcome: unchanged
       reason: The sticky mobile composer preserves the live recipient resolution
         indicator while enlarging controls to touch-safe dimensions.
+    - id: extensions-not-addressable-v1
+      outcome: unchanged
+      reason: Compact mobile run cards preserve the existing nested extension
+        rendering and never expose extension members as room recipients.
+    - id: custody-uncertain-never-double-writes
+      outcome: unchanged
+      reason: Touch-safe member controls preserve the same custody gate and keep
+        attach actions hidden for mirrored, dead, or uncertain sessions.
 anchors:
   sw-injectmanifest-owned-worker:
     vite-pwa-owned-worker:
@@ -62,6 +70,10 @@ anchors:
       action: change
       reason: Reshape the room surface into a mobile drawer and fixed composer while
         preserving all history and permalink behavior.
+    message-permalink-rendering:
+      action: change
+      reason: Give permanent message links touch-safe hit areas without changing
+        their visible #N text or fragment destination.
   spend-meter-always-on:
     meter-settings-surface:
       action: change
@@ -71,6 +83,16 @@ anchors:
       action: change
       reason: Make the composer sticky and touch-safe without changing recipient
         parsing or pre-send visibility.
+  extensions-not-addressable-v1:
+    extension-run-rendering:
+      action: change
+      reason: Make run expansion thumb-safe and visually compact while retaining
+        the existing nested, non-addressable extension lifecycle.
+  custody-uncertain-never-double-writes:
+    attach-custody-web-hint:
+      action: change
+      reason: Enlarge the copy control inside the existing custody-safe attach hint
+        without broadening when attach is offered.
 files:
   - packages/web/package.json
   - pnpm-lock.yaml
