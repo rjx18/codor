@@ -30,7 +30,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await server.close();
-  daemon.close();
+  await daemon.close();
   rmSync(dir, { recursive: true, force: true });
 });
 

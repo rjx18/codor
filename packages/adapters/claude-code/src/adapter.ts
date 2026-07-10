@@ -1,11 +1,12 @@
 import { type ChildProcess, spawn } from 'node:child_process';
-import { readdirSync, writeFileSync } from 'node:fs';
+import { readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import type {
+  AdapterTurnHooks,
   HarnessAdapter,
   Session,
   SessionRef,
@@ -27,8 +28,14 @@ interface TurnState {
   translator: ReturnType<typeof createTurnTranslator>;
   queue: WireEvent[];
   wake: (() => void) | null;
-  /** Resolvers waiting for "the stream proceeded" (ack proxies). */
-  ackWaiters: (() => void)[];
+  /** Output sequence boundaries waiting for demonstrable later progress. */
+  ackWaiters: {
+    after: number;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  }[];
+  outputSeq: number;
+  terminal: boolean;
   done: boolean;
 }
 
@@ -50,6 +57,8 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   } as const;
 
   private readonly turns = new WeakMap<Session, TurnState>();
+
+  constructor(private readonly command = 'claude') {}
 
   spawn(opts: SpawnOpts): Session {
     return { harness: this.id, cwd: opts.cwd, model: opts.model, policy: opts.policy };
@@ -102,13 +111,20 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   // harn:end extensions-hooks-authoritative
 
   /** One deliver() = one `claude -p` subprocess = one turn. */
-  async *deliver(session: Session, payload: string): AsyncIterable<WireEvent> {
+  // harn:assume adapter-process-lifecycle-supervised ref=cli-process-supervision
+  async *deliver(
+    session: Session,
+    payload: string,
+    hooks: AdapterTurnHooks = {},
+  ): AsyncIterable<WireEvent> {
     const state: TurnState = {
       child: undefined as unknown as ChildProcess,
       translator: createTurnTranslator(),
       queue: [],
       wake: null,
       ackWaiters: [],
+      outputSeq: 0,
+      terminal: false,
       done: false,
     };
 
@@ -139,7 +155,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     if (session.policy !== undefined) args.push('--permission-mode', session.policy);
     if (session.session_ref !== undefined) args.push('--resume', session.session_ref);
 
-    const child = spawn('claude', args, {
+    const child = spawn(this.command, args, {
       cwd: session.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: true, // own process group — signal the group
@@ -147,33 +163,114 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     state.child = child;
     this.turns.set(session, state);
 
-    child.stdin!.write(
-      `${JSON.stringify({
-        type: 'user',
-        message: { role: 'user', content: [{ type: 'text', text: payload }] },
-      })}\n`,
+    let stderr = '';
+    child.stderr!.setEncoding('utf8');
+    child.stderr!.on('data', (chunk: string) => {
+      stderr = `${stderr}${chunk}`.slice(-8192);
+    });
+    let childError: Error | undefined;
+    const spawned = new Promise<void>((resolve, reject) => {
+      child.once('spawn', resolve);
+      child.once('error', (error) => {
+        childError = error;
+        reject(error);
+      });
+    });
+    const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolve) => child.once('close', (code, signal) => resolve({ code, signal })),
     );
 
-    const pump = (async () => {
-      const lines = createInterface({ input: child.stdout! });
-      for await (const line of lines) {
-        const events = state.translator.push(line);
-        // any stream progress acknowledges in-flight answers
-        for (const waiter of state.ackWaiters.splice(0)) waiter();
-        push(events);
-        if (session.session_ref === undefined && state.translator.sessionId() !== undefined) {
-          session.session_ref = state.translator.sessionId();
-        }
-        if (events.some((e) => e.type === 'run.completed')) {
-          child.stdin!.end();
+    const rejectAcks = (error: Error): void => {
+      for (const waiter of state.ackWaiters.splice(0)) waiter.reject(error);
+    };
+    const advance = (): void => {
+      state.outputSeq++;
+      for (let index = state.ackWaiters.length - 1; index >= 0; index--) {
+        const waiter = state.ackWaiters[index]!;
+        if (state.outputSeq > waiter.after) {
+          state.ackWaiters.splice(index, 1);
+          waiter.resolve();
         }
       }
-      push(state.translator.end());
+    };
+    let reportedSessionRef: string | undefined;
+    const reportSessionRef = (): void => {
+      const discovered = state.translator.sessionId();
+      if (discovered === undefined || discovered === reportedSessionRef) return;
+      session.session_ref = discovered;
+      reportedSessionRef = discovered;
+      hooks.onSessionRef?.(discovered);
+    };
+
+    try {
+      await spawned;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      push([{ type: 'run.completed', status: 'failed', final_text: detail }]);
       state.done = true;
-      state.wake?.();
+    }
+
+    if (!state.done) {
+      try {
+        hooks.onStarted?.({ pid: child.pid, process_group_id: child.pid });
+      } catch (error) {
+        childError = error instanceof Error ? error : new Error(String(error));
+        push([{ type: 'run.completed', status: 'failed', final_text: childError.message }]);
+        state.done = true;
+        this.signal(child, 'SIGKILL');
+      }
+    }
+
+    const pump = (async () => {
+      if (state.done) return;
+      try {
+        const lines = createInterface({ input: child.stdout! });
+        for await (const line of lines) {
+          advance();
+          const events = state.translator.push(line);
+          push(events);
+          reportSessionRef();
+          if (events.some((event) => event.type === 'run.completed')) {
+            state.terminal = true;
+            child.stdin!.end();
+          }
+        }
+        const exit = await closed;
+        if (!state.terminal) {
+          const failed = childError !== undefined || (exit.code !== null && exit.code !== 0);
+          const detail = stderr.trim() || childError?.message;
+          push([
+            {
+              type: 'run.completed',
+              status: failed ? 'failed' : 'interrupted',
+              ...(detail !== undefined && detail !== '' && { final_text: detail }),
+            },
+          ]);
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        if (!state.terminal) {
+          push([{ type: 'run.completed', status: 'failed', final_text: detail }]);
+        }
+      } finally {
+        rejectAcks(new Error('claude stream ended before interaction acknowledgement'));
+        state.done = true;
+        state.wake?.();
+      }
     })();
 
     try {
+      if (!state.done) {
+        await new Promise<void>((resolve, reject) => {
+          child.stdin!.write(
+            `${JSON.stringify({
+              type: 'user',
+              message: { role: 'user', content: [{ type: 'text', text: payload }] },
+            })}\n`,
+            (error) => (error ? reject(error) : resolve()),
+          );
+        });
+      }
       while (true) {
         if (state.queue.length > 0) {
           yield state.queue.shift()!;
@@ -188,13 +285,20 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
       await pump;
     } finally {
       this.turns.delete(session);
-      for (const waiter of state.ackWaiters.splice(0)) waiter();
-      server.close();
+      rejectAcks(new Error('claude turn closed before interaction acknowledgement'));
       if (child.exitCode === null && child.signalCode === null) {
         this.signal(child, 'SIGKILL');
       }
+      await pump.catch(() => undefined);
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      try {
+        unlinkSync(settingsPath);
+      } catch {
+        // already removed
+      }
     }
   }
+  // harn:end adapter-process-lifecycle-supervised
 
   // harn:assume interactions-answered-via-stdin-control ref=respond-interaction-stdin
   /**
@@ -210,16 +314,30 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     if (!request) throw new Error(`no pending interaction ${interaction_id}`);
 
     const response = composeControlResponse(request, answer);
-    await new Promise<void>((resolve, reject) => {
-      state.child.stdin!.write(`${JSON.stringify(response)}\n`, (err) =>
-        err ? reject(err) : resolve(),
-      );
+    // harn:assume interaction-ack-requires-stream-progress ref=interaction-progress-ack
+    const after = state.outputSeq;
+    let removeWaiter = (): void => undefined;
+    const acknowledged = new Promise<void>((resolve, reject) => {
+      const waiter = { after, resolve, reject };
+      state.ackWaiters.push(waiter);
+      removeWaiter = () => {
+        const index = state.ackWaiters.indexOf(waiter);
+        if (index >= 0) state.ackWaiters.splice(index, 1);
+      };
     });
-    // ack = the stream moved after our write (tool result / next event)
-    await new Promise<void>((resolve) => {
-      if (state.done) return resolve();
-      state.ackWaiters.push(resolve);
-    });
+    void acknowledged.catch(() => undefined); // observed below after the stdin flush
+    try {
+      await new Promise<void>((resolve, reject) => {
+        state.child.stdin!.write(`${JSON.stringify(response)}\n`, (err) =>
+          err ? reject(err) : resolve(),
+        );
+      });
+      await acknowledged;
+    } catch (error) {
+      removeWaiter();
+      throw error;
+    }
+    // harn:end interaction-ack-requires-stream-progress
   }
   // harn:end interactions-answered-via-stdin-control
 

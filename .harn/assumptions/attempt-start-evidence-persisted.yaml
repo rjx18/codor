@@ -1,0 +1,12 @@
+id: attempt-start-evidence-persisted
+hash: a-ba0fa57ac3d5
+title: Spawn and session evidence are persisted before turn completion
+state: active
+statement: Once a CLI child successfully spawns, the daemon must append durable
+  run-start evidence and persist its process identity on the delivery attempt,
+  and must persist a reported native session reference immediately; boot
+  reconciliation must treat this evidence as an ambiguous started attempt and
+  never retry it while its process may still be alive.
+depends_on:
+  - delivery-attempt-wal-reconcile
+created_by: m0fix-adapter-lifecycle

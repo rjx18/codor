@@ -123,6 +123,12 @@ binary as a child and FORWARDS SIGINT/SIGTERM/SIGHUP — but SIGKILL is unforwar
   killed thread works, re-emits the same thread_id, retains context (the model knew about the
   interrupted sleep — probed while the orphan was still mid-turn), and completes normally.
 
+The adapter therefore reports confirmed spawn/process-group identity before reading stdout
+and reports `thread_id` as soon as `thread.started` arrives. Reconciliation does not guess at
+undocumented rollout internals: the recorded JSONL event contract plus persisted process
+evidence are the normative facts, and an incomplete started attempt is held rather than
+silently resumed alongside a possibly orphaned native engine.
+
 ## Capabilities (for P0.6)
 
 `{resume: true, discover: true, interactiveAttach: true, ask: false, approvals: 'spawn-time',

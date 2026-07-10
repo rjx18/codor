@@ -35,7 +35,7 @@ export interface TurnTranslator {
   /** Feed one stdout line; returns the WireEvents it produced (often none). */
   push(line: string): WireEvent[];
   /** Signal stream EOF; synthesizes the terminal event if none was seen. */
-  end(): WireEvent[];
+  end(fallback?: { status: 'failed' | 'interrupted'; final_text?: string }): WireEvent[];
   /** thread_id from thread.started — the session_ref/resume token. */
   threadId(): string | undefined;
 }
@@ -153,11 +153,16 @@ export function createTurnTranslator(): TurnTranslator {
       }
     },
 
-    end(): WireEvent[] {
+    end(fallback = { status: 'interrupted' as const }): WireEvent[] {
       if (terminal) return [];
       terminal = true;
-      // Stream truncated without a terminal event = interrupted/killed turn.
-      return [{ type: 'run.completed', status: 'interrupted', final_text: finalText() }];
+      return [
+        {
+          type: 'run.completed',
+          status: fallback.status,
+          final_text: fallback.final_text ?? finalText(),
+        },
+      ];
     },
   };
 }

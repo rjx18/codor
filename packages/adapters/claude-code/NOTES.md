@@ -129,6 +129,11 @@ authoritative, stream is enrichment only).
   the only evidence. Resume requires a user message to start a new turn — nothing re-runs
   spontaneously.
 
+The adapter persists confirmed spawn identity and the init `session_id` while the turn is
+live. It does not infer completion from undocumented transcript-store internals: recorded
+stream-json shapes remain normative, while an incomplete started process is held unless the
+documented interaction re-correlation path applies after that process is known dead.
+
 ## Capabilities (for P0.7)
 
 `{resume: true, discover: true, interactiveAttach: true, ask: true, approvals: 'runtime',

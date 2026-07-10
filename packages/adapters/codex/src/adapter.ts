@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import type {
+  AdapterTurnHooks,
   HarnessAdapter,
   Session,
   SessionRef,
@@ -38,6 +39,8 @@ export class CodexAdapter implements HarnessAdapter {
 
   private readonly children = new WeakMap<Session, ChildProcess>();
 
+  constructor(private readonly command = 'codex') {}
+
   spawn(opts: SpawnOpts): Session {
     return {
       harness: this.id,
@@ -60,34 +63,75 @@ export class CodexAdapter implements HarnessAdapter {
    * orphaned engine keeps running and writing, so signals must target the
    * GROUP and EOF (not child-exit) ends the stream.
    */
-  async *deliver(session: Session, payload: string): AsyncIterable<WireEvent> {
+  // harn:assume adapter-process-lifecycle-supervised ref=cli-process-supervision
+  async *deliver(
+    session: Session,
+    payload: string,
+    hooks: AdapterTurnHooks = {},
+  ): AsyncIterable<WireEvent> {
     const args = ['exec', '--json', '--skip-git-repo-check', '-C', session.cwd];
     args.push('--sandbox', session.policy ?? 'read-only');
     if (session.model !== undefined) args.push('-m', session.model);
     if (session.session_ref !== undefined) args.push('resume', session.session_ref);
     args.push(payload);
 
-    const child = spawn('codex', args, {
+    const child = spawn(this.command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true, // own process group — signal the group, not the shim
     });
     this.children.set(session, child);
 
+    let stderr = '';
+    child.stderr!.setEncoding('utf8');
+    child.stderr!.on('data', (chunk: string) => {
+      stderr = `${stderr}${chunk}`.slice(-8192);
+    });
+    let childError: Error | undefined;
+    const spawned = new Promise<void>((resolve, reject) => {
+      child.once('spawn', resolve);
+      child.once('error', (error) => {
+        childError = error;
+        reject(error);
+      });
+    });
+    const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolve) => child.once('close', (code, signal) => resolve({ code, signal })),
+    );
+
     const translator = createTurnTranslator();
+    let reportedSessionRef: string | undefined;
+    const reportSessionRef = (): void => {
+      const discovered = translator.threadId();
+      if (discovered === undefined || discovered === reportedSessionRef) return;
+      session.session_ref = discovered;
+      reportedSessionRef = discovered;
+      hooks.onSessionRef?.(discovered);
+    };
     try {
+      try {
+        await spawned;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        yield* translator.end({ status: 'failed', final_text: detail });
+        return;
+      }
+      hooks.onStarted?.({ pid: child.pid, process_group_id: child.pid });
+
       const lines = createInterface({ input: child.stdout! });
       for await (const line of lines) {
         for (const event of translator.push(line)) {
-          if (session.session_ref === undefined && translator.threadId() !== undefined) {
-            session.session_ref = translator.threadId();
-          }
+          reportSessionRef();
           yield event;
         }
-        if (session.session_ref === undefined && translator.threadId() !== undefined) {
-          session.session_ref = translator.threadId();
-        }
+        reportSessionRef();
       }
-      yield* translator.end();
+      const exit = await closed;
+      const failed = childError !== undefined || (exit.code !== null && exit.code !== 0);
+      const detail = stderr.trim() || childError?.message;
+      yield* translator.end({
+        status: failed ? 'failed' : 'interrupted',
+        ...(detail !== undefined && detail !== '' && { final_text: detail }),
+      });
     } finally {
       this.children.delete(session);
       if (child.exitCode === null && child.signalCode === null) {
@@ -95,6 +139,7 @@ export class CodexAdapter implements HarnessAdapter {
       }
     }
   }
+  // harn:end adapter-process-lifecycle-supervised
 
   interrupt(session: Session): void {
     const child = this.children.get(session);

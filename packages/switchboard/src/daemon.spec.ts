@@ -41,8 +41,8 @@ beforeEach(() => {
   daemon.createRoom({ id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' } });
 });
 
-afterEach(() => {
-  daemon.close();
+afterEach(async () => {
+  await daemon.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -139,6 +139,50 @@ describe('one inflight turn per member', () => {
   });
 });
 
+describe('adapter lifecycle evidence', () => {
+  it('journals confirmed spawn and persists the native session before a blocked turn completes', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Wait here?', options: [{ label: 'yes' }] },
+      reply: () => 'done',
+    });
+    daemon.postHumanMessage('eng', '@alpha start');
+    const interaction = await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
+    );
+
+    const run = runMessages()[0]!;
+    expect(daemon.blobs.read('eng', run.run!.events_ref)[0]).toMatchObject({
+      type: 'run.started',
+      member: alpha.id,
+    });
+    expect(daemon.store.getMember('eng', alpha.id)!.session_ref).toBe('fake-session-1');
+
+    await daemon.answerInteraction('eng', interaction.id, 'yes');
+    await daemon.settle();
+  });
+
+  it('graceful close interrupts and drains a blocked turn before closing SQLite', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Block shutdown?', options: [{ label: 'yes' }] },
+      reply: () => 'not reached',
+    });
+    daemon.postHumanMessage('eng', '@alpha block');
+    await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
+    );
+
+    await daemon.close();
+    daemon = newDaemon();
+    const run = runMessages()[0]!;
+    expect(run.run!.status).toBe('interrupted');
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id })[0]!.state).toBe('consumed');
+  });
+});
+
 describe('interactions: the full state machine', () => {
   it('ask → pending card → answered → acked → run resumes', async () => {
     const alpha = spawnAgent('alpha');
@@ -198,6 +242,25 @@ describe('interactions: the full state machine', () => {
     expect(daemon.store.listDeliveries('eng', { recipient: alpha.id }).length).toBe(deliveriesBefore);
     expect(fake.deliveries).toHaveLength(1);
   });
+
+  it('propagates a missing adapter acknowledgement while leaving the answer durable', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Can you hear me?', options: [{ label: 'yes' }] },
+      reply: () => 'done',
+    });
+    daemon.postHumanMessage('eng', '@alpha ask');
+    const interaction = await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
+    );
+    fake.failNextResponse('stream closed before ack');
+
+    await expect(daemon.answerInteraction('eng', interaction.id, 'yes')).rejects.toThrow(
+      'stream closed before ack',
+    );
+    expect(daemon.store.getInteraction(interaction.id)!.state).toBe('answered');
+  });
 });
 
 describe('kill-point matrix (boot reconcile)', () => {
@@ -218,7 +281,7 @@ describe('kill-point matrix (boot reconcile)', () => {
       final_text: 'survived the crash @richard',
       usage: { input_tokens: 5, output_tokens: 5 },
     });
-    daemon.close();
+    await daemon.close();
 
     daemon = newDaemon();
     await daemon.reconcile();
@@ -243,7 +306,7 @@ describe('kill-point matrix (boot reconcile)', () => {
     const delivery = daemon.store.createDelivery('eng', { message_id: trigger.id, recipient: alpha.id });
     daemon.store.updateDelivery('eng', delivery.id, { state: 'delivering', attempt_count: 1, run_msg_id: runMsg.id });
     // NO blob file — provably never started
-    daemon.close();
+    await daemon.close();
 
     daemon = newDaemon();
     const runCountBefore = runMessages().length;
@@ -275,7 +338,7 @@ describe('kill-point matrix (boot reconcile)', () => {
       item_type: 'text_delta',
       payload: 'was mid-flight',
     });
-    daemon.close();
+    await daemon.close();
 
     daemon = newDaemon();
     await daemon.reconcile();
@@ -306,12 +369,37 @@ describe('kill-point matrix (boot reconcile)', () => {
     });
     const delivery = daemon.store.createDelivery('eng', { message_id: trigger.id, recipient: alpha.id });
     daemon.store.updateDelivery('eng', delivery.id, { state: 'delivering', attempt_count: 2, run_msg_id: runMsg.id });
-    daemon.close();
+    await daemon.close();
 
     daemon = newDaemon();
     await daemon.reconcile();
     await daemon.settle();
     expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('held');
+    expect(fake.deliveries).toHaveLength(0);
+  });
+
+  it('holds confirmed-start evidence and refuses release while its process is alive', async () => {
+    const alpha = spawnAgent('alpha');
+    const trigger = daemon.postHumanMessage('eng', 'process evidence');
+    const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+    const runMsg = daemon.store.updateMessage('eng', posted.id, {
+      run: { status: 'running', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: `runs/${posted.id}.jsonl` },
+    });
+    const delivery = daemon.store.createDelivery('eng', { message_id: trigger.id, recipient: alpha.id });
+    daemon.store.updateDelivery('eng', delivery.id, { state: 'delivering', attempt_count: 1, run_msg_id: runMsg.id });
+    daemon.store.setDeliveryAttemptProcess('eng', [delivery.id], { pid: process.pid });
+    daemon.blobs.append('eng', runMsg.run!.events_ref, {
+      type: 'run.started',
+      member: alpha.id,
+      trigger_msg: trigger.id,
+    });
+    await daemon.close();
+
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('held');
+    expect(() => daemon.releaseHold('eng', delivery.id)).toThrow('adapter process is alive');
     expect(fake.deliveries).toHaveLength(0);
   });
 });
@@ -334,7 +422,7 @@ describe('restart while blocked on an ask', () => {
   it('pending ask re-raises on retry → re-correlated (same interaction, fresh native id), then answerable', async () => {
     const { alpha, interaction } = await crashWhileBlocked();
     const nativeBefore = interaction.native_id;
-    daemon.close(); // crash: the blocked run dies with the daemon
+    await daemon.close({ force: true }); // crash: the blocked run dies with the daemon
 
     daemon = newDaemon();
     // the retried turn re-raises the SAME semantic ask (fresh native id)
@@ -368,7 +456,7 @@ describe('restart while blocked on an ask', () => {
       answered_by: daemon.ownerOf('eng').id,
       answered_ts: new Date().toISOString(),
     });
-    daemon.close();
+    await daemon.close({ force: true });
 
     daemon = newDaemon();
     fake.enqueue({
@@ -402,7 +490,7 @@ describe('restart while blocked on an ask', () => {
       answered_by: daemon.ownerOf('eng').id,
       answered_ts: new Date().toISOString(),
     });
-    daemon.close();
+    await daemon.close({ force: true });
 
     daemon = newDaemon();
     fake.enqueue({
@@ -425,7 +513,7 @@ describe('restart while blocked on an ask', () => {
 
   it('a turn that never re-raises orphans the leftover interaction (expired card)', async () => {
     const { interaction } = await crashWhileBlocked();
-    daemon.close();
+    await daemon.close({ force: true });
 
     daemon = newDaemon();
     fake.enqueue({ kind: 'complete', final_text: 'finished without asking' }); // no re-raise
@@ -528,7 +616,7 @@ describe('revive uses the persisted cwd after restart', () => {
     await daemon.settle();
     const ref = daemon.store.getMember('eng', alpha.id)!.session_ref;
     expect(ref).toBeDefined();
-    daemon.close();
+    await daemon.close();
 
     daemon = newDaemon(); // fresh process: in-memory sessions are gone
     fake.enqueue({ kind: 'complete', final_text: 'revived turn' });

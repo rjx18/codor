@@ -81,6 +81,8 @@ CREATE TABLE IF NOT EXISTS deliveries (
   run_msg_id INTEGER,
   read_ts TEXT,
   payload_snapshot TEXT,        -- immutable routed prompt context; never run events
+  process_id INTEGER,            -- bounded attempt evidence, never run event payloads
+  process_group_id INTEGER,
   ts TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pending_interactions (
@@ -120,6 +122,12 @@ function migrateDeliveryPayloadSnapshot(db: Database.Database): void {
   const columns = db.pragma('table_info(deliveries)') as { name: string }[];
   if (!columns.some((column) => column.name === 'payload_snapshot')) {
     db.exec('ALTER TABLE deliveries ADD COLUMN payload_snapshot TEXT');
+  }
+  if (!columns.some((column) => column.name === 'process_id')) {
+    db.exec('ALTER TABLE deliveries ADD COLUMN process_id INTEGER');
+  }
+  if (!columns.some((column) => column.name === 'process_group_id')) {
+    db.exec('ALTER TABLE deliveries ADD COLUMN process_group_id INTEGER');
   }
 }
 // harn:end delivery-payload-snapshotted
@@ -175,6 +183,8 @@ interface DeliveryRow {
   run_msg_id: number | null;
   read_ts: string | null;
   payload_snapshot: string | null;
+  process_id: number | null;
+  process_group_id: number | null;
   ts: string;
 }
 
@@ -343,6 +353,11 @@ export interface AtomicTurnCompletion {
   member: Member;
   meter: RoomMeter;
   deliveries: Delivery[];
+}
+
+export interface DeliveryAttemptProcess {
+  pid?: number;
+  process_group_id?: number;
 }
 
 /**
@@ -669,8 +684,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO deliveries (id, room, message_id, recipient, state, attempt_count,
-             batch_id, run_msg_id, read_ts, payload_snapshot, ts)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             batch_id, run_msg_id, read_ts, payload_snapshot, process_id, process_group_id, ts)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           validated.id,
@@ -683,6 +698,8 @@ export class Store {
           orNull(validated.run_msg_id),
           orNull(validated.read_ts),
           orNull(delivery.payload_snapshot),
+          null,
+          null,
           validated.ts,
         );
       // Human inbox records are client-visible; recipient kind decides.
@@ -739,6 +756,44 @@ export class Store {
       .get(room, deliveryId) as { payload_snapshot: string | null } | undefined;
     return row?.payload_snapshot ?? undefined;
   }
+
+  // harn:assume attempt-start-evidence-persisted ref=attempt-process-evidence
+  /** Internal process evidence for one delivery attempt; not client-visible. */
+  getDeliveryAttemptProcess(room: string, deliveryId: string): DeliveryAttemptProcess | undefined {
+    const row = this.db
+      .prepare('SELECT process_id, process_group_id FROM deliveries WHERE room = ? AND id = ?')
+      .get(room, deliveryId) as
+      | { process_id: number | null; process_group_id: number | null }
+      | undefined;
+    if (!row || (row.process_id === null && row.process_group_id === null)) return undefined;
+    return {
+      ...(row.process_id !== null && { pid: row.process_id }),
+      ...(row.process_group_id !== null && { process_group_id: row.process_group_id }),
+    };
+  }
+
+  setDeliveryAttemptProcess(
+    room: string,
+    deliveryIds: string[],
+    process: DeliveryAttemptProcess | undefined,
+  ): void {
+    this.db.transaction(() => {
+      const update = this.db.prepare(
+        `UPDATE deliveries SET process_id = ?, process_group_id = ?
+         WHERE room = ? AND id = ?`,
+      );
+      for (const deliveryId of deliveryIds) {
+        const result = update.run(
+          process?.pid ?? null,
+          process?.process_group_id ?? null,
+          room,
+          deliveryId,
+        );
+        if (result.changes !== 1) throw new Error(`no such delivery: ${deliveryId}`);
+      }
+    })();
+  }
+  // harn:end attempt-start-evidence-persisted
 
   listDeliveries(
     room: string,
@@ -804,12 +859,14 @@ export class Store {
         if (delivery.recipient !== opts.memberId) {
           throw new Error(`delivery ${deliveryId} does not belong to member ${opts.memberId}`);
         }
-        return this.updateDelivery(room, deliveryId, {
+        const updated = this.updateDelivery(room, deliveryId, {
           state: 'delivering',
           attempt_count: delivery.attempt_count + 1,
           run_msg_id: runMessage.id,
           batch_id: `batch-${runMessage.id}`,
         });
+        this.setDeliveryAttemptProcess(room, [deliveryId], undefined);
+        return updated;
       });
       return { runMessage, deliveries };
     })();

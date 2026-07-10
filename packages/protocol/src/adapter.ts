@@ -32,6 +32,14 @@ export interface AdapterCapabilities {
   extensions: boolean; // reports subagents (extension.*)
 }
 
+/** Durable lifecycle facts reported while a turn is still in progress. */
+export interface AdapterTurnHooks {
+  /** Called only after the CLI child has emitted its spawn event. */
+  onStarted?(process: { pid?: number; process_group_id?: number }): void;
+  /** Called as soon as stdout reveals the harness-native resume token. */
+  onSessionRef?(session_ref: SessionRef): void;
+}
+
 /**
  * Adapters drive plain CLIs, never SDKs (ARCHITECTURE §adapters): spawn a
  * subprocess, write JSONL, read JSONL. One deliver() call = one turn.
@@ -41,7 +49,9 @@ export interface HarnessAdapter {
   capabilities: AdapterCapabilities;
   spawn(opts: SpawnOpts): Session;
   attach(session_ref: SessionRef): Session;
-  deliver(session: Session, payload: string): AsyncIterable<WireEvent>;
+  // harn:assume attempt-start-evidence-persisted ref=adapter-turn-hooks
+  deliver(session: Session, payload: string, hooks?: AdapterTurnHooks): AsyncIterable<WireEvent>;
+  // harn:end attempt-start-evidence-persisted
   /** Resolves on adapter acknowledgement (the interaction is truly answered). */
   respondInteraction(session: Session, interaction_id: string, answer: unknown): Promise<void>;
   interrupt(session: Session): void;

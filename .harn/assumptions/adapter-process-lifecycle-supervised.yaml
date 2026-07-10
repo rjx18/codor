@@ -1,0 +1,12 @@
+id: adapter-process-lifecycle-supervised
+hash: a-f9127a73f1f9
+title: Every adapter subprocess has a supervised lifecycle
+state: active
+statement: Each CLI adapter must observe spawn success, error, stderr, close,
+  and stream EOF; classify spawn and nonzero-exit failures as failed runs;
+  terminate the entire process group on interrupt; and let daemon shutdown await
+  every active turn, because a missing CLI, orphaned native engine, or closing
+  daemon must not crash Node or leave work running invisibly.
+depends_on:
+  - adapters-cli-only-no-sdk
+created_by: m0fix-adapter-lifecycle

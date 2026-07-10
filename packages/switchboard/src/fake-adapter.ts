@@ -1,4 +1,5 @@
 import type {
+  AdapterTurnHooks,
   AskCard,
   HarnessAdapter,
   Session,
@@ -51,9 +52,11 @@ export class FakeAdapter implements HarnessAdapter {
   readonly deliveries: DeliverRecord[] = [];
   readonly respondCalls: { interaction_id: string; answer: unknown }[] = [];
   private readonly pendingAnswers = new Map<string, (answer: unknown) => void>();
+  private readonly pendingBySession = new WeakMap<Session, string>();
   private readonly attachedRefs = new Set<string>();
   private nextSession = 0;
   private nextRequest = 0;
+  private nextResponseError: Error | undefined;
   private concurrent = new Map<string, number>();
   maxConcurrent = 0;
 
@@ -63,6 +66,10 @@ export class FakeAdapter implements HarnessAdapter {
 
   enqueue(...turns: FakeTurn[]): void {
     this.script.push(...turns);
+  }
+
+  failNextResponse(message: string): void {
+    this.nextResponseError = new Error(message);
   }
 
   spawn(opts: SpawnOpts): Session {
@@ -78,9 +85,15 @@ export class FakeAdapter implements HarnessAdapter {
     return this.attachedRefs.has(ref);
   }
 
-  async *deliver(session: Session, payload: string): AsyncIterable<WireEvent> {
+  async *deliver(
+    session: Session,
+    payload: string,
+    hooks: AdapterTurnHooks = {},
+  ): AsyncIterable<WireEvent> {
+    hooks.onStarted?.({});
     if (session.session_ref === undefined) {
       session.session_ref = `fake-session-${++this.nextSession}`;
+      hooks.onSessionRef?.(session.session_ref);
     }
     this.deliveries.push({
       payload,
@@ -109,11 +122,17 @@ export class FakeAdapter implements HarnessAdapter {
       if (turn.kind === 'ask') {
         const nativeId = `fake-req-${++this.nextRequest}`;
         const answer = new Promise<unknown>((resolve) => this.pendingAnswers.set(nativeId, resolve));
+        this.pendingBySession.set(session, nativeId);
         yield {
           type: turn.card.kind === 'ask' ? 'ask.raised' : 'approval.raised',
           card: { ...turn.card, interaction_id: nativeId },
         };
         const value = await answer; // the run is BLOCKED until answered
+        this.pendingBySession.delete(session);
+        if (value === INTERRUPTED) {
+          yield { type: 'run.completed', status: 'interrupted' };
+          return;
+        }
         yield {
           type: 'run.completed',
           status: 'completed',
@@ -136,6 +155,11 @@ export class FakeAdapter implements HarnessAdapter {
 
   async respondInteraction(_session: Session, interaction_id: string, answer: unknown): Promise<void> {
     this.respondCalls.push({ interaction_id, answer });
+    if (this.nextResponseError) {
+      const error = this.nextResponseError;
+      this.nextResponseError = undefined;
+      throw error;
+    }
     const resolve = this.pendingAnswers.get(interaction_id);
     if (!resolve) throw new Error(`no pending interaction ${interaction_id}`);
     this.pendingAnswers.delete(interaction_id);
@@ -143,11 +167,18 @@ export class FakeAdapter implements HarnessAdapter {
     await new Promise((r) => setImmediate(r)); // ack after the turn resumed
   }
 
-  interrupt(): void {
-    // no-op: scripted turns end themselves
+  interrupt(session: Session): void {
+    const nativeId = this.pendingBySession.get(session);
+    if (!nativeId) return;
+    const resolve = this.pendingAnswers.get(nativeId);
+    this.pendingAnswers.delete(nativeId);
+    this.pendingBySession.delete(session);
+    resolve?.(INTERRUPTED);
   }
 
   discoverSessions(): SessionRef[] {
     return [];
   }
 }
+
+const INTERRUPTED = Symbol('fake turn interrupted');

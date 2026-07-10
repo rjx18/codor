@@ -47,8 +47,8 @@ describe.skipIf(!LIVE)('M0 live acceptance (WIREROOM_M0_ACCEPT=1)', () => {
     adapters: [new ClaudeCodeAdapter(), new CodexAdapter()],
   });
 
-  afterAll(() => {
-    daemon.close();
+  afterAll(async () => {
+    await daemon.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
