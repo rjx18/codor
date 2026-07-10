@@ -45,3 +45,33 @@ session. Stop after the first auth/quota/subscription error and record it instea
 of retrying. A separate future authenticated subagent probe should verify that
 `subagent.started` and its matching terminal event are present before relying on
 extension visibility outside the documented synthetic fixture.
+
+## Cross-machine Hyperswarm DHT
+
+Status on 2026-07-10: **not run**, by M2 operator directive. Automated acceptance proves two
+localhost switchboards on the real public DHT; this step checks actual NAT and routing between
+two physical machines over the internet.
+
+1. Build the same commit on a home machine and an outpost machine, each with a fresh private
+   data directory. Enroll their switchboard identities in both directions through
+   `CryptoVault.pairing.complete/accept`; confirm each `device_id` appears in the other peer
+   store.
+2. Choose one high-entropy `name:secret` line out of band. On the home, launch the exported
+   `HyperswarmTransport`, `ResidencyCoordinator`, `LedgerManager`, and `Daemon` with that line,
+   a home room, and a remote FakeAdapter member whose `host` is the outpost `device_id`. On the
+   outpost, launch `HyperswarmTransport` plus a resident `ResidencyCoordinator` configured with
+   `FakeAdapter`; use the construction in `m2-acceptance.spec.ts` as the operator wrapper. Do
+   not set a bootstrap override; both sides must use the real DHT.
+3. Post one unique plaintext marker from the home to the remote member and verify the outpost
+   FakeAdapter returns its deterministic body, the home finalizes exactly one run with dense
+   room ids, and no room database or ledger vault appears on the outpost.
+4. Capture the connection on either host with the operator's packet tool and search raw packet
+   bytes for the marker and ledger body. Both searches must return zero matches; record only
+   the result, never the line secret or private keys.
+5. Run `wireroom revoke <outpost-device-id>` against the home data directory. Verify the live
+   connection drops, the resident member becomes `unreachable`, reconnect authentication is
+   rejected, and a newly posted delivery remains queued at the home.
+
+The production home-side line launcher and friendlier peer-enrollment UX are documentation and
+packaging work for M5; this M2 verification uses the already exported switchboard APIs, matching
+the automated acceptance topology exactly.

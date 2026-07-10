@@ -6,33 +6,47 @@ assumptions:
   reviewed:
     - id: dht-topic-from-line-secret
       outcome: unchanged
-      reason: Acceptance exercises the existing exact line discovery on both an isolated testnet and the real DHT without changing topic derivation.
+      reason: Acceptance exercises the existing exact line discovery on both an
+        isolated testnet and the real DHT without changing topic derivation.
     - id: peer-auth-challenge-before-traffic
       outcome: unchanged
-      reason: Both acceptance topologies pair the two switchboards before authenticated conversation traffic and reject the revoked peer afterward.
+      reason: Both acceptance topologies pair the two switchboards before
+        authenticated conversation traffic and reject the revoked peer
+        afterward.
     - id: revocation-rotates-room-keys
       outcome: unchanged
-      reason: Acceptance verifies the existing revoke path rotates the room generation, drops the active peer, and prevents reauthentication.
+      reason: Acceptance verifies the existing revoke path rotates the room
+        generation, drops the active peer, and prevents reauthentication.
     - id: room-home-single-authority
       outcome: unchanged
-      reason: Deterministic FakeAdapter conversations retain ids, finalization, routing, and blobs at the home while the resident only executes its local turn.
+      reason: Deterministic FakeAdapter conversations retain ids, finalization,
+        routing, and blobs at the home while the resident only executes its
+        local turn.
     - id: resident-attempt-journal-reconciles
       outcome: unchanged
-      reason: Acceptance consumes the already-tested resident journal path without changing its disconnect boundary semantics.
+      reason: Acceptance consumes the already-tested resident journal path without
+        changing its disconnect boundary semantics.
     - id: ledger-home-only-refs-travel
       outcome: unchanged
-      reason: The acceptance prompt cites a home ledger note and verifies the remote FakeAdapter receives its snapshotted body without a resident vault.
+      reason: The acceptance prompt cites a home ledger note and verifies the remote
+        FakeAdapter receives its snapshotted body without a resident vault.
     - id: single-crypto-suite-libsodium
       outcome: unchanged
-      reason: A test-only raw Noise transport capture proves a known application plaintext marker does not occur in encrypted stream bytes; no crypto variant is introduced.
+      reason: A test-only raw Noise transport capture proves a known application
+        plaintext marker does not occur in encrypted stream bytes; no crypto
+        variant is introduced.
 anchors:
   dht-topic-from-line-secret:
     line-topic-derivation:
       action: change
-      reason: Observe a copy of encrypted raw-stream bytes before Noise's in-place decryption so acceptance can prove the application marker is absent without changing discovery or transport data.
+      reason: Observe a copy of encrypted raw-stream bytes before Noise's in-place
+        decryption so acceptance can prove the application marker is absent
+        without changing discovery or transport data.
 files:
   - packages/switchboard/src/transport/hyperswarm.ts
   - packages/switchboard/src/m2-acceptance.spec.ts
   - tmp/build/ACCEPT-M2.md
   - MANUAL-VERIFY.md
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T14:47:04.697Z

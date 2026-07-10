@@ -47,6 +47,8 @@ export interface HyperswarmTransportOptions {
   bootstrap?: { host: string; port: number }[];
   backoffs?: number[];
   jitter?: number;
+  /** Observes encrypted bytes below the Noise stream (acceptance diagnostics). */
+  captureRawBytes?(chunk: Uint8Array): void;
 }
 
 export interface RunEventPayload {
@@ -204,6 +206,16 @@ export class HyperswarmTransport {
   }
 
   private accept(stream: NoiseDuplex, info: PeerInfo): void {
+    const rawStream = (stream as NoiseDuplex & {
+      rawStream?: {
+        prependListener(event: 'data', listener: (chunk: Uint8Array) => void): unknown;
+      };
+    }).rawStream;
+    if (rawStream && this.options.captureRawBytes) {
+      // Secret-stream decrypts in place, so observe a copy before its data listener runs.
+      rawStream.prependListener('data', (chunk) =>
+        this.options.captureRawBytes!(Buffer.from(chunk)));
+    }
     const noiseKey = Buffer.from(info.publicKey).toString('hex');
     let channel = this.channelsByNoiseKey.get(noiseKey);
     if (!channel) {
