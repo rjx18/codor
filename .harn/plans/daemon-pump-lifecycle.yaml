@@ -129,6 +129,7 @@ anchors:
         serialization.
 files:
   - packages/switchboard/package.json
+  - packages/switchboard/src/store.ts
   - pnpm-lock.yaml
   - packages/switchboard/src/index.ts
   - packages/switchboard/src/redact.ts
