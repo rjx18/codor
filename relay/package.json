@@ -14,5 +14,15 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "fastify": "^5.10.0",
+    "sodium-native": "^5.1.0",
+    "web-push": "^3.6.7",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/sodium-native": "^2.3.9",
+    "@types/web-push": "^3.6.4"
   }
 }

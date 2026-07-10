@@ -1,0 +1,8 @@
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.base.json
+!relay/package.json
+!relay/tsconfig.json
+!relay/src/**

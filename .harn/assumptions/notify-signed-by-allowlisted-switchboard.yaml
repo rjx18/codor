@@ -1,0 +1,12 @@
+id: notify-signed-by-allowlisted-switchboard
+hash: a-91e7ab0e0ec3
+title: Notify requests prove an allowed Ed25519 switchboard sender
+state: active
+statement: Every POST /notify must carry a recent timestamp, Ed25519 sender
+  public key, and detached signature over the canonical request, and the relay
+  must reject invalid or unallowlisted senders unless explicitly started in open
+  mode, where strict per-sender and per-address rate limits apply, because
+  arbitrary callers must not spend the relay's push quota.
+depends_on:
+  - ed25519-identity-x25519-encryption
+created_by: push-relay-sealed

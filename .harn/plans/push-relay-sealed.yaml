@@ -7,17 +7,17 @@ assumptions:
       title: The relay forwards ciphertext without owning message crypto
       statement: The relay must validate a bounded base64 sealed payload, decode it
         once to the exact opaque bytes handed to Web Push, and never seal, open,
-        inspect, redact, name, or persist its content, because end-to-end sealing
-        belongs to the switchboard producer and unsealing belongs to the device
-        service worker.
+        inspect, redact, name, or persist its content, because end-to-end
+        sealing belongs to the switchboard producer and unsealing belongs to the
+        device service worker.
       reason: PLAN-M3 P3.2, PRIVACY Tier 2, and ARCHITECTURE pin the relay as a
         content-blind data-plane forwarder with no encryption ownership.
       depends_on: []
     - id: relay-stateless-subscription-in-request
       title: Every notify request carries its complete delivery destination
-      statement: Every POST /notify must carry the full Web Push subscription,
-        opaque sealed payload, and bounded TTL in the signed request, while the
-        relay stores no subscription, queue, mailbox, or retry record across the
+      statement: Every POST /notify must carry the full Web Push subscription, opaque
+        sealed payload, and bounded TTL in the signed request, while the relay
+        stores no subscription, queue, mailbox, or retry record across the
         request, because restarting the relay must lose no delivery state and an
         offline ciphertext mailbox is outside v1.
       reason: PLAN-M3 P3.2 and PRIVACY Tier 2 require subscription-in-request
@@ -29,17 +29,18 @@ assumptions:
       statement: Every POST /notify must carry a recent timestamp, Ed25519 sender
         public key, and detached signature over the canonical request, and the
         relay must reject invalid or unallowlisted senders unless explicitly
-        started in open mode, where strict per-sender and per-address rate limits
-        apply, because arbitrary callers must not spend the relay's push quota.
-      reason: PLAN-M3 P3.2 requires an ALLOWED_SENDERS gate or explicit open mode
-        with strict abuse bounds.
+        started in open mode, where strict per-sender and per-address rate
+        limits apply, because arbitrary callers must not spend the relay's push
+        quota.
+      reason: PLAN-M3 P3.2 requires an ALLOWED_SENDERS gate or explicit open mode with
+        strict abuse bounds.
       depends_on:
         - ed25519-identity-x25519-encryption
   reviewed:
     - id: single-crypto-suite-libsodium
       outcome: unchanged
-      reason: The relay uses sodium-native only for detached Ed25519 verification
-        and introduces no envelope, sealing, or decryption variant.
+      reason: The relay uses sodium-native only for detached Ed25519 verification and
+        introduces no envelope, sealing, or decryption variant.
 anchors:
   relay-opaque-forwarder-no-crypto:
     relay-opaque-push-boundary:
@@ -69,3 +70,5 @@ files:
   - relay/README.md
   - pnpm-lock.yaml
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T16:00:53.164Z

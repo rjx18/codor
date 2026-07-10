@@ -1,0 +1,11 @@
+id: relay-opaque-forwarder-no-crypto
+hash: a-2ab2fc8e64b1
+title: The relay forwards ciphertext without owning message crypto
+state: active
+statement: The relay must validate a bounded base64 sealed payload, decode it
+  once to the exact opaque bytes handed to Web Push, and never seal, open,
+  inspect, redact, name, or persist its content, because end-to-end sealing
+  belongs to the switchboard producer and unsealing belongs to the device
+  service worker.
+depends_on: []
+created_by: push-relay-sealed

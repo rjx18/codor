@@ -1,0 +1,12 @@
+id: relay-stateless-subscription-in-request
+hash: a-f9b45e5c26d5
+title: Every notify request carries its complete delivery destination
+state: active
+statement: Every POST /notify must carry the full Web Push subscription, opaque
+  sealed payload, and bounded TTL in the signed request, while the relay stores
+  no subscription, queue, mailbox, or retry record across the request, because
+  restarting the relay must lose no delivery state and an offline ciphertext
+  mailbox is outside v1.
+depends_on:
+  - relay-opaque-forwarder-no-crypto
+created_by: push-relay-sealed
