@@ -10,6 +10,7 @@ import { Daemon } from './daemon.js';
 import { BlobStore } from './blobs.js';
 import { CryptoVault } from './crypto/pairing.js';
 import { FakeAdapter } from './fake-adapter.js';
+import { LedgerManager } from './ledger/watch.js';
 import { type RunningServer, startServer } from './server.js';
 
 const TOKEN = 'test-token-123';
@@ -24,7 +25,12 @@ let base: string;
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'wireroom-server-'));
   fake = new FakeAdapter('fake', { interactiveAttach: true });
-  daemon = new Daemon({ dbPath: join(dir, 'db.sqlite'), blobRoot: join(dir, 'blobs'), adapters: [fake] });
+  daemon = new Daemon({
+    dbPath: join(dir, 'db.sqlite'),
+    blobRoot: join(dir, 'blobs'),
+    adapters: [fake],
+    ledger: new LedgerManager({ dataDir: dir }),
+  });
   daemon.createRoom({ id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' } });
   crypto = new CryptoVault(dir);
   crypto.roomKeys.ensureRoom('eng');
@@ -90,6 +96,24 @@ describe('REST', () => {
     expect((await fetch(`${base}/api/rooms/eng/sync?since_seq=0`)).status).toBe(401);
     expect((await fetch(`${base}/api/rooms/eng/messages`)).status).toBe(401);
     expect((await fetch(`${base}/api/rooms/eng/search?q=hello`)).status).toBe(401);
+    expect((await fetch(`${base}/api/rooms/eng/ledger/risk-limits`)).status).toBe(401);
+  });
+
+  it('serves a redacted, read-only ledger note to authenticated surfaces', async () => {
+    daemon.addLedgerNote('eng', {
+      name: 'risk-limits',
+      type: 'constraint',
+      author: 'richard',
+      body: 'token sk-proj-abcdef1234567890abcdef must stay private',
+    });
+    const res = await fetch(`${base}/api/rooms/eng/ledger/risk-limits`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { note: { name: string; body: string } };
+    expect(body.note.name).toBe('risk-limits');
+    expect(body.note.body).toContain('[redacted]');
+    expect(body.note.body).not.toContain('sk-proj-');
   });
 
   it('serves delta-sync from the change log cursor', async () => {

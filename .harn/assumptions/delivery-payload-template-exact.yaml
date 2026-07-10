@@ -1,7 +1,7 @@
 id: delivery-payload-template-exact
 hash: a-e91e053fe05a
 title: The delivery payload template is pinned byte-exact
-state: active
+state: retired
 statement: "composePayload must emit exactly the pinned template: a two-line
   wireroom header (room, msg id, from with author kind, to list, you), blank
   line, full body, one referenced block per ref (id, author handle,
@@ -12,3 +12,4 @@ statement: "composePayload must emit exactly the pinned template: a two-line
 depends_on:
   - whole-message-delivery
 created_by: router-semantics
+retired_by: ledger-vault-v1

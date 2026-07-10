@@ -124,6 +124,27 @@ describe('@wireroom/cli', () => {
     device.close();
   });
 
+  it('initializes, adds, shows, and pulls ledger notes', async () => {
+    await cli('ledger', 'init', '--room', 'eng');
+    expect(output[0]).toBe(join(dir, 'rooms', 'eng', 'ledger'));
+    output = [];
+    await cli(
+      'ledger', 'add', 'risk-limits', 'Keep exposure below 2%.',
+      '--room', 'eng', '--type', 'constraint', '--as', 'alpha',
+    );
+    expect(output).toEqual(['constraints/risk-limits.md\t[[risk-limits]]']);
+    output = [];
+    await cli('ledger', 'show', 'risk-limits', '--room', 'eng');
+    expect(output[0]).toContain('name: risk-limits');
+    expect(output[0]).toContain('Keep exposure below 2%.');
+    const destination = join(dir, 'snapshot');
+    output = [];
+    await cli('ledger', 'pull', '--room', 'eng', '--destination', destination);
+    expect(output).toEqual([join(destination, 'ledger')]);
+    expect(readFileSync(join(destination, 'ledger', 'constraints', 'risk-limits.md'), 'utf8'))
+      .toContain('Keep exposure below 2%.');
+  });
+
   it('resolves Gemini interactive resume through the supervised attach path', () => {
     expect(nativeResumeCommand({
       id: 'gemini-member',

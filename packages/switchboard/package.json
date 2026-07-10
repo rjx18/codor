@@ -19,6 +19,8 @@
     "@fastify/static": "^9.3.0",
     "@wireroom/protocol": "workspace:*",
     "better-sqlite3": "^12.11.1",
+    "chokidar": "^5.0.0",
+    "gray-matter": "^4.0.3",
     "hyperswarm": "^4.17.0",
     "sodium-native": "^5.1.0",
     "ws": "^8.21.0"

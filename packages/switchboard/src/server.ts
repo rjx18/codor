@@ -211,6 +211,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     void reply.send({ events: daemon.readRunBlob(room, Number(msgId)) });
   });
 
+  app.get('/api/rooms/:room/ledger/:name', (req, reply) => {
+    if (!authed(req, reply)) return;
+    const { room, name } = req.params as { room: string; name: string };
+    try {
+      const note = daemon.getLedgerNote(room, name);
+      if (!note) return reply.code(404).send({ error: `no such ledger note ${name}` });
+      return reply.send({ note: daemon.project(room, note) });
+    } catch (error) {
+      return reply.code(404).send({ error: String(error) });
+    }
+  });
+
   app.post('/api/rooms/:room/members', (req, reply) => {
     if (!authed(req, reply)) return;
     const { room } = req.params as { room: string };

@@ -9,6 +9,7 @@ import {
   MessageRow,
   extensionRunSummaries,
   impliedRecipient,
+  ledgerTextSegments,
   RunMessageView,
   RunStallBadge,
 } from './components.js';
@@ -191,6 +192,26 @@ describe('MessageRow', () => {
     expect(html).toContain('id="7"');
     expect(html).toContain('href="#7"');
     expect(html).toContain('Permalink to message 7');
+  });
+
+  it('renders ledger refs as note-viewer buttons without disturbing surrounding text', () => {
+    const chat = {
+      ...finalizedRun,
+      kind: 'chat' as const,
+      run: undefined,
+      body: 'Honor [[risk-limits]] before shipping.',
+      ledger_refs: ['risk-limits'],
+    };
+    expect(ledgerTextSegments(chat.body)).toEqual([
+      { kind: 'text', text: 'Honor ' },
+      { kind: 'ledger', name: 'risk-limits', text: '[[risk-limits]]' },
+      { kind: 'text', text: ' before shipping.' },
+    ]);
+    const html = renderToStaticMarkup(
+      <MessageRow message={chat} authorHandle="alpha" mine={false} />,
+    );
+    expect(html).toContain('data-testid="ledger-ref-risk-limits"');
+    expect(html).toContain('[[risk-limits]]');
   });
 });
 

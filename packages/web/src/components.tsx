@@ -9,8 +9,8 @@ import {
 } from '@wireroom/protocol';
 import { useEffect, useMemo, useState } from 'react';
 
-import { fetchRunEvents } from './api.js';
-import type { AdapterRegistration, MemberDetail } from './api.js';
+import { fetchLedgerNote, fetchRunEvents } from './api.js';
+import type { AdapterRegistration, LedgerNote, MemberDetail } from './api.js';
 import { latestFinalizedAgentAuthor, me, type MemberStateObservation } from './state.js';
 import type { Connection } from './ws.js';
 
@@ -36,6 +36,24 @@ function MessagePermalink(props: { id: number }) {
       #{props.id}
     </a>
   );
+}
+
+export type LedgerTextSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'ledger'; name: string; text: string };
+
+export function ledgerTextSegments(body: string): LedgerTextSegment[] {
+  const segments: LedgerTextSegment[] = [];
+  const pattern = /\[\[([a-z0-9][a-z0-9-]{0,62})\]\]/g;
+  let cursor = 0;
+  for (const match of body.matchAll(pattern)) {
+    const start = match.index;
+    if (start > cursor) segments.push({ kind: 'text', text: body.slice(cursor, start) });
+    segments.push({ kind: 'ledger', name: match[1]!, text: match[0] });
+    cursor = start + match[0].length;
+  }
+  if (cursor < body.length) segments.push({ kind: 'text', text: body.slice(cursor) });
+  return segments;
 }
 // harn:end permalink-ids-stable
 
@@ -843,27 +861,87 @@ export function Composer(props: {
 
 export function MessageRow(props: { message: Message; authorHandle: string; mine: boolean }) {
   const { message } = props;
+  const [note, setNote] = useState<LedgerNote>();
+  const [noteError, setNoteError] = useState(false);
+  const body = (
+    <>
+      {ledgerTextSegments(message.body).map((segment, index) =>
+        segment.kind === 'text' ? segment.text : (
+          <button
+            key={`${segment.name}-${String(index)}`}
+            type="button"
+            data-testid={`ledger-ref-${segment.name}`}
+            className="text-sky-300 underline decoration-zinc-600 underline-offset-2 hover:text-sky-200"
+            onClick={() => {
+              const token = new URLSearchParams(window.location.search).get('token') ?? '';
+              setNoteError(false);
+              void fetchLedgerNote(message.room, segment.name, { token })
+                .then(setNote)
+                .catch(() => setNoteError(true));
+            }}
+          >
+            {segment.text}
+          </button>
+        ),
+      )}
+    </>
+  );
+  const viewer = note || noteError ? (
+    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 p-4">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={note ? `Ledger note ${note.name}` : 'Ledger note unavailable'}
+        data-testid="ledger-note-dialog"
+        className="max-h-[80vh] w-full max-w-2xl overflow-auto border border-zinc-700 bg-zinc-950 p-5 shadow-xl"
+      >
+        <div className="flex items-center gap-3 border-b border-zinc-800 pb-3">
+          <h2 className="text-sm font-semibold text-zinc-100">
+            {note ? `[[${note.name}]]` : 'Note unavailable'}
+          </h2>
+          <button
+            type="button"
+            aria-label="Close ledger note"
+            className="ml-auto px-2 py-1 text-zinc-400 hover:text-zinc-100"
+            onClick={() => {
+              setNote(undefined);
+              setNoteError(false);
+            }}
+          >
+            Close
+          </button>
+        </div>
+        {note && <pre className="mt-4 whitespace-pre-wrap font-sans text-sm text-zinc-200">{note.body}</pre>}
+      </section>
+    </div>
+  ) : null;
   if (message.kind === 'system') {
     return (
-      <p
-        id={String(message.id)}
-        data-testid={`msg-${message.id}`}
-        className="scroll-mt-16 text-center text-xs italic text-zinc-500 target:text-sky-300"
-      >
-        {message.body} <MessagePermalink id={message.id} />
-      </p>
+      <>
+        <p
+          id={String(message.id)}
+          data-testid={`msg-${message.id}`}
+          className="scroll-mt-16 text-center text-xs italic text-zinc-500 target:text-sky-300"
+        >
+          {body} <MessagePermalink id={message.id} />
+        </p>
+        {viewer}
+      </>
     );
   }
   return (
-    <div
-      id={String(message.id)}
-      data-testid={`msg-${message.id}`}
-      className="scroll-mt-16 text-sm target:border-l-2 target:border-sky-600 target:pl-2"
-    >
-      <span className={`font-medium ${props.mine ? 'text-sky-300' : 'text-emerald-300'}`}>@{props.authorHandle}</span>
-      <span className="ml-2"><MessagePermalink id={message.id} /></span>
-      <p className="whitespace-pre-wrap text-zinc-100">{message.body}</p>
-    </div>
+    <>
+      <div
+        id={String(message.id)}
+        data-testid={`msg-${message.id}`}
+        className="scroll-mt-16 text-sm target:border-l-2 target:border-sky-600 target:pl-2"
+      >
+        <span className={`font-medium ${props.mine ? 'text-sky-300' : 'text-emerald-300'}`}>@{props.authorHandle}</span>
+        <span className="ml-2"><MessagePermalink id={message.id} /></span>
+        <p className="whitespace-pre-wrap text-zinc-100">{body}</p>
+      </div>
+      {viewer}
+    </>
   );
 }
 

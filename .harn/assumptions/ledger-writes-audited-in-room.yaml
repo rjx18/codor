@@ -1,0 +1,14 @@
+id: ledger-writes-audited-in-room
+hash: a-d2a32214a672
+title: Every ledger file change creates a non-routed room audit notice
+state: active
+statement: The home must watch ledger markdown files with chokidar and post one
+  system message naming the changed [[note]], attributing CLI or transported
+  writes to their supplied room member and direct filesystem edits to operator,
+  while system eligibility prevents the notice from triggering a turn, because
+  shared memory changes must remain visible and auditable without becoming agent
+  speech.
+depends_on:
+  - routing-eligibility-nonempty-finalized
+  - room-home-single-authority
+created_by: ledger-vault-v1

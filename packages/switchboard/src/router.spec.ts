@@ -385,7 +385,8 @@ describe('delivery payload template (byte-exact goldens)', () => {
           'before submitting.',
       },
     ],
-    conventions: { others: ['claude', 'richard'], untaggedGoesTo: 'richard' },
+    ledgerRefs: [{ name: 'risk-limits', body: '---\nname: risk-limits\n---\nKeep exposure below 2%.\n' }],
+    conventions: { others: ['claude', 'richard'], untaggedGoesTo: 'richard', ledger: true },
   };
 
   it('matches the PROTOCOL §3 example shape exactly', () => {
@@ -401,8 +402,13 @@ describe('delivery payload template (byte-exact goldens)', () => {
         'before submitting.\n' +
         '--- end reference ---\n' +
         '\n' +
+        '--- ledger [[risk-limits]] ---\n' +
+        '---\nname: risk-limits\n---\nKeep exposure below 2%.\n\n' +
+        '--- end ledger note ---\n' +
+        '\n' +
         '[conventions: your reply posts to the room. Tag @claude / @richard to address ' +
-        'them; an untagged reply goes to @richard. Reference messages as #N.]\n',
+        'them; an untagged reply goes to @richard. Reference messages as #N. ' +
+        'Cite ledger notes as [[name]].]\n',
     );
   });
 
@@ -412,6 +418,7 @@ describe('delivery payload template (byte-exact goldens)', () => {
       message: msg({ id: 93110, author: richard.id, kind: 'chat', body: 'ship it' }),
       toHandles: ['codex'],
       refs: [],
+      ledgerRefs: [],
       conventions: undefined,
     };
     expect(composePayload(lean, 'codex')).toBe(

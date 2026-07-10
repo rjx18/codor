@@ -169,17 +169,18 @@ export interface PayloadContext {
   /** All recipient handles, mention order — identical on every delivery. */
   toHandles: string[];
   refs: ResolvedRef[];
+  ledgerRefs?: { name: string; body: string }[];
   /**
    * Conventions trailer, included on a member's FIRST delivery in a room and
    * again after it misaddressed. `others` = the other parties it can tag;
    * `untaggedGoesTo` = its default reply target (the message author).
    */
-  conventions?: { others: string[]; untaggedGoesTo: string };
+  conventions?: { others: string[]; untaggedGoesTo: string; ledger?: boolean };
 }
 
 const minuteUtc = (ts: string): string => `${ts.slice(0, 16)}Z`;
 
-// harn:assume delivery-payload-template-exact ref=payload-template
+// harn:assume ledger-home-only-refs-travel ref=ledger-aware-payload
 /**
  * The exact bytes a recipient session receives — pinned by goldens in
  * router.spec.ts. Keep payloads lean: sessions pay tokens for every byte.
@@ -197,16 +198,22 @@ export function composePayload(ctx: PayloadContext, you: string): string {
       `${ref.body}\n` +
       `--- end reference ---\n`;
   }
+  for (const ref of ctx.ledgerRefs ?? []) {
+    payload +=
+      `\n--- ledger [[${ref.name}]] ---\n` +
+      `${ref.body}\n` +
+      `--- end ledger note ---\n`;
+  }
   if (ctx.conventions) {
     const tags = ctx.conventions.others.map((h) => `@${h}`).join(' / ');
     payload +=
       `\n[conventions: your reply posts to the room. Tag ${tags} to address ` +
       `them; an untagged reply goes to @${ctx.conventions.untaggedGoesTo}. ` +
-      `Reference messages as #N.]\n`;
+      `Reference messages as #N.${ctx.conventions.ledger ? ' Cite ledger notes as [[name]].' : ''}]\n`;
   }
   return payload;
 }
-// harn:end delivery-payload-template-exact
+// harn:end ledger-home-only-refs-travel
 
 // harn:assume whole-message-delivery ref=payload-fanout
 /**

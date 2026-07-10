@@ -3,7 +3,14 @@ import { join } from 'node:path';
 
 import type { AttachLease, Member, Message, ServerFrame } from '@wireroom/protocol';
 import { Command } from 'commander';
-import { CryptoVault, pairingUrl } from '@wireroom/switchboard';
+import {
+  addRemoteLedgerNote,
+  CryptoVault,
+  HyperswarmTransport,
+  LedgerVault,
+  pairingUrl,
+  type LedgerNoteType,
+} from '@wireroom/switchboard';
 
 import {
   nativeResumeCommand,
@@ -481,7 +488,73 @@ export function createProgram(context: CliContext = {}): Command {
         out(`revoked ${revoked.device_id}`);
       });
     });
-  program.command('ledger').argument('[args...]').action(() => err('ledger is not implemented yet'));
+  const ledger = program.command('ledger').description('manage room shared-memory notes');
+  ledger
+    .command('init')
+    .requiredOption('-r, --room <room>', 'room id')
+    .action((options: RoomOptions) => {
+      const vault = new LedgerVault(program.opts<GlobalOptions>().dataDir, options.room);
+      vault.bootstrap();
+      out(vault.root);
+    });
+  ledger
+    .command('add')
+    .argument('<name>', 'lowercase note slug')
+    .argument('<body>', 'markdown note body')
+    .requiredOption('-r, --room <room>', 'room id')
+    .requiredOption('--type <type>', 'decision, constraint, or contract')
+    .requiredOption('--as <handle>', 'room member attribution')
+    .option('--join <line>', 'route the write to the home using name:secret')
+    .option('--home <peer>', 'home switchboard device id')
+    .action(async (name: string, body: string, options: RoomOptions & {
+      type: string;
+      as: string;
+      join?: string;
+      home?: string;
+    }) => {
+      if (!['decision', 'constraint', 'contract'].includes(options.type)) {
+        throw new Error('--type must be decision, constraint, or contract');
+      }
+      const write = {
+        name,
+        body,
+        type: options.type as LedgerNoteType,
+        author: options.as,
+      };
+      if (options.join || options.home) {
+        if (!options.join || !options.home) throw new Error('--join and --home must be used together');
+        const crypto = new CryptoVault(program.opts<GlobalOptions>().dataDir);
+        const transport = new HyperswarmTransport({ lines: [parseLine(options.join)], crypto });
+        try {
+          await transport.start();
+          await transport.waitForPeer(options.home);
+          const note = await addRemoteLedgerNote(transport, options.home, options.room, write);
+          out(`${note.relative_path}\t[[${note.name}]]`);
+        } finally {
+          await transport.close();
+          crypto.close();
+        }
+        return;
+      }
+      const note = new LedgerVault(program.opts<GlobalOptions>().dataDir, options.room).add(write);
+      out(`${note.relative_path}\t[[${note.name}]]`);
+    });
+  ledger
+    .command('show')
+    .argument('<name>', 'note slug')
+    .requiredOption('-r, --room <room>', 'room id')
+    .action((name: string, options: RoomOptions) => {
+      const note = new LedgerVault(program.opts<GlobalOptions>().dataDir, options.room).note(name);
+      if (!note) throw new Error(`no such ledger note ${name}`);
+      out(note.content.trimEnd());
+    });
+  ledger
+    .command('pull')
+    .requiredOption('-r, --room <room>', 'room id')
+    .option('-d, --destination <path>', 'snapshot parent directory', process.cwd())
+    .action((options: RoomOptions & { destination: string }) => {
+      out(new LedgerVault(program.opts<GlobalOptions>().dataDir, options.room).pull(options.destination));
+    });
 
   return program;
 }

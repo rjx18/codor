@@ -1,0 +1,15 @@
+id: ledger-home-only-refs-travel
+hash: a-ac36d8af83b1
+title: Ledger files stay at the room home and resolved note bodies travel
+state: active
+statement: Enabling a room ledger must create and retain its markdown vault only
+  under the home switchboard data directory, resolve each valid [[name]]
+  reference at the home into a snapshotted note body attached to the existing
+  full delivery payload, and route remote writes to that home over authenticated
+  transport, because resident members must receive explicit context without
+  mounting or syncing a vault.
+depends_on:
+  - room-home-single-authority
+  - delivery-payload-snapshotted
+  - envelope-ids-not-room-seq-for-dedup
+created_by: ledger-vault-v1

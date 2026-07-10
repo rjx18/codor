@@ -27,6 +27,14 @@ export interface MessageHistoryPage {
   has_more: boolean;
 }
 
+export interface LedgerNote {
+  name: string;
+  body: string;
+  content: string;
+  relative_path: string;
+  type?: 'decision' | 'constraint' | 'contract';
+}
+
 async function fetchJson<T>(path: string, options: ApiOptions): Promise<T> {
   const origin = options.origin ?? window.location.origin;
   const res = await fetch(`${origin}${path}`, {
@@ -90,4 +98,16 @@ export async function fetchRunEvents(
     options,
   );
   return body.events;
+}
+
+export async function fetchLedgerNote(
+  room: string,
+  name: string,
+  options: ApiOptions,
+): Promise<LedgerNote> {
+  const body = await fetchJson<{ note: LedgerNote }>(
+    `/api/rooms/${encodeURIComponent(room)}/ledger/${encodeURIComponent(name)}`,
+    options,
+  );
+  return body.note;
 }

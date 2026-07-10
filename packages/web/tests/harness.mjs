@@ -2,12 +2,19 @@
 // FakeAdapter, plus a node-only control endpoint the Playwright runner uses
 // to script turns, holds, and server-side answers.
 import { createServer } from 'node:http';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { CryptoVault, Daemon, FakeAdapter, pairingUrl, startServer } from '@wireroom/switchboard';
+import {
+  CryptoVault,
+  Daemon,
+  FakeAdapter,
+  LedgerManager,
+  pairingUrl,
+  startServer,
+} from '@wireroom/switchboard';
 
 const API_PORT = 8137;
 const CONTROL_PORT = 8138;
@@ -15,10 +22,12 @@ const TOKEN = 'e2e-token';
 
 const dir = mkdtempSync(join(tmpdir(), 'wireroom-e2e-'));
 const fake = new FakeAdapter('fake', { extensions: true });
+const ledger = new LedgerManager({ dataDir: dir });
 const daemon = new Daemon({
   dbPath: join(dir, 'db.sqlite'),
   blobRoot: join(dir, 'blobs'),
   adapters: [fake],
+  ledger,
 });
 daemon.createRoom({ id: 'eng', name: 'Engineering', owner: { handle: 'richard', display_name: 'Richard' } });
 const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/work' });
@@ -96,6 +105,19 @@ createServer(async (req, res) => {
         peers: crypto.keys.listPeers(),
       }));
       return;
+    } else if (url.pathname === '/ledger-init') {
+      daemon.addLedgerNote('eng', {
+        name: body.name ?? 'risk-limits',
+        type: body.type ?? 'constraint',
+        author: body.author ?? 'richard',
+        body: body.noteBody ?? 'Keep exposure below 2%.',
+      });
+    } else if (url.pathname === '/ledger-direct') {
+      const name = body.name ?? 'risk-limits';
+      writeFileSync(
+        join(dir, 'rooms', 'eng', 'ledger', 'constraints', `${name}.md`),
+        `---\nname: ${name}\ntype: constraint\n---\n${body.noteBody ?? 'Keep exposure below 1%.'}\n`,
+      );
     } else if (url.pathname !== '/health') {
       res.writeHead(404).end();
       return;

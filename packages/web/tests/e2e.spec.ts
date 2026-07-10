@@ -39,6 +39,22 @@ test('history pages, room search, and #N permalinks share stable message ids', a
   await expect(page.locator(`[id="${String(seeded.first)}"]`)).toBeInViewport();
 });
 
+test('ledger changes appear in the room and [[refs]] open a read-only note viewer', async ({ page }) => {
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await control('/ledger-init', { name: 'risk-limits', author: 'alpha' });
+  await expect(page.getByText('@alpha updated [[risk-limits]]')).toBeVisible();
+  await control('/ledger-direct', { name: 'risk-limits', noteBody: 'Keep exposure below 1%.' });
+  const notice = page.getByText('@operator updated [[risk-limits]]');
+  await expect(notice).toBeVisible();
+  await notice.getByTestId('ledger-ref-risk-limits').click();
+  const dialog = page.getByTestId('ledger-note-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Keep exposure below 1%.');
+  await dialog.getByRole('button', { name: 'Close ledger note' }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
 test('room v1: post → live run → expand → ask → hold release → reconnect shows the finalized message', async ({
   page,
 }) => {

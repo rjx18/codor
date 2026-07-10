@@ -12,6 +12,7 @@ import {
   CryptoVault,
   Daemon,
   HyperswarmTransport,
+  LedgerManager,
   ResidencyCoordinator,
   startServer,
   type LineConfig,
@@ -86,10 +87,12 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
   const dataDir = resolve(options.dataDir ?? join(homedir(), '.wireroom'));
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const crypto = new CryptoVault(dataDir);
+  const ledger = new LedgerManager({ dataDir });
   const daemon = new Daemon({
     dbPath: join(dataDir, 'switchboard.sqlite'),
     blobRoot: join(dataDir, 'blobs'),
     adapters: configuredAdapters(),
+    ledger,
   });
   if (daemon.store.listRooms().length === 0) {
     const room = options.room ?? 'default';

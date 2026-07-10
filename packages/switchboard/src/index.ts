@@ -92,6 +92,12 @@ export {
   ResidentAttemptJournal,
   remoteMemberSpec,
 } from './residency.js';
+export { LedgerVault } from './ledger/vault.js';
+export type { LedgerNote, LedgerNoteType, LedgerWrite } from './ledger/vault.js';
+export { LedgerResolver } from './ledger/resolve.js';
+export type { LedgerLookup, ResolvedLedgerRef } from './ledger/resolve.js';
+export { addRemoteLedgerNote, LedgerManager } from './ledger/watch.js';
+export type { LedgerChange, LedgerManagerOptions } from './ledger/watch.js';
 export type {
   RemoteDeliverHooks,
   ResidentAttempt,
