@@ -1,3 +1,8 @@
+import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync } from 'node:fs';
+import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
+import { connect as connectSocket } from 'node:net';
+import { dirname } from 'node:path';
+
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -13,12 +18,50 @@ export interface ServerOptions {
   port?: number;
   /** Serve the built web SPA from this directory (the switchboard IS the web host). */
   staticRoot?: string;
+  /** Local CLI transport; filesystem mode is 0600 and no bearer token crosses it. */
+  socketPath?: string;
 }
 
 export interface RunningServer {
   app: FastifyInstance;
   port: number;
+  socketPath?: string;
   close(): Promise<void>;
+}
+
+async function prepareSocketPath(socketPath: string): Promise<void> {
+  mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
+  if (!existsSync(socketPath)) return;
+  if (!lstatSync(socketPath).isSocket()) {
+    throw new Error(`refusing to replace non-socket path ${socketPath}`);
+  }
+  await new Promise<void>((resolve, reject) => {
+    const probe = connectSocket(socketPath);
+    probe.once('connect', () => {
+      probe.destroy();
+      reject(new Error(`unix socket already in use: ${socketPath}`));
+    });
+    probe.once('error', (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOENT') {
+        rmSync(socketPath, { force: true });
+        resolve();
+      } else {
+        reject(error);
+      }
+    });
+  });
+}
+
+async function listenUnix(server: HttpServer, socketPath: string): Promise<void> {
+  await prepareSocketPath(socketPath);
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(socketPath, () => {
+      server.off('error', reject);
+      chmodSync(socketPath, 0o600);
+      resolve();
+    });
+  });
 }
 
 /**
@@ -128,6 +171,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   // ── WebSocket: subscribe / post / act ─────────────────────────────────
   const wss = new WebSocketServer({ server: app.server, path: '/ws' });
+  let ipcServer: HttpServer | undefined;
+  let ipcWss: WebSocketServer | undefined;
   const subscriptions = new Map<WebSocket, Set<string>>();
 
   const unsubscribeFrames = daemon.onFrame((room, frame) => {
@@ -138,79 +183,115 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
   });
 
-  wss.on('connection', (socket, req) => {
-    const url = new URL(req.url ?? '/', 'http://localhost');
-    if (url.searchParams.get('token') !== token) {
-      socket.close(4401, 'unauthorized');
-      return;
-    }
-    subscriptions.set(socket, new Set());
-    socket.on('close', () => subscriptions.delete(socket));
-
-    const send = (frame: ServerFrame): void => {
-      socket.send(JSON.stringify(frame));
-    };
-
-    socket.on('message', (raw: Buffer) => {
-      let frame;
-      try {
-        frame = ClientFrameSchema.parse(JSON.parse(raw.toString()));
-      } catch (error) {
-        return send({ type: 'error', message: `invalid frame: ${String(error)}` });
+  // harn:assume unix-socket-same-protocol ref=unix-websocket-listener
+  const bindProtocol = (
+    server: WebSocketServer,
+    authenticate: (url: URL) => boolean,
+  ): void => {
+    server.on('connection', (socket, req) => {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      if (!authenticate(url)) {
+        socket.close(4401, 'unauthorized');
+        return;
       }
-      try {
-        if (frame.type === 'subscribe') {
-          subscriptions.get(socket)!.add(frame.room);
-          // hydrate everything changed since the client's cursor
-          const sync = daemon.sync(frame.room, frame.since_seq);
-          const hydrationCursor = frame.since_seq;
-          send({ type: 'room', seq: hydrationCursor, room: sync.room });
-          for (const member of sync.members) send({ type: 'member', seq: hydrationCursor, member });
-          for (const message of sync.messages) send({ type: 'message', seq: hydrationCursor, message });
-          for (const delivery of sync.inbox) send({ type: 'inbox', seq: hydrationCursor, delivery });
-          for (const meter of sync.meters) send({ type: 'meter', seq: hydrationCursor, meter });
-          send({ type: 'sync_complete', seq: sync.seq });
-        } else if (frame.type === 'post') {
-          daemon.postHumanMessage(frame.room, frame.body, { reply_to: frame.reply_to });
-        } else if (frame.type === 'act') {
-          const act = frame.act;
-          if (act.act === 'answer_interaction') {
-            void daemon
-              .answerInteraction(frame.room, act.interaction_id, act.answer)
-              .catch((error: unknown) =>
-                send({ type: 'error', message: String(error), ref: 'answer_interaction' }),
-              );
-          } else if (act.act === 'redeliver') daemon.redeliver(frame.room, act.delivery_id);
-          else if (act.act === 'release_hold') daemon.releaseHold(frame.room, act.delivery_id);
-          else if (act.act === 'mark_read') daemon.markRead(frame.room, act.delivery_id);
-          else if (act.act === 'spawn') {
-            daemon.spawnMember(frame.room, {
-              harness: act.harness,
-              handle: act.handle,
-              cwd: act.cwd,
-              policy: act.policy,
-              model: act.model,
-            });
-          } else if (act.act === 'rename') daemon.renameMember(frame.room, act.member_id, act.handle, act.display_name);
-          else if (act.act === 'revive') daemon.reviveMember(frame.room, act.member_id);
-          else if (act.act === 'kill') daemon.killMember(frame.room, act.member_id);
-          else if (act.act === 'pause') daemon.pauseMember(frame.room, act.member_id);
-          else if (act.act === 'unpause') daemon.unpauseMember(frame.room, act.member_id);
-          else if (act.act === 'interrupt') daemon.interruptMember(frame.room, act.member_id);
+      subscriptions.set(socket, new Set());
+      socket.on('close', () => subscriptions.delete(socket));
+
+      const send = (frame: ServerFrame): void => {
+        socket.send(JSON.stringify(frame));
+      };
+
+      socket.on('message', (raw: Buffer) => {
+        let frame;
+        try {
+          frame = ClientFrameSchema.parse(JSON.parse(raw.toString()));
+        } catch (error) {
+          return send({ type: 'error', message: `invalid frame: ${String(error)}` });
         }
-      } catch (error) {
-        send({ type: 'error', message: String(error), ref: frame.type });
-      }
+        try {
+          if (frame.type === 'list_rooms') {
+            send({
+              type: 'rooms',
+              rooms: daemon.store.listRooms().map((room) => daemon.project(room.id, room)),
+            });
+          } else if (frame.type === 'subscribe') {
+            subscriptions.get(socket)!.add(frame.room);
+            const sync = daemon.sync(frame.room, frame.since_seq);
+            const hydrationCursor = frame.since_seq;
+            send({ type: 'room', seq: hydrationCursor, room: sync.room });
+            for (const member of sync.members) send({ type: 'member', seq: hydrationCursor, member });
+            for (const message of sync.messages) send({ type: 'message', seq: hydrationCursor, message });
+            for (const delivery of sync.inbox) send({ type: 'inbox', seq: hydrationCursor, delivery });
+            for (const meter of sync.meters) send({ type: 'meter', seq: hydrationCursor, meter });
+            send({ type: 'sync_complete', seq: sync.seq });
+          } else if (frame.type === 'post') {
+            daemon.postHumanMessage(frame.room, frame.body, { reply_to: frame.reply_to });
+          } else if (frame.type === 'act') {
+            const act = frame.act;
+            if (act.act === 'answer_interaction') {
+              void daemon
+                .answerInteraction(frame.room, act.interaction_id, act.answer)
+                .catch((error: unknown) =>
+                  send({ type: 'error', message: String(error), ref: 'answer_interaction' }),
+                );
+            } else if (act.act === 'redeliver') daemon.redeliver(frame.room, act.delivery_id);
+            else if (act.act === 'release_hold') daemon.releaseHold(frame.room, act.delivery_id);
+            else if (act.act === 'mark_read') daemon.markRead(frame.room, act.delivery_id);
+            else if (act.act === 'spawn') {
+              daemon.spawnMember(frame.room, {
+                harness: act.harness,
+                handle: act.handle,
+                cwd: act.cwd,
+                policy: act.policy,
+                model: act.model,
+              });
+            } else if (act.act === 'rename') daemon.renameMember(frame.room, act.member_id, act.handle, act.display_name);
+            else if (act.act === 'revive') daemon.reviveMember(frame.room, act.member_id);
+            else if (act.act === 'kill') daemon.killMember(frame.room, act.member_id);
+            else if (act.act === 'pause') daemon.pauseMember(frame.room, act.member_id);
+            else if (act.act === 'unpause') daemon.unpauseMember(frame.room, act.member_id);
+            else if (act.act === 'interrupt') daemon.interruptMember(frame.room, act.member_id);
+          }
+        } catch (error) {
+          send({ type: 'error', message: String(error), ref: frame.type });
+        }
+      });
     });
-  });
+  };
+
+  bindProtocol(wss, (url) => url.searchParams.get('token') === token);
+  if (options.socketPath !== undefined) {
+    ipcServer = createHttpServer((_req, res) => res.writeHead(404).end());
+    ipcWss = new WebSocketServer({ server: ipcServer, path: '/ws' });
+    bindProtocol(ipcWss, () => true);
+    try {
+      await listenUnix(ipcServer, options.socketPath);
+    } catch (error) {
+      unsubscribeFrames();
+      ipcWss.close();
+      wss.close();
+      await app.close();
+      throw error;
+    }
+  }
+  // harn:end unix-socket-same-protocol
 
   return {
     app,
     port,
+    socketPath: options.socketPath,
     close: async () => {
       unsubscribeFrames();
+      for (const socket of subscriptions.keys()) socket.terminate();
       wss.close();
+      ipcWss?.close();
+      if (ipcServer?.listening) {
+        await new Promise<void>((resolve, reject) =>
+          ipcServer!.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
       await app.close();
+      if (options.socketPath !== undefined) rmSync(options.socketPath, { force: true });
     },
   };
 }

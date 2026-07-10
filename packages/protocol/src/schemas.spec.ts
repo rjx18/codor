@@ -358,6 +358,14 @@ describe('wire events', () => {
 });
 
 describe('WS client frames', () => {
+  it('lists rooms over the same protocol transport', () => {
+    expect(ClientFrameSchema.safeParse({ type: 'list_rooms' }).success).toBe(true);
+    expect(ServerFrameSchema.safeParse({
+      type: 'rooms',
+      rooms: [{ id: 'eng', name: 'Eng', created_ts: TS, config: {} }],
+    }).success).toBe(true);
+  });
+
   it('subscribe cursors on since_seq — and requires it', () => {
     expect(
       ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0 }).success,

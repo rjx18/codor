@@ -5,12 +5,12 @@ assumptions:
   create:
     - id: unix-socket-same-protocol
       title: Local CLI traffic uses the identical WebSocket JSON protocol
-      statement: The daemon's data directory socket must accept the same
-        ClientFrame and emit the same ServerFrame JSON messages as the tokened
-        network WebSocket, with filesystem mode 0600 as local authentication,
-        while the CLI must use that socket by default and switch only its
-        transport URL plus bearer token for remote operation, because local and
-        remote commands must not diverge into separate APIs or semantics.
+      statement: The daemon's data directory socket must accept the same ClientFrame
+        and emit the same ServerFrame JSON messages as the tokened network
+        WebSocket, with filesystem mode 0600 as local authentication, while the
+        CLI must use that socket by default and switch only its transport URL
+        plus bearer token for remote operation, because local and remote
+        commands must not diverge into separate APIs or semantics.
       reason: PLAN-M1 P1.2 and ARCHITECTURE surfaces pin one WS protocol for all
         clients and filesystem permissions as Unix-socket authentication.
       depends_on:
@@ -19,29 +19,29 @@ assumptions:
   reviewed:
     - id: changelog-is-sync-cursor
       outcome: unchanged
-      reason: CLI room subscriptions use since_seq and wait for sync_complete;
-        the socket transport does not introduce a message-id cursor.
+      reason: CLI room subscriptions use since_seq and wait for sync_complete; the
+        socket transport does not introduce a message-id cursor.
     - id: sync-cursor-commits-after-hydration
       outcome: unchanged
-      reason: Tail and member commands consume the existing hydration sequence
-        and treat sync_complete as the snapshot boundary.
+      reason: Tail and member commands consume the existing hydration sequence and
+        treat sync_complete as the snapshot boundary.
     - id: server-token-required
       outcome: unchanged
-      reason: HTTP REST and network WebSocket startup and requests remain
-        fail-closed on the configured token; only the local mode-0600 Unix
-        socket authenticates by filesystem access instead.
+      reason: HTTP REST and network WebSocket startup and requests remain fail-closed
+        on the configured token; only the local mode-0600 Unix socket
+        authenticates by filesystem access instead.
     - id: redaction-before-fanout
       outcome: unchanged
       reason: Both WebSocket listeners share the same daemon-projected frame
         subscription and hydration projection paths.
     - id: adapters-cli-only-no-sdk
       outcome: unchanged
-      reason: The up command composes the existing CLI subprocess adapters and
-        adds no harness SDK or alternate driver.
+      reason: The up command composes the existing CLI subprocess adapters and adds no
+        harness SDK or alternate driver.
     - id: adapter-process-lifecycle-supervised
       outcome: unchanged
-      reason: The foreground up command closes the daemon on process signals so
-        active adapter turns retain the existing supervised shutdown behavior.
+      reason: The foreground up command closes the daemon on process signals so active
+        adapter turns retain the existing supervised shutdown behavior.
     - id: monorepo-workspace-layout
       outcome: unchanged
       reason: Commander and transport code remain inside the existing CLI and
@@ -71,3 +71,5 @@ files:
   - packages/cli/src/index.spec.ts
   - pnpm-lock.yaml
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T10:48:03.837Z

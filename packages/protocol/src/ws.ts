@@ -28,6 +28,9 @@ export const PostFrameSchema = z.object({
 });
 export type PostFrame = z.infer<typeof PostFrameSchema>;
 
+export const ListRoomsFrameSchema = z.object({ type: z.literal('list_rooms') });
+export type ListRoomsFrame = z.infer<typeof ListRoomsFrameSchema>;
+
 export const ActSchema = z.discriminatedUnion('act', [
   z.object({
     act: z.literal('answer_interaction'),
@@ -67,6 +70,7 @@ export const ActFrameSchema = z.object({
 export type ActFrame = z.infer<typeof ActFrameSchema>;
 
 export const ClientFrameSchema = z.discriminatedUnion('type', [
+  ListRoomsFrameSchema,
   SubscribeFrameSchema,
   PostFrameSchema,
   ActFrameSchema,
@@ -81,6 +85,7 @@ export type ClientFrame = z.infer<typeof ClientFrameSchema>;
  * commits the consistent snapshot cursor. `run_event` frames are ephemeral.
  */
 export const ServerFrameSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('rooms'), rooms: z.array(RoomSchema) }),
   z.object({ type: z.literal('message'), seq: SeqSchema, message: MessageSchema }),
   z.object({ type: z.literal('member'), seq: SeqSchema, member: MemberSchema }),
   z.object({ type: z.literal('inbox'), seq: SeqSchema, delivery: DeliverySchema }),

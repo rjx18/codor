@@ -5,6 +5,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "wireroom": "./dist/index.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,5 +17,16 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@wireroom/adapter-claude-code": "workspace:*",
+    "@wireroom/adapter-codex": "workspace:*",
+    "@wireroom/protocol": "workspace:*",
+    "@wireroom/switchboard": "workspace:*",
+    "commander": "^15.0.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }

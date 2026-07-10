@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -34,9 +34,9 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function connect(): Promise<{ ws: WebSocket; frames: ServerFrame[]; next: (pred: (f: ServerFrame) => boolean) => Promise<ServerFrame> }> {
+function connectUrl(url: string): Promise<{ ws: WebSocket; frames: ServerFrame[]; next: (pred: (f: ServerFrame) => boolean) => Promise<ServerFrame> }> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws?token=${TOKEN}`);
+    const ws = new WebSocket(url);
     const frames: ServerFrame[] = [];
     const waiters: { pred: (f: ServerFrame) => boolean; resolve: (f: ServerFrame) => void }[] = [];
     ws.on('message', (raw: Buffer) => {
@@ -69,6 +69,8 @@ function connect(): Promise<{ ws: WebSocket; frames: ServerFrame[]; next: (pred:
     ws.on('error', reject);
   });
 }
+
+const connect = () => connectUrl(`ws://127.0.0.1:${server.port}/ws?token=${TOKEN}`);
 
 describe('REST', () => {
   it('fails closed when the configured token is missing or empty', async () => {
@@ -175,6 +177,23 @@ describe('REST', () => {
 });
 
 describe('WebSocket', () => {
+  it('serves the identical room and sync frames over a mode-0600 unix socket', async () => {
+    const socketPath = join(dir, 'wireroom.sock');
+    const ipc = await startServer({ daemon, token: TOKEN, socketPath });
+    expect(statSync(socketPath).mode & 0o777).toBe(0o600);
+
+    const client = await connectUrl(`ws+unix://${socketPath}:/ws`);
+    client.ws.send(JSON.stringify({ type: 'list_rooms' }));
+    const rooms = await client.next((frame) => frame.type === 'rooms');
+    expect(rooms).toMatchObject({ type: 'rooms', rooms: [{ id: 'eng', name: 'Eng' }] });
+
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+    expect(client.frames.some((frame) => frame.type === 'member')).toBe(true);
+    client.ws.close();
+    await ipc.close();
+  });
+
   it('rejects a bad token at the handshake', async () => {
     const closed = await new Promise<number>((resolve) => {
       const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws?token=wrong`);

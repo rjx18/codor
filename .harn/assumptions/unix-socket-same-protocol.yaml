@@ -1,0 +1,14 @@
+id: unix-socket-same-protocol
+hash: a-72656a711c4a
+title: Local CLI traffic uses the identical WebSocket JSON protocol
+state: active
+statement: The daemon's data directory socket must accept the same ClientFrame
+  and emit the same ServerFrame JSON messages as the tokened network WebSocket,
+  with filesystem mode 0600 as local authentication, while the CLI must use that
+  socket by default and switch only its transport URL plus bearer token for
+  remote operation, because local and remote commands must not diverge into
+  separate APIs or semantics.
+depends_on:
+  - changelog-is-sync-cursor
+  - server-token-required
+created_by: cli-over-socket
