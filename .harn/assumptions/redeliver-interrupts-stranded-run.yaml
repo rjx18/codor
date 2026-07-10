@@ -1,0 +1,13 @@
+id: redeliver-interrupts-stranded-run
+hash: a-032bb0d84953
+title: Redelivery retires the abandoned run placeholder
+state: active
+statement: When redeliver clears the final delivery still bound to a running run
+  message, the daemon must finalize that old message in place as interrupted
+  with an empty body before starting a fresh run, because history may not retain
+  a phantom running turn after the recovery attempt has been explicitly
+  abandoned.
+depends_on:
+  - delivery-attempt-wal-reconcile
+  - runs-are-one-message
+created_by: m1fix-lifecycle-minors

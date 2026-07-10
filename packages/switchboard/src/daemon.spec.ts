@@ -463,6 +463,31 @@ describe('ephemeral extensions', () => {
     expect(plain.mentions).toEqual([]);
     expect(daemon.store.listDeliveries('eng', { recipient: extension.id })).toHaveLength(0);
   });
+
+  it('retires a still-running extension when its parent finalizes without a stop hook', async () => {
+    const parent = daemon.spawnMember('eng', {
+      harness: 'claude-code',
+      handle: 'claude',
+      cwd: '/work',
+    });
+    claudeFake.enqueue({
+      kind: 'complete',
+      final_text: '@richard parent ended without SubagentStop',
+      items: [
+        {
+          type: 'extension.started',
+          parent: 'native-parent',
+          ext_member: 'native-extension-without-stop',
+          agent_type: 'general-purpose',
+        },
+      ],
+    });
+    daemon.postHumanMessage('eng', '@claude start one extension');
+    await daemon.settle();
+
+    const extension = daemon.store.listMembers('eng').find((member) => member.parent === parent.id)!;
+    expect(extension).toMatchObject({ kind: 'extension', state: 'dead' });
+  });
 });
 
 describe('reply-is-the-run-message chaining', () => {
@@ -1034,6 +1059,47 @@ describe('kill-point matrix (boot reconcile)', () => {
     expect(daemon.store.getMessage('eng', runMsg.id)!.run!.status).toBe('running');
   });
 
+  it('redeliver interrupts the last-bound crashed run before creating a fresh run', async () => {
+    const alpha = spawnAgent('alpha');
+    const trigger = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id,
+      kind: 'chat',
+      body: 'redeliver trigger',
+    });
+    const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+    const abandoned = daemon.store.updateMessage('eng', posted.id, {
+      run: {
+        status: 'running',
+        started_ts: new Date().toISOString(),
+        tool_calls: 0,
+        events_ref: `runs/${posted.id}.jsonl`,
+      },
+    });
+    const delivery = daemon.store.createDelivery('eng', {
+      message_id: trigger.id,
+      recipient: alpha.id,
+    });
+    daemon.store.updateDelivery('eng', delivery.id, {
+      state: 'held',
+      attempt_count: 1,
+      run_msg_id: abandoned.id,
+    });
+    fake.enqueue({ kind: 'complete', final_text: '@richard fresh attempt complete' });
+
+    daemon.redeliver('eng', delivery.id);
+    await daemon.settle();
+
+    expect(daemon.store.getMessage('eng', abandoned.id)).toMatchObject({
+      body: '',
+      run: { status: 'interrupted' },
+    });
+    expect(runMessages()).toHaveLength(2);
+    expect(runMessages()[1]).toMatchObject({
+      body: '@richard fresh attempt complete',
+      run: { status: 'completed' },
+    });
+  });
+
   it('a second failure is NOT retried again (retry once, then hold)', async () => {
     const alpha = spawnAgent('alpha');
     const trigger = daemon.postHumanMessage('eng', 'setup four');
@@ -1362,5 +1428,25 @@ describe('failed turns', () => {
     await daemon.settle();
     expect(daemon.store.listDeliveries('eng', { recipient: alpha.id, state: 'queued' })).toHaveLength(0);
     expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('idle');
+  });
+
+  it('classifies a nonzero exit after operator interrupt as interrupted, not dead', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'fail-on-interrupt' });
+    daemon.postHumanMessage('eng', '@alpha wait for interrupt');
+    await until(() =>
+      daemon.store.getMember('eng', alpha.id)?.state === 'running' ? alpha : undefined,
+    );
+
+    daemon.interruptMember('eng', alpha.id);
+    await daemon.settle();
+
+    expect(runMessages()[0]!.run!.status).toBe('interrupted');
+    expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('idle');
+    expect(
+      daemon.store.listMessages('eng', { limit: 50 }).some((message) =>
+        message.kind === 'system' && message.body.includes('died mid-run'),
+      ),
+    ).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -235,6 +235,16 @@ describe('REST', () => {
 });
 
 describe('WebSocket', () => {
+  it('rejects a public unix socket parent before listen', async () => {
+    const publicParent = join(dir, 'public-socket-parent');
+    mkdirSync(publicParent, { mode: 0o755 });
+    chmodSync(publicParent, 0o755);
+    await expect(
+      startServer({ daemon, token: TOKEN, socketPath: join(publicParent, 'wireroom.sock') }),
+    ).rejects.toThrow('unix socket parent must be a private directory');
+    expect(statSync(publicParent).mode & 0o777).toBe(0o755);
+  });
+
   it('serves the identical room and sync frames over a mode-0600 unix socket', async () => {
     const socketPath = join(dir, 'wireroom.sock');
     const ipc = await startServer({ daemon, token: TOKEN, socketPath });

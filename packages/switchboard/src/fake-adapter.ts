@@ -28,6 +28,7 @@ export type FakeTurn =
       /** Final text once answered (receives the answer). */
       reply: (answer: unknown) => string;
     }
+  | { kind: 'fail-on-interrupt'; final_text?: string }
   | { kind: 'die-silently' }; // stream ends with no run.completed
 
 export interface DeliverRecord {
@@ -121,6 +122,19 @@ export class FakeAdapter implements HarnessAdapter {
       }
       if (turn.kind === 'die-silently') {
         return; // EOF with no completion — daemon sees 'interrupted'
+      }
+      if (turn.kind === 'fail-on-interrupt') {
+        const nativeId = `fake-interrupt-${++this.nextRequest}`;
+        const interrupted = new Promise<unknown>((resolve) => this.pendingAnswers.set(nativeId, resolve));
+        this.pendingBySession.set(session, nativeId);
+        await interrupted;
+        this.pendingBySession.delete(session);
+        yield {
+          type: 'run.completed',
+          status: 'failed',
+          final_text: turn.final_text ?? 'process exited 130 after SIGINT',
+        };
+        return;
       }
       if (turn.kind === 'ask') {
         const nativeId = `fake-req-${++this.nextRequest}`;

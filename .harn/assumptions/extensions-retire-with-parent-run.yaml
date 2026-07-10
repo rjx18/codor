@@ -1,0 +1,11 @@
+id: extensions-retire-with-parent-run
+hash: a-e6ddaaeb02ab
+title: Parent finalization retires extensions missing a stop hook
+state: active
+statement: Finalizing any parent agent run must mark each still-running
+  extension child dead and emit its member change even when no extension-ended
+  hook arrived, because an extension is bounded by its parent run and cannot
+  remain active after that run ends.
+depends_on:
+  - extension-lifecycle-from-hooks
+created_by: m1fix-lifecycle-minors

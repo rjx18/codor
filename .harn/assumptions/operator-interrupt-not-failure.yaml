@@ -1,0 +1,13 @@
+id: operator-interrupt-not-failure
+hash: a-7ddd6418fe64
+title: Operator-interrupted nonzero exits do not kill members
+state: active
+statement: When an operator interrupt targets the member's active turn, a
+  subsequent failed completion from a harness that trapped the signal and exited
+  nonzero must finalize as interrupted and leave the member revivable without a
+  death transition, because exit code conventions differ across CLIs and the
+  operator already supplied the lifecycle intent.
+depends_on:
+  - adapter-process-lifecycle-supervised
+  - one-inflight-turn-per-member
+created_by: m1fix-lifecycle-minors

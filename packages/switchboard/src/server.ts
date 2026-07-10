@@ -30,7 +30,14 @@ export interface RunningServer {
 }
 
 async function prepareSocketPath(socketPath: string): Promise<void> {
-  mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
+  // harn:assume unix-socket-parent-private-before-listen ref=unix-socket-parent-precondition
+  const parent = dirname(socketPath);
+  mkdirSync(parent, { recursive: true, mode: 0o700 });
+  const parentStat = lstatSync(parent);
+  if (!parentStat.isDirectory() || (parentStat.mode & 0o077) !== 0) {
+    throw new Error(`unix socket parent must be a private directory (mode 0700): ${parent}`);
+  }
+  // harn:end unix-socket-parent-private-before-listen
   if (!existsSync(socketPath)) return;
   if (!lstatSync(socketPath).isSocket()) {
     throw new Error(`refusing to replace non-socket path ${socketPath}`);
