@@ -1,3 +1,2 @@
-export function packageName(): string {
-  return '@wireroom/switchboard';
-}
+export { Store } from './store.js';
+export type { NewMember, NewMessage, SyncResult } from './store.js';

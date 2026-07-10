@@ -1,0 +1,11 @@
+id: run-blobs-off-db
+hash: a-9d045208c470
+title: Run event streams live on disk, never in sqlite
+state: active
+statement: The store must persist run messages with only the
+  RunSummary.events_ref path pointer and must have no table or column holding
+  run event payloads, because run streams are unbounded JSONL blobs journaled by
+  the daemon on disk and the DB must stay small with one-message-per-run
+  structural.
+depends_on: []
+created_by: switchboard-store

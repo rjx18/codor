@@ -1,0 +1,12 @@
+id: owner-and-system-members-seeded
+hash: a-cb40cc87b2a8
+title: Room creation seeds the owner human and the system member atomically
+state: active
+statement: createRoom must atomically seed BOTH the owner human member (role
+  owner, the authenticated principal's author identity) and the non-addressable
+  system member holding the reserved handle switchboard, because system messages
+  need an author from the first message on and deliveries to humans need the
+  owner row to exist before any routing.
+depends_on:
+  - reserved-handles-rejected
+created_by: switchboard-store

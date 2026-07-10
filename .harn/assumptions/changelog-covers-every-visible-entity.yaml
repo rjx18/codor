@@ -1,0 +1,13 @@
+id: changelog-covers-every-visible-entity
+hash: a-d23cd95a5249
+title: Every client-visible mutation appends exactly one change-log row
+state: active
+statement: Every store mutation of a client-visible entity - message insert and
+  in-place finalize, member create/update, human inbox record create/read, meter
+  upsert, room create/config change - must append exactly one changes(room_id,
+  seq, entity, entity_id) row with a per-room monotonic seq allocated in the
+  same transaction, because sync hydrates exclusively from this log and a missed
+  append is an invisible client desync.
+depends_on:
+  - changelog-is-sync-cursor
+created_by: switchboard-store

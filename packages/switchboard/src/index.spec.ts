@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { packageName } from './index.js';
+import { Store } from './index.js';
 
-describe('@wireroom/switchboard scaffold', () => {
-  it('exports its package name', () => {
-    expect(packageName()).toBe('@wireroom/switchboard');
+describe('@wireroom/switchboard barrel', () => {
+  it('exports the Store', () => {
+    expect(Store).toBeTypeOf('function');
   });
 });

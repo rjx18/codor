@@ -1,0 +1,10 @@
+id: message-id-txn-allocation
+hash: a-b24017c58ca5
+title: Message ids allocate dense and monotonic inside the insert transaction
+state: active
+statement: Message ids must be computed per-room (MAX+1) and assigned INSIDE the
+  same synchronous store transaction that inserts the row, because PROTOCOL
+  invariant 2 makes ids dense, monotonic, and permanent (#N refs) and allocation
+  outside the transaction could race or leave gaps.
+depends_on: []
+created_by: switchboard-store

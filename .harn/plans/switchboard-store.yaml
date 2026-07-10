@@ -85,3 +85,5 @@ files:
   - packages/switchboard/src/index.spec.ts
   - packages/switchboard/src/store.ts
   - packages/switchboard/src/store.spec.ts
+applied:
+  applied_at: 2026-07-10T08:00:02.886Z
