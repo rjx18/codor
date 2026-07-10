@@ -41,7 +41,7 @@ const requiredMethods = [
   'discoverSessions',
 ] as const;
 
-function moduleSpecifier(specifier: string, baseDir: string): string {
+export function resolveAdapterModuleSpecifier(specifier: string, baseDir: string): string {
   if (specifier.startsWith('./') || specifier.startsWith('../') || isAbsolute(specifier)) {
     return pathToFileURL(resolve(baseDir, specifier)).href;
   }
@@ -94,7 +94,7 @@ export async function loadAdapterRegistry(
     if (configuredModule.trim() === '') {
       throw new Error(`configured adapter '${id}' has an empty module specifier`);
     }
-    const specifier = moduleSpecifier(configuredModule, baseDir);
+    const specifier = resolveAdapterModuleSpecifier(configuredModule, baseDir);
     let imported: Record<string, unknown>;
     try {
       imported = await import(specifier) as Record<string, unknown>;

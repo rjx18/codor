@@ -301,6 +301,14 @@ export class ResidencyCoordinator {
       this.handlePeerState(peerId, connected));
   }
 
+  // harn:assume adapter-registry-sole-harness-source ref=resident-registry-observability
+  registeredAdapters(): { id: string; capabilities: HarnessAdapter['capabilities'] }[] {
+    return [...this.adapters.values()]
+      .map((adapter) => ({ id: adapter.id, capabilities: adapter.capabilities }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+  // harn:end adapter-registry-sole-harness-source
+
   isReachable(peerId: string): boolean {
     return this.transport.peerIds().includes(peerId);
   }

@@ -1,15 +1,20 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { BUILTIN_ADAPTER_IDS, loadAdapterRegistry } from './adapter-registry.js';
+import {
+  BUILTIN_ADAPTER_IDS,
+  loadAdapterRegistry,
+  resolveAdapterModuleSpecifier,
+} from './adapter-registry.js';
 import { Daemon } from './daemon.js';
 
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const switchboardRoot = resolve(import.meta.dirname, '..');
-const fixtureModule = 'test-fixtures/third-party-adapter.mjs';
+const fixtureModule = './test-fixtures/third-party-adapter.mjs';
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
@@ -25,6 +30,9 @@ function dataModule(source: string): string {
 // harn:assume adapter-registry-sole-harness-source ref=third-party-hot-swap-acceptance
 describe('configured adapter hot-swap', () => {
   it('loads a new module and completes a routed room turn without a core import', async () => {
+    expect(resolveAdapterModuleSpecifier(fixtureModule, switchboardRoot)).toBe(
+      pathToFileURL(join(switchboardRoot, 'test-fixtures', 'third-party-adapter.mjs')).href,
+    );
     const adapters = await loadAdapterRegistry({
       adapters: { 'fixture-harness': fixtureModule },
       baseDir: switchboardRoot,
@@ -114,23 +122,26 @@ describe('configured adapter hot-swap', () => {
 });
 // harn:end adapter-registry-sole-harness-source
 
-function productionTypeScriptFiles(directory: string): string[] {
+const productionExtension = /\.(?:[cm]?[jt]sx?)$/;
+
+function productionSourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) return productionTypeScriptFiles(path);
-    return entry.isFile() && path.endsWith('.ts') && !path.endsWith('.spec.ts') ? [path] : [];
+    if (entry.isDirectory()) {
+      return ['dist', 'fixtures', 'node_modules', 'test-fixtures'].includes(entry.name)
+        ? []
+        : productionSourceFiles(path);
+    }
+    if (!entry.isFile() || !productionExtension.test(path)) return [];
+    return /\.(?:spec|test)\.[cm]?[jt]sx?$/.test(path) ? [] : [path];
   });
 }
 
 // harn:assume adapter-registry-sole-harness-source ref=hardcoded-list-guard
 it('keeps every built-in adapter package import inside the sole registry', () => {
-  const productionRoots = [
-    join(repoRoot, 'packages', 'protocol', 'src'),
-    join(repoRoot, 'packages', 'switchboard', 'src'),
-    join(repoRoot, 'packages', 'cli', 'src'),
-  ];
-  const importPattern = /from ['"]@wireroom\/adapter-[^'"]+['"]/g;
-  const hits = productionRoots.flatMap(productionTypeScriptFiles).flatMap((file) => {
+  const productionRoots = [join(repoRoot, 'packages'), join(repoRoot, 'relay')];
+  const importPattern = /(['"])@wireroom\/adapter-[^'"]+\1/g;
+  const hits = productionRoots.flatMap(productionSourceFiles).flatMap((file) => {
     const matches = readFileSync(file, 'utf8').match(importPattern) ?? [];
     return matches.map((match) => ({ file: relative(repoRoot, file), match }));
   });

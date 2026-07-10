@@ -22,7 +22,7 @@ import {
   runCli,
   startWireroom,
 } from './index.js';
-import { parseLine } from './up.js';
+import { parseLine, startOutpost } from './up.js';
 import { parseAdapterModules } from './program.js';
 
 let dir: string;
@@ -431,6 +431,20 @@ describe('@wireroom/cli', () => {
       },
     })).rejects.toThrow(/must export createAdapter/);
     expect(existsSync(unopenedDataDir)).toBe(false);
+
+    const outpost = await startOutpost({
+      dataDir: join(dir, 'configured-outpost-data'),
+      line: { name: 'adapter-test', secret: 'local-only-secret' },
+      bootstrap: [],
+      adapters: { 'cli-fixture': fixture },
+    });
+    try {
+      expect(outpost.residency.registeredAdapters().map((adapter) => adapter.id)).toEqual(
+        [...BUILTIN_ADAPTER_IDS, 'cli-fixture'].sort(),
+      );
+    } finally {
+      await outpost.close();
+    }
   });
   // harn:end adapter-registry-sole-harness-source
 });

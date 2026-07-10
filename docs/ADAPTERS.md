@@ -80,10 +80,11 @@ wireroom up \
   --adapter acp=@example/wireroom-acp-adapter
 ```
 
-Relative paths resolve from the process working directory; absolute paths, `file:` URLs, and
-Node package specifiers are accepted. The registry imports and validates every configured
-factory before opening switchboard databases, crypto stores, transports, or listeners. A
-configured id equal to a built-in id deliberately replaces that built-in for this process.
+Filesystem paths use Node's explicit forms: start them with `./` or `../` to resolve from the
+process working directory, or pass an absolute path or `file:` URL. Values without a dot prefix
+are Node package specifiers, including package subpaths. The registry imports and validates
+every configured factory before opening switchboard databases, crypto stores, transports, or
+listeners. A configured id equal to a built-in id deliberately replaces that built-in for this process.
 Every start builds fresh adapter instances. Registration and replacement take effect on restart;
 Wireroom never swaps a live session between adapter objects.
 
