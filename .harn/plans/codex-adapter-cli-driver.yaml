@@ -1,0 +1,60 @@
+id: codex-adapter-cli-driver
+title: P0.6 codex adapter - CLI subprocess driver from P0.2 fixtures
+assumptions:
+  retire: []
+  create:
+    - id: adapters-cli-only-no-sdk
+      title: Adapters drive plain CLI subprocesses, never SDKs
+      statement: The codex adapter must drive the codex CLI strictly as a spawned
+        child process over argv and stdout JSONL - flags before the resume
+        subcommand, stdin closed, the child in its own process group so
+        signals reach the real engine behind the npm shim - with no SDK, HTTP
+        client, or IPC dependency, because plain-CLI coupling is the design
+        rule that keeps every harness identically shaped and new harnesses
+        cheap.
+      reason: ARCHITECTURE SSadapters design rule and PROTOCOL SS5; the P0.2
+        kill-mid-turn fixture proved the shim orphans the engine on SIGKILL,
+        so process-group discipline is part of the contract every future
+        adapter copies.
+      depends_on:
+        - codex-event-contract-pinned
+    - id: codex-usage-tokens-only
+      title: Codex usage carries tokens only, never a fabricated dollar cost
+      statement: run.completed.usage emitted by the codex adapter must contain
+        input_tokens and output_tokens only and must never include cost_usd,
+        because codex exec reports no dollar cost and spend meters count
+        dollars only from cost-reporting members - fabricating one would
+        corrupt every room meter and spend brake.
+      reason: PLAN-M0 P0.6 pins tokens-only from the turn.completed fixtures;
+        P0.8 meters and P1.6 brakes read this field arithmetic-blind.
+      depends_on:
+        - codex-event-contract-pinned
+  reviewed:
+    - id: codex-event-contract-pinned
+      outcome: unchanged
+      reason: The translator implements exactly the fixture-pinned event
+        vocabulary; two additional raw P0.2 captures (command-success,
+        failure-bogus-model) join the fixture set unchanged in shape, with
+        their invariants asserted in the new replay spec.
+anchors:
+  adapters-cli-only-no-sdk:
+    cli-subprocess-driver:
+      action: change
+      reason: Create the spawn/argv/process-group driver in adapter.ts.
+  codex-usage-tokens-only:
+    usage-token-mapping:
+      action: change
+      reason: Create the turn.completed to run.completed.usage mapping in
+        translate.ts.
+files:
+  - packages/adapters/codex/package.json
+  - pnpm-lock.yaml
+  - packages/adapters/codex/src/index.ts
+  - packages/adapters/codex/src/index.spec.ts
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/translate.ts
+  - packages/adapters/codex/src/translate.spec.ts
+  - packages/adapters/codex/src/live.spec.ts
+  - packages/adapters/codex/fixtures/command-success.jsonl
+  - packages/adapters/codex/fixtures/failure-bogus-model.jsonl
+  - packages/adapters/codex/NOTES.md
