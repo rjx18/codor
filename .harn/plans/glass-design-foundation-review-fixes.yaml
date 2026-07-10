@@ -1,0 +1,48 @@
+id: glass-design-foundation-review-fixes
+title: Fold protocol and privacy findings into the glass references
+assumptions:
+  retire: []
+  create:
+    - id: design-references-preserve-wireroom-semantics
+      title: Visual references preserve Wireroom product semantics
+      statement: Product mockups and their design-system guidance must depict the
+        protocol's real one-member run model, permanent message ids, visible meters,
+        recipient preview, role and brake rules, accountless local product, browser
+        privacy boundary, and stateless push disclosure without inventing unsupported
+        orchestration, retention, account, or relay behavior, because implementation
+        must not turn generated visual drift into product behavior.
+      reason: The independent A1/A2 review found that visually strong generated screens
+        contained generic orchestration-SaaS labels that contradicted PROTOCOL and
+        PRIVACY when treated as implementation references.
+      depends_on:
+        - glass-design-system-guides-responsive-surfaces
+  reviewed:
+    - id: glass-design-system-guides-responsive-surfaces
+      outcome: unchanged
+      reason: The same v2 system remains the source of truth while its references and
+        accessibility tokens are corrected to honor the authoritative product specs.
+anchors:
+  design-references-preserve-wireroom-semantics:
+    glass-product-fidelity:
+      action: change
+      reason: Add an explicit product-truth checklist beside the visual rules so future
+        references cannot reintroduce the reviewed protocol and privacy contradictions.
+  glass-design-system-guides-responsive-surfaces:
+    glass-responsive-contract:
+      action: change
+      reason: Raise faint-text and light-accent contrast, clarify browser voice and
+        protocol semantics, and index the new light-mode reference.
+files:
+  - tmp/build/design/v2/desktop-room.png
+  - tmp/build/design/v2/desktop-room-light.png
+  - tmp/build/design/v2/desktop-run-detail.png
+  - tmp/build/design/v2/desktop-settings.png
+  - tmp/build/design/v2/desktop-relay-pairing.png
+  - tmp/build/design/v2/desktop-ledger-graph.png
+  - tmp/build/design/v2/iphone-room.png
+  - tmp/build/design/v2/iphone-drawer.png
+  - tmp/build/design/v2/iphone-settings.png
+  - tmp/build/design/v2/iphone-relay-pairing.png
+  - tmp/build/design/v2/watch-room-glance.png
+  - tmp/build/design/v2/DESIGN-SYSTEM.md
+  - tmp/build/PROGRESS.md
