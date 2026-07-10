@@ -5,10 +5,11 @@ assumptions:
   create:
     - id: dht-topic-from-line-secret
       title: Line discovery topics derive only from the shared name and secret
-      statement: Every configured line must join the 32-byte libsodium BLAKE2b hash
-        of the exact UTF-8 string wireroom:name:secret as both a Hyperswarm client
-        and server, while neither the line name nor secret appears on the DHT, because
-        only holders of the shared line configuration may discover one another.
+      statement: Every configured line must join the 32-byte libsodium BLAKE2b hash of
+        the exact UTF-8 string wireroom:name:secret as both a Hyperswarm client
+        and server, while neither the line name nor secret appears on the DHT,
+        because only holders of the shared line configuration may discover one
+        another.
       reason: PLAN-M2 P2.2, PRIVACY Tier 1, and ARCHITECTURE Stack decisions pin the
         walkie-style name and secret topic derivation.
       depends_on:
@@ -16,21 +17,22 @@ assumptions:
     - id: envelope-ids-not-room-seq-for-dedup
       title: Reliable transport identity is the envelope ULID, never room sequence
       statement: Every length-prefixed JSON transport envelope must carry its own ULID
-        envelope_id plus room, kind, and payload, and peers must acknowledge, retain,
-        retransmit, and deduplicate by envelope_id across reconnects while RPCs use
-        rpc_id and streamed run events use ordered event_index with cumulative acks,
-        because fan-out can share room sequence values and resident events have none.
+        envelope_id plus room, kind, and payload, and peers must acknowledge,
+        retain, retransmit, and deduplicate by envelope_id across reconnects
+        while RPCs use rpc_id and streamed run events use ordered event_index
+        with cumulative acks, because fan-out can share room sequence values and
+        resident events have none.
       reason: PLAN-M2 P2.2 and PROTOCOL transport findings require one multiplexed
         socket with independent reliability and correlation identities.
       depends_on: []
     - id: peer-auth-challenge-before-traffic
       title: Noise peers complete Ed25519 challenge auth before application traffic
       statement: Each new Noise duplex stream must exchange only hello handshake
-        envelopes until both sides prove an enrolled Ed25519 identity by signing a
-        fresh nonce bound to the current Noise transcript hash, reject unknown or
-        forged peers, and reject any non-hello envelope received before authentication,
-        because DHT topic knowledge and Noise encryption do not establish Wireroom
-        enrollment identity.
+        envelopes until both sides prove an enrolled Ed25519 identity by signing
+        a fresh nonce bound to the current Noise transcript hash, reject unknown
+        or forged peers, and reject any non-hello envelope received before
+        authentication, because DHT topic knowledge and Noise encryption do not
+        establish Wireroom enrollment identity.
       reason: PLAN-M2 P2.2 and PRIVACY Connection auth require the P2.1 challenge on
         every peer stream before room traffic.
       depends_on:
@@ -39,15 +41,17 @@ assumptions:
     - id: nonce-challenge-auth-no-key-possession-identity
       outcome: unchanged
       reason: Transport invokes the existing fresh transcript-bound ChallengeAuthority
-        and signChallenge contract without treating room-key possession as identity.
+        and signChallenge contract without treating room-key possession as
+        identity.
     - id: revocation-rotates-room-keys
       outcome: unchanged
-      reason: Authenticated transport channels subscribe to peer revocation and destroy
-        live Noise streams while P2.1 continues to rotate room keys.
+      reason: Authenticated transport channels subscribe to peer revocation and
+        destroy live Noise streams while P2.1 continues to rotate room keys.
     - id: ed25519-identity-x25519-encryption
       outcome: unchanged
-      reason: The transport hello advertises only the stable Ed25519 device id and uses
-        the already-persisted signing identity; X25519 remains reserved for sealed keys.
+      reason: The transport hello advertises only the stable Ed25519 device id and
+        uses the already-persisted signing identity; X25519 remains reserved for
+        sealed keys.
 anchors:
   dht-topic-from-line-secret:
     line-topic-derivation:
@@ -72,3 +76,5 @@ files:
   - packages/switchboard/src/index.ts
   - pnpm-lock.yaml
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T14:01:10.781Z

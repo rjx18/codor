@@ -1,0 +1,11 @@
+id: envelope-ids-not-room-seq-for-dedup
+hash: a-10cfcac4847d
+title: Reliable transport identity is the envelope ULID, never room sequence
+state: active
+statement: Every length-prefixed JSON transport envelope must carry its own ULID
+  envelope_id plus room, kind, and payload, and peers must acknowledge, retain,
+  retransmit, and deduplicate by envelope_id across reconnects while RPCs use
+  rpc_id and streamed run events use ordered event_index with cumulative acks,
+  because fan-out can share room sequence values and resident events have none.
+depends_on: []
+created_by: hyperswarm-transport

@@ -1,0 +1,13 @@
+id: peer-auth-challenge-before-traffic
+hash: a-a433ba1fb1da
+title: Noise peers complete Ed25519 challenge auth before application traffic
+state: active
+statement: Each new Noise duplex stream must exchange only hello handshake
+  envelopes until both sides prove an enrolled Ed25519 identity by signing a
+  fresh nonce bound to the current Noise transcript hash, reject unknown or
+  forged peers, and reject any non-hello envelope received before
+  authentication, because DHT topic knowledge and Noise encryption do not
+  establish Wireroom enrollment identity.
+depends_on:
+  - nonce-challenge-auth-no-key-possession-identity
+created_by: hyperswarm-transport

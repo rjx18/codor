@@ -65,3 +65,24 @@ export type {
   AuthChallenge,
   AuthenticatedConnection,
 } from './crypto/challenge.js';
+export {
+  HyperswarmTransport,
+  lineTopic,
+} from './transport/hyperswarm.js';
+export type {
+  HyperswarmTransportOptions,
+  LineConfig,
+  RunEventPayload,
+} from './transport/hyperswarm.js';
+export {
+  EnvelopeDecoder,
+  encodeEnvelope,
+  envelopeUlid,
+  ReliablePeer,
+  validateEnvelope,
+} from './transport/peer.js';
+export type {
+  NoiseDuplex,
+  OutgoingEnvelope,
+  TransportEnvelope,
+} from './transport/peer.js';
