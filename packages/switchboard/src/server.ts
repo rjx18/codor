@@ -115,6 +115,60 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
   });
 
+  // harn:assume permalink-ids-stable ref=message-history-rest
+  const positiveInteger = (
+    value: string | undefined,
+    fallback: number,
+    maximum: number,
+    label: string,
+  ): number => {
+    if (value === undefined) return fallback;
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) {
+      throw new Error(`${label} must be an integer from 1 to ${String(maximum)}`);
+    }
+    return parsed;
+  };
+
+  app.get('/api/rooms/:room/messages', (req, reply) => {
+    if (!authed(req, reply)) return;
+    const { room } = req.params as { room: string };
+    if (!daemon.store.getRoom(room)) return reply.code(404).send({ error: `no such room ${room}` });
+    try {
+      const query = req.query as { before?: string; limit?: string };
+      const limit = positiveInteger(query.limit, 50, 100, 'limit');
+      const before = positiveInteger(
+        query.before,
+        Number.MAX_SAFE_INTEGER,
+        Number.MAX_SAFE_INTEGER,
+        'before',
+      );
+      const page = daemon.store.listMessages(room, { before, limit: limit + 1 });
+      const hasMore = page.length > limit;
+      const messages = hasMore ? page.slice(-limit) : page;
+      return reply.send({ messages: daemon.project(room, messages), has_more: hasMore });
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+
+  app.get('/api/rooms/:room/search', (req, reply) => {
+    if (!authed(req, reply)) return;
+    const { room } = req.params as { room: string };
+    if (!daemon.store.getRoom(room)) return reply.code(404).send({ error: `no such room ${room}` });
+    try {
+      const query = req.query as { q?: string; limit?: string };
+      const needle = query.q?.trim();
+      if (!needle || needle.length > 200) throw new Error('q must contain 1 to 200 characters');
+      const limit = positiveInteger(query.limit, 50, 100, 'limit');
+      const messages = daemon.store.searchMessages(room, needle, { limit });
+      return reply.send({ messages: daemon.project(room, messages) });
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+  // harn:end permalink-ids-stable
+
   app.get('/api/rooms/:room/runs/:msgId', (req, reply) => {
     if (!authed(req, reply)) return;
     const { room, msgId } = req.params as { room: string; msgId: string };

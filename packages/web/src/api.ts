@@ -1,4 +1,4 @@
-import type { AdapterCapabilities, Member, WireEvent } from '@wireroom/protocol';
+import type { AdapterCapabilities, Member, Message, WireEvent } from '@wireroom/protocol';
 
 export interface ApiOptions {
   token: string;
@@ -20,6 +20,11 @@ export interface MemberDetail {
     cost_usd: number;
     uncosted_tokens?: number;
   };
+}
+
+export interface MessageHistoryPage {
+  messages: Message[];
+  has_more: boolean;
 }
 
 async function fetchJson<T>(path: string, options: ApiOptions): Promise<T> {
@@ -45,6 +50,33 @@ export async function fetchMemberDetails(
     options,
   );
   return body.members;
+}
+
+export async function fetchMessageHistory(
+  room: string,
+  page: { before?: number; limit?: number },
+  options: ApiOptions,
+): Promise<MessageHistoryPage> {
+  const query = new URLSearchParams();
+  if (page.before !== undefined) query.set('before', String(page.before));
+  if (page.limit !== undefined) query.set('limit', String(page.limit));
+  return fetchJson<MessageHistoryPage>(
+    `/api/rooms/${encodeURIComponent(room)}/messages?${query.toString()}`,
+    options,
+  );
+}
+
+export async function searchMessages(
+  room: string,
+  query: string,
+  options: ApiOptions,
+): Promise<Message[]> {
+  const params = new URLSearchParams({ q: query });
+  const body = await fetchJson<{ messages: Message[] }>(
+    `/api/rooms/${encodeURIComponent(room)}/search?${params.toString()}`,
+    options,
+  );
+  return body.messages;
 }
 
 /** Run event blobs are ONLY fetched through the server's redacted endpoint. */

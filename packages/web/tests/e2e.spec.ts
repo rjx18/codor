@@ -2,13 +2,14 @@ import { expect, test } from '@playwright/test';
 
 const CONTROL = 'http://127.0.0.1:8138';
 
-async function control(path: string, body: unknown = {}): Promise<void> {
+async function control<T = { ok: boolean }>(path: string, body: unknown = {}): Promise<T> {
   const res = await fetch(`${CONTROL}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${path} failed: ${await res.text()}`);
+  return (await res.json()) as T;
 }
 
 declare global {
@@ -16,6 +17,27 @@ declare global {
     __wireroom: { disconnect(): void; reconnect(): void };
   }
 }
+
+test('history pages, room search, and #N permalinks share stable message ids', async ({ page }) => {
+  const seeded = await control<{ first: number; last: number }>('/seed-history');
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  await expect(page.getByTestId(`msg-${seeded.last}`)).toBeVisible();
+  await expect(page.getByTestId(`msg-${seeded.first}`)).toHaveCount(0);
+  await page.getByTestId('load-history').click();
+  await expect(page.getByTestId(`msg-${seeded.first}`)).toBeVisible();
+
+  await page.locator('#room-search').fill('archive-entry-0001');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  const result = page.getByTestId('search-results').getByRole('link', {
+    name: `#${String(seeded.first)}`,
+  });
+  await expect(result).toBeVisible();
+  await result.click();
+  await expect(page).toHaveURL(new RegExp(`#${String(seeded.first)}$`));
+  await expect(page.locator(`[id="${String(seeded.first)}"]`)).toBeInViewport();
+});
 
 test('room v1: post → live run → expand → ask → hold release → reconnect shows the finalized message', async ({
   page,

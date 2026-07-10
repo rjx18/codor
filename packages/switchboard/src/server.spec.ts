@@ -83,6 +83,8 @@ describe('REST', () => {
   it('rejects requests without the pairing token', async () => {
     expect((await fetch(`${base}/api/rooms`)).status).toBe(401);
     expect((await fetch(`${base}/api/rooms/eng/sync?since_seq=0`)).status).toBe(401);
+    expect((await fetch(`${base}/api/rooms/eng/messages`)).status).toBe(401);
+    expect((await fetch(`${base}/api/rooms/eng/search?q=hello`)).status).toBe(401);
   });
 
   it('serves delta-sync from the change log cursor', async () => {
@@ -94,6 +96,52 @@ describe('REST', () => {
     expect(sync.room.id).toBe('eng');
     expect(sync.members).toHaveLength(2); // owner + system, seeded
     expect(sync.seq).toBeGreaterThan(0);
+  });
+
+  it('serves redacted before-id history pages and room-scoped body search', async () => {
+    const auth = { authorization: `Bearer ${TOKEN}` };
+    const owner = daemon.ownerOf('eng');
+    for (let id = 1; id <= 6; id++) {
+      daemon.store.postMessage('eng', {
+        author: owner.id,
+        kind: 'chat',
+        body: id === 2 ? 'needle sk-proj-abcdef1234567890abcdef' : `message ${id}`,
+      });
+    }
+
+    const latestRes = await fetch(`${base}/api/rooms/eng/messages?limit=3`, { headers: auth });
+    expect(latestRes.status).toBe(200);
+    const latest = (await latestRes.json()) as {
+      messages: { id: number; body: string }[];
+      has_more: boolean;
+    };
+    expect(latest.messages.map((message) => message.id)).toEqual([4, 5, 6]);
+    expect(latest.has_more).toBe(true);
+
+    const olderRes = await fetch(`${base}/api/rooms/eng/messages?before=4&limit=3`, {
+      headers: auth,
+    });
+    const older = (await olderRes.json()) as {
+      messages: { id: number; body: string }[];
+      has_more: boolean;
+    };
+    expect(older.messages.map((message) => message.id)).toEqual([1, 2, 3]);
+    expect(older.messages[1]!.body).toContain('[redacted]');
+    expect(older.messages[1]!.body).not.toContain('sk-proj-');
+    expect(older.has_more).toBe(false);
+
+    const searchRes = await fetch(`${base}/api/rooms/eng/search?q=needle`, { headers: auth });
+    const search = (await searchRes.json()) as { messages: { id: number; body: string }[] };
+    expect(search.messages.map((message) => message.id)).toEqual([2]);
+    expect(search.messages[0]!.body).toContain('[redacted]');
+  });
+
+  it('validates history and search parameters and missing rooms', async () => {
+    const auth = { authorization: `Bearer ${TOKEN}` };
+    expect((await fetch(`${base}/api/rooms/eng/messages?limit=0`, { headers: auth })).status).toBe(400);
+    expect((await fetch(`${base}/api/rooms/eng/messages?before=nope`, { headers: auth })).status).toBe(400);
+    expect((await fetch(`${base}/api/rooms/eng/search?q=`, { headers: auth })).status).toBe(400);
+    expect((await fetch(`${base}/api/rooms/missing/messages`, { headers: auth })).status).toBe(404);
   });
 
   it('lists registered adapters and exposes full member lifecycle REST actions', async () => {

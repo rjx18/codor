@@ -25,6 +25,20 @@ const stateDot: Record<string, string> = {
   custody_uncertain: 'bg-orange-500',
 };
 
+// harn:assume permalink-ids-stable ref=message-permalink-rendering
+function MessagePermalink(props: { id: number }) {
+  return (
+    <a
+      href={`#${props.id}`}
+      aria-label={`Permalink to message ${String(props.id)}`}
+      className="text-[10px] text-zinc-500 hover:text-sky-300"
+    >
+      #{props.id}
+    </a>
+  );
+}
+// harn:end permalink-ids-stable
+
 export function RoomSettings(props: { config: RoomConfig; connection: Connection }) {
   const [open, setOpen] = useState(false);
   const [turnEnabled, setTurnEnabled] = useState(props.config.turn_brake !== null);
@@ -578,29 +592,36 @@ export function RunMessageView(props: {
   }, [expanded, events, props.room, props.message.id, props.token]);
 
   return (
-    <div data-testid={`run-${props.message.id}`} data-run-status={run.status} className="rounded border border-zinc-800 p-2">
-      <button
-        type="button"
-        data-testid={`run-${props.message.id}-toggle`}
-        onClick={() => setExpanded((e) => !e)}
-        className="flex w-full items-center gap-2 text-left text-xs text-zinc-400"
-      >
-        <span>{expanded ? '▾' : '▸'}</span>
-        <span className="text-zinc-300">@{props.authorHandle}</span>
-        {running ? (
-          <span data-testid={`run-${props.message.id}-live`} className="text-sky-400">
-            running · {props.liveEventCount} events
-          </span>
-        ) : (
-          <span>
-            {run.status}
-            {run.usage &&
-              ` · ${run.usage.input_tokens + run.usage.output_tokens} tk` +
-                (run.usage.cost_usd !== undefined ? ` · $${run.usage.cost_usd.toFixed(2)}` : '')}
-            {` · #${props.message.id}`}
-          </span>
-        )}
-      </button>
+    <div
+      id={String(props.message.id)}
+      data-testid={`run-${props.message.id}`}
+      data-run-status={run.status}
+      className="scroll-mt-16 rounded border border-zinc-800 p-2 target:border-sky-600"
+    >
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          data-testid={`run-${props.message.id}-toggle`}
+          onClick={() => setExpanded((e) => !e)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs text-zinc-400"
+        >
+          <span>{expanded ? '▾' : '▸'}</span>
+          <span className="text-zinc-300">@{props.authorHandle}</span>
+          {running ? (
+            <span data-testid={`run-${props.message.id}-live`} className="text-sky-400">
+              running · {props.liveEventCount} events
+            </span>
+          ) : (
+            <span>
+              {run.status}
+              {run.usage &&
+                ` · ${run.usage.input_tokens + run.usage.output_tokens} tk` +
+                  (run.usage.cost_usd !== undefined ? ` · $${run.usage.cost_usd.toFixed(2)}` : '')}
+            </span>
+          )}
+        </button>
+        <MessagePermalink id={props.message.id} />
+      </div>
       {!running && props.message.body !== '' && (
         <p data-testid={`run-${props.message.id}-body`} className="mt-1 whitespace-pre-wrap text-sm text-zinc-100">
           {props.message.body}
@@ -668,11 +689,18 @@ export function AskCardView(props: {
   const [sent, setSent] = useState(false);
   const done = props.answered || sent;
   return (
-    <div data-testid={`card-${props.message.id}`} className="rounded border border-fuchsia-900 bg-fuchsia-950/30 p-2">
-      <p className="text-xs text-fuchsia-300">
-        {ask.kind === 'ask' ? 'question from' : 'approval requested by'} @{props.authorHandle}
-        {ask.tool && ` · ${ask.tool}`}
-      </p>
+    <div
+      id={String(props.message.id)}
+      data-testid={`card-${props.message.id}`}
+      className="scroll-mt-16 rounded border border-fuchsia-900 bg-fuchsia-950/30 p-2 target:border-sky-600"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-fuchsia-300">
+          {ask.kind === 'ask' ? 'question from' : 'approval requested by'} @{props.authorHandle}
+          {ask.tool && ` · ${ask.tool}`}
+        </p>
+        <MessagePermalink id={props.message.id} />
+      </div>
       <p className="mt-1 text-sm text-zinc-100">{ask.prompt}</p>
       {ask.detail && <code className="mt-1 block text-xs text-zinc-400">{ask.detail}</code>}
       <div className="mt-2 flex gap-2">
@@ -817,15 +845,23 @@ export function MessageRow(props: { message: Message; authorHandle: string; mine
   const { message } = props;
   if (message.kind === 'system') {
     return (
-      <p data-testid={`msg-${message.id}`} className="text-center text-xs italic text-zinc-500">
-        {message.body}
+      <p
+        id={String(message.id)}
+        data-testid={`msg-${message.id}`}
+        className="scroll-mt-16 text-center text-xs italic text-zinc-500 target:text-sky-300"
+      >
+        {message.body} <MessagePermalink id={message.id} />
       </p>
     );
   }
   return (
-    <div data-testid={`msg-${message.id}`} className="text-sm">
+    <div
+      id={String(message.id)}
+      data-testid={`msg-${message.id}`}
+      className="scroll-mt-16 text-sm target:border-l-2 target:border-sky-600 target:pl-2"
+    >
       <span className={`font-medium ${props.mine ? 'text-sky-300' : 'text-emerald-300'}`}>@{props.authorHandle}</span>
-      <span className="ml-2 text-[10px] text-zinc-500">#{message.id}</span>
+      <span className="ml-2"><MessagePermalink id={message.id} /></span>
       <p className="whitespace-pre-wrap text-zinc-100">{message.body}</p>
     </div>
   );

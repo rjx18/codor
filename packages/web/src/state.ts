@@ -27,9 +27,12 @@ export interface RoomState {
   runEvents: Record<number, WireEvent[]>;
   errors: string[];
   applyFrame(frame: ServerFrame): void;
+  mergeHistory(messages: Message[]): void;
   setConnected(connected: boolean): void;
   reset(): void;
 }
+
+export const HISTORY_PAGE_SIZE = 50;
 
 export const useRoomStore = create<RoomState>((set) => ({
   connected: false,
@@ -44,6 +47,7 @@ export const useRoomStore = create<RoomState>((set) => ({
   errors: [],
 
   // harn:assume client-syncs-by-seq ref=store-upsert-in-place
+  // harn:assume permalink-ids-stable ref=paged-message-cache
   // Frames upsert entities IN PLACE by id — a run finalization replaces the
   // existing message row (same #N, new content). Hydration frames retain the
   // prior cursor; sync_complete advances it only after the full snapshot lands.
@@ -53,8 +57,18 @@ export const useRoomStore = create<RoomState>((set) => ({
       switch (frame.type) {
         case 'room':
           return { seq: bump, room: frame.room };
-        case 'sync_complete':
-          return { seq: bump };
+        case 'sync_complete': {
+          if (state.seq !== 0 || Object.keys(state.messages).length <= HISTORY_PAGE_SIZE) {
+            return { seq: bump };
+          }
+          const latest = Object.values(state.messages)
+            .sort((a, b) => a.id - b.id)
+            .slice(-HISTORY_PAGE_SIZE);
+          return {
+            seq: bump,
+            messages: Object.fromEntries(latest.map((message) => [message.id, message])),
+          };
+        }
         case 'member':
           {
             const nextState = frame.member.state ?? 'idle';
@@ -92,6 +106,14 @@ export const useRoomStore = create<RoomState>((set) => ({
           return {};
       }
     }),
+  mergeHistory: (messages) =>
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        ...Object.fromEntries(messages.map((message) => [message.id, message])),
+      },
+    })),
+  // harn:end permalink-ids-stable
   // harn:end client-syncs-by-seq
 
   setConnected: (connected) => set({ connected }),

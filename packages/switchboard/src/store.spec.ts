@@ -59,6 +59,41 @@ describe('message id allocation', () => {
   });
 });
 
+describe('message history and search', () => {
+  it('pages older messages by permanent room-local id in timeline order', () => {
+    const { owner } = openRoom(store);
+    for (let id = 1; id <= 7; id++) {
+      store.postMessage('eng', { author: owner.id, kind: 'chat', body: `message ${id}` });
+    }
+
+    expect(store.listMessages('eng', { limit: 3 }).map((item) => item.id)).toEqual([5, 6, 7]);
+    expect(store.listMessages('eng', { before: 5, limit: 3 }).map((item) => item.id)).toEqual([
+      2, 3, 4,
+    ]);
+  });
+
+  it('searches only the selected room and treats LIKE wildcards literally', () => {
+    const { owner } = openRoom(store);
+    const ops = store.createRoom({
+      id: 'ops',
+      name: 'Ops',
+      owner: { handle: 'richard', display_name: 'Richard' },
+    });
+    store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'Alpha 100% ready' });
+    store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'alpha wildcard_ literal' });
+    store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'unrelated' });
+    store.postMessage('ops', { author: ops.owner.id, kind: 'chat', body: 'alpha in another room' });
+
+    expect(store.searchMessages('eng', 'ALPHA').map((item) => item.id)).toEqual([2, 1]);
+    expect(store.searchMessages('eng', '100%').map((item) => item.body)).toEqual([
+      'Alpha 100% ready',
+    ]);
+    expect(store.searchMessages('eng', 'wildcard_').map((item) => item.body)).toEqual([
+      'alpha wildcard_ literal',
+    ]);
+  });
+});
+
 describe('change log completeness', () => {
   it('every entity-type mutation appends exactly one row with monotonic seq', () => {
     const { owner } = openRoom(store);

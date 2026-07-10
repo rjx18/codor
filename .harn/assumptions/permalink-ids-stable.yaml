@@ -1,0 +1,14 @@
+id: permalink-ids-stable
+hash: a-15cfe87d438d
+title: Message permalinks use permanent room-local ids
+state: active
+statement: "Every history page, room-search result, and rendered timeline item
+  must identify a message by its permanent room-local integer id and expose that
+  item at the URL fragment #N, while paging and live hydration merge by the same
+  id without reassigning or duplicating it, because copied permalinks and search
+  jumps must keep resolving after in-place run finalization and later message
+  inserts."
+depends_on:
+  - message-id-txn-allocation
+  - client-syncs-by-seq
+created_by: m1-acceptance-search

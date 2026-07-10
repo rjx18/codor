@@ -843,6 +843,7 @@ export class Store {
     return row ? messageFromRow(row) : undefined;
   }
 
+  // harn:assume permalink-ids-stable ref=message-history-search
   listMessages(room: string, opts: { limit?: number; before?: number } = {}): Message[] {
     const rows = this.db
       .prepare(
@@ -852,6 +853,19 @@ export class Store {
       .all(room, opts.before ?? Number.MAX_SAFE_INTEGER, opts.limit ?? 100) as MessageRow[];
     return rows.reverse().map(messageFromRow);
   }
+
+  searchMessages(room: string, query: string, opts: { limit?: number } = {}): Message[] {
+    const literal = query.replace(/[\\%_]/g, '\\$&');
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE room = ? AND body LIKE ? ESCAPE '\\'
+         ORDER BY id DESC LIMIT ?`,
+      )
+      .all(room, `%${literal}%`, opts.limit ?? 50) as MessageRow[];
+    return rows.map(messageFromRow);
+  }
+  // harn:end permalink-ids-stable
 
   // ── deliveries ────────────────────────────────────────────────────────
 

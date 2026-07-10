@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   heldDeliveries,
+  HISTORY_PAGE_SIZE,
   latestFinalizedAgentAuthor,
   me,
   sortedMessages,
@@ -67,6 +68,23 @@ describe('frame application (in-place, seq-cursored)', () => {
 
     applyFrame({ type: 'sync_complete', seq: 12 });
     expect(useRoomStore.getState().seq).toBe(12);
+  });
+
+  it('keeps one initial history page and merges older REST rows without moving seq', () => {
+    const { applyFrame } = useRoomStore.getState();
+    for (let id = 1; id <= HISTORY_PAGE_SIZE + 5; id++) {
+      applyFrame({ type: 'message', seq: 0, message: message({ id, seq: id }) });
+    }
+    applyFrame({ type: 'sync_complete', seq: HISTORY_PAGE_SIZE + 5 });
+
+    let state = useRoomStore.getState();
+    expect(Object.keys(state.messages)).toHaveLength(HISTORY_PAGE_SIZE);
+    expect(sortedMessages(state.messages)[0]!.id).toBe(6);
+    state.mergeHistory([message({ id: 5, seq: 5 }), message({ id: 4, seq: 4 })]);
+
+    state = useRoomStore.getState();
+    expect(sortedMessages(state.messages).slice(0, 3).map((item) => item.id)).toEqual([4, 5, 6]);
+    expect(state.seq).toBe(HISTORY_PAGE_SIZE + 5);
   });
 
   it('a run finalization REPLACES the message in place — never a duplicate', () => {

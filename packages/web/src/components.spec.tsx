@@ -6,6 +6,7 @@ import {
   AskCardView,
   Header,
   MemberCard,
+  MessageRow,
   extensionRunSummaries,
   impliedRecipient,
   RunMessageView,
@@ -140,6 +141,8 @@ describe('RunMessageView', () => {
     expect(html).toContain('120 tk');
     expect(html).toContain('$0.19');
     expect(html).toContain('#7');
+    expect(html).toContain('id="7"');
+    expect(html).toContain('href="#7"');
   });
 });
 
@@ -165,6 +168,8 @@ describe('AskCardView', () => {
     expect(html).toContain('Which codeword?');
     expect(html).toContain('card-9-option-ALPHA');
     expect(html).toContain('card-9-option-BETA');
+    expect(html).toContain('id="9"');
+    expect(html).toContain('href="#9"');
     expect(html).not.toContain('answered');
   });
 
@@ -174,6 +179,18 @@ describe('AskCardView', () => {
     );
     expect(html).toContain('disabled');
     expect(html).toContain('answered');
+  });
+});
+
+describe('MessageRow', () => {
+  it('renders matching numeric fragment ids and visible permalinks', () => {
+    const chat = { ...finalizedRun, kind: 'chat' as const, run: undefined };
+    const html = renderToStaticMarkup(
+      <MessageRow message={chat} authorHandle="alpha" mine={false} />,
+    );
+    expect(html).toContain('id="7"');
+    expect(html).toContain('href="#7"');
+    expect(html).toContain('Permalink to message 7');
   });
 });
 

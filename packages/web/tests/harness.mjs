@@ -68,6 +68,21 @@ createServer(async (req, res) => {
       });
       const delivery = daemon.store.createDelivery('eng', { message_id: message.id, recipient: alpha.id });
       daemon.holdDelivery('eng', delivery.id, body.reason ?? 'e2e hold');
+    } else if (url.pathname === '/seed-history') {
+      const owner = daemon.ownerOf('eng');
+      const messages = [];
+      for (let index = 1; index <= 75; index++) {
+        messages.push(daemon.store.postMessage('eng', {
+          author: owner.id,
+          kind: 'chat',
+          body: `archive-entry-${String(index).padStart(4, '0')}`,
+        }));
+      }
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        first: messages[0].id,
+        last: messages.at(-1).id,
+      }));
+      return;
     } else if (url.pathname !== '/health') {
       res.writeHead(404).end();
       return;
