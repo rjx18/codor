@@ -39,6 +39,14 @@ assumptions:
     - id: permalink-ids-stable
       outcome: unchanged
       reason: Selecting context still uses the permanent numeric message id and fragment.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: Selecting a run consumes the existing in-memory message and event projection and
+        introduces no browser persistence or runtime cache.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: Making clipped meter values keyboard-scrollable changes only access to the same
+        always-visible daily usage projection.
     - id: extensions-not-addressable-v1
       outcome: unchanged
       reason: Adding a run-inspect command does not expose extension sessions as recipients.
@@ -94,6 +102,19 @@ anchors:
     extension-run-rendering:
       action: change
       reason: Add the parent-run inspect command without changing nested extension rendering.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: Track selected run ids alongside the unchanged history, fragment, and merge flow.
+  sw-caches-shell-only-no-message-data:
+    page-memory-message-cache:
+      action: change
+      reason: Pass live in-memory run events into selected context without persisting them.
+  spend-meter-always-on:
+    meter-settings-surface:
+      action: change
+      reason: Give horizontally clipped meter segments keyboard scrolling without changing
+        their values or always-visible placement.
 files:
   - packages/web/src/App.tsx
   - packages/web/src/api.ts
