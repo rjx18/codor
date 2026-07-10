@@ -50,7 +50,8 @@ Item types observed:
 - `error` `{id, type, message}` — non-fatal warning as an item (seen for unknown-model
   metadata before the hard failure).
 
-Verbatim capture of a successful command run (probe `ls`, held for a P0.6 fixture):
+Verbatim capture of a successful command run (probe `ls`; shipped as fixture
+`command-success.jsonl` in P0.6):
 
 ```jsonl
 {"type":"thread.started","thread_id":"019f4ae3-02e9-7473-80fc-afed1875d899"}
@@ -88,7 +89,8 @@ declines without attempting — codex's own system prompt tells it the sandbox i
 - CLI argv error (`failure-bogus-flag`): exit 2, EMPTY stdout (no JSONL at all), usage text on
   stderr (`error: unexpected argument '--bogus-flag' found`). The empty fixture file is the
   point: spawn failures produce no stream; the adapter must surface stderr + exit code.
-- In-stream failure (bogus model probe, verbatim capture below, held for a P0.6 fixture):
+- In-stream failure (bogus model probe, verbatim capture below; shipped as fixture
+  `failure-bogus-model.jsonl` in P0.6):
   exit 1, `thread.started` still emitted, then `error` + `turn.failed`:
 
 ```jsonl

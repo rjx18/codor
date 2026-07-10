@@ -20,7 +20,11 @@ importers:
 
   packages/adapters/claude-code: {}
 
-  packages/adapters/codex: {}
+  packages/adapters/codex:
+    dependencies:
+      '@wireroom/protocol':
+        specifier: workspace:*
+        version: link:../../protocol
 
   packages/cli: {}
 

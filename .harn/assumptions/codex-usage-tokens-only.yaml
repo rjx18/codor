@@ -1,0 +1,12 @@
+id: codex-usage-tokens-only
+hash: a-c7a91247ae2c
+title: Codex usage carries tokens only, never a fabricated dollar cost
+state: active
+statement: run.completed.usage emitted by the codex adapter must contain
+  input_tokens and output_tokens only and must never include cost_usd, because
+  codex exec reports no dollar cost and spend meters count dollars only from
+  cost-reporting members - fabricating one would corrupt every room meter and
+  spend brake.
+depends_on:
+  - codex-event-contract-pinned
+created_by: codex-adapter-cli-driver

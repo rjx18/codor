@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"019f4ae3-02e9-7473-80fc-afed1875d899"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll count the entries from the requested command."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/bash -lc ls","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/bash -lc ls","aggregated_output":"README.md\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"1"}}
+{"type":"turn.completed","usage":{"input_tokens":26387,"cached_input_tokens":22016,"output_tokens":110,"reasoning_output_tokens":0}}

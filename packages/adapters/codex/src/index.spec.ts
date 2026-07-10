@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { packageName } from './index.js';
+import { CodexAdapter } from './index.js';
 
-describe('@wireroom/adapter-codex scaffold', () => {
-  it('exports its package name', () => {
-    expect(packageName()).toBe('@wireroom/adapter-codex');
+describe('@wireroom/adapter-codex barrel', () => {
+  it('exposes the adapter with its honest capabilities', () => {
+    const adapter = new CodexAdapter();
+    expect(adapter.id).toBe('codex');
+    expect(adapter.capabilities).toEqual({
+      resume: true,
+      discover: true,
+      interactiveAttach: true,
+      ask: false,
+      approvals: 'spawn-time',
+      extensions: false,
+    });
   });
 });

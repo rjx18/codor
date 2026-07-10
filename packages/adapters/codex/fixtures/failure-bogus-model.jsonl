@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"019f4ae4-c98c-7c12-af40-e53f7b652ea2"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `totally-bogus-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"error","message":"{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'totally-bogus-model' model is not supported when using Codex with a ChatGPT account.\"}}"}
+{"type":"turn.failed","error":{"message":"{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'totally-bogus-model' model is not supported when using Codex with a ChatGPT account.\"}}"}}
