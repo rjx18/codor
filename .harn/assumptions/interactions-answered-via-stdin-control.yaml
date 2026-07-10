@@ -1,0 +1,15 @@
+id: interactions-answered-via-stdin-control
+hash: a-11d6a33ecdf7
+title: Interactions are answered by control_response on the child stdin
+state: active
+statement: respondInteraction must answer a pending interaction by writing a
+  stream-json control_response to the SAME child process stdin - AskUserQuestion
+  answers as updatedInput.answers keyed by question text, approvals as behavior
+  allow (once), allow with updatedPermissions from the addRules suggestion
+  (always), or deny with a message - and must resolve only after the write
+  flushed and the stream demonstrably proceeded, because the P0.2 fixtures pin
+  this exact wire shape and an un-flushed answer does not survive a crash (the
+  ask re-raises with fresh native ids).
+depends_on:
+  - claude-control-protocol-pinned
+created_by: claude-adapter-stream-json

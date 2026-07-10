@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { packageName } from './index.js';
+import { ClaudeCodeAdapter } from './index.js';
 
-describe('@wireroom/adapter-claude-code scaffold', () => {
-  it('exports its package name', () => {
-    expect(packageName()).toBe('@wireroom/adapter-claude-code');
+describe('@wireroom/adapter-claude-code barrel', () => {
+  it('exposes the adapter with its honest capabilities', () => {
+    const adapter = new ClaudeCodeAdapter();
+    expect(adapter.id).toBe('claude-code');
+    expect(adapter.capabilities).toEqual({
+      resume: true,
+      discover: true,
+      interactiveAttach: true,
+      ask: true,
+      approvals: 'runtime',
+      extensions: true,
+    });
   });
 });

@@ -14,5 +14,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@wireroom/protocol": "workspace:*"
   }
 }

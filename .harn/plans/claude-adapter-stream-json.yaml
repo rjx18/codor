@@ -9,41 +9,39 @@ assumptions:
         ask.raised (AskUserQuestion) or approval.raised (any other tool)
         WireEvent whose card carries the native request_id as interaction_id
         plus prompt/options/tool/detail from the request, and the turn must
-        remain blocked - the CLI emits nothing further - until that
-        interaction is answered, because the daemon's interaction state
-        machine keys on the card and a missed block would let a turn race its
-        own approval.
-      reason: PLAN-M0 P0.7 and PROTOCOL SS2; the P0.2 ask fixtures pin the
-        request shape and P0.8 persists PendingInteraction from exactly this
-        card.
+        remain blocked - the CLI emits nothing further - until that interaction
+        is answered, because the daemon's interaction state machine keys on the
+        card and a missed block would let a turn race its own approval.
+      reason: PLAN-M0 P0.7 and PROTOCOL SS2; the P0.2 ask fixtures pin the request
+        shape and P0.8 persists PendingInteraction from exactly this card.
       depends_on:
         - claude-control-protocol-pinned
     - id: interactions-answered-via-stdin-control
       title: Interactions are answered by control_response on the child stdin
       statement: respondInteraction must answer a pending interaction by writing a
         stream-json control_response to the SAME child process stdin -
-        AskUserQuestion answers as updatedInput.answers keyed by question
-        text, approvals as behavior allow (once), allow with
-        updatedPermissions from the addRules suggestion (always), or deny
-        with a message - and must resolve only after the write flushed and
-        the stream demonstrably proceeded, because the P0.2 fixtures pin this
-        exact wire shape and an un-flushed answer does not survive a crash
-        (the ask re-raises with fresh native ids).
-      reason: PLAN-M0 P0.7; P0.8 answered-to-acked transition and the crash
-        replay rules implement precisely this resolve semantics.
+        AskUserQuestion answers as updatedInput.answers keyed by question text,
+        approvals as behavior allow (once), allow with updatedPermissions from
+        the addRules suggestion (always), or deny with a message - and must
+        resolve only after the write flushed and the stream demonstrably
+        proceeded, because the P0.2 fixtures pin this exact wire shape and an
+        un-flushed answer does not survive a crash (the ask re-raises with fresh
+        native ids).
+      reason: PLAN-M0 P0.7; P0.8 answered-to-acked transition and the crash replay
+        rules implement precisely this resolve semantics.
       depends_on:
         - claude-control-protocol-pinned
     - id: extensions-hooks-authoritative
       title: SubagentStart/Stop hooks are the authoritative extensions source
       statement: Extension lifecycle events must come from SubagentStart and
-        SubagentStop hooks injected via a generated --settings file that
-        POSTs the hook JSON to the adapter's ephemeral loopback endpoint,
-        mapping to extension.started/extension.ended with the harness-native
-        agent id, while Task/Agent tool_use stream events are enrichment
-        only, because the stream does not carry subagent internals (probed
-        P0.2) and hooks are the only reliable signal.
-      reason: PLAN-M0 P0.7 and ARCHITECTURE SSadapters; P1.5 builds extension
-        members on these events, and the hooks-log fixture pins the payload.
+        SubagentStop hooks injected via a generated --settings file that POSTs
+        the hook JSON to the adapter's ephemeral loopback endpoint, mapping to
+        extension.started/extension.ended with the harness-native agent id,
+        while Task/Agent tool_use stream events are enrichment only, because the
+        stream does not carry subagent internals (probed P0.2) and hooks are the
+        only reliable signal.
+      reason: PLAN-M0 P0.7 and ARCHITECTURE SSadapters; P1.5 builds extension members
+        on these events, and the hooks-log fixture pins the payload.
       depends_on:
         - claude-control-protocol-pinned
   reviewed:
@@ -68,8 +66,7 @@ anchors:
   extensions-hooks-authoritative:
     hooks-endpoint-settings:
       action: change
-      reason: Create the loopback hook endpoint + settings injection in
-        adapter.ts.
+      reason: Create the loopback hook endpoint + settings injection in adapter.ts.
 files:
   - packages/adapters/claude-code/package.json
   - pnpm-lock.yaml
@@ -79,3 +76,5 @@ files:
   - packages/adapters/claude-code/src/translate.ts
   - packages/adapters/claude-code/src/translate.spec.ts
   - packages/adapters/claude-code/src/live.spec.ts
+applied:
+  applied_at: 2026-07-10T08:15:48.619Z

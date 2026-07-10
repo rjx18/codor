@@ -1,0 +1,14 @@
+id: extensions-hooks-authoritative
+hash: a-2185c5cc9c51
+title: SubagentStart/Stop hooks are the authoritative extensions source
+state: active
+statement: Extension lifecycle events must come from SubagentStart and
+  SubagentStop hooks injected via a generated --settings file that POSTs the
+  hook JSON to the adapter's ephemeral loopback endpoint, mapping to
+  extension.started/extension.ended with the harness-native agent id, while
+  Task/Agent tool_use stream events are enrichment only, because the stream does
+  not carry subagent internals (probed P0.2) and hooks are the only reliable
+  signal.
+depends_on:
+  - claude-control-protocol-pinned
+created_by: claude-adapter-stream-json

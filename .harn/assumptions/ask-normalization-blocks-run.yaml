@@ -1,0 +1,14 @@
+id: ask-normalization-blocks-run
+hash: a-f7ab14e1b84d
+title: A control_request normalizes to one blocking ask/approval card
+state: active
+statement: Every can_use_tool control_request must normalize to exactly one
+  ask.raised (AskUserQuestion) or approval.raised (any other tool) WireEvent
+  whose card carries the native request_id as interaction_id plus
+  prompt/options/tool/detail from the request, and the turn must remain blocked
+  - the CLI emits nothing further - until that interaction is answered, because
+  the daemon's interaction state machine keys on the card and a missed block
+  would let a turn race its own approval.
+depends_on:
+  - claude-control-protocol-pinned
+created_by: claude-adapter-stream-json

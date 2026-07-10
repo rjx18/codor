@@ -18,7 +18,11 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@22.20.1)
 
-  packages/adapters/claude-code: {}
+  packages/adapters/claude-code:
+    dependencies:
+      '@wireroom/protocol':
+        specifier: workspace:*
+        version: link:../../protocol
 
   packages/adapters/codex:
     dependencies:
