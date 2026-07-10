@@ -71,10 +71,13 @@ device fetches content over tier 0/1 when opened.
 
 - **Device keys:** every device generates an **Ed25519 signing pair** (the device identity —
   X25519 alone cannot sign) plus an X25519 encryption pair, bound together at pairing. Private
-  keys live in Secure Enclave/Keychain (Apple) or the OS keystore. **Browsers, honestly:**
-  non-extractable WebCrypto keys where the platform supports the curves; otherwise
-  libsodium-managed keys in IndexedDB — weaker, documented, and scoped by the origin sandbox.
-  Unpairing a browser purges IndexedDB, CacheStorage, localStorage, and any push subscription.
+  keys live in Secure Enclave/Keychain (Apple) or the OS keystore. **Browsers, honestly: one
+  crypto suite, libsodium everywhere** — `sodium-native` on Node, `libsodium-wrappers` in the
+  page and service worker, keys in IndexedDB scoped by the origin sandbox. (Non-extractable
+  WebCrypto keys cannot open libsodium sealed boxes, and inventing a second envelope format
+  around `deriveBits` would mean hand-rolling crypto — rejected.) The IndexedDB caveat is
+  documented; unpairing a browser purges IndexedDB, CacheStorage, localStorage, and any push
+  subscription.
 - **Connection auth:** peers and devices authenticate with a nonce-challenge signed by the
   Ed25519 identity (replay-bound to the session transcript) — possession of a room key alone
   is never treated as identity.
