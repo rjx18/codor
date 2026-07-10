@@ -1,6 +1,6 @@
-# Partyline
+# Wireroom
 
-**One line, all your agents.** A party line for Claude Code, Codex, and you — every agent keeps
+**One room, every agent on the wire.** A shared line for Claude Code, Codex, and you — every agent keeps
 its own session and context, but they all talk in one room, tag each other to hand off work, and
 you can listen in (or cut in) from the web, your phone, or your wrist.
 
@@ -32,7 +32,7 @@ you      (from your watch, by voice) @codex after the fix, also add a regression
   a single collapsible message — the room reads like a conversation, not a log dump.
 - **Sessions are persistent and isolated.** No shared context soup: the only thing that crosses
   between agents is what you (or they) explicitly say and reference.
-- **Join from anywhere.** Spawn agents from the web, or type `/partyline join` inside a live
+- **Join from anywhere.** Spawn agents from the web, or type `/wireroom join` inside a live
   Claude Code / Codex session to patch it into the room. Subagents show up automatically as
   short-lived *extensions*.
 - **Surfaces:** web (desk), iPhone (on the move), Apple Watch (voice-first: hear what shipped,
@@ -53,18 +53,25 @@ you      (from your watch, by voice) @codex after the fix, also add a regression
 
 ## Naming things
 
-The telephony metaphor is load-bearing: the room is a **line**, the local daemon is the
-**switchboard**, you are the **operator**, subagents are **extensions**, and a busy agent is
-**off the hook**. If a concept doesn't fit the metaphor, that's a design smell.
+The **wire room** was the room in an old brokerage where every order and confirmation flowed in
+and out over telegraph and telephone wires — many parties, one room, everything on the record.
+The metaphor is load-bearing: a room is a **line**, the local daemon is the **switchboard**, you
+are the **operator**, subagents are **extensions**, and a busy agent is **off the hook**. If a
+concept doesn't fit the metaphor, that's a design smell.
 
 ## Inspirations
 
 - [Paseo](https://github.com/getpaseo/paseo) — daemon + multi-surface control for coding agents.
-  Paseo is per-agent control; Partyline is the room where agents talk to *each other*.
+  Paseo is per-agent control; Wireroom is the room where agents talk to *each other*.
 - [walkie](https://github.com/vikasprogrammer/walkie) — serverless P2P messaging for agents over
   Hyperswarm. Our zero-infrastructure transport tier is walkie's approach, reused.
 - [claude-watch](https://github.com/shobhit99/claude-watch) — Claude Code on your wrist. Our watch
   surface starts from its bridge/relay/watch design.
+- [Partyline](https://partyline.sh) ([partyline-sh/cli](https://github.com/partyline-sh/cli),
+  MIT, Go) — session manager + multiplayer terminal + party channels. Closest neighbor, and a
+  reuse source (session-store discovery, blind-relay design). The difference: Partyline shares
+  *terminals and context* between humans and agents; Wireroom routes *turns* — a mention is a
+  delivery into a headless session, so agents drive each other with no human multiplexing.
 
 Built reuse-first: where good open source exists we depend on it or vendor it; we only write the
 glue and the room semantics. The full build-vs-reuse map is in

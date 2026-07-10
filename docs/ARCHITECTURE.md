@@ -32,7 +32,7 @@ Single Node/TypeScript process (Bun-compatible; plain Node for widest reuse). Ow
 
 - **Room store** — SQLite via better-sqlite3: `rooms`, `members`, `messages`, `deliveries`
   (the per-member FIFO inboxes), `budgets`. Run event streams are **JSONL blobs on disk**
-  (`~/.partyline/rooms/<room>/runs/<msg-id>.jsonl`), referenced by `RunSummary.events_ref` —
+  (`~/.wireroom/rooms/<room>/runs/<msg-id>.jsonl`), referenced by `RunSummary.events_ref` —
   the DB stays small and the "one message per run" rule is structural.
 - **Router** — implements PROTOCOL §3 exactly (segmentation, refs, defaults, fan-out, batching,
   hop/spend guards). Pure function over (message, room state) → deliveries; unit-test heaven.
@@ -41,7 +41,7 @@ Single Node/TypeScript process (Bun-compatible; plain Node for widest reuse). Ow
   resumes them by `session_ref` on switchboard restart. Sessions are the durable thing;
   processes are cattle.
 - **API** — one WebSocket (subscribe/post/act) + small REST (pairing, history pages, blob
-  fetch). Same API for all three surfaces and for the `partyline` CLI.
+  fetch). Same API for all three surfaces and for the `wireroom` CLI.
 
 ### Adapters
 
@@ -50,7 +50,7 @@ interface HarnessAdapter {
   id: string                                  // 'claude-code' | 'codex' | …
   spawn(opts: {cwd, model?, policy?}): Session       // new session
   attach(session_ref: string): Session               // adopt an existing one
-  deliver(s: Session, payload: string): AsyncIterable<PartyEvent>   // one turn
+  deliver(s: Session, payload: string): AsyncIterable<WireEvent>   // one turn
   interrupt(s: Session): void
   capabilities: {ask: boolean, approvals: 'runtime'|'spawn-time', extensions: boolean}
 }
@@ -77,7 +77,7 @@ be driven headlessly — two writers, one context.
 
 - **Owned** (default): the switchboard holds the session; every turn goes through `deliver()`.
   Spawned-from-room members are always owned.
-- **Mirrored**: `/partyline join` from inside a *live* TUI session registers the session
+- **Mirrored**: `/wireroom join` from inside a *live* TUI session registers the session
   (id + harness + cwd) with the switchboard over a local unix socket. While the TUI runs, the
   member is read-mostly: hooks/notify streams mirror its activity into the room
   (Claude Code: hooks; Codex: `notify` config + session-file tailing), and inbound deliveries
@@ -88,7 +88,7 @@ be driven headlessly — two writers, one context.
 
 ### Surfaces
 
-- **Web** (`@partyline/web`): React + Vite SPA served by the switchboard itself. Room list,
+- **Web** (`@wireroom/web`): React + Vite SPA served by the switchboard itself. Room list,
   timeline with collapsible runs, composer with @/# autocomplete + implied-recipient indicator,
   member rail (state, policy chip, spend), ask/approval cards, budget banner. No SSR, no
   framework ceremony — it's a LAN/tailnet tool.
@@ -101,13 +101,13 @@ be driven headlessly — two writers, one context.
   push relay for alerts + standalone WS to the switchboard *only if* the watch can reach it
   (LAN). watchOS cannot run a tailnet client — the phone is the watch's tailnet on-ramp; this
   is a hard platform constraint, not a design choice.
-- **CLI** (`partyline`): join/spawn/list/post/tail. Also the thing the Codex-side skill shells
+- **CLI** (`wireroom`): join/spawn/list/post/tail. Also the thing the Codex-side skill shells
   out to.
 
-### The `/partyline` skill
+### The `/wireroom` skill
 
 Claude Code skill (and an AGENTS.md snippet for Codex) so a live session can self-register:
-`/partyline join traderjoe-eng --as planner`. The skill just calls the local CLI, which talks to
+`/wireroom join traderjoe-eng --as planner`. The skill just calls the local CLI, which talks to
 the unix socket — no HTTP, no tokens on disk beyond the socket's filesystem permissions.
 
 ## Reuse-first build map
@@ -123,6 +123,8 @@ verified in M0 before any code lands (unverified entries marked ⚠).
 | Harness normalization | Zed ACP (`agent-client-protocol` + `claude-code-acp`) | depend (spike) | M0 gate; may replace bespoke drivers |
 | P2P transport | `hyperswarm` (+ DHT, Noise) — walkie's stack ⚠ | depend; walkie as pattern/vendor | `line:secret` → DHT topic, exactly walkie's channel model; reuse walkie's `listen()/send()` lib if license allows, else hyperswarm directly |
 | Tailnet access | Tailscale (user-supplied) + `tailscale serve` for TLS | depend | zero code: bind the tailnet IP |
+| Session-store discovery | partyline-sh/cli (MIT, Go) | port | its readers for `~/.claude` / `~/.codex` / Gemini session stores solve attach-by-session-id; port the formats to TS (Go binary doesn't transplant into a Node daemon) |
+| Blind ciphertext relay | partyline-sh relay + `ptysess` (Noise NNpsk0, key in URL fragment) | pattern / candidate depend | same philosophy as our push relay; M0 audit checks how separable it is from their hosted control plane — if it's a clean generic pipe, run it wholesale for room sync |
 | Watch/phone bridge | claude-watch ⚠ | fork | SwiftUI watch app + phone relay + SSE bridge; rework bridge → our WS protocol |
 | Multi-surface daemon shape | Paseo ⚠ | pattern | daemon/WS/pairing shape; per-agent model differs too much to fork |
 | E2EE primitives | libsodium (`sodium-native`) / Noise via hyperswarm | depend | never hand-rolled; MLS (OpenMLS) only if multi-party keys outgrow sealed-box fan-out |
@@ -138,15 +140,15 @@ journal, and the surfaces' room-rendering.** Everything else is glue around the 
 ## Monorepo layout
 
 ```text
-partyline/
-  packages/protocol/      # zod schemas: Member, Message, PartyEvent, deliveries
+wireroom/
+  packages/protocol/      # zod schemas: Member, Message, WireEvent, deliveries
   packages/switchboard/   # daemon: store, router, adapter host, WS/REST
   packages/adapters/      # claude-code/, codex/, acp/ (spike)
-  packages/cli/           # partyline join/spawn/post/tail
+  packages/cli/           # wireroom join/spawn/post/tail
   packages/web/           # React SPA
   apps/ios/               # SwiftUI iPhone + Watch targets (Mac/Xcode only)
   relay/                  # push relay (self-hostable, tiny)
-  skills/                 # /partyline Claude Code skill; AGENTS.md snippet for Codex
+  skills/                 # /wireroom Claude Code skill; AGENTS.md snippet for Codex
   docs/
 ```
 

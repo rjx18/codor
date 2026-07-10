@@ -23,7 +23,7 @@ shadows — treat every room like a production credential.
 ### Tier 0 — tailnet only (recommended default)
 
 Switchboard binds its Tailscale IP; web/iPhone connect over WireGuard (`tailscale serve` gives
-HTTPS + certs for free). No Partyline-related traffic leaves the tailnet; transport encryption is
+HTTPS + certs for free). No Wireroom-related traffic leaves the tailnet; transport encryption is
 WireGuard's. **Zero third-party infrastructure.** Limits: watch has no tailnet of its own (phone
 relays via WatchConnectivity), and no push when the phone app is cold (see §push).
 
@@ -112,7 +112,7 @@ Defense in depth; the real boundary remains: rooms are as sensitive as the code 
 
 **Not defended (declared honestly):**
 
-- A compromised switchboard host — the agents run *there* with full permissions; Partyline adds
+- A compromised switchboard host — the agents run *there* with full permissions; Wireroom adds
   no attack surface an attacker on that box doesn't already own. Host security is out of scope.
 - A malicious harness/adapter — adapters run in-process with the switchboard by design.
 - Traffic analysis at the ISP/DHT level (tier 1) and timing/volume at APNs (tier 2).

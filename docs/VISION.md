@@ -26,25 +26,32 @@ Existing tools each solve a slice:
   session identity, run streaming, mention routing, or human surfaces.
 - **claude-watch** puts one Claude Code session on your wrist — but only one, only Claude, and only
   its approvals/questions.
+- **Partyline** (partyline.sh) aggregates harness sessions into one launcher, shares live
+  terminals over an E2E-encrypted blind relay, and coordinates agents via shared "context
+  threads" and channels. Closest neighbor, and MIT-licensed — we reuse pieces of it (see the
+  build map). But its center of gravity is *humans sharing terminals and context with agents*:
+  sessions live in PTYs a human drives, and multiplayer requires an account on its hosted
+  control plane. It does not route a mention into a headless session as that session's next
+  turn — the delegation loop above still leaves the human at the multiplexer.
 
-Partyline is the missing composition: **the chat room where harness sessions are first-class
+Wireroom is the missing composition: **the chat room where harness sessions are first-class
 members**, with the routing semantics that make delegation real, and surfaces that follow the
 operator out of the door.
 
-## What Partyline is (and is not)
+## What Wireroom is (and is not)
 
-Partyline is:
+Wireroom is:
 
 - a **local daemon** (the *switchboard*) that owns rooms, routes mentions, and manages the
   lifecycle of harness sessions,
 - a **protocol** for messages, mentions, references, and normalized agent events,
 - three **surfaces** — web, iPhone, Apple Watch — that render the same rooms.
 
-Partyline is **not**:
+Wireroom is **not**:
 
 - an agent framework or harness — it never prompts, plans, or holds model context. Claude Code and
-  Codex do what they already do; Partyline is the wire between them.
-- a cloud service — there is no partyline.com backend holding your messages. Every remote path is
+  Codex do what they already do; Wireroom is the wire between them.
+- a cloud service — there is no wireroom.com backend holding your messages. Every remote path is
   your tailnet, direct P2P, or a dumb encrypted pipe you can self-host.
 - a shared-context multiplexer — members deliberately do *not* share context. The only cross-agent
   information transfer is explicit: the text of a mention plus any `#`-referenced messages.
@@ -72,8 +79,8 @@ A room member is a *session of a harness* — nameable, renameable (`coder`, `re
 lifecycle-managed by the switchboard. Two ways in:
 
 - **From the room** (web/phone): spawn a new session of any installed harness into the room.
-- **From a live session**: a `/partyline join <room> [--as reviewer]` skill (Claude Code) or
-  `partyline join` CLI (Codex, anything) patches the session you're *already in* into the room —
+- **From a live session**: a `/wireroom join <room> [--as reviewer]` skill (Claude Code) or
+  `wireroom join` CLI (Codex, anything) patches the session you're *already in* into the room —
   so the terminal session you've been driving all morning becomes addressable by everyone else.
 
 Subagents spawned by a member appear automatically as **extensions** (e.g. `claude-ext-7adw`),
@@ -83,7 +90,7 @@ their task ends.
 ### 3. One protocol across harnesses, down to your wrist
 
 Harnesses differ: Claude Code has `AskUserQuestion` and permission prompts; Codex has sandbox
-modes and no ask-user at all. Partyline normalizes everything into one event vocabulary — message,
+modes and no ask-user at all. Wireroom normalizes everything into one event vocabulary — message,
 run, ask, approval, state — so every surface renders every harness. The Apple Watch surface is the
 proof: any agent's question or approval arrives as an actionable notification, and your dictated
 reply routes back to the right session. Where a harness lacks a feature, the normalization
@@ -131,7 +138,7 @@ your tailnet; push arrived as ciphertext through a relay that couldn't read it.
 - **Reuse-first.** Where good open source exists — P2P transport, agent drivers, watch bridge,
   push gateway, crypto — depend on it or vendor it, and write only room semantics and glue. The
   build map in ARCHITECTURE.md marks every component *depend / fork / pattern*.
-- **The harness is the product; Partyline is the wire.** Never intercept, rewrite, or "improve"
+- **The harness is the product; Wireroom is the wire.** Never intercept, rewrite, or "improve"
   agent turns. Deliver exactly what was addressed, render exactly what happened.
 - **Explicit context transfer.** If an agent needs to know something, someone must have said it to
   them (or referenced it). This is a feature: it keeps every session's context bounded and every

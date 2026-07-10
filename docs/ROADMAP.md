@@ -10,7 +10,7 @@ milestone starts — this file stays the map, not the turf.
 
 *A room exists; one human and one owned agent talk in it over the tailnet.*
 
-- `packages/protocol`: schemas for Member/Message/PartyEvent/deliveries (PROTOCOL.md → zod).
+- `packages/protocol`: schemas for Member/Message/WireEvent/deliveries (PROTOCOL.md → zod).
 - `packages/switchboard`: SQLite store, run-blob journal, WS/REST API, single-room MVP of the
   router (mentions, segments, refs, defaults — full PROTOCOL §3 semantics from day one; they're
   the product).
@@ -35,7 +35,7 @@ result — no terminal involvement after setup.
 *Many sessions, live-session join, extensions, guards. The manual review loop is dead.*
 
 - Multi-agent rooms: rename, per-member policy chips, queue/batch semantics, member revive.
-- `/partyline` skill (Claude Code) + `partyline join` CLI (Codex): mirrored members, hook-based
+- `/wireroom` skill (Claude Code) + `wireroom join` CLI (Codex): mirrored members, hook-based
   mirroring, adopt-on-TUI-exit custody transfer.
 - Extensions: subagent capture via Task-call events + hooks; collapsed rendering under parent.
 - Loop guards: hop budget with hold/release, room spend meter with warn/stop, stall flagging.
@@ -43,7 +43,7 @@ result — no terminal involvement after setup.
 
 **Acceptance:** replay a real historical workflow — plan → `@codex` review (persistent session)
 → fold findings → `@codex` re-review → converge — entirely in one room, including one
-`/partyline join` of a pre-existing live TUI session, one subagent appearing as an extension,
+`/wireroom join` of a pre-existing live TUI session, one subagent appearing as an extension,
 and one deliberate hop-budget trip + release.
 
 ## M2 — Long lines
@@ -104,4 +104,4 @@ both stock adapters, and a third-party harness lands via the SDK without patchin
 - MLS group crypto (sealed-box fan-out is right at ≤5 devices).
 - Addressable extensions, `@all`, threading beyond `reply_to`, message editing.
 - Android/WearOS (architecture is surface-agnostic; someone else's M3/M4).
-- Any hosted "Partyline cloud". The moment content touches our servers, PRIVACY.md has failed.
+- Any hosted "Wireroom cloud". The moment content touches our servers, PRIVACY.md has failed.

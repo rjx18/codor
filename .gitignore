@@ -5,7 +5,7 @@ dist/
 .pnpm-store/
 
 # local state
-.partyline/
+.wireroom/
 *.sqlite
 *.sqlite-*
 

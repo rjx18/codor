@@ -1,7 +1,7 @@
 # Protocol
 
 The room semantics. This is the spec other-harness adapters and all three surfaces implement
-against. Wire format is JSON; schemas live in `@partyline/protocol` (zod) once implementation
+against. Wire format is JSON; schemas live in `@wireroom/protocol` (zod) once implementation
 starts.
 
 ## 1. Members
@@ -97,7 +97,7 @@ Parsing rules, applied to `body` (fenced code blocks and inline code are skipped
 What actually lands in the recipient session's next turn — exact template:
 
 ```text
-[partyline room=traderjoe-eng msg=#93107 from=@richard (human)]
+[wireroom room=traderjoe-eng msg=#93107 from=@richard (human)]
 
 Start implementation of phase 3, see my comments in #92832 before starting.
 
@@ -118,7 +118,7 @@ tokens for every byte.
 
 Harness sessions are single-threaded. Per-member FIFO inbox: deliveries to a `running` member
 queue (`state: queued` shown in the room). On idle, **all queued deliveries for that member are
-batched into one turn**, ordered, each with its `[partyline …]` header — one resume call, no
+batched into one turn**, ordered, each with its `[wireroom …]` header — one resume call, no
 interleaving ambiguity. A `paused` or `dead` member holds its queue; the room shows the backlog.
 
 ### Loop guards and budgets
@@ -135,7 +135,7 @@ Protocol-level, enforced by the switchboard (see VISION §principles — spend i
 
 ## 4. Normalized events (adapter output)
 
-Adapters translate harness-native streams into `PartyEvent`s; the switchboard journals them into
+Adapters translate harness-native streams into `WireEvent`s; the switchboard journals them into
 the run blob and fans out live to surfaces:
 
 ```
@@ -162,7 +162,7 @@ What each adapter maps from; the normalization column is the contract surfaces r
 | Permissions | permission modes + SDK `canUseTool` callback | sandbox modes (`read-only` ↔ `--dangerously-bypass…`), set at spawn | `approval.raised` (Claude, runtime) + a static **policy chip** on the member (both) |
 | Subagents | Task tool; hooks (`SubagentStart/Stop`) + transcript JSONL | — | `extension.*` (Claude); n/a |
 | Usage/cost | result usage block | token counts in events | `run.completed.usage` → room meter |
-| Join-from-live-session | `/partyline` skill + hooks (see ARCHITECTURE §ownership) | `partyline join` CLI reading `~/.codex/sessions` | member with `session_ref` |
+| Join-from-live-session | `/wireroom` skill + hooks (see ARCHITECTURE §ownership) | `wireroom join` CLI reading `~/.codex/sessions` | member with `session_ref` |
 | Interrupt | SDK interrupt / SIGINT | SIGINT on child | member action `interrupt` |
 
 **Extensibility:** an adapter is ~one file implementing `spawn / attach / deliver / interrupt`
