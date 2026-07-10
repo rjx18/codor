@@ -1,0 +1,14 @@
+id: remote-deliveries-queue-when-unreachable
+hash: a-9f5ee9c578bf
+title: Unreachable resident members hold their home FIFO
+state: active
+statement: A delivery for a member whose host is a different unreachable
+  switchboard must remain queued at the room home, expose the member as
+  unreachable, never start a local adapter, and drain the same durable FIFO in
+  order when that authenticated peer reconnects, because offline peers hold work
+  rather than dropping or misrouting it.
+depends_on:
+  - delivery-fifo-has-durable-sequence
+  - turn-start-requires-owned-custody
+  - peer-auth-challenge-before-traffic
+created_by: multibox-member-residency

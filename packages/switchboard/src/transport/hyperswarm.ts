@@ -56,6 +56,7 @@ export interface RunEventPayload {
 }
 
 type TransportHandler = (envelope: TransportEnvelope, peerId: string) => void | Promise<void>;
+type PeerStateHandler = (peerId: string, connected: boolean) => void;
 
 function nonempty(value: string, label: string): string {
   if (value.length === 0) throw new Error(`${label} must not be empty`);
@@ -77,6 +78,7 @@ export class HyperswarmTransport {
   private readonly channelsByNoiseKey = new Map<string, ReliablePeer>();
   private readonly channelsByPeerId = new Map<string, ReliablePeer>();
   private readonly handlers = new Set<TransportHandler>();
+  private readonly peerStateHandlers = new Set<PeerStateHandler>();
   private readonly peerWaiters = new Set<() => void>();
   private started = false;
   private closed = false;
@@ -112,6 +114,11 @@ export class HyperswarmTransport {
   onEnvelope(handler: TransportHandler): () => void {
     this.handlers.add(handler);
     return () => this.handlers.delete(handler);
+  }
+
+  onPeerState(handler: PeerStateHandler): () => void {
+    this.peerStateHandlers.add(handler);
+    return () => this.peerStateHandlers.delete(handler);
   }
 
   async start(): Promise<void> {
@@ -210,6 +217,7 @@ export class HyperswarmTransport {
           if (existing && existing !== channel) existing.close();
           this.channelsByPeerId.set(peerId, channel!);
           for (const wake of this.peerWaiters) wake();
+          for (const handler of this.peerStateHandlers) handler(peerId, true);
         },
         () => { this.rejections += 1; },
       );
@@ -217,6 +225,11 @@ export class HyperswarmTransport {
     }
     try {
       channel.attach(stream);
+      stream.on('close', () => {
+        const peerId = channel!.peerId;
+        if (!peerId || this.channelsByPeerId.get(peerId) !== channel || channel!.authenticated) return;
+        for (const handler of this.peerStateHandlers) handler(peerId, false);
+      });
     } catch (error) {
       this.rejections += 1;
       stream.destroy(error instanceof Error ? error : new Error(String(error)));

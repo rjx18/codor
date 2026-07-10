@@ -1,0 +1,14 @@
+id: room-home-single-authority
+hash: a-871e262c6022
+title: The room home alone owns durable room semantics
+state: active
+statement: A room's home switchboard must remain the only authority that assigns
+  message ids, stores history and run blobs, builds delivery payloads, finalizes
+  remote run messages, and routes their nonempty finalized replies, while a
+  resident switchboard may only run its local adapter and return normalized
+  events, because remote member residency must not create a second room writer.
+depends_on:
+  - reply-is-finalized-run-message
+  - message-id-txn-allocation
+  - delivery-payload-snapshotted
+created_by: multibox-member-residency

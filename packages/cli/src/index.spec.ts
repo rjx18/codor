@@ -21,6 +21,7 @@ import {
   runCli,
   startWireroom,
 } from './index.js';
+import { parseLine } from './up.js';
 
 let dir: string;
 let daemon: Daemon;
@@ -74,6 +75,7 @@ describe('@wireroom/cli', () => {
     expect(createProgram().commands.map((command) => command.name())).toEqual([
       'up',
       'rooms',
+      'serve',
       'spawn',
       'post',
       'tail',
@@ -87,6 +89,14 @@ describe('@wireroom/cli', () => {
       'revoke',
       'ledger',
     ]);
+  });
+
+  it('parses outpost lines without truncating secrets that contain colons', () => {
+    expect(parseLine('studio:correct:horse')).toEqual({
+      name: 'studio',
+      secret: 'correct:horse',
+    });
+    expect(() => parseLine('missing-secret:')).toThrow('name:secret');
   });
 
   it('pairs, lists, and revokes a device while rotating room keys', async () => {

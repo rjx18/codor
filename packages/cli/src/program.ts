@@ -14,7 +14,7 @@ import {
 import { ProtocolClient, type ProtocolClientOptions } from './connection.js';
 import { detectSession } from './detect.js';
 import { parseMirrorHook } from './mirror.js';
-import { startWireroom, waitForShutdown } from './up.js';
+import { parseLine, startOutpost, startWireroom, waitForShutdown } from './up.js';
 
 export interface CliContext {
   stdout?(line: string): void;
@@ -137,6 +137,19 @@ export function createProgram(context: CliContext = {}): Command {
       }
     });
   });
+
+  program
+    .command('serve')
+    .description('host resident members for a remote room home')
+    .requiredOption('--join <line>', 'line name and secret as name:secret')
+    .action(async (options: { join: string }) => {
+      const running = await startOutpost({
+        dataDir: program.opts<GlobalOptions>().dataDir,
+        line: parseLine(options.join),
+      });
+      out(`wireroom outpost ${running.crypto.keys.identity.device_id}`);
+      await waitForShutdown(running.close);
+    });
 
   program
     .command('spawn')

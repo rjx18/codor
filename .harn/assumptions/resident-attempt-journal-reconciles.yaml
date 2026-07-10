@@ -1,0 +1,14 @@
+id: resident-attempt-journal-reconciles
+hash: a-45da609abc2a
+title: Resident attempts reconcile to completed, never-started, or ambiguous
+state: active
+statement: Before a resident invokes an adapter it must persist the home peer,
+  rpc_id, member/session inputs, payload, attempt count, event journal, and
+  local start state; reconnect or restart must replay completed indexed events,
+  retry the same rpc_id at most once only when provably never started, and
+  report any started-without-completion attempt as ambiguous so the home holds
+  it, because a disconnect after remote side effects can never re-run a turn.
+depends_on:
+  - delivery-attempt-wal-reconcile
+  - envelope-ids-not-room-seq-for-dedup
+created_by: multibox-member-residency

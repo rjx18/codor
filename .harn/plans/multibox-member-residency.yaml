@@ -6,12 +6,13 @@ assumptions:
     - id: room-home-single-authority
       title: The room home alone owns durable room semantics
       statement: A room's home switchboard must remain the only authority that assigns
-        message ids, stores history and run blobs, builds delivery payloads, finalizes
-        remote run messages, and routes their nonempty finalized replies, while a
-        resident switchboard may only run its local adapter and return normalized events,
-        because remote member residency must not create a second room writer.
-      reason: PLAN-M2 P2.3 and ARCHITECTURE Multi-box separate room home authority from
-        the machine that owns a member session.
+        message ids, stores history and run blobs, builds delivery payloads,
+        finalizes remote run messages, and routes their nonempty finalized
+        replies, while a resident switchboard may only run its local adapter and
+        return normalized events, because remote member residency must not
+        create a second room writer.
+      reason: PLAN-M2 P2.3 and ARCHITECTURE Multi-box separate room home authority
+        from the machine that owns a member session.
       depends_on:
         - reply-is-finalized-run-message
         - message-id-txn-allocation
@@ -20,11 +21,11 @@ assumptions:
       title: Unreachable resident members hold their home FIFO
       statement: A delivery for a member whose host is a different unreachable
         switchboard must remain queued at the room home, expose the member as
-        unreachable, never start a local adapter, and drain the same durable FIFO in
-        order when that authenticated peer reconnects, because offline peers hold work
-        rather than dropping or misrouting it.
-      reason: PLAN-M2 P2.3, ARCHITECTURE Multi-box, and PROTOCOL Queueing require remote
-        backlog preservation and visible reachability state.
+        unreachable, never start a local adapter, and drain the same durable
+        FIFO in order when that authenticated peer reconnects, because offline
+        peers hold work rather than dropping or misrouting it.
+      reason: PLAN-M2 P2.3, ARCHITECTURE Multi-box, and PROTOCOL Queueing require
+        remote backlog preservation and visible reachability state.
       depends_on:
         - delivery-fifo-has-durable-sequence
         - turn-start-requires-owned-custody
@@ -32,43 +33,48 @@ assumptions:
     - id: resident-attempt-journal-reconciles
       title: Resident attempts reconcile to completed, never-started, or ambiguous
       statement: Before a resident invokes an adapter it must persist the home peer,
-        rpc_id, member/session inputs, payload, attempt count, event journal, and local
-        start state; reconnect or restart must replay completed indexed events, retry
-        the same rpc_id at most once only when provably never started, and report any
-        started-without-completion attempt as ambiguous so the home holds it, because a
-        disconnect after remote side effects can never re-run a turn.
-      reason: PLAN-M2 P2.3 and PROTOCOL exactly-once-or-held extend the local attempt WAL
-        across the home/resident boundary.
+        rpc_id, member/session inputs, payload, attempt count, event journal,
+        and local start state; reconnect or restart must replay completed
+        indexed events, retry the same rpc_id at most once only when provably
+        never started, and report any started-without-completion attempt as
+        ambiguous so the home holds it, because a disconnect after remote side
+        effects can never re-run a turn.
+      reason: PLAN-M2 P2.3 and PROTOCOL exactly-once-or-held extend the local attempt
+        WAL across the home/resident boundary.
       depends_on:
         - delivery-attempt-wal-reconcile
         - envelope-ids-not-room-seq-for-dedup
   reviewed:
     - id: routing-eligibility-nonempty-finalized
       outcome: unchanged
-      reason: Remote completion feeds the existing home finalizer, so an empty finalized
-        remote run displays but produces no onward delivery.
+      reason: Remote completion feeds the existing home finalizer, so an empty
+        finalized remote run displays but produces no onward delivery.
     - id: turn-finalization-transactional
       outcome: unchanged
       reason: The home continues to commit run finalization, input consumption, member
         state, meter changes, and onward fanout through Store.completeTurn.
     - id: redaction-before-fanout
       outcome: unchanged
-      reason: Client frames still pass through the home projection; resident payloads are
-        explicit authorized adapter deliveries rather than a new surface cache.
+      reason: Client frames still pass through the home projection; resident payloads
+        are explicit authorized adapter deliveries rather than a new surface
+        cache.
     - id: delivery-payload-snapshotted
       outcome: unchanged
-      reason: Only the home composes the existing immutable per-delivery payload snapshot,
-        and the resident receives that completed payload over the authenticated line.
+      reason: Only the home composes the existing immutable per-delivery payload
+        snapshot, and the resident receives that completed payload over the
+        authenticated line.
     - id: custody-uncertain-never-double-writes
       outcome: unchanged
-      reason: Local mirrored and attach custody guards remain intact; host residency is a
-        separate switchboard boundary and never causes the home to attach the session.
+      reason: Local mirrored and attach custody guards remain intact; host residency
+        is a separate switchboard boundary and never causes the home to attach
+        the session.
 anchors:
   room-home-single-authority:
     remote-run-home-finalization:
       action: change
-      reason: Branch the home turn pump by Member.host while retaining home run creation,
-        event journaling, finalization, routing, and sequence allocation.
+      reason: Branch the home turn pump by Member.host while retaining home run
+        creation, event journaling, finalization, routing, and sequence
+        allocation.
   remote-deliveries-queue-when-unreachable:
     remote-member-reachability:
       action: change
@@ -77,12 +83,13 @@ anchors:
   resident-attempt-journal-reconciles:
     resident-attempt-wal:
       action: change
-      reason: Add the resident SQLite metadata plus JSONL event WAL and the three-outcome
-        reconnect protocol keyed by rpc_id and event_index.
+      reason: Add the resident SQLite metadata plus JSONL event WAL and the
+        three-outcome reconnect protocol keyed by rpc_id and event_index.
   mirrored-deliveries-queue:
     mirrored-custody-hold:
       action: change
-      reason: Preserve mirrored behavior while adding the separate unreachable-host hold.
+      reason: Preserve mirrored behavior while adding the separate unreachable-host
+        hold.
   turn-start-requires-owned-custody:
     shared-turn-start-custody-gate:
       action: change
@@ -91,8 +98,8 @@ anchors:
   runs-are-one-message:
     run-message-lifecycle:
       action: change
-      reason: Reuse the same home run placeholder and deterministic rpc_id for resident
-        execution and crash reconciliation.
+      reason: Reuse the same home run placeholder and deterministic rpc_id for
+        resident execution and crash reconciliation.
   delivery-attempt-wal-reconcile:
     boot-reconcile:
       action: change
@@ -101,8 +108,8 @@ anchors:
   envelope-ids-not-room-seq-for-dedup:
     reliable-envelope-channel:
       action: change
-      reason: Publish authenticated peer connected/disconnected state used by residency
-        without changing envelope-id reliability.
+      reason: Publish authenticated peer connected/disconnected state used by
+        residency without changing envelope-id reliability.
   dht-topic-from-line-secret:
     line-topic-derivation:
       action: change
@@ -119,3 +126,5 @@ files:
   - packages/cli/src/up.ts
   - packages/cli/src/index.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T14:21:42.887Z

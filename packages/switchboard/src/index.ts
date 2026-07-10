@@ -86,3 +86,17 @@ export type {
   OutgoingEnvelope,
   TransportEnvelope,
 } from './transport/peer.js';
+export {
+  RemoteAttemptAmbiguousError,
+  ResidencyCoordinator,
+  ResidentAttemptJournal,
+  remoteMemberSpec,
+} from './residency.js';
+export type {
+  RemoteDeliverHooks,
+  ResidentAttempt,
+  ResidentDeliveryRequest,
+  ResidentMember,
+  ResidencyBoundary,
+  ResidencyCoordinatorOptions,
+} from './residency.js';
