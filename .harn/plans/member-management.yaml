@@ -1,0 +1,105 @@
+id: member-management
+title: P1.1 multi-agent room management across daemon, REST, and web
+assumptions:
+  retire: []
+  create:
+    - id: rename-preserves-mention-resolution
+      title: Renaming a member preserves every resolved mention
+      statement: Renaming a room member must change only its handle and optional
+        display name after an explicit room-uniqueness check, keep the stable
+        member id referenced by existing MentionSpan rows, and post a non-routed
+        system message whose old and new handle spans resolve to that same member
+        id, because queued work and permanent message history must survive handle
+        changes without being retargeted.
+      reason: PLAN-M1 P1.1 and PROTOCOL sections 1 and 3 require stable member-id
+        mention resolution across renames.
+      depends_on:
+        - mention-spans-survive-renames
+        - reserved-handles-rejected
+    - id: revive-via-session-ref
+      title: Revive reattaches the persisted native session
+      statement: Reviving a dead agent must require its persisted session_ref,
+        call the registered adapter's attach with that exact reference, restore
+        the persisted cwd and policy on the attached session, and only then mark
+        the member idle and drain its held FIFO queue, because revive continues
+        the same session rather than spawning a replacement context.
+      reason: PLAN-M1 P1.1 and ARCHITECTURE session ownership make session_ref the
+        durable identity anchor.
+      depends_on:
+        - adapter-process-lifecycle-supervised
+        - one-inflight-turn-per-member
+  reviewed:
+    - id: mention-spans-survive-renames
+      outcome: unchanged
+      reason: Rename keeps the member id stable and the integration test verifies
+        queued and historical MentionSpan rows still point to that id.
+    - id: reserved-handles-rejected
+      outcome: unchanged
+      reason: Spawn and rename continue through the assignable handle schema and
+        add an explicit per-room uniqueness check without relaxing syntax.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: Kill delegates to adapter interrupt, whose existing implementation
+        signals the complete process group; revive uses attach rather than a new
+        subprocess abstraction.
+    - id: one-inflight-turn-per-member
+      outcome: unchanged
+      reason: Pause and dead states hold queues and unpause or revive re-enter the
+        existing single-turn pump rather than starting parallel delivery.
+    - id: interaction-state-machine-persisted
+      outcome: unchanged
+      reason: Killing a blocked member orphans its open cards while preserving the
+        persisted interaction states and never routes card replies.
+    - id: reply-is-finalized-run-message
+      outcome: unchanged
+      reason: Finalization still updates and routes the same run message; it now
+        preserves an operator-selected paused or dead member state.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: Every lifecycle mutation continues through updateMember and member
+        frames use the resulting room sequence.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: Web state still upserts members by id and advances only by server
+        sequence; observed state history is appended as member frames arrive.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Member detail REST responses pass through the daemon projection
+        before serialization just like sync and run data.
+anchors:
+  rename-preserves-mention-resolution:
+    member-rename-stable-mentions:
+      action: change
+      reason: Add explicit uniqueness validation and stable-id spans on the rename
+        system message in the daemon lifecycle API.
+  revive-via-session-ref:
+    revive-native-session:
+      action: change
+      reason: Add immediate adapter.attach session reconstruction before queue
+        draining in the daemon lifecycle API.
+  reply-is-finalized-run-message:
+    finalize-and-route:
+      action: change
+      reason: Preserve paused and dead operator state when the current run reaches
+        finalization.
+  client-syncs-by-seq:
+    store-upsert-in-place:
+      action: change
+      reason: Record observed member state transitions while retaining by-id frame
+        upserts and the existing seq cursor behavior.
+files:
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web/src/api.ts
+  - packages/web/src/state.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/App.tsx
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/e2e.spec.ts
+  - tmp/build/PROGRESS.md
