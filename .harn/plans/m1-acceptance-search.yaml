@@ -38,6 +38,10 @@ assumptions:
       outcome: unchanged
       reason: P1.8 extends the fast and Playwright suites and finishes with the existing
         root test:all release gate.
+    - id: extensions-not-addressable-v1
+      outcome: unchanged
+      reason: Adding a permalink beside a run header leaves the nested authoritative
+        extension summary and its non-addressable behavior unchanged.
 anchors:
   permalink-ids-stable:
     message-history-search:
@@ -94,6 +98,15 @@ anchors:
     root-release-test-script:
       action: keep
       reason: The existing test:all command remains the final M1 gate.
+  extensions-not-addressable-v1:
+    extension-run-rendering:
+      action: change
+      reason: >-
+        Refactor the run header only enough to place its #N permalink outside the expand
+        button while retaining the existing extension detail rendering.
+    extension-addressability-filter:
+      action: keep
+      reason: Permalinks do not change extension mention or routing eligibility.
 files:
   - packages/switchboard/src/store.ts
   - packages/switchboard/src/store.spec.ts
