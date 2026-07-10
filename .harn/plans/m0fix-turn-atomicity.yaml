@@ -1,0 +1,107 @@
+id: m0fix-turn-atomicity
+title: M0 fix - atomic turn lifecycle, held retry reuse, and payload snapshots
+assumptions:
+  retire: []
+  create:
+    - id: turn-start-transactional
+      title: A run placeholder and its whole delivery batch begin atomically
+      statement: Beginning a turn must create or reuse exactly one running run
+        message and bind every delivery in the ordered batch to it in one SQLite
+        transaction before any adapter process starts, because a crash may never
+        leave an orphan placeholder or split one batch across attempts.
+      reason: M0 milestone review finding 2; the previous sequence committed the
+        placeholder and each delivery independently.
+      depends_on:
+        - delivery-attempt-wal-reconcile
+    - id: turn-finalization-transactional
+      title: Run finalization and onward fanout commit atomically
+      statement: A run completion must update the same run message, consume its whole
+        input batch, update member and meter state, and materialize every onward
+        agent delivery and human inbox record in one SQLite transaction, because
+        restart must never observe a finalized reply whose routing or accounting
+        was only partly committed.
+      reason: M0 milestone review finding 3; reconciliation previously skipped the
+        missing tail of a partially committed finalization.
+      depends_on:
+        - reply-is-finalized-run-message
+    - id: delivery-payload-snapshotted
+      title: Routed payload content and references are immutable per delivery
+      statement: Agent deliveries must persist the message, recipient header, and
+        resolved reference bodies at routing time and reuse that snapshot for
+        delayed execution and retries, because recipients of one fanout must not
+        see different content when referenced runs finalize or members rename.
+      reason: M0 milestone review finding 8; payloads previously resolved mutable
+        references only when each recipient eventually ran.
+      depends_on:
+        - whole-message-delivery
+  reviewed:
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: The existing attempt states and boot outcomes remain authoritative;
+        this plan makes their start transaction atomic.
+    - id: runs-are-one-message
+      outcome: unchanged
+      reason: Normal starts and release_hold retries now enforce the existing single
+        placeholder invariant more strictly.
+    - id: reply-is-finalized-run-message
+      outcome: unchanged
+      reason: Completion still updates and routes from the same run message id; the
+        operations now commit together.
+    - id: whole-message-delivery
+      outcome: unchanged
+      reason: The existing whole-message template remains unchanged and is now fed
+        from an immutable routing-time snapshot.
+    - id: delivery-payload-template-exact
+      outcome: unchanged
+      reason: Snapshotting changes when payload context resolves, not its bytes.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: The atomic methods reuse the existing per-entity mutations and change
+        rows inside one outer transaction.
+    - id: run-blobs-off-db
+      outcome: unchanged
+      reason: The new delivery snapshot column stores routed prompt context only;
+        run event streams remain exclusively in JSONL blobs.
+anchors:
+  turn-start-transactional:
+    atomic-turn-start:
+      action: change
+      reason: Add the store transaction that creates or reuses a run and binds the
+        complete batch.
+  turn-finalization-transactional:
+    atomic-turn-finalization:
+      action: change
+      reason: Add the store transaction for final message, input consumption,
+        member/meter state, and all onward deliveries.
+  delivery-payload-snapshotted:
+    delivery-payload-storage:
+      action: change
+      reason: Persist immutable routed payload context with agent deliveries.
+    daemon-payload-snapshot:
+      action: change
+      reason: Resolve references and headers once during routing, then compose from
+        the stored snapshot when a turn starts.
+  runs-are-one-message:
+    run-message-lifecycle:
+      action: change
+      reason: Delegate placeholder creation and held-run reuse to the atomic store
+        boundary.
+  delivery-attempt-wal-reconcile:
+    wal-bind-before-spawn:
+      action: change
+      reason: Bind the entire batch in the same transaction as the run message.
+  reply-is-finalized-run-message:
+    finalize-and-route:
+      action: change
+      reason: Plan recipients before commit and materialize them inside atomic
+        finalization.
+  run-blobs-off-db:
+    store-schema-no-blobs:
+      action: change
+      reason: Add only the delivery payload snapshot column and its migration; no
+        run events enter SQLite.
+files:
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
