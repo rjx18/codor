@@ -67,9 +67,12 @@ Message {
   reply_to?: number     // threading hint for surfaces; does not affect routing
   run?: RunSummary      // kind='run' only
   ask?: AskCard         // kind='ask'|'approval' only
+  origin?: BridgeOrigin // bridge-authored only; unique per (bridge member, platform, external_id)
   ts: string            // ISO-8601, switchboard clock
   seq: number           // room change-sequence at last insert/update (see sync note below)
 }
+
+BridgeOrigin { platform: 'slack' | 'telegram' | string, external_id: string, sender_name: string }
 
 MentionSpan { member_id: string, start: number, end: number }  // resolved spans — survive renames
 
@@ -86,6 +89,7 @@ AskCard {
 RunSummary {
   status: 'running' | 'completed' | 'failed' | 'interrupted'
   started_ts: string; ended_ts?: string
+  stalled_since?: string   // watchdog flag: no events for stall_minutes — informational only
   tool_calls: number
   usage?: { input_tokens, output_tokens, cost_usd? }   // as reported by the harness
   events_ref: string    // pointer to the JSONL event blob (see ARCHITECTURE §storage)
@@ -118,12 +122,15 @@ The adapter raises → switchboard persists (`pending`), posts the card, member 
 `awaiting_input`. A human answers → `answered`, `respondInteraction(session, interaction_id,
 answer): Promise<void>` resolves on adapter acknowledgement → `acked` and the run resumes. The
 answer is recorded as an **audit reply on the card (`reply_to`), which never routes** — the
-router must not queue a second turn at the blocked agent. On daemon restart: still-`pending`
-interactions whose process is gone are reconciled — if resuming the session re-raises the
-request it re-correlates; otherwise the interaction goes `orphaned` and the card renders
-expired with a redeliver option. Asks raised mid agent-to-agent chain target the chain's
-originating human. Approvals carry `tool`/`detail` and options `allow once | allow always |
-deny`.
+router must not queue a second turn at the blocked agent. **Crash boundaries** (both probed as
+conformance fixtures before schemas lock): restart with a still-`pending` interaction — if
+resuming the session re-raises the request it re-correlates, else `orphaned` (expired card,
+redeliver option); restart with an `answered`-but-not-`acked` interaction — the persisted
+answer is replayed via `respondInteraction` if the session still blocks on it (replay must be
+idempotent), marked `acked` if the turn demonstrably proceeded, and `orphaned` (hold, never
+auto-resend an approval) when neither can be established. Asks raised mid agent-to-agent
+chain target the chain's originating human. Approvals carry `tool`/`detail` and options
+`allow once | allow always | deny`.
 
 **Sync.** A per-room **change log** `(seq, entity, entity_id)` records every insert and
 in-place update across ALL client-visible entities — messages (incl. run finalization),
@@ -163,9 +170,10 @@ Parsing rules, applied to `body` (fenced code blocks and inline code are skipped
 3. `[[note-name]]` — a **ledger reference** (see §6): resolves to that note in the room's ledger
    and attaches its current content to every delivery, exactly like a `#N` ref. Unresolvable
    names stay plain text.
-4. **Default recipient.** A human message with zero valid mentions is delivered to the author
-   of the **latest FINALIZED agent message** in the room (a still-running placeholder never
-   counts); if no agent has ever finished a turn, it's room commentary (delivered to nobody).
+4. **Default recipient.** A human-authored (or bridge-relayed) message with zero valid
+   mentions is delivered to the author of the **latest FINALIZED agent message** in the room
+   (a still-running placeholder never counts); if no agent has ever finished a turn, it's room
+   commentary (delivered to nobody).
    Agent-authored messages default to *the member whose message triggered their run* (for a
    batched turn: the author of the last delivery in the batch), so a plain "done, all tests
    pass" flows back to whoever delegated.

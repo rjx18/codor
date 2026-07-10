@@ -51,7 +51,7 @@ interface HarnessAdapter {
   spawn(opts: {cwd, model?, policy?}): Session       // new session
   attach(session_ref: string): Session               // adopt an existing one
   deliver(s: Session, payload: string): AsyncIterable<WireEvent>   // one turn
-  respondInteraction(s: Session, interaction_id: string, answer: unknown): void  // asks/approvals
+  respondInteraction(s: Session, interaction_id: string, answer: unknown): Promise<void>  // resolves on ack
   interrupt(s: Session): void
   discoverSessions(): SessionRef[]
   capabilities: {resume: boolean, discover: boolean, interactiveAttach: boolean,
@@ -256,7 +256,7 @@ TypeScript everywhere (Node ≥22, pnpm workspaces). Per part:
 | `relay` | same Node/TS; **web-push** (VAPID) for Web Push; APNs over HTTP/2 added in M4; stateless, Dockerfile provided |
 | bridges (M5) | **Slack Bolt** / **grammY** (Telegram Bot API) |
 | P2P | **hyperswarm** (hyperdht + Noise secret-streams); `hyperdht/testnet` for deterministic tests; length-prefixed JSON envelopes with own ids + acks over the raw streams |
-| crypto | **sodium-native** (sealed boxes, keypairs); SQLCipher optional at rest |
+| crypto | **sodium-native** (sealed boxes, keypairs, Ed25519 identities); at-rest = OS full-disk encryption |
 | testing | **vitest** (unit/integration), **Playwright** (web e2e), recorded-stream fixtures for harnesses absent from the dev box |
 | docs site (M5) | **VitePress**, static output — host anywhere |
 | SaaS control plane (relay business, post-launch) | **Next.js** (marketing + billing dashboard), **Supabase** (Postgres + GoTrue auth with GitHub/Google OAuth + magic links, storage for sealed mailbox blobs), **Stripe** (billing) — see BUSINESS.md; only we run this, the product itself touches none of it |
