@@ -1,0 +1,48 @@
+id: glass-web-settings-pairing-review-fixes
+title: Fold the A3.2 adversarial review
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: web-settings-controls-preserve-product-truth
+      outcome: unchanged
+      reason: Correct local key-at-rest copy, shared owner selection, and working settings navigation preserve the existing operational contract.
+    - id: web-theme-choice-stays-local
+      outcome: unchanged
+      reason: The implementation remains local-only while its regression now proves theme choices make no mutating server request.
+    - id: pairing-offer-token-remains-qr-only
+      outcome: unchanged
+      reason: More precise local storage and tamper-failure copy does not expose offer or bearer authority.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Replacing an unreachable navigation selector with explicit current state leaves the reviewed glass tokens unchanged.
+anchors:
+  web-settings-controls-preserve-product-truth:
+    glass-settings-surface:
+      action: change
+      reason: Reuse the owner selector and expose a real current category state instead of dead target CSS.
+    glass-settings-regression:
+      action: change
+      reason: Prove category highlighting continues to track anchor navigation.
+  web-theme-choice-stays-local:
+    theme-choice-regression:
+      action: change
+      reason: Observe mutating API traffic while changing and persisting the local theme.
+  pairing-offer-token-remains-qr-only:
+    glass-pairing-surface:
+      action: change
+      reason: State decrypted browser key storage honestly and distinguish a signing-key mismatch from retryable pairing failure.
+    pairing-token-visibility-regression:
+      action: change
+      reason: Add a tampered-signing-key browser regression while retaining DOM authority checks.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Style the explicit aria-current settings category and remove the unreachable target selector.
+files:
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/pairing.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/crypto.e2e.spec.ts
+  - packages/web/tests/e2e.spec.ts
+  - tmp/build/PROGRESS.md
