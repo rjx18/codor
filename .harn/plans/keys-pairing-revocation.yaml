@@ -1,0 +1,116 @@
+id: keys-pairing-revocation
+title: P2.1 device identities, pairing, room keys, and revocation
+assumptions:
+  retire: []
+  create:
+    - id: ed25519-identity-x25519-encryption
+      title: Every enrollee has separate signing and encryption keypairs
+      statement: Every switchboard, browser device, and peer switchboard must generate
+        and persist an Ed25519 signing pair plus an X25519 encryption pair, use the
+        Ed25519 public key as its stable device id, and bind both public keys in one
+        pairing record, because identity signatures and sealed-room-key encryption
+        have distinct cryptographic purposes.
+      reason: PLAN-M2 P2.1 and PRIVACY Keys and pairing require the dual identity at
+        first run and registration of both public keys.
+      depends_on: []
+    - id: nonce-challenge-auth-no-key-possession-identity
+      title: Peer identity requires a replay-bound Ed25519 challenge
+      statement: A connecting enrolled peer must sign the canonical pair of a fresh
+        server nonce and the current transport transcript hash with its registered
+        Ed25519 identity, each challenge must expire and be consumed exactly once,
+        forged or replayed signatures must fail, and room-key possession must never
+        authenticate a peer, because encryption authority is not connection identity.
+      reason: PLAN-M2 P2.1 and PRIVACY Connection auth require nonce-challenge
+        authentication before P2.2 transport traffic.
+      depends_on:
+        - ed25519-identity-x25519-encryption
+    - id: sealed-room-keys-per-enrollee
+      title: Each room key is sealed independently to every active enrollee
+      statement: Each room must have a generated XChaCha20-Poly1305 symmetric key and
+        generation, while persisted distribution material contains one libsodium
+        crypto_box_seal ciphertext per active device or peer-switchboard X25519 public
+        key, because authorized enrollees need the room key without sharing private
+        identity material or treating key possession as identity.
+      reason: PLAN-M2 P2.1 and PRIVACY Room keys pin small-room sealed-box fan-out.
+      depends_on:
+        - ed25519-identity-x25519-encryption
+    - id: revocation-rotates-room-keys
+      title: Revocation rekeys rooms and drops authenticated connections
+      statement: Revoking an enrolled peer must remove its pairing record, rotate every
+        room to a fresh symmetric key generation sealed only to the remaining active
+        enrollees, and immediately close every live authenticated connection for the
+        revoked Ed25519 device id, so the old device cannot decrypt new traffic or
+        remain connected after removal.
+      reason: PLAN-M2 P2.1 and PRIVACY Revocation require one-command lockout with key
+        rotation and a live connection drop.
+      depends_on:
+        - nonce-challenge-auth-no-key-possession-identity
+        - sealed-room-keys-per-enrollee
+    - id: single-crypto-suite-libsodium
+      title: Node, page, and service worker use one libsodium envelope suite
+      statement: Node crypto must use sodium-native and browser page and service-worker
+        crypto must use libsodium-wrappers with key material persisted in IndexedDB,
+        and sealed boxes must open in both directions across those runtimes without a
+        WebCrypto envelope variant or custom primitive, because Wireroom supports one
+        interoperable audited suite everywhere.
+      reason: PLAN-M2 P2.1, PRIVACY, and ARCHITECTURE Stack decisions reject a second
+        browser envelope and require a real Chromium persistence invariant.
+      depends_on:
+        - ed25519-identity-x25519-encryption
+        - sealed-room-keys-per-enrollee
+  reviewed: []
+anchors:
+  ed25519-identity-x25519-encryption:
+    dual-device-identity:
+      action: change
+      reason: Add first-run dual key generation, private persistence, peer enrollment,
+        and stable Ed25519 device ids.
+  nonce-challenge-auth-no-key-possession-identity:
+    replay-bound-peer-auth:
+      action: change
+      reason: Add expiring single-use transcript-bound challenges and authenticated
+        connection registration.
+  sealed-room-keys-per-enrollee:
+    sealed-room-key-fanout:
+      action: change
+      reason: Generate versioned room keys and seal each generation independently to
+        every active X25519 enrollee.
+  revocation-rotates-room-keys:
+    revoke-rekey-disconnect:
+      action: change
+      reason: Remove the peer, rotate all rooms, and notify the connection registry to
+        close the revoked identity immediately.
+  single-crypto-suite-libsodium:
+    node-libsodium-suite:
+      action: change
+      reason: Implement all Node identity, signing, hashing, sealed-box, and symmetric
+        key operations with sodium-native.
+    browser-libsodium-suite:
+      action: change
+      reason: Implement page and real service-worker sealed-box operations with
+        libsodium-wrappers and origin-scoped IndexedDB persistence.
+files:
+  - package.json
+  - packages/switchboard/package.json
+  - packages/switchboard/src/crypto/keys.ts
+  - packages/switchboard/src/crypto/pairing.ts
+  - packages/switchboard/src/crypto/roomkeys.ts
+  - packages/switchboard/src/crypto/challenge.ts
+  - packages/switchboard/src/crypto/crypto.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/index.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/up.ts
+  - packages/cli/src/index.spec.ts
+  - packages/web/package.json
+  - packages/web/playwright.config.ts
+  - packages/web/src/crypto.ts
+  - packages/web/src/crypto-sw.ts
+  - packages/web/src/pairing.tsx
+  - packages/web/src/main.tsx
+  - packages/web/src/vite-env.d.ts
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/crypto.e2e.spec.ts
+  - pnpm-lock.yaml
+  - tmp/build/PROGRESS.md
