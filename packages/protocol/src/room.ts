@@ -27,6 +27,7 @@ export const RoomSchema = z.object({
 export type Room = z.infer<typeof RoomSchema>;
 
 /** Daily per-room spend meter (always on, never blocking). */
+// harn:assume uncosted-usage-visible-not-guessed ref=room-meter-uncosted-schema
 export const RoomMeterSchema = z.object({
   room: RoomIdSchema,
   day: z.iso.date(), // YYYY-MM-DD, switchboard clock
@@ -34,5 +35,7 @@ export const RoomMeterSchema = z.object({
   cost_usd: z.number().nonnegative(), // sums only cost-reporting members
   input_tokens: z.number().int().nonnegative(),
   output_tokens: z.number().int().nonnegative(),
+  uncosted_tokens: z.number().int().nonnegative().optional(),
 });
 export type RoomMeter = z.infer<typeof RoomMeterSchema>;
+// harn:end uncosted-usage-visible-not-guessed

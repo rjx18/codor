@@ -339,6 +339,34 @@ describe('WebSocket', () => {
     client.ws.close();
   });
 
+  it('configures opt-in brakes and stall timing over the shared act protocol', async () => {
+    const client = await connect();
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+    client.ws.send(JSON.stringify({
+      type: 'act',
+      room: 'eng',
+      act: {
+        act: 'configure_room',
+        turn_brake: 3,
+        spend_brake_usd: 2.5,
+        stall_minutes: 12,
+      },
+    }));
+    const room = await client.next(
+      (frame) =>
+        frame.type === 'room' &&
+        frame.room.id === 'eng' &&
+        frame.room.config.turn_brake === 3,
+    );
+    expect(room).toMatchObject({
+      room: {
+        config: { turn_brake: 3, spend_brake_usd: 2.5, stall_minutes: 12 },
+      },
+    });
+    client.ws.close();
+  });
+
   it('invalid frames come back as error frames, not disconnects', async () => {
     const client = await connect();
     client.ws.send(JSON.stringify({ type: 'subscribe' })); // missing room/since_seq

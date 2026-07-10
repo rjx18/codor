@@ -18,6 +18,7 @@ export interface MemberDetail {
     input_tokens: number;
     output_tokens: number;
     cost_usd: number;
+    uncosted_tokens?: number;
   };
 }
 

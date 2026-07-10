@@ -22,6 +22,7 @@ export const DeliverySchema = z.object({
   message_id: MessageIdSchema, // the routed message
   recipient: MemberIdSchema,
   state: DeliveryStateSchema,
+  hop_count: z.number().int().nonnegative().optional(),
   attempt_count: z.number().int().nonnegative().default(0),
   batch_id: z.string().min(1).optional(), // set when drained as part of a batched turn
   run_msg_id: MessageIdSchema.optional(), // attempt WAL: the run message this attempt feeds

@@ -8,6 +8,7 @@ import {
   MessageRow,
   MemberRail,
   RunMessageView,
+  RunStallBadge,
   handleLookup,
   isMe,
 } from './components.js';
@@ -83,6 +84,8 @@ export function App() {
         connected={state.connected}
         meter={state.meter}
         unread={unreadCount(state)}
+        config={state.room?.config}
+        connection={connection}
       />
       <HoldBanner held={heldDeliveries(state.inbox)} handleOf={handles} connection={connection} />
       <div className="flex min-h-0 flex-1">
@@ -98,14 +101,16 @@ export function App() {
             {messages.map((message) => {
               if (message.kind === 'run') {
                 return (
-                  <RunMessageView
-                    key={message.id}
-                    message={message}
-                    authorHandle={handles(message.author)}
-                    liveEventCount={state.runEvents[message.id]?.length ?? 0}
-                    room={ROOM}
-                    token={TOKEN}
-                  />
+                  <div key={message.id}>
+                    <RunStallBadge message={message} />
+                    <RunMessageView
+                      message={message}
+                      authorHandle={handles(message.author)}
+                      liveEventCount={state.runEvents[message.id]?.length ?? 0}
+                      room={ROOM}
+                      token={TOKEN}
+                    />
+                  </div>
                 );
               }
               if (message.kind === 'ask' || message.kind === 'approval') {

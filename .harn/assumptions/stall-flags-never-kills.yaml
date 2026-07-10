@@ -1,0 +1,11 @@
+id: stall-flags-never-kills
+hash: a-54e6d67cba2f
+title: Inactive running turns are flagged but never interrupted
+state: active
+statement: A per-running-run watchdog must set RunSummary.stalled_since with a
+  message change and push-stub notification after the room's stall_minutes
+  without a WireEvent, clear the flag on the next event, and never call
+  adapter.interrupt or change delivery ownership, because a stall is
+  operator-visible evidence rather than an automatic lifecycle decision.
+depends_on: []
+created_by: meters-and-optin-brakes

@@ -6,22 +6,24 @@ assumptions:
     - id: spend-meter-always-on
       title: Room and member usage meters are always visible
       statement: Every finalized owned-agent turn must atomically add its turn, token,
-        and reported dollar usage to the daily room meter and appear in per-member
-        aggregation regardless of brake settings, with live change frames and header
-        display, because metering is observability and must never depend on opting into a
-        hold policy.
-      reason: PLAN-M1 P1.6 and PROTOCOL section 3 require always-on room and per-member
-        usage visibility independent of optional brakes.
+        and reported dollar usage to the daily room meter and appear in
+        per-member aggregation regardless of brake settings, with live change
+        frames and header display, because metering is observability and must
+        never depend on opting into a hold policy.
+      reason: PLAN-M1 P1.6 and PROTOCOL section 3 require always-on room and
+        per-member usage visibility independent of optional brakes.
       depends_on:
         - turn-finalization-transactional
     - id: agent-chains-uninterrupted-by-default
       title: Default agent chains never hold themselves
-      statement: Every routed agent delivery must carry a durable consecutive-agent hop
-        count that resets on a human-authored trigger, but the daemon may call its hold
-        hook only when the room's explicit turn or spend brake evaluates true; with both
-        defaults off, arbitrarily long scripted chains must continue to quiescence.
-      reason: PLAN-M1 P1.6 must wire the already-pure brake evaluator into delivery before
-        the pump while preserving agent chains as the default product behavior.
+      statement: Every routed agent delivery must carry a durable consecutive-agent
+        hop count that resets on a human-authored trigger, but the daemon may
+        call its hold hook only when the room's explicit turn or spend brake
+        evaluates true; with both defaults off, arbitrarily long scripted chains
+        must continue to quiescence.
+      reason: PLAN-M1 P1.6 must wire the already-pure brake evaluator into delivery
+        before the pump while preserving agent chains as the default product
+        behavior.
       depends_on:
         - brakes-default-off
         - brakes-opt-in-hold
@@ -29,67 +31,69 @@ assumptions:
     - id: uncosted-usage-visible-not-guessed
       title: Tokens without reported cost remain visibly uncosted
       statement: Usage lacking cost_usd must contribute tokens and an explicit
-        uncosted-token subtotal but zero dollars to room and member meters, the UI must
-        label that subtotal, and the spend brake must compare only reported dollar cost,
-        because estimating a price for tokens-only harnesses would falsify accounting and
-        hold decisions.
-      reason: PLAN-M1 P1.6 makes capability-aware cost reporting part of acceptance and
-        explicitly calls out Codex's tokens-only stream.
+        uncosted-token subtotal but zero dollars to room and member meters, the
+        UI must label that subtotal, and the spend brake must compare only
+        reported dollar cost, because estimating a price for tokens-only
+        harnesses would falsify accounting and hold decisions.
+      reason: PLAN-M1 P1.6 makes capability-aware cost reporting part of acceptance
+        and explicitly calls out Codex's tokens-only stream.
       depends_on:
         - spend-meter-always-on
         - codex-usage-tokens-only
     - id: stall-flags-never-kills
       title: Inactive running turns are flagged but never interrupted
       statement: A per-running-run watchdog must set RunSummary.stalled_since with a
-        message change and push-stub notification after the room's stall_minutes without
-        a WireEvent, clear the flag on the next event, and never call adapter.interrupt or
-        change delivery ownership, because a stall is operator-visible evidence rather
-        than an automatic lifecycle decision.
-      reason: PLAN-M1 P1.6 requires an always-on informational watchdog with fake-clock
-        coverage and explicitly forbids killing the run.
+        message change and push-stub notification after the room's stall_minutes
+        without a WireEvent, clear the flag on the next event, and never call
+        adapter.interrupt or change delivery ownership, because a stall is
+        operator-visible evidence rather than an automatic lifecycle decision.
+      reason: PLAN-M1 P1.6 requires an always-on informational watchdog with
+        fake-clock coverage and explicitly forbids killing the run.
   reviewed:
     - id: brakes-default-off
       outcome: unchanged
-      reason: Both brake thresholds remain null by default while stall_minutes stays 30.
+      reason: Both brake thresholds remain null by default while stall_minutes stays
+        30.
     - id: brakes-opt-in-hold
       outcome: unchanged
-      reason: The daemon supplies durable hop and reported-spend statistics to the existing
-        evaluator and routes true verdicts through holdDelivery.
+      reason: The daemon supplies durable hop and reported-spend statistics to the
+        existing evaluator and routes true verdicts through holdDelivery.
     - id: codex-usage-tokens-only
       outcome: unchanged
-      reason: Codex still emits no fabricated cost and its tokens enter the new uncosted
-        subtotal.
+      reason: Codex still emits no fabricated cost and its tokens enter the new
+        uncosted subtotal.
     - id: delivery-fifo-has-durable-sequence
       outcome: unchanged
-      reason: Hop count is additional durable delivery metadata and queue order remains the
-        existing queue_seq FIFO.
+      reason: Hop count is additional durable delivery metadata and queue order
+        remains the existing queue_seq FIFO.
     - id: turn-finalization-transactional
       outcome: unchanged
-      reason: Meter increments and onward delivery creation, including hop metadata, remain
-        in the same completion transaction; optional holds happen synchronously before pump.
+      reason: Meter increments and onward delivery creation, including hop metadata,
+        remain in the same completion transaction; optional holds happen
+        synchronously before pump.
     - id: changelog-covers-every-visible-entity
       outcome: unchanged
-      reason: Meter, room config, held inbox, and stalled message mutations all use existing
-        change-log-producing store operations.
+      reason: Meter, room config, held inbox, and stalled message mutations all use
+        existing change-log-producing store operations.
     - id: client-syncs-by-seq
       outcome: unchanged
-      reason: Settings, meter subtotals, holds, and stalled run updates arrive as ordinary
-        room, meter, inbox, and in-place message frames.
+      reason: Settings, meter subtotals, holds, and stalled run updates arrive as
+        ordinary room, meter, inbox, and in-place message frames.
 anchors:
   spend-meter-always-on:
     meter-cost-and-token-accounting:
       action: change
-      reason: Persist the uncosted subtotal, aggregate per member, and emit each completed
-        meter update.
+      reason: Persist the uncosted subtotal, aggregate per member, and emit each
+        completed meter update.
     meter-settings-surface:
       action: change
-      reason: Display reported dollars plus uncosted tokens and expose room brake and stall
-        settings through native controls.
+      reason: Display reported dollars plus uncosted tokens and expose room brake and
+        stall settings through native controls.
   agent-chains-uninterrupted-by-default:
     delivery-hop-brake-dispatch:
       action: change
-      reason: Persist hop count, reset it for human triggers, evaluate before pump, and call
-        holdDelivery only for explicit brake verdicts.
+      reason: Persist hop count, reset it for human triggers, evaluate before pump,
+        and call holdDelivery only for explicit brake verdicts.
   uncosted-usage-visible-not-guessed:
     room-meter-uncosted-schema:
       action: change
@@ -97,8 +101,8 @@ anchors:
   stall-flags-never-kills:
     run-stall-watchdog:
       action: change
-      reason: Track last WireEvent time, bump stalled run messages, clear on progress, log a
-        push stub, and never signal the adapter.
+      reason: Track last WireEvent time, bump stalled run messages, clear on progress,
+        log a push stub, and never signal the adapter.
   brakes-default-off:
     room-config-brakes:
       action: change
@@ -106,12 +110,13 @@ anchors:
   brakes-opt-in-hold:
     brake-evaluation:
       action: keep
-      reason: The pure threshold semantics are already correct and daemon enforcement must
-        consume them without changing the evaluator.
+      reason: The pure threshold semantics are already correct and daemon enforcement
+        must consume them without changing the evaluator.
   turn-finalization-transactional:
     atomic-turn-finalization:
       action: change
-      reason: Carry uncosted meter and delivery hop deltas through the existing transaction.
+      reason: Carry uncosted meter and delivery hop deltas through the existing
+        transaction.
   unix-socket-same-protocol:
     unix-websocket-listener:
       action: change
@@ -136,3 +141,5 @@ files:
   - packages/web/tests/harness.mjs
   - packages/web/tests/e2e.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T11:45:07.286Z

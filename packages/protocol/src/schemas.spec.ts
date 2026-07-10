@@ -299,15 +299,24 @@ describe('room config', () => {
 
   it('meters carry per-day turns, cost, and tokens', () => {
     expect(
-      RoomMeterSchema.safeParse({
+      RoomMeterSchema.parse({
         room: 'r',
         day: '2026-07-10',
         turns: 4,
         cost_usd: 1.23,
         input_tokens: 1000,
         output_tokens: 200,
-      }).success,
-    ).toBe(true);
+      }).uncosted_tokens,
+    ).toBeUndefined();
+    expect(RoomMeterSchema.parse({
+      room: 'r',
+      day: '2026-07-10',
+      turns: 4,
+      cost_usd: 1.23,
+      input_tokens: 1000,
+      output_tokens: 200,
+      uncosted_tokens: 75,
+    }).uncosted_tokens).toBe(75);
   });
 });
 
@@ -398,6 +407,7 @@ describe('WS client frames', () => {
     ['attach_child', { act: 'attach_child', lease_id: 'lease-1', child_pid: 456, process_group_id: 456 }],
     ['attach_heartbeat', { act: 'attach_heartbeat', lease_id: 'lease-1' }],
     ['attach_complete', { act: 'attach_complete', lease_id: 'lease-1' }],
+    ['configure_room', { act: 'configure_room', turn_brake: 3, spend_brake_usd: null, stall_minutes: 15 }],
     ['spawn', { act: 'spawn', harness: 'codex', handle: 'coder', cwd: '/w', policy: 'read-only' }],
     ['rename', { act: 'rename', member_id: ULID_A, handle: 'reviewer' }],
     ['revive', { act: 'revive', member_id: ULID_A }],

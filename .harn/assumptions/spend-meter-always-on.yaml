@@ -1,0 +1,12 @@
+id: spend-meter-always-on
+hash: a-589ab19204e4
+title: Room and member usage meters are always visible
+state: active
+statement: Every finalized owned-agent turn must atomically add its turn, token,
+  and reported dollar usage to the daily room meter and appear in per-member
+  aggregation regardless of brake settings, with live change frames and header
+  display, because metering is observability and must never depend on opting
+  into a hold policy.
+depends_on:
+  - turn-finalization-transactional
+created_by: meters-and-optin-brakes

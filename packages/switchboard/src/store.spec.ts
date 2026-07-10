@@ -297,9 +297,14 @@ describe('deliveries (attempt WAL columns)', () => {
     const { owner } = openRoom(store);
     const agent = store.addMember('eng', { kind: 'agent', handle: 'coder', display_name: 'Coder' });
     const message = store.postMessage('eng', { author: owner.id, kind: 'chat', body: '@coder hi' });
-    const delivery = store.createDelivery('eng', { message_id: message.id, recipient: agent.id });
+    const delivery = store.createDelivery('eng', {
+      message_id: message.id,
+      recipient: agent.id,
+      hop_count: 4,
+    });
     expect(delivery.state).toBe('queued');
     expect(delivery.attempt_count).toBe(0);
+    expect(store.getDelivery('eng', delivery.id)!.hop_count).toBe(4);
 
     const inflight = store.updateDelivery('eng', delivery.id, {
       state: 'delivering',
@@ -331,6 +336,31 @@ describe('deliveries (attempt WAL columns)', () => {
       payload_snapshot: '{"pinned":true}',
     });
     expect(store.getDeliveryPayloadSnapshot('eng', delivery.id)).toBe('{"pinned":true}');
+  });
+});
+
+describe('usage meters', () => {
+  it('keeps reported dollars separate from the uncosted token subtotal', () => {
+    openRoom(store);
+    store.bumpMeter('eng', '2026-07-10', {
+      turns: 1,
+      cost_usd: 0.25,
+      input_tokens: 100,
+      output_tokens: 20,
+    });
+    const meter = store.bumpMeter('eng', '2026-07-10', {
+      turns: 1,
+      input_tokens: 40,
+      output_tokens: 10,
+      uncosted_tokens: 50,
+    });
+    expect(meter).toMatchObject({
+      turns: 2,
+      cost_usd: 0.25,
+      input_tokens: 140,
+      output_tokens: 30,
+      uncosted_tokens: 50,
+    });
   });
 });
 

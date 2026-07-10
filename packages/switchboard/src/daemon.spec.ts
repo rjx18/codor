@@ -486,6 +486,120 @@ describe('reply-is-the-run-message chaining', () => {
   );
 });
 
+describe('meters, opt-in brakes, and stall flags', () => {
+  it('runs a ten-turn agent chain to completion with the default brakes off', async () => {
+    spawnAgent('alpha');
+    spawnAgent('beta');
+    fake.enqueue(...Array.from({ length: 10 }, (_, index) => ({
+      kind: 'complete' as const,
+      final_text:
+        index === 9
+          ? '@richard ten-hop chain complete'
+          : `@${index % 2 === 0 ? 'beta' : 'alpha'} hop ${index + 1}`,
+    })));
+    daemon.postHumanMessage('eng', '@alpha start the long chain');
+    await daemon.settle();
+
+    expect(runMessages()).toHaveLength(10);
+    expect(daemon.store.listDeliveries('eng', { state: 'held' })).toHaveLength(0);
+    const meter = daemon.store.getMeter('eng', new Date().toISOString().slice(0, 10))!;
+    expect(meter).toMatchObject({
+      turns: 10,
+      input_tokens: 1000,
+      output_tokens: 200,
+      uncosted_tokens: 0,
+    });
+    expect(meter.cost_usd).toBeCloseTo(0.1);
+  });
+
+  it('holds the fourth agent hop at turn_brake=3 and release resumes it', async () => {
+    const alpha = spawnAgent('alpha');
+    spawnAgent('beta');
+    daemon.configureRoom('eng', { turn_brake: 3 });
+    fake.enqueue(
+      { kind: 'complete', final_text: '@beta hop one' },
+      { kind: 'complete', final_text: '@alpha hop two' },
+      { kind: 'complete', final_text: '@beta hop three' },
+      { kind: 'complete', final_text: '@alpha hop four' },
+    );
+    daemon.postHumanMessage('eng', '@alpha start checked chain');
+    await daemon.settle();
+
+    const held = daemon.store.listDeliveries('eng', { state: 'held' });
+    expect(held).toHaveLength(1);
+    expect(held[0]).toMatchObject({ recipient: alpha.id, hop_count: 4 });
+    expect(runMessages()).toHaveLength(4);
+    expect(daemon.pushLog.at(-1)?.body).toContain('turn brake before hop 4');
+
+    fake.enqueue({ kind: 'complete', final_text: '@richard released checkpoint complete' });
+    daemon.releaseHold('eng', held[0]!.id);
+    await daemon.settle();
+    expect(runMessages()).toHaveLength(5);
+    expect(daemon.store.getDelivery('eng', held[0]!.id)!.state).toBe('consumed');
+  });
+
+  it('spend brakes use reported dollars while tokens-only usage stays visibly uncosted', async () => {
+    const alpha = spawnAgent('alpha');
+    const beta = spawnAgent('beta');
+    daemon.configureRoom('eng', { spend_brake_usd: 0.5 });
+    fake.enqueue({
+      kind: 'complete',
+      final_text: '@beta cost threshold reached',
+      usage: { input_tokens: 40, output_tokens: 10, cost_usd: 0.5 },
+    });
+    daemon.postHumanMessage('eng', '@alpha spend once');
+    await daemon.settle();
+    const held = daemon.store.listDeliveries('eng', { recipient: beta.id, state: 'held' });
+    expect(held).toHaveLength(1);
+    expect(daemon.pushLog.at(-1)?.body).toContain('spend brake at $0.50');
+
+    fake.enqueue({
+      kind: 'complete',
+      final_text: '@richard tokens-only completion',
+      usage: { input_tokens: 12, output_tokens: 3 },
+    });
+    daemon.releaseHold('eng', held[0]!.id);
+    await daemon.settle();
+    const day = new Date().toISOString().slice(0, 10);
+    expect(daemon.store.getMeter('eng', day)).toMatchObject({
+      turns: 2,
+      cost_usd: 0.5,
+      input_tokens: 52,
+      output_tokens: 13,
+      uncosted_tokens: 15,
+    });
+    expect(daemon.memberDetails('eng').find((detail) => detail.member.id === alpha.id)!.spend)
+      .toMatchObject({ cost_usd: 0.5, uncosted_tokens: 0 });
+    expect(daemon.memberDetails('eng').find((detail) => detail.member.id === beta.id)!.spend)
+      .toMatchObject({ cost_usd: 0, uncosted_tokens: 15 });
+  });
+
+  it('flags an eventless running turn on a fake clock and clears without interrupting', async () => {
+    const alpha = spawnAgent('alpha');
+    daemon.configureRoom('eng', { stall_minutes: 1 });
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Wait here?', options: [{ label: 'continue' }] },
+      reply: () => '@richard resumed after stall',
+    });
+    daemon.postHumanMessage('eng', '@alpha begin a blocking turn');
+    const interaction = await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
+    );
+    const running = runMessages().find((message) => message.run?.status === 'running')!;
+    daemon.checkStalls(new Date(Date.parse(running.run!.started_ts) + 2 * 60_000));
+    expect(daemon.store.getMessage('eng', running.id)!.run!.stalled_since).toBeDefined();
+    expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('awaiting_input');
+    expect(daemon.pushLog.at(-1)?.body).toContain(`run #${running.id} has stalled`);
+
+    await daemon.answerInteraction('eng', interaction.id, 'continue');
+    await daemon.settle();
+    expect(daemon.store.getMessage('eng', running.id)!.run!.status).toBe('completed');
+    expect(daemon.store.getMessage('eng', running.id)!.run!.stalled_since).toBeUndefined();
+    expect(fake.respondCalls).toHaveLength(1);
+  });
+});
+
 describe('one inflight turn per member', () => {
   it('deliveries during a run queue and drain as ONE batched turn', async () => {
     spawnAgent('alpha');

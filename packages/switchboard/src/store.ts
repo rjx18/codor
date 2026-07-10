@@ -165,6 +165,20 @@ function migrateMemberCustody(db: Database.Database): void {
   }
 }
 
+function migrateDeliveryHopCount(db: Database.Database): void {
+  const columns = db.pragma('table_info(deliveries)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'hop_count')) {
+    db.exec('ALTER TABLE deliveries ADD COLUMN hop_count INTEGER NOT NULL DEFAULT 0');
+  }
+}
+
+function migrateMeterUncostedTokens(db: Database.Database): void {
+  const columns = db.pragma('table_info(meters)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'uncosted_tokens')) {
+    db.exec('ALTER TABLE meters ADD COLUMN uncosted_tokens INTEGER NOT NULL DEFAULT 0');
+  }
+}
+
 const toBool = (n: number): boolean => n !== 0;
 const fromBool = (b: boolean): number => (b ? 1 : 0);
 const orNull = <T>(v: T | undefined): T | null => (v === undefined ? null : v);
@@ -219,6 +233,7 @@ interface DeliveryRow {
   payload_snapshot: string | null;
   process_id: number | null;
   process_group_id: number | null;
+  hop_count: number;
   queue_seq: number;
   ts: string;
 }
@@ -262,6 +277,7 @@ interface MeterRow {
   cost_usd: number;
   input_tokens: number;
   output_tokens: number;
+  uncosted_tokens: number;
 }
 
 function memberFromRow(row: MemberRow): Member {
@@ -310,6 +326,7 @@ function deliveryFromRow(row: DeliveryRow): Delivery {
     message_id: row.message_id,
     recipient: row.recipient,
     state: row.state,
+    hop_count: row.hop_count,
     attempt_count: row.attempt_count,
     batch_id: row.batch_id ?? undefined,
     run_msg_id: row.run_msg_id ?? undefined,
@@ -388,6 +405,7 @@ export interface FanoutDelivery {
   recipient: string;
   state?: Delivery['state'];
   payload_snapshot?: string;
+  hop_count?: number;
 }
 
 export interface AtomicTurnStart {
@@ -422,6 +440,8 @@ export class Store {
     this.db.exec(SCHEMA);
     migrateDeliveryPayloadSnapshot(this.db);
     migrateMemberCustody(this.db);
+    migrateDeliveryHopCount(this.db);
+    migrateMeterUncostedTokens(this.db);
   }
 
   close(): void {
@@ -842,6 +862,7 @@ export class Store {
       recipient: string;
       state?: Delivery['state'];
       payload_snapshot?: string;
+      hop_count?: number;
     },
   ): Delivery {
     return this.db.transaction(() => {
@@ -854,14 +875,15 @@ export class Store {
         message_id: delivery.message_id,
         recipient: delivery.recipient,
         state: delivery.state ?? 'queued',
+        hop_count: delivery.hop_count ?? 0,
         ts: new Date().toISOString(),
       });
       this.db
         .prepare(
           `INSERT INTO deliveries (id, room, message_id, recipient, state, attempt_count,
              batch_id, run_msg_id, read_ts, payload_snapshot, process_id, process_group_id,
-             queue_seq, ts)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             hop_count, queue_seq, ts)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           validated.id,
@@ -876,12 +898,15 @@ export class Store {
           orNull(delivery.payload_snapshot),
           null,
           null,
+          validated.hop_count ?? 0,
           nextQueueSeq.seq,
           validated.ts,
         );
       // Human inbox records are client-visible; recipient kind decides.
       const recipient = this.getMember(room, validated.recipient);
-      if (recipient?.kind === 'human') this.appendChange(room, 'inbox', validated.id);
+      if (recipient?.kind === 'human' || validated.state === 'held') {
+        this.appendChange(room, 'inbox', validated.id);
+      }
       return validated;
     })();
   }
@@ -1063,7 +1088,13 @@ export class Store {
       memberId: string;
       memberPatch: Partial<Omit<Member, 'id' | 'kind'>>;
       meterDay: string;
-      meterDelta: { turns?: number; cost_usd?: number; input_tokens?: number; output_tokens?: number };
+      meterDelta: {
+        turns?: number;
+        cost_usd?: number;
+        input_tokens?: number;
+        output_tokens?: number;
+        uncosted_tokens?: number;
+      };
       fanout: FanoutDelivery[];
     },
   ): AtomicTurnCompletion {
@@ -1080,6 +1111,7 @@ export class Store {
           recipient: delivery.recipient,
           state: delivery.state,
           payload_snapshot: delivery.payload_snapshot,
+          hop_count: delivery.hop_count,
         }),
       );
       return { message, member, meter, deliveries };
@@ -1137,21 +1169,30 @@ export class Store {
 
   // ── meters ────────────────────────────────────────────────────────────
 
+  // harn:assume spend-meter-always-on ref=meter-cost-and-token-accounting
   bumpMeter(
     room: string,
     day: string,
-    delta: { turns?: number; cost_usd?: number; input_tokens?: number; output_tokens?: number },
+    delta: {
+      turns?: number;
+      cost_usd?: number;
+      input_tokens?: number;
+      output_tokens?: number;
+      uncosted_tokens?: number;
+    },
   ): RoomMeter {
     return this.db.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO meters (room, day, turns, cost_usd, input_tokens, output_tokens)
-           VALUES (?, ?, ?, ?, ?, ?)
+          `INSERT INTO meters
+             (room, day, turns, cost_usd, input_tokens, output_tokens, uncosted_tokens)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (room, day) DO UPDATE SET
              turns = turns + excluded.turns,
              cost_usd = cost_usd + excluded.cost_usd,
              input_tokens = input_tokens + excluded.input_tokens,
-             output_tokens = output_tokens + excluded.output_tokens`,
+             output_tokens = output_tokens + excluded.output_tokens,
+             uncosted_tokens = uncosted_tokens + excluded.uncosted_tokens`,
         )
         .run(
           room,
@@ -1160,6 +1201,7 @@ export class Store {
           delta.cost_usd ?? 0,
           delta.input_tokens ?? 0,
           delta.output_tokens ?? 0,
+          delta.uncosted_tokens ?? 0,
         );
       this.appendChange(room, 'meter', day);
       const row = this.db
@@ -1175,6 +1217,7 @@ export class Store {
       .get(room, day) as MeterRow | undefined;
     return row ? meterFromRow(row) : undefined;
   }
+  // harn:end spend-meter-always-on
 
   // ── sync ──────────────────────────────────────────────────────────────
 

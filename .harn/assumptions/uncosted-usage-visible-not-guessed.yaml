@@ -1,0 +1,13 @@
+id: uncosted-usage-visible-not-guessed
+hash: a-1e64e4ffcca9
+title: Tokens without reported cost remain visibly uncosted
+state: active
+statement: Usage lacking cost_usd must contribute tokens and an explicit
+  uncosted-token subtotal but zero dollars to room and member meters, the UI
+  must label that subtotal, and the spend brake must compare only reported
+  dollar cost, because estimating a price for tokens-only harnesses would
+  falsify accounting and hold decisions.
+depends_on:
+  - spend-meter-always-on
+  - codex-usage-tokens-only
+created_by: meters-and-optin-brakes

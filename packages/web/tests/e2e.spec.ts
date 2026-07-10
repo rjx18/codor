@@ -171,3 +171,33 @@ test('parent run expands authoritative extension lifecycle and summary', async (
   await expect(page.getByTestId(`${runId}-extensions`)).toContainText('PONG from extension');
   await expect(page.getByTestId(`${runId}-extensions`)).toContainText('finished');
 });
+
+test('room settings persist opt-in brakes and meter labels uncosted tokens', async ({ page }) => {
+  await page.goto('/?room=eng&token=e2e-token');
+  await page.getByTestId('room-settings').click();
+  await page.getByTestId('turn-brake-enabled').check();
+  await page.getByTestId('turn-brake-value').fill('3');
+  await page.getByTestId('stall-minutes').fill('12');
+  await page.getByTestId('room-settings-save').click();
+  await expect(page.getByTestId('room-settings-dialog')).toHaveCount(0);
+
+  await page.getByTestId('room-settings').click();
+  await expect(page.getByTestId('turn-brake-enabled')).toBeChecked();
+  await expect(page.getByTestId('turn-brake-value')).toHaveValue('3');
+  await expect(page.getByTestId('stall-minutes')).toHaveValue('12');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+
+  await control('/enqueue', {
+    turns: [
+      {
+        kind: 'complete',
+        final_text: '@richard tokens-only browser meter',
+        usage: { input_tokens: 12, output_tokens: 3 },
+      },
+    ],
+  });
+  await page.getByTestId('composer-input').fill('@alpha meter tokens without cost');
+  await page.getByTestId('composer-send').click();
+  await expect(page.getByText('@richard tokens-only browser meter')).toBeVisible();
+  await expect(page.getByTestId('meter')).toContainText('tokens uncosted');
+});

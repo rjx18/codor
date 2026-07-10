@@ -9,6 +9,7 @@ import {
   extensionRunSummaries,
   impliedRecipient,
   RunMessageView,
+  RunStallBadge,
 } from './components.js';
 import type { Connection } from './ws.js';
 
@@ -112,13 +113,22 @@ describe('RunMessageView', () => {
     const running: Message = {
       ...finalizedRun,
       body: '',
-      run: { status: 'running', started_ts: TS, tool_calls: 0, events_ref: 'runs/7.jsonl' },
+      run: {
+        status: 'running',
+        started_ts: TS,
+        stalled_since: TS,
+        tool_calls: 0,
+        events_ref: 'runs/7.jsonl',
+      },
     };
     const html = renderToStaticMarkup(
       <RunMessageView message={running} authorHandle="alpha" liveEventCount={3} room="eng" token="t" />,
     );
     expect(html).toContain('running · 3 events');
     expect(html).toContain('data-run-status="running"');
+    expect(renderToStaticMarkup(<RunStallBadge message={running} />)).toContain(
+      'data-testid="run-7-stalled"',
+    );
   });
 
   it('renders the finalized body, status, tokens, and cost in place', () => {
@@ -173,12 +183,24 @@ describe('Header', () => {
       <Header
         roomName="Eng"
         connected={true}
-        meter={{ room: 'eng', day: '2026-07-10', turns: 4, cost_usd: 1.5, input_tokens: 10, output_tokens: 2 }}
+        meter={{
+          room: 'eng',
+          day: '2026-07-10',
+          turns: 4,
+          cost_usd: 1.5,
+          input_tokens: 60,
+          output_tokens: 27,
+          uncosted_tokens: 75,
+        }}
         unread={2}
+        config={{ turn_brake: null, spend_brake_usd: null, stall_minutes: 30, redaction_enabled: true }}
+        connection={noopConnection}
       />,
     );
     expect(html).toContain('4 turns');
     expect(html).toContain('$1.50');
+    expect(html).toContain('75 tokens uncosted');
+    expect(html).toContain('data-testid="room-settings"');
     expect(html).toContain('inbox');
     expect(html).toContain('>2<');
   });
@@ -200,7 +222,13 @@ describe('MemberCard', () => {
         detail={{
           member,
           queued_count: 2,
-          spend: { turns: 3, input_tokens: 120, output_tokens: 30, cost_usd: 0.12 },
+          spend: {
+            turns: 3,
+            input_tokens: 120,
+            output_tokens: 30,
+            cost_usd: 0.12,
+            uncosted_tokens: 30,
+          },
         }}
         history={[
           { state: 'idle', ts: TS },
@@ -214,6 +242,7 @@ describe('MemberCard', () => {
     expect(html).toContain('/work/review');
     expect(html).toContain('$0.12');
     expect(html).toContain('150 tk');
+    expect(html).toContain('30 uncosted');
     expect(html).toContain('2 queued');
     expect(html).toContain('idle &gt; running &gt; paused');
     expect(html).toContain('Unpause');

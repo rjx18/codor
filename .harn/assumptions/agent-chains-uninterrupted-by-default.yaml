@@ -1,0 +1,14 @@
+id: agent-chains-uninterrupted-by-default
+hash: a-d6e7022ca90f
+title: Default agent chains never hold themselves
+state: active
+statement: Every routed agent delivery must carry a durable consecutive-agent
+  hop count that resets on a human-authored trigger, but the daemon may call its
+  hold hook only when the room's explicit turn or spend brake evaluates true;
+  with both defaults off, arbitrarily long scripted chains must continue to
+  quiescence.
+depends_on:
+  - brakes-default-off
+  - brakes-opt-in-hold
+  - delivery-fifo-has-durable-sequence
+created_by: meters-and-optin-brakes

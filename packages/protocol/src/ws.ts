@@ -63,6 +63,12 @@ export const ActSchema = z.discriminatedUnion('act', [
   z.object({ act: z.literal('attach_heartbeat'), lease_id: z.string().min(1) }),
   z.object({ act: z.literal('attach_complete'), lease_id: z.string().min(1) }),
   z.object({
+    act: z.literal('configure_room'),
+    turn_brake: z.number().int().positive().nullable().optional(),
+    spend_brake_usd: z.number().positive().nullable().optional(),
+    stall_minutes: z.number().int().positive().optional(),
+  }),
+  z.object({
     act: z.literal('spawn'),
     harness: z.string().min(1),
     handle: AssignableHandleSchema,

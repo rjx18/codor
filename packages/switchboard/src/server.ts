@@ -286,6 +286,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 lease: completed.lease,
                 member: completed.member,
               });
+            } else if (act.act === 'configure_room') {
+              daemon.configureRoom(frame.room, {
+                ...(act.turn_brake !== undefined && { turn_brake: act.turn_brake }),
+                ...(act.spend_brake_usd !== undefined && {
+                  spend_brake_usd: act.spend_brake_usd,
+                }),
+                ...(act.stall_minutes !== undefined && { stall_minutes: act.stall_minutes }),
+              });
             }
             else if (act.act === 'redeliver') daemon.redeliver(frame.room, act.delivery_id);
             else if (act.act === 'release_hold') daemon.releaseHold(frame.room, act.delivery_id);
