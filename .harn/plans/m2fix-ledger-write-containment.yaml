@@ -6,22 +6,27 @@ assumptions:
   reviewed:
     - id: ledger-home-only-refs-travel
       outcome: unchanged
-      reason: Runtime type validation and resolved-path containment enforce the existing home-only vault boundary for local and transported writes.
+      reason: Runtime type validation and resolved-path containment enforce the
+        existing home-only vault boundary for local and transported writes.
     - id: ledger-writes-audited-in-room
       outcome: unchanged
-      reason: Transport writes retain supplied member attribution but reject the reserved direct-filesystem operator identity and malformed inputs.
+      reason: Transport writes retain supplied member attribution but reject the
+        reserved direct-filesystem operator identity and malformed inputs.
     - id: room-home-single-authority
       outcome: unchanged
-      reason: Authenticated peers still route writes to the home, which now validates the request before touching its filesystem.
+      reason: Authenticated peers still route writes to the home, which now validates
+        the request before touching its filesystem.
 anchors:
   ledger-home-only-refs-travel:
     home-ledger-vault:
       action: change
-      reason: Single-source note type and write schemas, validate runtime writes, and require the resolved destination to remain inside the room vault.
+      reason: Single-source note type and write schemas, validate runtime writes, and
+        require the resolved destination to remain inside the room vault.
   ledger-writes-audited-in-room:
     ledger-change-audit:
       action: change
-      reason: Parse ledger_add payloads with zod and return an error result for malformed, traversal, empty-author, or forged-operator requests.
+      reason: Parse ledger_add payloads with zod and return an error result for
+        malformed, traversal, empty-author, or forged-operator requests.
 files:
   - packages/switchboard/package.json
   - packages/switchboard/src/ledger/vault.ts
@@ -31,3 +36,5 @@ files:
   - packages/cli/src/index.spec.ts
   - pnpm-lock.yaml
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T15:20:36.542Z

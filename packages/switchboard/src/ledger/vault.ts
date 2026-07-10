@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -6,13 +7,14 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 
 import matter from 'gray-matter';
 import { RoomIdSchema } from '@wireroom/protocol';
+import { z } from 'zod';
 
-export type LedgerNoteType = 'decision' | 'constraint' | 'contract';
+export const LedgerNoteTypeSchema = z.enum(['decision', 'constraint', 'contract']);
+export type LedgerNoteType = z.infer<typeof LedgerNoteTypeSchema>;
 
 export interface LedgerNote {
   name: string;
@@ -22,14 +24,14 @@ export interface LedgerNote {
   relative_path: string;
 }
 
-export interface LedgerWrite {
-  name: string;
-  type: LedgerNoteType;
-  body: string;
-  author: string;
-}
-
 const NOTE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+export const LedgerWriteSchema = z.object({
+  name: z.string().regex(NOTE_NAME, 'ledger note name must be a lowercase slug'),
+  type: LedgerNoteTypeSchema,
+  body: z.string(),
+  author: z.string().trim().min(1, 'ledger author must not be empty'),
+}).strict();
+export type LedgerWrite = z.infer<typeof LedgerWriteSchema>;
 
 const template = (name: string, type: LedgerNoteType, heading: string): string =>
   matter.stringify(`# ${heading}\n\n`, { name, type });
@@ -41,6 +43,15 @@ function safeNoteName(name: string): string {
 
 function noteTypeDirectory(type: LedgerNoteType): string {
   return `${type}s`;
+}
+
+function validLedgerWrite(write: unknown): LedgerWrite {
+  const parsed = LedgerWriteSchema.safeParse(write);
+  if (parsed.success) return parsed.data;
+  const detail = parsed.error.issues
+    .map((issue) => `${issue.path.join('.') || 'write'}: ${issue.message}`)
+    .join('; ');
+  throw new Error(`invalid ledger write: ${detail}`);
 }
 
 // harn:assume ledger-home-only-refs-travel ref=home-ledger-vault
@@ -83,13 +94,15 @@ export class LedgerVault {
 
   add(write: LedgerWrite): LedgerNote {
     this.bootstrap();
-    const name = safeNoteName(write.name);
-    const path = join(this.root, noteTypeDirectory(write.type), `${name}.md`);
+    const valid = validLedgerWrite(write);
+    const name = safeNoteName(valid.name);
+    const path = resolve(this.root, noteTypeDirectory(valid.type), `${name}.md`);
+    if (!this.contains(path)) throw new Error('ledger write path must remain inside the room vault');
     const content = matter.stringify(
-      write.body.endsWith('\n') ? write.body : `${write.body}\n`,
-      { name, type: write.type },
+      valid.body.endsWith('\n') ? valid.body : `${valid.body}\n`,
+      { name, type: valid.type },
     );
-    this.writeAuditMarker(path, write.author, content);
+    this.writeAuditMarker(path, valid.author, content);
     writeFileSync(path, content);
     return this.note(name)!;
   }
@@ -169,12 +182,10 @@ export class LedgerVault {
     const parsed = matter(content);
     const fallback = basename(path, '.md').replace(/^_/, '');
     const name = typeof parsed.data.name === 'string' ? parsed.data.name : fallback;
-    const type = ['decision', 'constraint', 'contract'].includes(parsed.data.type)
-      ? parsed.data.type as LedgerNoteType
-      : undefined;
+    const noteType = LedgerNoteTypeSchema.safeParse(parsed.data.type);
     return {
       name,
-      type,
+      type: noteType.success ? noteType.data : undefined,
       body: parsed.content,
       content,
       relative_path: relative(this.root, path).split(sep).join('/'),

@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { basename, join, relative, resolve, sep } from 'node:path';
 
 import { watch, type FSWatcher } from 'chokidar';
+import { z } from 'zod';
 
 import type { HyperswarmTransport } from '../transport/hyperswarm.js';
 import type { TransportEnvelope } from '../transport/peer.js';
@@ -9,6 +10,7 @@ import { envelopeUlid } from '../transport/peer.js';
 import { LedgerResolver, type ResolvedLedgerRef } from './resolve.js';
 import {
   LedgerVault,
+  LedgerWriteSchema,
   type LedgerNote,
   type LedgerWrite,
 } from './vault.js';
@@ -19,10 +21,11 @@ export interface LedgerChange {
   author: string;
 }
 
-interface LedgerAddRequest {
-  request_id: string;
-  write: LedgerWrite;
-}
+export const LedgerAddRequestSchema = z.object({
+  request_id: z.ulid(),
+  write: LedgerWriteSchema,
+}).strict();
+type LedgerAddRequest = z.infer<typeof LedgerAddRequestSchema>;
 
 interface LedgerAddResult {
   request_id: string;
@@ -142,13 +145,18 @@ export class LedgerManager {
     peerId: string,
   ): Promise<void> {
     if (envelope.kind !== 'ledger_add') return;
-    const request = envelope.payload as LedgerAddRequest;
+    const candidate = envelope.payload as { request_id?: unknown } | null;
+    const requestId = typeof candidate?.request_id === 'string' ? candidate.request_id : '';
     let result: LedgerAddResult;
     try {
+      const request = LedgerAddRequestSchema.parse(envelope.payload);
       if (!this.roomExists(envelope.room)) throw new Error(`no such home room ${envelope.room}`);
+      if (request.write.author === 'operator') {
+        throw new Error("remote ledger writes cannot claim the reserved 'operator' author");
+      }
       result = { request_id: request.request_id, ok: true, note: this.add(envelope.room, request.write) };
     } catch (error) {
-      result = { request_id: request.request_id, ok: false, error: String(error) };
+      result = { request_id: requestId, ok: false, error: String(error) };
     }
     transport.send(peerId, { room: envelope.room, kind: 'ledger_result', payload: result });
   }

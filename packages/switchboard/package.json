@@ -24,7 +24,8 @@
     "gray-matter": "^4.0.3",
     "hyperswarm": "^4.17.0",
     "sodium-native": "^5.1.0",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

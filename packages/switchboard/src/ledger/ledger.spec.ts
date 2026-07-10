@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +9,7 @@ import { CryptoVault } from '../crypto/pairing.js';
 import { Daemon } from '../daemon.js';
 import { FakeAdapter } from '../fake-adapter.js';
 import { HyperswarmTransport } from '../transport/hyperswarm.js';
+import { envelopeUlid } from '../transport/peer.js';
 import { addRemoteLedgerNote, LedgerManager } from './watch.js';
 import { LedgerVault } from './vault.js';
 
@@ -110,7 +111,7 @@ describe('ledger vault v1', () => {
       notices.some((notice) => notice.id === delivery.message_id))).toEqual([]);
   });
 
-  it('routes an outpost ledger add over authenticated testnet transport to the home vault only', async () => {
+  it('contains and validates transported writes while preserving valid local and remote adds', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wireroom-ledger-remote-'));
     cleanup.push(() => rmSync(root, { recursive: true, force: true }));
     const testnet = await createTestnet(3);
@@ -136,6 +137,85 @@ describe('ledger vault v1', () => {
       home.waitForPeer(outpostCrypto.keys.identity.device_id),
       outpost.waitForPeer(homeCrypto.keys.identity.device_id),
     ]);
+    const results: { request_id: string; ok: boolean; error?: string }[] = [];
+    outpost.onEnvelope((envelope) => {
+      if (envelope.kind === 'ledger_result') {
+        results.push(envelope.payload as { request_id: string; ok: boolean; error?: string });
+      }
+    });
+    const resultFor = async (requestId: string) => {
+      await waitFor(() => results.some((result) => result.request_id === requestId));
+      return results.find((result) => result.request_id === requestId)!;
+    };
+
+    manager.enable('victim');
+    const traversalId = envelopeUlid();
+    outpost.send(homeCrypto.keys.identity.device_id, {
+      room: 'eng',
+      kind: 'ledger_add',
+      payload: {
+        request_id: traversalId,
+        write: {
+          name: 'escaped',
+          type: '../../victim/ledger/decision',
+          author: 'lab',
+          body: 'must never leave the eng vault',
+        },
+      },
+    });
+    expect(await resultFor(traversalId)).toMatchObject({ ok: false });
+    expect(existsSync(join(
+      root,
+      'home',
+      'rooms',
+      'victim',
+      'ledger',
+      'decisions',
+      'escaped.md',
+    ))).toBe(false);
+
+    const malformedId = envelopeUlid();
+    outpost.send(homeCrypto.keys.identity.device_id, {
+      room: 'eng',
+      kind: 'ledger_add',
+      payload: {
+        request_id: malformedId,
+        write: {
+          name: 'malformed',
+          type: 'decision',
+          author: 42,
+          body: 'invalid author type',
+        },
+      },
+    });
+    expect(await resultFor(malformedId)).toMatchObject({ ok: false });
+    expect(manager.note('eng', 'malformed')).toBeUndefined();
+
+    const operatorId = envelopeUlid();
+    outpost.send(homeCrypto.keys.identity.device_id, {
+      room: 'eng',
+      kind: 'ledger_add',
+      payload: {
+        request_id: operatorId,
+        write: {
+          name: 'forged-operator',
+          type: 'decision',
+          author: 'operator',
+          body: 'remote peers do not own this identity',
+        },
+      },
+    });
+    expect(await resultFor(operatorId)).toMatchObject({ ok: false });
+    expect(manager.note('eng', 'forged-operator')).toBeUndefined();
+
+    const local = new LedgerVault(join(root, 'home'), 'eng').add({
+      name: 'local-operator',
+      type: 'decision',
+      author: 'operator',
+      body: 'direct filesystem attribution remains valid',
+    });
+    expect(local.body).toContain('direct filesystem attribution remains valid');
+
     await addRemoteLedgerNote(outpost, homeCrypto.keys.identity.device_id, 'eng', {
       name: 'wire-contract', type: 'contract', author: 'lab', body: 'Frames are acknowledged.',
     });
