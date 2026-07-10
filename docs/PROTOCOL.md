@@ -30,7 +30,16 @@ Member {
 - **Extensions** (subagents) are auto-added when observed, `handle` derived from their task id
   (`claude-ext-7adw`), auto-retired (`dead`) when the parent run ends. Not addressable in v1: the
   parser treats `@<extension>` as plain text. Post-MVP they may accept mentions while alive.
-- **Humans** are members too — agents can (and should) tag `@richard` to report or ask.
+- **Humans** are members too — agents can (and should) tag `@richard` to report or ask. Every
+  room is created with its **owner human member** seeded; the authenticated principal (pairing
+  token or device key) maps to a human member, and that member is the `author` of everything it
+  posts. A delivery addressed to a human is an **inbox/notification record** — it never spawns
+  an adapter turn.
+- **Roles gate human acts** (agents are governed by their harness policy chip instead):
+  `observer` reads; `member` + posts, answers asks/approvals addressed to them, releases holds;
+  `admin` + spawns/renames/kills/revives agents, sets brakes, manages the ledger, enables
+  bridges; `owner` + manages keys, devices, roles, and room lifecycle. Single-operator default:
+  the seeded human is `owner`. This table is the one authoritative role matrix.
 
 ## 2. Messages
 
@@ -41,12 +50,26 @@ Message {
   author: MemberId
   kind: 'chat' | 'run' | 'ask' | 'approval' | 'system'
   body: string          // markdown
-  mentions: Segment[]   // resolved routing, see §3
+  mentions: MentionSpan[]  // resolved at post/finalize time, see §3
   refs: number[]        // #ids referenced anywhere in body
+  ledger_refs: string[] // [[note]] names referenced (§6)
   reply_to?: number     // threading hint for surfaces; does not affect routing
   run?: RunSummary      // kind='run' only
-  ask?: AskCard         // kind='ask' only
+  ask?: AskCard         // kind='ask'|'approval' only
   ts: string            // ISO-8601, switchboard clock
+  seq: number           // room change-sequence at last insert/update (see sync note below)
+}
+
+MentionSpan { member_id: string, start: number, end: number }  // resolved spans — survive renames
+
+AskCard {
+  interaction_id: string       // correlates with the adapter's pending native request
+  kind: 'ask' | 'approval'
+  prompt: string
+  options?: { label: string, description?: string }[]
+  multi?: boolean
+  tool?: string                // approvals: the tool/command being requested
+  detail?: string              // approvals: command text / input summary
 }
 
 RunSummary {
@@ -59,15 +82,23 @@ RunSummary {
 }
 ```
 
-**Runs are one message.** When an agent starts a turn, the switchboard posts a `run` message
-immediately (`status: running`) and streams events into its blob; surfaces render a live header
-(elapsed, current tool, cost) and expand-on-click. On completion the same message is finalized
-with `final_text` as its body. The room timeline never contains raw tool spam.
+**Runs are one message — and the reply IS that message.** When an agent starts a turn, the
+switchboard posts a `run` message immediately (`status: running`) and streams events into its
+blob; surfaces render a live header (elapsed, current tool, cost) and expand-on-click. On
+completion the SAME message is finalized in place: `final_text` becomes its body, and its
+mentions/refs are parsed **from that finalized message** for onward routing. One turn, one
+message, one permanent `#N` — no duplicate "reply" message is ever created.
 
-**Asks** (`kind: 'ask'`) carry a normalized question card: `{ prompt, options?: [{label,
-description}], multi?: bool }`. Only humans may answer; the answer posts as a `chat` reply and the
-switchboard feeds it back to the blocked session. **Approvals** are the same shape with
-`options: [allow once | allow always | deny]` plus the tool/command being requested.
+**Asks and approvals block the run.** The adapter surfaces a pending native request as an
+`AskCard` with a fresh `interaction_id`; the switchboard persists the pending interaction
+(surviving restarts), posts the card message, and the run stays `awaiting_input`. Only humans
+answer; the answer is fed back through the adapter's `respondInteraction(session,
+interaction_id, answer)` into the blocked process, and also posts as a normal reply for the
+record. Approvals carry `tool`/`detail` and options `allow once | allow always | deny`.
+
+**Sync.** Every insert AND in-place update (run finalization, member state, meter ticks) bumps
+a per-room `seq`. Clients reconnect with `since_seq` and receive every changed row — message
+ids alone cannot express in-place run updates, so `seq` is the delta-sync cursor.
 
 ## 3. Mention grammar and routing
 
@@ -79,9 +110,12 @@ between the parts addressed to different members.)
 
 Parsing rules, applied to `body` (fenced code blocks and inline code are skipped):
 
-1. `@handle` — a mention, valid anywhere in the message. Valid only if `handle` resolves to a
-   live, addressable member of the room; otherwise it's plain text (no guessing, no fuzzy
-   match). The recipient set is the union of valid mentions (duplicates collapse).
+1. `@handle` — a mention, valid anywhere in the message. Valid only if `handle` resolves to an
+   **addressable** member of the room; otherwise it's plain text (no guessing, no fuzzy match).
+   Addressable = humans and agents in any state (`dead`/`paused` members queue deliveries until
+   revived/unpaused); NOT addressable = extensions and the reserved `@all`. Mentions are stored
+   as resolved spans `{member_id, start, end}`, so occurrence order is kept and renames never
+   break old messages. The recipient set is the union of valid mentions (duplicates collapse).
 2. `#N` — a reference. Each distinct `N` is recorded in `refs`, resolved once, and attached to
    every delivery of this message. A reference includes the target message's body verbatim (for
    `run` messages: `final_text`, not the event blob). One level deep — referenced messages' own
@@ -122,15 +156,25 @@ them; an untagged reply goes to @richard. Reference messages as #N.]
 ```
 
 The conventions trailer is included on an agent's **first** delivery in a room and thereafter
-only if it has misaddressed (posted an unresolvable mention). Keep payloads lean — sessions pay
-tokens for every byte.
+only if it has misaddressed (posted an unresolvable mention). Both facts are persisted per
+member (`conventions_sent`, `misaddressed` flags), so restarts don't re-spam. Keep payloads
+lean — sessions pay tokens for every byte.
 
 ### Queueing
 
 Harness sessions are single-threaded. Per-member FIFO inbox: deliveries to a `running` member
 queue (`state: queued` shown in the room). On idle, **all queued deliveries for that member are
 batched into one turn**, ordered, each with its `[wireroom …]` header — one resume call, no
-interleaving ambiguity. A `paused` or `dead` member holds its queue; the room shows the backlog.
+interleaving ambiguity. A batched turn's default-reply target (rule 4) is the author of the
+**last** delivery in the batch. A `paused` or `dead` member holds its queue; the room shows the
+backlog.
+
+**Delivery is exactly-once or held — never silently twice.** Before a turn starts, the
+switchboard writes an attempt record (delivery → `delivering`, bound to the run message id); a
+delivery is `consumed` only when `run.completed` lands. On crash/restart, an in-flight
+delivery is reconciled against the run blob and the harness's native transcript: provably
+completed → finalize; provably never started (no events, clean spawn failure) → retry once;
+ambiguous → `held` with a system message for the operator to release or redeliver.
 
 ### Visibility and optional brakes
 
@@ -174,14 +218,20 @@ terminal (`claude -p`, `codex exec`), spawned as a subprocess, spoken to over st
 JSONL. No harness SDKs: nothing to couple to, and any coding agent with a headless mode and a
 resumable session becomes integrable the same way.
 
+Adapters declare honest capabilities:
+`{resume, discover, interactiveAttach, ask, extensions: boolean, approvals: 'runtime'|'spawn-time'}`
+— and expose `respondInteraction(session, interaction_id, answer)` when `ask`/runtime
+approvals are true. A harness without `resume` cannot back a persistent member (no revive, no
+join, no attach); it may only serve one-shot ephemeral members, and surfaces label it so.
+
 | Capability | Claude Code | Codex CLI | Normalized as |
 | --- | --- | --- | --- |
 | Headless drive + resume | `claude -p --resume <session-id> --output-format stream-json --input-format stream-json` | `codex exec --json [--sandbox …] resume <rollout-id> "<prompt>"` | adapter `deliver()` |
-| Event stream | stream-json JSONL on stdout | `--json` JSONL events | `run.item` |
-| Ask-user | `AskUserQuestion` — surfaced as a control request on the stream-json control protocol | — (none) | `ask.raised` card; Codex: plain replies suffice, nothing raised |
-| Permissions | permission modes; runtime prompts via the stream-json control protocol (`--permission-prompt-tool` fallback) | sandbox modes (`read-only` ↔ `--dangerously-bypass…`), set at spawn | `approval.raised` (Claude, runtime) + a static **policy chip** on the member (both) |
-| Subagents | Task tool-calls in the stream; hooks (`SubagentStart/Stop`) + transcript JSONL | — | `extension.*` (Claude); n/a |
-| Usage/cost | result usage block | token counts in events | `run.completed.usage` → room meter |
+| Event stream | stream-json JSONL on stdout | `--json` JSONL: `thread.started` (thread_id), `item.*` (agent messages, tool calls), `turn.completed` (usage) / `turn.failed` / `error` | `run.item` |
+| Ask-user | `AskUserQuestion` — surfaced as a control request on the stream-json control protocol; answered via `respondInteraction` on stdin | — (none) | `ask.raised` card; Codex: plain replies suffice, nothing raised |
+| Permissions | permission modes; runtime prompts via the stream-json control protocol (`--permission-prompt-tool` fallback); answered via `respondInteraction` | sandbox modes (`read-only` ↔ `--dangerously-bypass…`), set at spawn | `approval.raised` (Claude, runtime) + a static **policy chip** on the member (both) |
+| Subagents | **hooks are authoritative** (`SubagentStart`/`SubagentStop`: agent id + transcript path, injected via `--settings`); Task/Agent tool-calls in the stream are enrichment only | — | `extension.*` (Claude); n/a |
+| Usage/cost | result usage block (tokens + cost_usd) | `turn.completed` usage — **tokens only, no dollar cost**; spend meters show tokens for such harnesses and $-brakes count only cost-reporting members | `run.completed.usage` → room meter |
 | Join-from-live-session | `/wireroom` skill + hooks (see ARCHITECTURE §ownership) | `wireroom join` CLI reading `~/.codex/sessions` | member with `session_ref` |
 | Jump-into-member (attach TUI) | `claude --resume <session-id>` in your terminal | `codex resume <rollout-id>` | `wireroom attach <member>`; member goes mirrored until you exit |
 | Interrupt | SIGINT on child | SIGINT on child | member action `interrupt` |

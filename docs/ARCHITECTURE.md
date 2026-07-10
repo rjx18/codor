@@ -51,8 +51,12 @@ interface HarnessAdapter {
   spawn(opts: {cwd, model?, policy?}): Session       // new session
   attach(session_ref: string): Session               // adopt an existing one
   deliver(s: Session, payload: string): AsyncIterable<WireEvent>   // one turn
+  respondInteraction(s: Session, interaction_id: string, answer: unknown): void  // asks/approvals
   interrupt(s: Session): void
-  capabilities: {ask: boolean, approvals: 'runtime'|'spawn-time', extensions: boolean}
+  discoverSessions(): SessionRef[]
+  capabilities: {resume: boolean, discover: boolean, interactiveAttach: boolean,
+                 ask: boolean, approvals: 'runtime'|'spawn-time', extensions: boolean}
+  // no `resume` ⇒ one-shot ephemeral members only (no revive/join/attach), surfaced as such
 }
 ```
 
@@ -209,7 +213,7 @@ verified in M0 before any code lands (unverified entries marked ⚠).
 | Multi-surface daemon shape | Paseo (verified **AGPL-3.0**) | pattern ONLY | license verdict: no code may be copied into this MIT codebase — design cues only (daemon/WS/pairing shape, event rendering ideas). Stack also mismatches: their web/desktop is Expo/react-native-web in Electron; ours is React DOM |
 | E2EE primitives | libsodium (`sodium-native`) / Noise via hyperswarm | depend | never hand-rolled; MLS (OpenMLS) only if multi-party keys outgrow sealed-box fan-out |
 | Encrypted push | Matrix `sygnal` pattern; NSE decrypt on device | pattern (gateway is ~200 lines) | see PRIVACY §push; consider `ntfy` where APNs isn't required |
-| At-rest encryption | SQLCipher (optional) | depend | off by default on encrypted disks |
+| At-rest encryption | OS full-disk encryption (documented) | platform | app-level SQLCipher **deferred**: it would cover the DB but not run blobs/ledger, and the native-build cost buys misleading partial protection |
 | Storage | better-sqlite3 + JSONL blobs | depend | boring on purpose |
 | Ledger format | Obsidian vault conventions (markdown + `[[wikilinks]]`) | pattern/format | files are the store; Obsidian itself becomes a free graph-view client |
 | Ledger graph queries | Graphiti (temporal knowledge graph) ⚠ | optional depend, post-MVP | indexes the vault; never owns the data |

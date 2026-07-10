@@ -68,8 +68,15 @@ device fetches content over tier 0/1 when opened.
 
 ## Keys and pairing
 
-- **Device keys:** every client device generates an X25519 keypair at install; the private key
-  lives in Secure Enclave/Keychain (Apple) or OS keystore.
+- **Device keys:** every device generates an **Ed25519 signing pair** (the device identity —
+  X25519 alone cannot sign) plus an X25519 encryption pair, bound together at pairing. Private
+  keys live in Secure Enclave/Keychain (Apple) or the OS keystore. **Browsers, honestly:**
+  non-extractable WebCrypto keys where the platform supports the curves; otherwise
+  libsodium-managed keys in IndexedDB — weaker, documented, and scoped by the origin sandbox.
+  Unpairing a browser purges IndexedDB, CacheStorage, localStorage, and any push subscription.
+- **Connection auth:** peers and devices authenticate with a nonce-challenge signed by the
+  Ed25519 identity (replay-bound to the session transcript) — possession of a room key alone
+  is never treated as identity.
 - **Pairing:** the web/switchboard shows a QR (switchboard endpoint + ephemeral pairing token +
   switchboard pubkey); the device scans, exchanges pubkeys over the resulting channel, done.
   Same UX as Paseo/claude-watch pairing, plus the key exchange.
@@ -86,7 +93,7 @@ device fetches content over tier 0/1 when opened.
 
 | Location | Data | Protection |
 | --- | --- | --- |
-| Switchboard host | full plaintext history (SQLite + run JSONL + ledger vault) | your disk; optional SQLCipher; filesystem perms |
+| Switchboard host | full plaintext history (SQLite + run JSONL + ledger vault) | your disk + OS full-disk encryption (the supported at-rest story; app-level DB encryption is deferred — it would cover only the DB, not blobs/ledger, and mislead); filesystem perms |
 | iPhone/Watch | decrypted cache of recent messages | OS sandbox + device encryption; wipe on unpair |
 | Browser (web) | in-memory + localStorage cache | cleared on unpair |
 | Push relay | nothing at rest | memory-only forwarding |
@@ -108,6 +115,8 @@ shouldn't hold.
 Watch/phone dictation uses Apple speech recognition. Setting `voice: on-device only` (default)
 restricts to `SFSpeechRecognizer.supportsOnDeviceRecognition` paths — audio never leaves the
 device; where on-device isn't available the mic button says so rather than silently uploading.
+The **web/PWA surface has no dictation feature**: browser speech APIs cannot guarantee
+on-device processing, so voice is native-app-only rather than silently cloud-processed.
 
 ## Secrets hygiene inside rooms
 
