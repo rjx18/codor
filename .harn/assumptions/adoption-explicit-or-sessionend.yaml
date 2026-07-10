@@ -1,0 +1,12 @@
+id: adoption-explicit-or-sessionend
+hash: a-e523cb2714e3
+title: Adoption is explicit except for Claude SessionEnd
+state: active
+statement: A mirrored member may transfer to owned custody only through an
+  explicit CLI or web adopt action, except that a Claude Code SessionEnd hook
+  may trigger the same transition automatically; Codex file or notify inactivity
+  must never infer exit, because quiescence is not proof that the operator
+  stopped driving the session.
+depends_on:
+  - revive-via-session-ref
+created_by: mirrored-join-adopt

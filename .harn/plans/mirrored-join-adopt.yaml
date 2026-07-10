@@ -144,3 +144,5 @@ files:
   - skills/wireroom/scripts/codex-notify.sh
   - docs/JOIN.md
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T11:07:55.660Z

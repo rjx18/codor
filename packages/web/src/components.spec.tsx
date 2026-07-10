@@ -211,4 +211,22 @@ describe('MemberCard', () => {
     expect(html).toContain('idle &gt; running &gt; paused');
     expect(html).toContain('Unpause');
   });
+
+  it('labels mirrored custody and exposes explicit adoption instead of drive controls', () => {
+    const member: Member = {
+      ...alpha,
+      harness: 'codex',
+      session_ref: 'thread-1',
+      cwd: '/work',
+      state: 'queued',
+      custody: 'mirrored',
+    };
+    const html = renderToStaticMarkup(
+      <MemberCard member={member} detail={undefined} history={[]} connection={noopConnection} />,
+    );
+    expect(html).toContain('mirrored');
+    expect(html).toContain('data-testid="adopt-alpha"');
+    expect(html).not.toContain('data-testid="kill-alpha"');
+    expect(html).not.toContain('data-testid="pause-alpha"');
+  });
 });

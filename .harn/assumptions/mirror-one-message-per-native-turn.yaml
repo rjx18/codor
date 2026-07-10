@@ -1,0 +1,15 @@
+id: mirror-one-message-per-native-turn
+hash: a-c50ded755250
+title: Each native TUI turn becomes one deduplicated run message
+state: active
+statement: A Claude Stop or Codex agent-turn-complete feed must persist at most
+  one finalized run message per member and native turn id, authored by that
+  mirrored member with its assistant text, parse mentions and references from
+  that same finalized body, and route it normally, because mirrored speech must
+  obey the same one-turn-one-message and onward-routing semantics as
+  daemon-owned speech without double sourcing.
+depends_on:
+  - runs-are-one-message
+  - reply-is-finalized-run-message
+  - routing-eligibility-nonempty-finalized
+created_by: mirrored-join-adopt

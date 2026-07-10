@@ -41,6 +41,15 @@ export const ActSchema = z.discriminatedUnion('act', [
   z.object({ act: z.literal('release_hold'), delivery_id: z.string().min(1) }),
   z.object({ act: z.literal('mark_read'), delivery_id: z.string().min(1) }),
   z.object({
+    act: z.literal('join'),
+    harness: z.string().min(1),
+    handle: AssignableHandleSchema,
+    session_ref: z.string().min(1),
+    cwd: z.string().min(1),
+    policy: z.string().optional(),
+  }),
+  z.object({ act: z.literal('adopt'), member_id: MemberIdSchema }),
+  z.object({
     act: z.literal('spawn'),
     harness: z.string().min(1),
     handle: AssignableHandleSchema,
@@ -69,11 +78,30 @@ export const ActFrameSchema = z.object({
 });
 export type ActFrame = z.infer<typeof ActFrameSchema>;
 
+export const MirrorTurnFrameSchema = z.object({
+  type: z.literal('mirror_turn'),
+  harness: z.string().min(1),
+  session_ref: z.string().min(1),
+  native_turn_id: z.string().min(1),
+  body: z.string(),
+  transcript_path: z.string().optional(),
+});
+export type MirrorTurnFrame = z.infer<typeof MirrorTurnFrameSchema>;
+
+export const MirrorSessionEndFrameSchema = z.object({
+  type: z.literal('mirror_session_end'),
+  harness: z.string().min(1),
+  session_ref: z.string().min(1),
+});
+export type MirrorSessionEndFrame = z.infer<typeof MirrorSessionEndFrameSchema>;
+
 export const ClientFrameSchema = z.discriminatedUnion('type', [
   ListRoomsFrameSchema,
   SubscribeFrameSchema,
   PostFrameSchema,
   ActFrameSchema,
+  MirrorTurnFrameSchema,
+  MirrorSessionEndFrameSchema,
 ]);
 export type ClientFrame = z.infer<typeof ClientFrameSchema>;
 
@@ -86,6 +114,13 @@ export type ClientFrame = z.infer<typeof ClientFrameSchema>;
  */
 export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('rooms'), rooms: z.array(RoomSchema) }),
+  z.object({
+    type: z.literal('mirror_ack'),
+    native_turn_id: z.string().optional(),
+    message_id: MessageIdSchema.optional(),
+    deduped: z.boolean().optional(),
+    adopted: z.boolean().optional(),
+  }),
   z.object({ type: z.literal('message'), seq: SeqSchema, message: MessageSchema }),
   z.object({ type: z.literal('member'), seq: SeqSchema, member: MemberSchema }),
   z.object({ type: z.literal('inbox'), seq: SeqSchema, delivery: DeliverySchema }),

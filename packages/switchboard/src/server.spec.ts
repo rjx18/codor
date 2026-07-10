@@ -228,6 +228,48 @@ describe('WebSocket', () => {
     client.ws.close();
   });
 
+  it('joins and deduplicates mirrored native turns over the shared protocol', async () => {
+    const client = await connect();
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+    client.ws.send(JSON.stringify({
+      type: 'act',
+      room: 'eng',
+      act: {
+        act: 'join',
+        harness: 'fake',
+        handle: 'planner',
+        session_ref: 'native-session-1',
+        cwd: '/work',
+      },
+    }));
+    await client.next(
+      (frame) => frame.type === 'member' && frame.member.handle === 'planner' && frame.member.custody === 'mirrored',
+    );
+
+    const turn = {
+      type: 'mirror_turn',
+      harness: 'fake',
+      session_ref: 'native-session-1',
+      native_turn_id: 'turn-1',
+      body: '@richard mirrored result',
+    };
+    client.ws.send(JSON.stringify(turn));
+    const first = await client.next(
+      (frame) => frame.type === 'mirror_ack' && frame.native_turn_id === 'turn-1',
+    );
+    expect(first).toMatchObject({ type: 'mirror_ack', deduped: false });
+    client.ws.send(JSON.stringify(turn));
+    const duplicate = await client.next(
+      (frame) => frame.type === 'mirror_ack' && frame.native_turn_id === 'turn-1' && frame.deduped === true,
+    );
+    expect(duplicate).toMatchObject({ message_id: (first as { message_id: number }).message_id });
+    expect(
+      daemon.store.listMessages('eng', { limit: 100 }).filter((message) => message.kind === 'run'),
+    ).toHaveLength(1);
+    client.ws.close();
+  });
+
   it('acts flow through: mark_read clears the unread count', async () => {
     daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/w' });
     fake.enqueue({ kind: 'complete', final_text: '@richard ping' });

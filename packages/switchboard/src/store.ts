@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS members (
   policy TEXT,
   host TEXT,
   state TEXT,
+  custody TEXT,
   parent TEXT,
   role TEXT,
   conventions_sent INTEGER NOT NULL DEFAULT 0,
@@ -108,6 +109,13 @@ CREATE TABLE IF NOT EXISTS meters (
   output_tokens INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (room, day)
 );
+CREATE TABLE IF NOT EXISTS mirrored_turns (
+  room TEXT NOT NULL REFERENCES rooms(id),
+  member_id TEXT NOT NULL,
+  native_turn_id TEXT NOT NULL,
+  message_id INTEGER NOT NULL,
+  PRIMARY KEY (room, member_id, native_turn_id)
+);
 CREATE TABLE IF NOT EXISTS changes (
   room_id TEXT NOT NULL REFERENCES rooms(id),
   seq INTEGER NOT NULL,
@@ -137,6 +145,13 @@ function migrateDeliveryPayloadSnapshot(db: Database.Database): void {
 }
 // harn:end delivery-payload-snapshotted
 
+function migrateMemberCustody(db: Database.Database): void {
+  const columns = db.pragma('table_info(members)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'custody')) {
+    db.exec('ALTER TABLE members ADD COLUMN custody TEXT');
+  }
+}
+
 const toBool = (n: number): boolean => n !== 0;
 const fromBool = (b: boolean): number => (b ? 1 : 0);
 const orNull = <T>(v: T | undefined): T | null => (v === undefined ? null : v);
@@ -154,6 +169,7 @@ interface MemberRow {
   policy: string | null;
   host: string | null;
   state: string | null;
+  custody: string | null;
   parent: string | null;
   role: string | null;
   conventions_sent: number;
@@ -237,6 +253,7 @@ function memberFromRow(row: MemberRow): Member {
     policy: row.policy ?? undefined,
     host: row.host ?? undefined,
     state: row.state ?? undefined,
+    custody: row.custody ?? undefined,
     parent: row.parent ?? undefined,
     role: row.role ?? undefined,
     conventions_sent: toBool(row.conventions_sent),
@@ -317,6 +334,7 @@ export interface NewMember {
   policy?: string;
   host?: string;
   state?: Member['state'];
+  custody?: Member['custody'];
   parent?: string;
   role?: Member['role'];
 }
@@ -380,6 +398,7 @@ export class Store {
     this.db.pragma('foreign_keys = ON');
     this.db.exec(SCHEMA);
     migrateDeliveryPayloadSnapshot(this.db);
+    migrateMemberCustody(this.db);
   }
 
   close(): void {
@@ -472,8 +491,8 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO members (id, room, kind, handle, display_name, harness, session_ref,
-           cwd, policy, host, state, parent, role, conventions_sent, misaddressed)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           cwd, policy, host, state, custody, parent, role, conventions_sent, misaddressed)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         validated.id,
@@ -487,6 +506,7 @@ export class Store {
         orNull(validated.policy),
         orNull(validated.host),
         orNull(validated.state),
+        orNull(validated.custody),
         orNull(validated.parent),
         orNull(validated.role),
         fromBool(validated.conventions_sent),
@@ -512,7 +532,7 @@ export class Store {
       this.db
         .prepare(
           `UPDATE members SET handle = ?, display_name = ?, harness = ?, session_ref = ?,
-             cwd = ?, policy = ?, host = ?, state = ?, parent = ?, role = ?,
+             cwd = ?, policy = ?, host = ?, state = ?, custody = ?, parent = ?, role = ?,
              conventions_sent = ?, misaddressed = ?
            WHERE room = ? AND id = ?`,
         )
@@ -525,6 +545,7 @@ export class Store {
           orNull(merged.policy),
           orNull(merged.host),
           orNull(merged.state),
+          orNull(merged.custody),
           orNull(merged.parent),
           orNull(merged.role),
           fromBool(merged.conventions_sent),
@@ -551,11 +572,45 @@ export class Store {
     return row ? memberFromRow(row) : undefined;
   }
 
+  findMemberBySessionRef(
+    harness: string,
+    sessionRef: string,
+  ): { room: string; member: Member } | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM members WHERE harness = ? AND session_ref = ? ORDER BY room LIMIT 1')
+      .get(harness, sessionRef) as MemberRow | undefined;
+    return row ? { room: row.room, member: memberFromRow(row) } : undefined;
+  }
+
   listMembers(room: string): Member[] {
     const rows = this.db
       .prepare('SELECT * FROM members WHERE room = ? ORDER BY id')
       .all(room) as MemberRow[];
     return rows.map(memberFromRow);
+  }
+
+  getMirroredMessageId(room: string, memberId: string, nativeTurnId: string): number | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT message_id FROM mirrored_turns
+         WHERE room = ? AND member_id = ? AND native_turn_id = ?`,
+      )
+      .get(room, memberId, nativeTurnId) as { message_id: number } | undefined;
+    return row?.message_id;
+  }
+
+  recordMirroredTurn(
+    room: string,
+    memberId: string,
+    nativeTurnId: string,
+    messageId: number,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO mirrored_turns (room, member_id, native_turn_id, message_id)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(room, memberId, nativeTurnId, messageId);
   }
 
   // ── messages ──────────────────────────────────────────────────────────

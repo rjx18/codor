@@ -96,6 +96,11 @@ describe('members', () => {
     expect(MemberSchema.safeParse({ ...agent, state: 'custody_uncertain' }).success).toBe(true);
   });
 
+  it('persists explicit owned or mirrored custody for agent sessions', () => {
+    expect(MemberSchema.parse({ ...agent, custody: 'owned' }).custody).toBe('owned');
+    expect(MemberSchema.parse({ ...agent, custody: 'mirrored' }).custody).toBe('mirrored');
+  });
+
   it('rejects reserved handles on non-system members', () => {
     expect(MemberSchema.safeParse({ ...agent, handle: 'switchboard' }).success).toBe(false);
     expect(MemberSchema.safeParse({ ...agent, handle: 'all' }).success).toBe(false);
@@ -384,6 +389,8 @@ describe('WS client frames', () => {
     ['redeliver', { act: 'redeliver', delivery_id: 'd' }],
     ['release_hold', { act: 'release_hold', delivery_id: 'd' }],
     ['mark_read', { act: 'mark_read', delivery_id: 'd' }],
+    ['join', { act: 'join', harness: 'codex', handle: 'planner', session_ref: 's-1', cwd: '/w' }],
+    ['adopt', { act: 'adopt', member_id: ULID_A }],
     ['spawn', { act: 'spawn', harness: 'codex', handle: 'coder', cwd: '/w', policy: 'read-only' }],
     ['rename', { act: 'rename', member_id: ULID_A, handle: 'reviewer' }],
     ['revive', { act: 'revive', member_id: ULID_A }],
@@ -404,6 +411,27 @@ describe('WS client frames', () => {
     expect(
       ActSchema.safeParse({ act: 'rename', member_id: ULID_A, handle: 'switchboard' }).success,
     ).toBe(false);
+  });
+
+  it('accepts session-keyed mirror lifecycle frames and acknowledgements', () => {
+    expect(ClientFrameSchema.safeParse({
+      type: 'mirror_turn',
+      harness: 'codex',
+      session_ref: 'thread-1',
+      native_turn_id: 'turn-1',
+      body: '@planner done',
+    }).success).toBe(true);
+    expect(ClientFrameSchema.safeParse({
+      type: 'mirror_session_end',
+      harness: 'claude-code',
+      session_ref: 'session-1',
+    }).success).toBe(true);
+    expect(ServerFrameSchema.safeParse({
+      type: 'mirror_ack',
+      native_turn_id: 'turn-1',
+      message_id: 7,
+      deduped: false,
+    }).success).toBe(true);
   });
 });
 

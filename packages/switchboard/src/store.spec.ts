@@ -175,6 +175,7 @@ describe('persistence across reopen', () => {
       cwd: '/home/user/project',
       policy: 'workspace-write',
       state: 'idle',
+      custody: 'mirrored',
     });
     store.close();
 
@@ -183,6 +184,31 @@ describe('persistence across reopen', () => {
     expect(revived.cwd).toBe('/home/user/project');
     expect(revived.policy).toBe('workspace-write');
     expect(revived.session_ref).toBe('019f4ae0-8022-7a92-b81a-60e25f3f1c22');
+    expect(revived.custody).toBe('mirrored');
+    expect(
+      store.findMemberBySessionRef('codex', '019f4ae0-8022-7a92-b81a-60e25f3f1c22'),
+    ).toMatchObject({ room: 'eng', member: { id: agent.id } });
+  });
+
+  it('persists native mirrored-turn dedupe keys without storing event payloads', () => {
+    openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent',
+      handle: 'planner',
+      display_name: 'Planner',
+      harness: 'claude-code',
+      session_ref: 'session-1',
+      custody: 'mirrored',
+    });
+    const message = store.postMessage('eng', { author: agent.id, kind: 'run', body: 'done' });
+    store.recordMirroredTurn('eng', agent.id, 'native-turn-1', message.id);
+    store.close();
+
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getMirroredMessageId('eng', agent.id, 'native-turn-1')).toBe(message.id);
+    expect(() =>
+      store.recordMirroredTurn('eng', agent.id, 'native-turn-1', message.id),
+    ).toThrow();
   });
 });
 

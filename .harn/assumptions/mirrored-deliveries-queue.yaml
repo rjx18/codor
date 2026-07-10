@@ -1,0 +1,13 @@
+id: mirrored-deliveries-queue
+hash: a-ee21186b2743
+title: Mirrored members never receive daemon-driven turns
+state: active
+statement: A member whose persisted custody is mirrored must keep inbound
+  deliveries in its durable FIFO without calling adapter.deliver, expose the
+  queued count and a room nudge, and remain held until an explicit adoption
+  transition, because the live native TUI is the sole writer to that harness
+  session.
+depends_on:
+  - one-inflight-turn-per-member
+  - delivery-fifo-has-durable-sequence
+created_by: mirrored-join-adopt

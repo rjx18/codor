@@ -5,6 +5,8 @@ import type { Member, Message, ServerFrame } from '@wireroom/protocol';
 import { Command } from 'commander';
 
 import { ProtocolClient, type ProtocolClientOptions } from './connection.js';
+import { detectSession } from './detect.js';
+import { parseMirrorHook } from './mirror.js';
 import { startWireroom, waitForShutdown } from './up.js';
 
 export interface CliContext {
@@ -36,6 +38,14 @@ const formatRunHeader = (message: Message, author: string): string => {
     usage?.cost_usd === undefined ? undefined : `$${usage.cost_usd.toFixed(2)}`,
   ].filter((part) => part !== undefined).join(' ');
 };
+
+async function readStandardInput(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 export function createProgram(context: CliContext = {}): Command {
   const env = context.env ?? process.env;
@@ -228,10 +238,115 @@ export function createProgram(context: CliContext = {}): Command {
   program
     .command('join')
     .argument('<room>')
-    .option('--as <handle>')
-    .action(() => {
-      throw new Error('join requires mirrored-session support from P1.3');
+    .requiredOption('--as <handle>', 'room member handle')
+    .option('--harness <harness>', 'claude-code or codex')
+    .option('--session <id>', 'native session id')
+    .option('--cwd <path>', 'session working directory')
+    .option('--policy <policy>', 'session policy label')
+    .action(async (room: string, options: {
+      as: string;
+      harness?: string;
+      session?: string;
+      cwd?: string;
+      policy?: string;
+    }) => {
+      const detected = detectSession({
+        harness: options.harness,
+        session: options.session,
+        cwd: options.cwd,
+        env,
+      });
+      await withClient(async (client) => {
+        const existing = new Set<string>();
+        client.send({ type: 'subscribe', room, since_seq: 0 });
+        for (;;) {
+          const frame = await client.next();
+          if (frame.type === 'member') existing.add(frame.member.id);
+          if (frame.type === 'error') throw new Error(frame.message);
+          if (frame.type === 'sync_complete') break;
+        }
+        client.send({
+          type: 'act',
+          room,
+          act: {
+            act: 'join',
+            harness: detected.harness,
+            handle: options.as,
+            session_ref: detected.session_ref,
+            cwd: detected.cwd,
+            policy: options.policy,
+          },
+        });
+        for (;;) {
+          const frame = await client.next();
+          if (frame.type === 'error') throw new Error(frame.message);
+          if (
+            frame.type === 'member' &&
+            !existing.has(frame.member.id) &&
+            frame.member.handle === options.as &&
+            frame.member.custody === 'mirrored'
+          ) {
+            out(`joined @${frame.member.handle} ${frame.member.id} (${detected.harness})`);
+            return;
+          }
+        }
+      });
     });
+
+  program
+    .command('adopt')
+    .argument('<member>')
+    .requiredOption('-r, --room <room>', 'room id')
+    .action(async (memberRef: string, options: RoomOptions) => {
+      await withClient(async (client) => {
+        let member: Member | undefined;
+        client.send({ type: 'subscribe', room: options.room, since_seq: 0 });
+        for (;;) {
+          const frame = await client.next();
+          if (
+            frame.type === 'member' &&
+            (frame.member.id === memberRef || frame.member.handle === memberRef.replace(/^@/, ''))
+          ) {
+            member = frame.member;
+          }
+          if (frame.type === 'error') throw new Error(frame.message);
+          if (frame.type === 'sync_complete') break;
+        }
+        if (!member) throw new Error(`no such member ${memberRef}`);
+        client.send({ type: 'act', room: options.room, act: { act: 'adopt', member_id: member.id } });
+        for (;;) {
+          const frame = await client.next();
+          if (frame.type === 'error') throw new Error(frame.message);
+          if (
+            frame.type === 'member' &&
+            frame.member.id === member.id &&
+            frame.member.custody === 'owned'
+          ) {
+            out(`adopted @${frame.member.handle}`);
+            return;
+          }
+        }
+      });
+    });
+
+  program
+    .command('mirror-hook', { hidden: true })
+    .argument('<source>', 'claude or codex')
+    .argument('[payload]', 'hook JSON; Claude hooks default to stdin')
+    .action(async (source: string, payload?: string) => {
+      if (source !== 'claude' && source !== 'codex') throw new Error(`unsupported mirror source '${source}'`);
+      const raw = payload ?? (await readStandardInput());
+      const frame = parseMirrorHook(source, raw, env);
+      await withClient(async (client) => {
+        client.send(frame);
+        for (;;) {
+          const response = await client.next();
+          if (response.type === 'error') throw new Error(response.message);
+          if (response.type === 'mirror_ack') return;
+        }
+      });
+    });
+
   program
     .command('attach')
     .argument('<member>')

@@ -211,6 +211,8 @@ export function MemberCard(props: {
       <dl className="mt-2 grid grid-cols-[4rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-[11px]">
         <dt className="text-zinc-500">Harness</dt>
         <dd className="truncate text-zinc-300">{props.member.harness ?? '-'}</dd>
+        <dt className="text-zinc-500">Custody</dt>
+        <dd className="truncate text-zinc-300">{props.member.custody ?? 'owned'}</dd>
         <dt className="text-zinc-500">Session</dt>
         <dd className="truncate font-mono text-zinc-300" title={props.member.session_ref}>
           {props.member.session_ref ?? 'pending'}
@@ -291,7 +293,16 @@ export function MemberCard(props: {
           >
             Rename
           </button>
-          {state === 'dead' ? (
+          {props.member.custody === 'mirrored' ? (
+            <button
+              type="button"
+              data-testid={`adopt-${props.member.handle}`}
+              onClick={() => props.connection.act({ act: 'adopt', member_id: props.member.id })}
+              className="bg-emerald-800 px-2 py-1 text-xs text-white"
+            >
+              Adopt
+            </button>
+          ) : state === 'dead' ? (
             <button
               type="button"
               data-testid={`revive-${props.member.handle}`}
@@ -311,7 +322,7 @@ export function MemberCard(props: {
               Kill
             </button>
           )}
-          {state !== 'dead' && (
+          {state !== 'dead' && props.member.custody !== 'mirrored' && (
             <button
               type="button"
               data-testid={`${state === 'paused' ? 'unpause' : 'pause'}-${props.member.handle}`}

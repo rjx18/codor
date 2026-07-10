@@ -1,0 +1,2 @@
+{"timestamp":"2026-07-10T10:00:00.000Z","type":"session_meta","payload":{"id":"019f4a9a-e20e-7131-9e9d-703db5c8a2fc"}}
+{"timestamp":"2026-07-10T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Reviewed @planner"}]}}

@@ -10,6 +10,8 @@ import { FakeAdapter } from './fake-adapter.js';
 
 let dir: string;
 let fake: FakeAdapter;
+let claudeFake: FakeAdapter;
+let codexFake: FakeAdapter;
 let daemon: Daemon;
 let frames: { room: string; frame: ServerFrame }[];
 
@@ -17,7 +19,7 @@ function newDaemon(): Daemon {
   const d = new Daemon({
     dbPath: join(dir, 'switchboard.sqlite'),
     blobRoot: join(dir, 'blobs'),
-    adapters: [fake],
+    adapters: [fake, claudeFake, codexFake],
   });
   d.onFrame((room, frame) => frames.push({ room, frame }));
   return d;
@@ -36,6 +38,8 @@ async function until<T>(fn: () => T | undefined, ms = 2000): Promise<T> {
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'wireroom-daemon-'));
   fake = new FakeAdapter();
+  claudeFake = new FakeAdapter('claude-code');
+  codexFake = new FakeAdapter('codex');
   frames = [];
   daemon = newDaemon();
   daemon.createRoom({ id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' } });
@@ -143,6 +147,91 @@ describe('member management', () => {
     await daemon.settle();
     expect(daemon.store.getInteraction(interaction.id)!.state).toBe('orphaned');
     expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('dead');
+  });
+});
+
+describe('mirrored join and adoption', () => {
+  it('holds inbound deliveries, mirrors one routed run per native turn, then adopts and drains', async () => {
+    const planner = daemon.joinMember('eng', {
+      harness: 'fake',
+      handle: 'planner',
+      session_ref: 'native-planner-session',
+      cwd: '/work/planning',
+    });
+    const reviewer = spawnAgent('reviewer');
+    daemon.postHumanMessage('eng', '@planner draft the plan');
+    await daemon.settle();
+
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.getMember('eng', planner.id)).toMatchObject({
+      custody: 'mirrored',
+      state: 'queued',
+    });
+    expect(daemon.memberDetails('eng').find((item) => item.member.id === planner.id)!.queued_count).toBe(1);
+    expect(
+      daemon.store.listMessages('eng', { limit: 50 }).some(
+        (message) => message.kind === 'system' && message.body.includes('operator terminal'),
+      ),
+    ).toBe(true);
+
+    fake.enqueue(
+      { kind: 'complete', final_text: '@richard review complete' },
+      { kind: 'complete', final_text: '@richard queued plan complete' },
+    );
+    const first = daemon.mirrorTurn({
+      harness: 'fake',
+      session_ref: 'native-planner-session',
+      native_turn_id: 'native-turn-7',
+      body: '@reviewer check this plan',
+      transcript_path: '/native/transcript.jsonl',
+    });
+    const duplicate = daemon.mirrorTurn({
+      harness: 'fake',
+      session_ref: 'native-planner-session',
+      native_turn_id: 'native-turn-7',
+      body: 'must not replace the first body',
+    });
+    expect(first.deduped).toBe(false);
+    expect(duplicate).toMatchObject({ deduped: true, message: { id: first.message.id } });
+    expect(first.message).toMatchObject({
+      kind: 'run',
+      author: planner.id,
+      body: '@reviewer check this plan',
+      run: { status: 'completed', final_text: '@reviewer check this plan' },
+    });
+    expect(first.message.mentions).toEqual([
+      expect.objectContaining({ member_id: reviewer.id }),
+    ]);
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(1);
+
+    const adopted = daemon.adoptMember('eng', planner.id);
+    expect(adopted.custody).toBe('owned');
+    await daemon.settle();
+    expect(fake.wasAttached('native-planner-session')).toBe(true);
+    expect(fake.deliveries).toHaveLength(2);
+    expect(fake.deliveries[1]!.payload).toContain('draft the plan');
+  });
+
+  it('auto-adopts only a Claude SessionEnd; Codex remains explicit', () => {
+    const claude = daemon.joinMember('eng', {
+      harness: 'claude-code',
+      handle: 'claude-live',
+      session_ref: 'claude-session-1',
+      cwd: '/work',
+    });
+    const codex = daemon.joinMember('eng', {
+      harness: 'codex',
+      handle: 'codex-live',
+      session_ref: 'codex-session-1',
+      cwd: '/work',
+    });
+
+    expect(daemon.mirrorSessionEnd('codex', 'codex-session-1')).toBe(false);
+    expect(daemon.store.getMember('eng', codex.id)!.custody).toBe('mirrored');
+    expect(daemon.mirrorSessionEnd('claude-code', 'claude-session-1')).toBe(true);
+    expect(daemon.store.getMember('eng', claude.id)!.custody).toBe('owned');
+    expect(claudeFake.wasAttached('claude-session-1')).toBe(true);
   });
 });
 

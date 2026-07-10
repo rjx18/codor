@@ -1,0 +1,2 @@
+{"type":"user","uuid":"user-turn-1","message":{"role":"user","content":"please report"}}
+{"type":"assistant","uuid":"assistant-turn-1","message":{"id":"msg_claude_1","role":"assistant","content":[{"type":"text","text":"Done @reviewer"}]}}

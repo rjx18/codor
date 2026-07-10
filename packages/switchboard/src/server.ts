@@ -209,7 +209,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return send({ type: 'error', message: `invalid frame: ${String(error)}` });
         }
         try {
-          if (frame.type === 'list_rooms') {
+          if (frame.type === 'mirror_turn') {
+            const mirrored = daemon.mirrorTurn(frame);
+            send({
+              type: 'mirror_ack',
+              native_turn_id: frame.native_turn_id,
+              message_id: mirrored.message.id,
+              deduped: mirrored.deduped,
+            });
+          } else if (frame.type === 'mirror_session_end') {
+            send({
+              type: 'mirror_ack',
+              adopted: daemon.mirrorSessionEnd(frame.harness, frame.session_ref),
+            });
+          } else if (frame.type === 'list_rooms') {
             send({
               type: 'rooms',
               rooms: daemon.store.listRooms().map((room) => daemon.project(room.id, room)),
@@ -234,7 +247,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 .catch((error: unknown) =>
                   send({ type: 'error', message: String(error), ref: 'answer_interaction' }),
                 );
-            } else if (act.act === 'redeliver') daemon.redeliver(frame.room, act.delivery_id);
+            } else if (act.act === 'join') {
+              daemon.joinMember(frame.room, {
+                harness: act.harness,
+                handle: act.handle,
+                session_ref: act.session_ref,
+                cwd: act.cwd,
+                policy: act.policy,
+              });
+            } else if (act.act === 'adopt') daemon.adoptMember(frame.room, act.member_id);
+            else if (act.act === 'redeliver') daemon.redeliver(frame.room, act.delivery_id);
             else if (act.act === 'release_hold') daemon.releaseHold(frame.room, act.delivery_id);
             else if (act.act === 'mark_read') daemon.markRead(frame.room, act.delivery_id);
             else if (act.act === 'spawn') {

@@ -17,6 +17,9 @@ export const MemberStateSchema = z.enum([
 ]);
 export type MemberState = z.infer<typeof MemberStateSchema>;
 
+export const CustodySchema = z.enum(['owned', 'mirrored']);
+export type Custody = z.infer<typeof CustodySchema>;
+
 export const RoleSchema = z.enum(['owner', 'admin', 'member', 'observer']);
 export type Role = z.infer<typeof RoleSchema>;
 
@@ -52,6 +55,7 @@ export const MemberSchema = z
     policy: z.string().min(1).optional(), // sandbox/permission mode chip
     host: z.string().min(1).optional(), // which switchboard machine owns the session
     state: MemberStateSchema.optional(),
+    custody: CustodySchema.optional(),
     parent: MemberIdSchema.optional(), // extensions only: spawning member
     // humans only (enforcement lands M5):
     role: RoleSchema.optional(),
