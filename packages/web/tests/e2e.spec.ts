@@ -260,3 +260,60 @@ test('room settings persist opt-in brakes and meter labels uncosted tokens', asy
   await expect(page.getByText('@richard tokens-only browser meter')).toBeVisible();
   await expect(page.getByTestId('meter')).toContainText('tokens uncosted');
 });
+
+// harn:assume web-shell-responsive-three-pane ref=responsive-shell-regression
+test('desktop room keeps rooms, conversation, and context in stable non-overlapping panes', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  const rooms = page.getByTestId('room-rail');
+  const conversation = page.getByTestId('room-view');
+  const context = page.getByTestId('context-rail');
+  await expect(rooms).toBeVisible();
+  await expect(conversation).toBeVisible();
+  await expect(context).toBeVisible();
+  await expect(page.getByTestId('open-room-drawer')).toBeHidden();
+  await expect(page.getByTestId('composer-input')).toBeVisible();
+  await expect(page.getByTestId('meter')).toBeVisible();
+
+  const roomBox = (await rooms.boundingBox())!;
+  const conversationBox = (await conversation.boundingBox())!;
+  const contextBox = (await context.boundingBox())!;
+  expect(roomBox.x + roomBox.width).toBeLessThanOrEqual(conversationBox.x + 0.5);
+  expect(conversationBox.x + conversationBox.width).toBeLessThanOrEqual(contextBox.x + 0.5);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440);
+});
+// harn:end web-shell-responsive-three-pane
+
+// harn:assume web-glass-theme-accessible-modes ref=glass-theme-regression
+test('glass shell responds to light preference without losing contrast or material fallback', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  const light = await page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement);
+    const header = getComputedStyle(document.querySelector<HTMLElement>('.wr-room-header')!);
+    return {
+      colorScheme: root.colorScheme,
+      canvas: root.getPropertyValue('--wr-canvas').trim(),
+      text: root.getPropertyValue('--wr-text').trim(),
+      material: header.backdropFilter || header.getPropertyValue('-webkit-backdrop-filter'),
+    };
+  });
+  expect(light.colorScheme).toContain('light');
+  expect(light.canvas).not.toBe(light.text);
+  expect(light.material === 'none' || light.material.includes('blur')).toBe(true);
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect.poll(() => page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--wr-canvas').trim(),
+  )).not.toBe(light.canvas);
+  const darkText = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--wr-text').trim(),
+  );
+  expect(darkText).not.toBe(light.text);
+});
+// harn:end web-glass-theme-accessible-modes

@@ -236,6 +236,7 @@ describe('Header', () => {
       />,
     );
     expect(html).toContain('4 turns');
+    expect(html).toContain('87 tokens');
     expect(html).toContain('$1.50');
     expect(html).toContain('75 tokens uncosted');
     expect(html).toContain('data-testid="room-settings"');

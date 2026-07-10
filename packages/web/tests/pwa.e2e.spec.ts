@@ -27,6 +27,9 @@ test('mobile room keeps the stream primary with a thumb-safe drawer and composer
   expect(viewport.width).toBeLessThanOrEqual(430);
   await expect(page.getByTestId('room-view')).toBeVisible();
   await expect(page.getByTestId('open-room-drawer')).toBeVisible();
+  await expect(page.getByTestId('room-rail')).toBeHidden();
+  await expect(page.getByTestId('context-rail')).toBeHidden();
+  await expect(page.getByTestId('meter')).toBeVisible();
 
   const send = (await page.getByTestId('composer-send').boundingBox())!;
   expect(send.width).toBeGreaterThanOrEqual(44);
@@ -39,6 +42,7 @@ test('mobile room keeps the stream primary with a thumb-safe drawer and composer
   await expect(drawer).toBeVisible();
   await expect(drawer.getByTestId('room-link-eng')).toHaveAttribute('aria-current', 'page');
   await expect(drawer.getByTestId('member-alpha')).toBeVisible();
+  await expect(drawer.getByRole('button', { name: 'Close rooms and members' })).toBeFocused();
   const drawerBox = (await drawer.boundingBox())!;
   expect(drawerBox.width).toBeLessThan(viewport.width);
   await drawer.getByRole('button', { name: 'Close rooms and members' }).click();

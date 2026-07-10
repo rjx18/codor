@@ -1,0 +1,12 @@
+id: web-glass-theme-accessible-modes
+hash: a-3a05dc1e752a
+title: The web glass theme remains accessible in dark and light modes
+state: active
+statement: The web shell and working components must consume semantic dark and
+  light glass tokens, preserve AA-readable text and visible keyboard focus, use
+  opaque fallbacks for unavailable or reduced transparency, and disable
+  nonessential movement for reduced-motion users, because the visual refresh
+  must remain usable rather than making blur or color a functional dependency.
+depends_on:
+  - glass-design-system-guides-responsive-surfaces
+created_by: glass-web-room-shell

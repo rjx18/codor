@@ -1,5 +1,5 @@
 import type { Message, Room } from '@wireroom/protocol';
-import { X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -31,6 +31,7 @@ import {
   useRoomStore,
 } from './state.js';
 import { connect, type Connection } from './ws.js';
+import { ContextRail, RoomList, RoomRail } from './shell.js';
 function pageParams(): { room: string; token: string } {
   const params = new URLSearchParams(window.location.search);
   return { room: params.get('room') ?? 'default', token: params.get('token') ?? '' };
@@ -63,6 +64,9 @@ export function App(props: { token?: string } = {}) {
   const [historyError, setHistoryError] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
+  const drawerCloseRef = useRef<HTMLButtonElement>(null);
+  const contextCloseRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let current = true;
@@ -261,42 +265,81 @@ export function App(props: { token?: string } = {}) {
     return answered;
   }, [messages]);
 
+  const roomItems = useMemo(
+    () => rooms.length > 0 ? rooms : state.room ? [state.room] : [],
+    [rooms, state.room],
+  );
+  const latestRun = useMemo(
+    () => [...messages].reverse().find((message) => message.kind === 'run'),
+    [messages],
+  );
+
+  useEffect(() => {
+    if (!drawerOpen && !contextOpen) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    const target = drawerOpen ? drawerCloseRef.current : contextCloseRef.current;
+    requestAnimationFrame(() => target?.focus());
+    const dismiss = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setDrawerOpen(false);
+        setContextOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const layer = drawerOpen
+        ? document.querySelector<HTMLElement>('[data-testid="room-drawer"]')
+        : document.querySelector<HTMLElement>('.wr-context-sheet');
+      const focusable = [...(layer?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? [])].filter((node) => node.offsetParent !== null);
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', dismiss);
+    return () => {
+      window.removeEventListener('keydown', dismiss);
+      previous?.focus();
+    };
+  }, [contextOpen, drawerOpen]);
+
   return (
-    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-zinc-950 text-zinc-100">
-      <Header
-        roomName={state.room?.name ?? ROOM}
-        roomId={ROOM}
-        token={TOKEN}
-        connected={state.connected}
-        meter={state.meter}
-        unread={unreadCount(state)}
-        onOpenNavigation={() => setDrawerOpen(true)}
-      />
-      {!state.connected && (
-        <div
-          role="status"
-          data-testid="offline-banner"
-          className="border-b border-zinc-700 bg-zinc-900 px-3 py-2 text-center text-xs text-zinc-300"
-        >
-          Offline · room history stays on your switchboard
-        </div>
-      )}
-      <HoldBanner held={heldDeliveries(state.inbox)} handleOf={handles} connection={connection} />
-      <div className="flex min-h-0 flex-1">
-        <div className="hidden min-h-0 lg:block">
-          <MemberRail
-            members={Object.values(state.members)}
-            details={memberDetails}
-            history={state.memberHistory}
-            adapters={adapters}
-            connection={connection}
-            className="h-full"
+    <div className="wr-canvas">
+      <div className="wr-wiring" aria-hidden="true" />
+      <div className="wr-app-grid">
+        <RoomRail
+          rooms={roomItems}
+          currentRoom={ROOM}
+          currentUnread={unreadCount(state)}
+          connected={state.connected}
+        />
+        <main data-testid="room-view" className="wr-room-main">
+          <Header
+            roomName={state.room?.name ?? ROOM}
+            roomId={ROOM}
+            token={TOKEN}
+            connected={state.connected}
+            meter={state.meter}
+            unread={unreadCount(state)}
+            onOpenNavigation={() => setDrawerOpen(true)}
+            onOpenContext={() => setContextOpen(true)}
           />
-        </div>
-        <main data-testid="room-view" className="flex min-w-0 flex-1 flex-col bg-zinc-950">
+          {!state.connected && (
+            <div role="status" data-testid="offline-banner" className="wr-offline-banner">
+              Offline · room history stays on your switchboard
+            </div>
+          )}
+          <HoldBanner held={heldDeliveries(state.inbox)} handleOf={handles} connection={connection} />
           <form
             data-testid="message-search"
-            className="mx-auto flex min-h-14 w-full max-w-4xl items-center gap-2 border-b border-zinc-800 px-3 py-2 sm:px-4"
+            className="wr-search"
             onSubmit={(event) => {
               event.preventDefault();
               const query = searchQuery.trim();
@@ -309,6 +352,7 @@ export function App(props: { token?: string } = {}) {
                 .finally(() => setSearching(false));
             }}
           >
+            <Search aria-hidden="true" size={17} />
             <label htmlFor="room-search" className="sr-only">Search messages</label>
             <input
               id="room-search"
@@ -316,47 +360,51 @@ export function App(props: { token?: string } = {}) {
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search messages"
-              className="min-h-11 min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 text-base text-zinc-100 outline-none focus:border-sky-600 sm:text-sm"
+              className="wr-search-input"
             />
             <button
               type="submit"
+              aria-label="Search"
+              title="Search"
               disabled={searching || searchQuery.trim() === ''}
-              className="min-h-11 min-w-20 rounded-md bg-sky-700 px-3 text-sm text-white disabled:opacity-40"
+              className="wr-icon-button"
             >
-              {searching ? 'Searching' : 'Search'}
+              <Search aria-hidden="true" size={16} />
+              <span className="sr-only">{searching ? 'Searching' : 'Search'}</span>
             </button>
             {searched && (
               <button
                 type="button"
+                aria-label="Clear search"
+                title="Clear search"
                 onClick={() => {
                   setSearchQuery('');
                   setSearchResults([]);
                   setSearched(false);
                 }}
-                className="min-h-11 rounded-md border border-zinc-700 px-3 text-sm text-zinc-300"
+                className="wr-icon-button"
               >
-                Clear
+                <X aria-hidden="true" size={16} />
               </button>
             )}
           </form>
           {searched && (
-            <div data-testid="search-results" className="mx-auto max-h-48 w-full max-w-4xl overflow-y-auto border-b border-zinc-800 bg-zinc-900 px-4 py-2">
-              <p className="mb-1 text-xs text-zinc-500">{searchResults.length} matches</p>
-              <ol className="space-y-1">
+            <div data-testid="search-results" className="wr-search-results">
+              <p>{searchResults.length} matches</p>
+              <ol>
                 {searchResults.map((message) => (
-                  <li key={message.id} className="flex min-w-0 gap-2 text-xs">
+                  <li key={message.id}>
                     <a
                       href={`#${message.id}`}
                       onClick={(event) => {
                         event.preventDefault();
                         void revealMessage(message.id);
                       }}
-                      className="shrink-0 text-sky-300 hover:text-sky-200"
                     >
                       #{message.id}
                     </a>
-                    <span className="shrink-0 text-zinc-400">@{handles(message.author)}</span>
-                    <span className="truncate text-zinc-200">{message.body || `(${message.kind})`}</span>
+                    <span>@{handles(message.author)}</span>
+                    <span>{message.body || `(${message.kind})`}</span>
                   </li>
                 ))}
               </ol>
@@ -371,26 +419,26 @@ export function App(props: { token?: string } = {}) {
               stickToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
               if (node.scrollTop < 80) void loadOlder();
             }}
-            className="mx-auto w-full max-w-4xl flex-1 space-y-2 overflow-y-auto px-3 py-4 sm:space-y-3 sm:px-5"
+            className="wr-timeline"
           >
-            <div className="flex h-6 items-center justify-center">
+            <div className="wr-history-control">
               {hasOlder && (
                 <button
                   type="button"
                   data-testid="load-history"
                   disabled={historyBusy}
                   onClick={() => void loadOlder()}
-                  className="min-h-11 px-3 text-xs text-zinc-500 hover:text-sky-300 disabled:opacity-50"
+                  className="wr-secondary-button min-h-11 px-3 text-xs disabled:opacity-50"
                 >
                   {historyBusy ? 'Loading' : 'Load earlier'}
                 </button>
               )}
-              {historyError && <span className="text-xs text-red-400">History unavailable</span>}
+              {historyError && <span role="status">History unavailable</span>}
             </div>
             {messages.map((message) => {
               if (message.kind === 'run') {
                 return (
-                  <div key={message.id}>
+                  <div key={message.id} className="wr-timeline-run">
                     <RunStallBadge message={message} />
                     <RunMessageView
                       message={message}
@@ -426,14 +474,26 @@ export function App(props: { token?: string } = {}) {
           {/* harn:end sw-caches-shell-only-no-message-data */}
           <Composer members={state.members} messages={state.messages} connection={connection} />
         </main>
+        <ContextRail
+          members={Object.values(state.members)}
+          details={memberDetails}
+          history={state.memberHistory}
+          adapters={adapters}
+          connection={connection}
+          latestRun={latestRun}
+          latestRunAuthor={latestRun ? handles(latestRun.author) : ''}
+          room={ROOM}
+          token={TOKEN}
+          className="wr-context-desktop"
+        />
       </div>
 
       {drawerOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
+        <div className="wr-drawer-layer">
           <button
             type="button"
             aria-label="Close rooms and members"
-            className="absolute inset-0 h-full w-full bg-black/75"
+            className="wr-layer-scrim"
             onClick={() => setDrawerOpen(false)}
           />
           <aside
@@ -441,57 +501,77 @@ export function App(props: { token?: string } = {}) {
             aria-modal="true"
             aria-label="Rooms and members"
             data-testid="room-drawer"
-            className="relative flex h-full w-[min(88vw,24rem)] flex-col border-r border-zinc-700 bg-zinc-950 shadow-2xl"
+            className="wr-mobile-drawer"
           >
-            <div className="flex min-h-16 items-center border-b border-zinc-800 px-4">
-              <strong className="text-lg font-semibold text-zinc-100">Wireroom</strong>
+            <div className="wr-drawer-header">
+              <strong>Wireroom</strong>
               <button
+                ref={drawerCloseRef}
                 type="button"
                 aria-label="Close rooms and members"
                 title="Close"
                 onClick={() => setDrawerOpen(false)}
-                className="ml-auto inline-flex h-11 w-11 items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                className="wr-icon-button"
               >
-                <X aria-hidden="true" size={22} />
+                <X aria-hidden="true" size={20} />
               </button>
             </div>
-            <nav aria-label="Rooms" className="border-b border-zinc-800 p-3">
-              <p className="px-2 pb-2 text-[11px] font-medium uppercase text-zinc-500">Rooms</p>
-              <ul className="space-y-1">
-                {(rooms.length > 0 ? rooms : state.room ? [state.room] : []).map((room) => {
-                  const selected = room.id === ROOM;
-                  const query = new URLSearchParams({ room: room.id });
-                  return (
-                    <li key={room.id}>
-                      <a
-                        href={`/?${query.toString()}`}
-                        data-testid={`room-link-${room.id}`}
-                        aria-current={selected ? 'page' : undefined}
-                        className={`flex min-h-14 items-center border-l-2 px-3 text-sm ${
-                          selected
-                            ? 'border-sky-400 bg-zinc-900 text-zinc-100'
-                            : 'border-transparent text-zinc-300 hover:bg-zinc-900'
-                        }`}
-                      >
-                        <span className="min-w-0 flex-1 truncate font-medium">{room.name}</span>
-                        {selected && unreadCount(state) > 0 && (
-                          <span className="ml-3 text-xs font-semibold text-sky-300">{unreadCount(state)}</span>
-                        )}
-                      </a>
-                    </li>
-                  );
-                })}
-              </ul>
-            </nav>
+            <RoomList
+              rooms={roomItems}
+              currentRoom={ROOM}
+              currentUnread={unreadCount(state)}
+              connected={state.connected}
+              onNavigate={() => setDrawerOpen(false)}
+            />
             <MemberRail
               members={Object.values(state.members)}
               details={memberDetails}
               history={state.memberHistory}
               adapters={adapters}
               connection={connection}
-              className="min-h-0 w-full flex-1 border-r-0 pb-[max(1rem,env(safe-area-inset-bottom))]"
+              variant="drawer"
+              className="min-h-0 flex-1 pb-[max(1rem,env(safe-area-inset-bottom))]"
             />
           </aside>
+        </div>
+      )}
+
+      {contextOpen && (
+        <div className="wr-context-layer">
+          <button
+            type="button"
+            aria-label="Close room context"
+            className="wr-layer-scrim"
+            onClick={() => setContextOpen(false)}
+          />
+          <section role="dialog" aria-modal="true" aria-label="Room context" className="wr-context-sheet">
+            <div className="wr-drawer-header">
+              <strong>Room context</strong>
+              <button
+                ref={contextCloseRef}
+                type="button"
+                aria-label="Close room context"
+                title="Close"
+                onClick={() => setContextOpen(false)}
+                className="wr-icon-button"
+              >
+                <X aria-hidden="true" size={20} />
+              </button>
+            </div>
+            <ContextRail
+              members={Object.values(state.members)}
+              details={memberDetails}
+              history={state.memberHistory}
+              adapters={adapters}
+              connection={connection}
+              latestRun={latestRun}
+              latestRunAuthor={latestRun ? handles(latestRun.author) : ''}
+              room={ROOM}
+              token={TOKEN}
+              testId="context-sheet"
+              className="min-h-0 flex-1"
+            />
+          </section>
         </div>
       )}
     </div>

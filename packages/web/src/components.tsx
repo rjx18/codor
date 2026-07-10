@@ -7,9 +7,14 @@ import {
   type WireEvent,
 } from '@wireroom/protocol';
 import {
+  Activity,
   ChevronDown,
   ChevronRight,
+  CircleDollarSign,
+  Gauge,
+  Inbox,
   Menu,
+  PanelRight,
   Send,
   Settings,
 } from 'lucide-react';
@@ -25,11 +30,11 @@ const stateDot: Record<string, string> = {
   idle: 'bg-emerald-500',
   running: 'bg-sky-500 animate-pulse',
   queued: 'bg-amber-500',
-  awaiting_input: 'bg-fuchsia-500',
+  awaiting_input: 'bg-amber-500',
   paused: 'bg-zinc-400',
   dead: 'bg-red-600',
   unreachable: 'bg-zinc-500',
-  custody_uncertain: 'bg-orange-500',
+  custody_uncertain: 'bg-amber-500',
 };
 
 // harn:assume permalink-ids-stable ref=message-permalink-rendering
@@ -38,7 +43,7 @@ function MessagePermalink(props: { id: number }) {
     <a
       href={`#${props.id}`}
       aria-label={`Permalink to message ${String(props.id)}`}
-      className="inline-flex min-h-11 min-w-11 items-center justify-center text-[11px] text-zinc-500 hover:text-sky-300"
+      className="wr-permalink"
     >
       #{props.id}
     </a>
@@ -73,47 +78,80 @@ export function Header(props: {
   meter: RoomMeter | undefined;
   unread: number;
   onOpenNavigation?: () => void;
+  onOpenContext?: () => void;
 }) {
+  const tokens = props.meter
+    ? props.meter.input_tokens + props.meter.output_tokens
+    : 0;
   return (
-    <header className="flex min-h-14 items-center gap-2 border-b border-zinc-800 bg-zinc-950/95 px-2 sm:gap-3 sm:px-4">
-      {props.onOpenNavigation && (
-        <button
-          type="button"
-          data-testid="open-room-drawer"
-          aria-label="Open rooms and members"
-          title="Rooms and members"
-          onClick={props.onOpenNavigation}
-          className="inline-flex h-11 w-11 shrink-0 items-center justify-center text-zinc-300 hover:bg-zinc-800 lg:hidden"
-        >
-          <Menu aria-hidden="true" size={21} />
-        </button>
-      )}
-      <h1 className="min-w-0 truncate text-sm font-semibold text-zinc-100 sm:text-base">{props.roomName}</h1>
-      <span
-        data-testid="connection"
-        className={`h-2 w-2 shrink-0 rounded-full ${props.connected ? 'bg-emerald-500' : 'bg-red-500'}`}
-        title={props.connected ? 'connected' : 'disconnected'}
-      />
+    <header className="wr-room-header">
+      <div className="wr-header-identity">
+        {props.onOpenNavigation && (
+          <button
+            type="button"
+            data-testid="open-room-drawer"
+            aria-label="Open rooms and members"
+            title="Rooms and members"
+            onClick={props.onOpenNavigation}
+            className="wr-icon-button wr-mobile-trigger"
+          >
+            <Menu aria-hidden="true" size={20} />
+          </button>
+        )}
+        <span className="wr-room-glyph wr-header-glyph" aria-hidden="true">#</span>
+        <div className="wr-room-title">
+          <h1 title={props.roomName}>{props.roomName}</h1>
+          <span>
+            <i
+              data-testid="connection"
+              className={`wr-presence ${props.connected ? 'is-live' : 'is-offline'}`}
+              title={props.connected ? 'connected' : 'disconnected'}
+            />
+            {props.connected ? 'Live' : 'Reconnecting'}
+          </span>
+        </div>
+      </div>
       {props.meter && (
-        <span data-testid="meter" className="hidden min-w-0 truncate text-xs text-zinc-400 min-[390px]:inline">
-          {props.meter.turns} turns · ${props.meter.cost_usd.toFixed(2)}
-          {(props.meter.uncosted_tokens ?? 0) > 0 && ` · ${props.meter.uncosted_tokens ?? 0} tokens uncosted`}
-        </span>
+        <div
+          data-testid="meter"
+          className="wr-meter"
+          title={`${String(props.meter.turns)} turns, ${String(tokens)} tokens, $${props.meter.cost_usd.toFixed(2)} today`}
+        >
+          <span><Gauge aria-hidden="true" size={14} /> {props.meter.turns} turns</span>
+          <span><Activity aria-hidden="true" size={14} /> {tokens.toLocaleString()} tokens</span>
+          <span><CircleDollarSign aria-hidden="true" size={14} /> ${props.meter.cost_usd.toFixed(2)} today</span>
+          {(props.meter.uncosted_tokens ?? 0) > 0 && (
+            <em>{props.meter.uncosted_tokens ?? 0} tokens uncosted</em>
+          )}
+        </div>
       )}
-      <span className="ml-auto" />
-      <a
-        href={`/settings?${new URLSearchParams({ room: props.roomId }).toString()}`}
-        data-testid="room-settings"
-        aria-label="Settings"
-        title="Settings"
-        className="inline-flex h-11 w-11 items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-      >
-        <Settings aria-hidden="true" size={19} />
-      </a>
-      <span data-testid="inbox-badge" className="inline-flex min-h-7 min-w-7 items-center justify-center rounded bg-zinc-800 px-2 text-xs text-zinc-200" title={`${String(props.unread)} unread`}>
-        <span className="hidden sm:inline">inbox&nbsp;</span>
-        {props.unread > 0 ? <strong className="text-amber-400">{props.unread}</strong> : 0}
-      </span>
+      <div className="wr-header-actions">
+        {props.onOpenContext && (
+          <button
+            type="button"
+            aria-label="Open room context"
+            title="Members and run context"
+            onClick={props.onOpenContext}
+            className="wr-icon-button wr-context-trigger"
+          >
+            <PanelRight aria-hidden="true" size={18} />
+          </button>
+        )}
+        <a
+          href={`/settings?${new URLSearchParams({ room: props.roomId }).toString()}`}
+          data-testid="room-settings"
+          aria-label="Settings"
+          title="Settings"
+          className="wr-icon-button"
+        >
+          <Settings aria-hidden="true" size={18} />
+        </a>
+        <span data-testid="inbox-badge" className="wr-inbox" title={`${String(props.unread)} unread`}>
+          <Inbox aria-hidden="true" size={16} />
+          <span className="sr-only">inbox&nbsp;</span>
+          {props.unread > 0 ? <strong>{props.unread}</strong> : 0}
+        </span>
+      </div>
     </header>
   );
 }
@@ -146,12 +184,12 @@ export function SpawnAgentDialog(props: {
         type="button"
         data-testid="spawn-agent"
         onClick={() => setOpen(true)}
-        className="min-h-11 w-full border border-zinc-700 px-3 text-sm text-zinc-100 hover:bg-zinc-800"
+        className="wr-secondary-button min-h-11 w-full px-3 text-sm"
       >
         Spawn agent
       </button>
       {open && (
-        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
+        <div className="wr-modal-backdrop fixed inset-0 z-20 flex items-center justify-center p-4">
           <form
             role="dialog"
             aria-modal="true"
@@ -161,7 +199,7 @@ export function SpawnAgentDialog(props: {
               event.preventDefault();
               submit();
             }}
-            className="w-full max-w-md border border-zinc-700 bg-zinc-950 p-4 shadow-xl"
+            className="wr-focused-glass w-full max-w-md p-4"
           >
             <h2 className="text-sm font-semibold text-zinc-100">Spawn agent</h2>
             <label className="mt-3 block text-xs text-zinc-400">
@@ -257,7 +295,7 @@ export function MemberCard(props: {
 
   if (props.member.kind !== 'agent') {
     return (
-      <li data-testid={`member-${props.member.handle}`} className="flex items-center gap-2 py-2 text-sm">
+      <li data-testid={`member-${props.member.handle}`} className="wr-member wr-member-human">
         <span className={`h-2 w-2 rounded-full ${stateDot[state] ?? 'bg-zinc-400'}`} />
         <span className="min-w-0 truncate text-zinc-200">@{props.member.handle}</span>
         <span className="ml-auto text-[10px] uppercase text-zinc-500">{props.member.kind}</span>
@@ -268,7 +306,7 @@ export function MemberCard(props: {
   return (
     <li
       data-testid={`member-${props.member.handle}`}
-      className="border-b border-zinc-800 py-3 text-sm"
+      className="wr-member"
     >
       <div className="flex min-w-0 items-center gap-2">
         <span className={`h-2 w-2 shrink-0 rounded-full ${stateDot[state] ?? 'bg-zinc-400'}`} />
@@ -277,13 +315,13 @@ export function MemberCard(props: {
         {(props.detail?.queued_count ?? 0) > 0 && (
           <span
             data-testid={`member-${props.member.handle}-queued`}
-            className="ml-auto rounded bg-amber-900 px-1.5 py-0.5 text-[10px] text-amber-200"
+            className="wr-count wr-count-attention ml-auto"
           >
             {props.detail!.queued_count} queued
           </span>
         )}
       </div>
-      <dl className="mt-2 grid grid-cols-[4rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-[11px]">
+      <dl className="wr-member-facts">
         <dt className="text-zinc-500">Harness</dt>
         <dd className="truncate text-zinc-300">{props.member.harness ?? '-'}</dd>
         <dt className="text-zinc-500">Custody</dt>
@@ -304,7 +342,7 @@ export function MemberCard(props: {
         </dd>
       </dl>
       {props.member.policy && (
-        <span className="mt-2 inline-block rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
+        <span className="wr-policy-chip">
           {props.member.policy}
         </span>
       )}
@@ -313,7 +351,7 @@ export function MemberCard(props: {
         <div className="mt-2 flex min-w-0 items-center gap-2 text-[10px]">
           <code
             data-testid={`attach-command-${props.member.handle}`}
-            className="min-w-0 flex-1 truncate bg-zinc-900 px-1.5 py-1 text-zinc-400"
+            className="wr-code-field min-w-0 flex-1 truncate"
           >
             wireroom attach @{props.member.handle}
           </code>
@@ -323,7 +361,7 @@ export function MemberCard(props: {
             onClick={() =>
               void navigator.clipboard?.writeText(`wireroom attach @${props.member.handle}`)
             }
-            className="min-h-11 shrink-0 border border-zinc-700 px-3 text-zinc-300"
+            className="wr-secondary-button min-h-11 shrink-0 px-3"
           >
             Copy
           </button>
@@ -448,10 +486,13 @@ export function MemberRail(props: {
   history: Record<string, MemberStateObservation[]>;
   adapters: AdapterRegistration[];
   connection: Connection;
+  variant?: 'rail' | 'context' | 'drawer';
   className?: string;
 }) {
+  const variant = props.variant ?? 'rail';
   return (
-    <aside className={`w-80 shrink-0 overflow-y-auto border-r border-zinc-800 p-3 ${props.className ?? ''}`}>
+    <aside className={`wr-member-rail wr-member-rail-${variant} ${props.className ?? ''}`}>
+      <div className="wr-rail-label"><span>Members</span><span>{props.members.filter((m) => m.kind !== 'system').length}</span></div>
       <SpawnAgentDialog adapters={props.adapters} connection={props.connection} />
       <ul className="mt-3">
         {props.members
@@ -533,14 +574,14 @@ export function RunMessageView(props: {
       id={String(props.message.id)}
       data-testid={`run-${props.message.id}`}
       data-run-status={run.status}
-      className="scroll-mt-16 rounded border border-zinc-800 p-2 target:border-sky-600"
+      className="wr-run-card scroll-mt-16 target:border-sky-600"
     >
       <div className="flex items-center gap-2">
         <button
           type="button"
           data-testid={`run-${props.message.id}-toggle`}
           onClick={() => setExpanded((e) => !e)}
-          className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left text-xs text-zinc-400"
+          className="wr-run-toggle"
         >
           {expanded ? <ChevronDown aria-hidden="true" size={16} /> : <ChevronRight aria-hidden="true" size={16} />}
           <span className="text-zinc-300">@{props.authorHandle}</span>
@@ -560,12 +601,12 @@ export function RunMessageView(props: {
         <MessagePermalink id={props.message.id} />
       </div>
       {!running && props.message.body !== '' && (
-        <p data-testid={`run-${props.message.id}-body`} className="mt-1 whitespace-pre-wrap text-sm text-zinc-100">
+        <p data-testid={`run-${props.message.id}-body`} className="wr-run-body">
           {props.message.body}
         </p>
       )}
       {expanded && (
-        <div data-testid={`run-${props.message.id}-events`} className="mt-2 border-t border-zinc-800 pt-2 text-xs text-zinc-400">
+        <div data-testid={`run-${props.message.id}-events`} className="wr-run-events">
           {extensions.length > 0 && (
             <div data-testid={`run-${props.message.id}-extensions`} className="mb-2 space-y-2 border-l-2 border-sky-900 pl-3">
               {extensions.map((extension) => (
@@ -609,7 +650,7 @@ export function RunStallBadge(props: { message: Message }) {
   return (
     <span
       data-testid={`run-${props.message.id}-stalled`}
-      className="mb-1 inline-block bg-amber-950 px-1.5 py-0.5 text-xs text-amber-300"
+      className="wr-stall-badge"
     >
       stalled
     </span>
@@ -629,7 +670,7 @@ export function AskCardView(props: {
     <div
       id={String(props.message.id)}
       data-testid={`card-${props.message.id}`}
-      className="scroll-mt-16 rounded-lg border border-amber-900/80 bg-amber-950/20 p-3 target:border-sky-600"
+      className="wr-ask-card scroll-mt-16 target:border-sky-600"
     >
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-amber-300">
@@ -656,7 +697,7 @@ export function AskCardView(props: {
               });
               setSent(true);
             }}
-            className="min-h-11 rounded-md border border-zinc-700 bg-zinc-900 px-4 text-sm text-zinc-100 hover:border-sky-600 disabled:opacity-40"
+            className="wr-ask-option min-h-11 px-4 text-sm disabled:opacity-40"
           >
             {option.label}
           </button>
@@ -674,7 +715,7 @@ export function HoldBanner(props: {
 }) {
   if (props.held.length === 0) return null;
   return (
-    <div data-testid="hold-banner" className="border-b border-amber-900 bg-amber-950/40 px-3 py-2 text-sm text-amber-200 sm:px-4">
+    <div data-testid="hold-banner" className="wr-hold-banner">
       {props.held.map((delivery) => (
         <div key={delivery.id} className="flex flex-wrap items-center gap-2 sm:gap-3">
           <span className="min-w-0 flex-1">
@@ -684,14 +725,14 @@ export function HoldBanner(props: {
             type="button"
             data-testid={`release-${delivery.id}`}
             onClick={() => props.connection.act({ act: 'release_hold', delivery_id: delivery.id })}
-            className="min-h-11 rounded-md bg-amber-700 px-3 text-xs text-white"
+            className="wr-attention-button min-h-11 px-3 text-xs"
           >
             release
           </button>
           <button
             type="button"
             onClick={() => props.connection.act({ act: 'redeliver', delivery_id: delivery.id })}
-            className="min-h-11 rounded-md bg-zinc-700 px-3 text-xs text-white"
+            className="wr-secondary-button min-h-11 px-3 text-xs"
           >
             redeliver
           </button>
@@ -745,8 +786,8 @@ export function Composer(props: {
     setDraft('');
   };
   return (
-    <div className="shrink-0 border-t border-zinc-800 bg-zinc-950/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4">
-      <p data-testid="implied-recipient" data-kind={implied.kind} className="mb-1 truncate text-xs text-zinc-400">
+    <div className="wr-composer">
+      <p data-testid="implied-recipient" data-kind={implied.kind} className="wr-recipient">
         {implied.label}
       </p>
       <div className="flex items-end gap-2">
@@ -763,7 +804,7 @@ export function Composer(props: {
           rows={2}
           aria-label="Message the room"
           placeholder="Message the room"
-          className="min-h-12 min-w-0 flex-1 resize-none rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-base text-zinc-100 outline-none focus:border-sky-600 sm:text-sm"
+          className="wr-input wr-composer-input min-h-12 min-w-0 flex-1 resize-none px-3 py-2 text-base sm:text-sm"
         />
         <button
           type="button"
@@ -771,7 +812,7 @@ export function Composer(props: {
           aria-label="Send message"
           title="Send message"
           onClick={send}
-          className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-40"
+          className="wr-send-button h-12 w-12 shrink-0 disabled:opacity-40"
         >
           <Send aria-hidden="true" size={20} />
         </button>
@@ -847,7 +888,7 @@ export function MessageRow(props: { message: Message; authorHandle: string; mine
         <p
           id={String(message.id)}
           data-testid={`msg-${message.id}`}
-          className="scroll-mt-16 text-center text-xs italic text-zinc-500 target:text-sky-300"
+        className="wr-system-message scroll-mt-16 target:text-sky-300"
         >
           {body} <MessagePermalink id={message.id} />
         </p>
@@ -860,7 +901,7 @@ export function MessageRow(props: { message: Message; authorHandle: string; mine
       <div
         id={String(message.id)}
         data-testid={`msg-${message.id}`}
-        className="scroll-mt-16 text-sm target:border-l-2 target:border-sky-600 target:pl-2"
+        className={`wr-message scroll-mt-16 ${props.mine ? 'is-mine' : ''} target:border-l-2 target:border-sky-600 target:pl-2`}
       >
         <span className={`font-medium ${props.mine ? 'text-sky-300' : 'text-emerald-300'}`}>@{props.authorHandle}</span>
         <span className="ml-2"><MessagePermalink id={message.id} /></span>

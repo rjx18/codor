@@ -6,11 +6,12 @@ assumptions:
     - id: web-shell-responsive-three-pane
       title: The web room uses a desktop-first responsive three-pane shell
       statement: The room surface must render persistent room navigation, a fluid
-        conversation hero, and member or run context at wide desktop sizes, collapse
-        context to an on-demand sheet at intermediate desktop sizes, and keep only the
-        conversation plus a focus-managed navigation drawer on mobile, because desktop
-        operators need simultaneous context while the installed PWA must remain focused
-        and thumb-safe without horizontal overflow.
+        conversation hero, and member or run context at wide desktop sizes,
+        collapse context to an on-demand sheet at intermediate desktop sizes,
+        and keep only the conversation plus a focus-managed navigation drawer on
+        mobile, because desktop operators need simultaneous context while the
+        installed PWA must remain focused and thumb-safe without horizontal
+        overflow.
       reason: Part A replaces the M3 mobile-first two-pane shell with the corrected v2
         desktop room and iPhone drawer references.
       depends_on:
@@ -19,12 +20,13 @@ assumptions:
     - id: web-glass-theme-accessible-modes
       title: The web glass theme remains accessible in dark and light modes
       statement: The web shell and working components must consume semantic dark and
-        light glass tokens, preserve AA-readable text and visible keyboard focus, use
-        opaque fallbacks for unavailable or reduced transparency, and disable
-        nonessential movement for reduced-motion users, because the visual refresh must
-        remain usable rather than making blur or color a functional dependency.
-      reason: The v2 design system pins both color modes, glass fallbacks, accessibility,
-        and restrained motion as implementation requirements.
+        light glass tokens, preserve AA-readable text and visible keyboard
+        focus, use opaque fallbacks for unavailable or reduced transparency, and
+        disable nonessential movement for reduced-motion users, because the
+        visual refresh must remain usable rather than making blur or color a
+        functional dependency.
+      reason: The v2 design system pins both color modes, glass fallbacks,
+        accessibility, and restrained motion as implementation requirements.
       depends_on:
         - glass-design-system-guides-responsive-surfaces
   reviewed:
@@ -37,20 +39,20 @@ assumptions:
         accountless, and browser-privacy product semantics.
     - id: permalink-ids-stable
       outcome: unchanged
-      reason: The refreshed timeline, search, and run presentation keep permanent numeric
-        ids, fragments, history merge, and reveal behavior intact.
+      reason: The refreshed timeline, search, and run presentation keep permanent
+        numeric ids, fragments, history merge, and reveal behavior intact.
     - id: sw-caches-shell-only-no-message-data
       outcome: unchanged
       reason: The new presentation still reads messages solely from bounded in-memory
         state and adds no runtime cache or persisted room content.
     - id: spend-meter-always-on
       outcome: unchanged
-      reason: The redesigned header makes turns, tokens, and reported spend more visible
-        in every responsive mode rather than hiding the meter.
+      reason: The redesigned header makes turns, tokens, and reported spend more
+        visible in every responsive mode rather than hiding the meter.
     - id: custody-uncertain-never-double-writes
       outcome: unchanged
-      reason: Member controls and attach hints are restyled without broadening when the
-        daemon can drive or attach to a session.
+      reason: Member controls and attach hints are restyled without broadening when
+        the daemon can drive or attach to a session.
     - id: extensions-not-addressable-v1
       outcome: unchanged
       reason: Expanded run evidence remains nested under its parent and exposes no
@@ -63,43 +65,44 @@ anchors:
   web-shell-responsive-three-pane:
     responsive-room-shell:
       action: change
-      reason: Add the stable desktop grid, room rail, context rail, intermediate sheet,
-        and focus-managed mobile drawer.
+      reason: Add the stable desktop grid, room rail, context rail, intermediate
+        sheet, and focus-managed mobile drawer.
     responsive-shell-regression:
       action: change
-      reason: Prove desktop pane ordering, mobile collapse, touch size, and no horizontal
-        overflow in Playwright.
+      reason: Prove desktop pane ordering, mobile collapse, touch size, and no
+        horizontal overflow in Playwright.
   web-glass-theme-accessible-modes:
     semantic-glass-theme:
       action: change
-      reason: Define the semantic dark/light palette, material planes, focus, transparency
-        fallback, and reduced-motion behavior.
+      reason: Define the semantic dark/light palette, material planes, focus,
+        transparency fallback, and reduced-motion behavior.
     glass-theme-regression:
       action: change
-      reason: Exercise light-mode token application and stable glass surfaces in the real
-        browser.
+      reason: Exercise light-mode token application and stable glass surfaces in the
+        real browser.
   permalink-ids-stable:
     message-history-surface:
       action: change
-      reason: Recompose the shell around the existing history, search, hash reveal, and
-        timeline without changing identifiers.
+      reason: Recompose the shell around the existing history, search, hash reveal,
+        and timeline without changing identifiers.
     message-permalink-rendering:
       action: change
       reason: Restyle permanent links within the new dense message and run hierarchy.
   sw-caches-shell-only-no-message-data:
     page-memory-message-cache:
       action: change
-      reason: Restyle the in-memory timeline and keep its scroll/history behavior inside
-        the conversation hero.
+      reason: Restyle the in-memory timeline and keep its scroll/history behavior
+        inside the conversation hero.
   spend-meter-always-on:
     meter-settings-surface:
       action: change
-      reason: Rebuild the header so turn, token, and cost metrics remain visible on desktop
-        and compact mobile widths.
+      reason: Rebuild the header so turn, token, and cost metrics remain visible on
+        desktop and compact mobile widths.
   custody-uncertain-never-double-writes:
     attach-custody-web-hint:
       action: change
-      reason: Polish the attach hint and controls while retaining the same custody gate.
+      reason: Polish the attach hint and controls while retaining the same custody
+        gate.
   extensions-not-addressable-v1:
     extension-run-rendering:
       action: change
@@ -119,3 +122,5 @@ files:
   - packages/web/tests/e2e.spec.ts
   - packages/web/tests/pwa.e2e.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T21:17:34.031Z

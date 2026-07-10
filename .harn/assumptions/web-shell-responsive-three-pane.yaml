@@ -1,0 +1,14 @@
+id: web-shell-responsive-three-pane
+hash: a-9421cbf8d30a
+title: The web room uses a desktop-first responsive three-pane shell
+state: active
+statement: The room surface must render persistent room navigation, a fluid
+  conversation hero, and member or run context at wide desktop sizes, collapse
+  context to an on-demand sheet at intermediate desktop sizes, and keep only the
+  conversation plus a focus-managed navigation drawer on mobile, because desktop
+  operators need simultaneous context while the installed PWA must remain
+  focused and thumb-safe without horizontal overflow.
+depends_on:
+  - glass-design-system-guides-responsive-surfaces
+  - design-references-preserve-wireroom-semantics
+created_by: glass-web-room-shell
