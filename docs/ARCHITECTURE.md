@@ -254,7 +254,7 @@ TypeScript everywhere (Node ≥22, pnpm workspaces). Per part:
 | crypto | **sodium-native** (sealed boxes, keypairs); SQLCipher optional at rest |
 | testing | **vitest** (unit/integration), **Playwright** (web e2e), recorded-stream fixtures for harnesses absent from the dev box |
 | docs site (M5) | **VitePress**, static output — host anywhere |
-| SaaS control plane (relay business, post-launch) | **Next.js** (marketing + billing dashboard), **Better Auth** (GitHub/Google OAuth + magic links), **Postgres** (org/account metadata, sealed mailbox blobs), **Stripe** (billing) — see BUSINESS.md; the product itself touches none of this |
+| SaaS control plane (relay business, post-launch) | **Next.js** (marketing + billing dashboard), **Supabase** (Postgres + GoTrue auth with GitHub/Google OAuth + magic links, storage for sealed mailbox blobs), **Stripe** (billing) — see BUSINESS.md; only we run this, the product itself touches none of it |
 | native apps (M4, private repo) | Swift/SwiftUI, WatchConnectivity, APNs + Notification Service Extension, Keychain/Secure Enclave; claude-watch (MIT) fork basis |
 
 **SaaS in the product: none.** No auth provider (identity = device keypairs + QR pairing — no

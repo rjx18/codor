@@ -125,17 +125,19 @@ The paid relay splits into a stateless **data plane** (the open-source envelope 
 accounts, no database) and a small **control plane** that exists only because money and orgs
 do. Stack, pinned:
 
-- **Sign-in:** GitHub + Google OAuth and email magic links — no passwords. Implemented with
-  **Better Auth** (open-source TS auth library running inside our control plane — not
-  Auth0/Clerk, so self-hosters of the relay aren't dragged into a third-party auth SaaS).
-  Enterprise SSO/SAML later via its SSO plugin, only if demand. The native apps never show a
-  login: they're paid up front and pair with your switchboard by QR — which also keeps us
-  outside Apple's sign-in-with-Apple mandate (it only binds apps that offer third-party login).
-- **Storage:** one **Postgres** for control-plane metadata: accounts (email, OAuth ids), orgs
-  (id, display name, member emails for invites), roles, device *public* keys, push tokens,
-  plan/quota counters, bridge configs (bot tokens encrypted at rest), and the mailbox's sealed
-  blobs with TTL cleanup. No message content, no room names, no ledger data — the data plane
-  never writes here.
+- **Platform: Supabase** (managed Postgres + GoTrue auth + storage in one). This is fine
+  precisely because *only we* run the control plane — relay self-hosters run the accountless
+  data plane and never touch it — and Supabase is itself open source with a real eject path
+  (it's plain Postgres underneath).
+- **Sign-in:** GitHub + Google OAuth and email magic links via Supabase Auth — no passwords.
+  Enterprise SSO/SAML later, only if demand. The native apps never show a login: they're paid
+  up front and pair with your switchboard by QR — which also keeps us outside Apple's
+  sign-in-with-Apple mandate (it only binds apps that offer third-party login).
+- **Storage:** the Supabase Postgres holds control-plane metadata: accounts (email, OAuth
+  ids), orgs (id, display name, member emails for invites), roles, device *public* keys, push
+  tokens, plan/quota counters, bridge configs (bot tokens encrypted at rest); Supabase Storage
+  holds the mailbox's sealed blobs with TTL cleanup. No message content, no room names, no
+  ledger data — the data plane never writes here.
 - **Billing:** **Stripe** (Checkout + Customer Portal + webhooks). Stripe holds the payment
   identity; our Postgres holds the mapping from account → org → device keys → quotas.
 - **Web:** the commercial site (marketing + account/billing dashboard) is a **Next.js** app —
