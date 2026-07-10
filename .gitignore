@@ -1,0 +1,21 @@
+# node
+node_modules/
+dist/
+*.tsbuildinfo
+.pnpm-store/
+
+# local state
+.partyline/
+*.sqlite
+*.sqlite-*
+
+# apple / xcode
+apps/ios/build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# misc
+.DS_Store
+.env
+tmp/
