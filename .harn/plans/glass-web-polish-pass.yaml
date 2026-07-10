@@ -1,0 +1,162 @@
+id: glass-web-polish-pass
+title: Finish the ImageGen-led glass room implementation
+assumptions:
+  retire: []
+  create:
+    - id: web-room-visual-hierarchy-matches-glass-reference
+      title: The room surface carries the ImageGen control-room hierarchy
+      statement: The web room must visually prioritize the conversation over its
+        navigation and context rails, distinguish human prompts, agent runs,
+        approvals, holds, and the focused composer through semantic structure and
+        restrained glass depth, and retain that hierarchy from wide desktop to the
+        installed mobile PWA, because the v2 ImageGen references describe a premium
+        working control room rather than a flat generic chat layout.
+      reason: Operator review found that the first A3 implementation preserved the
+        layout mechanically but did not translate the mockups' depth, identity,
+        typography, or information hierarchy with enough fidelity.
+      depends_on:
+        - glass-design-system-guides-responsive-surfaces
+        - design-references-preserve-wireroom-semantics
+        - web-shell-responsive-three-pane
+        - web-glass-theme-accessible-modes
+    - id: web-first-run-color-mode-is-dark
+      title: A new browser opens Wireroom in its signature dark mode
+      statement: A browser with no stored theme choice must paint the dark glass
+        palette before React renders, while an explicit system or light choice must
+        remain local, immediate, persistent, and available in Settings, because
+        dark-mode-first is part of Wireroom's intended product identity without
+        removing user control.
+      reason: The previous system-default behavior made the first-run app render as
+        a flat light utility whenever the host OS preferred light, contradicting the
+        operator's dark-first direction and the primary mockups.
+      depends_on:
+        - web-theme-choice-stays-local
+  reviewed:
+    - id: glass-design-system-guides-responsive-surfaces
+      outcome: unchanged
+      reason: This corrective pass implements the existing v2 mockups and material
+        recipe more faithfully rather than changing the source of truth.
+    - id: design-references-preserve-wireroom-semantics
+      outcome: unchanged
+      reason: The polish pass keeps permanent one-member runs, honest statuses,
+        exact approval choices, room meters, and the visible implied recipient.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: The wide three-pane, intermediate-sheet, and mobile-drawer layout
+        contracts remain intact while their visual hierarchy is strengthened.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Stronger dark materials, light-mode equivalents, focus treatment,
+        opaque fallbacks, and reduced-motion behavior preserve the accessibility
+        contract.
+    - id: web-theme-choice-stays-local
+      outcome: unchanged
+      reason: System, dark, and light remain browser-local choices applied before
+        React; only the no-preference first-run default changes to dark.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Reworked message and run hierarchy retains permanent numeric ids,
+        fragments, search, and history behavior.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: The visual implementation consumes the existing in-memory projection
+        and adds no persisted message data or runtime content cache.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: The room meter remains visible at every supported viewport and is
+        integrated more clearly into the room header.
+    - id: custody-uncertain-never-double-writes
+      outcome: unchanged
+      reason: Agent presentation changes do not broaden attach or drive authority.
+    - id: extensions-not-addressable-v1
+      outcome: unchanged
+      reason: Extension evidence remains nested under its parent run and is not a
+        recipient.
+    - id: implied-recipient-visible-before-send
+      outcome: unchanged
+      reason: The rebuilt composer keeps the resolved destination visible before
+        send.
+anchors:
+  web-room-visual-hierarchy-matches-glass-reference:
+    glass-room-visual-hierarchy:
+      action: change
+      reason: Recompose room chrome, timeline framing, state bands, and the focused
+        composer around the ImageGen reference hierarchy.
+    glass-room-visual-regression:
+      action: change
+      reason: Prove first-viewport desktop and mobile geometry, material separation,
+        and action hierarchy in a real browser.
+  web-first-run-color-mode-is-dark:
+    dark-first-theme-choice:
+      action: change
+      reason: Make absent storage resolve to dark while preserving explicit system
+        and light choices.
+    dark-first-theme-regression:
+      action: change
+      reason: Exercise first-run dark paint plus explicit system and light
+        persistence without a network mutation.
+  web-shell-responsive-three-pane:
+    responsive-room-shell:
+      action: change
+      reason: Refine rail identity and context composition without changing collapse
+        breakpoints or focus-managed layers.
+    responsive-shell-regression:
+      action: change
+      reason: Extend the existing geometry gate with the final visual hierarchy.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Implement deeper mineral layers, clearer semantic state treatments,
+        richer edge lighting, and equivalent readable light-mode surfaces.
+    glass-theme-regression:
+      action: change
+      reason: Retain contrast, material, focus, fallback, and reduced-motion checks
+        after the final material pass.
+  web-theme-choice-stays-local:
+    local-theme-preference:
+      action: change
+      reason: Persist an explicit system choice so absence can unambiguously mean
+        the dark first-run default.
+    theme-choice-regression:
+      action: change
+      reason: Verify all three local choices and the new no-preference default.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: Add presentation wrappers and grouping metadata around the unchanged
+        message projection.
+    message-permalink-rendering:
+      action: change
+      reason: Integrate permanent ids into the stronger author and run metadata
+        hierarchy.
+  sw-caches-shell-only-no-message-data:
+    page-memory-message-cache:
+      action: change
+      reason: Reframe the in-memory timeline without adding persistence or caching.
+  spend-meter-always-on:
+    meter-settings-surface:
+      action: change
+      reason: Restyle and reposition the same turn, token, and cost projection.
+  custody-uncertain-never-double-writes:
+    attach-custody-web-hint:
+      action: change
+      reason: Compress agent facts and attach affordances while retaining custody
+        guards.
+  extensions-not-addressable-v1:
+    extension-run-rendering:
+      action: change
+      reason: Improve parent-run evidence presentation without exposing extension
+        recipients.
+  implied-recipient-visible-before-send:
+    composer-implied-recipient:
+      action: change
+      reason: Recompose the input dock while keeping its live resolved destination.
+files:
+  - packages/web/src/App.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/shell.tsx
+  - packages/web/src/styles.css
+  - packages/web/src/theme.ts
+  - packages/web/src/components.spec.tsx
+  - packages/web/tests/e2e.spec.ts
+  - tmp/build/PROGRESS.md
