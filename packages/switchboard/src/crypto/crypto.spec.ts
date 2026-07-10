@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
-  authenticateLocalToken,
   AuthenticatedConnectionRegistry,
   ChallengeAuthority,
+  constantTimeEqual,
   hashTranscript,
   signChallenge,
 } from './challenge.js';
@@ -110,10 +110,8 @@ describe('device identity, pairing, challenge auth, and room keys', () => {
     expect(bounded.pendingCount(peer.keys.identity.device_id)).toBe(8);
     now += 31_000;
     expect(bounded.pendingCount()).toBe(0);
-    expect(authenticateLocalToken('local-secret', 'local-secret', '127.0.0.1')).toBe(true);
-    expect(authenticateLocalToken('local-secret', 'local-secret', '::1')).toBe(true);
-    expect(authenticateLocalToken('local-secret', 'local-secret', '192.0.2.10')).toBe(false);
-    expect(authenticateLocalToken('wrong', 'local-secret', '127.0.0.1')).toBe(false);
+    expect(constantTimeEqual('auth-secret', 'auth-secret')).toBe(true);
+    expect(constantTimeEqual('wrong', 'auth-secret')).toBe(false);
     home.close();
     peer.close();
     forger.close();

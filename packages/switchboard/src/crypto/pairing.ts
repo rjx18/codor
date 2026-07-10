@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import sodium from 'sodium-native';
 
-import { ChallengeAuthority } from './challenge.js';
+import { ChallengeAuthority, constantTimeEqual } from './challenge.js';
 import {
   DeviceKeyStore,
   type PeerKind,
@@ -96,8 +96,11 @@ export class PairingService {
   complete(token: string, request: PairingRequest): PairingResult {
     const state = this.read();
     const digest = hashToken(token);
-    const match = state.tokens.find((entry) => entry.token_hash === digest);
-    state.tokens = state.tokens.filter((entry) => entry.token_hash !== digest);
+    let match: StoredPairingToken | undefined;
+    for (const entry of state.tokens) {
+      if (constantTimeEqual(entry.token_hash, digest)) match = entry;
+    }
+    state.tokens = state.tokens.filter((entry) => !constantTimeEqual(entry.token_hash, digest));
     this.write(state);
     if (!match) throw new Error('invalid or already-used pairing token');
     if (this.now() > Date.parse(match.expires_at)) throw new Error('pairing token expired');

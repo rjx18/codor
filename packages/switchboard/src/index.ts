@@ -56,8 +56,8 @@ export type {
 export {
   AuthenticatedConnectionRegistry,
   ChallengeAuthority,
-  authenticateLocalToken,
   challengeBytes,
+  constantTimeEqual,
   hashTranscript,
   signChallenge,
 } from './crypto/challenge.js';

@@ -59,18 +59,12 @@ export function signChallenge(challenge: AuthChallenge, identity: DeviceIdentity
   return signature.toString('base64url');
 }
 
-export function authenticateLocalToken(
-  presented: string,
-  expected: string,
-  remoteAddress: string | undefined,
-): boolean {
-  const address = remoteAddress?.replace(/^::ffff:/, '');
-  if (address !== '127.0.0.1' && address !== '::1') return false;
-  const presentedHash = Buffer.alloc(sodium.crypto_generichash_BYTES);
-  const expectedHash = Buffer.alloc(sodium.crypto_generichash_BYTES);
-  sodium.crypto_generichash(presentedHash, Buffer.from(presented, 'utf8'));
-  sodium.crypto_generichash(expectedHash, Buffer.from(expected, 'utf8'));
-  return sodium.sodium_memcmp(presentedHash, expectedHash);
+export function constantTimeEqual(left: string, right: string): boolean {
+  const leftHash = Buffer.alloc(sodium.crypto_generichash_BYTES);
+  const rightHash = Buffer.alloc(sodium.crypto_generichash_BYTES);
+  sodium.crypto_generichash(leftHash, Buffer.from(left, 'utf8'));
+  sodium.crypto_generichash(rightHash, Buffer.from(right, 'utf8'));
+  return sodium.sodium_memcmp(leftHash, rightHash);
 }
 
 // harn:assume nonce-challenge-auth-no-key-possession-identity ref=replay-bound-peer-auth

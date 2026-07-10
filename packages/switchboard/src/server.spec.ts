@@ -97,6 +97,10 @@ describe('REST', () => {
     expect((await fetch(`${base}/api/rooms/eng/messages`)).status).toBe(401);
     expect((await fetch(`${base}/api/rooms/eng/search?q=hello`)).status).toBe(401);
     expect((await fetch(`${base}/api/rooms/eng/ledger/risk-limits`)).status).toBe(401);
+    expect((await fetch(`${base}/api/rooms`, {
+      headers: { authorization: 'Bearer wrong-token' },
+    })).status).toBe(401);
+    expect((await fetch(`${base}/api/rooms?token=wrong-token`)).status).toBe(401);
   });
 
   it('serves a redacted, read-only ledger note to authenticated surfaces', async () => {
@@ -141,6 +145,12 @@ describe('REST', () => {
       kind: 'device',
       label: 'chromium',
     };
+    const wrong = await fetch(`${base}/api/pairing/complete`, {
+      method: 'POST',
+      headers: { authorization: 'Pairing wrong-token', 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    expect(wrong.status).toBe(401);
     const complete = await fetch(`${base}/api/pairing/complete`, {
       method: 'POST',
       headers: { authorization: `Pairing ${offer.pairing_token}`, 'content-type': 'application/json' },

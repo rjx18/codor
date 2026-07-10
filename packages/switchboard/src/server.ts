@@ -8,6 +8,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import { WebSocketServer, type WebSocket } from 'ws';
 import { ClientFrameSchema, RoomIdSchema, type ServerFrame } from '@wireroom/protocol';
 
+import { constantTimeEqual } from './crypto/challenge.js';
 import type { CryptoVault, PairingRequest } from './crypto/pairing.js';
 import type { Daemon } from './daemon.js';
 
@@ -91,7 +92,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const authed = (req: FastifyRequest, reply: FastifyReply): boolean => {
     const header = req.headers.authorization;
     const query = (req.query as { token?: string }).token;
-    if (header === `Bearer ${token}` || query === token) return true;
+    if (
+      (typeof header === 'string' && constantTimeEqual(header, `Bearer ${token}`)) ||
+      (typeof query === 'string' && constantTimeEqual(query, token))
+    ) return true;
     void reply.code(401).send({ error: 'unauthorized' });
     return false;
   };
@@ -422,7 +426,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     });
   };
 
-  bindProtocol(wss, (url) => url.searchParams.get('token') === token);
+  bindProtocol(wss, (url) => constantTimeEqual(url.searchParams.get('token') ?? '', token));
   if (options.socketPath !== undefined) {
     ipcServer = createHttpServer((_req, res) => res.writeHead(404).end());
     ipcWss = new WebSocketServer({ server: ipcServer, path: '/ws' });
