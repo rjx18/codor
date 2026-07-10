@@ -69,8 +69,8 @@ read JSONL), which is also what makes new harnesses cheap and native-resume/jump
   --input-format stream-json` — the same wire protocol the Agent SDK wraps, spoken directly.
   Events, `AskUserQuestion`, and runtime permission prompts all arrive as JSONL on stdout
   (control requests answered on stdin; `--permission-prompt-tool` as fallback). Extensions:
-  observed via Task tool-call events in the parent stream, enriched by hooks (`SubagentStop`)
-  + transcript-JSONL tailing when available.
+  **`SubagentStart`/`SubagentStop` hooks are authoritative** (injected via `--settings`,
+  reporting agent id + transcript path); Task/Agent tool-call stream events only enrich.
 - **codex**: drives `codex exec --json [--sandbox <policy>] resume <rollout-id> "<payload>"` —
   the exact pattern proven in months of manual use. Flags precede the subcommand (learned the
   hard way). Approvals are spawn-time sandbox policy → rendered as the member's policy chip.
@@ -116,7 +116,8 @@ Same member, same context, custody moving freely between room and terminal — t
   automatic TLS); for teams that want a memorable custom domain with centralized ACL control,
   the documented setup is a **Tailscale app connector** (policy-file grants + a connector node
   routing the app domain across the tailnet). The browser holds only a cache: history pages in
-  over REST, live updates over the WS, reconnect delta-syncs from the last seen message id.
+  over REST, live updates over the WS, reconnect delta-syncs from the room change-log cursor
+  (`since_seq` — message ids can't express in-place run finalizations).
 - **iPhone** (SwiftUI): same WS API. Pairing via QR (device keypair, PRIVACY §pairing). Rooms,
   notifications, ask/approval actions, dictation composer.
 - **Apple Watch** (SwiftUI, started from claude-watch's design): three screens — inbox
@@ -254,7 +255,7 @@ TypeScript everywhere (Node ≥22, pnpm workspaces). Per part:
 | `cli` | **commander**; unix socket + WS client |
 | `relay` | same Node/TS; **web-push** (VAPID) for Web Push; APNs over HTTP/2 added in M4; stateless, Dockerfile provided |
 | bridges (M5) | **Slack Bolt** / **grammY** (Telegram Bot API) |
-| P2P | **hyperswarm** (hyperdht + Noise secret-streams); `hyperdht.createTestnet()` for deterministic tests |
+| P2P | **hyperswarm** (hyperdht + Noise secret-streams); `hyperdht/testnet` for deterministic tests; length-prefixed JSON envelopes with own ids + acks over the raw streams |
 | crypto | **sodium-native** (sealed boxes, keypairs); SQLCipher optional at rest |
 | testing | **vitest** (unit/integration), **Playwright** (web e2e), recorded-stream fixtures for harnesses absent from the dev box |
 | docs site (M5) | **VitePress**, static output — host anywhere |
@@ -273,9 +274,11 @@ and it maps to keys, never to content.
 
 - Harness process dies mid-run → run message finalized `failed`, member `dead`, system message +
   push; member resurrectable via `attach(session_ref)` (one tap: "revive").
-- Switchboard restart → resumes all owned members from `session_ref`s, replays nothing (turns
-  are atomic: a delivery is marked consumed only when `run.completed` lands; a turn cut off
-  mid-flight is retried once, then held for the operator — never silently double-delivered).
+- Switchboard restart → resumes all owned members from `session_ref`s (+ persisted `cwd`),
+  replays nothing: a delivery is consumed only when `run.completed` lands; in-flight attempts
+  are reconciled against the run blob and native transcript — provably completed → finalize,
+  provably never started → retry once, **ambiguous → held for the operator**. Never silently
+  double-delivered.
 - Surface offline → clients are caches; on reconnect they page missed history via REST. Push
   relay down → notifications degrade, room state unaffected.
 - Clock: message ids are the ordering truth (per-room monotonic, assigned by the single owning

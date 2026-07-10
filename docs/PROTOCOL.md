@@ -9,14 +9,20 @@ starts.
 ```ts
 Member {
   id: string            // stable ULID, never changes
-  kind: 'human' | 'agent' | 'extension'
-  handle: string        // unique per room, kebab-case, used in @mentions — renameable
+  kind: 'human' | 'agent' | 'extension' | 'system' | 'bridge'
+  handle: string        // unique per room, /^[a-z0-9][a-z0-9-]{1,30}$/, renameable
+                        // reserved (never assignable): 'all', 'switchboard'
   display_name: string  // free text shown in UI
   // agent + extension only:
   harness?: 'claude-code' | 'codex' | string   // adapter id, open set
   session_ref?: string  // harness-native session/rollout id (resume token)
+  cwd?: string          // persisted launch dir — resume/revive MUST reuse it
+  policy?: string       // sandbox/permission mode chip
   host?: string         // which switchboard machine owns the session
   state?: 'idle' | 'running' | 'queued' | 'awaiting_input' | 'paused' | 'dead'
+        | 'unreachable'        // resident switchboard offline (multi-box)
+        | 'custody_uncertain'  // attach lease lost but native process not confirmed dead —
+                               // the daemon must NOT drive the session until confirmed
   parent?: MemberId     // extensions only: the member whose run spawned them
   // humans only — org access control (schema from day one, enforcement lands M5):
   role?: 'owner' | 'admin' | 'member' | 'observer'
@@ -35,6 +41,11 @@ Member {
   token or device key) maps to a human member, and that member is the `author` of everything it
   posts. A delivery addressed to a human is an **inbox/notification record** — it never spawns
   an adapter turn.
+- **System and bridge members are non-addressable and post-only.** Every room has a `system`
+  member (`switchboard`) that authors system messages — which NEVER route (see §3
+  eligibility). A `bridge` member relays an external platform (Slack/Telegram): its posts
+  carry `origin{platform, external_id, sender_name}` for dedup and echo-suppression, and it
+  can never answer asks, release holds, or be @-mentioned.
 - **Roles gate human acts** (agents are governed by their harness policy chip instead):
   `observer` reads; `member` + posts, answers asks/approvals addressed to them, releases holds;
   `admin` + spawns/renames/kills/revives agents, sets brakes, manages the ledger, enables
@@ -89,18 +100,47 @@ completion the SAME message is finalized in place: `final_text` becomes its body
 mentions/refs are parsed **from that finalized message** for onward routing. One turn, one
 message, one permanent `#N` — no duplicate "reply" message is ever created.
 
-**Asks and approvals block the run.** The adapter surfaces a pending native request as an
-`AskCard` with a fresh `interaction_id`; the switchboard persists the pending interaction
-(surviving restarts), posts the card message, and the run stays `awaiting_input`. Only humans
-answer; the answer is fed back through the adapter's `respondInteraction(session,
-interaction_id, answer)` into the blocked process, and also posts as a normal reply for the
-record. Approvals carry `tool`/`detail` and options `allow once | allow always | deny`.
+**Asks and approvals block the run, with a crash-safe state machine.**
 
-**Sync.** Every insert AND in-place update (run finalization, member state, meter ticks) bumps
-a per-room `seq`. Clients reconnect with `since_seq` and receive every changed row — message
-ids alone cannot express in-place run updates, so `seq` is the delta-sync cursor.
+```ts
+PendingInteraction {
+  id: string; room: RoomId; member_id: MemberId   // the blocked agent
+  message_id: number                              // the ask/approval card message
+  native_id: string; kind: 'ask' | 'approval'
+  targets: MemberId[]      // humans whose inbox gets it — the trigger-chain's human, else
+                           // every human with role ≥ member (first answer wins)
+  state: 'pending' | 'answered' | 'acked' | 'orphaned'
+  answer?: unknown; answered_by?: MemberId; answered_ts?: string
+}
+```
+
+The adapter raises → switchboard persists (`pending`), posts the card, member goes
+`awaiting_input`. A human answers → `answered`, `respondInteraction(session, interaction_id,
+answer): Promise<void>` resolves on adapter acknowledgement → `acked` and the run resumes. The
+answer is recorded as an **audit reply on the card (`reply_to`), which never routes** — the
+router must not queue a second turn at the blocked agent. On daemon restart: still-`pending`
+interactions whose process is gone are reconciled — if resuming the session re-raises the
+request it re-correlates; otherwise the interaction goes `orphaned` and the card renders
+expired with a redeliver option. Asks raised mid agent-to-agent chain target the chain's
+originating human. Approvals carry `tool`/`detail` and options `allow once | allow always |
+deny`.
+
+**Sync.** A per-room **change log** `(seq, entity, entity_id)` records every insert and
+in-place update across ALL client-visible entities — messages (incl. run finalization),
+members, human inbox records, meters, room config. Clients reconnect with `since_seq` and
+receive hydrated changed rows; `seq` is the only delta-sync cursor.
+
+**Human inbox lifecycle.** A delivery addressed to a human is an inbox record with `read_ts?`;
+the `mark_read` act sets it; unread counts derive from it; inbox changes flow through the
+change log like everything else.
 
 ## 3. Mention grammar and routing
+
+**Routing eligibility comes first.** Routed: `chat` messages authored by a human, agent, or
+bridge member (bridge posts carry external humans' words), and **finalized** `run` messages.
+Never routed: `system` messages (ledger notices, renames, holds), `ask`/`approval` cards,
+audit replies on cards, and anything authored by the `system` member — none of these can ever
+trigger an agent turn. A bridge can author routable messages but is never a recipient.
 
 **Mentions select recipients; content is never split.** Every recipient receives the *full*
 message body plus all resolved references. Agents are trusted to read the whole message and work
@@ -123,11 +163,15 @@ Parsing rules, applied to `body` (fenced code blocks and inline code are skipped
 3. `[[note-name]]` — a **ledger reference** (see §6): resolves to that note in the room's ledger
    and attaches its current content to every delivery, exactly like a `#N` ref. Unresolvable
    names stay plain text.
-4. **Default recipient.** A message with zero valid mentions is delivered to the **last agent
-   member that posted in the room**; if no agent has ever posted, it's room commentary
-   (delivered to nobody). Agent-authored messages default to *the member whose message
-   triggered their run* (usually the tagger), so a plain "done, all tests pass" flows back to
-   whoever delegated.
+4. **Default recipient.** A human message with zero valid mentions is delivered to the author
+   of the **latest FINALIZED agent message** in the room (a still-running placeholder never
+   counts); if no agent has ever finished a turn, it's room commentary (delivered to nobody).
+   Agent-authored messages default to *the member whose message triggered their run* (for a
+   batched turn: the author of the last delivery in the batch), so a plain "done, all tests
+   pass" flows back to whoever delegated.
+   **Misaddressing:** `parseBody` also returns unresolved handle-shaped tokens (`@word` that
+   matches no member); a finalized agent message containing one sets the member's
+   `misaddressed` flag (clears after its next delivery re-includes the conventions trailer).
 5. **Fan-out.** Multiple mentions produce one delivery per recipient, each carrying the
    identical full payload: `@codex xxx then @claude yyy` → both receive the whole message; the
    header tells each who else got it.

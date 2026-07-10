@@ -9,7 +9,8 @@ shadows — treat every room like a production credential.
 **There is no server.** Messages are stored exactly once, in SQLite on the machine where the
 switchboard runs — *your* machine, the same one that already holds every agent's full transcript
 in plaintext under `~/.claude/projects` and `~/.codex/sessions`. Room history adds no new trust:
-it lives beside data of identical sensitivity, on disk you own, optionally SQLCipher-encrypted.
+it lives beside data of identical sensitivity, on disk you own, protected the same way — by
+your OS's full-disk encryption.
 Storing it locally is what makes `#N` references, history, and restart-resume possible. Phones,
 watches, and browsers hold only caches (wiped on unpair); the push relay holds nothing at rest;
 no cloud ever holds content, encrypted or not.
