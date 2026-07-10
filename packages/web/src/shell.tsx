@@ -6,12 +6,14 @@ import {
   Clock3,
   ExternalLink,
   Hash,
+  Plus,
   Settings,
   Users,
+  X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from './api.js';
+import { createRoom, fetchRunEvents, type AdapterRegistration, type MemberDetail } from './api.js';
 import { MemberRail } from './components.js';
 import type { MemberStateObservation } from './state.js';
 import type { Connection } from './ws.js';
@@ -20,18 +22,56 @@ function roomHref(room: string): string {
   return `/?${new URLSearchParams({ room }).toString()}`;
 }
 
+// harn:assume web-room-rail-creates-owner-room ref=room-rail-create-action
 export function RoomList(props: {
   rooms: Room[];
   currentRoom: string;
   currentUnread: number;
+  currentHeld: number;
   connected: boolean;
+  token?: string;
+  owner?: { handle: string; display_name: string };
   onNavigate?: () => void;
 }) {
+  const [creating, setCreating] = useState(false);
+  const [roomId, setRoomId] = useState('');
+  const [roomName, setRoomName] = useState('');
+  const [createError, setCreateError] = useState<string>();
+  const [createBusy, setCreateBusy] = useState(false);
+  const firstCreateField = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!creating) return;
+    requestAnimationFrame(() => firstCreateField.current?.focus());
+    const close = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      setCreating(false);
+    };
+    document.addEventListener('keydown', close, true);
+    return () => document.removeEventListener('keydown', close, true);
+  }, [creating]);
+
   return (
     <nav aria-label="Rooms" className="wr-room-list">
       <div className="wr-rail-label">
         <span>Rooms</span>
-        <span>{props.rooms.length}</span>
+        {props.token && props.owner ? (
+          <button
+            type="button"
+            data-testid="create-room"
+            aria-label="Create room"
+            title="Create room"
+            className="wr-rail-action"
+            onClick={() => {
+              setCreateError(undefined);
+              setCreating(true);
+            }}
+          >
+            <Plus aria-hidden="true" size={16} />
+          </button>
+        ) : <span>{props.rooms.length}</span>}
       </div>
       <ul>
         {props.rooms.map((room) => {
@@ -54,35 +94,116 @@ export function RoomList(props: {
                     {selected ? (props.connected ? 'Live on this switchboard' : 'Offline') : 'Room'}
                   </small>
                 </span>
-                {selected && props.currentUnread > 0 ? (
-                  <span className="wr-count" aria-label={`${String(props.currentUnread)} unread`}>
-                    {props.currentUnread}
-                  </span>
-                ) : (
-                  <ChevronRight className="wr-room-chevron" aria-hidden="true" size={15} />
-                )}
+                <span className="wr-room-marks">
+                  {selected && props.currentHeld > 0 && (
+                    <span className="wr-hold-mark" aria-label={`${String(props.currentHeld)} held`} title={`${String(props.currentHeld)} held`}>
+                      {props.currentHeld}
+                    </span>
+                  )}
+                  {selected && props.currentUnread > 0 ? (
+                    <span className="wr-count" aria-label={`${String(props.currentUnread)} unread`}>
+                      {props.currentUnread}
+                    </span>
+                  ) : (
+                    <ChevronRight className="wr-room-chevron" aria-hidden="true" size={15} />
+                  )}
+                </span>
               </a>
             </li>
           );
         })}
       </ul>
+      {creating && props.token && props.owner && (
+        <div className="wr-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Close create room"
+            className="wr-layer-scrim"
+            onClick={() => setCreating(false)}
+          />
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-label="Create room"
+            data-testid="create-room-dialog"
+            className="wr-focused-glass relative z-10 w-full max-w-md p-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setCreateError(undefined);
+              setCreateBusy(true);
+              void createRoom({
+                id: roomId,
+                name: roomName,
+                owner: props.owner!,
+              }, { token: props.token! }).then(
+                (room) => window.location.assign(roomHref(room.id)),
+                () => setCreateError('Room could not be created. Check the id and try again.'),
+              ).finally(() => setCreateBusy(false));
+            }}
+          >
+            <div className="wr-dialog-heading">
+              <div>
+                <h2>Create room</h2>
+                <p>A private room on this switchboard.</p>
+              </div>
+              <button type="button" aria-label="Close create room" className="wr-icon-button" onClick={() => setCreating(false)}>
+                <X aria-hidden="true" size={18} />
+              </button>
+            </div>
+            <label className="wr-field-label">
+              Room id
+              <input
+                ref={firstCreateField}
+                data-testid="create-room-id"
+                value={roomId}
+                onChange={(event) => setRoomId(event.target.value)}
+                pattern="[a-z0-9][a-z0-9-]{0,62}"
+                placeholder="release-train"
+                required
+                className="wr-input min-h-11 px-3"
+              />
+            </label>
+            <label className="wr-field-label">
+              Name
+              <input
+                data-testid="create-room-name"
+                value={roomName}
+                onChange={(event) => setRoomName(event.target.value)}
+                placeholder="Release train"
+                required
+                className="wr-input min-h-11 px-3"
+              />
+            </label>
+            {createError && <p role="alert" className="wr-form-error">{createError}</p>}
+            <div className="wr-dialog-actions">
+              <button type="button" className="wr-secondary-button min-h-11 px-4" onClick={() => setCreating(false)}>Cancel</button>
+              <button type="submit" data-testid="create-room-submit" disabled={createBusy} className="wr-primary-button min-h-11 px-4">
+                {createBusy ? 'Creating' : 'Create room'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </nav>
   );
 }
+// harn:end web-room-rail-creates-owner-room
 
 // harn:assume web-shell-responsive-three-pane ref=responsive-room-shell
 export function RoomRail(props: {
   rooms: Room[];
   currentRoom: string;
   currentUnread: number;
+  currentHeld: number;
   connected: boolean;
+  token: string;
+  owner: { handle: string; display_name: string } | undefined;
 }) {
   return (
     <aside data-testid="room-rail" className="wr-room-rail">
       <div className="wr-brand">
         <span className="wr-brand-mark" aria-hidden="true"><Cable size={21} /></span>
         <strong>Wireroom</strong>
-        <kbd>⌘K</kbd>
       </div>
       <RoomList {...props} />
       <div className="wr-rail-footer">
@@ -111,11 +232,13 @@ function eventLabel(event: WireEvent): string {
   return event.type.replaceAll('.', ' ');
 }
 
+// harn:assume run-context-selects-and-follows-live-evidence ref=selected-live-run-context
 function RunContext(props: {
   message: Message;
   authorHandle: string;
   room: string;
   token: string;
+  liveEvents: WireEvent[];
 }) {
   const [events, setEvents] = useState<WireEvent[]>();
   const [failed, setFailed] = useState(false);
@@ -135,11 +258,14 @@ function RunContext(props: {
     return () => {
       current = false;
     };
-  }, [props.message.id, props.room, props.token]);
+  }, [props.message.id, props.room, props.token, run.status]);
 
   const tokenTotal = run.usage
     ? run.usage.input_tokens + run.usage.output_tokens
     : undefined;
+  const evidence = props.liveEvents.length >= (events?.length ?? 0)
+    ? props.liveEvents
+    : events ?? [];
 
   return (
     <section className="wr-run-context" aria-label={`Run ${String(props.message.id)} context`}>
@@ -161,16 +287,19 @@ function RunContext(props: {
         <dt>Tools</dt><dd>{run.tool_calls}</dd>
       </dl>
       <div className="wr-context-events">
-        <div className="wr-rail-label"><span>Recent evidence</span><span>{events?.length ?? 0}</span></div>
-        {failed ? (
+        <div className="wr-rail-label">
+          <span>Recent evidence</span>
+          <span data-testid="context-evidence-count">{evidence.length}</span>
+        </div>
+        {failed && evidence.length === 0 ? (
           <p role="status">Evidence unavailable</p>
-        ) : events === undefined ? (
+        ) : events === undefined && props.liveEvents.length === 0 ? (
           <p role="status">Loading evidence</p>
-        ) : events.length === 0 ? (
+        ) : evidence.length === 0 ? (
           <p>No journaled events</p>
         ) : (
           <ol>
-            {events.slice(-6).reverse().map((event, index) => (
+            {evidence.slice(-6).reverse().map((event, index) => (
               <li key={`${event.type}-${String(index)}`}>
                 <span aria-hidden="true" />
                 <div>
@@ -192,54 +321,87 @@ export function ContextRail(props: {
   history: Record<string, MemberStateObservation[]>;
   adapters: AdapterRegistration[];
   connection: Connection;
-  latestRun: Message | undefined;
-  latestRunAuthor: string;
+  selectedRun: Message | undefined;
+  selectedRunAuthor: string;
+  selectedRunLiveEvents: WireEvent[];
+  view: 'members' | 'run';
+  onView(view: 'members' | 'run'): void;
   room: string;
   token: string;
   testId?: string;
   className?: string;
 }) {
-  const [view, setView] = useState<'members' | 'run'>('members');
+  const idPrefix = props.testId ?? 'context-rail';
+  const membersTabId = `${idPrefix}-members-tab`;
+  const membersPanelId = `${idPrefix}-members-panel`;
+  const runTabId = `${idPrefix}-run-tab`;
+  const runPanelId = `${idPrefix}-run-panel`;
+  const selectTab = (direction: -1 | 1): void => {
+    if (!props.selectedRun) return;
+    props.onView(props.view === 'members' ? 'run' : 'members');
+    requestAnimationFrame(() => {
+      const target = direction > 0 ? runTabId : membersTabId;
+      document.getElementById(target)?.focus();
+    });
+  };
   return (
     <aside data-testid={props.testId ?? 'context-rail'} className={`wr-context-rail ${props.className ?? ''}`}>
       <div className="wr-context-tabs" role="tablist" aria-label="Room context">
         <button
+          id={membersTabId}
           type="button"
           role="tab"
-          aria-selected={view === 'members'}
-          onClick={() => setView('members')}
+          aria-selected={props.view === 'members'}
+          aria-controls={membersPanelId}
+          tabIndex={props.view === 'members' ? 0 : -1}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowRight') selectTab(1);
+          }}
+          onClick={() => props.onView('members')}
         >
           <Users aria-hidden="true" size={16} /> Members
         </button>
         <button
+          id={runTabId}
           type="button"
           role="tab"
-          aria-selected={view === 'run'}
-          disabled={!props.latestRun}
-          onClick={() => setView('run')}
+          aria-selected={props.view === 'run'}
+          aria-controls={runPanelId}
+          tabIndex={props.view === 'run' ? 0 : -1}
+          disabled={!props.selectedRun}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft') selectTab(-1);
+          }}
+          onClick={() => props.onView('run')}
         >
           <Activity aria-hidden="true" size={16} /> Run
         </button>
       </div>
-      {view === 'members' || !props.latestRun ? (
-        <MemberRail
-          members={props.members}
-          details={props.details}
-          history={props.history}
-          adapters={props.adapters}
-          connection={props.connection}
-          variant="context"
-          className="min-h-0 flex-1"
-        />
+      {props.view === 'members' || !props.selectedRun ? (
+        <div id={membersPanelId} role="tabpanel" aria-labelledby={membersTabId} className="min-h-0 flex-1">
+          <MemberRail
+            members={props.members}
+            details={props.details}
+            history={props.history}
+            adapters={props.adapters}
+            connection={props.connection}
+            variant="context"
+            className="h-full min-h-0"
+          />
+        </div>
       ) : (
-        <RunContext
-          message={props.latestRun}
-          authorHandle={props.latestRunAuthor}
-          room={props.room}
-          token={props.token}
-        />
+        <div id={runPanelId} role="tabpanel" aria-labelledby={runTabId} className="min-h-0 flex-1">
+          <RunContext
+            message={props.selectedRun}
+            authorHandle={props.selectedRunAuthor}
+            room={props.room}
+            token={props.token}
+            liveEvents={props.selectedRunLiveEvents}
+          />
+        </div>
       )}
     </aside>
   );
 }
+// harn:end run-context-selects-and-follows-live-evidence
 // harn:end web-shell-responsive-three-pane

@@ -6,23 +6,25 @@ assumptions:
     - id: run-context-selects-and-follows-live-evidence
       title: Run context follows the explicitly selected run and its live evidence
       statement: Selecting inspect on any run must bind the desktop rail or responsive
-        context sheet to that permanent run message, combine journaled evidence with live
-        streamed events, refresh on completion, and expose loading or failure honestly,
-        because a stale latest-run-only inspector contradicts the conversation it explains.
-      reason: The A3.1 review found that the new context fetched the latest run once and
-        ignored subsequent events and every older selectable run.
+        context sheet to that permanent run message, combine journaled evidence
+        with live streamed events, refresh on completion, and expose loading or
+        failure honestly, because a stale latest-run-only inspector contradicts
+        the conversation it explains.
+      reason: The A3.1 review found that the new context fetched the latest run once
+        and ignored subsequent events and every older selectable run.
       depends_on:
         - web-shell-responsive-three-pane
         - permalink-ids-stable
     - id: web-room-rail-creates-owner-room
       title: The room rail create action creates and enters an owner-seeded room
       statement: The desktop room rail must let the current owner create a valid room
-        through authenticated REST, surface validation or request failure, and navigate to
-        the created room without putting the bearer in the URL, because the primary room
-        switcher must not advertise an inert create affordance.
-      reason: The v2 room-rail inventory includes a create action and the switchboard already
-        exposes authenticated room creation; the A3.1 review found the implementation omitted
-        it entirely.
+        through authenticated REST, surface validation or request failure, and
+        navigate to the created room without putting the bearer in the URL,
+        because the primary room switcher must not advertise an inert create
+        affordance.
+      reason: The v2 room-rail inventory includes a create action and the switchboard
+        already exposes authenticated room creation; the A3.1 review found the
+        implementation omitted it entirely.
       depends_on:
         - owner-and-system-members-seeded
         - server-token-required
@@ -30,47 +32,53 @@ assumptions:
   reviewed:
     - id: web-shell-responsive-three-pane
       outcome: unchanged
-      reason: Intermediate sheet, focus management, selected run, room creation, and current
-        hold status complete the existing responsive contract without changing breakpoints.
+      reason: Intermediate sheet, focus management, selected run, room creation, and
+        current hold status complete the existing responsive contract without
+        changing breakpoints.
     - id: web-glass-theme-accessible-modes
       outcome: unchanged
-      reason: Exact material tokens, semantic state colors, focus visibility, document scroll,
-        and meaningful browser checks bring the implementation back to the existing contract.
+      reason: Exact material tokens, semantic state colors, focus visibility, document
+        scroll, and meaningful browser checks bring the implementation back to
+        the existing contract.
     - id: permalink-ids-stable
       outcome: unchanged
-      reason: Selecting context still uses the permanent numeric message id and fragment.
+      reason: Selecting context still uses the permanent numeric message id and
+        fragment.
     - id: sw-caches-shell-only-no-message-data
       outcome: unchanged
-      reason: Selecting a run consumes the existing in-memory message and event projection and
-        introduces no browser persistence or runtime cache.
+      reason: Selecting a run consumes the existing in-memory message and event
+        projection and introduces no browser persistence or runtime cache.
     - id: spend-meter-always-on
       outcome: unchanged
-      reason: Making clipped meter values keyboard-scrollable changes only access to the same
-        always-visible daily usage projection.
+      reason: Making clipped meter values keyboard-scrollable changes only access to
+        the same always-visible daily usage projection.
     - id: extensions-not-addressable-v1
       outcome: unchanged
-      reason: Adding a run-inspect command does not expose extension sessions as recipients.
+      reason: Adding a run-inspect command does not expose extension sessions as
+        recipients.
     - id: unpair-purges-all-browser-state
       outcome: unchanged
-      reason: Restoring real document scrolling makes device revoke reachable without changing
-        the remote revoke or local purge sequence.
+      reason: Restoring real document scrolling makes device revoke reachable without
+        changing the remote revoke or local purge sequence.
     - id: owner-and-system-members-seeded
       outcome: unchanged
-      reason: The web create action calls the existing endpoint with the current owner and
-        relies on the same atomic room, owner, and system-member transaction.
+      reason: The web create action calls the existing endpoint with the current owner
+        and relies on the same atomic room, owner, and system-member
+        transaction.
     - id: server-token-required
       outcome: unchanged
-      reason: Room creation uses the in-memory bearer header and never copies it into links.
+      reason: Room creation uses the in-memory bearer header and never copies it into
+        links.
 anchors:
   run-context-selects-and-follows-live-evidence:
     selected-live-run-context:
       action: change
-      reason: Bind context tabs to an App-selected run and reconcile fetched journal evidence
-        with live events and completion refreshes.
+      reason: Bind context tabs to an App-selected run and reconcile fetched journal
+        evidence with live events and completion refreshes.
     selected-live-run-context-regression:
       action: change
-      reason: Exercise the intermediate sheet, selection, live completion, tabs, focus trap,
-        Escape close, and focus restoration.
+      reason: Exercise the intermediate sheet, selection, live completion, tabs, focus
+        trap, Escape close, and focus restoration.
   web-room-rail-creates-owner-room:
     authenticated-room-create-client:
       action: change
@@ -84,11 +92,13 @@ anchors:
   web-shell-responsive-three-pane:
     responsive-room-shell:
       action: change
-      reason: Remove the dead shortcut, add current hold state and the functional create action,
-        implement controlled ARIA context tabs, and preserve nested-dialog Escape behavior.
+      reason: Remove the dead shortcut, add current hold state and the functional
+        create action, implement controlled ARIA context tabs, and preserve
+        nested-dialog Escape behavior.
     responsive-shell-regression:
       action: change
-      reason: Extend responsive coverage to intermediate context and functional room creation.
+      reason: Extend responsive coverage to intermediate context and functional room
+        creation.
   web-glass-theme-accessible-modes:
     semantic-glass-theme:
       action: change
@@ -96,25 +106,28 @@ anchors:
         semantic status colors, 44px tabs, and unambiguous focus styling.
     glass-theme-regression:
       action: change
-      reason: Replace vacuous checks with computed contrast, real blur, focus, reduced-motion,
-        and short-viewport settings reachability assertions.
+      reason: Replace vacuous checks with computed contrast, real blur, focus,
+        reduced-motion, and short-viewport settings reachability assertions.
   extensions-not-addressable-v1:
     extension-run-rendering:
       action: change
-      reason: Add the parent-run inspect command without changing nested extension rendering.
+      reason: Add the parent-run inspect command without changing nested extension
+        rendering.
   permalink-ids-stable:
     message-history-surface:
       action: change
-      reason: Track selected run ids alongside the unchanged history, fragment, and merge flow.
+      reason: Track selected run ids alongside the unchanged history, fragment, and
+        merge flow.
   sw-caches-shell-only-no-message-data:
     page-memory-message-cache:
       action: change
-      reason: Pass live in-memory run events into selected context without persisting them.
+      reason: Pass live in-memory run events into selected context without persisting
+        them.
   spend-meter-always-on:
     meter-settings-surface:
       action: change
-      reason: Give horizontally clipped meter segments keyboard scrolling without changing
-        their values or always-visible placement.
+      reason: Give horizontally clipped meter segments keyboard scrolling without
+        changing their values or always-visible placement.
 files:
   - packages/web/src/App.tsx
   - packages/web/src/api.ts
@@ -124,3 +137,5 @@ files:
   - packages/web/tests/crypto.e2e.spec.ts
   - packages/web/tests/e2e.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T22:06:30.371Z

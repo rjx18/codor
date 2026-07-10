@@ -65,6 +65,8 @@ export function App(props: { token?: string } = {}) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const [contextView, setContextView] = useState<'members' | 'run'>('members');
+  const [selectedRunId, setSelectedRunId] = useState<number>();
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const contextCloseRef = useRef<HTMLButtonElement>(null);
 
@@ -273,6 +275,12 @@ export function App(props: { token?: string } = {}) {
     () => [...messages].reverse().find((message) => message.kind === 'run'),
     [messages],
   );
+  const selectedRun = messages.find((message) => message.id === selectedRunId) ?? latestRun;
+  const selectedRunLiveEvents = selectedRun ? state.runEvents[selectedRun.id] ?? [] : [];
+  const owner = Object.values(state.members).find(
+    (member) => member.kind === 'human' && member.role === 'owner',
+  );
+  const held = heldDeliveries(state.inbox);
 
   useEffect(() => {
     if (!drawerOpen && !contextOpen) return;
@@ -281,6 +289,7 @@ export function App(props: { token?: string } = {}) {
     requestAnimationFrame(() => target?.focus());
     const dismiss = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
+        if (document.querySelector('[data-testid="spawn-dialog"]')) return;
         setDrawerOpen(false);
         setContextOpen(false);
         return;
@@ -318,7 +327,10 @@ export function App(props: { token?: string } = {}) {
           rooms={roomItems}
           currentRoom={ROOM}
           currentUnread={unreadCount(state)}
+          currentHeld={held.length}
           connected={state.connected}
+          token={TOKEN}
+          owner={owner ? { handle: owner.handle, display_name: owner.display_name } : undefined}
         />
         <main data-testid="room-view" className="wr-room-main">
           <Header
@@ -329,14 +341,17 @@ export function App(props: { token?: string } = {}) {
             meter={state.meter}
             unread={unreadCount(state)}
             onOpenNavigation={() => setDrawerOpen(true)}
-            onOpenContext={() => setContextOpen(true)}
+            onOpenContext={() => {
+              setContextView('members');
+              setContextOpen(true);
+            }}
           />
           {!state.connected && (
             <div role="status" data-testid="offline-banner" className="wr-offline-banner">
               Offline · room history stays on your switchboard
             </div>
           )}
-          <HoldBanner held={heldDeliveries(state.inbox)} handleOf={handles} connection={connection} />
+          <HoldBanner held={held} handleOf={handles} connection={connection} />
           <form
             data-testid="message-search"
             className="wr-search"
@@ -446,6 +461,11 @@ export function App(props: { token?: string } = {}) {
                       liveEventCount={state.runEvents[message.id]?.length ?? 0}
                       room={ROOM}
                       token={TOKEN}
+                      onInspect={() => {
+                        setSelectedRunId(message.id);
+                        setContextView('run');
+                        if (!window.matchMedia('(min-width: 1280px)').matches) setContextOpen(true);
+                      }}
                     />
                   </div>
                 );
@@ -480,8 +500,11 @@ export function App(props: { token?: string } = {}) {
           history={state.memberHistory}
           adapters={adapters}
           connection={connection}
-          latestRun={latestRun}
-          latestRunAuthor={latestRun ? handles(latestRun.author) : ''}
+          selectedRun={selectedRun}
+          selectedRunAuthor={selectedRun ? handles(selectedRun.author) : ''}
+          selectedRunLiveEvents={selectedRunLiveEvents}
+          view={contextView}
+          onView={setContextView}
           room={ROOM}
           token={TOKEN}
           className="wr-context-desktop"
@@ -520,7 +543,10 @@ export function App(props: { token?: string } = {}) {
               rooms={roomItems}
               currentRoom={ROOM}
               currentUnread={unreadCount(state)}
+              currentHeld={held.length}
               connected={state.connected}
+              token={TOKEN}
+              owner={owner ? { handle: owner.handle, display_name: owner.display_name } : undefined}
               onNavigate={() => setDrawerOpen(false)}
             />
             <MemberRail
@@ -564,8 +590,11 @@ export function App(props: { token?: string } = {}) {
               history={state.memberHistory}
               adapters={adapters}
               connection={connection}
-              latestRun={latestRun}
-              latestRunAuthor={latestRun ? handles(latestRun.author) : ''}
+              selectedRun={selectedRun}
+              selectedRunAuthor={selectedRun ? handles(selectedRun.author) : ''}
+              selectedRunLiveEvents={selectedRunLiveEvents}
+              view={contextView}
+              onView={setContextView}
               room={ROOM}
               token={TOKEN}
               testId="context-sheet"

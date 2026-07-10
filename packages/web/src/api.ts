@@ -86,6 +86,16 @@ export async function fetchRooms(options: ApiOptions): Promise<Room[]> {
   return body.rooms;
 }
 
+// harn:assume web-room-rail-creates-owner-room ref=authenticated-room-create-client
+export async function createRoom(
+  input: { id: string; name: string; owner: { handle: string; display_name: string } },
+  options: ApiOptions,
+): Promise<Room> {
+  const created = await sendJson<{ room: Room }>('/api/rooms', 'POST', input, options);
+  return created.room;
+}
+// harn:end web-room-rail-creates-owner-room
+
 export async function fetchDevices(options: ApiOptions): Promise<DeviceSummary[]> {
   return (await fetchJson<{ devices: DeviceSummary[] }>('/api/devices', options)).devices;
 }

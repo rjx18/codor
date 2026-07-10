@@ -1,0 +1,13 @@
+id: web-room-rail-creates-owner-room
+hash: a-55aaf4aaf1d8
+title: The room rail create action creates and enters an owner-seeded room
+state: active
+statement: The desktop room rail must let the current owner create a valid room
+  through authenticated REST, surface validation or request failure, and
+  navigate to the created room without putting the bearer in the URL, because
+  the primary room switcher must not advertise an inert create affordance.
+depends_on:
+  - owner-and-system-members-seeded
+  - server-token-required
+  - web-shell-responsive-three-pane
+created_by: glass-web-room-shell-review-fixes

@@ -1,0 +1,13 @@
+id: run-context-selects-and-follows-live-evidence
+hash: a-463f28f259f7
+title: Run context follows the explicitly selected run and its live evidence
+state: active
+statement: Selecting inspect on any run must bind the desktop rail or responsive
+  context sheet to that permanent run message, combine journaled evidence with
+  live streamed events, refresh on completion, and expose loading or failure
+  honestly, because a stale latest-run-only inspector contradicts the
+  conversation it explains.
+depends_on:
+  - web-shell-responsive-three-pane
+  - permalink-ids-stable
+created_by: glass-web-room-shell-review-fixes

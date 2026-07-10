@@ -18,7 +18,7 @@ import {
   Send,
   Settings,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchLedgerNote, fetchRunEvents } from './api.js';
 import type { AdapterRegistration, LedgerNote, MemberDetail } from './api.js';
@@ -27,14 +27,14 @@ import { latestFinalizedAgentAuthor, me, type MemberStateObservation } from './s
 import type { Connection } from './ws.js';
 
 const stateDot: Record<string, string> = {
-  idle: 'bg-emerald-500',
-  running: 'bg-sky-500 animate-pulse',
-  queued: 'bg-amber-500',
-  awaiting_input: 'bg-amber-500',
-  paused: 'bg-zinc-400',
-  dead: 'bg-red-600',
-  unreachable: 'bg-zinc-500',
-  custody_uncertain: 'bg-amber-500',
+  idle: 'wr-state-idle',
+  running: 'wr-state-running',
+  queued: 'wr-state-attention',
+  awaiting_input: 'wr-state-attention',
+  paused: 'wr-state-muted',
+  dead: 'wr-state-danger',
+  unreachable: 'wr-state-muted',
+  custody_uncertain: 'wr-state-attention',
 };
 
 // harn:assume permalink-ids-stable ref=message-permalink-rendering
@@ -115,6 +115,17 @@ export function Header(props: {
         <div
           data-testid="meter"
           className="wr-meter"
+          tabIndex={0}
+          aria-label="Room usage today"
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+              event.preventDefault();
+              event.currentTarget.scrollBy({
+                left: event.key === 'ArrowLeft' ? -120 : 120,
+                behavior: 'smooth',
+              });
+            }
+          }}
           title={`${String(props.meter.turns)} turns, ${String(tokens)} tokens, $${props.meter.cost_usd.toFixed(2)} today`}
         >
           <span><Gauge aria-hidden="true" size={14} /> {props.meter.turns} turns</span>
@@ -166,10 +177,24 @@ export function SpawnAgentDialog(props: {
   const [handle, setHandle] = useState('');
   const [cwd, setCwd] = useState('.');
   const [policy, setPolicy] = useState('read-only');
+  const handleField = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (harness === '' && props.adapters[0]) setHarness(props.adapters[0].id);
   }, [harness, props.adapters]);
+
+  useEffect(() => {
+    if (!open) return;
+    requestAnimationFrame(() => handleField.current?.focus());
+    const dismiss = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+    };
+    document.addEventListener('keydown', dismiss, true);
+    return () => document.removeEventListener('keydown', dismiss, true);
+  }, [open]);
 
   const submit = (): void => {
     if (!harness || !handle || !cwd) return;
@@ -220,6 +245,7 @@ export function SpawnAgentDialog(props: {
             <label className="mt-3 block text-xs text-zinc-400">
               Handle
               <input
+                ref={handleField}
                 data-testid="spawn-handle"
                 value={handle}
                 onChange={(event) => setHandle(event.target.value)}
@@ -298,7 +324,7 @@ export function MemberCard(props: {
       <li data-testid={`member-${props.member.handle}`} className="wr-member wr-member-human">
         <span className={`h-2 w-2 rounded-full ${stateDot[state] ?? 'bg-zinc-400'}`} />
         <span className="min-w-0 truncate text-zinc-200">@{props.member.handle}</span>
-        <span className="ml-auto text-[10px] uppercase text-zinc-500">{props.member.kind}</span>
+        <span className="ml-auto text-[10px] uppercase text-zinc-500">{props.member.kind} · {state}</span>
       </li>
     );
   }
@@ -554,6 +580,7 @@ export function RunMessageView(props: {
   liveEventCount: number;
   room: string;
   token: string;
+  onInspect?: () => void;
 }) {
   const run = props.message.run!;
   const [expanded, setExpanded] = useState(false);
@@ -598,6 +625,18 @@ export function RunMessageView(props: {
             </span>
           )}
         </button>
+        {props.onInspect && (
+          <button
+            type="button"
+            data-testid={`run-${props.message.id}-inspect`}
+            aria-label={`Inspect run ${String(props.message.id)}`}
+            title="Inspect run"
+            className="wr-icon-button"
+            onClick={props.onInspect}
+          >
+            <PanelRight aria-hidden="true" size={16} />
+          </button>
+        )}
         <MessagePermalink id={props.message.id} />
       </div>
       {!running && props.message.body !== '' && (

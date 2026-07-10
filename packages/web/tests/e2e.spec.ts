@@ -286,6 +286,65 @@ test('desktop room keeps rooms, conversation, and context in stable non-overlapp
 });
 // harn:end web-shell-responsive-three-pane
 
+// harn:assume run-context-selects-and-follows-live-evidence ref=selected-live-run-context-regression
+test('intermediate context sheet follows a selected run through live completion', async ({ page }) => {
+  await page.setViewportSize({ width: 1150, height: 800 });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await expect(page.getByTestId('room-rail')).toBeVisible();
+  await expect(page.getByTestId('context-rail')).toBeHidden();
+
+  await control('/enqueue', {
+    turns: [{ kind: 'ask', prompt: 'Context review decision?', options: ['YES', 'NO'], replyPrefix: 'context ' }],
+  });
+  await page.getByTestId('composer-input').fill('@alpha inspect this live run');
+  await page.getByTestId('composer-send').click();
+  const run = page.locator('[data-run-status="running"]').last();
+  await expect(run).toBeVisible();
+  const runId = (await run.getAttribute('data-testid'))!.replace('run-', '');
+  const stableRun = page.getByTestId(`run-${runId}`);
+  const inspect = page.getByTestId(`run-${runId}-inspect`);
+  await inspect.click();
+
+  const sheet = page.getByRole('dialog', { name: 'Room context' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Close room context' })).toBeFocused();
+  await expect(sheet.getByRole('tab', { name: 'Run' })).toHaveAttribute('aria-selected', 'true');
+  const before = Number(await sheet.getByTestId('context-evidence-count').textContent());
+
+  await control('/answer', { label: 'YES' });
+  await expect(stableRun).toHaveAttribute('data-run-status', 'completed');
+  await expect.poll(async () => Number(await sheet.getByTestId('context-evidence-count').textContent()))
+    .toBeGreaterThan(before);
+
+  const membersTab = sheet.getByRole('tab', { name: 'Members' });
+  await membersTab.click();
+  await expect(membersTab).toHaveAttribute('aria-selected', 'true');
+  await membersTab.press('ArrowRight');
+  await expect(sheet.getByRole('tab', { name: 'Run' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  await expect(inspect).toBeFocused();
+});
+// harn:end run-context-selects-and-follows-live-evidence
+
+// harn:assume web-room-rail-creates-owner-room ref=room-rail-create-regression
+test('desktop room rail creates and enters an owner-seeded room without a bearer URL', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await page.getByTestId('create-room').click();
+  await expect(page.getByTestId('create-room-dialog')).toBeVisible();
+  await page.getByTestId('create-room-id').fill('glass-review-room');
+  await page.getByTestId('create-room-name').fill('Glass review room');
+  await page.getByTestId('create-room-submit').click();
+  await expect(page).toHaveURL(/\?room=glass-review-room$/);
+  await expect(page).not.toHaveURL(/token=/);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await expect(page.getByRole('heading', { name: 'Glass review room' })).toBeVisible();
+});
+// harn:end web-room-rail-creates-owner-room
+
 // harn:assume web-glass-theme-accessible-modes ref=glass-theme-regression
 test('glass shell responds to light preference without losing contrast or material fallback', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -301,11 +360,40 @@ test('glass shell responds to light preference without losing contrast or materi
       canvas: root.getPropertyValue('--wr-canvas').trim(),
       text: root.getPropertyValue('--wr-text').trim(),
       material: header.backdropFilter || header.getPropertyValue('-webkit-backdrop-filter'),
+      contrast: (() => {
+        const luminance = (hex: string): number => {
+          const channels = hex.match(/[0-9a-f]{2}/gi)!.map((channel) => parseInt(channel, 16) / 255)
+            .map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+          return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
+        };
+        const ratio = (foreground: string, background: string): number => {
+          const a = luminance(foreground);
+          const b = luminance(background);
+          return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+        };
+        return {
+          text: ratio(root.getPropertyValue('--wr-text').trim(), root.getPropertyValue('--wr-canvas').trim()),
+          accent: ratio(root.getPropertyValue('--wr-cyan').trim(), root.getPropertyValue('--wr-canvas').trim()),
+        };
+      })(),
     };
   });
   expect(light.colorScheme).toContain('light');
   expect(light.canvas).not.toBe(light.text);
-  expect(light.material === 'none' || light.material.includes('blur')).toBe(true);
+  expect(light.material).toContain('blur');
+  expect(light.contrast.text).toBeGreaterThanOrEqual(4.5);
+  expect(light.contrast.accent).toBeGreaterThanOrEqual(4.5);
+
+  await page.getByTestId('composer-input').focus();
+  expect(await page.getByTestId('composer-input').evaluate((element) => {
+    const style = getComputedStyle(element);
+    return element.matches(':focus-visible') && style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 2;
+  })).toBe(true);
+  await page.locator('#room-search').focus();
+  expect(await page.locator('#room-search').evaluate((element) => {
+    const style = getComputedStyle(element);
+    return element.matches(':focus-visible') && style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 2;
+  })).toBe(true);
 
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect.poll(() => page.evaluate(() =>
@@ -315,5 +403,17 @@ test('glass shell responds to light preference without losing contrast or materi
     getComputedStyle(document.documentElement).getPropertyValue('--wr-text').trim(),
   );
   expect(darkText).not.toBe(light.text);
+
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  expect(await page.locator('.wr-room-link').first().evaluate((element) =>
+    parseFloat(getComputedStyle(element).transitionDuration),
+  )).toBeLessThanOrEqual(0.001);
+
+  await page.setViewportSize({ width: 390, height: 600 });
+  await page.goto('/settings?room=eng');
+  const beforeScroll = await page.evaluate(() => window.scrollY);
+  await page.mouse.wheel(0, 1200);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(beforeScroll);
+  await expect(page.getByTestId('room-settings-save')).toBeVisible();
 });
 // harn:end web-glass-theme-accessible-modes
