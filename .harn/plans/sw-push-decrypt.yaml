@@ -1,0 +1,129 @@
+id: sw-push-decrypt
+title: P3.3 on-device push decryption, notification actions, and settings
+assumptions:
+  retire: []
+  create:
+    - id: push-decrypts-on-device-only
+      title: Sealed push content opens only inside the paired service worker
+      statement: The owned service worker must read the sealed push bytes, try only
+        locally stored IndexedDB room keys with libsodium XChaCha20-Poly1305, reject
+        malformed or unauthenticated envelopes, and call showNotification with the
+        resulting redacted preview and open-room or release-hold actions, while the
+        relay and push service never receive plaintext, because notification content
+        crosses the cloud boundary only as room-key ciphertext.
+      reason: PLAN-M3 P3.3, ROADMAP M3, and PRIVACY Tier 2 require decryption and
+        rendering in the installed PWA worker, not the relay or page server.
+      depends_on:
+        - push-previews-redacted-pad-then-sealed
+        - sw-injectmanifest-owned-worker
+    - id: unpair-purges-all-browser-state
+      title: Browser unpair removes local state, subscription, and server authority
+      statement: Unpairing the current browser must attempt authenticated removal of
+        its paired device and push subscription at the switchboard, unsubscribe every
+        PushManager subscription, unregister service workers, delete every Wireroom
+        IndexedDB database and CacheStorage entry, clear localStorage and in-memory
+        room state, and leave the revoked device excluded from rotated room keys,
+        because an unpaired browser must retain neither readable content nor future
+        notification authority even when local cleanup follows a network failure.
+      reason: PLAN-M3 P3.3 and PRIVACY Keys and pairing explicitly require a complete
+        browser purge plus revocation on unpair.
+      depends_on:
+        - revocation-rotates-room-keys
+        - push-decrypts-on-device-only
+  reviewed:
+    - id: single-crypto-suite-libsodium
+      outcome: unchanged
+      reason: The worker opens the P3.2b XChaCha envelope through libsodium-wrappers
+        and reads the existing base64url room key from IndexedDB; no WebCrypto
+        envelope or new primitive is introduced.
+    - id: sw-injectmanifest-owned-worker
+      outcome: unchanged
+      reason: Push and notificationclick listeners extend the already-owned
+        injectManifest source worker without replacing its lifecycle.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: Push handling reads IndexedDB keys and renders directly; it adds no
+        fetch handler or runtime message cache and preserves shell-only precaching.
+    - id: revocation-rotates-room-keys
+      outcome: unchanged
+      reason: Authenticated device deletion calls the existing CryptoVault revoke
+        path and then removes the associated push subscription.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: Moving brake controls from the header dialog to Settings keeps the
+        compact always-visible room meter intact.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Notification open and release actions target the permanent msg_id and
+        existing room fragment without changing timeline ids.
+    - id: push-only-for-human-targeted-events
+      outcome: unchanged
+      reason: The full-chain browser test consumes the existing producer trigger
+        allowlist without adding a new push source.
+anchors:
+  push-decrypts-on-device-only:
+    browser-push-envelope-open:
+      action: change
+      reason: Add strict libsodium worker-compatible envelope authentication,
+        length-prefix removal, and preview validation.
+    sw-push-notification-handler:
+      action: change
+      reason: Decrypt push events from IndexedDB keys, render notification actions,
+        and route clicks to permanent room/message URLs.
+    notification-permission-registration:
+      action: change
+      reason: Add the explicit permission, PushManager subscription, and paired
+        device registration flow used from Settings.
+  unpair-purges-all-browser-state:
+    browser-unpair-purge:
+      action: change
+      reason: Expand browser cleanup across push subscriptions, service workers,
+        CacheStorage, localStorage, all Wireroom IndexedDB databases, and memory.
+    device-revoke-rest:
+      action: change
+      reason: Add authenticated device listing/revocation and couple revocation to
+        push-subscription removal and room-key rotation.
+    settings-unpair-action:
+      action: change
+      reason: Make current-browser unpair explicit, safe, and locally complete even
+        if remote cleanup reports a failure.
+  single-crypto-suite-libsodium:
+    browser-libsodium-suite:
+      action: change
+      reason: Reuse the IndexedDB room-key lifecycle for the worker envelope opener
+        and enumerate keys without changing formats.
+  spend-meter-always-on:
+    meter-settings-surface:
+      action: change
+      reason: Replace the header brake dialog with a Settings navigation icon while
+        retaining the room meter.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: Consume authenticated notification action query parameters after sync
+        and map their msg_id back to existing inbox/hold acts.
+files:
+  - packages/web/package.json
+  - pnpm-lock.yaml
+  - packages/web/src/push.ts
+  - packages/web/src/push.spec.ts
+  - packages/web/src/notifications.ts
+  - packages/web/src/crypto.ts
+  - packages/web/src/sw.ts
+  - packages/web/src/api.ts
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/App.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/main.tsx
+  - packages/web/tests/crypto.e2e.spec.ts
+  - packages/web/tests/push.e2e.spec.ts
+  - packages/web/tests/harness.mjs
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/cli/src/up.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+  - tmp/build/design/m3/settings.png
+  - tmp/build/design/m3/relay-pairing.png
+  - tmp/build/PROGRESS.md
