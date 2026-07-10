@@ -1,0 +1,46 @@
+id: adapter-sdk-hot-swap-review-fixes
+title: Fold the P5.1 adapter registry review
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Explicit filesystem specifiers, a complete source guard, and resident registry observability strengthen the same sole-registry contract.
+    - id: adapters-cli-only-no-sdk
+      outcome: unchanged
+      reason: Review fixes affect module discovery and test coverage, not the plain CLI subprocess driver boundary.
+    - id: resident-attempt-journal-reconciles
+      outcome: unchanged
+      reason: Read-only registry projection is added beside the resident coordinator without changing its attempt WAL, replay, or reconciliation lifecycle.
+anchors:
+  adapter-registry-sole-harness-source:
+    configured-adapter-registry:
+      action: change
+      reason: Export and test deterministic filesystem-versus-package specifier resolution.
+    third-party-hot-swap-acceptance:
+      action: change
+      reason: Exercise an explicit relative file path that resolves identically outside Vitest.
+    hardcoded-list-guard:
+      action: change
+      reason: Scan all package and relay production source extensions and every string-literal import form.
+    registry-cli-composition:
+      action: change
+      reason: Start an isolated outpost with configured adapters and assert the resident registry receives them.
+    resident-registry-observability:
+      action: change
+      reason: Expose the resident adapter ids and capabilities for parity with the home daemon and a behavioral wiring assertion.
+    adapter-registration-contract:
+      action: change
+      reason: State the unambiguous dot-prefix rule for filesystem paths versus Node package specifiers.
+  resident-attempt-journal-reconciles:
+    resident-attempt-wal:
+      action: change
+      reason: Add resident registry observability within the existing coordinator anchor without altering attempt journal behavior.
+files:
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/hot-swap.integration.spec.ts
+  - packages/switchboard/src/residency.ts
+  - packages/cli/src/index.spec.ts
+  - docs/ADAPTERS.md
+  - tmp/build/PROGRESS.md
