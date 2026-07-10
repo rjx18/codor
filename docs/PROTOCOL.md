@@ -209,6 +209,10 @@ read and extend), rebuilt local-first and graph-shaped:
   edits in their cwd — it's their machine); the switchboard watches the vault and posts a
   compact `system` message on change ("@claude updated [[marker-semantics]]"), so the room sees
   memory evolve.
+- **Multi-box safe by construction**: the vault exists only on the room's home switchboard
+  (ARCHITECTURE §multi-box). Refs are resolved at delivery time by the home router, so members
+  on other machines receive note content inside their payloads and never need the files;
+  remote writes route through `wireroom ledger` to the home. One writer authority, zero sync.
 - **Optional graph backend** (post-MVP): a temporal knowledge-graph engine (e.g. Graphiti) can
   index the same vault for time-aware queries; the vault stays the source of truth.
 

@@ -93,6 +93,16 @@ device fetches content over tier 0/1 when opened.
 | DHT (tier 1) | topic hashes, peer IPs | inherent to P2P; documented |
 | APNs | ciphertext in transit | E2EE payload, padded |
 
+## Bridged rooms: the one deliberate exception
+
+A bridge (ARCHITECTURE §bridges) mirrors a room into Slack/Telegram — which means that room's
+content flows to that platform's servers in whatever form the platform stores it. This is the
+only path by which content legitimately leaves your machines readable, it exists only as an
+explicit owner/admin opt-in per room, and the room wears a permanent "bridged" banner on every
+surface. Everything in this document above applies to unbridged rooms; nothing about a bridged
+room's exported copy is within our control. Don't bridge rooms that discuss things Slack
+shouldn't hold.
+
 ## Voice
 
 Watch/phone dictation uses Apple speech recognition. Setting `voice: on-device only` (default)

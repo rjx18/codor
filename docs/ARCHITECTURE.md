@@ -20,9 +20,8 @@
                  └────── APNs (ciphertext only) ── push relay (self-hostable, tier 2)
 ```
 
-One switchboard per machine. MVP: one machine. Post-MVP: switchboards peer over the same
-transports and a room can span hosts (each member is owned by exactly one switchboard — the
-`Member.host` field exists from day one so this needs no schema change).
+One switchboard per machine. MVP: one machine. Multi-box rooms (M2+) follow the model in
+§Multi-box below — one *home* switchboard per room, members resident wherever their session runs.
 
 ## Components
 
@@ -136,6 +135,43 @@ when enabled. The switchboard watches it (fs events), posts change notices to th
 can render a graph view. Deliberately just files: agents edit them like any other file, humans
 open the same directory in Obsidian, and an optional temporal-graph indexer (Graphiti) can sit
 on top later without owning the data.
+
+### Multi-box: room home vs. member residency
+
+The two concepts multi-machine setups must not conflate:
+
+- **Every room has exactly one home switchboard.** The home assigns message ids, stores the
+  history and run blobs, hosts the ledger vault, and runs the router. If the home box is off,
+  the room is down — deliberate, the same deal as any self-hosted service. Put a room's home on
+  the box that's always on (the desk box), not the laptop.
+- **Members reside wherever their session runs** (`Member.host`). A room homed on the desk can
+  have `coder` running on the desk and `gpu-runner` on the lab box: the home switchboard sends
+  each delivery to the member's resident switchboard over the wire (tailnet WS or hyperswarm),
+  the resident runs the turn locally against its own harness CLI, streams normalized events
+  back, and the home journals them. Adapters never span machines; payloads and events do.
+- **The ledger lives on the home box only.** No shared filesystem, no sync conflicts — remote
+  members never need the vault mounted, because `[[name]]` refs are resolved by the *home*
+  router at delivery time and travel inside the payload. Remote reads/writes go through
+  `wireroom ledger …`, which routes to the home switchboard; `wireroom ledger pull` can drop a
+  read-only snapshot locally for browsing in Obsidian.
+- **Offline peers hold, never drop.** A member whose resident switchboard is unreachable shows
+  `unreachable`; its deliveries queue at the home and drain on reconnect — same semantics as a
+  busy member.
+
+So: a room/workspace is *anchored to* one machine but not *confined to* it. If you want fully
+independent workspaces per machine, simply home different rooms on different boxes.
+
+### Bridges (Slack, Telegram) — optional, eyes open
+
+Partyline surfaces parties in Slack; Wireroom supports the same as an explicit **bridge**: a
+small process that is just another API client, pairing a room with an external channel. It
+mirrors room traffic outward and posts inbound platform messages as bridge-relayed human
+messages (`via slack: @sarah`), with mentions and `#N` refs working normally. Slack first;
+Telegram is the same interface (and closer to home for solo operators); Discord etc. are
+community territory. The privacy contract is explicit: **bridging a room knowingly exports that
+room's content to the platform's servers** — enabling it is an owner/admin action, the room
+wears a permanent "bridged" banner, and PRIVACY.md's guarantees are marked void for bridged
+content. The default remains unbridged.
 
 ### Access control (orgs and roles)
 

@@ -57,6 +57,8 @@ the opt-in turn brake enabled holds and releases correctly.
 
 - Hyperswarm transport (`line:secret` → DHT topic; walkie's model): switchboard↔switchboard
   peering; a room hosted on the desk reachable from a laptop on hotel wifi.
+- Multi-box rooms (ARCHITECTURE §multi-box): remote member residency — deliveries routed to the
+  member's switchboard, events streamed back to the home, unreachable-peer queueing.
 - Room keys + sealed-box distribution + revocation (PRIVACY §keys) — encryption layered on
   regardless of transport.
 - Ledger v1 (PROTOCOL §6): vault bootstrap, `[[name]]` refs resolved into deliveries,
@@ -101,6 +103,8 @@ except sealed push payloads.
 - Multi-human rooms: org enrollment (invite QR, device keys), role enforcement
   (owner/admin/member/observer), presence, per-human notification routing.
 - Ledger graph view in the web UI; optional Graphiti indexer for temporal queries.
+- Bridges: Slack + Telegram as opt-in room mirrors (ARCHITECTURE §bridges), with the bridged
+  banner and role-gated enablement.
 - Self-host guide, threat-model doc review (external eyes invited), docs site, demo video of
   the M1 acceptance loop, launch.
 
