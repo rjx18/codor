@@ -1,0 +1,50 @@
+id: m0fix-security-auth
+title: M0 fix - fail-closed API authentication and contained blob paths
+assumptions:
+  retire: []
+  create:
+    - id: server-token-required
+      title: The network API never starts without a non-empty bearer token
+      statement: startServer must reject a missing, non-string, or empty token before
+        binding a socket, and every REST and WebSocket request must present the
+        configured token, because an unset environment variable must fail closed
+        rather than making unauthenticated REST requests compare equal to undefined.
+      reason: M0 milestone review finding 1; the documented JavaScript boot path can
+        pass process.env.WIREROOM_TOKEN as undefined at runtime despite TypeScript's
+        static ServerOptions type.
+      depends_on: []
+    - id: blob-path-contained
+      title: Room ids and run-blob paths cannot escape the configured blob root
+      statement: Room ids must use the lowercase slug grammar and BlobStore must
+        reject every resolved path outside its configured root, because room ids
+        arrive through the API and must never turn path joining into arbitrary
+        filesystem traversal.
+      reason: M0 milestone review finding 10; RoomId previously accepted dot segments
+        and BlobStore joined them directly below blobRoot.
+      depends_on: []
+  reviewed:
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Auth and path validation wrap the existing redacted REST and WS serving
+        paths without changing projection behavior.
+anchors:
+  server-token-required:
+    token-validation:
+      action: change
+      reason: Add fail-closed startup validation and keep all API transports behind
+        the validated bearer token.
+  blob-path-contained:
+    room-id-schema:
+      action: change
+      reason: Pin the safe room-id slug grammar in the protocol schema.
+    blob-path-containment:
+      action: change
+      reason: Resolve and verify every blob path remains beneath blobRoot.
+files:
+  - docs/SETUP.md
+  - packages/protocol/src/ids.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/blobs.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
