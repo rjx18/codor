@@ -41,6 +41,11 @@ assumptions:
       outcome: unchanged
       reason: Eligible retries still reuse their bound run message; ineligible retries remain
         held rather than being delivered through a custody bypass.
+    - id: adoption-explicit-or-sessionend
+      outcome: unchanged
+      reason: Explicit adoption remains the operator resolution for uncertain custody; it may
+        clear a childless lease only after the daemon has entered custody_uncertain, while a
+        recorded live child still blocks adoption.
 anchors:
   turn-start-requires-owned-custody:
     shared-turn-start-custody-gate:
@@ -77,6 +82,11 @@ anchors:
     wal-bind-before-spawn:
       action: keep
       reason: The atomic attempt binding remains unchanged after eligibility is established.
+  adoption-explicit-or-sessionend:
+    mirrored-adoption-transition:
+      action: change
+      reason: Permit explicit resolution of a childless custody_uncertain lease without
+        weakening the existing refusal for active or recorded-live attach leases.
 files:
   - packages/switchboard/src/daemon.ts
   - packages/switchboard/src/daemon.spec.ts
