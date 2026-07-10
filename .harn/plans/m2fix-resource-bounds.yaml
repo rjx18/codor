@@ -1,0 +1,30 @@
+id: m2fix-resource-bounds
+title: M2 review hardening for challenge and transport resource bounds
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: nonce-challenge-auth-no-key-possession-identity
+      outcome: unchanged
+      reason: Expired and excess unverified challenges are discarded before they can consume unbounded pre-authentication memory.
+    - id: envelope-ids-not-room-seq-for-dedup
+      outcome: unchanged
+      reason: The exact envelope-id replay window remains bounded but grows beyond the reported ten-thousand-envelope failure point; stable application RPC ids remain the durable idempotency authority.
+    - id: resident-attempt-journal-reconciles
+      outcome: unchanged
+      reason: Completed home indexes are deliberately retained because the current protocol has no per-rpc proof that every possible resident retransmit is retired across all disconnect boundaries.
+anchors:
+  nonce-challenge-auth-no-key-possession-identity:
+    replay-bound-peer-auth:
+      action: change
+      reason: Sweep expired challenges and cap pending challenges per peer and in total before issuing more.
+  envelope-ids-not-room-seq-for-dedup:
+    reliable-envelope-channel:
+      action: change
+      reason: Replace the ten-thousand-entry inline FIFO with a bounded exact deduplicator whose larger default window retains the reported late retransmit.
+files:
+  - packages/switchboard/src/crypto/challenge.ts
+  - packages/switchboard/src/crypto/crypto.spec.ts
+  - packages/switchboard/src/transport/peer.ts
+  - packages/switchboard/src/transport/transport.spec.ts
+  - tmp/build/PROGRESS.md
