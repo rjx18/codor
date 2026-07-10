@@ -1,0 +1,14 @@
+id: turn-start-requires-owned-custody
+hash: a-1d445c22dd60
+title: Every daemon turn start passes one owned-custody gate
+state: active
+statement: Every ordinary, reconciled, or operator-released adapter turn must
+  pass the same current-member gate immediately before start, requiring owned
+  custody, an eligible member state, no pending attach, and no existing
+  in-flight turn, because no recovery or release path may bypass the room's
+  single-writer custody guarantee.
+depends_on:
+  - custody-uncertain-never-double-writes
+  - mirrored-deliveries-queue
+  - one-inflight-turn-per-member
+created_by: m1fix-custody-guards

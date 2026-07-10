@@ -213,6 +213,18 @@ describe('mirrored join and adoption', () => {
     expect(fake.wasAttached('native-planner-session')).toBe(true);
     expect(fake.deliveries).toHaveLength(2);
     expect(fake.deliveries[1]!.payload).toContain('draft the plan');
+
+    const runsBeforeLateHook = runMessages().length;
+    expect(() =>
+      daemon.mirrorTurn({
+        harness: 'fake',
+        session_ref: 'native-planner-session',
+        native_turn_id: 'native-turn-after-adopt',
+        body: '@reviewer this hook must be dropped',
+      }),
+    ).toThrow('is not mirrored; native turn was dropped');
+    expect(runMessages()).toHaveLength(runsBeforeLateHook);
+    expect(fake.deliveries).toHaveLength(2);
   });
 
   it('auto-adopts only a Claude SessionEnd; Codex remains explicit', () => {
@@ -238,7 +250,7 @@ describe('mirrored join and adoption', () => {
 });
 
 describe('interactive attach custody leases', () => {
-  it('waits for the current turn, holds racing deliveries, and drains after clean exit', async () => {
+  it('rejects awaiting input, then holds racing deliveries and drains after clean exit', async () => {
     const alpha = spawnAgent('alpha', '/persisted/work');
     fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
     daemon.postHumanMessage('eng', '@alpha initialize');
@@ -254,12 +266,17 @@ describe('interactive attach custody leases', () => {
     const interaction = await until(() =>
       daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
     );
-    const acquisition = daemon.acquireAttachLease('eng', alpha.id, 1234);
-    daemon.postHumanMessage('eng', '@alpha queued while attach waits');
+    await expect(daemon.acquireAttachLease('eng', alpha.id, 1234)).rejects.toThrow(
+      'awaiting input; answer or interrupt it before attach',
+    );
     await daemon.answerInteraction('eng', interaction.id, 'yes');
+    await daemon.settle();
+    const acquisition = daemon.acquireAttachLease('eng', alpha.id, 1234);
+    daemon.postHumanMessage('eng', '@alpha queued while attached');
     const { lease, member } = await acquisition;
 
-    expect(member).toMatchObject({ custody: 'mirrored', state: 'queued' });
+    expect(member).toMatchObject({ custody: 'mirrored', state: 'idle' });
+    expect(daemon.store.getMember('eng', alpha.id)).toMatchObject({ custody: 'mirrored', state: 'queued' });
     expect(fake.deliveries).toHaveLength(2);
     expect(daemon.store.listDeliveries('eng', { recipient: alpha.id, state: 'queued' })).toHaveLength(1);
     daemon.reportAttachChild(lease.id, 999_998, 999_998);
@@ -272,7 +289,56 @@ describe('interactive attach custody leases', () => {
     expect(daemon.store.getMember('eng', alpha.id)).toMatchObject({ custody: 'owned', state: 'idle' });
     expect(fake.wasAttached(sessionRef)).toBe(true);
     expect(fake.deliveries).toHaveLength(3);
-    expect(fake.deliveries.at(-1)!.payload).toContain('queued while attach waits');
+    expect(fake.deliveries.at(-1)!.payload).toContain('queued while attached');
+  });
+
+  it('kill and revive both refuse an active attach lease', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@alpha initialize');
+    await daemon.settle();
+    await daemon.acquireAttachLease('eng', alpha.id, 1234);
+
+    expect(() => daemon.killMember('eng', alpha.id)).toThrow('active interactive attach lease');
+    daemon.store.updateMember('eng', alpha.id, { state: 'dead' });
+    expect(() => daemon.reviveMember('eng', alpha.id)).toThrow('active interactive attach lease');
+    expect(daemon.store.getMember('eng', alpha.id)).toMatchObject({ custody: 'mirrored', state: 'dead' });
+  });
+
+  it('fails closed when a childless lease expires, then permits explicit adoption', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@alpha initialize');
+    await daemon.settle();
+    const { lease } = await daemon.acquireAttachLease('eng', alpha.id, 1234);
+    daemon.postHumanMessage('eng', '@alpha queued during uncertain custody');
+
+    daemon.reconcileAttachLeases(lease.heartbeat_ts + 6_000);
+    expect(daemon.store.getMember('eng', alpha.id)).toMatchObject({
+      custody: 'mirrored',
+      state: 'custody_uncertain',
+    });
+    expect(daemon.store.getAttachLease(lease.id)).toBeDefined();
+    expect(fake.deliveries).toHaveLength(1);
+
+    fake.enqueue({ kind: 'complete', final_text: '@richard explicitly recovered' });
+    expect(daemon.adoptMember('eng', alpha.id)).toMatchObject({ custody: 'owned', state: 'idle' });
+    await daemon.settle();
+    expect(daemon.store.getAttachLease(lease.id)).toBeUndefined();
+    expect(fake.deliveries).toHaveLength(2);
+  });
+
+  it('fails closed when attach completes before recording a child', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@alpha initialize');
+    await daemon.settle();
+    const { lease } = await daemon.acquireAttachLease('eng', alpha.id, 1234);
+
+    const completed = daemon.completeAttachLease(lease.id);
+    expect(completed.status).toBe('uncertain');
+    expect(completed.member).toMatchObject({ custody: 'mirrored', state: 'custody_uncertain' });
+    expect(daemon.store.getAttachLease(lease.id)).toBeDefined();
   });
 
   it('marks custody uncertain after heartbeat loss and re-adopts only after the process group exits', async () => {
@@ -840,6 +906,56 @@ describe('kill-point matrix (boot reconcile)', () => {
     expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('consumed');
     expect(runMessages()).toHaveLength(runCountBeforeRelease);
     expect(daemon.store.getMessage('eng', runMsg.id)!.run!.status).toBe('completed');
+  });
+
+  it('release_hold refuses a crash retry while interactive custody is mirrored', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@alpha initialize');
+    await daemon.settle();
+
+    const trigger = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id,
+      kind: 'chat',
+      body: 'crash-held setup',
+    });
+    const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+    const runMsg = daemon.store.updateMessage('eng', posted.id, {
+      run: {
+        status: 'running',
+        started_ts: new Date().toISOString(),
+        tool_calls: 0,
+        events_ref: `runs/${posted.id}.jsonl`,
+      },
+    });
+    const delivery = daemon.store.createDelivery('eng', {
+      message_id: trigger.id,
+      recipient: alpha.id,
+    });
+    daemon.store.updateDelivery('eng', delivery.id, {
+      state: 'delivering',
+      attempt_count: 1,
+      run_msg_id: runMsg.id,
+    });
+    daemon.blobs.append('eng', runMsg.run!.events_ref, {
+      type: 'run.item',
+      item_type: 'text_delta',
+      payload: 'ambiguous output',
+    });
+    await daemon.close();
+
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('held');
+    await daemon.acquireAttachLease('eng', alpha.id, 1234);
+
+    const deliveriesBeforeRelease = fake.deliveries.length;
+    expect(() => daemon.releaseHold('eng', delivery.id)).toThrow('is not switchboard-owned');
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(deliveriesBeforeRelease);
+    expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('held');
+    expect(daemon.store.getMessage('eng', runMsg.id)!.run!.status).toBe('running');
   });
 
   it('a second failure is NOT retried again (retry once, then hold)', async () => {
