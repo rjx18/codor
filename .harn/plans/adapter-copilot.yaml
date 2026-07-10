@@ -1,0 +1,97 @@
+id: adapter-copilot
+title: P1.7c Copilot CLI adapter from documented JSONL session events
+assumptions:
+  retire: []
+  create:
+    - id: copilot-capability-truth
+      title: Copilot capabilities match its programmatic CLI interface
+      statement: The Copilot adapter must drive one programmatic JSONL CLI process
+        per turn with an exact preallocated UUID session id, resume that id in the
+        persisted working directory, discover local session-state directories,
+        expose the native resume TUI, translate documented assistant, tool, usage,
+        error, and subagent lifecycle events without treating Copilot billing
+        multipliers as dollars, and declare asks unsupported with approvals fixed
+        at process spawn, because every advertised capability must be demonstrated
+        by a synthetic documented-format fixture or an operator-authenticated
+        manual probe.
+      reason: PLAN-M1 P1.7c requires truthful fixture-only acceptance on this
+        unauthenticated machine; first-party CLI and streaming-event references
+        document JSONL prompt mode, exact UUID session creation/resume, local
+        session storage, tool and subagent events, and token-plus-billing metadata,
+        while `--no-ask-user` and allow/deny flags define the smaller noninteractive
+        control surface Wireroom can honestly drive.
+      depends_on:
+        - adapters-cli-only-no-sdk
+        - adapter-process-lifecycle-supervised
+        - uncosted-usage-visible-not-guessed
+        - extension-lifecycle-from-hooks
+  reviewed:
+    - id: adapters-cli-only-no-sdk
+      outcome: unchanged
+      reason: The implementation spawns the first-party copilot executable in
+        programmatic JSONL mode and does not use Copilot ACP, the Copilot SDK,
+        HTTP, or Paseo's ACP base connector.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: Copilot receives the same spawn, stderr, error, close, stream-EOF,
+        detached-process-group, and group-interrupt supervision as every existing
+        CLI adapter.
+    - id: uncosted-usage-visible-not-guessed
+      outcome: unchanged
+      reason: Copilot's documented cost field is a billing multiplier rather than
+        reported US dollars, so normalized usage carries tokens only.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: The Copilot native resume TUI is added to the existing inherited-
+        stdio attach supervisor without changing its custody lease handshake.
+    - id: extension-lifecycle-from-hooks
+      outcome: unchanged
+      reason: Copilot's documented subagent started/completed/failed records are
+        translated into the same authoritative extension lifecycle events the
+        switchboard already maps; tool-call inference remains insufficient.
+anchors:
+  copilot-capability-truth:
+    copilot-event-translation:
+      action: change
+      reason: Normalize documented JSONL envelopes, deduplicate complete messages
+        after deltas, retain token usage without USD, and map subagent lifecycle.
+    copilot-capability-conformance:
+      action: change
+      reason: Assert exact session argv, local discovery, native attach, false ask,
+        spawn-time approval, extension lifecycle, and synthetic fixture marking.
+  adapters-cli-only-no-sdk:
+    copilot-cli-subprocess-driver:
+      action: change
+      reason: Add the direct copilot prompt-mode process driver and intentionally
+        reject the ACP and SDK patterns observed in behavioral references.
+  adapter-process-lifecycle-supervised:
+    copilot-cli-process-supervision:
+      action: change
+      reason: Supervise Copilot through stdout EOF and signal its process group for
+        interrupt and cleanup.
+  attach-custody-lease-tracks-child-pid:
+    interactive-child-supervision:
+      action: change
+      reason: Resolve Copilot attach to its native `copilot --resume ID` TUI in the
+        existing child supervisor.
+files:
+  - packages/adapters/copilot/package.json
+  - packages/adapters/copilot/tsconfig.json
+  - packages/adapters/copilot/NOTES.md
+  - packages/adapters/copilot/fixtures/SYNTHETIC.md
+  - packages/adapters/copilot/fixtures/synthetic-success.jsonl
+  - packages/adapters/copilot/fixtures/synthetic-failure.jsonl
+  - packages/adapters/copilot/src/index.ts
+  - packages/adapters/copilot/src/index.spec.ts
+  - packages/adapters/copilot/src/adapter.ts
+  - packages/adapters/copilot/src/adapter.spec.ts
+  - packages/adapters/copilot/src/translate.ts
+  - packages/adapters/copilot/src/translate.spec.ts
+  - packages/adapters/copilot/src/fixtures.spec.ts
+  - packages/cli/package.json
+  - packages/cli/src/up.ts
+  - packages/cli/src/index.spec.ts
+  - packages/cli/src/attach.ts
+  - pnpm-lock.yaml
+  - MANUAL-VERIFY.md
+  - tmp/build/PROGRESS.md
