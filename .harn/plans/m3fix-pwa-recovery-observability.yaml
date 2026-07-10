@@ -132,6 +132,7 @@ files:
   - packages/web/src/components.spec.tsx
   - packages/web/src/SettingsPage.tsx
   - packages/web/src/sw.ts
+  - packages/web/tests/e2e.spec.ts
   - packages/web/tests/pwa.e2e.spec.ts
   - packages/web/tests/crypto.e2e.spec.ts
   - packages/web/tests/harness.mjs
