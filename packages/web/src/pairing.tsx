@@ -75,6 +75,7 @@ export function PairingPage(): JSX.Element {
   const hasOffer = currentUrl.searchParams.has('pairing_token');
   const [qr, setQr] = useState<string>();
   const [state, setState] = useState<'ready' | 'pairing' | 'paired' | 'failed'>('ready');
+  const [failure, setFailure] = useState<string>();
 
   useEffect(() => {
     if (!hasOffer) return;
@@ -130,7 +131,7 @@ export function PairingPage(): JSX.Element {
               <p>A fresh signing and encryption identity stays in this origin's IndexedDB. Private keys never enter the QR or switchboard.</p>
               <ul>
                 <li><Check aria-hidden="true" size={15} /> Dual signing and encryption keys</li>
-                <li><Check aria-hidden="true" size={15} /> Sealed room keys for this device</li>
+                <li><Check aria-hidden="true" size={15} /> Room keys stored locally for this device</li>
                 <li><Check aria-hidden="true" size={15} /> Revoke and purge from Settings</li>
               </ul>
               <button
@@ -138,9 +139,16 @@ export function PairingPage(): JSX.Element {
                 disabled={state === 'pairing' || state === 'paired'}
                 onClick={() => {
                   setState('pairing');
+                  setFailure(undefined);
                   void completeBrowserPairing(currentUrl).then(
                     () => setState('paired'),
-                    () => setState('failed'),
+                    (error: unknown) => {
+                      const signingMismatch = error instanceof Error && error.message.includes('signing key does not match');
+                      setFailure(signingMismatch
+                        ? 'Security check failed. Stop: the switchboard identity does not match this pairing link.'
+                        : 'Pairing failed. Check the switchboard connection and request a fresh link.');
+                      setState('failed');
+                    },
                   );
                 }}
                 className="wr-primary-button wr-pair-button"
@@ -149,7 +157,7 @@ export function PairingPage(): JSX.Element {
                 {state === 'pairing' ? 'Pairing' : state === 'paired' ? 'Paired' : 'Pair this browser'}
               </button>
               {state === 'paired' && <p role="status" className="wr-pair-success"><Check aria-hidden="true" size={15} /> Browser paired. You can open your rooms.</p>}
-              {state === 'failed' && <p role="alert" className="wr-form-error">Pairing failed</p>}
+              {state === 'failed' && <p role="alert" className="wr-form-error">{failure}</p>}
             </div>
           </div>
         ) : (
@@ -161,7 +169,7 @@ export function PairingPage(): JSX.Element {
         )}
 
         <div className="wr-pairing-disclosure">
-          <section><h2>This browser stores</h2><p>Its private device keys, sealed room keys, and same-origin switchboard access.</p></section>
+          <section><h2>This browser stores</h2><p>Its private device keys, decrypted room keys, and same-origin switchboard access in this origin's IndexedDB.</p></section>
           <section><h2>The push relay never learns</h2><p>Sender, room or member names, plaintext message or run evidence, decrypted room keys, or private device keys.</p></section>
         </div>
       </section>

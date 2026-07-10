@@ -30,7 +30,7 @@ import {
 import { ensureBrowserIdentity, unpairBrowser } from './crypto.js';
 import { enablePushNotifications, notificationPermission } from './notifications.js';
 import { RoomRail } from './shell.js';
-import { heldDeliveries, unreadCount, useRoomStore } from './state.js';
+import { heldDeliveries, me, unreadCount, useRoomStore } from './state.js';
 import {
   readThemeChoice,
   storeThemeChoice,
@@ -66,6 +66,15 @@ const themeChoices = [
   ['light', Sun, 'Light'],
 ] as const;
 
+type SettingsSection = typeof settingsSections[number][0];
+
+function sectionFromHash(): SettingsSection {
+  const candidate = window.location.hash.replace(/^#/, '');
+  return settingsSections.some(([id]) => id === candidate)
+    ? candidate as SettingsSection
+    : 'appearance';
+}
+
 // harn:assume web-settings-controls-preserve-product-truth ref=glass-settings-surface
 export function SettingsPage(props: { token?: string } = {}): JSX.Element {
   const state = useRoomStore();
@@ -89,6 +98,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
   const [spendBrake, setSpendBrake] = useState('10');
   const [stallMinutes, setStallMinutes] = useState('30');
   const [theme, setTheme] = useState<ThemeChoice>(readThemeChoice);
+  const [activeSection, setActiveSection] = useState<SettingsSection>(sectionFromHash);
 
   const chooseTheme = (choice: ThemeChoice): void => {
     setTheme(choice);
@@ -120,11 +130,15 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
     setStallMinutes(String(config.stall_minutes));
   }, [state.room?.config]);
 
+  useEffect(() => {
+    const followHash = (): void => setActiveSection(sectionFromHash());
+    window.addEventListener('hashchange', followHash);
+    return () => window.removeEventListener('hashchange', followHash);
+  }, []);
+
   const currentDevice = devices.find((device) => device.device_id === currentDeviceId);
   const roomHref = `/?${new URLSearchParams({ room }).toString()}`;
-  const owner = Object.values(state.members).find(
-    (member) => member.kind === 'human' && member.role === 'owner',
-  );
+  const owner = me(state.members);
 
   if (unpaired) {
     return (
@@ -160,7 +174,14 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
           </div>
           <nav aria-label="Settings categories">
             {settingsSections.map(([id, label]) => (
-              <a key={id} href={`#${id}`}>{label}<ChevronRight aria-hidden="true" size={14} /></a>
+              <a
+                key={id}
+                href={`#${id}`}
+                aria-current={activeSection === id ? 'location' : undefined}
+                onClick={() => setActiveSection(id)}
+              >
+                {label}<ChevronRight aria-hidden="true" size={14} />
+              </a>
             ))}
           </nav>
           <a href={roomHref} aria-label="Return to room from settings navigation" className="wr-settings-back">

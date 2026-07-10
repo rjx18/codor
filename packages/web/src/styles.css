@@ -1317,7 +1317,7 @@ button:disabled {
 }
 
 .wr-settings-nav nav a:hover,
-.wr-settings-nav nav a:target {
+.wr-settings-nav nav a[aria-current='location'] {
   background: var(--wr-cyan-soft);
   color: var(--wr-cyan);
 }

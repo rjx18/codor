@@ -469,6 +469,9 @@ test('glass settings keep desktop structure, mobile fit, and honest relay bounda
   await expect(relay).toContainText('Opaque switchboard public key');
   await expect(relay).toContainText('Decrypted room keys or any private key');
   await expect(relay).toContainText('Hosted roadmap · deferred from the v1 push relay.');
+  const relayCategory = page.getByRole('link', { name: 'Relay', exact: true });
+  await relayCategory.click();
+  await expect(relayCategory).toHaveAttribute('aria-current', 'location');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
@@ -489,6 +492,13 @@ test('glass settings keep desktop structure, mobile fit, and honest relay bounda
 // harn:assume web-theme-choice-stays-local ref=theme-choice-regression
 test('theme choice applies immediately, survives a tokenless launch, and resets to system', async ({ page }) => {
   await page.goto('/settings?room=eng&token=e2e-token');
+  const mutatingApiRequests: string[] = [];
+  page.on('request', (request) => {
+    if (
+      request.url().includes('/api/') &&
+      !['GET', 'HEAD', 'OPTIONS'].includes(request.method())
+    ) mutatingApiRequests.push(`${request.method()} ${request.url()}`);
+  });
   await page.getByTestId('theme-system').focus();
   await page.getByTestId('theme-system').press('ArrowRight');
   await expect(page.getByTestId('theme-dark')).toBeFocused();
@@ -510,5 +520,6 @@ test('theme choice applies immediately, survives a tokenless launch, and resets 
   await page.getByTestId('theme-system').click();
   await expect(page.locator('html')).not.toHaveAttribute('data-theme');
   expect(await page.evaluate(() => localStorage.getItem('wireroom-theme'))).toBeNull();
+  expect(mutatingApiRequests).toEqual([]);
 });
 // harn:end web-theme-choice-stays-local

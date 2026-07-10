@@ -59,6 +59,15 @@ test('pairing page renders a QR without visible authority and enrolls the browse
   expect(peers.peers).toHaveLength(1);
   expect(peers.peers[0]!.device_id).toBe(peers.peers[0]!.sign_public_key);
   expect(peers.peers[0]!.encryption_public_key).not.toBe(peers.peers[0]!.sign_public_key);
+
+  const tamperedOffer = new URL((await control<{ url: string }>('/pair-offer')).url);
+  tamperedOffer.searchParams.set('switchboard_sign_pub', generateIdentity().sign_public_key);
+  await page.goto(tamperedOffer.toString());
+  await page.getByRole('button', { name: 'Pair this browser' }).click();
+  await expect(page.getByRole('alert')).toHaveText(
+    'Security check failed. Stop: the switchboard identity does not match this pairing link.',
+  );
+
   await page.goto('/?room=eng');
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await expect(page).not.toHaveURL(/(?:\?|&)token=/);
