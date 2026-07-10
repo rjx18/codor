@@ -102,8 +102,9 @@ while no plaintext leaves the tailnet except sealed push payloads.
 
 *From personal tool to open-source project.*
 
-- Adapter SDK: `HarnessAdapter` documented + a reference third-party adapter (ACP-based if the
-  M0 spike held; else OpenCode or Gemini CLI direct).
+- Adapter SDK: `HarnessAdapter` documented + reference third-party adapters (ACP-based if the
+  M0 spike held; else OpenCode / Gemini / Copilot CLI direct, with paseo's adapter set as the
+  behavioral reference — reimplemented, never copied, per its AGPL).
 - Multi-human rooms: org enrollment (invite QR, device keys), role enforcement
   (owner/admin/member/observer), presence, per-human notification routing.
 - Ledger graph view in the web UI; optional Graphiti indexer for temporal queries.
