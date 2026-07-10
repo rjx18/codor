@@ -6,13 +6,14 @@ assumptions:
     - id: push-room-key-rotation-reaches-surviving-devices
       title: Push envelopes carry the current room key only to their paired device
       statement: Every produced push must include the current room key sealed to the
-        target paired device, and the service worker must open and persist that key
-        before authenticating the room-key ciphertext, because revocation and newly
-        created rooms must not strand surviving devices on stale key generations or
-        expose the refreshed key to the relay or a revoked device.
+        target paired device, and the service worker must open and persist that
+        key before authenticating the room-key ciphertext, because revocation
+        and newly created rooms must not strand surviving devices on stale key
+        generations or expose the refreshed key to the relay or a revoked
+        device.
       reason: The M3 adversarial review found that rotateAll made every later push
-        undecryptable on remaining paired browsers because pairing was the only room-key
-        delivery path.
+        undecryptable on remaining paired browsers because pairing was the only
+        room-key delivery path.
       depends_on:
         - push-decrypts-on-device-only
         - revocation-rotates-room-keys
@@ -21,24 +22,26 @@ assumptions:
     - id: push-decrypts-on-device-only
       outcome: unchanged
       reason: The worker still performs every key unwrap and preview decrypt locally;
-        the relay and browser push service continue to receive only opaque bytes.
+        the relay and browser push service continue to receive only opaque
+        bytes.
     - id: push-previews-redacted-pad-then-sealed
       outcome: unchanged
       reason: The redacted preview remains randomly padded to the fixed buckets and
-        authenticated with the room key before the device-specific sealed-key wrapper
-        is added.
+        authenticated with the room key before the device-specific sealed-key
+        wrapper is added.
     - id: revocation-rotates-room-keys
       outcome: unchanged
-      reason: Revocation still rotates every room and excludes the removed device;
-        the new envelope lets only surviving enrolled devices obtain the rotated key.
+      reason: Revocation still rotates every room and excludes the removed device; the
+        new envelope lets only surviving enrolled devices obtain the rotated
+        key.
     - id: sealed-room-keys-per-enrollee
       outcome: unchanged
       reason: Room keys continue to use the existing X25519 sealed-box fan-out, now
         delivered alongside each target device's opaque push ciphertext.
     - id: single-crypto-suite-libsodium
       outcome: unchanged
-      reason: The envelope reuses sodium-native and libsodium-wrappers sealed boxes and
-        XChaCha20-Poly1305 without introducing a second crypto suite.
+      reason: The envelope reuses sodium-native and libsodium-wrappers sealed boxes
+        and XChaCha20-Poly1305 without introducing a second crypto suite.
     - id: push-only-for-human-targeted-events
       outcome: unchanged
       reason: Adding exact delivery ids to actionable previews does not add any push
@@ -46,18 +49,23 @@ assumptions:
     - id: permalink-ids-stable
       outcome: unchanged
       reason: Notification navigation retains permanent message fragments while acts
-        now use their exact delivery id rather than guessing from the message id.
+        now use their exact delivery id rather than guessing from the message
+        id.
 anchors:
   push-previews-redacted-pad-then-sealed:
     producer-pad-seal-sign:
       action: change
-      reason: Wrap each sealed preview with the current room key sealed specifically to
-        the target device and keep the signed relay request opaque.
+      reason: Wrap each sealed preview with the current room key sealed specifically
+        to the target device and keep the signed relay request opaque.
   push-decrypts-on-device-only:
     browser-push-envelope-open:
       action: change
       reason: Parse the versioned device envelope, open its sealed room key locally,
         authenticate the preview, and persist the refreshed generation.
+    notification-permission-registration:
+      action: change
+      reason: Replace a subscription created for an old VAPID key before registering
+        the current subscription with the paired device.
     sw-push-notification-handler:
       action: change
       reason: Render authenticated notifications after key refresh and show a generic
