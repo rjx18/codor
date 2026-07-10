@@ -1,0 +1,13 @@
+id: search-does-not-reveal-redacted-text
+hash: a-387a54c87c41
+title: Search visibility matches the room's redacted projection
+state: active
+statement: When room redaction is enabled, message body matching must run
+  against the redacted body and may not reveal result presence for a query found
+  only in raw stored text; when redaction is disabled, raw matching remains
+  available, because search is a serving surface and must not become a
+  secret-existence oracle.
+depends_on:
+  - redaction-before-fanout
+  - permalink-ids-stable
+created_by: m1fix-brakes-and-search

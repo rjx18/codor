@@ -92,6 +92,20 @@ describe('message history and search', () => {
       'alpha wildcard_ literal',
     ]);
   });
+
+  it('matches projected bodies while redaction is enabled and raw bodies only after opt-out', () => {
+    const { owner } = openRoom(store);
+    store.postMessage('eng', {
+      author: owner.id,
+      kind: 'chat',
+      body: 'token sk-proj-abcdef1234567890abcdef',
+    });
+
+    expect(store.searchMessages('eng', 'sk-proj-abcdef')).toEqual([]);
+    expect(store.searchMessages('eng', '[redacted]').map((item) => item.id)).toEqual([1]);
+    store.updateRoomConfig('eng', { redaction_enabled: false });
+    expect(store.searchMessages('eng', 'sk-proj-abcdef').map((item) => item.id)).toEqual([1]);
+  });
 });
 
 describe('change log completeness', () => {

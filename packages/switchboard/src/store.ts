@@ -24,6 +24,8 @@ import {
   type RunSummary,
 } from '@wireroom/protocol';
 
+import { redactText } from './redact.js';
+
 // harn:assume run-blobs-off-db ref=store-schema-no-blobs
 // The DB persists pointers (RunSummary.events_ref) — never run event payloads.
 // Run streams are JSONL blobs on disk, journaled by the daemon; the store has
@@ -854,7 +856,19 @@ export class Store {
     return rows.reverse().map(messageFromRow);
   }
 
+  // harn:assume search-does-not-reveal-redacted-text ref=redacted-message-search-match
   searchMessages(room: string, query: string, opts: { limit?: number } = {}): Message[] {
+    const limit = opts.limit ?? 50;
+    if (this.getRoom(room)?.config.redaction_enabled !== false) {
+      const needle = query.toLowerCase();
+      const rows = this.db
+        .prepare('SELECT * FROM messages WHERE room = ? ORDER BY id DESC')
+        .all(room) as MessageRow[];
+      return rows
+        .map(messageFromRow)
+        .filter((message) => redactText(message.body).toLowerCase().includes(needle))
+        .slice(0, limit);
+    }
     const literal = query.replace(/[\\%_]/g, '\\$&');
     const rows = this.db
       .prepare(
@@ -862,9 +876,10 @@ export class Store {
          WHERE room = ? AND body LIKE ? ESCAPE '\\'
          ORDER BY id DESC LIMIT ?`,
       )
-      .all(room, `%${literal}%`, opts.limit ?? 50) as MessageRow[];
+      .all(room, `%${literal}%`, limit) as MessageRow[];
     return rows.map(messageFromRow);
   }
+  // harn:end search-does-not-reveal-redacted-text
   // harn:end permalink-ids-stable
 
   // ── deliveries ────────────────────────────────────────────────────────

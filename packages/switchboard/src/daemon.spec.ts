@@ -640,6 +640,82 @@ describe('meters, opt-in brakes, and stall flags', () => {
       .toMatchObject({ cost_usd: 0, uncosted_tokens: 15 });
   });
 
+  it('rechecks spend before a queued agent hop starts and releases it exactly once', async () => {
+    const gamma = spawnAgent('gamma');
+    const alpha = spawnAgent('alpha');
+    const beta = spawnAgent('beta');
+    daemon.configureRoom('eng', { spend_brake_usd: 0.5 });
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Keep gamma occupied?', options: [{ label: 'continue' }] },
+      reply: () => '@richard gamma initial turn complete',
+    });
+    daemon.postHumanMessage('eng', '@gamma block while work queues');
+    const interaction = await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === gamma.id),
+    );
+
+    fake.enqueue(
+      {
+        kind: 'complete',
+        final_text: '@gamma queued while spend is low',
+        usage: { input_tokens: 10, output_tokens: 2, cost_usd: 0.01 },
+      },
+      {
+        kind: 'complete',
+        final_text: '@richard spend threshold crossed',
+        usage: { input_tokens: 10, output_tokens: 2, cost_usd: 0.6 },
+      },
+      { kind: 'complete', final_text: '@richard released queued work' },
+    );
+    daemon.postHumanMessage('eng', '@alpha queue work for gamma');
+    await until(() =>
+      runMessages().find((message) => message.author === alpha.id && message.run?.status === 'completed'),
+    );
+    daemon.postHumanMessage('eng', '@beta add reported spend');
+    await until(() =>
+      runMessages().find((message) => message.author === beta.id && message.run?.status === 'completed'),
+    );
+
+    await daemon.answerInteraction('eng', interaction.id, 'continue');
+    await daemon.settle();
+    const held = daemon.store.listDeliveries('eng', { recipient: gamma.id, state: 'held' });
+    expect(held).toHaveLength(1);
+    expect(held[0]!.hop_count).toBe(1);
+    expect(fake.deliveries).toHaveLength(3);
+    expect(daemon.pushLog.at(-1)?.body).toContain('spend brake at $0.61');
+
+    daemon.releaseHold('eng', held[0]!.id);
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(4);
+    expect(daemon.store.getDelivery('eng', held[0]!.id)!.state).toBe('consumed');
+  });
+
+  it('resets onward hop count when any delivery in the batch is human-authored', async () => {
+    const alpha = spawnAgent('alpha');
+    const gamma = spawnAgent('gamma');
+    const beta = spawnAgent('beta');
+    daemon.pauseMember('eng', gamma.id);
+    daemon.pauseMember('eng', beta.id);
+    daemon.postHumanMessage('eng', '@gamma human item first');
+
+    fake.enqueue(
+      { kind: 'complete', final_text: '@gamma agent item second' },
+      { kind: 'complete', final_text: '@beta onward after mixed batch' },
+    );
+    daemon.postHumanMessage('eng', '@alpha create the agent item');
+    await daemon.settle();
+    expect(
+      daemon.store.listDeliveries('eng', { recipient: gamma.id, state: 'queued' }).map((item) => item.hop_count),
+    ).toEqual([0, 1]);
+
+    daemon.unpauseMember('eng', gamma.id);
+    await daemon.settle();
+    const onward = daemon.store.listDeliveries('eng', { recipient: beta.id, state: 'queued' });
+    expect(onward).toHaveLength(1);
+    expect(onward[0]!.hop_count).toBe(1);
+  });
+
   it('flags an eventless running turn on a fake clock and clears without interrupting', async () => {
     const alpha = spawnAgent('alpha');
     daemon.configureRoom('eng', { stall_minutes: 1 });

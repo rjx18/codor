@@ -1,0 +1,14 @@
+id: brakes-rechecked-at-turn-start
+hash: a-c535f14b3921
+title: Agent-hop brakes use current meter state immediately before start
+state: active
+statement: Every queued agent-hop delivery must be evaluated again against the
+  current room brakes immediately before an adapter turn starts, while an
+  operator-released hold carries a one-shot exemption consumed only by that
+  start, because a delivery-created verdict becomes stale while work waits
+  behind another turn or interaction.
+depends_on:
+  - brakes-opt-in-hold
+  - agent-chains-uninterrupted-by-default
+  - turn-start-requires-owned-custody
+created_by: m1fix-brakes-and-search

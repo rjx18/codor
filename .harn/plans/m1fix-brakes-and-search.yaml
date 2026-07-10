@@ -5,87 +5,92 @@ assumptions:
   create:
     - id: brakes-rechecked-at-turn-start
       title: Agent-hop brakes use current meter state immediately before start
-      statement: Every queued agent-hop delivery must be evaluated again against the current
-        room brakes immediately before an adapter turn starts, while an operator-released hold
-        carries a one-shot exemption consumed only by that start, because a delivery-created
-        verdict becomes stale while work waits behind another turn or interaction.
-      reason: Accepted M1 review finding 5 reproduced a queued agent delivery starting after
-        reported spend crossed the configured threshold.
+      statement: Every queued agent-hop delivery must be evaluated again against the
+        current room brakes immediately before an adapter turn starts, while an
+        operator-released hold carries a one-shot exemption consumed only by
+        that start, because a delivery-created verdict becomes stale while work
+        waits behind another turn or interaction.
+      reason: Accepted M1 review finding 5 reproduced a queued agent delivery starting
+        after reported spend crossed the configured threshold.
       depends_on:
         - brakes-opt-in-hold
         - agent-chains-uninterrupted-by-default
         - turn-start-requires-owned-custody
     - id: search-does-not-reveal-redacted-text
       title: Search visibility matches the room's redacted projection
-      statement: When room redaction is enabled, message body matching must run against the
-        redacted body and may not reveal result presence for a query found only in raw stored
-        text; when redaction is disabled, raw matching remains available, because search is a
-        serving surface and must not become a secret-existence oracle.
-      reason: Accepted M1 review finding 6 showed that projecting results after raw LIKE
-        matching leaked redacted secret prefixes through result presence.
+      statement: When room redaction is enabled, message body matching must run
+        against the redacted body and may not reveal result presence for a query
+        found only in raw stored text; when redaction is disabled, raw matching
+        remains available, because search is a serving surface and must not
+        become a secret-existence oracle.
+      reason: Accepted M1 review finding 6 showed that projecting results after raw
+        LIKE matching leaked redacted secret prefixes through result presence.
       depends_on:
         - redaction-before-fanout
         - permalink-ids-stable
     - id: batched-human-resets-hop-count
       title: Any human delivery in a batch resets onward agent hop count
-      statement: The onward hop count from a batched turn must derive from the minimum input
-        hop count, so any human-authored delivery in the batch resets the consecutive-agent
-        chain regardless of delivery order, because the turn brake measures agent-to-agent
-        hops with no intervening human message rather than the last batch item alone.
-      reason: Accepted M1 review finding 12 found that a human delivery before a later agent
-        delivery failed to reset the batch's onward hop count.
+      statement: The onward hop count from a batched turn must derive from the minimum
+        input hop count, so any human-authored delivery in the batch resets the
+        consecutive-agent chain regardless of delivery order, because the turn
+        brake measures agent-to-agent hops with no intervening human message
+        rather than the last batch item alone.
+      reason: Accepted M1 review finding 12 found that a human delivery before a later
+        agent delivery failed to reset the batch's onward hop count.
       depends_on:
         - agent-chains-uninterrupted-by-default
         - delivery-fifo-has-durable-sequence
   reviewed:
     - id: brakes-opt-in-hold
       outcome: unchanged
-      reason: The pure threshold evaluator remains unchanged; it is now called again with the
-        current meter immediately before eligible agent-hop starts.
+      reason: The pure threshold evaluator remains unchanged; it is now called again
+        with the current meter immediately before eligible agent-hop starts.
     - id: agent-chains-uninterrupted-by-default
       outcome: unchanged
-      reason: Default-null brakes still never hold, durable hop counts remain the input, and
-        operator releases bypass exactly one re-evaluation.
+      reason: Default-null brakes still never hold, durable hop counts remain the
+        input, and operator releases bypass exactly one re-evaluation.
     - id: redaction-before-fanout
       outcome: unchanged
-      reason: Search now applies the same redactText projection before deciding matches while
-        raw SQLite bodies remain unchanged.
+      reason: Search now applies the same redactText projection before deciding
+        matches while raw SQLite bodies remain unchanged.
     - id: permalink-ids-stable
       outcome: unchanged
-      reason: Search filtering changes visibility only; result ids and permalink behavior stay
-        permanent and room-local.
+      reason: Search filtering changes visibility only; result ids and permalink
+        behavior stay permanent and room-local.
     - id: reply-is-finalized-run-message
       outcome: unchanged
-      reason: Batch ordering still determines the default trigger author, while only the
-        independent onward hop calculation changes to minimum-hop semantics.
+      reason: Batch ordering still determines the default trigger author, while only
+        the independent onward hop calculation changes to minimum-hop semantics.
     - id: one-inflight-turn-per-member
       outcome: unchanged
-      reason: Brake filtering happens after the shared custody gate and before the existing
-        inflight claim, without permitting concurrent starts.
+      reason: Brake filtering happens after the shared custody gate and before the
+        existing inflight claim, without permitting concurrent starts.
 anchors:
   brakes-rechecked-at-turn-start:
     turn-start-brake-recheck:
       action: change
-      reason: Hold newly-braked queued agent hops before start and consume one-shot release
-        exemptions only for deliveries that actually enter a turn.
+      reason: Hold newly-braked queued agent hops before start and consume one-shot
+        release exemptions only for deliveries that actually enter a turn.
   search-does-not-reveal-redacted-text:
     redacted-message-search-match:
       action: change
-      reason: Match projected bodies when redaction is enabled and retain bounded raw LIKE only
-        for rooms that explicitly disable redaction.
+      reason: Match projected bodies when redaction is enabled and retain bounded raw
+        LIKE only for rooms that explicitly disable redaction.
   batched-human-resets-hop-count:
     batched-onward-hop-reset:
       action: change
-      reason: Derive onward hop count from the batch minimum rather than the last delivery.
+      reason: Derive onward hop count from the batch minimum rather than the last
+        delivery.
   agent-chains-uninterrupted-by-default:
     delivery-hop-brake-dispatch:
       action: change
-      reason: Reuse the existing verdict and reason semantics at dispatch and at turn start.
+      reason: Reuse the existing verdict and reason semantics at dispatch and at turn
+        start.
   permalink-ids-stable:
     message-history-search:
       action: change
-      reason: Preserve literal, room-scoped search while moving match visibility to the room
-        projection boundary.
+      reason: Preserve literal, room-scoped search while moving match visibility to
+        the room projection boundary.
   redaction-before-fanout:
     redaction-projection:
       action: keep
@@ -96,16 +101,18 @@ anchors:
   reply-is-finalized-run-message:
     finalize-and-route:
       action: change
-      reason: Change only the onward hop statistic supplied to the existing fanout plan.
+      reason: Change only the onward hop statistic supplied to the existing fanout
+        plan.
   one-inflight-turn-per-member:
     inflight-guard:
       action: change
-      reason: Remove held deliveries from a queued batch before taking the existing inflight
-        claim; eligible deliveries still start once.
+      reason: Remove held deliveries from a queued batch before taking the existing
+        inflight claim; eligible deliveries still start once.
   turn-start-requires-owned-custody:
     shared-turn-start-custody-gate:
       action: keep
-      reason: Brake evaluation consumes the custody gate result without changing its rules.
+      reason: Brake evaluation consumes the custody gate result without changing its
+        rules.
 files:
   - packages/switchboard/src/store.ts
   - packages/switchboard/src/store.spec.ts
@@ -113,3 +120,5 @@ files:
   - packages/switchboard/src/daemon.spec.ts
   - packages/switchboard/src/server.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T13:12:00.930Z

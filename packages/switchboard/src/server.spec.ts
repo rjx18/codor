@@ -134,6 +134,16 @@ describe('REST', () => {
     const search = (await searchRes.json()) as { messages: { id: number; body: string }[] };
     expect(search.messages.map((message) => message.id)).toEqual([2]);
     expect(search.messages[0]!.body).toContain('[redacted]');
+
+    const secretOracle = await fetch(`${base}/api/rooms/eng/search?q=sk-proj-abcdef`, {
+      headers: auth,
+    });
+    expect(await secretOracle.json()).toEqual({ messages: [] });
+    const projectedSearch = await fetch(
+      `${base}/api/rooms/eng/search?q=${encodeURIComponent('[redacted]')}`,
+      { headers: auth },
+    );
+    expect(await projectedSearch.json()).toMatchObject({ messages: [{ id: 2 }] });
   });
 
   it('validates history and search parameters and missing rooms', async () => {

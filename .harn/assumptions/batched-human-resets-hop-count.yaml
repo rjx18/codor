@@ -1,0 +1,13 @@
+id: batched-human-resets-hop-count
+hash: a-4acda84a1510
+title: Any human delivery in a batch resets onward agent hop count
+state: active
+statement: The onward hop count from a batched turn must derive from the minimum
+  input hop count, so any human-authored delivery in the batch resets the
+  consecutive-agent chain regardless of delivery order, because the turn brake
+  measures agent-to-agent hops with no intervening human message rather than the
+  last batch item alone.
+depends_on:
+  - agent-chains-uninterrupted-by-default
+  - delivery-fifo-has-durable-sequence
+created_by: m1fix-brakes-and-search
