@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"019f4ae5-6a34-7782-8c4e-f9d669a9ab2d"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Starting the 60-second wait now."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/bash -lc 'sleep 60'","aggregated_output":"","exit_code":null,"status":"in_progress"}}

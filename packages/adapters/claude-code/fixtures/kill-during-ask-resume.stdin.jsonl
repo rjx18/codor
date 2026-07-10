@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"continue"}]}}
+{"type":"control_response","response":{"subtype":"success","request_id":"23522600-9fc1-4256-a340-e6d1b26b818a","response":{"behavior":"allow","updatedInput":{"questions":[{"question":"Which codeword?","header":"Codeword","options":[{"label":"GAMMA","description":"Choose the codeword GAMMA."},{"label":"DELTA","description":"Choose the codeword DELTA."}],"multiSelect":false}],"answers":{"Which codeword?":"GAMMA"}}}}}

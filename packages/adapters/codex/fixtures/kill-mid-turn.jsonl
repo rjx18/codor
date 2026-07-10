@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"019f4ae5-90c4-7d01-ba06-e9209e4573d3"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’m starting the 60-second wait now."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/bash -lc 'sleep 60'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/bash -lc 'sleep 60'","aggregated_output":"","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"DONE"}}
+{"type":"turn.completed","usage":{"input_tokens":53301,"cached_input_tokens":46080,"output_tokens":234,"reasoning_output_tokens":43}}

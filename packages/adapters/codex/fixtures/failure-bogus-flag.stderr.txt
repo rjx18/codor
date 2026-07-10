@@ -1,0 +1,8 @@
+error: unexpected argument '--bogus-flag' found
+
+  tip: to pass '--bogus-flag' as a value, use '-- --bogus-flag'
+
+Usage: codex exec [OPTIONS] [PROMPT]
+       codex exec [OPTIONS] <COMMAND> [ARGS]
+
+For more information, try '--help'.

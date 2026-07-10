@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Run the shell command: touch probe-permission.txt — use the Bash tool. If permission is denied, reply with exactly DENIED and stop."}]}}
+{"type":"control_response","response":{"subtype":"success","request_id":"2bf1e09e-30ce-4aed-bb24-2ff4f01c12e0","response":{"behavior":"deny","message":"denied by wireroom probe"}}}

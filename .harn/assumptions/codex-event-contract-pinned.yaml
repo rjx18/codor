@@ -1,0 +1,13 @@
+id: codex-event-contract-pinned
+hash: a-27366bdff5dc
+title: Recorded codex exec --json fixtures are the normative event contract
+state: active
+statement: The JSONL files under packages/adapters/codex/fixtures/ must be raw
+  scrubbed captures of live codex exec --json runs (thread.started thread_id,
+  item.* stream, turn.completed usage, turn.failed/error failure shapes, resume
+  semantics, SIGINT and kill-9/resume behavior) and are the normative wire
+  shapes the codex adapter and its tests replay, because the event contract is
+  pinned from probed reality - any contract drift must be re-probed against the
+  CLI, never hand-edited into the fixtures.
+depends_on: []
+created_by: harness-conformance-fixtures

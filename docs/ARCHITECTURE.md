@@ -66,19 +66,24 @@ This keeps every harness loosely coupled and identically shaped (spawn a process
 read JSONL), which is also what makes new harnesses cheap and native-resume/jump-in trivial.
 
 - **claude-code**: drives `claude -p --resume <session-id> --output-format stream-json
-  --input-format stream-json` — the same wire protocol the Agent SDK wraps, spoken directly.
-  Events, `AskUserQuestion`, and runtime permission prompts all arrive as JSONL on stdout
-  (control requests answered on stdin; `--permission-prompt-tool` as fallback). Extensions:
+  --input-format stream-json --verbose` — the same wire protocol the Agent SDK wraps, spoken
+  directly. Events, `AskUserQuestion`, and runtime permission prompts all arrive as JSONL on
+  stdout (control requests answered on stdin). **`--permission-prompt-tool stdio` is the
+  enabler, not a fallback** (probed, P0.2): without it the control-request path is off and
+  AskUserQuestion isn't even offered to the model. Extensions:
   **`SubagentStart`/`SubagentStop` hooks are authoritative** (injected via `--settings`,
   reporting agent id + transcript path); Task/Agent tool-call stream events only enrich.
 - **codex**: drives `codex exec --json [--sandbox <policy>] resume <rollout-id> "<payload>"` —
   the exact pattern proven in months of manual use. Flags precede the subcommand (learned the
   hard way). Approvals are spawn-time sandbox policy → rendered as the member's policy chip.
-- **ACP (evaluate in M0)**: Zed's Agent Client Protocol already standardizes "drive a coding
-  agent over JSON-RPC" and has maintained adapters (Claude Code today, more coming). If the
-  spike holds up, our adapters become thin ACP clients and third-party harness support is
-  mostly free. Decision gate: does ACP expose resume + usage + subagent visibility well enough?
-  If not, direct CLI drivers stay and ACP becomes a fourth adapter.
+- **ACP — evaluated in M0 (P0.2), verdict: NO for driver replacement.** Decision gate was
+  resume + usage + subagent visibility. Findings: resume exists (`session/load` +
+  `session/resume`, optional; `claude-agent-acp` implements both across process restarts);
+  usage is a session-cumulative `usage_update` notification with optional cost — per-turn
+  token itemization is still a Draft RFD; **subagent visibility is absent by design** (no
+  schema types, and the reference Claude adapter deliberately filters subagent traffic out).
+  Codex has only a third-party (JetBrains) adapter, `codex-acp`. Direct CLI drivers stay;
+  ACP (Apache-2.0) remains a candidate FOURTH adapter for harnesses we don't drive natively.
 
 ### Session ownership: owned vs. mirrored, in both directions
 
@@ -204,9 +209,9 @@ verified in M0 before any code lands (unverified entries marked ⚠).
 | --- | --- | --- | --- |
 | Claude session driving | `claude` CLI (`-p --resume`, stream-json in/out) | depend | subprocess only — no SDK, by design (loose coupling; same shape as every other harness) |
 | Codex session driving | `codex` CLI (`exec --json`, `resume`) | depend | subprocess; proven pattern |
-| Harness normalization | Zed ACP (`agent-client-protocol` + `claude-code-acp`) | depend (spike) | M0 gate; may replace bespoke drivers |
+| Harness normalization | Zed ACP (`agent-client-protocol` + `claude-agent-acp`, both Apache-2.0) | rejected as driver layer (M0 verdict) | P0.2 spike: resume OK, usage coarse (per-turn tokens still a Draft RFD), subagent visibility absent by design; codex adapter is third-party (JetBrains). CLI drivers stay; ACP = candidate future fourth adapter |
 | Additional harness adapters (Copilot CLI, OpenCode, Gemini, Pi, …) | paseo's adapter set as the *behavioral reference* (AGPL forbids copying code, not learning from it); ACP adapters where they exist (Apache/MIT); each harness's first-party headless docs | pattern / depend | per harness: read their connector → write a behavioral spec (`packages/adapters/<harness>/NOTES.md`: invocation, resume, session store, event format, quirks) → implement our small adapter from the spec against the 4-function interface. No paseo code in this repo, in-process or sidecar |
-| P2P transport | `hyperswarm` (+ DHT, Noise) — walkie's stack ⚠ | depend; walkie as pattern/vendor | `line:secret` → DHT topic, exactly walkie's channel model; reuse walkie's `listen()/send()` lib if license allows, else hyperswarm directly |
+| P2P transport | `hyperswarm` (+ DHT, Noise) — walkie's stack (**MIT, verified P0.2**) | depend; walkie as pattern/vendor | `line:secret` → DHT topic, exactly walkie's channel model; walkie's `listen()/send()` lib is MIT (`walkie-sh` v1.5.0) — reuse permitted with attribution, else hyperswarm directly |
 | Tailnet access | Tailscale (user-supplied): `tailscale serve` for TLS; app connectors for custom-domain team access | depend | zero code: bind the tailnet IP; connector setup is documentation, not software |
 | Session-store discovery | partyline-sh/cli (MIT, Go) | port | its readers for `~/.claude` / `~/.codex` / Gemini session stores solve attach-by-session-id; port the formats to TS (Go binary doesn't transplant into a Node daemon) |
 | Blind ciphertext relay | partyline-sh relay + `ptysess` (Noise NNpsk0, key in URL fragment) | pattern / candidate depend | same philosophy as our push relay; M0 audit checks how separable it is from their hosted control plane — if it's a clean generic pipe, run it wholesale for room sync |

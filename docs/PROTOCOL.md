@@ -128,8 +128,12 @@ resuming the session re-raises the request it re-correlates, else `orphaned` (ex
 redeliver option); restart with an `answered`-but-not-`acked` interaction — the persisted
 answer is replayed via `respondInteraction` if the session still blocks on it (replay must be
 idempotent), marked `acked` if the turn demonstrably proceeded, and `orphaned` (hold, never
-auto-resend an approval) when neither can be established. Asks raised mid agent-to-agent
-chain target the chain's originating human. Approvals carry `tool`/`detail` and options
+auto-resend an approval) when neither can be established. Probed reality (P0.2 fixtures,
+Claude Code): a re-raised request carries FRESH native ids (`request_id`, `tool_use_id`) and
+only appears once a new turn is nudged — re-correlation must match on (member, tool,
+question content), never on native ids; the pre-crash answer is never persisted by the
+harness, and replaying it against the re-raised request is idempotent. Asks raised mid
+agent-to-agent chain target the chain's originating human. Approvals carry `tool`/`detail` and options
 `allow once | allow always | deny`.
 
 **Sync.** A per-room **change log** `(seq, entity, entity_id)` records every insert and
@@ -279,9 +283,9 @@ join, no attach); it may only serve one-shot ephemeral members, and surfaces lab
 | Capability | Claude Code | Codex CLI | Normalized as |
 | --- | --- | --- | --- |
 | Headless drive + resume | `claude -p --resume <session-id> --output-format stream-json --input-format stream-json` | `codex exec --json [--sandbox …] resume <rollout-id> "<prompt>"` | adapter `deliver()` |
-| Event stream | stream-json JSONL on stdout | `--json` JSONL: `thread.started` (thread_id), `item.*` (agent messages, tool calls), `turn.completed` (usage) / `turn.failed` / `error` | `run.item` |
+| Event stream | stream-json JSONL on stdout | `--json` JSONL: `thread.started` (thread_id), `item.*` (agent messages, plain shell tool calls — commands run via the unified-exec tool emit NO item; stream tool visibility is best-effort, probed P0.2), `turn.completed` (usage) / `turn.failed` / `error` | `run.item` |
 | Ask-user | `AskUserQuestion` — surfaced as a control request on the stream-json control protocol; answered via `respondInteraction` on stdin | — (none) | `ask.raised` card; Codex: plain replies suffice, nothing raised |
-| Permissions | permission modes; runtime prompts via the stream-json control protocol (`--permission-prompt-tool` fallback); answered via `respondInteraction` | sandbox modes (`read-only` ↔ `--dangerously-bypass…`), set at spawn | `approval.raised` (Claude, runtime) + a static **policy chip** on the member (both) |
+| Permissions | permission modes; runtime prompts via the stream-json control protocol (enabled by `--permission-prompt-tool stdio` — required, not a fallback; probed P0.2); answered via `respondInteraction` | sandbox modes (`read-only` ↔ `--dangerously-bypass…`), set at spawn | `approval.raised` (Claude, runtime) + a static **policy chip** on the member (both) |
 | Subagents | **hooks are authoritative** (`SubagentStart`/`SubagentStop`: agent id + transcript path, injected via `--settings`); Task/Agent tool-calls in the stream are enrichment only | — | `extension.*` (Claude); n/a |
 | Usage/cost | result usage block (tokens + cost_usd) | `turn.completed` usage — **tokens only, no dollar cost**; spend meters show tokens for such harnesses and $-brakes count only cost-reporting members | `run.completed.usage` → room meter |
 | Join-from-live-session | `/wireroom` skill + hooks (see ARCHITECTURE §ownership) | `wireroom join` CLI reading `~/.codex/sessions` | member with `session_ref` |
@@ -289,9 +293,10 @@ join, no attach); it may only serve one-shot ephemeral members, and surfaces lab
 | Interrupt | SIGINT on child | SIGINT on child | member action `interrupt` |
 
 **Extensibility:** an adapter is ~one file implementing `spawn / attach / deliver / interrupt`
-(ARCHITECTURE §adapters). Zed's **Agent Client Protocol (ACP)** is evaluated in M0 as a shortcut:
-where a maintained ACP adapter exists for a harness (Claude Code has one; others growing), our
-adapter can be a thin ACP client instead of a CLI driver — reuse over rebuild.
+(ARCHITECTURE §adapters). Zed's **Agent Client Protocol (ACP)** was evaluated in M0 (P0.2):
+verdict NO as a replacement driver layer — it exposes no subagent visibility by design and
+only coarse usage — so CLI drivers stay; ACP remains a candidate future fourth adapter
+(details in ARCHITECTURE §adapters and the reuse map).
 
 ## 6. The ledger — shared memory as a graph
 

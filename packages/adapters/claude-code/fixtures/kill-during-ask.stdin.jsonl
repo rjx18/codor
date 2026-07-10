@@ -1,0 +1,1 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Use the AskUserQuestion tool to ask me exactly one question: 'Which codeword?' with exactly two options, GAMMA and DELTA. After I answer, reply with only the chosen codeword."}]}}

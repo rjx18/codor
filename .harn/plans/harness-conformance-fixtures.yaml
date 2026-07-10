@@ -6,44 +6,44 @@ assumptions:
     - id: codex-event-contract-pinned
       title: Recorded codex exec --json fixtures are the normative event contract
       statement: The JSONL files under packages/adapters/codex/fixtures/ must be raw
-        scrubbed captures of live codex exec --json runs (thread.started thread_id,
-        item.* stream, turn.completed usage, turn.failed/error failure shapes,
-        resume semantics, SIGINT and kill-9/resume behavior) and are the normative
-        wire shapes the codex adapter and its tests replay, because the event
-        contract is pinned from probed reality - any contract drift must be
-        re-probed against the CLI, never hand-edited into the fixtures.
-      reason: PLAN-M0 P0.2 pins real wire shapes before any schema lands; P0.6
-        builds the codex adapter strictly from these fixtures, so changing them
+        scrubbed captures of live codex exec --json runs (thread.started
+        thread_id, item.* stream, turn.completed usage, turn.failed/error
+        failure shapes, resume semantics, SIGINT and kill-9/resume behavior) and
+        are the normative wire shapes the codex adapter and its tests replay,
+        because the event contract is pinned from probed reality - any contract
+        drift must be re-probed against the CLI, never hand-edited into the
+        fixtures.
+      reason: PLAN-M0 P0.2 pins real wire shapes before any schema lands; P0.6 builds
+        the codex adapter strictly from these fixtures, so changing them
         obligates re-running the probes and reviewing the adapter and its specs.
       depends_on: []
     - id: claude-control-protocol-pinned
       title: Recorded claude stream-json fixtures pin the control protocol
-      statement: The JSONL files under packages/adapters/claude-code/fixtures/ must
-        be raw scrubbed captures of live claude -p stream-json sessions (system
+      statement: The JSONL files under packages/adapters/claude-code/fixtures/ must be
+        raw scrubbed captures of live claude -p stream-json sessions (system
         init session_id, assistant events, result usage and cost,
-        control_request/control_response shapes for AskUserQuestion and permission
-        prompts including the stdin answer path, SubagentStart/SubagentStop hook
-        payloads, and both kill/resume crash boundaries) and are the normative
-        shapes the claude adapter and its tests replay, because the ask/approval
-        control protocol is pinned from probed reality - drift must be re-probed,
-        never hand-edited.
-      reason: PLAN-M0 P0.2; P0.7 (claude adapter) and P0.8 (interaction state
-        machine reconcile-or-orphan) implement exactly what these fixtures show,
-        so changing them obligates re-probing and a review of both phases.
+        control_request/control_response shapes for AskUserQuestion and
+        permission prompts including the stdin answer path,
+        SubagentStart/SubagentStop hook payloads, and both kill/resume crash
+        boundaries) and are the normative shapes the claude adapter and its
+        tests replay, because the ask/approval control protocol is pinned from
+        probed reality - drift must be re-probed, never hand-edited.
+      reason: PLAN-M0 P0.2; P0.7 (claude adapter) and P0.8 (interaction state machine
+        reconcile-or-orphan) implement exactly what these fixtures show, so
+        changing them obligates re-probing and a review of both phases.
       depends_on: []
   reviewed: []
 anchors:
   codex-event-contract-pinned:
     codex-fixture-invariants:
       action: change
-      reason: Create the vitest spec that parses the codex fixtures and asserts
-        the pinned invariants (event names, thread_id, usage shape, failure
-        shapes).
+      reason: Create the vitest spec that parses the codex fixtures and asserts the
+        pinned invariants (event names, thread_id, usage shape, failure shapes).
   claude-control-protocol-pinned:
     claude-fixture-invariants:
       action: change
-      reason: Create the vitest spec that parses the claude fixtures and asserts
-        the pinned invariants (init/session_id, usage+cost, control protocol
+      reason: Create the vitest spec that parses the claude fixtures and asserts the
+        pinned invariants (init/session_id, usage+cost, control protocol
         request/response pairing, hook payloads).
 files:
   - packages/adapters/codex/NOTES.md
@@ -76,3 +76,5 @@ files:
   - packages/adapters/claude-code/fixtures/answered-then-kill-resume.stdin.jsonl
   - docs/ARCHITECTURE.md
   - docs/PROTOCOL.md
+applied:
+  applied_at: 2026-07-10T07:44:25.956Z

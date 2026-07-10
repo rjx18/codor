@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"continue"}]}}
+{"type":"control_response","response":{"subtype":"success","request_id":"bcda90ad-aae5-47ee-abdf-71d1bc38e31e","response":{"behavior":"allow","updatedInput":{"questions":[{"question":"Which codeword?","header":"Codeword","options":[{"label":"EPSILON","description":"Choose the codeword EPSILON"},{"label":"ZETA","description":"Choose the codeword ZETA"}],"multiSelect":false}],"answers":{"Which codeword?":"EPSILON"}}}}}
