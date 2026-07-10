@@ -19,6 +19,13 @@ assumptions:
         - reply-is-finalized-run-message
         - adapters-cli-only-no-sdk
   reviewed:
+    - id: routing-eligibility-gate
+      outcome: unchanged
+      reason: "Refined for a degenerate case the statement is silent on: a
+        finalized run whose body is EMPTY no longer routes (an empty body can
+        mention nobody, so routing it could only fire the default fallback -
+        which live-looped two agents through empty acknowledgment turns during
+        acceptance). All behaviors the statement enumerates are unchanged."
     - id: runs-are-one-message
       outcome: unchanged
       reason: The acceptance asserts one run message per live turn - consuming
@@ -36,8 +43,15 @@ anchors:
       action: change
       reason: Create the gated live acceptance spec driving both real adapters
         through the daemon.
+  routing-eligibility-gate:
+    eligibility-gate:
+      action: change
+      reason: Empty-body finalized runs stop routing - discovered live when
+        interrupted/empty agent replies default-looped two agents.
 files:
   - packages/switchboard/package.json
   - pnpm-lock.yaml
   - packages/switchboard/src/acceptance.spec.ts
+  - packages/switchboard/src/router.ts
+  - packages/switchboard/src/router.spec.ts
   - docs/SETUP.md
