@@ -52,6 +52,11 @@ assumptions:
         now use their exact delivery id rather than guessing from the message
         id.
 anchors:
+  push-room-key-rotation-reaches-surviving-devices:
+    device-key-wrapped-push:
+      action: change
+      reason: Add the versioned device-specific sealed room-key wrapper and consume it
+        in the worker before preview authentication.
   push-previews-redacted-pad-then-sealed:
     producer-pad-seal-sign:
       action: change
