@@ -7,8 +7,8 @@ assumptions:
       title: OpenCode capabilities match its direct run interface
       statement: The OpenCode adapter must drive one `opencode run --format json`
         process per turn, capture and reuse the top-level sessionID in the
-        persisted working directory, discover sessions through the documented
-        JSON session-list command, expose the native session TUI, translate final
+        persisted working directory, discover root sessions through the documented
+        global JSON database command, expose the native session TUI, translate final
         text, completed tools, errors, and step-finish token and reported-dollar
         usage, and declare asks and extensions unsupported with approvals fixed at
         process spawn, because every advertised capability must be demonstrated
@@ -17,7 +17,9 @@ assumptions:
         acceptance while requiring capability truth; `opencode run` resumes by
         session id and emits raw JSON parts but owns permission decisions and
         exposes neither a question response channel nor authoritative subagent
-        lifecycle through that headless stream.
+        lifecycle through that headless stream; installed `session list` is
+        project-scoped despite the docs saying all, while the documented `db`
+        command can enumerate every root session without model work.
       depends_on:
         - adapters-cli-only-no-sdk
         - adapter-process-lifecycle-supervised
@@ -49,7 +51,7 @@ anchors:
         success boundary because OpenCode emits no separate result event.
     opencode-capability-conformance:
       action: change
-      reason: Assert resume argv and stable session identity, JSON-list discovery,
+      reason: Assert resume argv and stable session identity, global root-session discovery,
         native attach, false interaction capabilities, reported usage, and one
         live PONG on the configured free model.
   adapters-cli-only-no-sdk:
