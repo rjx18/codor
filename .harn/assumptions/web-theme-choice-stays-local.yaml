@@ -1,0 +1,13 @@
+id: web-theme-choice-stays-local
+hash: a-3e5afeef9c65
+title: Theme choice is local, immediate, and limited to system dark or light
+state: active
+statement: The web app must apply a locally stored system, dark, or light
+  preference before React renders, expose the same three choices in Settings,
+  and keep the preference inside localStorage so unpair clears it with all other
+  browser state, because explicit color-mode choice must not flash, sync, or
+  become account data.
+depends_on:
+  - web-glass-theme-accessible-modes
+  - unpair-purges-all-browser-state
+created_by: glass-web-settings-pairing

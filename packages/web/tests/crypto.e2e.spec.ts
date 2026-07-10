@@ -19,12 +19,40 @@ async function control<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-test('pairing page renders a QR and enrolls the browser dual identity', async ({ page }) => {
+// harn:assume pairing-offer-token-remains-qr-only ref=pairing-token-visibility-regression
+test('pairing page renders a QR without visible authority and enrolls the browser dual identity', async ({ page }) => {
   const offer = await control<{ url: string }>('/pair-offer');
+  const offerUrl = new URL(offer.url);
+  const pairingToken = offerUrl.searchParams.get('pairing_token')!;
+  const accessToken = 'e2e-token';
   await page.goto(offer.url);
+  await expect(page.getByTestId('pairing-page')).toBeVisible();
   await expect(page.getByAltText('Pairing QR code')).toBeVisible();
+  await expect(page.locator('body')).not.toContainText(pairingToken);
+  await expect(page.locator('body')).not.toContainText(accessToken);
+  await expect(page.getByText('This is not an account login.')).toBeVisible();
+  await expect(page.getByText('The push relay never learns')).toBeVisible();
   await page.getByRole('button', { name: 'Pair this browser' }).click();
   await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
+  const leakedAuthority = await page.evaluate(({ pairing, access }) => {
+    const attributes = [...document.querySelectorAll('*')].flatMap((element) =>
+      [...element.attributes].map((attribute) => attribute.value),
+    );
+    return {
+      visiblePairing: document.body.innerText.includes(pairing),
+      visibleAccess: document.body.innerText.includes(access),
+      attributePairing: attributes.some((value) => value.includes(pairing)),
+      attributeAccess: attributes.some((value) => value.includes(access)),
+      serializedAccess: document.documentElement.outerHTML.includes(access),
+    };
+  }, { pairing: pairingToken, access: accessToken });
+  expect(leakedAuthority).toEqual({
+    visiblePairing: false,
+    visibleAccess: false,
+    attributePairing: false,
+    attributeAccess: false,
+    serializedAccess: false,
+  });
   const peers = await control<{
     peers: { device_id: string; sign_public_key: string; encryption_public_key: string }[];
   }>('/peers');
@@ -35,6 +63,7 @@ test('pairing page renders a QR and enrolls the browser dual identity', async ({
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await expect(page).not.toHaveURL(/(?:\?|&)token=/);
 });
+// harn:end pairing-offer-token-remains-qr-only
 
 test('sodium-native and real Chromium page/SW sealed boxes interoperate across restart', async () => {
   const profile = mkdtempSync(join(tmpdir(), 'wireroom-chromium-crypto-'));

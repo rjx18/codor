@@ -1,0 +1,15 @@
+id: web-settings-controls-preserve-product-truth
+hash: a-639596e49de7
+title: Settings controls preserve brake, device, and relay truth
+state: active
+statement: The responsive Settings surface must bind its glass controls to the
+  existing notification, paired-device, turn-brake, spend-brake, stall-flag, and
+  relay behavior; show both brakes as opt-in and the stall flag as never
+  killing; distinguish the stateless v1 push disclosure from separately labeled
+  hosted roadmap capabilities; and never invent an account, billing, retention,
+  or blanket approval control, because settings copy and affordances are
+  operational promises.
+depends_on:
+  - design-references-preserve-wireroom-semantics
+  - unpair-purges-all-browser-state
+created_by: glass-web-settings-pairing

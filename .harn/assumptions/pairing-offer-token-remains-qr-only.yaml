@@ -1,0 +1,13 @@
+id: pairing-offer-token-remains-qr-only
+hash: a-5158c1684814
+title: Pairing UI never renders the single-use token as visible text
+state: active
+statement: The pairing route may encode the authenticated single-use offer in
+  its QR and submit it through the existing libsodium device enrollment, but the
+  visible DOM must show only switchboard identity and privacy guidance rather
+  than token or bearer values, because screenshots, shoulder surfing, and
+  assistive text extraction must not disclose live enrollment authority.
+depends_on:
+  - single-crypto-suite-libsodium
+  - pwa-cold-launch-restores-local-auth
+created_by: glass-web-settings-pairing

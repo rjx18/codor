@@ -1,5 +1,6 @@
 import {
   Bell,
+  Cable,
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
@@ -7,10 +8,14 @@ import {
   Gauge,
   KeyRound,
   Laptop,
+  Monitor,
+  Moon,
+  Palette,
   RadioTower,
   Send,
   ShieldCheck,
   Smartphone,
+  Sun,
   Unplug,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -24,7 +29,13 @@ import {
 } from './api.js';
 import { ensureBrowserIdentity, unpairBrowser } from './crypto.js';
 import { enablePushNotifications, notificationPermission } from './notifications.js';
-import { useRoomStore } from './state.js';
+import { RoomRail } from './shell.js';
+import { heldDeliveries, unreadCount, useRoomStore } from './state.js';
+import {
+  readThemeChoice,
+  storeThemeChoice,
+  type ThemeChoice,
+} from './theme.js';
 import { connect } from './ws.js';
 
 function pageParams(): { room: string; token: string } {
@@ -33,13 +44,29 @@ function pageParams(): { room: string; token: string } {
 }
 
 const relayCapabilities = [
-  ['Push gateway', 'Sealed notifications to paired devices.'],
-  ['Rendezvous & NAT relay', 'A ciphertext pipe when direct links fail.'],
-  ['Encrypted mailbox', 'TTL-bound sealed payload pickup.'],
-  ['Browser gateway', 'An encrypted path to a stable web URL.'],
-  ['Hosted integrations', 'Optional Slack and Telegram bridges.'],
+  ['Push gateway', 'Available now · sealed notifications to paired devices.'],
+  ['Rendezvous & NAT relay', 'Hosted roadmap · ciphertext pipe when direct links fail.'],
+  ['Encrypted mailbox', 'Hosted roadmap · deferred from the v1 push relay.'],
+  ['Browser gateway', 'Hosted roadmap · encrypted path to a stable web URL.'],
+  ['Hosted integrations', 'Hosted roadmap · explicit Slack and Telegram bridge opt-in.'],
 ] as const;
 
+const settingsSections = [
+  ['appearance', 'Appearance'],
+  ['notifications', 'Notifications'],
+  ['brakes', 'Brakes'],
+  ['relay', 'Relay'],
+  ['devices', 'Paired devices'],
+  ['privacy', 'Privacy'],
+] as const;
+
+const themeChoices = [
+  ['system', Monitor, 'System'],
+  ['dark', Moon, 'Dark'],
+  ['light', Sun, 'Light'],
+] as const;
+
+// harn:assume web-settings-controls-preserve-product-truth ref=glass-settings-surface
 export function SettingsPage(props: { token?: string } = {}): JSX.Element {
   const state = useRoomStore();
   const page = useMemo(pageParams, []);
@@ -61,6 +88,12 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
   const [spendEnabled, setSpendEnabled] = useState(false);
   const [spendBrake, setSpendBrake] = useState('10');
   const [stallMinutes, setStallMinutes] = useState('30');
+  const [theme, setTheme] = useState<ThemeChoice>(readThemeChoice);
+
+  const chooseTheme = (choice: ThemeChoice): void => {
+    setTheme(choice);
+    storeThemeChoice(choice);
+  };
 
   const refreshDevices = async (): Promise<void> => {
     const [nextDevices, nextConfig, identity] = await Promise.all([
@@ -89,219 +122,333 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
 
   const currentDevice = devices.find((device) => device.device_id === currentDeviceId);
   const roomHref = `/?${new URLSearchParams({ room }).toString()}`;
+  const owner = Object.values(state.members).find(
+    (member) => member.kind === 'human' && member.role === 'owner',
+  );
 
   if (unpaired) {
     return (
-      <main data-testid="browser-unpaired" className="flex min-h-dvh items-center justify-center bg-zinc-950 px-6 text-zinc-100">
-        <section className="w-full max-w-sm text-center">
-          <ShieldCheck aria-hidden="true" size={28} className="mx-auto text-emerald-400" />
-          <h1 className="mt-4 text-lg font-semibold">Browser unpaired</h1>
-          <p className="mt-2 text-sm leading-6 text-zinc-400">
-            {localPurgeWarning ?? 'Local keys, caches, room state, and the push subscription were removed.'}
-          </p>
-          {unpairWarning && <p role="alert" className="mt-3 text-sm leading-6 text-amber-400">{unpairWarning}</p>}
-          <a href="/pair" className="mt-6 inline-flex min-h-11 items-center px-4 text-sm font-medium text-sky-400">Pair again</a>
+      <main data-testid="browser-unpaired" className="wr-settings-page wr-centered-page">
+        <section className="wr-focused-glass wr-state-sheet">
+          <ShieldCheck aria-hidden="true" size={30} />
+          <h1>Browser unpaired</h1>
+          <p>{localPurgeWarning ?? 'Local keys, caches, room state, and the push subscription were removed.'}</p>
+          {unpairWarning && <p role="alert" className="wr-warning-copy">{unpairWarning}</p>}
+          <a href="/pair" className="wr-primary-button min-h-11 px-4">Pair again</a>
         </section>
       </main>
     );
   }
 
   return (
-    <main data-testid="settings-page" className="min-h-dvh bg-zinc-950 text-zinc-100">
-      <header className="sticky top-0 z-10 flex min-h-16 items-center border-b border-zinc-800 bg-zinc-950 px-2 sm:px-4">
-        <a
-          href={roomHref}
-          aria-label="Back to room"
-          className="inline-flex h-11 w-11 items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-        >
-          <ChevronLeft aria-hidden="true" size={22} />
-        </a>
-        <div className="min-w-0">
-          <h1 className="text-base font-semibold">Settings</h1>
-          <p className="truncate text-xs text-zinc-500">{state.room?.name ?? room}</p>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-3xl">
-        <section className="border-b border-zinc-800">
-          <h2 className="px-4 pb-2 pt-7 text-[11px] font-medium uppercase text-zinc-500">This browser</h2>
-          <div className="flex min-h-24 items-center gap-3 border-t border-zinc-800 px-4 py-4">
-            <Bell aria-hidden="true" className="shrink-0 text-zinc-400" size={22} />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-zinc-100">
-                {currentDevice?.push_enabled ? 'Notifications are enabled' : 'Notifications are disabled'}
-              </p>
-              <p className="mt-1 text-xs text-zinc-500">
-                {pushConfig.enabled ? `Permission: ${notificationPermission()}` : 'Push is not configured on this switchboard.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              data-testid="enable-notifications"
-              disabled={busy || !currentDevice || !pushConfig.enabled || !pushConfig.vapid_public_key}
-              onClick={() => {
-                if (!currentDevice || !pushConfig.vapid_public_key) return;
-                setBusy(true);
-                setNotice(undefined);
-                void enablePushNotifications({
-                  deviceId: currentDevice.device_id,
-                  token,
-                  vapidPublicKey: pushConfig.vapid_public_key,
-                }).then(
-                  async () => {
-                    await refreshDevices();
-                    setNotice('Notifications enabled.');
-                  },
-                  (error: unknown) => setNotice(error instanceof Error ? error.message : 'Notification setup failed.'),
-                ).finally(() => setBusy(false));
-              }}
-              className="min-h-11 shrink-0 px-3 text-sm font-medium text-sky-400 disabled:text-zinc-600"
-            >
-              Enable
-            </button>
+    <main data-testid="settings-page" className="wr-settings-page">
+      <div className="wr-wiring" aria-hidden="true" />
+      <div className="wr-settings-grid">
+        <RoomRail
+          rooms={state.room ? [state.room] : []}
+          currentRoom={room}
+          currentUnread={unreadCount(state)}
+          currentHeld={heldDeliveries(state.inbox).length}
+          connected={state.connected}
+          token={token}
+          owner={owner ? { handle: owner.handle, display_name: owner.display_name } : undefined}
+        />
+        <aside data-testid="settings-nav" className="wr-settings-nav">
+          <div className="wr-settings-nav-title">
+            <Palette aria-hidden="true" size={19} />
+            <strong>Settings</strong>
           </div>
-          {notice && <p role="status" className="px-4 pb-4 text-xs text-zinc-400">{notice}</p>}
-        </section>
+          <nav aria-label="Settings categories">
+            {settingsSections.map(([id, label]) => (
+              <a key={id} href={`#${id}`}>{label}<ChevronRight aria-hidden="true" size={14} /></a>
+            ))}
+          </nav>
+          <a href={roomHref} aria-label="Return to room from settings navigation" className="wr-settings-back">
+            <ChevronLeft aria-hidden="true" size={17} /> Back to room
+          </a>
+        </aside>
 
-        {/* harn:assume unpair-purges-all-browser-state ref=settings-unpair-action */}
-        <section className="border-b border-zinc-800">
-          <h2 className="px-4 pb-2 pt-7 text-[11px] font-medium uppercase text-zinc-500">Paired devices</h2>
-          <ul className="border-t border-zinc-800">
-            {devices.map((device) => {
-              const current = device.device_id === currentDeviceId;
-              const confirming = confirmDevice === device.device_id;
-              return (
-                <li key={device.device_id} data-testid={`device-${device.device_id}`} className="border-b border-zinc-800 px-4 py-4 last:border-b-0">
-                  <div className="flex min-h-12 items-center gap-3">
-                    {current ? <Laptop aria-hidden="true" size={21} className="text-sky-400" /> : <Smartphone aria-hidden="true" size={21} className="text-zinc-400" />}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-zinc-100">{device.label ?? 'Paired browser'}</p>
-                      <p className="mt-1 text-xs text-zinc-500">
-                        {current ? 'This device · ' : ''}{device.push_enabled ? 'Push on' : 'Push off'} · paired {new Date(device.paired_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    {!confirming && (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDevice(device.device_id)}
-                        className="min-h-11 px-3 text-sm text-red-400"
-                      >
-                        {current ? 'Unpair' : 'Revoke'}
-                      </button>
-                    )}
+        <div className="wr-settings-content">
+          <header className="wr-settings-header">
+            <a href={roomHref} aria-label="Back to room" className="wr-icon-button">
+              <ChevronLeft aria-hidden="true" size={21} />
+            </a>
+            <div>
+              <h1>Settings</h1>
+              <p>{state.room?.name ?? room}</p>
+            </div>
+          </header>
+
+          <div className="wr-settings-body">
+            {notice && <p role="status" className="wr-settings-notice">{notice}</p>}
+
+            <section id="appearance" className="wr-settings-section">
+              <div className="wr-section-heading">
+                <Palette aria-hidden="true" size={18} />
+                <div><h2>Appearance</h2><p>Local to this browser.</p></div>
+              </div>
+              {/* harn:assume web-theme-choice-stays-local ref=settings-theme-control */}
+              <div className="wr-setting-row">
+                <div className="wr-setting-copy">
+                  <strong>Theme</strong>
+                  <span>Follow the system or keep a fixed color mode.</span>
+                </div>
+                <div className="wr-segmented" role="radiogroup" aria-label="Theme">
+                  {themeChoices.map(([choice, Icon, label], index) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      role="radio"
+                      aria-checked={theme === choice}
+                      tabIndex={theme === choice ? 0 : -1}
+                      data-testid={`theme-${choice}`}
+                      onClick={() => chooseTheme(choice)}
+                      onKeyDown={(event) => {
+                        let next = index;
+                        if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index + themeChoices.length - 1) % themeChoices.length;
+                        else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % themeChoices.length;
+                        else if (event.key === 'Home') next = 0;
+                        else if (event.key === 'End') next = themeChoices.length - 1;
+                        else return;
+                        event.preventDefault();
+                        const nextChoice = themeChoices[next]![0];
+                        chooseTheme(nextChoice);
+                        event.currentTarget.parentElement
+                          ?.querySelector<HTMLElement>(`[data-testid="theme-${nextChoice}"]`)
+                          ?.focus();
+                      }}
+                    >
+                      <Icon aria-hidden="true" size={15} /> {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* harn:end web-theme-choice-stays-local */}
+            </section>
+
+            <section id="notifications" className="wr-settings-section">
+              <div className="wr-section-heading">
+                <Bell aria-hidden="true" size={18} />
+                <div><h2>Notifications</h2><p>Sealed previews for this paired browser.</p></div>
+              </div>
+              <div className="wr-setting-row">
+                <div className="wr-setting-copy">
+                  <strong>{currentDevice?.push_enabled ? 'Browser notifications on' : 'Browser notifications off'}</strong>
+                  <span>{pushConfig.enabled ? `Permission: ${notificationPermission()}` : 'Push is not configured on this switchboard.'}</span>
+                </div>
+                <button
+                  type="button"
+                  data-testid="enable-notifications"
+                  disabled={busy || !currentDevice || !pushConfig.enabled || !pushConfig.vapid_public_key}
+                  onClick={() => {
+                    if (!currentDevice || !pushConfig.vapid_public_key) return;
+                    setBusy(true);
+                    setNotice(undefined);
+                    void enablePushNotifications({
+                      deviceId: currentDevice.device_id,
+                      token,
+                      vapidPublicKey: pushConfig.vapid_public_key,
+                    }).then(
+                      async () => {
+                        await refreshDevices();
+                        setNotice('Notifications enabled.');
+                      },
+                      (error: unknown) => setNotice(error instanceof Error ? error.message : 'Notification setup failed.'),
+                    ).finally(() => setBusy(false));
+                  }}
+                  className="wr-secondary-button min-h-11 px-4 disabled:opacity-40"
+                >
+                  Enable
+                </button>
+              </div>
+            </section>
+
+            <section id="brakes" className="wr-settings-section">
+              <div className="wr-section-heading">
+                <Gauge aria-hidden="true" size={18} />
+                <div><h2>Room brakes</h2><p>Opt-in holds for this room. Both are off by default.</p></div>
+              </div>
+              <form
+                noValidate
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const turn = Number(turnBrake);
+                  const spend = Number(spendBrake);
+                  const stall = Number(stallMinutes);
+                  if (
+                    (turnEnabled && (!Number.isSafeInteger(turn) || turn < 1)) ||
+                    (spendEnabled && (!Number.isFinite(spend) || spend <= 0)) ||
+                    !Number.isSafeInteger(stall) ||
+                    stall < 1
+                  ) {
+                    setNotice('Enter positive values for enabled brakes and the stall interval.');
+                    return;
+                  }
+                  connection.act({
+                    act: 'configure_room',
+                    turn_brake: turnEnabled ? turn : null,
+                    spend_brake_usd: spendEnabled ? spend : null,
+                    stall_minutes: stall,
+                  });
+                  setNotice('Room brake update requested.');
+                }}
+              >
+                <BrakeRow
+                  icon={<Gauge size={20} />}
+                  label="Turn brake"
+                  description="Hold after consecutive agent hops without a human message."
+                  enabled={turnEnabled}
+                  onEnabled={setTurnEnabled}
+                  value={turnBrake}
+                  onValue={setTurnBrake}
+                  testId="turn-brake"
+                  unit="hops"
+                />
+                <BrakeRow
+                  icon={<CircleDollarSign size={20} />}
+                  label="Spend brake"
+                  description="Hold when reported daily spend reaches this threshold."
+                  enabled={spendEnabled}
+                  onEnabled={setSpendEnabled}
+                  value={spendBrake}
+                  onValue={setSpendBrake}
+                  testId="spend-brake"
+                  step="0.01"
+                  unit="USD"
+                />
+                <div className="wr-setting-row">
+                  <span className="wr-setting-icon"><Clock3 aria-hidden="true" size={20} /></span>
+                  <label htmlFor="stall-minutes" className="wr-setting-copy">
+                    <strong>Stall flag</strong>
+                    <span>Always on · flags inactivity · never kills a run.</span>
+                  </label>
+                  <div className="wr-number-control">
+                    <input
+                      id="stall-minutes"
+                      data-testid="stall-minutes"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={stallMinutes}
+                      onChange={(event) => setStallMinutes(event.target.value)}
+                      className="wr-input"
+                    />
+                    <span>min</span>
                   </div>
-                  {confirming && (
-                    <div className="mt-3 flex items-center justify-end gap-2">
-                      <span className="mr-auto text-xs text-zinc-400">{current ? 'Remove this browser and its local data?' : 'Revoke this device?'}</span>
-                      <button type="button" onClick={() => setConfirmDevice(undefined)} className="min-h-11 px-3 text-sm text-zinc-300">Cancel</button>
-                      <button
-                        type="button"
-                        data-testid={current ? 'confirm-unpair-browser' : `confirm-revoke-${device.device_id}`}
-                        className="min-h-11 px-3 text-sm font-medium text-red-400"
-                        onClick={() => {
-                          setBusy(true);
-                          if (current) {
-                            void (async () => {
-                              try {
-                                await revokeDevice(device.device_id, { token });
-                              } catch {
-                                setUnpairWarning('The switchboard could not be reached. Revoke this browser from another paired device before treating it as fully revoked.');
-                              } finally {
-                                state.reset();
-                                try {
-                                  await unpairBrowser();
-                                } catch {
-                                  setLocalPurgeWarning('Local cleanup could not be confirmed. Close other Wireroom tabs before pairing again.');
-                                } finally {
-                                  setDevices([]);
-                                  setUnpaired(true);
-                                }
+                </div>
+                <div className="wr-settings-actions">
+                  <button type="submit" data-testid="room-settings-save" className="wr-primary-button min-h-11 px-5">Save brakes</button>
+                </div>
+              </form>
+            </section>
+
+            <section id="relay" className="wr-settings-section">
+              <button
+                type="button"
+                data-testid="open-relay-pairing"
+                aria-expanded={relayOpen}
+                onClick={() => setRelayOpen((open) => !open)}
+                className="wr-section-toggle"
+              >
+                <RadioTower aria-hidden="true" size={20} />
+                <span><strong>Wireroom Relay</strong><small>{pushConfig.enabled ? 'Self-hosted push configured' : 'Not connected'}</small></span>
+                <ChevronRight aria-hidden="true" size={18} />
+              </button>
+              {relayOpen && <RelayPairing />}
+            </section>
+
+            {/* harn:assume unpair-purges-all-browser-state ref=settings-unpair-action */}
+            <section id="devices" className="wr-settings-section">
+              <div className="wr-section-heading">
+                <Laptop aria-hidden="true" size={18} />
+                <div><h2>Paired devices</h2><p>Device authority and sealed push state.</p></div>
+              </div>
+              <ul className="wr-device-list">
+                {devices.map((device) => {
+                  const current = device.device_id === currentDeviceId;
+                  const confirming = confirmDevice === device.device_id;
+                  return (
+                    <li key={device.device_id} data-testid={`device-${device.device_id}`}>
+                      <div className="wr-device-row">
+                        <span className="wr-setting-icon">
+                          {current ? <Laptop aria-hidden="true" size={20} /> : <Smartphone aria-hidden="true" size={20} />}
+                        </span>
+                        <div className="wr-setting-copy">
+                          <strong>{device.label ?? 'Paired browser'}</strong>
+                          <span>{current ? 'This browser · ' : ''}{device.push_enabled ? 'Push on' : 'Push off'} · paired {new Date(device.paired_at).toLocaleDateString()}</span>
+                        </div>
+                        {!confirming && (
+                          <button type="button" onClick={() => setConfirmDevice(device.device_id)} className="wr-danger-link min-h-11 px-3">
+                            {current ? 'Unpair' : 'Revoke'}
+                          </button>
+                        )}
+                      </div>
+                      {confirming && (
+                        <div className="wr-confirm-row">
+                          <span>{current ? 'Remove this browser and all local Wireroom data?' : 'Revoke this device?'}</span>
+                          <button type="button" onClick={() => setConfirmDevice(undefined)} className="wr-secondary-button min-h-11 px-3">Cancel</button>
+                          <button
+                            type="button"
+                            data-testid={current ? 'confirm-unpair-browser' : `confirm-revoke-${device.device_id}`}
+                            className="wr-danger-button min-h-11 px-3"
+                            onClick={() => {
+                              setBusy(true);
+                              if (current) {
+                                void (async () => {
+                                  try {
+                                    await revokeDevice(device.device_id, { token });
+                                  } catch {
+                                    setUnpairWarning('The switchboard could not be reached. Revoke this browser from another paired device before treating it as fully revoked.');
+                                  } finally {
+                                    state.reset();
+                                    try {
+                                      await unpairBrowser();
+                                    } catch {
+                                      setLocalPurgeWarning('Local cleanup could not be confirmed. Close other Wireroom tabs before pairing again.');
+                                    } finally {
+                                      setDevices([]);
+                                      setUnpaired(true);
+                                    }
+                                  }
+                                })().finally(() => setBusy(false));
+                              } else {
+                                void revokeDevice(device.device_id, { token })
+                                  .then(refreshDevices)
+                                  .catch(() => setNotice('The device could not be revoked.'))
+                                  .finally(() => {
+                                    setConfirmDevice(undefined);
+                                    setBusy(false);
+                                  });
                               }
-                            })().finally(() => setBusy(false));
-                          } else {
-                            void revokeDevice(device.device_id, { token })
-                              .then(refreshDevices)
-                              .catch(() => setNotice('The device could not be revoked.'))
-                              .finally(() => {
-                                setConfirmDevice(undefined);
-                                setBusy(false);
-                              });
-                          }
-                        }}
-                      >
-                        {current ? 'Unpair browser' : 'Revoke device'}
-                      </button>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-            {devices.length === 0 && <li className="px-4 py-5 text-sm text-zinc-500">No paired devices</li>}
-          </ul>
-        </section>
-        {/* harn:end unpair-purges-all-browser-state */}
+                            }}
+                          >
+                            {current ? 'Unpair browser' : 'Revoke device'}
+                          </button>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+                {devices.length === 0 && <li className="wr-empty-row">No paired devices</li>}
+              </ul>
+            </section>
+            {/* harn:end unpair-purges-all-browser-state */}
 
-        <section className="border-b border-zinc-800">
-          <h2 className="px-4 pb-2 pt-7 text-[11px] font-medium uppercase text-zinc-500">Room brakes</h2>
-          <form
-            noValidate
-            className="border-t border-zinc-800"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const turn = Number(turnBrake);
-              const spend = Number(spendBrake);
-              const stall = Number(stallMinutes);
-              if (
-                (turnEnabled && (!Number.isSafeInteger(turn) || turn < 1)) ||
-                (spendEnabled && (!Number.isFinite(spend) || spend <= 0)) ||
-                !Number.isSafeInteger(stall) ||
-                stall < 1
-              ) {
-                setNotice('Enter positive values for enabled brakes and the stall interval.');
-                return;
-              }
-              connection.act({
-                act: 'configure_room',
-                turn_brake: turnEnabled ? turn : null,
-                spend_brake_usd: spendEnabled ? spend : null,
-                stall_minutes: stall,
-              });
-              setNotice('Room brake update requested.');
-            }}
-          >
-            <BrakeRow icon={<Gauge size={21} />} label="Turn brake" enabled={turnEnabled} onEnabled={setTurnEnabled} value={turnBrake} onValue={setTurnBrake} testId="turn-brake" />
-            <BrakeRow icon={<CircleDollarSign size={21} />} label="Spend brake" enabled={spendEnabled} onEnabled={setSpendEnabled} value={spendBrake} onValue={setSpendBrake} testId="spend-brake" step="0.01" />
-            <div className="flex min-h-20 items-center gap-3 border-b border-zinc-800 px-4 py-3">
-              <Clock3 aria-hidden="true" size={21} className="text-zinc-400" />
-              <label htmlFor="stall-minutes" className="min-w-0 flex-1 text-sm text-zinc-200">Stall flag</label>
-              <input id="stall-minutes" data-testid="stall-minutes" type="number" min="1" step="1" value={stallMinutes} onChange={(event) => setStallMinutes(event.target.value)} className="h-11 w-20 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-center text-sm" />
-              <span className="text-xs text-zinc-500">min</span>
-            </div>
-            <div className="p-4">
-              <button type="submit" data-testid="room-settings-save" className="min-h-11 w-full rounded-md bg-sky-700 px-4 text-sm font-medium text-white hover:bg-sky-600">Save brakes</button>
-            </div>
-          </form>
-        </section>
-
-        <section className="border-b border-zinc-800">
-          <button
-            type="button"
-            data-testid="open-relay-pairing"
-            aria-expanded={relayOpen}
-            onClick={() => setRelayOpen((open) => !open)}
-            className="flex min-h-20 w-full items-center gap-3 px-4 text-left"
-          >
-            <RadioTower aria-hidden="true" size={22} className="text-sky-400" />
-            <span className="min-w-0 flex-1">
-              <strong className="block text-sm font-medium text-zinc-100">Wireroom Relay</strong>
-              <span className="mt-1 block text-xs text-amber-400">{pushConfig.enabled ? 'Self-hosted push configured' : 'Not connected'}</span>
-            </span>
-            <ChevronRight aria-hidden="true" size={19} className="text-zinc-500" />
-          </button>
-          {relayOpen && (
-            <RelayPairing />
-          )}
-        </section>
+            <section id="privacy" className="wr-settings-section">
+              <div className="wr-section-heading">
+                <ShieldCheck aria-hidden="true" size={18} />
+                <div><h2>Privacy</h2><p>Local plaintext, content-blind relay.</p></div>
+              </div>
+              <div className="wr-setting-row">
+                <div className="wr-setting-copy">
+                  <strong>Local switchboard</strong>
+                  <span>Room history, run evidence, keys, and ledger stay on your machine.</span>
+                </div>
+                <span className="wr-status-copy"><i className="wr-presence is-live" /> Local only</span>
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
     </main>
   );
@@ -310,45 +457,92 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
 function BrakeRow(props: {
   icon: JSX.Element;
   label: string;
+  description: string;
   enabled: boolean;
   onEnabled(value: boolean): void;
   value: string;
   onValue(value: string): void;
   testId: string;
+  unit: string;
   step?: string;
 }) {
   return (
-    <div className="flex min-h-20 items-center gap-3 border-b border-zinc-800 px-4 py-3">
-      <span className="text-zinc-400">{props.icon}</span>
-      <label htmlFor={`${props.testId}-enabled`} className="min-w-0 flex-1 text-sm text-zinc-200">{props.label}</label>
-      <input id={`${props.testId}-enabled`} data-testid={`${props.testId}-enabled`} type="checkbox" checked={props.enabled} onChange={(event) => props.onEnabled(event.target.checked)} className="h-5 w-5 accent-sky-500" />
-      <input data-testid={`${props.testId}-value`} type="number" min={props.step ? '0.01' : '1'} step={props.step ?? '1'} disabled={!props.enabled} value={props.value} onChange={(event) => props.onValue(event.target.value)} className="h-11 w-20 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-center text-sm disabled:opacity-40" />
+    <div className="wr-setting-row">
+      <span className="wr-setting-icon">{props.icon}</span>
+      <label htmlFor={`${props.testId}-enabled`} className="wr-setting-copy">
+        <strong>{props.label}</strong>
+        <em>Off by default</em>
+        <span>{props.enabled ? props.description : 'Enable to configure this hold.'}</span>
+      </label>
+      <input
+        id={`${props.testId}-enabled`}
+        data-testid={`${props.testId}-enabled`}
+        type="checkbox"
+        checked={props.enabled}
+        onChange={(event) => props.onEnabled(event.target.checked)}
+        className="wr-checkbox"
+      />
+      <div className="wr-number-control">
+        <input
+          id={`${props.testId}-value`}
+          data-testid={`${props.testId}-value`}
+          type="number"
+          aria-label={`${props.label} value`}
+          min={props.step ? '0.01' : '1'}
+          step={props.step ?? '1'}
+          disabled={!props.enabled}
+          value={props.value}
+          onChange={(event) => props.onValue(event.target.value)}
+          className="wr-input"
+        />
+        <span>{props.unit}</span>
+      </div>
     </div>
   );
 }
 
 function RelayPairing() {
   return (
-    <div data-testid="relay-pairing" className="border-t border-zinc-800 px-4 py-6">
-      <h2 className="text-xl font-semibold text-zinc-100">Connect to Wireroom Relay</h2>
-      <p className="mt-2 text-sm leading-6 text-zinc-400">Blind plumbing for when your room needs to reach beyond your tailnet.</p>
-      <ul className="mt-5 divide-y divide-zinc-800 border-y border-zinc-800">
-        {relayCapabilities.map(([name, detail], index) => (
-          <li key={name} className="flex min-h-16 items-center gap-3 py-3">
-            {index === 0 ? <Send size={19} className="text-sky-400" /> : index === 4 ? <Unplug size={19} className="text-amber-400" /> : <ShieldCheck size={19} className="text-emerald-400" />}
-            <span><strong className="block text-sm text-zinc-200">{name}</strong><span className="mt-1 block text-xs text-zinc-500">{detail}</span></span>
-          </li>
-        ))}
-      </ul>
-      <div className="grid grid-cols-2 gap-4 border-b border-zinc-800 py-5 text-xs">
-        <div><h3 className="font-semibold text-zinc-200">Relay sees</h3><p className="mt-2 leading-6 text-zinc-500">Device push tokens<br />Connection timing<br />Opaque IDs<br />Public keys</p></div>
-        <div><h3 className="font-semibold text-zinc-200">Relay never sees</h3><p className="mt-2 leading-6 text-zinc-500">Message bodies<br />Member names<br />Run events or code<br />Ledger notes</p></div>
+    <div data-testid="relay-pairing" className="wr-relay-detail">
+      <div className="wr-relay-intro">
+        <Cable aria-hidden="true" size={22} />
+        <div><h2>Sealed push doorbell</h2><p>The v1 push relay forwards one opaque, padded ciphertext envelope and retains nothing.</p></div>
       </div>
-      <p className="mt-5 border-y border-zinc-800 py-4 text-sm text-zinc-300">
-        Hosted enrollment opens after the open-source launch. Self-hosted push is configured on the switchboard.
-      </p>
-      <p className="mt-5 text-xs leading-5 text-zinc-400"><strong className="text-zinc-200">$5/month hosted</strong> · self-host the same open-source relay. Hosted integrations are an explicit bridged-room exception.</p>
-      <p className="mt-2 flex items-center gap-2 text-xs text-sky-400"><KeyRound size={15} /> Self-host with WIREROOM_RELAY_URL and WIREROOM_VAPID_PUBLIC_KEY.</p>
+      <div className="wr-disclosure-grid">
+        <section>
+          <h3>Relay can see</h3>
+          <ul>
+            <li>Opaque padded ciphertext</li>
+            <li>Web Push endpoint + delivery keys</li>
+            <li>Opaque switchboard public key</li>
+            <li>Timing, TTL, and source IP</li>
+          </ul>
+          <strong>Stores nothing · no mailbox · no retries</strong>
+        </section>
+        <section>
+          <h3>Relay never sees</h3>
+          <ul>
+            <li>Sender, room, or member names</li>
+            <li>Message or run content</li>
+            <li>Decrypted room keys or any private key</li>
+          </ul>
+        </section>
+      </div>
+      <div className="wr-hosted-roadmap">
+        <h3>Optional hosted Relay</h3>
+        <p>Separate roadmap capabilities, still content-blind unless a room explicitly enables a hosted bridge.</p>
+        <ul>
+          {relayCapabilities.map(([name, detail], index) => (
+            <li key={name}>
+              {index === 0 ? <Send aria-hidden="true" size={17} /> : index === 4 ? <Unplug aria-hidden="true" size={17} /> : <ShieldCheck aria-hidden="true" size={17} />}
+              <span><strong>{name}</strong><small>{detail}</small></span>
+            </li>
+          ))}
+        </ul>
+        <p><strong>$5/month hosted</strong> · self-host the same open-source data plane.</p>
+        <code><KeyRound aria-hidden="true" size={14} /> WIREROOM_RELAY_URL · WIREROOM_VAPID_PUBLIC_KEY</code>
+      </div>
     </div>
   );
 }
+// harn:end web-settings-controls-preserve-product-truth

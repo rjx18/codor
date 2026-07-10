@@ -5,7 +5,10 @@ import { App } from './App';
 import { PairingPage } from './pairing';
 import { SettingsPage } from './SettingsPage';
 import { storedBrowserAccess, storeBrowserAccess } from './crypto';
+import { applyThemeChoice } from './theme';
 import './styles.css';
+
+applyThemeChoice();
 
 const root = document.querySelector('#root');
 if (!root) {

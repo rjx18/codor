@@ -417,3 +417,98 @@ test('glass shell responds to light preference without losing contrast or materi
   await expect(page.getByTestId('room-settings-save')).toBeVisible();
 });
 // harn:end web-glass-theme-accessible-modes
+
+// harn:assume web-settings-controls-preserve-product-truth ref=glass-settings-regression
+test('glass settings keep desktop structure, mobile fit, and honest relay boundaries', async ({ page, request }) => {
+  const freshRoom = `brake-default-${String(Date.now())}`;
+  const created = await request.post('/api/rooms', {
+    headers: { authorization: 'Bearer e2e-token' },
+    data: {
+      id: freshRoom,
+      name: 'Brake default room',
+      owner: { handle: 'richard', display_name: 'Richard' },
+    },
+  });
+  expect(created.ok()).toBe(true);
+  const synced = await request.get(`/api/rooms/${freshRoom}/sync`, {
+    headers: { authorization: 'Bearer e2e-token' },
+  });
+  expect(synced.ok()).toBe(true);
+  const freshState = await synced.json() as {
+    room: { config: { turn_brake: number | null; spend_brake_usd: number | null } };
+  };
+  expect(freshState.room.config.turn_brake).toBeNull();
+  expect(freshState.room.config.spend_brake_usd).toBeNull();
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/settings?room=${freshRoom}&token=e2e-token`);
+  await expect(page.getByTestId('settings-page')).toBeVisible();
+  const rooms = page.getByTestId('room-rail');
+  const categories = page.getByTestId('settings-nav');
+  const content = page.locator('.wr-settings-content');
+  await expect(rooms).toBeVisible();
+  await expect(categories).toBeVisible();
+  await expect(content).toBeVisible();
+  const roomBox = (await rooms.boundingBox())!;
+  const categoryBox = (await categories.boundingBox())!;
+  const contentBox = (await content.boundingBox())!;
+  expect(roomBox.x + roomBox.width).toBeLessThanOrEqual(categoryBox.x + 0.5);
+  expect(categoryBox.x + categoryBox.width).toBeLessThanOrEqual(contentBox.x + 0.5);
+
+  await expect(page.getByTestId('turn-brake-enabled')).not.toBeChecked();
+  await expect(page.getByTestId('spend-brake-enabled')).not.toBeChecked();
+  await expect(page.getByRole('spinbutton', { name: 'Turn brake value' })).toBeVisible();
+  await expect(page.getByRole('spinbutton', { name: 'Spend brake value' })).toBeVisible();
+  await expect(page.getByText('Always on · flags inactivity · never kills a run.')).toBeVisible();
+  await page.getByTestId('open-relay-pairing').click();
+  const relay = page.getByTestId('relay-pairing');
+  await expect(relay.getByText('Relay can see')).toBeVisible();
+  await expect(relay.getByText('Relay never sees')).toBeVisible();
+  await expect(relay).toContainText('Stores nothing · no mailbox · no retries');
+  await expect(relay).toContainText('Web Push endpoint + delivery keys');
+  await expect(relay).toContainText('Opaque switchboard public key');
+  await expect(relay).toContainText('Decrypted room keys or any private key');
+  await expect(relay).toContainText('Hosted roadmap · deferred from the v1 push relay.');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByTestId('room-rail')).toBeHidden();
+  await expect(page.getByTestId('settings-nav')).toBeHidden();
+  await expect(page.getByTestId('theme-system')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await page.locator('#privacy').scrollIntoViewIfNeeded();
+  await expect(page.getByText('Local plaintext, content-blind relay.')).toBeVisible();
+
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.reload();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(844);
+  await expect(page.getByTestId('theme-system')).toBeVisible();
+});
+// harn:end web-settings-controls-preserve-product-truth
+
+// harn:assume web-theme-choice-stays-local ref=theme-choice-regression
+test('theme choice applies immediately, survives a tokenless launch, and resets to system', async ({ page }) => {
+  await page.goto('/settings?room=eng&token=e2e-token');
+  await page.getByTestId('theme-system').focus();
+  await page.getByTestId('theme-system').press('ArrowRight');
+  await expect(page.getByTestId('theme-dark')).toBeFocused();
+  await expect(page.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
+  await page.getByTestId('theme-dark').press('End');
+  await expect(page.getByTestId('theme-light')).toBeFocused();
+  await page.getByTestId('theme-light').press('Home');
+  await expect(page.getByTestId('theme-system')).toBeFocused();
+  await page.getByTestId('theme-light').click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  expect(await page.evaluate(() => localStorage.getItem('wireroom-theme'))).toBe('light');
+
+  await page.goto('/?room=eng');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(page).not.toHaveURL(/token=/);
+
+  await page.goto('/settings?room=eng');
+  await page.getByTestId('theme-system').click();
+  await expect(page.locator('html')).not.toHaveAttribute('data-theme');
+  expect(await page.evaluate(() => localStorage.getItem('wireroom-theme'))).toBeNull();
+});
+// harn:end web-theme-choice-stays-local
