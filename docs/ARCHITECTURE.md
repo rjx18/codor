@@ -237,6 +237,33 @@ pnpm workspaces; no build framework beyond tsc/vite. The native iPhone/Watch app
 this repo**: they are closed-source, paid, first-party clients of the open protocol
 (BUSINESS.md), developed in a private repo on a Mac (Xcode 16+). Nothing here depends on them.
 
+## Stack decisions (pinned)
+
+TypeScript everywhere (Node ≥22, pnpm workspaces). Per part:
+
+| Part | Stack |
+| --- | --- |
+| `protocol` | zod schemas, plain TS types |
+| `switchboard` | Node daemon; **better-sqlite3**; run blobs as JSONL files; **Fastify** (REST) + **ws** (WebSocket); child_process for adapters; **chokidar** for ledger watching; systemd unit for install |
+| `adapters/*` | zero deps beyond protocol — spawn + JSONL parse |
+| `web` | **React 18 + Vite + Tailwind CSS**; **zustand** for client state; **vite-plugin-pwa** (Workbox) for the M3 PWA; no SSR |
+| `cli` | **commander**; unix socket + WS client |
+| `relay` | same Node/TS; **web-push** (VAPID) for Web Push; APNs over HTTP/2 added in M4; stateless, Dockerfile provided |
+| bridges (M5) | **Slack Bolt** / **grammY** (Telegram Bot API) |
+| P2P | **hyperswarm** (hyperdht + Noise secret-streams); `hyperdht.createTestnet()` for deterministic tests |
+| crypto | **sodium-native** (sealed boxes, keypairs); SQLCipher optional at rest |
+| testing | **vitest** (unit/integration), **Playwright** (web e2e), recorded-stream fixtures for harnesses absent from the dev box |
+| docs site (M5) | **VitePress**, static output — host anywhere |
+| native apps (M4, private repo) | Swift/SwiftUI, WatchConnectivity, APNs + Notification Service Extension, Keychain/Secure Enclave; claude-watch (MIT) fork basis |
+
+**SaaS in the product: none.** No auth provider (identity = device keypairs + QR pairing — no
+Auth0/Clerk/Firebase), no hosted DB, no analytics, no error-tracking service. Tailscale is
+user-supplied. The only external services ever touched are the unavoidable platform endpoints:
+browser push services (free, standard Web Push), APNs (M4, needs the Apple Developer Program),
+Slack/Telegram APIs (M5 bridges), and **Stripe** at business-launch time for relay billing —
+billing identity (an email) is the only account-shaped thing anywhere, it lives with Stripe,
+and it maps to keys, never to content.
+
 ## Failure behavior
 
 - Harness process dies mid-run → run message finalized `failed`, member `dead`, system message +
