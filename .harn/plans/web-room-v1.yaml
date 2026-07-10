@@ -1,0 +1,79 @@
+id: web-room-v1
+title: P0.9 web room v1 - seq-synced SPA served by the switchboard
+assumptions:
+  retire: []
+  create:
+    - id: client-syncs-by-seq
+      title: The web client cursors on seq and updates entities in place
+      statement: The web client must track the highest seq it has seen across all
+        received frames, resubscribe with that since_seq on every reconnect,
+        and apply frames by upserting entities in place by id - a run
+        finalization REPLACES the existing message row, never appends a
+        duplicate - because in-place updates are invisible to message-id
+        cursors and the change-log seq is the only sync cursor.
+      reason: PLAN-M0 P0.9 findings 6/17; the Playwright
+        disconnect-during-run/reconnect test pins exactly this behavior.
+      depends_on:
+        - changelog-is-sync-cursor
+    - id: implied-recipient-visible-before-send
+      title: The composer always shows where the draft will go before send
+      statement: The composer must continuously display the resolved recipient set
+        of the current draft - the valid @mentions when present, else the
+        latest finalized agent author as the default, else 'room commentary'
+        - because PROTOCOL invariant 3 requires the human to see where a
+        message will land before sending it.
+      reason: PROTOCOL SS7 invariant 3; the default-recipient rule is subtle
+        (latest FINALIZED), so surfacing it is the only guard against
+        misdirected sends.
+      depends_on:
+        - default-recipient-latest-finalized
+  reviewed:
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: Held agent deliveries become operator-visible inbox records -
+        updateDelivery now appends an inbox change when a delivery goes held
+        or is read, still exactly one change per mutation (the anchored
+        appendChange region is untouched).
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: The web fetches run blobs exclusively through the redacted
+        endpoint and renders only daemon-projected frames.
+    - id: brakes-default-off
+      outcome: unchanged
+      reason: The hold banner renders held deliveries; nothing in the client
+        introduces holds.
+anchors:
+  client-syncs-by-seq:
+    ws-resubscribe-cursor:
+      action: change
+      reason: Create the reconnect/resubscribe-with-since_seq loop in ws.ts.
+    store-upsert-in-place:
+      action: change
+      reason: Create the by-id in-place frame application in the zustand store.
+  implied-recipient-visible-before-send:
+    composer-implied-recipient:
+      action: change
+      reason: Create the implied-recipient computation + indicator in the
+        composer.
+files:
+  - packages/web/package.json
+  - packages/switchboard/package.json
+  - pnpm-lock.yaml
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/store.ts
+  - packages/web/index.html
+  - packages/web/vite.config.ts
+  - packages/web/src/main.tsx
+  - packages/web/src/App.tsx
+  - packages/web/src/App.spec.ts
+  - packages/web/src/styles.css
+  - packages/web/src/api.ts
+  - packages/web/src/ws.ts
+  - packages/web/src/state.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/playwright.config.ts
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tsconfig.json
