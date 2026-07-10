@@ -172,6 +172,23 @@ export async function storedBrowserRoomKeys(): Promise<StoredBrowserRoomKey[]> {
   });
 }
 
+export async function persistBrowserRoomKey(
+  room: string,
+  generation: number,
+  key: Uint8Array,
+): Promise<void> {
+  await sodium.ready;
+  if (room === '' || !Number.isSafeInteger(generation) || generation < 1) {
+    throw new Error('room key metadata is invalid');
+  }
+  if (key.length !== sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES) {
+    throw new Error('room key length is invalid');
+  }
+  const current = await storedBrowserRoomKey(room);
+  if (current && current.generation > generation) return;
+  await writeState(`room:${room}`, { room, generation, key: encode(key) } satisfies StoredBrowserRoomKey);
+}
+
 export async function storeBrowserAccess(access: StoredBrowserAccess): Promise<void> {
   await writeState('access:switchboard', access);
 }

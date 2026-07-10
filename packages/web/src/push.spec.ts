@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CryptoVault, buildPushPreview, sealPushPreview } from '@wireroom/switchboard';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { enablePushNotifications } from './notifications.js';
 import {
   cdpPushData,
   decodePushEventData,
@@ -15,6 +16,47 @@ import {
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  vi.unstubAllGlobals();
+});
+
+describe('push subscription lifecycle', () => {
+  it('replaces a subscription created for a rotated VAPID key', async () => {
+    const unsubscribe = vi.fn(async () => true);
+    const subscribe = vi.fn(async () => ({
+      options: { applicationServerKey: Uint8Array.from([4, 5, 6]).buffer },
+      toJSON: () => ({
+        endpoint: 'https://push.example.test/current',
+        expirationTime: null,
+        keys: { p256dh: 'p256dh', auth: 'auth' },
+      }),
+    }));
+    const existing = {
+      options: { applicationServerKey: Uint8Array.from([1, 2, 3]).buffer },
+      unsubscribe,
+      toJSON: () => ({}),
+    };
+    vi.stubGlobal('Notification', { permission: 'granted', requestPermission: vi.fn() });
+    vi.stubGlobal('navigator', {
+      serviceWorker: {
+        ready: Promise.resolve({
+          pushManager: { getSubscription: async () => existing, subscribe },
+        }),
+      },
+    });
+    vi.stubGlobal('window', { location: { origin: 'https://wireroom.example.test' } });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', {
+      status: 201,
+      headers: { 'content-type': 'application/json' },
+    })));
+
+    await enablePushNotifications({ deviceId: 'device', token: 'token', vapidPublicKey: 'BAUG' });
+
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(subscribe).toHaveBeenCalledWith({
+      userVisibleOnly: true,
+      applicationServerKey: Uint8Array.from([4, 5, 6]).buffer,
+    });
+  });
 });
 
 describe('service-worker push envelope opener', () => {
@@ -58,8 +100,14 @@ describe('service-worker push envelope opener', () => {
   });
 
   it('routes open and release actions through permanent room message ids', () => {
-    const preview = { room: 'eng', msg_id: 99, kind: 'hold' as const, preview: 'held' };
-    expect(notificationTarget(preview, 'open-room')).toBe('/?room=eng&notification_action=mark_read&msg_id=99#99');
-    expect(notificationTarget(preview, 'release-hold')).toBe('/?room=eng&notification_action=release_hold&msg_id=99#99');
+    const preview = {
+      room: 'eng', msg_id: 99, kind: 'hold' as const, preview: 'held', delivery_id: 'delivery-99',
+    };
+    expect(notificationTarget(preview, 'open-room')).toBe(
+      '/?room=eng&notification_action=mark_read&msg_id=99&delivery_id=delivery-99#99',
+    );
+    expect(notificationTarget(preview, 'release-hold')).toBe(
+      '/?room=eng&notification_action=release_hold&msg_id=99&delivery_id=delivery-99#99',
+    );
   });
 });

@@ -96,10 +96,14 @@ export {
   buildPushPreview,
   paddedPushPreview,
   PUSH_BUCKETS,
+  PUSH_DEVICE_ENVELOPE_MAGIC,
+  PUSH_DEVICE_ENVELOPE_OVERHEAD,
   PUSH_ENVELOPE_OVERHEAD,
   PUSH_PREVIEW_LIMIT,
+  PUSH_SEALED_ROOM_KEY_BYTES,
   PushProducer,
   sealPushPreview,
+  wrapPushForDevice,
 } from './push/producer.js';
 export type {
   HumanPushEvent,

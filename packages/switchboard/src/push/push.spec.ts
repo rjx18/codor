@@ -7,12 +7,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { verifyNotifySignature } from '../../../../relay/src/seal.js';
 import { CryptoVault } from '../crypto/pairing.js';
+import { openSealedBox } from '../crypto/roomkeys.js';
 import { Daemon } from '../daemon.js';
 import { FakeAdapter } from '../fake-adapter.js';
 import {
   buildPushPreview,
   paddedPushPreview,
   PUSH_BUCKETS,
+  PUSH_DEVICE_ENVELOPE_MAGIC,
+  PUSH_DEVICE_ENVELOPE_OVERHEAD,
   PUSH_ENVELOPE_OVERHEAD,
   PushProducer,
   sealPushPreview,
@@ -26,6 +29,7 @@ const PUSH_ASSOCIATED_DATA = Buffer.from('wireroom-push-v1\0', 'utf8');
 
 let dir: string;
 let crypto: CryptoVault;
+let device: CryptoVault;
 let subscriptions: PushSubscriptionStore;
 
 const subscription = {
@@ -38,7 +42,7 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'wireroom-push-'));
   crypto = new CryptoVault(dir);
   crypto.roomKeys.ensureRoom('eng');
-  const device = new CryptoVault(join(dir, 'device'));
+  device = new CryptoVault(join(dir, 'device'));
   const peer = crypto.keys.enrollPeer({
     ...device.keys.publicIdentity(),
     kind: 'device',
@@ -47,11 +51,11 @@ beforeEach(() => {
   crypto.roomKeys.enrollPeer(peer);
   subscriptions = new PushSubscriptionStore(dir, crypto.keys);
   subscriptions.register(peer.device_id, subscription);
-  device.close();
 });
 
 afterEach(() => {
   crypto.close();
+  device.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -73,6 +77,21 @@ function openForTest(sealed: Buffer, key: Buffer): { preview: PushPreview; padde
     preview: JSON.parse(padded.subarray(4, 4 + length).toString('utf8')) as PushPreview,
     padded,
   };
+}
+
+function unwrapForDevice(envelope: Buffer, target = device): {
+  generation: number;
+  preview: PushPreview;
+  padded: Buffer;
+} {
+  expect(envelope.subarray(0, PUSH_DEVICE_ENVELOPE_MAGIC.length))
+    .toEqual(PUSH_DEVICE_ENVELOPE_MAGIC);
+  const generation = envelope.readUInt32BE(PUSH_DEVICE_ENVELOPE_MAGIC.length);
+  const keyLength = envelope.readUInt16BE(PUSH_DEVICE_ENVELOPE_MAGIC.length + 4);
+  const keyStart = PUSH_DEVICE_ENVELOPE_MAGIC.length + 6;
+  const keyEnd = keyStart + keyLength;
+  const roomKey = openSealedBox(envelope.subarray(keyStart, keyEnd).toString('base64url'), target.keys.identity);
+  return { generation, ...openForTest(envelope.subarray(keyEnd), roomKey) };
 }
 
 describe('push envelope', () => {
@@ -162,10 +181,44 @@ describe('PushProducer', () => {
       allowedSenders: new Set([crypto.keys.identity.sign_public_key]),
       openMode: false,
     }, 1_752_163_200_000);
-    const opened = openForTest(Buffer.from(body.sealed, 'base64'), crypto.roomKeys.roomKey('eng'));
+    const envelope = Buffer.from(body.sealed, 'base64');
+    const opened = unwrapForDevice(envelope);
     expect(opened.preview).toEqual({
       room: 'eng', msg_id: 9, kind: 'approval', preview: 'Approve release?',
     });
+    expect(envelope).toHaveLength(PUSH_BUCKETS[0] + PUSH_ENVELOPE_OVERHEAD + PUSH_DEVICE_ENVELOPE_OVERHEAD);
+  });
+
+  it('delivers a rotated room key only to each surviving device before its next push', async () => {
+    const revoked = new CryptoVault(join(dir, 'revoked'));
+    const revokedPeer = crypto.keys.enrollPeer({
+      ...revoked.keys.publicIdentity(),
+      kind: 'device',
+      label: 'revoked browser',
+    });
+    crypto.roomKeys.enrollPeer(revokedPeer);
+    crypto.revokePeer(revokedPeer.device_id);
+    let delivered: Buffer | undefined;
+    const producer = new PushProducer({
+      relayUrl: 'https://relay.example.test',
+      identity: crypto.keys.identity,
+      roomKeys: crypto.roomKeys,
+      subscriptions,
+      fetch: async (_input, init) => {
+        delivered = Buffer.from((JSON.parse(String(init?.body)) as { sealed: string }).sealed, 'base64');
+        return new Response('{"accepted":true}', { status: 202 });
+      },
+    });
+
+    await producer.notify({
+      room: 'eng', msg_id: 11, kind: 'inbox', preview: 'after revoke', target_human_ids: ['owner'],
+    });
+
+    expect(delivered).toBeDefined();
+    expect(unwrapForDevice(delivered!).generation).toBe(2);
+    expect(unwrapForDevice(delivered!).preview.preview).toBe('after revoke');
+    expect(() => unwrapForDevice(delivered!, revoked)).toThrow('sealed box was not addressed');
+    revoked.close();
   });
 
   it('removes subscriptions that the relay reports as expired', async () => {
@@ -251,6 +304,7 @@ describe('Daemon human push trigger allowlist', () => {
     ]);
     expect(events.find((event) => event.kind === 'hold')).toMatchObject({
       msg_id: heldMessage.id,
+      delivery_id: brake.id,
       target_human_ids: [owner.id],
     });
     expect(events.find((event) => event.kind === 'stall')).toMatchObject({ msg_id: running.id });

@@ -1,6 +1,10 @@
 import sodium from 'libsodium-wrappers';
 
-import { storedBrowserRoomKeys } from './crypto.js';
+import {
+  openForBrowser,
+  persistBrowserRoomKey,
+  storedBrowserRoomKeys,
+} from './crypto.js';
 
 export type BrowserPushKind = 'inbox' | 'ask' | 'approval' | 'hold' | 'stall';
 
@@ -9,12 +13,15 @@ export interface BrowserPushPreview {
   msg_id: number;
   kind: BrowserPushKind;
   preview: string;
+  delivery_id?: string;
 }
 
 export type NotificationAction = '' | 'open-room' | 'release-hold';
 
 const ASSOCIATED_DATA = new TextEncoder().encode('wireroom-push-v1\0');
 const CDP_BASE64_PREFIX = 'wireroom-b64:';
+const DEVICE_ENVELOPE_MAGIC = new TextEncoder().encode('WRPUSH1\0');
+const SEALED_ROOM_KEY_BYTES = 80;
 
 function decodeBase64Url(value: string): Uint8Array {
   const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
@@ -25,6 +32,12 @@ function decodeBase64Url(value: string): Uint8Array {
 function decodeBase64(value: string): Uint8Array {
   const binary = atob(value);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function encodeBase64Url(value: Uint8Array): string {
+  let binary = '';
+  for (const byte of value) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function validatedPreview(input: unknown): BrowserPushPreview {
@@ -38,7 +51,38 @@ function validatedPreview(input: unknown): BrowserPushPreview {
   if (typeof value.preview !== 'string' || [...value.preview].length > 120) {
     throw new Error('push preview text is invalid');
   }
+  if (value.delivery_id !== undefined && (
+    typeof value.delivery_id !== 'string' || value.delivery_id.length < 1 || value.delivery_id.length > 128
+  )) {
+    throw new Error('push delivery_id is invalid');
+  }
   return value as BrowserPushPreview;
+}
+
+interface DeviceEnvelope {
+  generation: number;
+  sealedRoomKey: Uint8Array;
+  sealedPreview: Uint8Array;
+}
+
+function parseDeviceEnvelope(input: Uint8Array): DeviceEnvelope | undefined {
+  if (input.length < DEVICE_ENVELOPE_MAGIC.length) return undefined;
+  if (!DEVICE_ENVELOPE_MAGIC.every((byte, index) => input[index] === byte)) return undefined;
+  const headerBytes = DEVICE_ENVELOPE_MAGIC.length + 6;
+  if (input.length < headerBytes + SEALED_ROOM_KEY_BYTES + 1) {
+    throw new Error('device push envelope is too short');
+  }
+  const view = new DataView(input.buffer, input.byteOffset, input.byteLength);
+  const generation = view.getUint32(DEVICE_ENVELOPE_MAGIC.length);
+  const keyBytes = view.getUint16(DEVICE_ENVELOPE_MAGIC.length + 4);
+  if (generation < 1 || keyBytes !== SEALED_ROOM_KEY_BYTES || input.length <= headerBytes + keyBytes) {
+    throw new Error('device push envelope header is invalid');
+  }
+  return {
+    generation,
+    sealedRoomKey: input.slice(headerBytes, headerBytes + keyBytes),
+    sealedPreview: input.slice(headerBytes + keyBytes),
+  };
 }
 
 export function decodePushEventData(data: Uint8Array): Uint8Array {
@@ -54,6 +98,13 @@ export async function openPushEnvelope(
 ): Promise<BrowserPushPreview> {
   await sodium.ready;
   const sealed = decodePushEventData(input);
+  return openSealedPreview(sealed, roomKeyBase64Url);
+}
+
+function openSealedPreview(
+  sealed: Uint8Array,
+  roomKeyBase64Url: string,
+): BrowserPushPreview {
   const nonceBytes = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
   const tagBytes = sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES;
   if (sealed.length < nonceBytes + tagBytes + 4) throw new Error('push envelope is too short');
@@ -73,10 +124,18 @@ export async function openPushEnvelope(
 }
 
 export async function openPushFromStoredRooms(input: Uint8Array): Promise<BrowserPushPreview> {
+  const decoded = decodePushEventData(input);
+  const deviceEnvelope = parseDeviceEnvelope(decoded);
+  if (deviceEnvelope) {
+    const roomKey = await openForBrowser(encodeBase64Url(deviceEnvelope.sealedRoomKey));
+    const preview = await openPushEnvelope(deviceEnvelope.sealedPreview, encodeBase64Url(roomKey));
+    await persistBrowserRoomKey(preview.room, deviceEnvelope.generation, roomKey);
+    return preview;
+  }
   const keys = await storedBrowserRoomKeys();
   for (const key of keys) {
     try {
-      const preview = await openPushEnvelope(input, key.key);
+      const preview = await openPushEnvelope(decoded, key.key);
       if (preview.room === key.room) return preview;
     } catch {
       // A push carries no cleartext room id, so try the small paired-room key set.
@@ -103,6 +162,7 @@ export function notificationTarget(preview: BrowserPushPreview, action: Notifica
     action === 'release-hold' ? 'release_hold' : 'mark_read',
   );
   query.set('msg_id', String(preview.msg_id));
+  if (preview.delivery_id) query.set('delivery_id', preview.delivery_id);
   return `/?${query.toString()}#${String(preview.msg_id)}`;
 }
 

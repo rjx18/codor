@@ -121,22 +121,40 @@ export function App() {
     const params = new URLSearchParams(window.location.search);
     const action = params.get('notification_action');
     const messageId = Number(params.get('msg_id'));
-    if ((action !== 'mark_read' && action !== 'release_hold') || !Number.isSafeInteger(messageId)) {
+    if (
+      (action !== 'mark_read' && action !== 'release_hold') ||
+      !Number.isSafeInteger(messageId) ||
+      messageId < 1
+    ) {
       return;
     }
-    const delivery = Object.values(state.inbox).find((candidate) =>
+    const deliveryId = params.get('delivery_id');
+    const delivery = (deliveryId ? state.inbox[deliveryId] : undefined) ??
+      Object.values(state.inbox).find((candidate) =>
       candidate.message_id === messageId &&
       (action === 'release_hold'
         ? candidate.state === 'held'
         : candidate.state === 'consumed' && candidate.read_ts === undefined));
-    if (!delivery) return;
     handledNotificationAction.current = true;
+    params.delete('notification_action');
+    params.delete('msg_id');
+    params.delete('delivery_id');
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`,
+    );
+    if (!delivery) return;
+    const actionable = delivery.message_id === messageId && (
+      action === 'release_hold'
+        ? delivery.state === 'held'
+        : delivery.state === 'consumed' && delivery.read_ts === undefined
+    );
+    if (!actionable) return;
     connection.act(action === 'release_hold'
       ? { act: 'release_hold', delivery_id: delivery.id }
       : { act: 'mark_read', delivery_id: delivery.id });
-    params.delete('notification_action');
-    params.delete('msg_id');
-    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}${window.location.hash}`);
   }, [connection, state.connected, state.inbox, state.seq]);
 
   const loadOlder = useCallback(async () => {

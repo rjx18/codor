@@ -135,6 +135,20 @@ createServer(async (req, res) => {
         delivery_id: delivery.id,
       }));
       return;
+    } else if (url.pathname === '/rotate-room-key') {
+      const removable = new CryptoVault(mkdtempSync(join(tmpdir(), 'wireroom-revoked-device-')));
+      const peer = crypto.keys.enrollPeer({
+        ...removable.keys.publicIdentity(),
+        kind: 'device',
+        label: 'revocation regression fixture',
+      });
+      crypto.roomKeys.enrollPeer(peer);
+      crypto.revokePeer(peer.device_id);
+      removable.close();
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        generation: crypto.roomKeys.roomGeneration('eng'),
+      }));
+      return;
     } else if (url.pathname === '/next-push') {
       const notification = pushed.shift();
       if (!notification) throw new Error('no captured push');

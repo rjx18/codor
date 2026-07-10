@@ -106,3 +106,5 @@ files:
   - packages/web/tests/harness.mjs
   - packages/web/tests/push.e2e.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T18:05:08.688Z

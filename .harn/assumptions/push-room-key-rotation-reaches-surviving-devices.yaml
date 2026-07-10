@@ -1,0 +1,14 @@
+id: push-room-key-rotation-reaches-surviving-devices
+hash: a-05d9ccc26f35
+title: Push envelopes carry the current room key only to their paired device
+state: active
+statement: Every produced push must include the current room key sealed to the
+  target paired device, and the service worker must open and persist that key
+  before authenticating the room-key ciphertext, because revocation and newly
+  created rooms must not strand surviving devices on stale key generations or
+  expose the refreshed key to the relay or a revoked device.
+depends_on:
+  - push-decrypts-on-device-only
+  - revocation-rotates-room-keys
+  - sealed-room-keys-per-enrollee
+created_by: m3fix-push-key-lifecycle

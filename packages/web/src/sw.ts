@@ -67,11 +67,21 @@ async function broadcastWorkerMessage(message: unknown): Promise<void> {
   for (const client of clients) client.postMessage(message);
 }
 
-async function openNotification(
-  preview: BrowserPushPreview,
-  action: NotificationAction,
-): Promise<void> {
-  const targetUrl = new URL(notificationTarget(preview, action), self.location.origin);
+async function showPushFailure(error: unknown): Promise<void> {
+  await self.registration.showNotification('Wireroom needs attention', {
+    body: 'Open Wireroom to refresh this notification.',
+    icon: '/wireroom-192.png',
+    badge: '/wireroom-192.png',
+    tag: 'wireroom:push-unavailable',
+    data: { unavailable: true },
+  });
+  await broadcastWorkerMessage({
+    type: 'notification-error',
+    error: error instanceof Error ? error.message : 'push decryption failed',
+  });
+}
+
+async function openWindowTarget(targetUrl: URL): Promise<void> {
   const access = await storedBrowserAccess();
   if (access?.origin === self.location.origin && access.token !== '') {
     targetUrl.searchParams.set('token', access.token);
@@ -88,24 +98,31 @@ async function openNotification(
   await self.clients.openWindow(target);
 }
 
+async function openNotification(
+  preview: BrowserPushPreview,
+  action: NotificationAction,
+): Promise<void> {
+  const targetUrl = new URL(notificationTarget(preview, action), self.location.origin);
+  await openWindowTarget(targetUrl);
+}
+
 // harn:assume push-decrypts-on-device-only ref=sw-push-notification-handler
 self.addEventListener('push', (event: PushEvent) => {
   if (!event.data) return;
   event.waitUntil(
-    showPushNotification(new Uint8Array(event.data.arrayBuffer())).catch(async (error: unknown) => {
-      await broadcastWorkerMessage({
-        type: 'notification-error',
-        error: error instanceof Error ? error.message : 'push decryption failed',
-      });
-    }),
+    showPushNotification(new Uint8Array(event.data.arrayBuffer())).catch(showPushFailure),
   );
 });
 
 self.addEventListener('notificationclick', (event: NotificationEvent) => {
   event.notification.close();
-  const preview = event.notification.data as BrowserPushPreview;
+  const preview = event.notification.data as Partial<BrowserPushPreview> | undefined;
   const action: NotificationAction = event.action === 'release-hold' ? 'release-hold' : 'open-room';
-  event.waitUntil(openNotification(preview, action));
+  event.waitUntil(
+    preview && typeof preview.room === 'string' && Number.isSafeInteger(preview.msg_id)
+      ? openNotification(preview as BrowserPushPreview, action)
+      : openWindowTarget(new URL('/', self.location.origin)),
+  );
 });
 
 self.addEventListener('message', (event: ExtendableMessageEvent) => {

@@ -4,7 +4,12 @@ import { z } from 'zod';
 export const MAX_SEALED_BYTES =
   2_048 +
   sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES +
-  sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES;
+  sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES +
+  Buffer.byteLength('WRPUSH1\0') +
+  4 +
+  2 +
+  sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES +
+  sodium.crypto_box_SEALBYTES;
 export const MAX_SIGNATURE_AGE_MS = 5 * 60_000;
 
 const PushSubscriptionSchema = z.strictObject({

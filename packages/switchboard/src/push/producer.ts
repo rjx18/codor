@@ -14,6 +14,11 @@ export const PUSH_PREVIEW_LIMIT = 120;
 export const PUSH_ENVELOPE_OVERHEAD =
   sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES +
   sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES;
+export const PUSH_DEVICE_ENVELOPE_MAGIC = Buffer.from('WRPUSH1\0', 'utf8');
+export const PUSH_SEALED_ROOM_KEY_BYTES =
+  sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES + sodium.crypto_box_SEALBYTES;
+export const PUSH_DEVICE_ENVELOPE_OVERHEAD =
+  PUSH_DEVICE_ENVELOPE_MAGIC.length + 4 + 2 + PUSH_SEALED_ROOM_KEY_BYTES;
 
 export type HumanPushKind = 'inbox' | 'ask' | 'approval' | 'hold' | 'stall';
 
@@ -22,6 +27,7 @@ export interface PushPreview {
   msg_id: number;
   kind: HumanPushKind;
   preview: string;
+  delivery_id?: string;
 }
 
 export interface HumanPushEvent extends PushPreview {
@@ -67,6 +73,7 @@ export function buildPushPreview(event: HumanPushEvent): PushPreview {
     msg_id: event.msg_id,
     kind: event.kind,
     preview: codePointSlice(redactText(event.preview), PUSH_PREVIEW_LIMIT),
+    ...(event.delivery_id && { delivery_id: event.delivery_id }),
   };
 }
 
@@ -101,6 +108,27 @@ export function sealPushPreview(preview: PushPreview, roomKey: Buffer): Buffer {
   );
   return Buffer.concat([nonce, ciphertext]);
 }
+
+// harn:assume push-room-key-rotation-reaches-surviving-devices ref=device-key-wrapped-push
+export function wrapPushForDevice(
+  sealedPreview: Buffer,
+  sealedRoomKey: string,
+  generation: number,
+): Buffer {
+  if (!Number.isSafeInteger(generation) || generation < 1 || generation > 0xffff_ffff) {
+    throw new Error('room key generation is invalid');
+  }
+  const key = Buffer.from(sealedRoomKey, 'base64url');
+  if (key.length !== PUSH_SEALED_ROOM_KEY_BYTES || key.toString('base64url') !== sealedRoomKey) {
+    throw new Error('sealed room key is invalid');
+  }
+  const header = Buffer.alloc(PUSH_DEVICE_ENVELOPE_MAGIC.length + 6);
+  PUSH_DEVICE_ENVELOPE_MAGIC.copy(header);
+  header.writeUInt32BE(generation, PUSH_DEVICE_ENVELOPE_MAGIC.length);
+  header.writeUInt16BE(key.length, PUSH_DEVICE_ENVELOPE_MAGIC.length + 4);
+  return Buffer.concat([header, key, sealedPreview]);
+}
+// harn:end push-room-key-rotation-reaches-surviving-devices
 
 function canonicalNotifyBytes(
   body: RelayNotifyBody,
@@ -156,7 +184,19 @@ export class PushProducer implements HumanPushNotifier {
     const preview = buildPushPreview(event);
     const sealed = sealPushPreview(preview, this.options.roomKeys.roomKey(event.room));
     const endpoint = relayEndpoint(this.options.relayUrl);
-    return Promise.all(records.map((record) => this.send(endpoint, record, sealed)));
+    return Promise.all(records.map((record) => {
+      const roomKey = this.options.roomKeys.sealedFor(record.device_id)
+        .find((candidate) => candidate.room === event.room);
+      if (!roomKey) return {
+        device_id: record.device_id,
+        status: 'ignored' as const,
+      };
+      return this.send(
+        endpoint,
+        record,
+        wrapPushForDevice(sealed, roomKey.sealed_key, roomKey.generation),
+      );
+    }));
   }
 
   private async send(

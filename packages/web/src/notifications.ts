@@ -6,6 +6,13 @@ function decodeApplicationServerKey(value: string): ArrayBuffer {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0)).buffer as ArrayBuffer;
 }
 
+function sameBytes(left: ArrayBuffer | null, right: ArrayBuffer): boolean {
+  if (!left) return false;
+  const a = new Uint8Array(left);
+  const b = new Uint8Array(right);
+  return a.length === b.length && a.every((byte, index) => byte === b[index]);
+}
+
 export function notificationPermission(): NotificationPermission | 'unsupported' {
   return 'Notification' in globalThis ? Notification.permission : 'unsupported';
 }
@@ -24,10 +31,15 @@ export async function enablePushNotifications(options: {
     : await Notification.requestPermission();
   if (permission !== 'granted') throw new Error('notification permission was not granted');
   const registration = await navigator.serviceWorker.ready;
-  const existing = await registration.pushManager.getSubscription();
-  const subscription = existing ?? await registration.pushManager.subscribe({
+  const applicationServerKey = decodeApplicationServerKey(options.vapidPublicKey);
+  let subscription = await registration.pushManager.getSubscription();
+  if (subscription && !sameBytes(subscription.options.applicationServerKey, applicationServerKey)) {
+    await subscription.unsubscribe();
+    subscription = null;
+  }
+  subscription ??= await registration.pushManager.subscribe({
     userVisibleOnly: true,
-    applicationServerKey: decodeApplicationServerKey(options.vapidPublicKey),
+    applicationServerKey,
   });
   await registerPushSubscription(options.deviceId, subscription.toJSON(), { token: options.token });
   return subscription;

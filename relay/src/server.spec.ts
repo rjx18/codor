@@ -104,7 +104,7 @@ describe('POST /notify', () => {
     await app.close();
   });
 
-  it('rejects payloads larger than a 2048-byte bucket plus XChaCha nonce and tag', async () => {
+  it('accepts the device-key wrapper budget and rejects larger opaque payloads', async () => {
     const identity = signer();
     const push: PushSender = { send: vi.fn(async () => undefined) };
     const app = createRelayServer({
@@ -113,13 +113,19 @@ describe('POST /notify', () => {
       openMode: false,
       now: () => NOW,
     });
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/notify',
+      ...signed(body(Buffer.alloc(MAX_SEALED_BYTES)), identity),
+    });
     const response = await app.inject({
       method: 'POST',
       url: '/notify',
       ...signed(body(Buffer.alloc(MAX_SEALED_BYTES + 1)), identity),
     });
+    expect(accepted.statusCode).toBe(202);
     expect(response.statusCode).toBe(413);
-    expect(push.send).not.toHaveBeenCalled();
+    expect(push.send).toHaveBeenCalledOnce();
     await app.close();
   });
 

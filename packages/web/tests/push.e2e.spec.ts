@@ -1,7 +1,5 @@
 import { expect, test, type CDPSession } from '@playwright/test';
 
-import { openPushEnvelope } from '../src/push.js';
-
 const CONTROL = 'http://127.0.0.1:8138';
 const BASE = 'http://127.0.0.1:8137';
 
@@ -125,29 +123,10 @@ test('producer → fake relay → CDP push decrypts in the worker, renders, and 
     });
   `);
 
+  const generation = await control<{ generation: number }>('/rotate-room-key');
+  expect(generation.generation).toBeGreaterThan(1);
   const hold = await control<{ message_id: number; delivery_id: string }>('/push-hold');
   const captured = await control<{ sealed: string; ttl: number }>('/next-push');
-  const roomKey = await page.evaluate(async () => {
-    const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('wireroom-crypto-v1', 1);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    try {
-      return await new Promise<string>((resolve, reject) => {
-        const request = database.transaction('state').objectStore('state').get('room:eng');
-        request.onsuccess = () => resolve((request.result as { key: string }).key);
-        request.onerror = () => reject(request.error);
-      });
-    } finally {
-      database.close();
-    }
-  });
-  await expect(openPushEnvelope(Buffer.from(captured.sealed, 'base64'), roomKey)).resolves.toMatchObject({
-    room: 'eng',
-    msg_id: hold.message_id,
-    kind: 'hold',
-  });
   await cdp.send('ServiceWorker.deliverPushMessage', {
     origin: BASE,
     registrationId: resolvedRegistrationId,
@@ -168,10 +147,31 @@ test('producer → fake relay → CDP push decrypts in the worker, renders, and 
     notification: {
       title: 'Room paused',
       actions: ['open-room', 'release-hold'],
-      data: { room: 'eng', msg_id: hold.message_id, kind: 'hold' },
+      data: {
+        room: 'eng',
+        msg_id: hold.message_id,
+        kind: 'hold',
+        delivery_id: hold.delivery_id,
+      },
     },
   });
   expect(JSON.stringify(renderedPush)).not.toContain('wireroom-b64:');
+  await expect.poll(() => page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('wireroom-crypto-v1', 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise<number>((resolve, reject) => {
+        const request = database.transaction('state').objectStore('state').get('room:eng');
+        request.onsuccess = () => resolve((request.result as { generation: number }).generation);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      database.close();
+    }
+  })).toBe(generation.generation);
 
   await page.evaluate(async () => {
     const rendered = window.__renderedPushes[0] as {
