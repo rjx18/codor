@@ -65,6 +65,7 @@ files:
   - relay/src/push.ts
   - relay/src/seal.ts
   - relay/Dockerfile
+  - relay/Dockerfile.dockerignore
   - relay/README.md
   - pnpm-lock.yaml
   - tmp/build/PROGRESS.md
