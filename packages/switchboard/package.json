@@ -16,6 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/static": "^9.3.0",
     "@wireroom/protocol": "workspace:*",
     "better-sqlite3": "^12.11.1"
   },

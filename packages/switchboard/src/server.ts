@@ -1,3 +1,4 @@
+import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { ClientFrameSchema, type ServerFrame } from '@wireroom/protocol';
@@ -10,6 +11,8 @@ export interface ServerOptions {
   token: string;
   host?: string;
   port?: number;
+  /** Serve the built web SPA from this directory (the switchboard IS the web host). */
+  staticRoot?: string;
 }
 
 export interface RunningServer {
@@ -70,6 +73,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const body = req.body as { harness: string; handle: string; cwd: string; policy?: string; model?: string };
     void reply.send(daemon.spawnMember(room, body));
   });
+
+  if (options.staticRoot !== undefined) {
+    await app.register(fastifyStatic, { root: options.staticRoot });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith('/api/')) return reply.code(404).send({ error: 'not found' });
+      return reply.sendFile('index.html'); // SPA fallback
+    });
+  }
 
   await app.listen({ host: options.host ?? '127.0.0.1', port: options.port ?? 0 });
   const address = app.server.address();

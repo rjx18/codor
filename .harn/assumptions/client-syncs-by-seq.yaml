@@ -1,0 +1,13 @@
+id: client-syncs-by-seq
+hash: a-e4c65b9852b4
+title: The web client cursors on seq and updates entities in place
+state: active
+statement: The web client must track the highest seq it has seen across all
+  received frames, resubscribe with that since_seq on every reconnect, and apply
+  frames by upserting entities in place by id - a run finalization REPLACES the
+  existing message row, never appends a duplicate - because in-place updates are
+  invisible to message-id cursors and the change-log seq is the only sync
+  cursor.
+depends_on:
+  - changelog-is-sync-cursor
+created_by: web-room-v1

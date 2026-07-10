@@ -1,0 +1,12 @@
+id: implied-recipient-visible-before-send
+hash: a-b494d8019b1f
+title: The composer always shows where the draft will go before send
+state: active
+statement: The composer must continuously display the resolved recipient set of
+  the current draft - the valid @mentions when present, else the latest
+  finalized agent author as the default, else 'room commentary' - because
+  PROTOCOL invariant 3 requires the human to see where a message will land
+  before sending it.
+depends_on:
+  - default-recipient-latest-finalized
+created_by: web-room-v1

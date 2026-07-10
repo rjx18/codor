@@ -681,7 +681,11 @@ export class Store {
           deliveryId,
         );
       const recipient = this.getMember(room, merged.recipient);
-      if (recipient?.kind === 'human') this.appendChange(room, 'inbox', deliveryId);
+      // Client-visible inbox records: human deliveries always; agent
+      // deliveries once they need operator attention (held ⇄ released).
+      if (recipient?.kind === 'human' || merged.state === 'held' || existing.state === 'held') {
+        this.appendChange(room, 'inbox', deliveryId);
+      }
       return merged;
     })();
   }
