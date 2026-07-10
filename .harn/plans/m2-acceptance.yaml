@@ -25,7 +25,11 @@ assumptions:
     - id: single-crypto-suite-libsodium
       outcome: unchanged
       reason: A test-only raw Noise transport capture proves a known application plaintext marker does not occur in encrypted stream bytes; no crypto variant is introduced.
-anchors: {}
+anchors:
+  dht-topic-from-line-secret:
+    line-topic-derivation:
+      action: change
+      reason: Observe a copy of encrypted raw-stream bytes before Noise's in-place decryption so acceptance can prove the application marker is absent without changing discovery or transport data.
 files:
   - packages/switchboard/src/transport/hyperswarm.ts
   - packages/switchboard/src/m2-acceptance.spec.ts
