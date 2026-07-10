@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 
 import { ClaudeCodeAdapter } from '@wireroom/adapter-claude-code';
 import { CodexAdapter } from '@wireroom/adapter-codex';
+import { GeminiAdapter } from '@wireroom/adapter-gemini';
 import { Daemon, startServer, type RunningServer } from '@wireroom/switchboard';
 
 export interface UpOptions {
@@ -43,7 +44,7 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
   const daemon = new Daemon({
     dbPath: join(dataDir, 'switchboard.sqlite'),
     blobRoot: join(dataDir, 'blobs'),
-    adapters: [new ClaudeCodeAdapter(), new CodexAdapter()],
+    adapters: [new ClaudeCodeAdapter(), new CodexAdapter(), new GeminiAdapter()],
   });
   if (daemon.store.listRooms().length === 0) {
     const room = options.room ?? 'default';

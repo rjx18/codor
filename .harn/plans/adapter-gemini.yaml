@@ -5,19 +5,19 @@ assumptions:
   create:
     - id: gemini-capability-truth
       title: Gemini capabilities match its direct CLI behavior
-      statement: The Gemini adapter must drive one headless CLI process per turn
-        with stream-json output, capture and reuse the init session UUID in the
+      statement: The Gemini adapter must drive one headless CLI process per turn with
+        stream-json output, capture and reuse the init session UUID in the
         persisted working directory, enumerate stored main-session UUIDs, expose
-        the native resume TUI, translate documented message, tool, error, result,
-        and token-usage events without fabricating dollar cost, and declare asks,
-        runtime approvals, and extensions unsupported, because every advertised
-        capability must be demonstrated by a synthetic documented-format fixture
-        or an operator-authenticated manual probe.
+        the native resume TUI, translate documented message, tool, error,
+        result, and token-usage events without fabricating dollar cost, and
+        declare asks, runtime approvals, and extensions unsupported, because
+        every advertised capability must be demonstrated by a synthetic
+        documented-format fixture or an operator-authenticated manual probe.
       reason: PLAN-M1 P1.7a makes capability truth the acceptance boundary; the
-        first-party headless and session-management references document JSONL init
-        UUIDs, exact UUID resume, project-scoped history, and token statistics,
-        while this machine has neither the Gemini binary nor authentication and
-        therefore cannot honestly produce a live capture.
+        first-party headless and session-management references document JSONL
+        init UUIDs, exact UUID resume, project-scoped history, and token
+        statistics, while this machine has neither the Gemini binary nor
+        authentication and therefore cannot honestly produce a live capture.
       depends_on:
         - adapters-cli-only-no-sdk
         - adapter-process-lifecycle-supervised
@@ -26,8 +26,8 @@ assumptions:
     - id: adapters-cli-only-no-sdk
       outcome: unchanged
       reason: The implementation spawns the first-party gemini executable with
-        headless stream-json flags and does not use Gemini ACP, an SDK, HTTP, or a
-        Paseo sidecar.
+        headless stream-json flags and does not use Gemini ACP, an SDK, HTTP, or
+        a Paseo sidecar.
     - id: adapter-process-lifecycle-supervised
       outcome: unchanged
       reason: Gemini receives the same spawn, stderr, error, close, stream-EOF,
@@ -35,8 +35,8 @@ assumptions:
         adapters.
     - id: uncosted-usage-visible-not-guessed
       outcome: unchanged
-      reason: Documented Gemini stream statistics contain token counts but no
-        dollar cost, so normalized usage must remain visibly uncosted.
+      reason: Documented Gemini stream statistics contain token counts but no dollar
+        cost, so normalized usage must remain visibly uncosted.
     - id: attach-custody-lease-tracks-child-pid
       outcome: unchanged
       reason: The native Gemini resume TUI is added to the existing inherited-stdio
@@ -45,8 +45,8 @@ anchors:
   gemini-capability-truth:
     gemini-documented-event-translation:
       action: change
-      reason: Translate synthetic documented-format JSONL and expose only the
-        session, text, tool, error, and token facts the stream actually reports.
+      reason: Translate synthetic documented-format JSONL and expose only the session,
+        text, tool, error, and token facts the stream actually reports.
     gemini-capability-conformance:
       action: change
       reason: Assert every true capability through fixture replay, store discovery,
@@ -56,12 +56,13 @@ anchors:
     gemini-cli-subprocess-driver:
       action: change
       reason: Add the direct gemini CLI spawn, resume, model, policy, cwd, and
-        process-group driver while intentionally rejecting the ACP reference path.
+        process-group driver while intentionally rejecting the ACP reference
+        path.
   adapter-process-lifecycle-supervised:
     gemini-cli-process-supervision:
       action: change
-      reason: Supervise Gemini spawn through stdout EOF and signal its entire
-        process group on interrupt or cleanup.
+      reason: Supervise Gemini spawn through stdout EOF and signal its entire process
+        group on interrupt or cleanup.
   attach-custody-lease-tracks-child-pid:
     interactive-child-supervision:
       action: change
@@ -88,3 +89,5 @@ files:
   - pnpm-lock.yaml
   - MANUAL-VERIFY.md
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T11:56:51.721Z

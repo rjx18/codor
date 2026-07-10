@@ -1,0 +1,17 @@
+id: gemini-capability-truth
+hash: a-9d9d8dfd5628
+title: Gemini capabilities match its direct CLI behavior
+state: active
+statement: The Gemini adapter must drive one headless CLI process per turn with
+  stream-json output, capture and reuse the init session UUID in the persisted
+  working directory, enumerate stored main-session UUIDs, expose the native
+  resume TUI, translate documented message, tool, error, result, and token-usage
+  events without fabricating dollar cost, and declare asks, runtime approvals,
+  and extensions unsupported, because every advertised capability must be
+  demonstrated by a synthetic documented-format fixture or an
+  operator-authenticated manual probe.
+depends_on:
+  - adapters-cli-only-no-sdk
+  - adapter-process-lifecycle-supervised
+  - uncosted-usage-visible-not-guessed
+created_by: adapter-gemini

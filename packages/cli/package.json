@@ -21,6 +21,7 @@
   "dependencies": {
     "@wireroom/adapter-claude-code": "workspace:*",
     "@wireroom/adapter-codex": "workspace:*",
+    "@wireroom/adapter-gemini": "workspace:*",
     "@wireroom/protocol": "workspace:*",
     "@wireroom/switchboard": "workspace:*",
     "commander": "^15.0.0",

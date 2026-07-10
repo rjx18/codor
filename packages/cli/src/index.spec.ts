@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createProgram,
   detectSession,
+  nativeResumeCommand,
   packageName,
   parseMirrorHook,
   runCli,
@@ -72,6 +73,20 @@ describe('@wireroom/cli', () => {
       'attach',
       'ledger',
     ]);
+  });
+
+  it('resolves Gemini interactive resume through the supervised attach path', () => {
+    expect(nativeResumeCommand({
+      id: 'gemini-member',
+      kind: 'agent',
+      handle: 'gemini',
+      display_name: 'Gemini',
+      harness: 'gemini',
+      session_ref: '11111111-1111-4111-8111-111111111111',
+    }, { WIREROOM_GEMINI_COMMAND: '/opt/gemini' })).toEqual({
+      command: '/opt/gemini',
+      args: ['--resume', '11111111-1111-4111-8111-111111111111'],
+    });
   });
 
   it('spawns, posts, and tails through the unix WebSocket protocol', async () => {
@@ -260,6 +275,11 @@ describe('@wireroom/cli', () => {
       owner: 'operator',
     });
     expect(running.daemon.store.listRooms().map((room) => room.id)).toEqual(['default']);
+    expect(running.daemon.registeredAdapters().map((adapter) => adapter.id)).toEqual([
+      'claude-code',
+      'codex',
+      'gemini',
+    ]);
     expect(running.server.socketPath).toBe(join(dir, 'up-data', 'wireroom.sock'));
     await running.close();
   });

@@ -30,6 +30,12 @@ importers:
         specifier: workspace:*
         version: link:../../protocol
 
+  packages/adapters/gemini:
+    dependencies:
+      '@wireroom/protocol':
+        specifier: workspace:*
+        version: link:../../protocol
+
   packages/cli:
     dependencies:
       '@wireroom/adapter-claude-code':
@@ -38,6 +44,9 @@ importers:
       '@wireroom/adapter-codex':
         specifier: workspace:*
         version: link:../adapters/codex
+      '@wireroom/adapter-gemini':
+        specifier: workspace:*
+        version: link:../adapters/gemini
       '@wireroom/protocol':
         specifier: workspace:*
         version: link:../protocol

@@ -20,6 +20,7 @@ export type InteractiveSpawner = (
   options: SpawnOptions,
 ) => ChildProcess;
 
+// harn:assume attach-custody-lease-tracks-child-pid ref=interactive-child-supervision
 export const nativeResumeCommand: InteractiveCommandResolver = (member, env) => {
   if (!member.session_ref) throw new Error(`member @${member.handle} has no resumable session`);
   if (member.harness === 'claude-code') {
@@ -32,6 +33,12 @@ export const nativeResumeCommand: InteractiveCommandResolver = (member, env) => 
     return {
       command: env.WIREROOM_CODEX_COMMAND ?? 'codex',
       args: ['resume', member.session_ref],
+    };
+  }
+  if (member.harness === 'gemini') {
+    return {
+      command: env.WIREROOM_GEMINI_COMMAND ?? 'gemini',
+      args: ['--resume', member.session_ref],
     };
   }
   throw new Error(`adapter '${member.harness ?? 'unknown'}' has no interactive resume command`);
@@ -64,7 +71,6 @@ function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   }
 }
 
-// harn:assume attach-custody-lease-tracks-child-pid ref=interactive-child-supervision
 export async function superviseInteractiveAttach(input: {
   client: ProtocolClient;
   room: string;
