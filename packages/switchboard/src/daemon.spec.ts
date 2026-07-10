@@ -1,9 +1,10 @@
 import { spawn as spawnProcess } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { ServerFrame } from '@wireroom/protocol';
+import { createTurnTranslator, wireEventFromHook } from '@wireroom/adapter-claude-code';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { Daemon } from './daemon.js';
@@ -39,7 +40,7 @@ async function until<T>(fn: () => T | undefined, ms = 2000): Promise<T> {
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'wireroom-daemon-'));
   fake = new FakeAdapter('fake', { interactiveAttach: true });
-  claudeFake = new FakeAdapter('claude-code');
+  claudeFake = new FakeAdapter('claude-code', { extensions: true });
   codexFake = new FakeAdapter('codex');
   frames = [];
   daemon = newDaemon();
@@ -317,6 +318,84 @@ describe('interactive attach custody leases', () => {
         // already exited
       }
     }
+  });
+});
+
+describe('ephemeral extensions', () => {
+  const fixture = (name: string): string[] =>
+    readFileSync(
+      new URL(`../../adapters/claude-code/fixtures/${name}`, import.meta.url),
+      'utf8',
+    ).trim().split('\n');
+
+  it('uses hook lifecycle, enriches from Agent tool calls, and journals mapped summaries', async () => {
+    const parent = daemon.spawnMember('eng', {
+      harness: 'claude-code',
+      handle: 'claude',
+      cwd: '/work',
+    });
+    const [started, ended] = fixture('hooks-log.jsonl')
+      .map((line) => wireEventFromHook(JSON.parse(line)))
+      .filter((event): event is NonNullable<typeof event> => event !== undefined);
+    claudeFake.enqueue({
+      kind: 'complete',
+      final_text: '@richard parent complete',
+      items: [
+        {
+          type: 'run.item',
+          item_type: 'tool_call',
+          payload: {
+            tool: 'Agent',
+            id: 'toolu-agent-1',
+            input: { description: 'Inspect cache invalidation', prompt: 'Review the cache paths.' },
+          },
+        },
+        started!,
+        ended!,
+      ],
+    });
+    daemon.postHumanMessage('eng', '@claude delegate the cache review');
+    await daemon.settle();
+
+    const extension = daemon.store.listMembers('eng').find((member) => member.kind === 'extension')!;
+    expect(extension).toMatchObject({
+      handle: 'claude-ext-a4fdb5',
+      display_name: 'Inspect cache invalidation',
+      parent: parent.id,
+      state: 'dead',
+      session_ref: 'a4fdb5021f374a8d1',
+    });
+    const run = runMessages().find((message) => message.author === parent.id)!;
+    const events = daemon.readRunBlob('eng', run.id);
+    expect(events.find((event) => event.type === 'extension.started')).toMatchObject({
+      parent: parent.id,
+      ext_member: extension.id,
+      description: 'Inspect cache invalidation',
+      agent_type: 'general-purpose',
+    });
+    expect(events.find((event) => event.type === 'extension.ended')).toMatchObject({
+      ext_member: extension.id,
+      summary: 'PONG',
+    });
+
+    const translator = createTurnTranslator();
+    const streamEvents = fixture('hooks-subagent.jsonl')
+      .flatMap((line) => translator.push(line))
+      .filter((event) => event.type === 'run.item');
+    claudeFake.enqueue({
+      kind: 'complete',
+      final_text: '@richard stream-only complete',
+      items: streamEvents,
+    });
+    daemon.postHumanMessage('eng', '@claude stream-only observation');
+    await daemon.settle();
+    expect(daemon.store.listMembers('eng').filter((member) => member.kind === 'extension')).toHaveLength(1);
+
+    claudeFake.enqueue({ kind: 'complete', final_text: '@richard extension text stayed plain' });
+    const plain = daemon.postHumanMessage('eng', `@${extension.handle} status?`);
+    await daemon.settle();
+    expect(plain.mentions).toEqual([]);
+    expect(daemon.store.listDeliveries('eng', { recipient: extension.id })).toHaveLength(0);
   });
 });
 

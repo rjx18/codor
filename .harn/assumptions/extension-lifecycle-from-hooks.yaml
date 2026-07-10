@@ -1,0 +1,15 @@
+id: extension-lifecycle-from-hooks
+hash: a-ab63e770561e
+title: Only authoritative hooks create and retire extension members
+state: active
+statement: The switchboard must create or revive an ephemeral extension member
+  only from extension.started and retire it only from extension.ended, map
+  harness-native ids to stable MemberIds under the active parent run, use Agent
+  or Task stream tool calls only to enrich its description, and journal mapped
+  lifecycle plus the stop summary under that parent run, because stream tool
+  calls do not prove subagent lifecycle boundaries.
+depends_on:
+  - extensions-hooks-authoritative
+  - extension-events-use-native-identifiers
+  - extensions-not-addressable-v1
+created_by: extensions-ephemeral-members

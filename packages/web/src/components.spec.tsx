@@ -1,8 +1,15 @@
-import type { Member, Message } from '@wireroom/protocol';
+import type { Member, Message, WireEvent } from '@wireroom/protocol';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { AskCardView, Header, MemberCard, impliedRecipient, RunMessageView } from './components.js';
+import {
+  AskCardView,
+  Header,
+  MemberCard,
+  extensionRunSummaries,
+  impliedRecipient,
+  RunMessageView,
+} from './components.js';
 import type { Connection } from './ws.js';
 
 const ULID_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
@@ -231,5 +238,35 @@ describe('MemberCard', () => {
     expect(html).not.toContain('data-testid="kill-alpha"');
     expect(html).not.toContain('data-testid="pause-alpha"');
     expect(html).not.toContain('attach-command-alpha');
+  });
+});
+
+describe('extension run summaries', () => {
+  it('collapses mapped start and stop events into one nested parent-run row', () => {
+    const events: WireEvent[] = [
+      {
+        type: 'extension.started',
+        parent: ULID_B,
+        ext_member: ULID_A,
+        description: 'Inspect cache invalidation',
+        agent_type: 'general-purpose',
+      },
+      {
+        type: 'extension.ended',
+        ext_member: ULID_A,
+        summary: 'Cache paths are safe.',
+        transcript_path: '/tmp/agent.jsonl',
+      },
+    ];
+    expect(extensionRunSummaries(events)).toEqual([
+      {
+        id: ULID_A,
+        description: 'Inspect cache invalidation',
+        agentType: 'general-purpose',
+        transcriptPath: '/tmp/agent.jsonl',
+        summary: 'Cache paths are safe.',
+        ended: true,
+      },
+    ]);
   });
 });

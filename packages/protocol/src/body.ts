@@ -12,9 +12,11 @@ export interface ParsedBody {
 const RESERVED_TOKENS = new Set(['all', 'switchboard']);
 
 /** A member the grammar can address: humans and agents in any state. */
+// harn:assume extensions-not-addressable-v1 ref=extension-addressability-filter
 export function isAddressable(member: Member): boolean {
   return member.kind === 'human' || member.kind === 'agent';
 }
+// harn:end extensions-not-addressable-v1
 
 /** Replaces fenced blocks and inline code with spaces while preserving offsets. */
 function blankCodeSpans(body: string): string {

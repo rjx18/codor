@@ -1,0 +1,12 @@
+id: extensions-not-addressable-v1
+hash: a-5043228b6d16
+title: Extension members are visible but not addressable in v1
+state: active
+statement: Members of kind extension must appear in room state and run detail
+  but must be excluded from mention resolution, routing recipients, and adapter
+  turns, so text matching an extension handle remains plain text, because v1
+  subagents are observations of a parent run rather than independent room
+  participants.
+depends_on:
+  - body-parser-shared-across-router-and-web
+created_by: extensions-ephemeral-members

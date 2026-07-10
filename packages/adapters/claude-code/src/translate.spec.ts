@@ -202,6 +202,8 @@ describe('extensions via hooks (authoritative source)', () => {
       type: 'extension.started',
       parent: start.session_id,
       ext_member: start.agent_id,
+      agent_type: 'general-purpose',
+      transcript_path: start.transcript_path,
     });
     expect(WireEventSchema.safeParse(event).success).toBe(true);
   });
@@ -212,6 +214,7 @@ describe('extensions via hooks (authoritative source)', () => {
       type: 'extension.ended',
       ext_member: stop.agent_id,
       summary: 'PONG',
+      transcript_path: stop.agent_transcript_path,
     });
     expect(WireEventSchema.safeParse(event).success).toBe(true);
   });

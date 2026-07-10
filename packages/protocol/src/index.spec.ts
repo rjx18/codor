@@ -28,6 +28,27 @@ describe('@wireroom/protocol barrel', () => {
       expect(protocol[name], name).toBeDefined();
     }
   });
+
+  it('keeps extension handles as plain text while resolving ordinary agents', () => {
+    const agent = protocol.MemberSchema.parse({
+      id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+      kind: 'agent',
+      handle: 'claude',
+      display_name: 'Claude',
+    });
+    const extension = protocol.MemberSchema.parse({
+      id: '01BX5ZZKBKACTAV9WEVGEMMVRZ',
+      kind: 'extension',
+      handle: 'claude-ext-a4fdb5',
+      display_name: 'Review cache',
+      parent: agent.id,
+    });
+    const parsed = protocol.parseBody('@claude inspect @claude-ext-a4fdb5', [agent, extension]);
+    expect(parsed.mentions).toEqual([
+      expect.objectContaining({ member_id: agent.id }),
+    ]);
+    expect(parsed.unresolved).toEqual([]);
+  });
 });
 
 // harn:assume release-gate-runs-unit-and-browser ref=root-release-test-script

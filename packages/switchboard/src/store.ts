@@ -605,6 +605,17 @@ export class Store {
     return row ? { room: row.room, member: memberFromRow(row) } : undefined;
   }
 
+  getExtensionByNativeId(room: string, parentId: string, nativeId: string): Member | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM members
+         WHERE room = ? AND kind = 'extension' AND parent = ? AND session_ref = ?
+         ORDER BY id LIMIT 1`,
+      )
+      .get(room, parentId, nativeId) as MemberRow | undefined;
+    return row ? memberFromRow(row) : undefined;
+  }
+
   listMembers(room: string): Member[] {
     const rows = this.db
       .prepare('SELECT * FROM members WHERE room = ? ORDER BY id')

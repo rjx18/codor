@@ -392,6 +392,43 @@ export function MemberRail(props: {
   );
 }
 
+export interface ExtensionRunSummary {
+  id: string;
+  description?: string;
+  agentType?: string;
+  transcriptPath?: string;
+  summary?: string;
+  ended: boolean;
+}
+
+// harn:assume extensions-not-addressable-v1 ref=extension-run-rendering
+export function extensionRunSummaries(events: WireEvent[]): ExtensionRunSummary[] {
+  const extensions = new Map<string, ExtensionRunSummary>();
+  for (const event of events) {
+    if (event.type === 'extension.started') {
+      extensions.set(event.ext_member, {
+        id: event.ext_member,
+        description: event.description,
+        agentType: event.agent_type,
+        transcriptPath: event.transcript_path,
+        ended: false,
+      });
+    } else if (event.type === 'extension.ended') {
+      const current = extensions.get(event.ext_member) ?? {
+        id: event.ext_member,
+        ended: false,
+      };
+      extensions.set(event.ext_member, {
+        ...current,
+        transcriptPath: event.transcript_path ?? current.transcriptPath,
+        summary: event.summary,
+        ended: true,
+      });
+    }
+  }
+  return [...extensions.values()];
+}
+
 export function RunMessageView(props: {
   message: Message;
   authorHandle: string;
@@ -403,6 +440,7 @@ export function RunMessageView(props: {
   const [expanded, setExpanded] = useState(false);
   const [events, setEvents] = useState<WireEvent[] | undefined>(undefined);
   const running = run.status === 'running';
+  const extensions = extensionRunSummaries(events ?? []);
 
   useEffect(() => {
     if (expanded && events === undefined) {
@@ -442,18 +480,44 @@ export function RunMessageView(props: {
         </p>
       )}
       {expanded && (
-        <ol data-testid={`run-${props.message.id}-events`} className="mt-2 space-y-1 border-t border-zinc-800 pt-2 text-xs text-zinc-400">
-          {(events ?? []).map((event, i) => (
-            <li key={i}>
-              {event.type === 'run.item' ? `${event.item_type}: ${JSON.stringify(event.payload).slice(0, 120)}` : event.type}
-            </li>
-          ))}
-          {events !== undefined && events.length === 0 && <li>(no journaled events)</li>}
-        </ol>
+        <div data-testid={`run-${props.message.id}-events`} className="mt-2 border-t border-zinc-800 pt-2 text-xs text-zinc-400">
+          {extensions.length > 0 && (
+            <div data-testid={`run-${props.message.id}-extensions`} className="mb-2 space-y-2 border-l-2 border-sky-900 pl-3">
+              {extensions.map((extension) => (
+                <div
+                  key={extension.id}
+                  data-testid={`run-${props.message.id}-extension-${extension.id}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <strong className="text-zinc-200">
+                      {extension.description ?? `extension ${extension.id.slice(-6)}`}
+                    </strong>
+                    <span className={extension.ended ? 'text-zinc-500' : 'text-sky-400'}>
+                      {extension.ended ? 'finished' : 'running'}
+                    </span>
+                    {extension.agentType && <span>{extension.agentType}</span>}
+                  </div>
+                  {extension.summary && <p className="mt-1 whitespace-pre-wrap text-zinc-300">{extension.summary}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+          <ol className="space-y-1">
+            {(events ?? [])
+              .filter((event) => event.type !== 'extension.started' && event.type !== 'extension.ended')
+              .map((event, i) => (
+                <li key={i}>
+                  {event.type === 'run.item' ? `${event.item_type}: ${JSON.stringify(event.payload).slice(0, 120)}` : event.type}
+                </li>
+              ))}
+            {events !== undefined && events.length === 0 && <li>(no journaled events)</li>}
+          </ol>
+        </div>
       )}
     </div>
   );
 }
+// harn:end extensions-not-addressable-v1
 
 export function AskCardView(props: {
   message: Message;

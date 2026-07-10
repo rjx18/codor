@@ -51,11 +51,15 @@ export const WireEventSchema = z.discriminatedUnion('type', [
     type: z.literal('extension.started'),
     parent: HarnessNativeIdSchema,
     ext_member: HarnessNativeIdSchema,
+    description: z.string().min(1).optional(),
+    agent_type: z.string().min(1).optional(),
+    transcript_path: z.string().min(1).optional(),
   }),
   z.object({
     type: z.literal('extension.ended'),
     ext_member: HarnessNativeIdSchema,
     summary: z.string().optional(),
+    transcript_path: z.string().min(1).optional(),
   }),
   // harn:end extension-events-use-native-identifiers
 ]);

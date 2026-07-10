@@ -357,6 +357,9 @@ describe('wire events', () => {
         type: 'extension.started',
         parent: '213a7049-0ddd-4db7-84ed-411dd7330fe7',
         ext_member: 'a4fdb5021f374a8d1',
+        agent_type: 'general-purpose',
+        transcript_path: '/home/user/.claude/projects/project/transcript.jsonl',
+        description: 'Inspect cache invalidation',
       }).success,
     ).toBe(true);
   });

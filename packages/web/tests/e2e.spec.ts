@@ -124,3 +124,50 @@ test('member rail: spawn → run → rename → kill → queued badge → revive
   await expect(page.getByText('@richard revived work done')).toBeVisible();
   await expect(page.getByTestId('member-gamma-history')).toContainText('dead > idle');
 });
+
+test('parent run expands authoritative extension lifecycle and summary', async ({ page }) => {
+  await page.goto('/?room=eng&token=e2e-token');
+  await control('/enqueue', {
+    turns: [
+      {
+        kind: 'complete',
+        final_text: '@richard extension parent done',
+        items: [
+          {
+            type: 'run.item',
+            item_type: 'tool_call',
+            payload: {
+              tool: 'Agent',
+              id: 'toolu-agent-e2e',
+              input: { description: 'Inspect cache invalidation' },
+            },
+          },
+          {
+            type: 'extension.started',
+            parent: 'fake-session-1',
+            ext_member: 'a4fdb5021f374a8d1',
+            agent_type: 'general-purpose',
+          },
+          {
+            type: 'extension.ended',
+            ext_member: 'a4fdb5021f374a8d1',
+            summary: 'PONG from extension',
+            transcript_path: '/tmp/agent-a4fdb5021f374a8d1.jsonl',
+          },
+        ],
+      },
+    ],
+  });
+  await page.getByTestId('composer-input').fill('@alpha delegate a cache review');
+  await page.getByTestId('composer-send').click();
+  const body = page.getByText('@richard extension parent done');
+  await expect(body).toBeVisible();
+  const run = body.locator('..');
+  const runId = await run.getAttribute('data-testid');
+  await run.getByTestId(`${runId}-toggle`).click();
+
+  await expect(page.getByTestId('member-alpha-ext-a4fdb5')).toBeVisible();
+  await expect(page.getByTestId(`${runId}-extensions`)).toContainText('Inspect cache invalidation');
+  await expect(page.getByTestId(`${runId}-extensions`)).toContainText('PONG from extension');
+  await expect(page.getByTestId(`${runId}-extensions`)).toContainText('finished');
+});

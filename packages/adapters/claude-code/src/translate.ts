@@ -182,6 +182,7 @@ export interface HookPayload {
   agent_type?: string;
   session_id?: string;
   last_assistant_message?: string;
+  transcript_path?: string;
   agent_transcript_path?: string;
 }
 
@@ -197,6 +198,8 @@ export function wireEventFromHook(payload: HookPayload): WireEvent | undefined {
       type: 'extension.started',
       parent: payload.session_id ?? '',
       ext_member: payload.agent_id,
+      agent_type: payload.agent_type,
+      transcript_path: payload.transcript_path,
     };
   }
   if (payload.hook_event_name === 'SubagentStop') {
@@ -204,6 +207,7 @@ export function wireEventFromHook(payload: HookPayload): WireEvent | undefined {
       type: 'extension.ended',
       ext_member: payload.agent_id,
       summary: payload.last_assistant_message,
+      transcript_path: payload.agent_transcript_path ?? payload.transcript_path,
     };
   }
   return undefined;

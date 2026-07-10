@@ -14,7 +14,7 @@ const CONTROL_PORT = 8138;
 const TOKEN = 'e2e-token';
 
 const dir = mkdtempSync(join(tmpdir(), 'wireroom-e2e-'));
-const fake = new FakeAdapter();
+const fake = new FakeAdapter('fake', { extensions: true });
 const daemon = new Daemon({
   dbPath: join(dir, 'db.sqlite'),
   blobRoot: join(dir, 'blobs'),
