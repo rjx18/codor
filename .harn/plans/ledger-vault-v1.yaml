@@ -1,0 +1,104 @@
+id: ledger-vault-v1
+title: P2.4 home-owned audited ledger vault v1
+assumptions:
+  retire:
+    - id: delivery-payload-template-exact
+      reason: PROTOCOL section 6 now extends the original P0 payload golden with explicit
+        ledger note blocks and a ledger-enabled conventions clause; the original statement
+        said the pre-ledger bytes were exhaustive, so it cannot remain the full truth.
+  create:
+    - id: ledger-home-only-refs-travel
+      title: Ledger files stay at the room home and resolved note bodies travel
+      statement: Enabling a room ledger must create and retain its markdown vault only
+        under the home switchboard data directory, resolve each valid [[name]] reference
+        at the home into a snapshotted note body attached to the existing full delivery
+        payload, and route remote writes to that home over authenticated transport, because
+        resident members must receive explicit context without mounting or syncing a vault.
+      reason: PLAN-M2 P2.4, ARCHITECTURE Ledger and Multi-box, and PROTOCOL section 6 make
+        the home vault the single source of ledger truth.
+      depends_on:
+        - room-home-single-authority
+        - delivery-payload-snapshotted
+        - envelope-ids-not-room-seq-for-dedup
+    - id: ledger-writes-audited-in-room
+      title: Every ledger file change creates a non-routed room audit notice
+      statement: The home must watch ledger markdown files with chokidar and post one
+        system message naming the changed [[note]], attributing CLI or transported writes
+        to their supplied room member and direct filesystem edits to operator, while system
+        eligibility prevents the notice from triggering a turn, because shared memory
+        changes must remain visible and auditable without becoming agent speech.
+      reason: PLAN-M2 P2.4 and PROTOCOL section 6 require compact watcher notices with
+        honest author attribution.
+      depends_on:
+        - routing-eligibility-nonempty-finalized
+        - room-home-single-authority
+  reviewed:
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: Home resolution stores note bodies inside the existing immutable delivery
+        snapshot, so delayed and remote recipients of one fanout see the same note version.
+    - id: room-home-single-authority
+      outcome: unchanged
+      reason: Only the home manager reads and writes vault files or posts watcher notices;
+        remote transport requests never create a resident vault.
+    - id: routing-eligibility-nonempty-finalized
+      outcome: unchanged
+      reason: Ledger notices use the existing system-message path and remain non-routable.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Note REST responses pass through the daemon projection before reaching the
+        read-only web viewer, while authorized adapter payloads retain explicit note context.
+    - id: body-parser-shared-across-router-and-web
+      outcome: unchanged
+      reason: The established parser continues to produce ledger_refs while the injected
+        home resolver supplies bodies without adding a second mention or ref parser.
+anchors:
+  delivery-payload-template-exact:
+    payload-template:
+      action: remove
+      reason: Replace the exhaustive P0 marker with the P2.4 ledger-aware payload contract.
+  ledger-home-only-refs-travel:
+    ledger-aware-payload:
+      action: change
+      reason: Attach resolved note bodies and the ledger conventions clause without
+        changing message, mention, or numbered-reference semantics.
+    home-ledger-vault:
+      action: change
+      reason: Add safe home-only bootstrap, note resolution, snapshots, and transported
+        writes.
+  ledger-writes-audited-in-room:
+    ledger-change-audit:
+      action: change
+      reason: Add chokidar change attribution and non-routed system notices.
+  delivery-payload-snapshotted:
+    daemon-payload-snapshot:
+      action: change
+      reason: Resolve current ledger notes at home when constructing the immutable delivery
+        snapshot.
+  permalink-ids-stable:
+    message-permalink-rendering:
+      action: change
+      reason: Render clickable ledger references and a read-only note dialog while retaining
+        every message permalink.
+files:
+  - packages/switchboard/package.json
+  - packages/switchboard/src/ledger/vault.ts
+  - packages/switchboard/src/ledger/watch.ts
+  - packages/switchboard/src/ledger/resolve.ts
+  - packages/switchboard/src/ledger/ledger.spec.ts
+  - packages/switchboard/src/router.ts
+  - packages/switchboard/src/router.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/index.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/up.ts
+  - packages/cli/src/index.spec.ts
+  - packages/web/src/api.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/e2e.spec.ts
+  - pnpm-lock.yaml
+  - tmp/build/PROGRESS.md
