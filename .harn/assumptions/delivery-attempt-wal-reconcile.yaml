@@ -1,0 +1,15 @@
+id: delivery-attempt-wal-reconcile
+hash: a-cdcfba3fd30a
+title: Attempt WAL before spawn; boot reconcile finalizes, retries once, or holds
+state: active
+statement: Deliveries must transition to delivering with run_msg_id bound and
+  attempt_count incremented BEFORE the adapter turn spawns and be consumed only
+  when run.completed lands; on boot every delivering delivery must reconcile
+  against its run blob - completion present in the blob finalizes it, a clean
+  never-started (empty blob, first attempt) retries exactly once, anything
+  ambiguous goes held with a system message for the operator
+  (redeliver/release_hold acts) - because delivery must be exactly-once-or-held,
+  never silently twice.
+depends_on:
+  - runs-are-one-message
+created_by: daemon-pump-lifecycle

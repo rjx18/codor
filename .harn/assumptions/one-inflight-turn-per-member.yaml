@@ -1,0 +1,10 @@
+id: one-inflight-turn-per-member
+hash: a-87139237236b
+title: A member never has two turns in flight
+state: active
+statement: The daemon must start at most one adapter turn per member at any time
+  - deliveries arriving while a member runs are queued and drained as ONE
+  batched turn when it goes idle - because harness sessions are single-threaded
+  and concurrent deliver() calls on one session corrupt its context.
+depends_on: []
+created_by: daemon-pump-lifecycle

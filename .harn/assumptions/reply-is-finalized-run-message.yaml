@@ -1,0 +1,12 @@
+id: reply-is-finalized-run-message
+hash: a-c3c44b4d4a25
+title: The reply IS the finalized run message - routing starts from it
+state: active
+statement: On run.completed the daemon must finalize the run message IN PLACE
+  (body becomes final_text, mentions/refs re-parsed from that body, run summary
+  updated, seq bumped) and create onward deliveries FROM that same message id -
+  never posting a separate reply message - because one turn = one message = one
+  permanent hash-N ref is the core product invariant.
+depends_on:
+  - routing-eligibility-gate
+created_by: daemon-pump-lifecycle

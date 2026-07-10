@@ -396,6 +396,11 @@ export class Store {
     return row ? roomFromRow(row) : undefined;
   }
 
+  listRooms(): Room[] {
+    const rows = this.db.prepare('SELECT * FROM rooms ORDER BY id').all() as RoomRow[];
+    return rows.map(roomFromRow);
+  }
+
   updateRoomConfig(room: string, patch: Partial<RoomConfig>): Room {
     return this.db.transaction(() => {
       const current = this.getRoom(room);

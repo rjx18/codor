@@ -1,102 +1,103 @@
 id: daemon-pump-lifecycle
-title: P0.8 switchboard daemon - turn pump, interactions, WAL reconcile, sync, redaction
+title: P0.8 switchboard daemon - turn pump, interactions, WAL reconcile, sync,
+  redaction
 assumptions:
   retire: []
   create:
     - id: one-inflight-turn-per-member
       title: A member never has two turns in flight
-      statement: The daemon must start at most one adapter turn per member at any
-        time - deliveries arriving while a member runs are queued and drained
-        as ONE batched turn when it goes idle - because harness sessions are
+      statement: The daemon must start at most one adapter turn per member at any time
+        - deliveries arriving while a member runs are queued and drained as ONE
+        batched turn when it goes idle - because harness sessions are
         single-threaded and concurrent deliver() calls on one session corrupt
         its context.
-      reason: PROTOCOL SS3 queueing; the pump guard is the only enforcement
-        point and every chain test relies on it.
+      reason: PROTOCOL SS3 queueing; the pump guard is the only enforcement point and
+        every chain test relies on it.
       depends_on: []
     - id: reply-is-finalized-run-message
       title: The reply IS the finalized run message - routing starts from it
-      statement: On run.completed the daemon must finalize the run message IN
-        PLACE (body becomes final_text, mentions/refs re-parsed from that
-        body, run summary updated, seq bumped) and create onward deliveries
-        FROM that same message id - never posting a separate reply message -
-        because one turn = one message = one permanent hash-N ref is the core
-        product invariant.
-      reason: PLAN-M0 P0.8 finding 1; the acceptance test asserts the codex turn
-        is exactly one referenced message.
+      statement: On run.completed the daemon must finalize the run message IN PLACE
+        (body becomes final_text, mentions/refs re-parsed from that body, run
+        summary updated, seq bumped) and create onward deliveries FROM that same
+        message id - never posting a separate reply message - because one turn =
+        one message = one permanent hash-N ref is the core product invariant.
+      reason: PLAN-M0 P0.8 finding 1; the acceptance test asserts the codex turn is
+        exactly one referenced message.
       depends_on:
         - routing-eligibility-gate
     - id: runs-are-one-message
       title: One turn produces exactly one run message, reused across retries
-      statement: Starting a turn must post exactly one run placeholder message
-        (status running, events_ref pointing at its blob) and a crash-retry
-        of the same delivery must REUSE that placeholder rather than posting
-        a second run message, because message ids are permanent and a
-        re-attempted turn is the same turn, not a new one.
+      statement: Starting a turn must post exactly one run placeholder message (status
+        running, events_ref pointing at its blob) and a crash-retry of the same
+        delivery must REUSE that placeholder rather than posting a second run
+        message, because message ids are permanent and a re-attempted turn is
+        the same turn, not a new one.
       reason: PROTOCOL runs-are-one-message; the kill-point matrix asserts no
         duplicate run messages after reconcile.
       depends_on:
         - reply-is-finalized-run-message
     - id: delivery-attempt-wal-reconcile
-      title: Attempt WAL before spawn; boot reconcile finalizes, retries once, or holds
-      statement: Deliveries must transition to delivering with run_msg_id bound
-        and attempt_count incremented BEFORE the adapter turn spawns and be
-        consumed only when run.completed lands; on boot every delivering
-        delivery must reconcile against its run blob - completion present in
-        the blob finalizes it, a clean never-started (empty blob, first
-        attempt) retries exactly once, anything ambiguous goes held with a
-        system message for the operator (redeliver/release_hold acts) -
-        because delivery must be exactly-once-or-held, never silently twice.
-      reason: PROTOCOL SS3 queueing/failure behavior; the P0.2 kill fixtures
-        proved post-kill completions really occur, so blob-vs-WAL reconcile
-        is load-bearing.
+      title: Attempt WAL before spawn; boot reconcile finalizes, retries once, or
+        holds
+      statement: Deliveries must transition to delivering with run_msg_id bound and
+        attempt_count incremented BEFORE the adapter turn spawns and be consumed
+        only when run.completed lands; on boot every delivering delivery must
+        reconcile against its run blob - completion present in the blob
+        finalizes it, a clean never-started (empty blob, first attempt) retries
+        exactly once, anything ambiguous goes held with a system message for the
+        operator (redeliver/release_hold acts) - because delivery must be
+        exactly-once-or-held, never silently twice.
+      reason: PROTOCOL SS3 queueing/failure behavior; the P0.2 kill fixtures proved
+        post-kill completions really occur, so blob-vs-WAL reconcile is
+        load-bearing.
       depends_on:
         - runs-are-one-message
     - id: redaction-before-fanout
       title: Redaction projection applies before any fanout, raw stays on disk
       statement: Every message body and run-event payload must pass the redaction
         regex set (AWS access keys, bearer/ghp_/sk- tokens, PEM private-key
-        blocks, high-entropy KEY=value assignments) before being serialized
-        into any WS frame or REST response while rooms keep raw content in
-        the store and blobs on disk, gated by the per-room redaction_enabled
-        opt-out, because agent output routinely leaks secrets and clients are
-        caches that must never receive them.
-      reason: PLAN-M0 P0.8 redaction projection (PRIVACY); P0.9 fetches blobs
-        only through the redacted endpoint.
+        blocks, high-entropy KEY=value assignments) before being serialized into
+        any WS frame or REST response while rooms keep raw content in the store
+        and blobs on disk, gated by the per-room redaction_enabled opt-out,
+        because agent output routinely leaks secrets and clients are caches that
+        must never receive them.
+      reason: PLAN-M0 P0.8 redaction projection (PRIVACY); P0.9 fetches blobs only
+        through the redacted endpoint.
       depends_on: []
   reviewed:
     - id: interaction-state-machine-persisted
       outcome: unchanged
-      reason: The daemon drives pending-answered-acked-orphaned exactly as the
-        schema persists it, incl. semantic re-correlation with fresh native
-        ids and never auto-resending approvals.
+      reason: The daemon drives pending-answered-acked-orphaned exactly as the schema
+        persists it, incl. semantic re-correlation with fresh native ids and
+        never auto-resending approvals.
     - id: changelog-covers-every-visible-entity
       outcome: unchanged
-      reason: All daemon mutations go through the store, whose per-mutation
-        change-log append is reused untouched; WS frames carry those seqs.
+      reason: All daemon mutations go through the store, whose per-mutation change-log
+        append is reused untouched; WS frames carry those seqs.
     - id: routing-eligibility-gate
       outcome: unchanged
-      reason: The daemon routes only through resolveRecipients; audit replies
-        and cards it posts are gated exactly as pinned.
+      reason: The daemon routes only through resolveRecipients; audit replies and
+        cards it posts are gated exactly as pinned.
     - id: human-deliveries-are-inbox-records
       outcome: unchanged
-      reason: Human recipients become consumed inbox deliveries with unread
-        counts and mark_read - never adapter turns.
+      reason: Human recipients become consumed inbox deliveries with unread counts and
+        mark_read - never adapter turns.
     - id: whole-message-delivery
       outcome: unchanged
-      reason: Batched turn payloads are per-delivery composePayload outputs
-        joined in order - identical full payloads, never split.
+      reason: Batched turn payloads are per-delivery composePayload outputs joined in
+        order - identical full payloads, never split.
     - id: delivery-payload-template-exact
       outcome: unchanged
-      reason: The daemon feeds composePayload verbatim ref bodies and
-        conventions flags from member rows; the template itself is untouched.
+      reason: The daemon feeds composePayload verbatim ref bodies and conventions
+        flags from member rows; the template itself is untouched.
     - id: default-recipient-latest-finalized
       outcome: unchanged
       reason: The daemon supplies latestFinalizedAgentAuthor from finalized run
         messages only, and triggerAuthor as the last batch delivery's author.
     - id: run-blobs-off-db
       outcome: unchanged
-      reason: blobs.ts journals events as JSONL files named by run message id;
-        the store still holds only the events_ref pointer.
+      reason: blobs.ts journals events as JSONL files named by run message id; the
+        store still holds only the events_ref pointer.
 anchors:
   one-inflight-turn-per-member:
     inflight-guard:
@@ -105,8 +106,8 @@ anchors:
   reply-is-finalized-run-message:
     finalize-and-route:
       action: change
-      reason: Create finalizeTurn - in-place finalization and onward routing
-        from the same message id.
+      reason: Create finalizeTurn - in-place finalization and onward routing from the
+        same message id.
   runs-are-one-message:
     run-message-lifecycle:
       action: change
@@ -140,3 +141,5 @@ files:
   - packages/switchboard/src/fake-adapter.ts
   - packages/switchboard/src/server.ts
   - packages/switchboard/src/server.spec.ts
+applied:
+  applied_at: 2026-07-10T08:42:05.774Z

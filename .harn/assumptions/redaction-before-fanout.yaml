@@ -1,0 +1,12 @@
+id: redaction-before-fanout
+hash: a-9e7c0d43c58d
+title: Redaction projection applies before any fanout, raw stays on disk
+state: active
+statement: Every message body and run-event payload must pass the redaction
+  regex set (AWS access keys, bearer/ghp_/sk- tokens, PEM private-key blocks,
+  high-entropy KEY=value assignments) before being serialized into any WS frame
+  or REST response while rooms keep raw content in the store and blobs on disk,
+  gated by the per-room redaction_enabled opt-out, because agent output
+  routinely leaks secrets and clients are caches that must never receive them.
+depends_on: []
+created_by: daemon-pump-lifecycle
