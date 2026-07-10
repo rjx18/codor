@@ -117,6 +117,7 @@ files:
   - packages/web/src/components.spec.tsx
   - packages/web/src/main.tsx
   - packages/web/tests/crypto.e2e.spec.ts
+  - packages/web/tests/e2e.spec.ts
   - packages/web/tests/push.e2e.spec.ts
   - packages/web/tests/harness.mjs
   - packages/switchboard/src/server.ts
