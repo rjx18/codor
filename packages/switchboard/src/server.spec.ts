@@ -8,6 +8,7 @@ import WebSocket from 'ws';
 
 import { Daemon } from './daemon.js';
 import { BlobStore } from './blobs.js';
+import { CryptoVault } from './crypto/pairing.js';
 import { FakeAdapter } from './fake-adapter.js';
 import { type RunningServer, startServer } from './server.js';
 
@@ -16,6 +17,7 @@ const TOKEN = 'test-token-123';
 let dir: string;
 let fake: FakeAdapter;
 let daemon: Daemon;
+let crypto: CryptoVault;
 let server: RunningServer;
 let base: string;
 
@@ -24,13 +26,16 @@ beforeEach(async () => {
   fake = new FakeAdapter('fake', { interactiveAttach: true });
   daemon = new Daemon({ dbPath: join(dir, 'db.sqlite'), blobRoot: join(dir, 'blobs'), adapters: [fake] });
   daemon.createRoom({ id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' } });
-  server = await startServer({ daemon, token: TOKEN });
+  crypto = new CryptoVault(dir);
+  crypto.roomKeys.ensureRoom('eng');
+  server = await startServer({ daemon, token: TOKEN, crypto });
   base = `http://127.0.0.1:${server.port}`;
 });
 
 afterEach(async () => {
   await server.close();
   await daemon.close();
+  crypto.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -96,6 +101,43 @@ describe('REST', () => {
     expect(sync.room.id).toBe('eng');
     expect(sync.members).toHaveLength(2); // owner + system, seeded
     expect(sync.seq).toBeGreaterThan(0);
+  });
+
+  it('enrolls both device keys only through a single-use pairing token', async () => {
+    const device = new CryptoVault(join(dir, 'device'));
+    const offerRes = await fetch(`${base}/api/pairing/offers`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint: base }),
+    });
+    expect(offerRes.status).toBe(200);
+    const offer = (await offerRes.json()) as { pairing_token: string };
+    const request = {
+      ...device.keys.publicIdentity(),
+      kind: 'device',
+      label: 'chromium',
+    };
+    const complete = await fetch(`${base}/api/pairing/complete`, {
+      method: 'POST',
+      headers: { authorization: `Pairing ${offer.pairing_token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    expect(complete.status).toBe(200);
+    expect(await complete.json()).toMatchObject({
+      switchboard: { device_id: crypto.keys.identity.device_id },
+      room_keys: [{ room: 'eng', generation: 1 }],
+    });
+    expect(crypto.keys.getPeer(device.keys.identity.device_id)).toMatchObject({
+      sign_public_key: device.keys.identity.sign_public_key,
+      encryption_public_key: device.keys.identity.encryption_public_key,
+    });
+    const replay = await fetch(`${base}/api/pairing/complete`, {
+      method: 'POST',
+      headers: { authorization: `Pairing ${offer.pairing_token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    expect(replay.status).toBe(401);
+    device.close();
   });
 
   it('serves redacted before-id history pages and room-scoped body search', async () => {

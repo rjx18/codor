@@ -1,0 +1,13 @@
+id: revocation-rotates-room-keys
+hash: a-4593f97ae8d7
+title: Revocation rekeys rooms and drops authenticated connections
+state: active
+statement: Revoking an enrolled peer must remove its pairing record, rotate
+  every room to a fresh symmetric key generation sealed only to the remaining
+  active enrollees, and immediately close every live authenticated connection
+  for the revoked Ed25519 device id, so the old device cannot decrypt new
+  traffic or remain connected after removal.
+depends_on:
+  - nonce-challenge-auth-no-key-possession-identity
+  - sealed-room-keys-per-enrollee
+created_by: keys-pairing-revocation

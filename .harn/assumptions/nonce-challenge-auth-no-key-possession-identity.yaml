@@ -1,0 +1,12 @@
+id: nonce-challenge-auth-no-key-possession-identity
+hash: a-6ee817fa56f4
+title: Peer identity requires a replay-bound Ed25519 challenge
+state: active
+statement: A connecting enrolled peer must sign the canonical pair of a fresh
+  server nonce and the current transport transcript hash with its registered
+  Ed25519 identity, each challenge must expire and be consumed exactly once,
+  forged or replayed signatures must fail, and room-key possession must never
+  authenticate a peer, because encryption authority is not connection identity.
+depends_on:
+  - ed25519-identity-x25519-encryption
+created_by: keys-pairing-revocation

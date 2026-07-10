@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { Daemon, FakeAdapter, startServer } from '@wireroom/switchboard';
+import { CryptoVault, Daemon, FakeAdapter, pairingUrl, startServer } from '@wireroom/switchboard';
 
 const API_PORT = 8137;
 const CONTROL_PORT = 8138;
@@ -22,9 +22,11 @@ const daemon = new Daemon({
 });
 daemon.createRoom({ id: 'eng', name: 'Engineering', owner: { handle: 'richard', display_name: 'Richard' } });
 const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/work' });
+const crypto = new CryptoVault(dir);
+crypto.roomKeys.ensureRoom('eng');
 
 const staticRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
-await startServer({ daemon, token: TOKEN, port: API_PORT, staticRoot });
+await startServer({ daemon, token: TOKEN, port: API_PORT, staticRoot, crypto });
 
 const readBody = (req) =>
   new Promise((resolve) => {
@@ -81,6 +83,17 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
         first: messages[0].id,
         last: messages.at(-1).id,
+      }));
+      return;
+    } else if (url.pathname === '/pair-offer') {
+      const offer = crypto.pairing.issue(`http://127.0.0.1:${String(API_PORT)}`);
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        url: pairingUrl(offer),
+      }));
+      return;
+    } else if (url.pathname === '/peers') {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        peers: crypto.keys.listPeers(),
       }));
       return;
     } else if (url.pathname !== '/health') {

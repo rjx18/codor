@@ -1,0 +1,12 @@
+id: sealed-room-keys-per-enrollee
+hash: a-beb57c2a1e74
+title: Each room key is sealed independently to every active enrollee
+state: active
+statement: Each room must have a generated XChaCha20-Poly1305 symmetric key and
+  generation, while persisted distribution material contains one libsodium
+  crypto_box_seal ciphertext per active device or peer-switchboard X25519 public
+  key, because authorized enrollees need the room key without sharing private
+  identity material or treating key possession as identity.
+depends_on:
+  - ed25519-identity-x25519-encryption
+created_by: keys-pairing-revocation

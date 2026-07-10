@@ -8,6 +8,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import { WebSocketServer, type WebSocket } from 'ws';
 import { ClientFrameSchema, RoomIdSchema, type ServerFrame } from '@wireroom/protocol';
 
+import type { CryptoVault, PairingRequest } from './crypto/pairing.js';
 import type { Daemon } from './daemon.js';
 
 export interface ServerOptions {
@@ -20,6 +21,8 @@ export interface ServerOptions {
   staticRoot?: string;
   /** Local CLI transport; filesystem mode is 0600 and no bearer token crosses it. */
   socketPath?: string;
+  /** Device enrollment and room-key authority for this switchboard. */
+  crypto?: CryptoVault;
 }
 
 export interface RunningServer {
@@ -93,6 +96,31 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     return false;
   };
 
+  app.post('/api/pairing/complete', (req, reply) => {
+    if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
+    const authorization = req.headers.authorization;
+    const pairingToken = authorization?.startsWith('Pairing ')
+      ? authorization.slice('Pairing '.length)
+      : undefined;
+    if (!pairingToken) return reply.code(401).send({ error: 'pairing token required' });
+    try {
+      return reply.send(options.crypto.pairing.complete(pairingToken, req.body as PairingRequest));
+    } catch (error) {
+      return reply.code(401).send({ error: String(error) });
+    }
+  });
+
+  app.post('/api/pairing/offers', (req, reply) => {
+    if (!authed(req, reply)) return;
+    if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
+    try {
+      const { endpoint } = req.body as { endpoint: string };
+      return reply.send(options.crypto.pairing.issue(endpoint));
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+
   app.get('/api/rooms', (req, reply) => {
     if (!authed(req, reply)) return;
     void reply.send({ rooms: daemon.store.listRooms() });
@@ -108,6 +136,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const body = req.body as { id: string; name: string; owner: { handle: string; display_name: string } };
     RoomIdSchema.parse(body.id);
     const created = daemon.createRoom(body);
+    options.crypto?.roomKeys.ensureRoom(created.room.id);
     void reply.send(created);
   });
 

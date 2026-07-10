@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import type { AttachLease, Member, Message, ServerFrame } from '@wireroom/protocol';
 import { Command } from 'commander';
+import { CryptoVault, pairingUrl } from '@wireroom/switchboard';
 
 import {
   nativeResumeCommand,
@@ -79,6 +80,15 @@ export function createProgram(context: CliContext = {}): Command {
       await fn(client);
     } finally {
       await client.close();
+    }
+  };
+
+  const withCrypto = <T>(fn: (crypto: CryptoVault) => T): T => {
+    const crypto = new CryptoVault(program.opts<GlobalOptions>().dataDir);
+    try {
+      return fn(crypto);
+    } finally {
+      crypto.close();
     }
   };
 
@@ -426,6 +436,36 @@ export function createProgram(context: CliContext = {}): Command {
         });
         if (result.status === 'completed') out(`re-adopted @${acquired.member.handle}`);
         else out(`@${acquired.member.handle} custody remains uncertain until its process group exits`);
+      });
+    });
+  program
+    .command('pair')
+    .description('create a ten-minute browser or peer pairing link')
+    .option('--endpoint <url>', 'switchboard browser endpoint', 'http://127.0.0.1:8137')
+    .action((options: { endpoint: string }) => {
+      withCrypto((crypto) => {
+        const offer = crypto.pairing.issue(options.endpoint);
+        out(pairingUrl(offer));
+        out(`expires ${offer.expires_at}`);
+      });
+    });
+
+  program.command('peers').description('list enrolled devices and switchboards').action(() => {
+    withCrypto((crypto) => {
+      for (const peer of crypto.keys.listPeers()) {
+        out(`${peer.device_id}\t${peer.kind}\t${peer.label ?? '-'}`);
+      }
+    });
+  });
+
+  program
+    .command('revoke')
+    .description('revoke a device or switchboard and rotate room keys')
+    .argument('<peer>', 'device id or label')
+    .action((peer: string) => {
+      withCrypto((crypto) => {
+        const revoked = crypto.revokePeer(peer);
+        out(`revoked ${revoked.device_id}`);
       });
     });
   program.command('ledger').argument('[args...]').action(() => err('ledger is not implemented yet'));

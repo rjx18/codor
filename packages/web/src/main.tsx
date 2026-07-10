@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { App } from './App';
+import { PairingPage } from './pairing';
 import './styles.css';
 
 const root = document.querySelector('#root');
@@ -11,6 +12,6 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    {window.location.pathname === '/pair' ? <PairingPage /> : <App />}
   </StrictMode>,
 );

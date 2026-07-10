@@ -1,0 +1,13 @@
+id: single-crypto-suite-libsodium
+hash: a-0a3f0baa99b9
+title: Node, page, and service worker use one libsodium envelope suite
+state: active
+statement: Node crypto must use sodium-native and browser page and
+  service-worker crypto must use libsodium-wrappers with key material persisted
+  in IndexedDB, and sealed boxes must open in both directions across those
+  runtimes without a WebCrypto envelope variant or custom primitive, because
+  Wireroom supports one interoperable audited suite everywhere.
+depends_on:
+  - ed25519-identity-x25519-encryption
+  - sealed-room-keys-per-enrollee
+created_by: keys-pairing-revocation

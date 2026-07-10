@@ -27,3 +27,41 @@ export type { DeliverRecord, FakeTurn } from './fake-adapter.js';
 export { REDACTED, redactText, redactValue } from './redact.js';
 export { startServer } from './server.js';
 export type { RunningServer, ServerOptions } from './server.js';
+export {
+  DeviceKeyStore,
+  generateIdentity,
+} from './crypto/keys.js';
+export type {
+  DeviceIdentity,
+  PeerKind,
+  PeerRecord,
+  PublicIdentity,
+} from './crypto/keys.js';
+export {
+  openSealedBox,
+  RoomKeyStore,
+  sealBox,
+} from './crypto/roomkeys.js';
+export type { SealedRoomKey } from './crypto/roomkeys.js';
+export {
+  CryptoVault,
+  PairingService,
+  pairingUrl,
+} from './crypto/pairing.js';
+export type {
+  PairingOffer,
+  PairingRequest,
+  PairingResult,
+} from './crypto/pairing.js';
+export {
+  AuthenticatedConnectionRegistry,
+  ChallengeAuthority,
+  authenticateLocalToken,
+  challengeBytes,
+  hashTranscript,
+  signChallenge,
+} from './crypto/challenge.js';
+export type {
+  AuthChallenge,
+  AuthenticatedConnection,
+} from './crypto/challenge.js';

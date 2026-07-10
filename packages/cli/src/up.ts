@@ -7,7 +7,7 @@ import { CopilotAdapter } from '@wireroom/adapter-copilot';
 import { CodexAdapter } from '@wireroom/adapter-codex';
 import { GeminiAdapter } from '@wireroom/adapter-gemini';
 import { OpenCodeAdapter } from '@wireroom/adapter-opencode';
-import { Daemon, startServer, type RunningServer } from '@wireroom/switchboard';
+import { CryptoVault, Daemon, startServer, type RunningServer } from '@wireroom/switchboard';
 
 export interface UpOptions {
   dataDir?: string;
@@ -22,6 +22,7 @@ export interface UpOptions {
 
 export interface RunningWireroom {
   daemon: Daemon;
+  crypto: CryptoVault;
   server: RunningServer;
   dataDir: string;
   close(): Promise<void>;
@@ -43,6 +44,7 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
   if (!options.token.trim()) throw new Error('--token or WIREROOM_TOKEN is required');
   const dataDir = resolve(options.dataDir ?? join(homedir(), '.wireroom'));
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  const crypto = new CryptoVault(dataDir);
   const daemon = new Daemon({
     dbPath: join(dataDir, 'switchboard.sqlite'),
     blobRoot: join(dataDir, 'blobs'),
@@ -63,6 +65,7 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
       owner: { handle: owner, display_name: owner },
     });
   }
+  for (const room of daemon.store.listRooms()) crypto.roomKeys.ensureRoom(room.id);
   await daemon.reconcile();
   const defaultStatic = resolve(process.cwd(), 'packages/web/dist');
   try {
@@ -73,18 +76,22 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
       port: options.port ?? 8137,
       socketPath: join(dataDir, 'wireroom.sock'),
       staticRoot: options.staticRoot ?? (existsSync(defaultStatic) ? defaultStatic : undefined),
+      crypto,
     });
     return {
       daemon,
+      crypto,
       server,
       dataDir,
       close: async () => {
         await server.close();
         await daemon.close();
+        crypto.close();
       },
     };
   } catch (error) {
     await daemon.close({ force: true });
+    crypto.close();
     throw error;
   }
 }

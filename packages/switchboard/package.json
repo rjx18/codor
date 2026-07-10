@@ -19,10 +19,12 @@
     "@fastify/static": "^9.3.0",
     "@wireroom/protocol": "workspace:*",
     "better-sqlite3": "^12.11.1",
+    "sodium-native": "^5.1.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "@types/sodium-native": "^2.3.9",
     "@types/ws": "^8.18.1",
     "@wireroom/adapter-claude-code": "workspace:*",
     "@wireroom/adapter-codex": "workspace:*"

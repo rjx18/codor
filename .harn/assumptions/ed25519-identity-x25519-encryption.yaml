@@ -1,0 +1,11 @@
+id: ed25519-identity-x25519-encryption
+hash: a-96e1596fe33d
+title: Every enrollee has separate signing and encryption keypairs
+state: active
+statement: Every switchboard, browser device, and peer switchboard must generate
+  and persist an Ed25519 signing pair plus an X25519 encryption pair, use the
+  Ed25519 public key as its stable device id, and bind both public keys in one
+  pairing record, because identity signatures and sealed-room-key encryption
+  have distinct cryptographic purposes.
+depends_on: []
+created_by: keys-pairing-revocation

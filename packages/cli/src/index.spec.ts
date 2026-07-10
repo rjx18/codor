@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { Daemon, FakeAdapter, startServer, type RunningServer } from '@wireroom/switchboard';
+import {
+  CryptoVault,
+  Daemon,
+  FakeAdapter,
+  startServer,
+  type RunningServer,
+} from '@wireroom/switchboard';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -18,6 +24,7 @@ import {
 
 let dir: string;
 let daemon: Daemon;
+let crypto: CryptoVault;
 let fake: FakeAdapter;
 let codexFake: FakeAdapter;
 let server: RunningServer;
@@ -37,10 +44,13 @@ beforeEach(async () => {
     name: 'Engineering',
     owner: { handle: 'richard', display_name: 'Richard' },
   });
+  crypto = new CryptoVault(dir);
+  crypto.roomKeys.ensureRoom('eng');
   server = await startServer({
     daemon,
     token: 'cli-token',
     socketPath: join(dir, 'wireroom.sock'),
+    crypto,
   });
   output = [];
 });
@@ -48,6 +58,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await server.close();
   await daemon.close();
+  crypto.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -71,8 +82,36 @@ describe('@wireroom/cli', () => {
       'adopt',
       'mirror-hook',
       'attach',
+      'pair',
+      'peers',
+      'revoke',
       'ledger',
     ]);
+  });
+
+  it('pairs, lists, and revokes a device while rotating room keys', async () => {
+    await cli('pair', '--endpoint', `http://127.0.0.1:${String(server.port)}`);
+    const url = new URL(output[0]!);
+    expect(url.pathname).toBe('/pair');
+    const token = url.searchParams.get('pairing_token')!;
+    const device = new CryptoVault(join(dir, 'browser-device'));
+    const paired = await fetch(`http://127.0.0.1:${String(server.port)}/api/pairing/complete`, {
+      method: 'POST',
+      headers: { authorization: `Pairing ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...device.keys.publicIdentity(), kind: 'device', label: 'browser' }),
+    });
+    expect(paired.status).toBe(200);
+    const generation = crypto.roomKeys.roomGeneration('eng');
+
+    output = [];
+    await cli('peers');
+    expect(output).toContain(`${device.keys.identity.device_id}\tdevice\tbrowser`);
+    output = [];
+    await cli('revoke', 'browser');
+    expect(output).toEqual([`revoked ${device.keys.identity.device_id}`]);
+    expect(crypto.roomKeys.roomGeneration('eng')).toBe(generation + 1);
+    expect(crypto.keys.getPeer(device.keys.identity.device_id)).toBeUndefined();
+    device.close();
   });
 
   it('resolves Gemini interactive resume through the supervised attach path', () => {

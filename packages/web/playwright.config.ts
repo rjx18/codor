@@ -5,7 +5,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: 'e2e.spec.ts',
+  testMatch: ['e2e.spec.ts', '*.e2e.spec.ts'],
   outputDir: join(tmpdir(), 'wireroom-playwright'), // artifacts never land in the repo
   workers: 1, // one shared daemon — the flow is a serial narrative
   use: {
