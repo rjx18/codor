@@ -21,9 +21,9 @@ milestone starts — this file stays the map, not the turf.
   No SDK dependency, by design.
 - `packages/web`: room timeline, collapsible runs, composer with @/# autocomplete + implied
   recipient, member rail, ask/approval cards.
-- **License + reuse audit** (the M0 gate for the build map): verify walkie, claude-watch, paseo
-  licenses; **ACP spike** — can it carry resume/usage/extensions? Decision recorded in
-  ARCHITECTURE.md.
+- **License + reuse audit** (the M0 gate for the build map): verify walkie + claude-watch
+  licenses (paseo already verified: AGPL-3.0 → pattern-only, no code reuse); **ACP spike** —
+  can it carry resume/usage/extensions? Decision recorded in ARCHITECTURE.md.
 - Tailnet deploy recipe (`tailscale serve`) + pairing token for the web client.
 
 **Acceptance:** from a browser on another machine (over tailnet), spawn a Codex session and a
@@ -68,31 +68,35 @@ the opt-in turn brake enabled holds and releases correctly.
 **Acceptance:** two machines with no shared tailnet hold a conversation in one room over the
 DHT; a packet capture shows nothing readable; revoking a device locks it out of new messages.
 
-## M3 — The bullpen phone (iPhone)
+## M3 — The pocket web (PWA + push relay)
 
-*Built on the Mac; first Apple surface.*
+*The web surface becomes the phone app; native apps are demoted to convenience layers.*
 
-- SwiftUI app: QR pairing, room list/timeline (runs collapsed), composer with dictation,
-  ask/approval action sheets, foreground live over tailnet/LAN.
-- Notification plumbing prepared (NSE target, key storage in Keychain) but push may still be
-  doorbell-less until M4's relay.
+- Responsive mobile layout for the SPA; installable PWA (manifest, service worker, offline
+  shell) — on iOS 16.4+ an installed PWA is a home-screen app with notifications, no App Store.
+- Push relay (`relay/`) built here: sealed-payload forwarding, padded buckets, self-host doc.
+  **Web Push** (VAPID) to installed PWAs on iOS/Android/desktop; payloads decrypt in the
+  service worker, so the relay and the push service carry ciphertext only.
+- Touch-polished ask/approval cards and composer; browser dictation where the platform offers
+  it.
 
-**Acceptance:** the M1 acceptance flow driven entirely from the phone, including answering a
-Claude ask card and approving a permission request.
+**Acceptance:** the M1 acceptance flow driven entirely from a phone's installed PWA over
+tailnet, including answering an ask card and receiving a sealed push notification — with no
+native app installed on anything.
 
-## M4 — On the wrist
+## M4 — Native glass (iPhone + Apple Watch)
 
-*claude-watch's promise, generalized to every agent in every room.*
+*Convenience layers on the same API — the only milestone that needs the Mac.*
 
+- SwiftUI iPhone app: QR pairing, rooms, ask/approval sheets, dictation composer; APNs through
+  the same relay, NSE decrypt, keys in Keychain.
 - watchOS app (started from the claude-watch fork): inbox (addressed messages, asks, approvals,
-  budget holds), room glance, dictation replies with recipient picker.
-- Push relay (`relay/`): sealed-payload APNs forwarding, NSE decrypt, padded buckets;
-  self-host doc with your-own-APNs-key setup.
-- WatchConnectivity bridging via the phone; haptics vocabulary (done / question / budget-hold).
+  brake holds), room glance, dictation replies with recipient picker; WatchConnectivity via the
+  phone; haptics vocabulary (done / question / hold).
 
-**Acceptance:** phone in pocket, watch only: receive 🕊️ run-complete, answer an ask card by
-voice, and hold/release an opt-in turn brake — while the switchboard sees no plaintext leave the tailnet
-except sealed push payloads.
+**Acceptance:** phone app drives the M1 flow end-to-end; then phone in pocket, watch only:
+receive 🕊️ run-complete, answer an ask card by voice, and hold/release an opt-in turn brake —
+while no plaintext leaves the tailnet except sealed push payloads.
 
 ## M5 — Open the doors
 
@@ -116,5 +120,5 @@ both stock adapters, and a third-party harness lands via the SDK without patchin
 - Offline ciphertext mailbox (push is a doorbell; content fetch requires reachability).
 - MLS group crypto (sealed-box fan-out is right at ≤5 devices).
 - Addressable extensions, `@all`, threading beyond `reply_to`, message editing.
-- Android/WearOS (architecture is surface-agnostic; someone else's M3/M4).
+- Native Android/WearOS (the M3 PWA already covers Android phones; native is someone else's M4).
 - Any hosted "Wireroom cloud". The moment content touches our servers, PRIVACY.md has failed.

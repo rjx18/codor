@@ -33,8 +33,8 @@ no cloud ever holds content, encrypted or not.
 ### Tier 0 — tailnet only (recommended default)
 
 Switchboard binds its Tailscale IP; web/iPhone connect over WireGuard (`tailscale serve` gives
-HTTPS + certs for free). No Wireroom-related traffic leaves the tailnet; transport encryption is
-WireGuard's. **Zero third-party infrastructure.** Limits: watch has no tailnet of its own (phone
+HTTPS + certs for free; a Tailscale app connector adds custom-domain access with ACL grants for
+teams). No Wireroom-related traffic leaves the tailnet; transport encryption is WireGuard's. **Zero third-party infrastructure.** Limits: watch has no tailnet of its own (phone
 relays via WatchConnectivity), and no push when the phone app is cold (see §push).
 
 ### Tier 1 — serverless P2P (the walkie tier)
@@ -60,9 +60,9 @@ Extension decrypts with a local room key and renders. What each party sees:
 | Neither | sender, room name, message content, member names |
 
 Payloads are padded to fixed size buckets. Nothing is stored: the relay holds messages in memory
-only for the APNs round-trip. Self-hosting requires your own Apple developer key — documented,
-recommended. A community relay may exist for convenience; it is bit-for-bit the same code and
-still sees only the table row above. Offline mailbox (store-and-forward ciphertext with TTL) is
+only for the APNs round-trip. Self-hosting requires your own Apple developer key — documented
+and supported. The hosted version of this same code is the commercial service (BUSINESS.md);
+it is bit-for-bit the same open-source relay and still sees only the table row above. Offline mailbox (store-and-forward ciphertext with TTL) is
 explicitly **out** of v1 — the switchboard is always-on by nature; push is a doorbell, and the
 device fetches content over tier 0/1 when opened.
 

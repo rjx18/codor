@@ -39,8 +39,10 @@ you      (from your watch, by voice) @codex after the fix, also add a regression
   harness's native resume, then hands it back when you exit. Agents are plain CLI processes
   (`claude -p`, `codex exec`) — no SDK coupling, so any harness with headless mode + resume can
   join. Subagents show up automatically as short-lived *extensions*.
-- **Surfaces:** web (desk), iPhone (on the move), Apple Watch (voice-first: hear what shipped,
-  answer questions, approve actions).
+- **Surfaces, web-first:** the web room works everywhere from day one — desk browser and
+  installable PWA on any phone (with sealed push notifications). Native iPhone and Apple Watch
+  apps follow as convenience layers (voice-first on the wrist: hear what shipped, answer
+  questions, approve actions).
 - **A ledger, not context soup.** Optional per-room shared memory as an Obsidian-compatible
   vault — markdown notes, `[[wikilink]]` graph, citable in messages, bootstrapped by the
   switchboard, readable by every member and by you in Obsidian itself.
@@ -59,6 +61,7 @@ you      (from your watch, by voice) @codex after the fix, also add a regression
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The switchboard daemon, adapters, transports, surfaces — and the reuse-first build map |
 | [docs/PRIVACY.md](docs/PRIVACY.md) | Topologies (tailnet / P2P / relay), E2EE design, push without leaking, threat model |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M0–M5 with acceptance criteria; MVP = M0+M1 |
+| [docs/BUSINESS.md](docs/BUSINESS.md) | How it sustains itself: a content-blind hosted relay (push, rendezvous, mailbox, browser gateway) — sell convenience, never content |
 
 ## Naming things
 

@@ -104,10 +104,15 @@ Same member, same context, custody moving freely between room and terminal — t
 
 ### Surfaces
 
-- **Web** (`@wireroom/web`): React + Vite SPA served by the switchboard itself. Room list,
-  timeline with collapsible runs, composer with @/# autocomplete + implied-recipient indicator,
-  member rail (state, policy chip, spend), ask/approval cards, budget banner. No SSR, no
-  framework ceremony — it's a LAN/tailnet tool.
+- **Web** (`@wireroom/web`): React + Vite SPA served by the switchboard itself — there is no
+  hosted web app; the "server side" of the web surface *is* your box. Room list, timeline with
+  collapsible runs, composer with @/# autocomplete + implied-recipient indicator, member rail
+  (state, policy chip, spend), ask/approval cards, budget banner. No SSR, no framework ceremony.
+  Access paths: `tailscale serve` is the zero-config baseline (`https://desk.<tailnet>.ts.net`,
+  automatic TLS); for teams that want a memorable custom domain with centralized ACL control,
+  the documented setup is a **Tailscale app connector** (policy-file grants + a connector node
+  routing the app domain across the tailnet). The browser holds only a cache: history pages in
+  over REST, live updates over the WS, reconnect delta-syncs from the last seen message id.
 - **iPhone** (SwiftUI): same WS API. Pairing via QR (device keypair, PRIVACY §pairing). Rooms,
   notifications, ask/approval actions, dictation composer.
 - **Apple Watch** (SwiftUI, started from claude-watch's design): three screens — inbox
@@ -196,18 +201,18 @@ verified in M0 before any code lands (unverified entries marked ⚠).
 | Codex session driving | `codex` CLI (`exec --json`, `resume`) | depend | subprocess; proven pattern |
 | Harness normalization | Zed ACP (`agent-client-protocol` + `claude-code-acp`) | depend (spike) | M0 gate; may replace bespoke drivers |
 | P2P transport | `hyperswarm` (+ DHT, Noise) — walkie's stack ⚠ | depend; walkie as pattern/vendor | `line:secret` → DHT topic, exactly walkie's channel model; reuse walkie's `listen()/send()` lib if license allows, else hyperswarm directly |
-| Tailnet access | Tailscale (user-supplied) + `tailscale serve` for TLS | depend | zero code: bind the tailnet IP |
+| Tailnet access | Tailscale (user-supplied): `tailscale serve` for TLS; app connectors for custom-domain team access | depend | zero code: bind the tailnet IP; connector setup is documentation, not software |
 | Session-store discovery | partyline-sh/cli (MIT, Go) | port | its readers for `~/.claude` / `~/.codex` / Gemini session stores solve attach-by-session-id; port the formats to TS (Go binary doesn't transplant into a Node daemon) |
 | Blind ciphertext relay | partyline-sh relay + `ptysess` (Noise NNpsk0, key in URL fragment) | pattern / candidate depend | same philosophy as our push relay; M0 audit checks how separable it is from their hosted control plane — if it's a clean generic pipe, run it wholesale for room sync |
 | Watch/phone bridge | claude-watch ⚠ | fork | SwiftUI watch app + phone relay + SSE bridge; rework bridge → our WS protocol |
-| Multi-surface daemon shape | Paseo ⚠ | pattern | daemon/WS/pairing shape; per-agent model differs too much to fork |
+| Multi-surface daemon shape | Paseo (verified **AGPL-3.0**) | pattern ONLY | license verdict: no code may be copied into this MIT codebase — design cues only (daemon/WS/pairing shape, event rendering ideas). Stack also mismatches: their web/desktop is Expo/react-native-web in Electron; ours is React DOM |
 | E2EE primitives | libsodium (`sodium-native`) / Noise via hyperswarm | depend | never hand-rolled; MLS (OpenMLS) only if multi-party keys outgrow sealed-box fan-out |
 | Encrypted push | Matrix `sygnal` pattern; NSE decrypt on device | pattern (gateway is ~200 lines) | see PRIVACY §push; consider `ntfy` where APNs isn't required |
 | At-rest encryption | SQLCipher (optional) | depend | off by default on encrypted disks |
 | Storage | better-sqlite3 + JSONL blobs | depend | boring on purpose |
 | Ledger format | Obsidian vault conventions (markdown + `[[wikilinks]]`) | pattern/format | files are the store; Obsidian itself becomes a free graph-view client |
 | Ledger graph queries | Graphiti (temporal knowledge graph) ⚠ | optional depend, post-MVP | indexes the vault; never owns the data |
-| Web UI | React + Vite; chat primitives from an MIT kit if one fits | depend | timeline/composer are commodity; run-message rendering is ours |
+| Web UI | React + Vite; chat primitives from an MIT kit if one fits | depend | timeline/composer are commodity; run-message rendering is ours. Paseo's client is ruled out for code reuse (AGPL + RN-web); a desktop "app" is the PWA, or later a thin Tauri wrapper of our own SPA |
 | Voice | Apple SFSpeechRecognizer / watch dictation | platform | on-device toggle, PRIVACY §voice |
 
 What we actually write: **the router, the member/lifecycle model, two thin adapters, the run

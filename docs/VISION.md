@@ -49,7 +49,9 @@ Wireroom is:
 - a **local daemon** (the *switchboard*) that owns rooms, routes mentions, and manages the
   lifecycle of harness sessions,
 - a **protocol** for messages, mentions, references, and normalized agent events,
-- three **surfaces** — web, iPhone, Apple Watch — that render the same rooms.
+- **surfaces** that render the same rooms: the web room first (desk browser + installable PWA
+  on any phone — the web surface *is* the first mobile app), with native iPhone and Apple Watch
+  apps following as convenience layers on the same API.
 
 Wireroom is **not**:
 
