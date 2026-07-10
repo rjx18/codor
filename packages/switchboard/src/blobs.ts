@@ -1,5 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import type { WireEvent } from '@wireroom/protocol';
 
@@ -9,15 +9,30 @@ import type { WireEvent } from '@wireroom/protocol';
  * RunSummary.events_ref — the DB never stores event payloads.
  */
 export class BlobStore {
-  constructor(private readonly root: string) {}
+  private readonly root: string;
+
+  constructor(root: string) {
+    this.root = resolve(root);
+  }
 
   ref(msgId: number): string {
     return `runs/${msgId}.jsonl`;
   }
 
+  // harn:assume blob-path-contained ref=blob-path-containment
   path(room: string, ref: string): string {
-    return join(this.root, room, ref);
+    const file = resolve(this.root, room, ref);
+    const fromRoot = relative(this.root, file);
+    if (
+      fromRoot === '..' ||
+      fromRoot.startsWith(`..${sep}`) ||
+      isAbsolute(fromRoot)
+    ) {
+      throw new Error('run blob path escapes the configured root');
+    }
+    return file;
   }
+  // harn:end blob-path-contained
 
   append(room: string, ref: string, event: WireEvent): void {
     const file = this.path(room, ref);

@@ -11,6 +11,7 @@ import {
   MentionSpanSchema,
   MessageSchema,
   PendingInteractionSchema,
+  RoomIdSchema,
   RoomConfigSchema,
   RoomMeterSchema,
   RoomSchema,
@@ -34,6 +35,19 @@ const chatMessage = {
   ts: TS,
   seq: 42,
 } as const;
+
+describe('room ids', () => {
+  it.each(['eng', 'traderjoe-eng', 'r1', 'x'.repeat(63)])('accepts safe slug %s', (room) => {
+    expect(RoomIdSchema.safeParse(room).success).toBe(true);
+  });
+
+  it.each(['../escape', 'a/b', '.', '-eng', 'Eng', '', 'x'.repeat(64)])(
+    'rejects unsafe room id %j',
+    (room) => {
+      expect(RoomIdSchema.safeParse(room).success).toBe(false);
+    },
+  );
+});
 
 describe('handles', () => {
   it.each(['codex', 'red-team', 'a1', 'x'.repeat(31)])('accepts %s', (handle) => {

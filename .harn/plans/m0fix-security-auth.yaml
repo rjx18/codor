@@ -8,10 +8,11 @@ assumptions:
       statement: startServer must reject a missing, non-string, or empty token before
         binding a socket, and every REST and WebSocket request must present the
         configured token, because an unset environment variable must fail closed
-        rather than making unauthenticated REST requests compare equal to undefined.
+        rather than making unauthenticated REST requests compare equal to
+        undefined.
       reason: M0 milestone review finding 1; the documented JavaScript boot path can
-        pass process.env.WIREROOM_TOKEN as undefined at runtime despite TypeScript's
-        static ServerOptions type.
+        pass process.env.WIREROOM_TOKEN as undefined at runtime despite
+        TypeScript's static ServerOptions type.
       depends_on: []
     - id: blob-path-contained
       title: Room ids and run-blob paths cannot escape the configured blob root
@@ -48,3 +49,5 @@ files:
   - packages/switchboard/src/blobs.ts
   - packages/switchboard/src/server.ts
   - packages/switchboard/src/server.spec.ts
+applied:
+  applied_at: 2026-07-10T09:44:20.962Z

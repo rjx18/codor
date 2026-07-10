@@ -1,0 +1,10 @@
+id: server-token-required
+hash: a-34d4a2cd5944
+title: The network API never starts without a non-empty bearer token
+state: active
+statement: startServer must reject a missing, non-string, or empty token before
+  binding a socket, and every REST and WebSocket request must present the
+  configured token, because an unset environment variable must fail closed
+  rather than making unauthenticated REST requests compare equal to undefined.
+depends_on: []
+created_by: m0fix-security-auth

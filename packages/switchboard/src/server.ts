@@ -1,7 +1,7 @@
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { ClientFrameSchema, type ServerFrame } from '@wireroom/protocol';
+import { ClientFrameSchema, RoomIdSchema, type ServerFrame } from '@wireroom/protocol';
 
 import type { Daemon } from './daemon.js';
 
@@ -28,6 +28,11 @@ export interface RunningServer {
  */
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
   const { daemon, token } = options;
+  // harn:assume server-token-required ref=token-validation
+  if (typeof token !== 'string' || token.trim() === '') {
+    throw new Error('startServer requires a non-empty authentication token');
+  }
+  // harn:end server-token-required
   const app = Fastify();
 
   const authed = (req: FastifyRequest, reply: FastifyReply): boolean => {
@@ -46,6 +51,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   app.post('/api/rooms', (req, reply) => {
     if (!authed(req, reply)) return;
     const body = req.body as { id: string; name: string; owner: { handle: string; display_name: string } };
+    RoomIdSchema.parse(body.id);
     const created = daemon.createRoom(body);
     void reply.send(created);
   });

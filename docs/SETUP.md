@@ -28,6 +28,9 @@ import { Daemon, startServer } from '@wireroom/switchboard';
 import { ClaudeCodeAdapter } from '@wireroom/adapter-claude-code';
 import { CodexAdapter } from '@wireroom/adapter-codex';
 
+const token = process.env.WIREROOM_TOKEN;
+if (!token) throw new Error('WIREROOM_TOKEN is required');
+
 const daemon = new Daemon({
   dbPath: `${process.env.HOME}/.wireroom/switchboard.sqlite`,
   blobRoot: `${process.env.HOME}/.wireroom/blobs`,
@@ -41,7 +44,7 @@ if (!daemon.store.getRoom('desk')) {
 await daemon.reconcile(); // crash-safe: finalize / retry-once / hold in-flight turns
 const server = await startServer({
   daemon,
-  token: process.env.WIREROOM_TOKEN, // the pairing token — you are the room owner
+  token, // the pairing token — you are the room owner
   host: '127.0.0.1',
   port: 8137,
   staticRoot: new URL('./packages/web/dist', import.meta.url).pathname,

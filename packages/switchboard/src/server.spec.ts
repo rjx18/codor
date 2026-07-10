@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 
 import { Daemon } from './daemon.js';
+import { BlobStore } from './blobs.js';
 import { FakeAdapter } from './fake-adapter.js';
 import { type RunningServer, startServer } from './server.js';
 
@@ -70,6 +71,13 @@ function connect(): Promise<{ ws: WebSocket; frames: ServerFrame[]; next: (pred:
 }
 
 describe('REST', () => {
+  it('fails closed when the configured token is missing or empty', async () => {
+    await expect(startServer({ daemon, token: '' })).rejects.toThrow('non-empty authentication token');
+    await expect(
+      startServer({ daemon, token: undefined as unknown as string }),
+    ).rejects.toThrow('non-empty authentication token');
+  });
+
   it('rejects requests without the pairing token', async () => {
     expect((await fetch(`${base}/api/rooms`)).status).toBe(401);
     expect((await fetch(`${base}/api/rooms/eng/sync?since_seq=0`)).status).toBe(401);
@@ -102,6 +110,27 @@ describe('REST', () => {
     const body = await res.text();
     expect(body).not.toContain('sk-proj-');
     expect(body).toContain('[redacted]');
+  });
+
+  it('rejects traversal room ids and blob paths outside blobRoot', async () => {
+    const res = await fetch(`${base}/api/rooms`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: '../escape',
+        name: 'Escape',
+        owner: { handle: 'attacker', display_name: 'Attacker' },
+      }),
+    });
+    expect(res.status).toBe(500);
+    expect(daemon.store.listRooms().map((room) => room.id)).toEqual(['eng']);
+
+    const blobs = new BlobStore(join(dir, 'contained-blobs'));
+    expect(() => blobs.path('../escape', 'runs/1.jsonl')).toThrow('escapes');
+    expect(() => blobs.path('eng', '../../../escape.jsonl')).toThrow('escapes');
   });
 });
 

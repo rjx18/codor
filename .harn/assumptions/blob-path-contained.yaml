@@ -1,0 +1,10 @@
+id: blob-path-contained
+hash: a-2182ff1e179b
+title: Room ids and run-blob paths cannot escape the configured blob root
+state: active
+statement: Room ids must use the lowercase slug grammar and BlobStore must
+  reject every resolved path outside its configured root, because room ids
+  arrive through the API and must never turn path joining into arbitrary
+  filesystem traversal.
+depends_on: []
+created_by: m0fix-security-auth

@@ -4,9 +4,12 @@ import { z } from 'zod';
 export const MemberIdSchema = z.ulid();
 export type MemberId = z.infer<typeof MemberIdSchema>;
 
-/** Room identity — an opaque non-empty string (slug by convention). */
-export const RoomIdSchema = z.string().min(1);
+// harn:assume blob-path-contained ref=room-id-schema
+/** Room identity — a lowercase slug safe to use as one filesystem segment. */
+export const ROOM_ID_REGEX = /^[a-z0-9][a-z0-9-]{0,62}$/;
+export const RoomIdSchema = z.string().regex(ROOM_ID_REGEX);
 export type RoomId = z.infer<typeof RoomIdSchema>;
+// harn:end blob-path-contained
 
 /** Per-room dense monotonic message id — what `#N` refs point at. */
 export const MessageIdSchema = z.number().int().positive();
