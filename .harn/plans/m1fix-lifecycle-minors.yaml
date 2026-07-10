@@ -1,0 +1,133 @@
+id: m1fix-lifecycle-minors
+title: M1 review fixes for run, extension, socket, and interrupt lifecycle edges
+assumptions:
+  retire: []
+  create:
+    - id: redeliver-interrupts-stranded-run
+      title: Redelivery retires the abandoned run placeholder
+      statement: When redeliver clears the final delivery still bound to a running run message,
+        the daemon must finalize that old message in place as interrupted with an empty body
+        before starting a fresh run, because history may not retain a phantom running turn after
+        the recovery attempt has been explicitly abandoned.
+      reason: Accepted M1 review finding 7 found redeliver creating a new run while leaving the
+        crashed placeholder running forever.
+      depends_on:
+        - delivery-attempt-wal-reconcile
+        - runs-are-one-message
+    - id: extensions-retire-with-parent-run
+      title: Parent finalization retires extensions missing a stop hook
+      statement: Finalizing any parent agent run must mark each still-running extension child
+        dead and emit its member change even when no extension-ended hook arrived, because an
+        extension is bounded by its parent run and cannot remain active after that run ends.
+      reason: Accepted M1 review finding 8 and PROTOCOL section 1 require automatic extension
+        retirement at the parent boundary.
+      depends_on:
+        - extension-lifecycle-from-hooks
+    - id: unix-socket-parent-private-before-listen
+      title: Unix socket parent privacy is established before listen
+      statement: Before binding the unauthenticated local WebSocket, startServer must create or
+        verify that the socket parent directory has no group or other permissions, rejecting a
+        public parent before listen, because post-listen chmod of the socket alone leaves a local
+        authentication window.
+      reason: Accepted M1 review finding 9 identified a listen-to-chmod interval for callers that
+        supplied a socket path outside the CLI's pre-hardened data directory.
+      depends_on:
+        - unix-socket-same-protocol
+    - id: operator-interrupt-not-failure
+      title: Operator-interrupted nonzero exits do not kill members
+      statement: When an operator interrupt targets the member's active turn, a subsequent failed
+        completion from a harness that trapped the signal and exited nonzero must finalize as
+        interrupted and leave the member revivable without a death transition, because exit code
+        conventions differ across CLIs and the operator already supplied the lifecycle intent.
+      reason: Accepted M1 review finding 11 found that signal-trapping harnesses could turn an
+        explicit interrupt into an unexpected failed run and dead member.
+      depends_on:
+        - adapter-process-lifecycle-supervised
+        - one-inflight-turn-per-member
+  reviewed:
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Redeliver still resets and queues the chosen delivery; it now also closes the old
+        placeholder only after no delivery remains bound to it.
+    - id: runs-are-one-message
+      outcome: unchanged
+      reason: The abandoned attempt keeps its original message and the redelivery creates exactly
+        one new run message for the new attempt.
+    - id: extension-lifecycle-from-hooks
+      outcome: unchanged
+      reason: Hooks remain the only source of extension identities and detailed end summaries;
+        parent finalization adds only the required safety retirement for a missing stop hook.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: Local frames and mode-0600 socket behavior remain identical after the parent path is
+        verified private before binding.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: Adapters retain their native exit classification; the daemon overlays explicit
+        operator intent only for the member's currently interrupted turn.
+    - id: reply-is-finalized-run-message
+      outcome: unchanged
+      reason: Ordinary finalization and fanout remain unchanged while extension children are swept
+        immediately after the parent becomes final.
+anchors:
+  redeliver-interrupts-stranded-run:
+    redeliver-run-retirement:
+      action: change
+      reason: Close the last-bound running placeholder before queuing its delivery for a fresh run.
+  extensions-retire-with-parent-run:
+    parent-finalization-extension-sweep:
+      action: change
+      reason: Mark still-running children dead and emit their member updates at parent finalization.
+  unix-socket-parent-private-before-listen:
+    unix-socket-parent-precondition:
+      action: change
+      reason: Create or verify a private directory before server.listen touches the socket path.
+  operator-interrupt-not-failure:
+    interrupt-failure-classification:
+      action: change
+      reason: Record operator intent for an active member and consume it when classifying that
+        turn's completion.
+  delivery-attempt-wal-reconcile:
+    boot-reconcile:
+      action: keep
+      reason: Boot classification and held recovery stay unchanged.
+  runs-are-one-message:
+    run-message-lifecycle:
+      action: keep
+      reason: Fresh redelivery continues through the ordinary one-placeholder start path.
+  extension-lifecycle-from-hooks:
+    switchboard-extension-lifecycle:
+      action: keep
+      reason: Hook translation and summary journaling stay unchanged.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: keep
+      reason: The shared protocol dispatcher and final socket mode stay unchanged.
+    cli-protocol-transport:
+      action: keep
+      reason: CLI connection behavior is unchanged.
+  adapter-process-lifecycle-supervised:
+    cli-process-supervision:
+      action: keep
+      reason: Claude and Codex process supervision remains unchanged.
+    copilot-cli-process-supervision:
+      action: keep
+      reason: Copilot process supervision remains unchanged.
+    gemini-cli-process-supervision:
+      action: keep
+      reason: Gemini process supervision remains unchanged.
+    opencode-cli-process-supervision:
+      action: keep
+      reason: OpenCode process supervision remains unchanged.
+  reply-is-finalized-run-message:
+    finalize-and-route:
+      action: change
+      reason: Sweep orphaned extension state after the existing atomic parent finalization.
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - tmp/build/ACCEPT-M1.md
+  - tmp/build/PROGRESS.md
