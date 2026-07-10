@@ -1,0 +1,98 @@
+id: extensions-ephemeral-members
+title: P1.5 hook-owned ephemeral extension members and nested run summaries
+assumptions:
+  retire: []
+  create:
+    - id: extensions-not-addressable-v1
+      title: Extension members are visible but not addressable in v1
+      statement: Members of kind extension must appear in room state and run detail but
+        must be excluded from mention resolution, routing recipients, and adapter turns,
+        so text matching an extension handle remains plain text, because v1 subagents
+        are observations of a parent run rather than independent room participants.
+      reason: PLAN-M1 P1.5 and PROTOCOL section 1 explicitly defer extension addressing
+        until after v1 while requiring their lifecycle to remain visible.
+      depends_on:
+        - body-parser-shared-across-router-and-web
+    - id: extension-lifecycle-from-hooks
+      title: Only authoritative hooks create and retire extension members
+      statement: The switchboard must create or revive an ephemeral extension member only
+        from extension.started and retire it only from extension.ended, map harness-native
+        ids to stable MemberIds under the active parent run, use Agent or Task stream tool
+        calls only to enrich its description, and journal mapped lifecycle plus the stop
+        summary under that parent run, because stream tool calls do not prove subagent
+        lifecycle boundaries.
+      reason: PLAN-M1 P1.5 makes SubagentStart and SubagentStop authoritative while using
+        the parent stream only for descriptive live status.
+      depends_on:
+        - extensions-hooks-authoritative
+        - extension-events-use-native-identifiers
+        - extensions-not-addressable-v1
+  reviewed:
+    - id: extensions-hooks-authoritative
+      outcome: unchanged
+      reason: The Claude adapter keeps injecting current SubagentStart and SubagentStop
+        hooks; its Agent tool-call stream remains enrichment only.
+    - id: extension-events-use-native-identifiers
+      outcome: unchanged
+      reason: Adapter events still carry native session and agent identifiers, now with
+        optional descriptive hook fields, until the switchboard maps them to MemberIds.
+    - id: body-parser-shared-across-router-and-web
+      outcome: unchanged
+      reason: The shared parser remains the single addressability decision for router and
+        composer and explicitly excludes extension members.
+    - id: routing-eligibility-nonempty-finalized
+      outcome: unchanged
+      reason: Extension-authored messages remain non-routable and only parent agent run
+        finalization participates in normal routing.
+    - id: run-blobs-off-db
+      outcome: unchanged
+      reason: Mapped extension lifecycle and summaries are appended to the parent JSONL
+        journal; SQLite stores only the ordinary member rows.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: Extension creation and retirement use addMember and updateMember, producing
+        the same visible member change rows as every other roster mutation.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: Extension member frames are ordinary by-id upserts and run lifecycle detail
+        remains in the existing live or fetched event stream.
+anchors:
+  extensions-not-addressable-v1:
+    extension-addressability-filter:
+      action: change
+      reason: Anchor the existing human-or-agent addressability predicate as the v1
+        exclusion rule and cover extension-shaped mention text.
+    extension-run-rendering:
+      action: change
+      reason: Render mapped extensions only inside the expanded parent run while keeping
+        their summary and lifecycle visible.
+  extension-lifecycle-from-hooks:
+    switchboard-extension-lifecycle:
+      action: change
+      reason: Map authoritative native hook ids to ephemeral members, enrich from queued
+        Agent tool calls, journal mapped events, and retire on the stop event.
+  extension-events-use-native-identifiers:
+    extension-native-event-schema:
+      action: change
+      reason: Preserve native ids while adding optional hook metadata and switchboard
+        enrichment fields used in the parent run journal.
+  body-parser-shared-across-router-and-web:
+    shared-body-parser:
+      action: change
+      reason: Make the extension exclusion an explicitly anchored part of shared parsing.
+files:
+  - packages/protocol/src/events.ts
+  - packages/protocol/src/body.ts
+  - packages/protocol/src/index.spec.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/adapters/claude-code/src/translate.ts
+  - packages/adapters/claude-code/src/translate.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/e2e.spec.ts
+  - tmp/build/PROGRESS.md
