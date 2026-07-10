@@ -255,4 +255,83 @@ describe('deliveries (attempt WAL columns)', () => {
     const read = store.updateDelivery('eng', inbox.id, { read_ts: new Date().toISOString() });
     expect(read.read_ts).toBeDefined();
   });
+
+  it('persists immutable routed payload context with an agent delivery', () => {
+    const { owner } = openRoom(store);
+    const agent = store.addMember('eng', { kind: 'agent', handle: 'coder', display_name: 'Coder' });
+    const message = store.postMessage('eng', { author: owner.id, kind: 'chat', body: '@coder hi' });
+    const delivery = store.createDelivery('eng', {
+      message_id: message.id,
+      recipient: agent.id,
+      payload_snapshot: '{"pinned":true}',
+    });
+    expect(store.getDeliveryPayloadSnapshot('eng', delivery.id)).toBe('{"pinned":true}');
+  });
+});
+
+describe('atomic turn lifecycle', () => {
+  it('rolls back the run placeholder and every binding when one batch delivery is invalid', () => {
+    const { owner } = openRoom(store);
+    const agent = store.addMember('eng', { kind: 'agent', handle: 'coder', display_name: 'Coder' });
+    const trigger = store.postMessage('eng', { author: owner.id, kind: 'chat', body: '@coder go' });
+    const delivery = store.createDelivery('eng', { message_id: trigger.id, recipient: agent.id });
+    const beforeMessages = store.listMessages('eng').length;
+
+    expect(() =>
+      store.beginTurn('eng', {
+        memberId: agent.id,
+        deliveryIds: [delivery.id, 'missing-delivery'],
+        startedTs: new Date().toISOString(),
+        eventsRef: (id) => `runs/${id}.jsonl`,
+      }),
+    ).toThrow('missing-delivery');
+
+    expect(store.listMessages('eng')).toHaveLength(beforeMessages);
+    expect(store.getDelivery('eng', delivery.id)).toMatchObject({
+      state: 'queued',
+      attempt_count: 0,
+      run_msg_id: undefined,
+    });
+  });
+
+  it('rolls back final message, input consumption, member, meter, and fanout together', () => {
+    const { owner } = openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent',
+      handle: 'coder',
+      display_name: 'Coder',
+      state: 'running',
+    });
+    const trigger = store.postMessage('eng', { author: owner.id, kind: 'chat', body: '@coder go' });
+    const delivery = store.createDelivery('eng', { message_id: trigger.id, recipient: agent.id });
+    const started = store.beginTurn('eng', {
+      memberId: agent.id,
+      deliveryIds: [delivery.id],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${id}.jsonl`,
+    });
+    const running = started.runMessage;
+
+    expect(() =>
+      store.completeTurn('eng', {
+        runMsgId: running.id,
+        message: {
+          body: '@richard done',
+          run: { ...running.run!, status: 'completed', final_text: '@richard done' },
+        },
+        inputDeliveryIds: [delivery.id],
+        memberId: agent.id,
+        memberPatch: { state: 'idle' },
+        meterDay: 'not-a-date',
+        meterDelta: { turns: 1 },
+        fanout: [{ recipient: owner.id, state: 'consumed' }],
+      }),
+    ).toThrow();
+
+    expect(store.getMessage('eng', running.id)!.run!.status).toBe('running');
+    expect(store.getDelivery('eng', delivery.id)!.state).toBe('delivering');
+    expect(store.getMember('eng', agent.id)!.state).toBe('running');
+    expect(store.listDeliveries('eng', { recipient: owner.id })).toHaveLength(0);
+    expect(store.getMeter('eng', 'not-a-date')).toBeUndefined();
+  });
 });

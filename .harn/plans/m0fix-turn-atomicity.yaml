@@ -5,8 +5,8 @@ assumptions:
   create:
     - id: turn-start-transactional
       title: A run placeholder and its whole delivery batch begin atomically
-      statement: Beginning a turn must create or reuse exactly one running run
-        message and bind every delivery in the ordered batch to it in one SQLite
+      statement: Beginning a turn must create or reuse exactly one running run message
+        and bind every delivery in the ordered batch to it in one SQLite
         transaction before any adapter process starts, because a crash may never
         leave an orphan placeholder or split one batch across attempts.
       reason: M0 milestone review finding 2; the previous sequence committed the
@@ -37,8 +37,8 @@ assumptions:
   reviewed:
     - id: delivery-attempt-wal-reconcile
       outcome: unchanged
-      reason: The existing attempt states and boot outcomes remain authoritative;
-        this plan makes their start transaction atomic.
+      reason: The existing attempt states and boot outcomes remain authoritative; this
+        plan makes their start transaction atomic.
     - id: runs-are-one-message
       outcome: unchanged
       reason: Normal starts and release_hold retries now enforce the existing single
@@ -60,8 +60,8 @@ assumptions:
         rows inside one outer transaction.
     - id: run-blobs-off-db
       outcome: unchanged
-      reason: The new delivery snapshot column stores routed prompt context only;
-        run event streams remain exclusively in JSONL blobs.
+      reason: The new delivery snapshot column stores routed prompt context only; run
+        event streams remain exclusively in JSONL blobs.
 anchors:
   turn-start-transactional:
     atomic-turn-start:
@@ -98,10 +98,12 @@ anchors:
   run-blobs-off-db:
     store-schema-no-blobs:
       action: change
-      reason: Add only the delivery payload snapshot column and its migration; no
-        run events enter SQLite.
+      reason: Add only the delivery payload snapshot column and its migration; no run
+        events enter SQLite.
 files:
   - packages/switchboard/src/store.ts
   - packages/switchboard/src/store.spec.ts
   - packages/switchboard/src/daemon.ts
   - packages/switchboard/src/daemon.spec.ts
+applied:
+  applied_at: 2026-07-10T09:52:11.179Z

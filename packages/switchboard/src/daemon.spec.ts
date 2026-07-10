@@ -289,9 +289,12 @@ describe('kill-point matrix (boot reconcile)', () => {
     expect(held).toBeDefined();
 
     fake.enqueue({ kind: 'complete', final_text: 'released and done' });
+    const runCountBeforeRelease = runMessages().length;
     daemon.releaseHold('eng', delivery.id);
     await daemon.settle();
     expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('consumed');
+    expect(runMessages()).toHaveLength(runCountBeforeRelease);
+    expect(daemon.store.getMessage('eng', runMsg.id)!.run!.status).toBe('completed');
   });
 
   it('a second failure is NOT retried again (retry once, then hold)', async () => {
@@ -469,6 +472,51 @@ describe('human inbox lifecycle + sync', () => {
     expect(runs[0]!.run!.status).toBe('completed');
     expect(runs[0]!.body).toBe('all wrapped up');
     expect(sync.seq).toBe(daemon.store.currentSeq('eng'));
+  });
+});
+
+describe('routing-time payload snapshots', () => {
+  it('delayed fanout recipients receive the same reference body even after the ref finalizes', async () => {
+    const alpha = spawnAgent('alpha');
+    const beta = spawnAgent('beta');
+    daemon.store.updateMember('eng', alpha.id, { state: 'paused' });
+    daemon.store.updateMember('eng', beta.id, { state: 'paused' });
+
+    const refBase = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+    const referenced = daemon.store.updateMessage('eng', refBase.id, {
+      run: {
+        status: 'running',
+        started_ts: new Date().toISOString(),
+        tool_calls: 0,
+        events_ref: `runs/${refBase.id}.jsonl`,
+      },
+    });
+    daemon.postHumanMessage('eng', `@alpha @beta compare #${referenced.id}`);
+
+    daemon.store.updateMessage('eng', referenced.id, {
+      body: 'LATE FINAL TEXT',
+      run: {
+        ...referenced.run!,
+        status: 'completed',
+        ended_ts: new Date().toISOString(),
+        final_text: 'LATE FINAL TEXT',
+      },
+    });
+
+    fake.enqueue(
+      { kind: 'complete', final_text: '@richard alpha done' },
+      { kind: 'complete', final_text: '@richard beta done' },
+    );
+    daemon.reviveMember('eng', alpha.id);
+    await daemon.settle();
+    daemon.reviveMember('eng', beta.id);
+    await daemon.settle();
+
+    expect(fake.deliveries).toHaveLength(2);
+    expect(fake.deliveries[0]!.payload).not.toContain('LATE FINAL TEXT');
+    expect(fake.deliveries[1]!.payload).not.toContain('LATE FINAL TEXT');
+    expect(fake.deliveries[0]!.payload).toContain(`referenced #${referenced.id}`);
+    expect(fake.deliveries[1]!.payload).toContain(`referenced #${referenced.id}`);
   });
 });
 

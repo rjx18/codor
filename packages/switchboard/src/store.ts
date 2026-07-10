@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
   batch_id TEXT,
   run_msg_id INTEGER,
   read_ts TEXT,
+  payload_snapshot TEXT,        -- immutable routed prompt context; never run events
   ts TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pending_interactions (
@@ -113,6 +114,15 @@ CREATE TABLE IF NOT EXISTS changes (
 );
 `;
 // harn:end run-blobs-off-db
+
+// harn:assume delivery-payload-snapshotted ref=delivery-payload-storage
+function migrateDeliveryPayloadSnapshot(db: Database.Database): void {
+  const columns = db.pragma('table_info(deliveries)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'payload_snapshot')) {
+    db.exec('ALTER TABLE deliveries ADD COLUMN payload_snapshot TEXT');
+  }
+}
+// harn:end delivery-payload-snapshotted
 
 const toBool = (n: number): boolean => n !== 0;
 const fromBool = (b: boolean): number => (b ? 1 : 0);
@@ -164,6 +174,7 @@ interface DeliveryRow {
   batch_id: string | null;
   run_msg_id: number | null;
   read_ts: string | null;
+  payload_snapshot: string | null;
   ts: string;
 }
 
@@ -316,6 +327,24 @@ export interface SyncResult {
   meters: RoomMeter[];
 }
 
+export interface FanoutDelivery {
+  recipient: string;
+  state?: Delivery['state'];
+  payload_snapshot?: string;
+}
+
+export interface AtomicTurnStart {
+  runMessage: Message;
+  deliveries: Delivery[];
+}
+
+export interface AtomicTurnCompletion {
+  message: Message;
+  member: Member;
+  meter: RoomMeter;
+  deliveries: Delivery[];
+}
+
 /**
  * The room store: better-sqlite3, synchronous, one file per switchboard.
  * Every mutation of a client-visible entity appends to the change log inside
@@ -329,6 +358,7 @@ export class Store {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.db.exec(SCHEMA);
+    migrateDeliveryPayloadSnapshot(this.db);
   }
 
   close(): void {
@@ -620,7 +650,12 @@ export class Store {
 
   createDelivery(
     room: string,
-    delivery: { message_id: number; recipient: string; state?: Delivery['state'] },
+    delivery: {
+      message_id: number;
+      recipient: string;
+      state?: Delivery['state'];
+      payload_snapshot?: string;
+    },
   ): Delivery {
     return this.db.transaction(() => {
       const validated = DeliverySchema.parse({
@@ -634,8 +669,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO deliveries (id, room, message_id, recipient, state, attempt_count,
-             batch_id, run_msg_id, read_ts, ts)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             batch_id, run_msg_id, read_ts, payload_snapshot, ts)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           validated.id,
@@ -647,6 +682,7 @@ export class Store {
           orNull(validated.batch_id),
           orNull(validated.run_msg_id),
           orNull(validated.read_ts),
+          orNull(delivery.payload_snapshot),
           validated.ts,
         );
       // Human inbox records are client-visible; recipient kind decides.
@@ -697,6 +733,13 @@ export class Store {
     return row ? deliveryFromRow(row) : undefined;
   }
 
+  getDeliveryPayloadSnapshot(room: string, deliveryId: string): string | undefined {
+    const row = this.db
+      .prepare('SELECT payload_snapshot FROM deliveries WHERE room = ? AND id = ?')
+      .get(room, deliveryId) as { payload_snapshot: string | null } | undefined;
+    return row?.payload_snapshot ?? undefined;
+  }
+
   listDeliveries(
     room: string,
     filter: { recipient?: string; state?: Delivery['state'] } = {},
@@ -717,6 +760,96 @@ export class Store {
       ) as DeliveryRow[];
     return rows.map(deliveryFromRow);
   }
+
+  // harn:assume turn-start-transactional ref=atomic-turn-start
+  /** Creates/reuses the run and binds the complete batch in one transaction. */
+  beginTurn(
+    room: string,
+    opts: {
+      memberId: string;
+      deliveryIds: string[];
+      startedTs: string;
+      eventsRef: (messageId: number) => string;
+      reuseRunMsgId?: number;
+    },
+  ): AtomicTurnStart {
+    return this.db.transaction(() => {
+      let runMessage: Message;
+      if (opts.reuseRunMsgId !== undefined) {
+        const existing = this.getMessage(room, opts.reuseRunMsgId);
+        if (
+          !existing?.run ||
+          existing.kind !== 'run' ||
+          existing.author !== opts.memberId ||
+          existing.run.status !== 'running'
+        ) {
+          throw new Error(`run #${opts.reuseRunMsgId} is not reusable`);
+        }
+        runMessage = existing;
+      } else {
+        const posted = this.postMessage(room, { author: opts.memberId, kind: 'run', body: '' });
+        runMessage = this.updateMessage(room, posted.id, {
+          run: {
+            status: 'running',
+            started_ts: opts.startedTs,
+            tool_calls: 0,
+            events_ref: opts.eventsRef(posted.id),
+          },
+        });
+      }
+
+      const deliveries = opts.deliveryIds.map((deliveryId) => {
+        const delivery = this.getDelivery(room, deliveryId);
+        if (!delivery) throw new Error(`no such delivery: ${deliveryId}`);
+        if (delivery.recipient !== opts.memberId) {
+          throw new Error(`delivery ${deliveryId} does not belong to member ${opts.memberId}`);
+        }
+        return this.updateDelivery(room, deliveryId, {
+          state: 'delivering',
+          attempt_count: delivery.attempt_count + 1,
+          run_msg_id: runMessage.id,
+          batch_id: `batch-${runMessage.id}`,
+        });
+      });
+      return { runMessage, deliveries };
+    })();
+  }
+  // harn:end turn-start-transactional
+
+  // harn:assume turn-finalization-transactional ref=atomic-turn-finalization
+  /** Commits all durable effects of run completion together. */
+  completeTurn(
+    room: string,
+    opts: {
+      runMsgId: number;
+      message: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run'>>;
+      inputDeliveryIds: string[];
+      memberId: string;
+      memberPatch: Partial<Omit<Member, 'id' | 'kind'>>;
+      meterDay: string;
+      meterDelta: { turns?: number; cost_usd?: number; input_tokens?: number; output_tokens?: number };
+      fanout: FanoutDelivery[];
+    },
+  ): AtomicTurnCompletion {
+    return this.db.transaction(() => {
+      const message = this.updateMessage(room, opts.runMsgId, opts.message);
+      for (const deliveryId of opts.inputDeliveryIds) {
+        this.updateDelivery(room, deliveryId, { state: 'consumed' });
+      }
+      const member = this.updateMember(room, opts.memberId, opts.memberPatch);
+      const meter = this.bumpMeter(room, opts.meterDay, opts.meterDelta);
+      const deliveries = opts.fanout.map((delivery) =>
+        this.createDelivery(room, {
+          message_id: opts.runMsgId,
+          recipient: delivery.recipient,
+          state: delivery.state,
+          payload_snapshot: delivery.payload_snapshot,
+        }),
+      );
+      return { message, member, meter, deliveries };
+    })();
+  }
+  // harn:end turn-finalization-transactional
 
   // ── pending interactions ──────────────────────────────────────────────
 

@@ -1,0 +1,11 @@
+id: turn-start-transactional
+hash: a-2061529804bf
+title: A run placeholder and its whole delivery batch begin atomically
+state: active
+statement: Beginning a turn must create or reuse exactly one running run message
+  and bind every delivery in the ordered batch to it in one SQLite transaction
+  before any adapter process starts, because a crash may never leave an orphan
+  placeholder or split one batch across attempts.
+depends_on:
+  - delivery-attempt-wal-reconcile
+created_by: m0fix-turn-atomicity

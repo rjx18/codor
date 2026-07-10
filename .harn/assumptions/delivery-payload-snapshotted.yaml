@@ -1,0 +1,11 @@
+id: delivery-payload-snapshotted
+hash: a-d40099a4243f
+title: Routed payload content and references are immutable per delivery
+state: active
+statement: Agent deliveries must persist the message, recipient header, and
+  resolved reference bodies at routing time and reuse that snapshot for delayed
+  execution and retries, because recipients of one fanout must not see different
+  content when referenced runs finalize or members rename.
+depends_on:
+  - whole-message-delivery
+created_by: m0fix-turn-atomicity
