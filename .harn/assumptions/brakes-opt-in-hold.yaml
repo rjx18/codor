@@ -1,0 +1,13 @@
+id: brakes-opt-in-hold
+hash: a-cb4a2b107cb2
+title: Brakes hold deliveries only when explicitly configured
+state: active
+statement: evaluateBrakes must return hold only when the room explicitly set
+  turn_brake (consecutive agent-to-agent deliveries with no human message
+  reaching the limit) or spend_brake_usd (daily cost reaching the threshold),
+  and must never hold with the default null config, because agent chains run
+  until the work is done by default and a hold is an opt-in checkpoint, not a
+  leash.
+depends_on:
+  - brakes-default-off
+created_by: router-semantics

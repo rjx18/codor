@@ -1,0 +1,14 @@
+id: default-recipient-latest-finalized
+hash: a-ae521abe56e4
+title: Mentionless defaults - latest FINALIZED agent for humans, trigger author
+  for agents
+state: active
+statement: A human- or bridge-authored message with zero valid mentions must
+  default to the author of the latest FINALIZED agent message (running
+  placeholders never count; none ever finished means room commentary delivered
+  to nobody), and an agent-authored message must default to the author of the
+  delivery that triggered its run (the LAST delivery of a batch), because
+  untargeted replies must flow back to whoever is actually in the conversation,
+  not to a still-running placeholder.
+depends_on: []
+created_by: router-semantics

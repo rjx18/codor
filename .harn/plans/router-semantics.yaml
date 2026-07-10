@@ -5,15 +5,15 @@ assumptions:
   create:
     - id: routing-eligibility-gate
       title: Only human/agent/bridge chat and finalized runs ever route
-      statement: The router must route only chat messages authored by human, agent,
-        or bridge members and run messages whose status is no longer running,
-        and must never route system messages, ask/approval cards, anything
-        authored by the system member, or chat replies to a card (audit
-        replies), because a routed message queues an agent turn and none of
-        those sources may ever trigger one.
-      reason: "PROTOCOL SS3 'routing eligibility comes first'; P0.8 posts cards,
-        audit replies, and system notices through the same store, so the gate
-        is the only thing standing between them and runaway turns."
+      statement: The router must route only chat messages authored by human, agent, or
+        bridge members and run messages whose status is no longer running, and
+        must never route system messages, ask/approval cards, anything authored
+        by the system member, or chat replies to a card (audit replies), because
+        a routed message queues an agent turn and none of those sources may ever
+        trigger one.
+      reason: PROTOCOL SS3 'routing eligibility comes first'; P0.8 posts cards, audit
+        replies, and system notices through the same store, so the gate is the
+        only thing standing between them and runaway turns.
       depends_on: []
     - id: whole-message-delivery
       title: Every recipient receives the identical full message payload
@@ -39,17 +39,18 @@ assumptions:
       depends_on:
         - whole-message-delivery
     - id: default-recipient-latest-finalized
-      title: Mentionless defaults - latest FINALIZED agent for humans, trigger author for agents
+      title: Mentionless defaults - latest FINALIZED agent for humans, trigger author
+        for agents
       statement: A human- or bridge-authored message with zero valid mentions must
         default to the author of the latest FINALIZED agent message (running
         placeholders never count; none ever finished means room commentary
         delivered to nobody), and an agent-authored message must default to the
         author of the delivery that triggered its run (the LAST delivery of a
-        batch), because untargeted replies must flow back to whoever is
-        actually in the conversation, not to a still-running placeholder.
-      reason: PROTOCOL SS3 rule 4 as amended by codex pass-2 (latest-FINALIZED);
-        P0.8 supplies trigger context per run, so both sides depend on this
-        exact rule.
+        batch), because untargeted replies must flow back to whoever is actually
+        in the conversation, not to a still-running placeholder.
+      reason: PROTOCOL SS3 rule 4 as amended by codex pass-2 (latest-FINALIZED); P0.8
+        supplies trigger context per run, so both sides depend on this exact
+        rule.
       depends_on: []
     - id: human-deliveries-are-inbox-records
       title: Humans get inbox records, never turns
@@ -57,8 +58,8 @@ assumptions:
         human recipients must never produce an adapter turn - the daemon
         materializes them as inbox records with read lifecycle - because humans
         answer on their own time and a turn at a human is meaningless.
-      reason: PROTOCOL SS1 humans-are-members; P0.8 fans humans out as WS inbox
-        frames + unread counts and the humans-never-turn spec pins it.
+      reason: PROTOCOL SS1 humans-are-members; P0.8 fans humans out as WS inbox frames
+        + unread counts and the humans-never-turn spec pins it.
       depends_on: []
     - id: brakes-opt-in-hold
       title: Brakes hold deliveries only when explicitly configured
@@ -68,9 +69,9 @@ assumptions:
         threshold), and must never hold with the default null config, because
         agent chains run until the work is done by default and a hold is an
         opt-in checkpoint, not a leash.
-      reason: PROTOCOL SS3 visibility-and-brakes; depends on brakes-default-off
-        schema defaults; P0.8 turns hold=true into held deliveries + system
-        message + push.
+      reason: PROTOCOL SS3 visibility-and-brakes; depends on brakes-default-off schema
+        defaults; P0.8 turns hold=true into held deliveries + system message +
+        push.
       depends_on:
         - brakes-default-off
   reviewed:
@@ -113,3 +114,5 @@ files:
   - packages/switchboard/src/index.ts
   - packages/switchboard/src/router.ts
   - packages/switchboard/src/router.spec.ts
+applied:
+  applied_at: 2026-07-10T08:05:36.563Z

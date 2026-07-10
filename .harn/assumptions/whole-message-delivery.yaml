@@ -1,0 +1,11 @@
+id: whole-message-delivery
+hash: a-063f02d5c7ef
+title: Every recipient receives the identical full message payload
+state: active
+statement: Fan-out must produce one delivery payload per recipient that is
+  byte-identical across recipients except for the you= field - the full body
+  plus all resolved references, never per-mention segments - because messages
+  have cross-recipient dependencies and agents are trusted to read the whole
+  message like humans in a group chat.
+depends_on: []
+created_by: router-semantics

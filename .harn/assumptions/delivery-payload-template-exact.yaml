@@ -1,0 +1,14 @@
+id: delivery-payload-template-exact
+hash: a-e91e053fe05a
+title: The delivery payload template is pinned byte-exact
+state: active
+statement: "composePayload must emit exactly the pinned template: a two-line
+  wireroom header (room, msg id, from with author kind, to list, you), blank
+  line, full body, one referenced block per ref (id, author handle,
+  minute-precision UTC ts, verbatim body with run refs using final_text, closed
+  by end reference), and the optional single-line conventions trailer, because
+  sessions parse and pay tokens for every byte and the goldens in router.spec.ts
+  are the normative shape."
+depends_on:
+  - whole-message-delivery
+created_by: router-semantics

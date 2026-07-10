@@ -1,0 +1,10 @@
+id: human-deliveries-are-inbox-records
+hash: a-15ecf2dc16cc
+title: Humans get inbox records, never turns
+state: active
+statement: resolveRecipients must split recipients into agents and humans and
+  human recipients must never produce an adapter turn - the daemon materializes
+  them as inbox records with read lifecycle - because humans answer on their own
+  time and a turn at a human is meaningless.
+depends_on: []
+created_by: router-semantics
