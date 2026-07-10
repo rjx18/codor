@@ -1,0 +1,11 @@
+id: mention-spans-survive-renames
+hash: a-17af0748cdff
+title: Mentions persist as resolved member-id spans, never handle text
+state: active
+statement: Message.mentions must be stored as resolved MentionSpan objects
+  {member_id, start, end} referencing stable member ids for every message,
+  because renames change handles but must never break old messages' mention
+  resolution - router and surfaces re-derive display text from member_id at
+  render time.
+depends_on: []
+created_by: protocol-schemas

@@ -1,0 +1,12 @@
+id: interaction-state-machine-persisted
+hash: a-f791df22024b
+title: PendingInteraction carries the full crash-safe state machine
+state: active
+statement: The PendingInteraction schema must persist the complete state machine
+  of PROTOCOL SS2 - targets[], state pending|answered|acked|orphaned, answer,
+  answered_by, answered_ts, native_id, kind, message_id - because P0.8's boot
+  reconcile decides replay-or-orphan strictly from this persisted state and the
+  P0.2 crash fixtures (re-raise with fresh native ids, idempotent answer
+  replay).
+depends_on: []
+created_by: protocol-schemas

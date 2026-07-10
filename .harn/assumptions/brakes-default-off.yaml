@@ -1,0 +1,10 @@
+id: brakes-default-off
+hash: a-d4b695ae131b
+title: Room brakes default off; meters and stall flag are informational
+state: active
+statement: RoomConfig must default turn_brake and spend_brake_usd to null (off)
+  while stall_minutes defaults to 30 as an always-on informational flag, because
+  agent-to-agent chains are the product - holds are opt-in per room and nothing
+  blocks by default.
+depends_on: []
+created_by: protocol-schemas

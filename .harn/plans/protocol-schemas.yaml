@@ -16,12 +16,12 @@ assumptions:
       depends_on: []
     - id: interaction-state-machine-persisted
       title: PendingInteraction carries the full crash-safe state machine
-      statement: The PendingInteraction schema must persist the complete state
-        machine of PROTOCOL SS2 - targets[], state
-        pending|answered|acked|orphaned, answer, answered_by, answered_ts,
-        native_id, kind, message_id - because P0.8's boot reconcile decides
-        replay-or-orphan strictly from this persisted state and the P0.2 crash
-        fixtures (re-raise with fresh native ids, idempotent answer replay).
+      statement: The PendingInteraction schema must persist the complete state machine
+        of PROTOCOL SS2 - targets[], state pending|answered|acked|orphaned,
+        answer, answered_by, answered_ts, native_id, kind, message_id - because
+        P0.8's boot reconcile decides replay-or-orphan strictly from this
+        persisted state and the P0.2 crash fixtures (re-raise with fresh native
+        ids, idempotent answer replay).
       reason: PLAN-M0 P0.3; the ask/approval lifecycle is the hardest crash boundary
         and every consumer (store, daemon, web cards) reads these exact fields.
       depends_on: []
@@ -41,19 +41,18 @@ assumptions:
         while stall_minutes defaults to 30 as an always-on informational flag,
         because agent-to-agent chains are the product - holds are opt-in per
         room and nothing blocks by default.
-      reason: PROTOCOL SS3 visibility-and-brakes; P0.8 hold logic and P1.6 meters
-        read these defaults, so flipping a default is a product-behavior change
+      reason: PROTOCOL SS3 visibility-and-brakes; P0.8 hold logic and P1.6 meters read
+        these defaults, so flipping a default is a product-behavior change
         needing review.
       depends_on: []
     - id: reserved-handles-rejected
       title: Handle schema enforces the regex and rejects reserved names
-      statement: The member handle schema must accept only
-        /^[a-z0-9][a-z0-9-]{1,30}$/ and reject the reserved handles 'all' and
-        'switchboard' at parse time, because reserved names gate the post-MVP
-        broadcast channel and system authorship and must never be assignable to
-        real members.
-      reason: PLAN-M0 P0.3; P0.4 seeds the system member outside this schema path
-        and P0.5 addressability assumes reserved handles cannot collide.
+      statement: The member handle schema must accept only /^[a-z0-9][a-z0-9-]{1,30}$/
+        and reject the reserved handles 'all' and 'switchboard' at parse time,
+        because reserved names gate the post-MVP broadcast channel and system
+        authorship and must never be assignable to real members.
+      reason: PLAN-M0 P0.3; P0.4 seeds the system member outside this schema path and
+        P0.5 addressability assumes reserved handles cannot collide.
       depends_on: []
   reviewed: []
 anchors:
@@ -98,3 +97,5 @@ files:
   - packages/protocol/src/adapter.ts
   - packages/protocol/src/ws.ts
   - packages/protocol/src/schemas.spec.ts
+applied:
+  applied_at: 2026-07-10T07:51:59.889Z

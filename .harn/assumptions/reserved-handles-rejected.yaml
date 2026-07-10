@@ -1,0 +1,10 @@
+id: reserved-handles-rejected
+hash: a-968fa9a375aa
+title: Handle schema enforces the regex and rejects reserved names
+state: active
+statement: The member handle schema must accept only /^[a-z0-9][a-z0-9-]{1,30}$/
+  and reject the reserved handles 'all' and 'switchboard' at parse time, because
+  reserved names gate the post-MVP broadcast channel and system authorship and
+  must never be assignable to real members.
+depends_on: []
+created_by: protocol-schemas
