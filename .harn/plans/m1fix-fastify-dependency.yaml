@@ -1,0 +1,28 @@
+id: m1fix-fastify-dependency
+title: Declare the switchboard Fastify runtime dependency
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: monorepo-workspace-layout
+      outcome: unchanged
+      reason: The switchboard remains inside the existing packages/* workspace and its
+        recursive build/test coverage is unchanged; only its missing direct runtime
+        dependency declaration is repaired.
+anchors:
+  monorepo-workspace-layout:
+    workspace-globs:
+      action: keep
+      reason: The pnpm workspace package globs do not change.
+    vitest-projects:
+      action: keep
+      reason: The Vitest workspace package globs do not change.
+files:
+  - packages/switchboard/package.json
+  - pnpm-lock.yaml
+  - tmp/build/PROGRESS.md
+notes:
+  - Add fastify ^5.10.0 with pnpm add only after this plan is locked so a fresh
+    frozen install can resolve packages/switchboard/src/server.ts directly.
+  - This package-manifest regression has no useful unit-test seam; pnpm -r build
+    is the regression gate, followed by pnpm -r test for the repository gate.
