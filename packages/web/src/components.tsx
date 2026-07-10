@@ -231,6 +231,28 @@ export function MemberCard(props: {
           {props.member.policy}
         </span>
       )}
+      {/* harn:assume custody-uncertain-never-double-writes ref=attach-custody-web-hint */}
+      {props.member.session_ref && props.member.custody !== 'mirrored' && state !== 'dead' && (
+        <div className="mt-2 flex min-w-0 items-center gap-2 text-[10px]">
+          <code
+            data-testid={`attach-command-${props.member.handle}`}
+            className="min-w-0 flex-1 truncate bg-zinc-900 px-1.5 py-1 text-zinc-400"
+          >
+            wireroom attach @{props.member.handle}
+          </code>
+          <button
+            type="button"
+            title="Copy attach command"
+            onClick={() =>
+              void navigator.clipboard?.writeText(`wireroom attach @${props.member.handle}`)
+            }
+            className="shrink-0 border border-zinc-700 px-1.5 py-1 text-zinc-300"
+          >
+            Copy
+          </button>
+        </div>
+      )}
+      {/* harn:end custody-uncertain-never-double-writes */}
       <p
         data-testid={`member-${props.member.handle}-history`}
         className="mt-2 truncate text-[10px] text-zinc-500"

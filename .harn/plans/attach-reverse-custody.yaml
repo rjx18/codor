@@ -5,27 +5,28 @@ assumptions:
   create:
     - id: attach-custody-lease-tracks-child-pid
       title: Interactive attach custody is represented by a durable process lease
-      statement: An interactive attach must durably identify the room member, lease id,
-        CLI pid, native TUI child pid and process group, and latest heartbeat before the
-        daemon releases custody, while the CLI spawns and waits for the native resume
-        child with inherited stdio and reports its process identity, because custody
-        recovery must distinguish an exited terminal from an orphan still driving the
-        harness session.
-      reason: PLAN-M1 P1.4 requires an explicit custody lease spanning the daemon, CLI,
-        and native interactive process rather than inferring ownership from a socket.
+      statement: An interactive attach must durably identify the room member, lease
+        id, CLI pid, native TUI child pid and process group, and latest
+        heartbeat before the daemon releases custody, while the CLI spawns and
+        waits for the native resume child with inherited stdio and reports its
+        process identity, because custody recovery must distinguish an exited
+        terminal from an orphan still driving the harness session.
+      reason: PLAN-M1 P1.4 requires an explicit custody lease spanning the daemon,
+        CLI, and native interactive process rather than inferring ownership from
+        a socket.
       depends_on:
         - adoption-explicit-or-sessionend
         - revive-via-session-ref
     - id: custody-uncertain-never-double-writes
       title: Lost attach leases never permit concurrent daemon delivery
-      statement: When an attach heartbeat expires without proof that the recorded native
-        child process and process group are gone, the member must remain mirrored in
-        custody_uncertain and the daemon must hold its FIFO without adapter delivery;
-        only confirmed process exit may reattach the exact session_ref, restore owned
-        custody, and drain, because liveness uncertainty must fail closed against two
-        writers to one harness context.
-      reason: PLAN-M1 P1.4 explicitly covers a killed CLI with a surviving TUI and makes
-        process liveness, not heartbeat loss alone, the adoption gate.
+      statement: When an attach heartbeat expires without proof that the recorded
+        native child process and process group are gone, the member must remain
+        mirrored in custody_uncertain and the daemon must hold its FIFO without
+        adapter delivery; only confirmed process exit may reattach the exact
+        session_ref, restore owned custody, and drain, because liveness
+        uncertainty must fail closed against two writers to one harness context.
+      reason: PLAN-M1 P1.4 explicitly covers a killed CLI with a surviving TUI and
+        makes process liveness, not heartbeat loss alone, the adoption gate.
       depends_on:
         - attach-custody-lease-tracks-child-pid
         - mirrored-deliveries-queue
@@ -33,12 +34,12 @@ assumptions:
   reviewed:
     - id: adoption-explicit-or-sessionend
       outcome: unchanged
-      reason: Attach acquisition and completion are explicit CLI actions; ordinary join
-        adoption and Claude SessionEnd retain their existing rules.
+      reason: Attach acquisition and completion are explicit CLI actions; ordinary
+        join adoption and Claude SessionEnd retain their existing rules.
     - id: revive-via-session-ref
       outcome: unchanged
-      reason: Re-adoption after confirmed interactive exit uses the same exact persisted
-        session_ref, cwd, and policy reconstruction as revive.
+      reason: Re-adoption after confirmed interactive exit uses the same exact
+        persisted session_ref, cwd, and policy reconstruction as revive.
     - id: mirrored-deliveries-queue
       outcome: unchanged
       reason: A leased or uncertain interactive member stays mirrored and all arrivals
@@ -49,21 +50,23 @@ assumptions:
         running turn to finalize before custody transfers.
     - id: run-blobs-off-db
       outcome: unchanged
-      reason: The new lease table stores only bounded custody and process metadata and no
-        run stream payloads.
+      reason: The new lease table stores only bounded custody and process metadata and
+        no run stream payloads.
     - id: unix-socket-same-protocol
       outcome: unchanged
-      reason: Acquire, child-report, heartbeat, and completion frames use the same shared
-        dispatcher and response schema on local and remote WebSockets.
+      reason: Acquire, child-report, heartbeat, and completion frames use the same
+        shared dispatcher and response schema on local and remote WebSockets.
     - id: changelog-covers-every-visible-entity
       outcome: unchanged
-      reason: Lease rows are internal, while every visible custody or member-state change
-        still goes through updateMember and its ordinary member change row.
+      reason: Lease rows are internal, while every visible custody or member-state
+        change still goes through updateMember and its ordinary member change
+        row.
 anchors:
   attach-custody-lease-tracks-child-pid:
     attach-lease-store:
       action: change
-      reason: Add bounded durable lease persistence for the CLI and native child process.
+      reason: Add bounded durable lease persistence for the CLI and native child
+        process.
     attach-release-handshake:
       action: change
       reason: Acquire after the current turn, report child identity and heartbeat, and
@@ -79,7 +82,8 @@ anchors:
         adopt only after confirmed exit.
     attach-custody-web-hint:
       action: change
-      reason: Show the copyable attach command while preserving explicit adoption controls.
+      reason: Show the copyable attach command while preserving explicit adoption
+        controls.
   run-blobs-off-db:
     store-schema-no-blobs:
       action: change
@@ -87,8 +91,9 @@ anchors:
   adoption-explicit-or-sessionend:
     mirrored-adoption-transition:
       action: change
-      reason: Reject generic adoption while an attach lease owns or may own the session and
-        share the exact-session adoption transition after confirmed exit.
+      reason: Reject generic adoption while an attach lease owns or may own the
+        session and share the exact-session adoption transition after confirmed
+        exit.
   one-inflight-turn-per-member:
     inflight-guard:
       action: change
@@ -96,7 +101,8 @@ anchors:
   unix-socket-same-protocol:
     unix-websocket-listener:
       action: change
-      reason: Dispatch the asynchronous attach lease lifecycle over both WebSocket transports.
+      reason: Dispatch the asynchronous attach lease lifecycle over both WebSocket
+        transports.
 files:
   - packages/protocol/src/ws.ts
   - packages/protocol/src/schemas.spec.ts
@@ -115,3 +121,5 @@ files:
   - packages/web/src/components.spec.tsx
   - packages/web/src/App.tsx
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T11:21:13.230Z

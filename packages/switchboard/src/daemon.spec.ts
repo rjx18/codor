@@ -1,3 +1,4 @@
+import { spawn as spawnProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -37,7 +38,7 @@ async function until<T>(fn: () => T | undefined, ms = 2000): Promise<T> {
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'wireroom-daemon-'));
-  fake = new FakeAdapter();
+  fake = new FakeAdapter('fake', { interactiveAttach: true });
   claudeFake = new FakeAdapter('claude-code');
   codexFake = new FakeAdapter('codex');
   frames = [];
@@ -232,6 +233,90 @@ describe('mirrored join and adoption', () => {
     expect(daemon.mirrorSessionEnd('claude-code', 'claude-session-1')).toBe(true);
     expect(daemon.store.getMember('eng', claude.id)!.custody).toBe('owned');
     expect(claudeFake.wasAttached('claude-session-1')).toBe(true);
+  });
+});
+
+describe('interactive attach custody leases', () => {
+  it('waits for the current turn, holds racing deliveries, and drains after clean exit', async () => {
+    const alpha = spawnAgent('alpha', '/persisted/work');
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@alpha initialize');
+    await daemon.settle();
+    const sessionRef = daemon.store.getMember('eng', alpha.id)!.session_ref!;
+
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Finish before attach?', options: [{ label: 'yes' }] },
+      reply: () => '@richard current turn finished',
+    });
+    daemon.postHumanMessage('eng', '@alpha begin current turn');
+    const interaction = await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
+    );
+    const acquisition = daemon.acquireAttachLease('eng', alpha.id, 1234);
+    daemon.postHumanMessage('eng', '@alpha queued while attach waits');
+    await daemon.answerInteraction('eng', interaction.id, 'yes');
+    const { lease, member } = await acquisition;
+
+    expect(member).toMatchObject({ custody: 'mirrored', state: 'queued' });
+    expect(fake.deliveries).toHaveLength(2);
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id, state: 'queued' })).toHaveLength(1);
+    daemon.reportAttachChild(lease.id, 999_998, 999_998);
+    expect(() => daemon.adoptMember('eng', alpha.id)).toThrow('active interactive attach lease');
+
+    fake.enqueue({ kind: 'complete', final_text: '@richard attached work complete' });
+    const completed = daemon.completeAttachLease(lease.id);
+    expect(completed.status).toBe('completed');
+    await daemon.settle();
+    expect(daemon.store.getMember('eng', alpha.id)).toMatchObject({ custody: 'owned', state: 'idle' });
+    expect(fake.wasAttached(sessionRef)).toBe(true);
+    expect(fake.deliveries).toHaveLength(3);
+    expect(fake.deliveries.at(-1)!.payload).toContain('queued while attach waits');
+  });
+
+  it('marks custody uncertain after heartbeat loss and re-adopts only after the process group exits', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@alpha initialize');
+    await daemon.settle();
+    const { lease } = await daemon.acquireAttachLease('eng', alpha.id, process.pid);
+    const child = spawnProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    await new Promise<void>((resolve, reject) => {
+      child.once('spawn', resolve);
+      child.once('error', reject);
+    });
+    const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+    try {
+      daemon.reportAttachChild(lease.id, child.pid!, child.pid!);
+      daemon.postHumanMessage('eng', '@alpha wait safely');
+      daemon.reconcileAttachLeases(lease.heartbeat_ts + 6_000);
+      expect(daemon.store.getMember('eng', alpha.id)).toMatchObject({
+        custody: 'mirrored',
+        state: 'custody_uncertain',
+      });
+      expect(fake.deliveries).toHaveLength(1);
+      expect(() => daemon.adoptMember('eng', alpha.id)).toThrow('active interactive attach lease');
+
+      process.kill(-child.pid!, 'SIGKILL');
+      await closed;
+      fake.enqueue({ kind: 'complete', final_text: '@richard safely resumed' });
+      daemon.reconcileAttachLeases(lease.heartbeat_ts + 7_000);
+      await daemon.settle();
+      expect(daemon.store.getMember('eng', alpha.id)).toMatchObject({
+        custody: 'owned',
+        state: 'idle',
+      });
+      expect(fake.deliveries).toHaveLength(2);
+    } finally {
+      try {
+        process.kill(-child.pid!, 'SIGKILL');
+      } catch {
+        // already exited
+      }
+    }
   });
 });
 

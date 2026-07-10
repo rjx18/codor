@@ -210,6 +210,45 @@ describe('persistence across reopen', () => {
       store.recordMirroredTurn('eng', agent.id, 'native-turn-1', message.id),
     ).toThrow();
   });
+
+  it('persists the attach CLI and native child process lease across reopen', () => {
+    openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent',
+      handle: 'coder',
+      display_name: 'Coder',
+      harness: 'codex',
+      session_ref: 'session-attach-1',
+      cwd: '/work',
+      state: 'idle',
+      custody: 'mirrored',
+    });
+    const lease = store.createAttachLease({
+      room: 'eng',
+      member_id: agent.id,
+      cli_pid: 123,
+      heartbeat_ts: 1000,
+    });
+    store.setAttachLeaseChild(lease.id, 456, 456, 1100);
+    store.close();
+
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getAttachLeaseForMember(agent.id)).toEqual({
+      id: lease.id,
+      room: 'eng',
+      member_id: agent.id,
+      cli_pid: 123,
+      child_pid: 456,
+      process_group_id: 456,
+      heartbeat_ts: 1100,
+    });
+    store.heartbeatAttachLease(lease.id, 1200);
+    expect(store.listAttachLeases()).toEqual([
+      expect.objectContaining({ id: lease.id, heartbeat_ts: 1200 }),
+    ]);
+    store.deleteAttachLease(lease.id);
+    expect(store.getAttachLease(lease.id)).toBeUndefined();
+  });
 });
 
 describe('mentions and refs', () => {

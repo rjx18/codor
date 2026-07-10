@@ -210,6 +210,8 @@ describe('MemberCard', () => {
     expect(html).toContain('2 queued');
     expect(html).toContain('idle &gt; running &gt; paused');
     expect(html).toContain('Unpause');
+    expect(html).toContain('data-testid="attach-command-alpha"');
+    expect(html).toContain('wireroom attach @alpha');
   });
 
   it('labels mirrored custody and exposes explicit adoption instead of drive controls', () => {
@@ -228,5 +230,6 @@ describe('MemberCard', () => {
     expect(html).toContain('data-testid="adopt-alpha"');
     expect(html).not.toContain('data-testid="kill-alpha"');
     expect(html).not.toContain('data-testid="pause-alpha"');
+    expect(html).not.toContain('attach-command-alpha');
   });
 });

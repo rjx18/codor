@@ -50,6 +50,19 @@ export const ActSchema = z.discriminatedUnion('act', [
   }),
   z.object({ act: z.literal('adopt'), member_id: MemberIdSchema }),
   z.object({
+    act: z.literal('attach_acquire'),
+    member_id: MemberIdSchema,
+    cli_pid: z.number().int().positive(),
+  }),
+  z.object({
+    act: z.literal('attach_child'),
+    lease_id: z.string().min(1),
+    child_pid: z.number().int().positive(),
+    process_group_id: z.number().int().positive(),
+  }),
+  z.object({ act: z.literal('attach_heartbeat'), lease_id: z.string().min(1) }),
+  z.object({ act: z.literal('attach_complete'), lease_id: z.string().min(1) }),
+  z.object({
     act: z.literal('spawn'),
     harness: z.string().min(1),
     handle: AssignableHandleSchema,
@@ -107,6 +120,17 @@ export type ClientFrame = z.infer<typeof ClientFrameSchema>;
 
 // ── server → client ────────────────────────────────────────────────────────
 
+export const AttachLeaseSchema = z.object({
+  id: z.string().min(1),
+  room: RoomIdSchema,
+  member_id: MemberIdSchema,
+  cli_pid: z.number().int().positive(),
+  child_pid: z.number().int().positive().optional(),
+  process_group_id: z.number().int().positive().optional(),
+  heartbeat_ts: z.number().int().nonnegative(),
+});
+export type AttachLease = z.infer<typeof AttachLeaseSchema>;
+
 /**
  * Live entity frames carry the change-log `seq` that produced them. Hydration
  * entity frames retain the requested cursor until a final `sync_complete`
@@ -114,6 +138,12 @@ export type ClientFrame = z.infer<typeof ClientFrameSchema>;
  */
 export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('rooms'), rooms: z.array(RoomSchema) }),
+  z.object({
+    type: z.literal('attach_lease'),
+    status: z.enum(['acquired', 'child_recorded', 'completed', 'uncertain']),
+    lease: AttachLeaseSchema.optional(),
+    member: MemberSchema,
+  }),
   z.object({
     type: z.literal('mirror_ack'),
     native_turn_id: z.string().optional(),

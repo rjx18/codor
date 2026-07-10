@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import Database from 'better-sqlite3';
 import {
+  type AttachLease,
+  AttachLeaseSchema,
   type ChangeEntity,
   type ChangeLogEntry,
   ChangeLogEntrySchema,
@@ -27,6 +29,7 @@ import {
 // Run streams are JSONL blobs on disk, journaled by the daemon; the store has
 // no table or column for them, which keeps the DB small and makes
 // one-message-per-run structural.
+// harn:assume attach-custody-lease-tracks-child-pid ref=attach-lease-store
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
@@ -116,6 +119,15 @@ CREATE TABLE IF NOT EXISTS mirrored_turns (
   message_id INTEGER NOT NULL,
   PRIMARY KEY (room, member_id, native_turn_id)
 );
+CREATE TABLE IF NOT EXISTS attach_leases (
+  id TEXT PRIMARY KEY,
+  room TEXT NOT NULL REFERENCES rooms(id),
+  member_id TEXT NOT NULL UNIQUE,
+  cli_pid INTEGER NOT NULL,
+  child_pid INTEGER,
+  process_group_id INTEGER,
+  heartbeat_ts INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS changes (
   room_id TEXT NOT NULL REFERENCES rooms(id),
   seq INTEGER NOT NULL,
@@ -124,6 +136,7 @@ CREATE TABLE IF NOT EXISTS changes (
   PRIMARY KEY (room_id, seq)
 );
 `;
+// harn:end attach-custody-lease-tracks-child-pid
 // harn:end run-blobs-off-db
 
 // harn:assume delivery-payload-snapshotted ref=delivery-payload-storage
@@ -208,6 +221,16 @@ interface DeliveryRow {
   process_group_id: number | null;
   queue_seq: number;
   ts: string;
+}
+
+interface AttachLeaseRow {
+  id: string;
+  room: string;
+  member_id: string;
+  cli_pid: number;
+  child_pid: number | null;
+  process_group_id: number | null;
+  heartbeat_ts: number;
 }
 
 interface InteractionRow {
@@ -611,6 +634,83 @@ export class Store {
          VALUES (?, ?, ?, ?)`,
       )
       .run(room, memberId, nativeTurnId, messageId);
+  }
+
+  createAttachLease(input: {
+    room: string;
+    member_id: string;
+    cli_pid: number;
+    heartbeat_ts: number;
+  }): AttachLease {
+    const lease = AttachLeaseSchema.parse({ id: this.newUlid(), ...input });
+    this.db
+      .prepare(
+        `INSERT INTO attach_leases
+           (id, room, member_id, cli_pid, child_pid, process_group_id, heartbeat_ts)
+         VALUES (?, ?, ?, ?, NULL, NULL, ?)`,
+      )
+      .run(lease.id, lease.room, lease.member_id, lease.cli_pid, lease.heartbeat_ts);
+    return lease;
+  }
+
+  getAttachLease(id: string): AttachLease | undefined {
+    const row = this.db.prepare('SELECT * FROM attach_leases WHERE id = ?').get(id) as
+      | AttachLeaseRow
+      | undefined;
+    return row ? this.attachLeaseFromRow(row) : undefined;
+  }
+
+  getAttachLeaseForMember(memberId: string): AttachLease | undefined {
+    const row = this.db.prepare('SELECT * FROM attach_leases WHERE member_id = ?').get(memberId) as
+      | AttachLeaseRow
+      | undefined;
+    return row ? this.attachLeaseFromRow(row) : undefined;
+  }
+
+  listAttachLeases(): AttachLease[] {
+    return (this.db.prepare('SELECT * FROM attach_leases ORDER BY id').all() as AttachLeaseRow[])
+      .map((row) => this.attachLeaseFromRow(row));
+  }
+
+  setAttachLeaseChild(
+    id: string,
+    childPid: number,
+    processGroupId: number,
+    heartbeatTs: number,
+  ): AttachLease {
+    const result = this.db
+      .prepare(
+        `UPDATE attach_leases
+         SET child_pid = ?, process_group_id = ?, heartbeat_ts = ?
+         WHERE id = ?`,
+      )
+      .run(childPid, processGroupId, heartbeatTs, id);
+    if (result.changes !== 1) throw new Error(`no such attach lease ${id}`);
+    return this.getAttachLease(id)!;
+  }
+
+  heartbeatAttachLease(id: string, heartbeatTs: number): AttachLease {
+    const result = this.db
+      .prepare('UPDATE attach_leases SET heartbeat_ts = ? WHERE id = ?')
+      .run(heartbeatTs, id);
+    if (result.changes !== 1) throw new Error(`no such attach lease ${id}`);
+    return this.getAttachLease(id)!;
+  }
+
+  deleteAttachLease(id: string): void {
+    this.db.prepare('DELETE FROM attach_leases WHERE id = ?').run(id);
+  }
+
+  private attachLeaseFromRow(row: AttachLeaseRow): AttachLease {
+    return AttachLeaseSchema.parse({
+      id: row.id,
+      room: row.room,
+      member_id: row.member_id,
+      cli_pid: row.cli_pid,
+      child_pid: row.child_pid ?? undefined,
+      process_group_id: row.process_group_id ?? undefined,
+      heartbeat_ts: row.heartbeat_ts,
+    });
   }
 
   // ── messages ──────────────────────────────────────────────────────────

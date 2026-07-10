@@ -1,0 +1,15 @@
+id: custody-uncertain-never-double-writes
+hash: a-ff18a0c7996c
+title: Lost attach leases never permit concurrent daemon delivery
+state: active
+statement: When an attach heartbeat expires without proof that the recorded
+  native child process and process group are gone, the member must remain
+  mirrored in custody_uncertain and the daemon must hold its FIFO without
+  adapter delivery; only confirmed process exit may reattach the exact
+  session_ref, restore owned custody, and drain, because liveness uncertainty
+  must fail closed against two writers to one harness context.
+depends_on:
+  - attach-custody-lease-tracks-child-pid
+  - mirrored-deliveries-queue
+  - one-inflight-turn-per-member
+created_by: attach-reverse-custody

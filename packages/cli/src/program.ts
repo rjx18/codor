@@ -1,9 +1,15 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import type { Member, Message, ServerFrame } from '@wireroom/protocol';
+import type { AttachLease, Member, Message, ServerFrame } from '@wireroom/protocol';
 import { Command } from 'commander';
 
+import {
+  nativeResumeCommand,
+  superviseInteractiveAttach,
+  type InteractiveCommandResolver,
+  type InteractiveSpawner,
+} from './attach.js';
 import { ProtocolClient, type ProtocolClientOptions } from './connection.js';
 import { detectSession } from './detect.js';
 import { parseMirrorHook } from './mirror.js';
@@ -13,6 +19,9 @@ export interface CliContext {
   stdout?(line: string): void;
   stderr?(line: string): void;
   env?: NodeJS.ProcessEnv;
+  interactiveCommand?: InteractiveCommandResolver;
+  spawnInteractive?: InteractiveSpawner;
+  attachHeartbeatMs?: number;
 }
 
 interface GlobalOptions {
@@ -350,8 +359,74 @@ export function createProgram(context: CliContext = {}): Command {
   program
     .command('attach')
     .argument('<member>')
-    .action(() => {
-      throw new Error('attach requires custody leases from P1.4');
+    .option('-r, --room <room>', 'room id; omitted searches all rooms')
+    .action(async (memberRef: string, options: { room?: string }) => {
+      await withClient(async (client) => {
+        const wanted = memberRef.replace(/^@/, '');
+        let rooms = options.room ? [options.room] : undefined;
+        if (!rooms) {
+          client.send({ type: 'list_rooms' });
+          for (;;) {
+            const frame = await client.next();
+            if (frame.type === 'error') throw new Error(frame.message);
+            if (frame.type === 'rooms') {
+              rooms = frame.rooms.map((room) => room.id);
+              break;
+            }
+          }
+        }
+
+        const matches: { room: string; member: Member }[] = [];
+        for (const room of rooms) {
+          client.send({ type: 'subscribe', room, since_seq: 0 });
+          for (;;) {
+            const frame = await client.next();
+            if (frame.type === 'error') throw new Error(frame.message);
+            if (
+              frame.type === 'member' &&
+              (frame.member.id === memberRef || frame.member.handle === wanted)
+            ) {
+              matches.push({ room, member: frame.member });
+            }
+            if (frame.type === 'sync_complete') break;
+          }
+        }
+        if (matches.length === 0) throw new Error(`no such member ${memberRef}`);
+        if (matches.length > 1) throw new Error(`member ${memberRef} is ambiguous; pass --room`);
+        const match = matches[0]!;
+        client.send({
+          type: 'act',
+          room: match.room,
+          act: { act: 'attach_acquire', member_id: match.member.id, cli_pid: process.pid },
+        });
+        let acquired: { member: Member; lease: AttachLease };
+        for (;;) {
+          const frame = await client.next(24 * 60 * 60 * 1_000);
+          if (frame.type === 'error') throw new Error(frame.message);
+          if (
+            frame.type === 'attach_lease' &&
+            frame.status === 'acquired' &&
+            frame.member.id === match.member.id &&
+            frame.lease
+          ) {
+            acquired = { member: frame.member, lease: frame.lease };
+            break;
+          }
+        }
+        out(`attaching @${acquired.member.handle} (${acquired.member.harness})`);
+        const result = await superviseInteractiveAttach({
+          client,
+          room: match.room,
+          member: acquired.member,
+          lease: acquired.lease,
+          env,
+          commandResolver: context.interactiveCommand ?? nativeResumeCommand,
+          spawnChild: context.spawnInteractive,
+          heartbeatMs: context.attachHeartbeatMs,
+        });
+        if (result.status === 'completed') out(`re-adopted @${acquired.member.handle}`);
+        else out(`@${acquired.member.handle} custody remains uncertain until its process group exits`);
+      });
     });
   program.command('ledger').argument('[args...]').action(() => err('ledger is not implemented yet'));
 

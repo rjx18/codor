@@ -391,6 +391,10 @@ describe('WS client frames', () => {
     ['mark_read', { act: 'mark_read', delivery_id: 'd' }],
     ['join', { act: 'join', harness: 'codex', handle: 'planner', session_ref: 's-1', cwd: '/w' }],
     ['adopt', { act: 'adopt', member_id: ULID_A }],
+    ['attach_acquire', { act: 'attach_acquire', member_id: ULID_A, cli_pid: 123 }],
+    ['attach_child', { act: 'attach_child', lease_id: 'lease-1', child_pid: 456, process_group_id: 456 }],
+    ['attach_heartbeat', { act: 'attach_heartbeat', lease_id: 'lease-1' }],
+    ['attach_complete', { act: 'attach_complete', lease_id: 'lease-1' }],
     ['spawn', { act: 'spawn', harness: 'codex', handle: 'coder', cwd: '/w', policy: 'read-only' }],
     ['rename', { act: 'rename', member_id: ULID_A, handle: 'reviewer' }],
     ['revive', { act: 'revive', member_id: ULID_A }],
@@ -475,6 +479,31 @@ describe('WS server frames', () => {
       },
     ],
     ['error', { type: 'error', message: 'no such room', ref: 'subscribe' }],
+    [
+      'attach_lease',
+      {
+        type: 'attach_lease',
+        status: 'acquired',
+        lease: {
+          id: 'lease-1',
+          room: 'r',
+          member_id: ULID_A,
+          cli_pid: 123,
+          heartbeat_ts: 1000,
+        },
+        member: {
+          id: ULID_A,
+          kind: 'agent',
+          handle: 'planner',
+          display_name: 'Planner',
+          harness: 'codex',
+          session_ref: 'session-1',
+          cwd: '/work',
+          state: 'idle',
+          custody: 'mirrored',
+        },
+      },
+    ],
   ];
 
   it.each(frames)('accepts %s', (_name, frame) => {

@@ -1,0 +1,14 @@
+id: attach-custody-lease-tracks-child-pid
+hash: a-b5fc1b2c4cc6
+title: Interactive attach custody is represented by a durable process lease
+state: active
+statement: An interactive attach must durably identify the room member, lease
+  id, CLI pid, native TUI child pid and process group, and latest heartbeat
+  before the daemon releases custody, while the CLI spawns and waits for the
+  native resume child with inherited stdio and reports its process identity,
+  because custody recovery must distinguish an exited terminal from an orphan
+  still driving the harness session.
+depends_on:
+  - adoption-explicit-or-sessionend
+  - revive-via-session-ref
+created_by: attach-reverse-custody

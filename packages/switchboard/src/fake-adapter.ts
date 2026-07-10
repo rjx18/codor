@@ -1,4 +1,5 @@
 import type {
+  AdapterCapabilities,
   AdapterTurnHooks,
   AskCard,
   HarnessAdapter,
@@ -39,14 +40,7 @@ export interface DeliverRecord {
 
 export class FakeAdapter implements HarnessAdapter {
   readonly id: string;
-  readonly capabilities = {
-    resume: true,
-    discover: true,
-    interactiveAttach: false,
-    ask: true,
-    approvals: 'runtime',
-    extensions: false,
-  } as const;
+  readonly capabilities: AdapterCapabilities;
 
   private script: FakeTurn[] = [];
   readonly deliveries: DeliverRecord[] = [];
@@ -60,8 +54,17 @@ export class FakeAdapter implements HarnessAdapter {
   private concurrent = new Map<string, number>();
   maxConcurrent = 0;
 
-  constructor(id = 'fake') {
+  constructor(id = 'fake', capabilities: Partial<AdapterCapabilities> = {}) {
     this.id = id;
+    this.capabilities = {
+      resume: true,
+      discover: true,
+      interactiveAttach: false,
+      ask: true,
+      approvals: 'runtime',
+      extensions: false,
+      ...capabilities,
+    };
   }
 
   enqueue(...turns: FakeTurn[]): void {

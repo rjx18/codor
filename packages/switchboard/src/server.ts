@@ -256,6 +256,37 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 policy: act.policy,
               });
             } else if (act.act === 'adopt') daemon.adoptMember(frame.room, act.member_id);
+            else if (act.act === 'attach_acquire') {
+              void daemon.acquireAttachLease(frame.room, act.member_id, act.cli_pid)
+                .then(({ lease, member }) => send({
+                  type: 'attach_lease',
+                  status: 'acquired',
+                  lease,
+                  member,
+                }))
+                .catch((error: unknown) => send({
+                  type: 'error',
+                  message: String(error),
+                  ref: 'attach_acquire',
+                }));
+            } else if (act.act === 'attach_child') {
+              const { lease, member } = daemon.reportAttachChild(
+                act.lease_id,
+                act.child_pid,
+                act.process_group_id,
+              );
+              send({ type: 'attach_lease', status: 'child_recorded', lease, member });
+            } else if (act.act === 'attach_heartbeat') {
+              daemon.heartbeatAttachLease(act.lease_id);
+            } else if (act.act === 'attach_complete') {
+              const completed = daemon.completeAttachLease(act.lease_id);
+              send({
+                type: 'attach_lease',
+                status: completed.status,
+                lease: completed.lease,
+                member: completed.member,
+              });
+            }
             else if (act.act === 'redeliver') daemon.redeliver(frame.room, act.delivery_id);
             else if (act.act === 'release_hold') daemon.releaseHold(frame.room, act.delivery_id);
             else if (act.act === 'mark_read') daemon.markRead(frame.room, act.delivery_id);

@@ -21,7 +21,7 @@ let base: string;
 
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'wireroom-server-'));
-  fake = new FakeAdapter();
+  fake = new FakeAdapter('fake', { interactiveAttach: true });
   daemon = new Daemon({ dbPath: join(dir, 'db.sqlite'), blobRoot: join(dir, 'blobs'), adapters: [fake] });
   daemon.createRoom({ id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' } });
   server = await startServer({ daemon, token: TOKEN });
@@ -267,6 +267,56 @@ describe('WebSocket', () => {
     expect(
       daemon.store.listMessages('eng', { limit: 100 }).filter((message) => message.kind === 'run'),
     ).toHaveLength(1);
+    client.ws.close();
+  });
+
+  it('runs the attach lease acquire, child-report, and completion handshake', async () => {
+    const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/work' });
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@alpha initialize');
+    await daemon.settle();
+
+    const client = await connect();
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+    client.ws.send(JSON.stringify({
+      type: 'act',
+      room: 'eng',
+      act: { act: 'attach_acquire', member_id: alpha.id, cli_pid: 1234 },
+    }));
+    const acquired = await client.next(
+      (frame) => frame.type === 'attach_lease' && frame.status === 'acquired',
+    );
+    expect(acquired).toMatchObject({
+      type: 'attach_lease',
+      status: 'acquired',
+      member: { id: alpha.id, custody: 'mirrored' },
+      lease: { cli_pid: 1234 },
+    });
+    const leaseId = (acquired as Extract<ServerFrame, { type: 'attach_lease' }>).lease!.id;
+    client.ws.send(JSON.stringify({
+      type: 'act',
+      room: 'eng',
+      act: {
+        act: 'attach_child',
+        lease_id: leaseId,
+        child_pid: 999_997,
+        process_group_id: 999_997,
+      },
+    }));
+    await client.next(
+      (frame) => frame.type === 'attach_lease' && frame.status === 'child_recorded',
+    );
+    client.ws.send(JSON.stringify({
+      type: 'act',
+      room: 'eng',
+      act: { act: 'attach_complete', lease_id: leaseId },
+    }));
+    const completed = await client.next(
+      (frame) => frame.type === 'attach_lease' && frame.status === 'completed',
+    );
+    expect(completed).toMatchObject({ member: { id: alpha.id, custody: 'owned' } });
+    expect(fake.wasAttached(daemon.store.getMember('eng', alpha.id)!.session_ref!)).toBe(true);
     client.ws.close();
   });
 

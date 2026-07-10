@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url';
 
 export { ProtocolClient } from './connection.js';
 export type { ProtocolClientOptions } from './connection.js';
+export { nativeResumeCommand, superviseInteractiveAttach } from './attach.js';
+export type { InteractiveCommand, InteractiveCommandResolver, InteractiveSpawner } from './attach.js';
 export { detectSession, findCodexSessionFile } from './detect.js';
 export type { DetectedSession } from './detect.js';
 export { parseMirrorHook } from './mirror.js';

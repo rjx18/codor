@@ -25,7 +25,7 @@ let output: string[];
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'wireroom-cli-'));
   fake = new FakeAdapter();
-  codexFake = new FakeAdapter('codex');
+  codexFake = new FakeAdapter('codex', { interactiveAttach: true });
   daemon = new Daemon({
     dbPath: join(dir, 'switchboard.sqlite'),
     blobRoot: join(dir, 'blobs'),
@@ -157,6 +157,47 @@ describe('@wireroom/cli', () => {
     await daemon.settle();
     expect(codexFake.wasAttached('019f4a9a-e20e-7131-9e9d-703db5c8a2fc')).toBe(true);
     expect(codexFake.deliveries).toHaveLength(1);
+  });
+
+  it('attaches without a room hint, waits for the native child, then re-adopts and drains', async () => {
+    const member = daemon.spawnMember('eng', {
+      harness: 'codex',
+      handle: 'coder',
+      cwd: dir,
+    });
+    codexFake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@coder initialize');
+    await daemon.settle();
+
+    const attached = runCli(['node', 'wireroom', '--data-dir', dir, 'attach', '@coder'], {
+      stdout: (line) => output.push(line),
+      stderr: (line) => output.push(line),
+      interactiveCommand: () => ({
+        command: process.execPath,
+        args: ['-e', 'setTimeout(() => process.exit(0), 150)'],
+      }),
+      attachHeartbeatMs: 20,
+    });
+    for (;;) {
+      if (daemon.store.getMember('eng', member.id)?.custody === 'mirrored') break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    codexFake.enqueue({ kind: 'complete', final_text: '@richard queued work done' });
+    await cli('post', '-r', 'eng', '@coder queued while interactive');
+    await daemon.settle();
+    expect(codexFake.deliveries).toHaveLength(1);
+
+    await attached;
+    await daemon.settle();
+    expect(output).toContain('attaching @coder (codex)');
+    expect(output).toContain('re-adopted @coder');
+    expect(daemon.store.getMember('eng', member.id)).toMatchObject({
+      custody: 'owned',
+      state: 'idle',
+    });
+    expect(daemon.store.getAttachLeaseForMember(member.id)).toBeUndefined();
+    expect(codexFake.deliveries).toHaveLength(2);
+    expect(codexFake.deliveries.at(-1)!.payload).toContain('queued while interactive');
   });
 
   it('parses documented Claude hooks and Codex notify plus rollout tailing', () => {
