@@ -1,0 +1,73 @@
+id: cli-over-socket
+title: P1.2 wireroom CLI over the shared WebSocket protocol
+assumptions:
+  retire: []
+  create:
+    - id: unix-socket-same-protocol
+      title: Local CLI traffic uses the identical WebSocket JSON protocol
+      statement: The daemon's data directory socket must accept the same
+        ClientFrame and emit the same ServerFrame JSON messages as the tokened
+        network WebSocket, with filesystem mode 0600 as local authentication,
+        while the CLI must use that socket by default and switch only its
+        transport URL plus bearer token for remote operation, because local and
+        remote commands must not diverge into separate APIs or semantics.
+      reason: PLAN-M1 P1.2 and ARCHITECTURE surfaces pin one WS protocol for all
+        clients and filesystem permissions as Unix-socket authentication.
+      depends_on:
+        - changelog-is-sync-cursor
+        - server-token-required
+  reviewed:
+    - id: changelog-is-sync-cursor
+      outcome: unchanged
+      reason: CLI room subscriptions use since_seq and wait for sync_complete;
+        the socket transport does not introduce a message-id cursor.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: Tail and member commands consume the existing hydration sequence
+        and treat sync_complete as the snapshot boundary.
+    - id: server-token-required
+      outcome: unchanged
+      reason: HTTP REST and network WebSocket startup and requests remain
+        fail-closed on the configured token; only the local mode-0600 Unix
+        socket authenticates by filesystem access instead.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Both WebSocket listeners share the same daemon-projected frame
+        subscription and hydration projection paths.
+    - id: adapters-cli-only-no-sdk
+      outcome: unchanged
+      reason: The up command composes the existing CLI subprocess adapters and
+        adds no harness SDK or alternate driver.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: The foreground up command closes the daemon on process signals so
+        active adapter turns retain the existing supervised shutdown behavior.
+    - id: monorepo-workspace-layout
+      outcome: unchanged
+      reason: Commander and transport code remain inside the existing CLI and
+        switchboard workspace packages; workspace globs do not change.
+anchors:
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Add the mode-0600 Unix listener and bind it to the shared frame
+        dispatcher in server.ts.
+    cli-protocol-transport:
+      action: change
+      reason: Add one CLI WebSocket client that selects Unix or remote transport
+        without changing frames.
+files:
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/package.json
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/index.ts
+  - packages/cli/package.json
+  - packages/cli/src/index.ts
+  - packages/cli/src/connection.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/up.ts
+  - packages/cli/src/index.spec.ts
+  - pnpm-lock.yaml
+  - tmp/build/PROGRESS.md
