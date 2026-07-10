@@ -1,0 +1,129 @@
+id: m0fix-adapter-lifecycle
+title: M0 fix - supervise adapter processes and acknowledge interactions safely
+assumptions:
+  retire: []
+  create:
+    - id: adapter-process-lifecycle-supervised
+      title: Every adapter subprocess has a supervised lifecycle
+      statement: Each CLI adapter must observe spawn success, error, stderr, close, and
+        stream EOF; classify spawn and nonzero-exit failures as failed runs; terminate
+        the entire process group on interrupt; and let daemon shutdown await every
+        active turn, because a missing CLI, orphaned native engine, or closing daemon
+        must not crash Node or leave work running invisibly.
+      reason: M0 milestone review findings 4 and 9; the adapters previously omitted
+        child error handling and the daemon closed its store without draining turns.
+      depends_on:
+        - adapters-cli-only-no-sdk
+    - id: attempt-start-evidence-persisted
+      title: Spawn and session evidence are persisted before turn completion
+      statement: Once a CLI child successfully spawns, the daemon must append durable
+        run-start evidence and persist its process identity on the delivery attempt,
+        and must persist a reported native session reference immediately; boot
+        reconciliation must treat this evidence as an ambiguous started attempt and
+        never retry it while its process may still be alive.
+      reason: M0 milestone review finding 4; suppressing init events made a real
+        started turn indistinguishable from an empty never-started run after a crash.
+      depends_on:
+        - delivery-attempt-wal-reconcile
+    - id: interaction-ack-requires-stream-progress
+      title: Interaction acknowledgement requires later stream progress
+      statement: respondInteraction must register its acknowledgement boundary before
+        writing stdin and resolve only after a subsequent output event proves the
+        harness consumed the control response; EOF, child error, or exit must reject
+        the acknowledgement, and the daemon must propagate that failure to the caller.
+      reason: M0 milestone review finding 6; waiter registration raced output and EOF
+        was incorrectly treated as successful acknowledgement.
+      depends_on:
+        - interactions-answered-via-stdin-control
+  reviewed:
+    - id: adapters-cli-only-no-sdk
+      outcome: unchanged
+      reason: Supervision wraps the existing plain CLI subprocess drivers and adds no
+        SDK, HTTP, or alternate transport.
+    - id: codex-event-contract-pinned
+      outcome: unchanged
+      reason: Native event translation remains fixture-driven; lifecycle failures are
+        synthesized only around process behavior absent from stdout fixtures.
+    - id: claude-control-protocol-pinned
+      outcome: unchanged
+      reason: Control request and response shapes remain exactly those in the recorded
+        fixtures; only their acknowledgement timing and error path change.
+    - id: interactions-answered-via-stdin-control
+      outcome: unchanged
+      reason: The same-child stdin control response remains authoritative and is now
+        resolved only at its already-pinned demonstrable-progress boundary.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Empty first attempts still retry once and ambiguous starts still hold;
+        durable spawn evidence makes the distinction trustworthy.
+    - id: interaction-state-machine-persisted
+      outcome: unchanged
+      reason: A rejected acknowledgement leaves the persisted answer available for
+        the existing replay-or-orphan reconciliation rules.
+    - id: one-inflight-turn-per-member
+      outcome: unchanged
+      reason: Shutdown drains the existing single active turn rather than starting
+        concurrent work.
+    - id: run-blobs-off-db
+      outcome: unchanged
+      reason: Run-start evidence remains an event in the JSONL blob; SQLite stores only
+        bounded attempt process identity used by reconciliation.
+anchors:
+  adapter-process-lifecycle-supervised:
+    cli-process-supervision:
+      action: change
+      reason: Handle spawn, stderr, error, close, EOF, process-group interruption, and
+        daemon shutdown as one explicit lifecycle.
+  attempt-start-evidence-persisted:
+    adapter-turn-hooks:
+      action: change
+      reason: Add lifecycle hooks for confirmed spawn and native session discovery.
+    attempt-process-evidence:
+      action: change
+      reason: Persist bounded process identity on delivery attempts.
+    attempt-start-evidence:
+      action: change
+      reason: Journal confirmed spawn before consuming adapter output and persist
+        native session ids immediately.
+  interaction-ack-requires-stream-progress:
+    interaction-progress-ack:
+      action: change
+      reason: Register sequence-aware waiters before stdin writes and reject them when
+        the stream ends without later progress.
+  adapters-cli-only-no-sdk:
+    cli-subprocess-driver:
+      action: change
+      reason: Add robust lifecycle handling while retaining the exact CLI invocation.
+  interactions-answered-via-stdin-control:
+    respond-interaction-stdin:
+      action: change
+      reason: Make write-plus-later-progress acknowledgement race-free and rejectable.
+  delivery-attempt-wal-reconcile:
+    wal-bind-before-spawn:
+      action: change
+      reason: Attach confirmed process identity to the already-bound delivery batch.
+    boot-reconcile:
+      action: change
+      reason: Hold attempts with durable spawn evidence and refuse release while their
+        recorded process is still alive.
+  run-blobs-off-db:
+    store-schema-no-blobs:
+      action: change
+      reason: Add bounded process-id columns only; run evidence stays in JSONL blobs.
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/adapter.spec.ts
+  - packages/adapters/codex/src/translate.ts
+  - packages/adapters/codex/src/translate.spec.ts
+  - packages/adapters/codex/NOTES.md
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/claude-code/src/adapter.spec.ts
+  - packages/adapters/claude-code/NOTES.md
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/acceptance.spec.ts
