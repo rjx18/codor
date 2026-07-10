@@ -1,0 +1,11 @@
+id: harn-one-plan-per-commit
+hash: a-fa138be6026a
+title: One locked harn plan per implementation commit
+state: active
+statement: Every implementation commit in this repo must consume exactly one
+  locked harn plan through the pre-commit hook (harn check --staged, harn apply,
+  git add .harn, recheck) when any tracked file changes, because the Wireroom
+  build audits each phase as one plan = one commit and unplanned diffs must be
+  blocked before they land.
+depends_on: []
+created_by: repo-scaffold

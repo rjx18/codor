@@ -1,0 +1,6 @@
+# harn:assume monorepo-workspace-layout ref=workspace-globs
+packages:
+  - packages/*
+  - packages/adapters/*
+  - relay
+# harn:end monorepo-workspace-layout
