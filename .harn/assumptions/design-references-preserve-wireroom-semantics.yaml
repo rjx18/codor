@@ -1,0 +1,13 @@
+id: design-references-preserve-wireroom-semantics
+hash: a-b6822b9a0734
+title: Visual references preserve Wireroom product semantics
+state: active
+statement: Product mockups and their design-system guidance must depict the
+  protocol's real one-member run model, permanent message ids, visible meters,
+  recipient preview, role and brake rules, accountless local product, browser
+  privacy boundary, and stateless push disclosure without inventing unsupported
+  orchestration, retention, account, or relay behavior, because implementation
+  must not turn generated visual drift into product behavior.
+depends_on:
+  - glass-design-system-guides-responsive-surfaces
+created_by: glass-design-foundation-review-fixes
