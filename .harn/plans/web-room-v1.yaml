@@ -61,6 +61,8 @@ files:
   - pnpm-lock.yaml
   - packages/switchboard/src/server.ts
   - packages/switchboard/src/store.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
   - packages/web/index.html
   - packages/web/vite.config.ts
   - packages/web/src/main.tsx
