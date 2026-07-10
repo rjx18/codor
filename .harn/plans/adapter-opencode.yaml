@@ -1,0 +1,90 @@
+id: adapter-opencode
+title: P1.7b OpenCode direct run adapter with one live PONG capture
+assumptions:
+  retire: []
+  create:
+    - id: opencode-capability-truth
+      title: OpenCode capabilities match its direct run interface
+      statement: The OpenCode adapter must drive one `opencode run --format json`
+        process per turn, capture and reuse the top-level sessionID in the
+        persisted working directory, discover sessions through the documented
+        JSON session-list command, expose the native session TUI, translate final
+        text, completed tools, errors, and step-finish token and reported-dollar
+        usage, and declare asks and extensions unsupported with approvals fixed at
+        process spawn, because every advertised capability must be demonstrated
+        by fixture replay, subprocess conformance, or the single live PONG probe.
+      reason: PLAN-M1 P1.7b makes the installed OpenCode CLI the one live adapter
+        acceptance while requiring capability truth; `opencode run` resumes by
+        session id and emits raw JSON parts but owns permission decisions and
+        exposes neither a question response channel nor authoritative subagent
+        lifecycle through that headless stream.
+      depends_on:
+        - adapters-cli-only-no-sdk
+        - adapter-process-lifecycle-supervised
+        - spend-meter-always-on
+  reviewed:
+    - id: adapters-cli-only-no-sdk
+      outcome: unchanged
+      reason: The implementation spawns the installed first-party opencode CLI
+        and consumes its documented JSON lines without importing the OpenCode SDK,
+        talking to its HTTP server, or embedding Paseo's server connector.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: OpenCode receives the same spawn, stderr, error, close, stream-EOF,
+        detached-process-group, and group-interrupt supervision as every existing
+        CLI adapter.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: OpenCode step-finish token counts and reported cost normalize into
+        the existing run usage shape consumed by the always-on meter.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: The OpenCode native session TUI is added to the existing inherited-
+        stdio attach supervisor without changing its custody lease handshake.
+anchors:
+  opencode-capability-truth:
+    opencode-event-translation:
+      action: change
+      reason: Normalize the version-pinned raw run events and make clean EOF the
+        success boundary because OpenCode emits no separate result event.
+    opencode-capability-conformance:
+      action: change
+      reason: Assert resume argv and stable session identity, JSON-list discovery,
+        native attach, false interaction capabilities, reported usage, and one
+        live PONG on the configured free model.
+  adapters-cli-only-no-sdk:
+    opencode-cli-subprocess-driver:
+      action: change
+      reason: Add the direct opencode run process driver and intentionally reject
+        the SDK and persistent HTTP-server pattern observed in Paseo.
+  adapter-process-lifecycle-supervised:
+    opencode-cli-process-supervision:
+      action: change
+      reason: Supervise OpenCode through stdout EOF and signal its process group
+        for interrupt and cleanup.
+  attach-custody-lease-tracks-child-pid:
+    interactive-child-supervision:
+      action: change
+      reason: Resolve OpenCode attach to its native `opencode --session ID` TUI in
+        the existing child supervisor.
+files:
+  - packages/adapters/opencode/package.json
+  - packages/adapters/opencode/tsconfig.json
+  - packages/adapters/opencode/NOTES.md
+  - packages/adapters/opencode/fixtures/live-pong-1.17.14.jsonl
+  - packages/adapters/opencode/src/index.ts
+  - packages/adapters/opencode/src/index.spec.ts
+  - packages/adapters/opencode/src/adapter.ts
+  - packages/adapters/opencode/src/adapter.spec.ts
+  - packages/adapters/opencode/src/translate.ts
+  - packages/adapters/opencode/src/translate.spec.ts
+  - packages/adapters/opencode/src/fixtures.spec.ts
+  - packages/adapters/opencode/src/live.spec.ts
+  - packages/adapters/codex/src/live.spec.ts
+  - packages/adapters/claude-code/src/live.spec.ts
+  - packages/cli/package.json
+  - packages/cli/src/up.ts
+  - packages/cli/src/index.spec.ts
+  - packages/cli/src/attach.ts
+  - pnpm-lock.yaml
+  - tmp/build/PROGRESS.md
