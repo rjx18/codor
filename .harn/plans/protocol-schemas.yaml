@@ -1,0 +1,100 @@
+id: protocol-schemas
+title: P0.3 @wireroom/protocol - zod schemas for the full room model
+assumptions:
+  retire: []
+  create:
+    - id: mention-spans-survive-renames
+      title: Mentions persist as resolved member-id spans, never handle text
+      statement: Message.mentions must be stored as resolved MentionSpan objects
+        {member_id, start, end} referencing stable member ids for every message,
+        because renames change handles but must never break old messages'
+        mention resolution - router and surfaces re-derive display text from
+        member_id at render time.
+      reason: PROTOCOL SS2/SS3 pin span-based mentions; P0.4 persists them as span
+        JSON and P0.5 resolves recipients from them, so changing the span shape
+        obligates reviewing store and router.
+      depends_on: []
+    - id: interaction-state-machine-persisted
+      title: PendingInteraction carries the full crash-safe state machine
+      statement: The PendingInteraction schema must persist the complete state
+        machine of PROTOCOL SS2 - targets[], state
+        pending|answered|acked|orphaned, answer, answered_by, answered_ts,
+        native_id, kind, message_id - because P0.8's boot reconcile decides
+        replay-or-orphan strictly from this persisted state and the P0.2 crash
+        fixtures (re-raise with fresh native ids, idempotent answer replay).
+      reason: PLAN-M0 P0.3; the ask/approval lifecycle is the hardest crash boundary
+        and every consumer (store, daemon, web cards) reads these exact fields.
+      depends_on: []
+    - id: changelog-is-sync-cursor
+      title: The change log seq is the only delta-sync cursor
+      statement: Every mutation of a client-visible entity must be representable as a
+        ChangeLogEntry {seq, entity message|member|inbox|meter|room, entity_id},
+        WS subscribe must carry since_seq, and server frames must carry seq,
+        because in-place run finalization cannot be expressed by message-id
+        cursors and reconnecting clients hydrate exclusively from the log.
+      reason: PLAN-M0 P0.3/P0.4/P0.8/P0.9 all build on seq-based sync; changing the
+        cursor model obligates reviewing store, daemon fanout, and web sync.
+      depends_on: []
+    - id: brakes-default-off
+      title: Room brakes default off; meters and stall flag are informational
+      statement: RoomConfig must default turn_brake and spend_brake_usd to null (off)
+        while stall_minutes defaults to 30 as an always-on informational flag,
+        because agent-to-agent chains are the product - holds are opt-in per
+        room and nothing blocks by default.
+      reason: PROTOCOL SS3 visibility-and-brakes; P0.8 hold logic and P1.6 meters
+        read these defaults, so flipping a default is a product-behavior change
+        needing review.
+      depends_on: []
+    - id: reserved-handles-rejected
+      title: Handle schema enforces the regex and rejects reserved names
+      statement: The member handle schema must accept only
+        /^[a-z0-9][a-z0-9-]{1,30}$/ and reject the reserved handles 'all' and
+        'switchboard' at parse time, because reserved names gate the post-MVP
+        broadcast channel and system authorship and must never be assignable to
+        real members.
+      reason: PLAN-M0 P0.3; P0.4 seeds the system member outside this schema path
+        and P0.5 addressability assumes reserved handles cannot collide.
+      depends_on: []
+  reviewed: []
+anchors:
+  mention-spans-survive-renames:
+    mention-span-schema:
+      action: change
+      reason: Create MentionSpan and Message.mentions schemas in message.ts.
+  interaction-state-machine-persisted:
+    pending-interaction-schema:
+      action: change
+      reason: Create the PendingInteraction schema with the full state machine in
+        interaction.ts.
+  changelog-is-sync-cursor:
+    changelog-entry-schema:
+      action: change
+      reason: Create ChangeLogEntry schema in changelog.ts.
+    ws-subscribe-cursor:
+      action: change
+      reason: Create subscribe{room, since_seq} and seq-carrying server frames in
+        ws.ts.
+  brakes-default-off:
+    room-config-brakes:
+      action: change
+      reason: Create RoomConfig with brake defaults in room.ts.
+  reserved-handles-rejected:
+    handle-schema:
+      action: change
+      reason: Create the handle regex + reserved-name refinement in member.ts.
+files:
+  - packages/protocol/package.json
+  - pnpm-lock.yaml
+  - packages/protocol/src/index.ts
+  - packages/protocol/src/index.spec.ts
+  - packages/protocol/src/ids.ts
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/interaction.ts
+  - packages/protocol/src/delivery.ts
+  - packages/protocol/src/changelog.ts
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/events.ts
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
