@@ -1,0 +1,75 @@
+id: repo-scaffold
+title: P0.1 monorepo scaffold + harn bootstrap
+assumptions:
+  retire: []
+  create:
+    - id: monorepo-workspace-layout
+      title: Workspace globs are packages/*, packages/adapters/*, relay
+      statement: pnpm-workspace.yaml and vitest.workspace.ts must list the same
+        package globs - packages/*, packages/adapters/*, and relay - for every
+        buildable package in the repo, because pnpm -r build/test and the vitest
+        workspace are the CI gates and a package outside these globs silently
+        skips them.
+      reason: docs/ARCHITECTURE.md pins the monorepo layout; every later phase adds
+        packages only under these globs, so a change here obligates a review of
+        both workspace files and the recursive build/test gates.
+      depends_on: []
+    - id: harn-one-plan-per-commit
+      title: One locked harn plan per implementation commit
+      statement: Every implementation commit in this repo must consume exactly one
+        locked harn plan through the pre-commit hook (harn check --staged, harn
+        apply, git add .harn, recheck) when any tracked file changes, because
+        the Wireroom build audits each phase as one plan = one commit and
+        unplanned diffs must be blocked before they land.
+      reason: The build workflow (tmp/build/SUBAGENT-BRIEF.md) mandates plan-locked,
+        single-commit phases; the hook installed by harn init enforces it, and
+        weakening this contract obligates a review of the whole build process.
+      depends_on: []
+  reviewed: []
+anchors:
+  monorepo-workspace-layout:
+    workspace-globs:
+      action: change
+      reason: Create pnpm-workspace.yaml with the pinned package globs.
+    vitest-projects:
+      action: change
+      reason: Create vitest.workspace.ts mirroring the same package globs.
+files:
+  - .gitignore
+  - package.json
+  - pnpm-workspace.yaml
+  - pnpm-lock.yaml
+  - tsconfig.base.json
+  - vitest.workspace.ts
+  - packages/protocol/package.json
+  - packages/protocol/tsconfig.json
+  - packages/protocol/src/index.ts
+  - packages/protocol/src/index.spec.ts
+  - packages/switchboard/package.json
+  - packages/switchboard/tsconfig.json
+  - packages/switchboard/src/index.ts
+  - packages/switchboard/src/index.spec.ts
+  - packages/cli/package.json
+  - packages/cli/tsconfig.json
+  - packages/cli/src/index.ts
+  - packages/cli/src/index.spec.ts
+  - packages/web/package.json
+  - packages/web/tsconfig.json
+  - packages/web/vite.config.ts
+  - packages/web/index.html
+  - packages/web/src/main.tsx
+  - packages/web/src/App.tsx
+  - packages/web/src/App.spec.ts
+  - packages/adapters/codex/package.json
+  - packages/adapters/codex/tsconfig.json
+  - packages/adapters/codex/src/index.ts
+  - packages/adapters/codex/src/index.spec.ts
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/claude-code/tsconfig.json
+  - packages/adapters/claude-code/src/index.ts
+  - packages/adapters/claude-code/src/index.spec.ts
+  - relay/package.json
+  - relay/tsconfig.json
+  - relay/src/index.ts
+  - relay/src/index.spec.ts
+  - skills/wireroom/SKILL.md
