@@ -1,0 +1,15 @@
+id: adapter-registry-sole-harness-source
+hash: a-b0306f91812d
+title: One validated registry owns built-in and configured harness adapters
+state: active
+statement: Runtime adapter availability must come from one registry that creates
+  fresh built-in adapters and loads trusted configured modules from adapters
+  name-to-module configuration; configured factories must validate before
+  switchboard resources start, same-name configuration deliberately replaces a
+  built-in, and a new adapter must complete an ordinary room turn without
+  production-core edits, because hardcoded composition lists make third-party
+  harness support brittle and dishonest.
+depends_on:
+  - adapters-cli-only-no-sdk
+  - adapter-process-lifecycle-supervised
+created_by: adapter-sdk-hot-swap

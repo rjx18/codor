@@ -5,41 +5,58 @@ assumptions:
   create:
     - id: adapter-registry-sole-harness-source
       title: One validated registry owns built-in and configured harness adapters
-      statement: Runtime adapter availability must come from one registry that creates fresh built-in adapters and loads trusted configured modules from adapters name-to-module configuration; configured factories must validate before switchboard resources start, same-name configuration deliberately replaces a built-in, and a new adapter must complete an ordinary room turn without production-core edits, because hardcoded composition lists make third-party harness support brittle and dishonest.
-      reason: M5 opens the plain-CLI adapter boundary to trusted third-party modules while keeping registration deterministic and observable.
+      statement: Runtime adapter availability must come from one registry that creates
+        fresh built-in adapters and loads trusted configured modules from
+        adapters name-to-module configuration; configured factories must
+        validate before switchboard resources start, same-name configuration
+        deliberately replaces a built-in, and a new adapter must complete an
+        ordinary room turn without production-core edits, because hardcoded
+        composition lists make third-party harness support brittle and
+        dishonest.
+      reason: M5 opens the plain-CLI adapter boundary to trusted third-party modules
+        while keeping registration deterministic and observable.
       depends_on:
         - adapters-cli-only-no-sdk
         - adapter-process-lifecycle-supervised
   reviewed:
     - id: adapters-cli-only-no-sdk
       outcome: unchanged
-      reason: Registration is a trusted module boundary around the existing plain CLI and JSONL interface, not a harness SDK transport.
+      reason: Registration is a trusted module boundary around the existing plain CLI
+        and JSONL interface, not a harness SDK transport.
     - id: adapter-process-lifecycle-supervised
       outcome: unchanged
-      reason: Configured adapters must implement the same supervised HarnessAdapter lifecycle and honest capabilities as built-ins.
+      reason: Configured adapters must implement the same supervised HarnessAdapter
+        lifecycle and honest capabilities as built-ins.
     - id: monorepo-workspace-layout
       outcome: unchanged
-      reason: Runtime dependency ownership moves to the switchboard registry without adding or moving workspace packages.
+      reason: Runtime dependency ownership moves to the switchboard registry without
+        adding or moving workspace packages.
 anchors:
   adapter-registry-sole-harness-source:
     configured-adapter-registry:
       action: change
-      reason: Add the only built-in factory map, configured module resolver, factory invocation, replacement rule, and runtime validation.
+      reason: Add the only built-in factory map, configured module resolver, factory
+        invocation, replacement rule, and runtime validation.
     registry-cli-composition:
       action: change
-      reason: Make home and outpost startup load fresh registries from normalized CLI or programmatic configuration before resource construction.
+      reason: Make home and outpost startup load fresh registries from normalized CLI
+        or programmatic configuration before resource construction.
     third-party-hot-swap-acceptance:
       action: change
-      reason: Load a committed external module by URL and prove its new harness completes a routed room turn.
+      reason: Load a committed external module by URL and prove its new harness
+        completes a routed room turn.
     hardcoded-list-guard:
       action: change
-      reason: Scan production source so built-in adapter package imports cannot drift outside the sole registry.
+      reason: Scan production source so built-in adapter package imports cannot drift
+        outside the sole registry.
     adapter-registration-contract:
       action: change
-      reason: Document the interface, trusted factory module, NOTES convention, capture workflow, capability truth, and restart semantics.
+      reason: Document the interface, trusted factory module, NOTES convention,
+        capture workflow, capability truth, and restart semantics.
     acp-final-verdict:
       action: change
-      reason: Record the final ACP revisit after the configured third-party boundary exists.
+      reason: Record the final ACP revisit after the configured third-party boundary
+        exists.
 files:
   - packages/switchboard/src/adapter-registry.ts
   - packages/switchboard/src/index.ts
@@ -54,3 +71,5 @@ files:
   - docs/ADAPTERS.md
   - docs/ARCHITECTURE.md
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T23:11:04.101Z

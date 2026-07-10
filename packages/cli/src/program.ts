@@ -42,6 +42,29 @@ interface RoomOptions {
   room: string;
 }
 
+// harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition
+function collectAdapter(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+export function parseAdapterModules(values: string[]): Record<string, string> {
+  const adapters: [string, string][] = [];
+  const ids = new Set<string>();
+  for (const value of values) {
+    const separator = value.indexOf('=');
+    if (separator < 1 || separator === value.length - 1) {
+      throw new Error('--adapter must be name=module');
+    }
+    const id = value.slice(0, separator).trim();
+    const module = value.slice(separator + 1).trim();
+    if (id === '' || module === '') throw new Error('--adapter must be name=module');
+    if (ids.has(id)) throw new Error(`duplicate --adapter id '${id}'`);
+    ids.add(id);
+    adapters.push([id, module]);
+  }
+  return Object.fromEntries(adapters);
+}
+
 const formatRunHeader = (message: Message, author: string): string => {
   const run = message.run!;
   const usage = run.usage;
@@ -110,6 +133,7 @@ export function createProgram(context: CliContext = {}): Command {
     .option('--owner <handle>', 'initial owner handle')
     .option('--relay-url <url>', 'optional sealed push relay URL', env.WIREROOM_RELAY_URL)
     .option('--push-vapid-public-key <key>', 'Web Push VAPID public key', env.WIREROOM_VAPID_PUBLIC_KEY)
+    .option('--adapter <name=module>', 'trusted adapter module (repeatable)', collectAdapter, [])
     .action(async (options: {
       host: string;
       port: number;
@@ -119,6 +143,7 @@ export function createProgram(context: CliContext = {}): Command {
       owner?: string;
       relayUrl?: string;
       pushVapidPublicKey?: string;
+      adapter: string[];
     }) => {
       const globals = program.opts<GlobalOptions>();
       const running = await startWireroom({
@@ -132,6 +157,7 @@ export function createProgram(context: CliContext = {}): Command {
         owner: options.owner,
         relayUrl: options.relayUrl,
         pushVapidPublicKey: options.pushVapidPublicKey,
+        adapters: parseAdapterModules(options.adapter),
       });
       out(`wireroom http://localhost:${running.server.port}`);
       out(`socket ${running.server.socketPath}`);
@@ -155,14 +181,17 @@ export function createProgram(context: CliContext = {}): Command {
     .command('serve')
     .description('host resident members for a remote room home')
     .requiredOption('--join <line>', 'line name and secret as name:secret')
-    .action(async (options: { join: string }) => {
+    .option('--adapter <name=module>', 'trusted adapter module (repeatable)', collectAdapter, [])
+    .action(async (options: { join: string; adapter: string[] }) => {
       const running = await startOutpost({
         dataDir: program.opts<GlobalOptions>().dataDir,
         line: parseLine(options.join),
+        adapters: parseAdapterModules(options.adapter),
       });
       out(`wireroom outpost ${running.crypto.keys.identity.device_id}`);
       await waitForShutdown(running.close);
     });
+  // harn:end adapter-registry-sole-harness-source
 
   program
     .command('spawn')

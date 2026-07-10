@@ -2,12 +2,6 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { ClaudeCodeAdapter } from '@wireroom/adapter-claude-code';
-import { CopilotAdapter } from '@wireroom/adapter-copilot';
-import { CodexAdapter } from '@wireroom/adapter-codex';
-import { GeminiAdapter } from '@wireroom/adapter-gemini';
-import { OpenCodeAdapter } from '@wireroom/adapter-opencode';
-import type { HarnessAdapter } from '@wireroom/protocol';
 import {
   CryptoVault,
   Daemon,
@@ -16,11 +10,14 @@ import {
   PushProducer,
   PushSubscriptionStore,
   ResidencyCoordinator,
+  loadAdapterRegistry,
   startServer,
+  type AdapterModuleConfig,
   type LineConfig,
   type RunningServer,
 } from '@wireroom/switchboard';
 
+// harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition
 export interface UpOptions {
   dataDir?: string;
   token: string;
@@ -32,6 +29,8 @@ export interface UpOptions {
   owner?: string;
   relayUrl?: string;
   pushVapidPublicKey?: string;
+  adapters?: AdapterModuleConfig;
+  adapterBaseDir?: string;
 }
 
 export interface RunningWireroom {
@@ -46,6 +45,8 @@ export interface OutpostOptions {
   dataDir?: string;
   line: LineConfig;
   bootstrap?: { host: string; port: number }[];
+  adapters?: AdapterModuleConfig;
+  adapterBaseDir?: string;
 }
 
 export interface RunningOutpost {
@@ -54,16 +55,6 @@ export interface RunningOutpost {
   residency: ResidencyCoordinator;
   dataDir: string;
   close(): Promise<void>;
-}
-
-function configuredAdapters(): HarnessAdapter[] {
-  return [
-    new ClaudeCodeAdapter(),
-    new CopilotAdapter(),
-    new CodexAdapter(),
-    new GeminiAdapter(),
-    new OpenCodeAdapter(),
-  ];
 }
 
 export function parseLine(value: string): LineConfig {
@@ -88,6 +79,10 @@ function ownerHandle(value: string | undefined): string {
 
 export async function startWireroom(options: UpOptions): Promise<RunningWireroom> {
   if (!options.token.trim()) throw new Error('--token or WIREROOM_TOKEN is required');
+  const adapters = await loadAdapterRegistry({
+    adapters: options.adapters,
+    baseDir: options.adapterBaseDir,
+  });
   const dataDir = resolve(options.dataDir ?? join(homedir(), '.wireroom'));
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const crypto = new CryptoVault(dataDir);
@@ -102,7 +97,7 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
   const daemon = new Daemon({
     dbPath: join(dataDir, 'switchboard.sqlite'),
     blobRoot: join(dataDir, 'blobs'),
-    adapters: configuredAdapters(),
+    adapters,
     ledger,
     pushProducer,
     onBackgroundError: (error) => console.error(`[wireroom] background task failed: ${error.message}`),
@@ -151,6 +146,10 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
 }
 
 export async function startOutpost(options: OutpostOptions): Promise<RunningOutpost> {
+  const adapters = await loadAdapterRegistry({
+    adapters: options.adapters,
+    baseDir: options.adapterBaseDir,
+  });
   const dataDir = resolve(options.dataDir ?? join(homedir(), '.wireroom'));
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const crypto = new CryptoVault(dataDir);
@@ -161,7 +160,7 @@ export async function startOutpost(options: OutpostOptions): Promise<RunningOutp
   });
   const residency = new ResidencyCoordinator({
     transport,
-    adapters: configuredAdapters(),
+    adapters,
     journalPath: join(dataDir, 'resident.sqlite'),
     blobRoot: join(dataDir, 'resident-blobs'),
   });
@@ -185,6 +184,7 @@ export async function startOutpost(options: OutpostOptions): Promise<RunningOutp
     throw error;
   }
 }
+// harn:end adapter-registry-sole-harness-source
 
 export async function waitForShutdown(close: () => Promise<void>): Promise<void> {
   await new Promise<void>((resolveShutdown) => {

@@ -24,6 +24,15 @@ export { Daemon } from './daemon.js';
 export type { DaemonOptions, FrameListener } from './daemon.js';
 export { FakeAdapter } from './fake-adapter.js';
 export type { DeliverRecord, FakeTurn } from './fake-adapter.js';
+export {
+  BUILTIN_ADAPTER_IDS,
+  loadAdapterRegistry,
+} from './adapter-registry.js';
+export type {
+  AdapterFactoryContext,
+  AdapterModuleConfig,
+  AdapterRegistryOptions,
+} from './adapter-registry.js';
 export { REDACTED, redactText, redactValue } from './redact.js';
 export { startServer } from './server.js';
 export type { RunningServer, ServerOptions } from './server.js';

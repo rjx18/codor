@@ -17,6 +17,11 @@
   },
   "dependencies": {
     "@fastify/static": "^9.3.0",
+    "@wireroom/adapter-claude-code": "workspace:*",
+    "@wireroom/adapter-codex": "workspace:*",
+    "@wireroom/adapter-copilot": "workspace:*",
+    "@wireroom/adapter-gemini": "workspace:*",
+    "@wireroom/adapter-opencode": "workspace:*",
     "@wireroom/protocol": "workspace:*",
     "better-sqlite3": "^12.11.1",
     "chokidar": "^5.0.0",
@@ -31,8 +36,6 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/sodium-native": "^2.3.9",
     "@types/ws": "^8.18.1",
-    "@wireroom/adapter-claude-code": "workspace:*",
-    "@wireroom/adapter-codex": "workspace:*",
     "hyperdht": "^6.33.0"
   }
 }

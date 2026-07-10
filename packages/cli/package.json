@@ -19,17 +19,14 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@wireroom/adapter-claude-code": "workspace:*",
-    "@wireroom/adapter-codex": "workspace:*",
-    "@wireroom/adapter-copilot": "workspace:*",
-    "@wireroom/adapter-gemini": "workspace:*",
-    "@wireroom/adapter-opencode": "workspace:*",
     "@wireroom/protocol": "workspace:*",
     "@wireroom/switchboard": "workspace:*",
     "commander": "^15.0.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.1",
+    "@wireroom/adapter-claude-code": "workspace:*",
+    "@wireroom/adapter-codex": "workspace:*"
   }
 }

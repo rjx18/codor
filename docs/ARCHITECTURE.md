@@ -85,6 +85,14 @@ read JSONL), which is also what makes new harnesses cheap and native-resume/jump
   Codex has only a third-party (JetBrains) adapter, `codex-acp`. Direct CLI drivers stay;
   ACP (Apache-2.0) remains a candidate FOURTH adapter for harnesses we don't drive natively.
 
+<!-- harn:assume adapter-registry-sole-harness-source ref=acp-final-verdict -->
+**M5 final revisit:** the configured adapter registry now gives an ACP implementation the same
+trusted third-party module boundary as any other harness, but the driver verdict remains **NO**.
+Registry hot-swap fixes installation, not ACP's coarse cumulative usage or absent subagent model.
+An external ACP-backed adapter may register without a core patch only when it reports those
+reduced capabilities honestly; no ACP dependency enters the built-in data plane.
+<!-- harn:end adapter-registry-sole-harness-source -->
+
 ### Session ownership: owned vs. mirrored, in both directions
 
 The one genuinely hard lifecycle problem. A session sitting in an interactive TUI cannot *also*
@@ -210,7 +218,7 @@ verified in M0 before any code lands (unverified entries marked ⚠).
 | Claude session driving | `claude` CLI (`-p --resume`, stream-json in/out) | depend | subprocess only — no SDK, by design (loose coupling; same shape as every other harness) |
 | Codex session driving | `codex` CLI (`exec --json`, `resume`) | depend | subprocess; proven pattern |
 | Harness normalization | Zed ACP (`agent-client-protocol` + `claude-agent-acp`, both Apache-2.0) | rejected as driver layer (M0 verdict) | P0.2 spike: resume OK, usage coarse (per-turn tokens still a Draft RFD), subagent visibility absent by design; codex adapter is third-party (JetBrains). CLI drivers stay; ACP = candidate future fourth adapter |
-| Additional harness adapters (Copilot CLI, OpenCode, Gemini, Pi, …) | paseo's adapter set as the *behavioral reference* (AGPL forbids copying code, not learning from it); ACP adapters where they exist (Apache/MIT); each harness's first-party headless docs | pattern / depend | per harness: read their connector → write a behavioral spec (`packages/adapters/<harness>/NOTES.md`: invocation, resume, session store, event format, quirks) → implement our small adapter from the spec against the 4-function interface. No paseo code in this repo, in-process or sidecar |
+| Additional harness adapters (Copilot CLI, OpenCode, Gemini, Pi, …) | paseo's adapter set as the *behavioral reference* (AGPL forbids copying code, not learning from it); ACP adapters where they exist (Apache/MIT); each harness's first-party headless docs | pattern / depend | per harness: read their connector → write a behavioral spec (`packages/adapters/<harness>/NOTES.md`: invocation, resume, session store, event format, quirks) → implement our small adapter from the spec against the six-method interface. No paseo code in this repo, in-process or sidecar |
 | P2P transport | `hyperswarm` (+ DHT, Noise) — walkie's stack (**MIT, verified P0.2**) | depend; walkie as pattern/vendor | `line:secret` → DHT topic, exactly walkie's channel model; walkie's `listen()/send()` lib is MIT (`walkie-sh` v1.5.0) — reuse permitted with attribution, else hyperswarm directly |
 | Tailnet access | Tailscale (user-supplied): `tailscale serve` for TLS; app connectors for custom-domain team access | depend | zero code: bind the tailnet IP; connector setup is documentation, not software |
 | Session-store discovery | partyline-sh/cli (MIT, Go) | port | its readers for `~/.claude` / `~/.codex` / Gemini session stores solve attach-by-session-id; port the formats to TS (Go binary doesn't transplant into a Node daemon) |

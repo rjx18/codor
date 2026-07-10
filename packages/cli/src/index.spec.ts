@@ -1,9 +1,10 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  BUILTIN_ADAPTER_IDS,
   CryptoVault,
   Daemon,
   FakeAdapter,
@@ -22,6 +23,7 @@ import {
   startWireroom,
 } from './index.js';
 import { parseLine } from './up.js';
+import { parseAdapterModules } from './program.js';
 
 let dir: string;
 let daemon: Daemon;
@@ -375,13 +377,9 @@ describe('@wireroom/cli', () => {
       pushVapidPublicKey: 'm3-vapid-public-key',
     });
     expect(running.daemon.store.listRooms().map((room) => room.id)).toEqual(['default']);
-    expect(running.daemon.registeredAdapters().map((adapter) => adapter.id)).toEqual([
-      'claude-code',
-      'codex',
-      'copilot',
-      'gemini',
-      'opencode',
-    ]);
+    expect(running.daemon.registeredAdapters().map((adapter) => adapter.id)).toEqual(
+      [...BUILTIN_ADAPTER_IDS].sort(),
+    );
     expect(running.server.socketPath).toBe(join(dir, 'up-data', 'wireroom.sock'));
     const pushConfig = await fetch(`http://127.0.0.1:${String(running.server.port)}/api/push/config`, {
       headers: { authorization: 'Bearer up-token' },
@@ -392,4 +390,47 @@ describe('@wireroom/cli', () => {
     });
     await running.close();
   });
+
+  // harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition
+  it('normalizes repeatable adapter flags and starts with the configured registry', async () => {
+    expect(parseAdapterModules([
+      'fixture-harness=./adapter.mjs',
+      'acp=@example/acp-adapter',
+    ])).toEqual({
+      'fixture-harness': './adapter.mjs',
+      acp: '@example/acp-adapter',
+    });
+    expect(() => parseAdapterModules(['broken'])).toThrow('--adapter must be name=module');
+    expect(() => parseAdapterModules(['codex=one', 'codex=two'])).toThrow(
+      "duplicate --adapter id 'codex'",
+    );
+    expect(Object.hasOwn(parseAdapterModules(['__proto__=safe.mjs']), '__proto__')).toBe(true);
+
+    const fixture = fileURLToPath(new URL('../../switchboard/test-fixtures/third-party-adapter.mjs', import.meta.url));
+    const running = await startWireroom({
+      dataDir: join(dir, 'configured-up-data'),
+      token: 'configured-up-token',
+      port: 0,
+      adapters: { 'cli-fixture': fixture },
+    });
+    try {
+      expect(running.daemon.registeredAdapters().map((adapter) => adapter.id)).toEqual(
+        [...BUILTIN_ADAPTER_IDS, 'cli-fixture'].sort(),
+      );
+    } finally {
+      await running.close();
+    }
+
+    const unopenedDataDir = join(dir, 'failed-config-data');
+    await expect(startWireroom({
+      dataDir: unopenedDataDir,
+      token: 'configured-up-token',
+      port: 0,
+      adapters: {
+        broken: 'data:text/javascript,export%20const%20notAFactory%20%3D%20true',
+      },
+    })).rejects.toThrow(/must export createAdapter/);
+    expect(existsSync(unopenedDataDir)).toBe(false);
+  });
+  // harn:end adapter-registry-sole-harness-source
 });

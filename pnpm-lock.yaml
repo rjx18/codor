@@ -50,21 +50,6 @@ importers:
 
   packages/cli:
     dependencies:
-      '@wireroom/adapter-claude-code':
-        specifier: workspace:*
-        version: link:../adapters/claude-code
-      '@wireroom/adapter-codex':
-        specifier: workspace:*
-        version: link:../adapters/codex
-      '@wireroom/adapter-copilot':
-        specifier: workspace:*
-        version: link:../adapters/copilot
-      '@wireroom/adapter-gemini':
-        specifier: workspace:*
-        version: link:../adapters/gemini
-      '@wireroom/adapter-opencode':
-        specifier: workspace:*
-        version: link:../adapters/opencode
       '@wireroom/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -81,6 +66,12 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      '@wireroom/adapter-claude-code':
+        specifier: workspace:*
+        version: link:../adapters/claude-code
+      '@wireroom/adapter-codex':
+        specifier: workspace:*
+        version: link:../adapters/codex
 
   packages/protocol:
     dependencies:
@@ -93,6 +84,21 @@ importers:
       '@fastify/static':
         specifier: ^9.3.0
         version: 9.3.0
+      '@wireroom/adapter-claude-code':
+        specifier: workspace:*
+        version: link:../adapters/claude-code
+      '@wireroom/adapter-codex':
+        specifier: workspace:*
+        version: link:../adapters/codex
+      '@wireroom/adapter-copilot':
+        specifier: workspace:*
+        version: link:../adapters/copilot
+      '@wireroom/adapter-gemini':
+        specifier: workspace:*
+        version: link:../adapters/gemini
+      '@wireroom/adapter-opencode':
+        specifier: workspace:*
+        version: link:../adapters/opencode
       '@wireroom/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -130,12 +136,6 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
-      '@wireroom/adapter-claude-code':
-        specifier: workspace:*
-        version: link:../adapters/claude-code
-      '@wireroom/adapter-codex':
-        specifier: workspace:*
-        version: link:../adapters/codex
       hyperdht:
         specifier: ^6.33.0
         version: 6.33.0(bare-url@2.4.5)
