@@ -21,6 +21,7 @@
   "dependencies": {
     "@wireroom/adapter-claude-code": "workspace:*",
     "@wireroom/adapter-codex": "workspace:*",
+    "@wireroom/adapter-copilot": "workspace:*",
     "@wireroom/adapter-gemini": "workspace:*",
     "@wireroom/adapter-opencode": "workspace:*",
     "@wireroom/protocol": "workspace:*",

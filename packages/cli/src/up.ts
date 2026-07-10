@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { ClaudeCodeAdapter } from '@wireroom/adapter-claude-code';
+import { CopilotAdapter } from '@wireroom/adapter-copilot';
 import { CodexAdapter } from '@wireroom/adapter-codex';
 import { GeminiAdapter } from '@wireroom/adapter-gemini';
 import { OpenCodeAdapter } from '@wireroom/adapter-opencode';
@@ -47,6 +48,7 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
     blobRoot: join(dataDir, 'blobs'),
     adapters: [
       new ClaudeCodeAdapter(),
+      new CopilotAdapter(),
       new CodexAdapter(),
       new GeminiAdapter(),
       new OpenCodeAdapter(),

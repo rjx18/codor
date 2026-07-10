@@ -47,6 +47,12 @@ export const nativeResumeCommand: InteractiveCommandResolver = (member, env) => 
       args: ['--session', member.session_ref],
     };
   }
+  if (member.harness === 'copilot') {
+    return {
+      command: env.WIREROOM_COPILOT_COMMAND ?? 'copilot',
+      args: ['--resume', member.session_ref],
+    };
+  }
   throw new Error(`adapter '${member.harness ?? 'unknown'}' has no interactive resume command`);
 };
 

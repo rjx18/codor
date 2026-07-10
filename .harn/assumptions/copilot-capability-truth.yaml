@@ -1,0 +1,18 @@
+id: copilot-capability-truth
+hash: a-df2bc5a06f28
+title: Copilot capabilities match its programmatic CLI interface
+state: active
+statement: The Copilot adapter must drive one programmatic JSONL CLI process per
+  turn with an exact preallocated UUID session id, resume that id in the
+  persisted working directory, discover local session-state directories, expose
+  the native resume TUI, translate documented assistant, tool, usage, error, and
+  subagent lifecycle events without treating Copilot billing multipliers as
+  dollars, and declare asks unsupported with approvals fixed at process spawn,
+  because every advertised capability must be demonstrated by a synthetic
+  documented-format fixture or an operator-authenticated manual probe.
+depends_on:
+  - adapters-cli-only-no-sdk
+  - adapter-process-lifecycle-supervised
+  - uncosted-usage-visible-not-guessed
+  - extension-lifecycle-from-hooks
+created_by: adapter-copilot

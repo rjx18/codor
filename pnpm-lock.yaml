@@ -30,6 +30,12 @@ importers:
         specifier: workspace:*
         version: link:../../protocol
 
+  packages/adapters/copilot:
+    dependencies:
+      '@wireroom/protocol':
+        specifier: workspace:*
+        version: link:../../protocol
+
   packages/adapters/gemini:
     dependencies:
       '@wireroom/protocol':
@@ -50,6 +56,9 @@ importers:
       '@wireroom/adapter-codex':
         specifier: workspace:*
         version: link:../adapters/codex
+      '@wireroom/adapter-copilot':
+        specifier: workspace:*
+        version: link:../adapters/copilot
       '@wireroom/adapter-gemini':
         specifier: workspace:*
         version: link:../adapters/gemini

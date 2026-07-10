@@ -22,3 +22,26 @@ Verify that both results are `PONG`, the resumed `init.session_id` is unchanged,
 the UUID appears in `--list-sessions` and the project chat metadata, and the
 event fields still match `packages/adapters/gemini/NOTES.md`. Stop after the
 first auth/quota error and record it instead of retrying.
+
+## GitHub Copilot CLI
+
+Status on 2026-07-10: **not run**. The `copilot` executable is not installed and
+this machine has no authenticated Copilot CLI subscription. Checked-in fixtures
+are marked SYNTHETIC and prove parser conformance only.
+
+With an operator-authenticated first-party CLI, choose a new UUID and run each
+tiny turn once from a disposable directory:
+
+```bash
+copilot --output-format=json --stream=on --no-ask-user --no-color --model=gpt-5.4-mini --session-id <uuid> --prompt 'Reply PONG only.'
+copilot --output-format=json --stream=on --no-ask-user --no-color --model=gpt-5.4-mini --session-id <same-uuid> --prompt 'Repeat your previous word only.'
+copilot --resume <same-uuid>
+```
+
+Verify that both programmatic results are `PONG`, the JSONL envelopes and fields
+still match `packages/adapters/copilot/NOTES.md`, the UUID directory exists under
+`$COPILOT_HOME/session-state`, and the final command opens the same interactive
+session. Stop after the first auth/quota/subscription error and record it instead
+of retrying. A separate future authenticated subagent probe should verify that
+`subagent.started` and its matching terminal event are present before relying on
+extension visibility outside the documented synthetic fixture.

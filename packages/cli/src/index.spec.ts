@@ -103,6 +103,20 @@ describe('@wireroom/cli', () => {
     });
   });
 
+  it('resolves Copilot interactive resume through the supervised attach path', () => {
+    expect(nativeResumeCommand({
+      id: 'copilot-member',
+      kind: 'agent',
+      handle: 'copilot',
+      display_name: 'Copilot',
+      harness: 'copilot',
+      session_ref: '33333333-3333-4333-8333-333333333333',
+    }, { WIREROOM_COPILOT_COMMAND: '/opt/copilot' })).toEqual({
+      command: '/opt/copilot',
+      args: ['--resume', '33333333-3333-4333-8333-333333333333'],
+    });
+  });
+
   it('spawns, posts, and tails through the unix WebSocket protocol', async () => {
     await cli('rooms');
     expect(output).toContain('eng\tEngineering');
@@ -292,6 +306,7 @@ describe('@wireroom/cli', () => {
     expect(running.daemon.registeredAdapters().map((adapter) => adapter.id)).toEqual([
       'claude-code',
       'codex',
+      'copilot',
       'gemini',
       'opencode',
     ]);
