@@ -1,0 +1,35 @@
+id: m2fix-auth-hardening
+title: M2 review fix for active timing-safe authentication paths
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: nonce-challenge-auth-no-key-possession-identity
+      outcome: unchanged
+      reason: The active Ed25519 challenge path remains authoritative; the unused localhost token fallback is removed rather than left as a false security claim.
+    - id: server-token-required
+      outcome: unchanged
+      reason: REST and WebSocket bearer authentication still require the configured token, now compared through a constant-time libsodium helper.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: The private local socket remains filesystem-authenticated while remote WebSocket query tokens use constant-time comparison.
+    - id: single-crypto-suite-libsodium
+      outcome: unchanged
+      reason: Bearer and pairing token comparisons use sodium generichash plus sodium_memcmp without adding another crypto implementation.
+anchors:
+  server-token-required:
+    token-validation:
+      action: change
+      reason: Keep fail-closed startup and route REST bearer checks through constant-time comparison.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Compare remote WebSocket query tokens in constant time while retaining token-free private unix socket authentication.
+files:
+  - packages/switchboard/src/crypto/challenge.ts
+  - packages/switchboard/src/crypto/crypto.spec.ts
+  - packages/switchboard/src/crypto/pairing.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/index.ts
+  - tmp/build/PROGRESS.md
