@@ -5,31 +5,30 @@ assumptions:
   create:
     - id: m0-live-acceptance-chain
       title: M0 accepts only on a real routed claude-to-codex chain with artifacts
-      statement: The acceptance spec must drive REAL claude and codex CLIs through
-        the daemon - temp git repo fixture, codex member policy
-        workspace-write, one human post, no manual routing - and assert that
-        the handoff chain fired from claude's finalized run message, that the
-        codex turn is exactly ONE finalized message, and that hello.md exists
-        on disk with the planned shape, because M0's dial tone is done only
-        when live harnesses complete an end-to-end routed chain.
-      reason: PLAN-M0 P0.10 finding 8; this is the gate the milestone review
-        reads, and its transcript (tmp/build/ACCEPT-M0.md) is the acceptance
-        record.
+      statement: The acceptance spec must drive REAL claude and codex CLIs through the
+        daemon - temp git repo fixture, codex member policy workspace-write, one
+        human post, no manual routing - and assert that the handoff chain fired
+        from claude's finalized run message, that the codex turn is exactly ONE
+        finalized message, and that hello.md exists on disk with the planned
+        shape, because M0's dial tone is done only when live harnesses complete
+        an end-to-end routed chain.
+      reason: PLAN-M0 P0.10 finding 8; this is the gate the milestone review reads,
+        and its transcript (tmp/build/ACCEPT-M0.md) is the acceptance record.
       depends_on:
         - reply-is-finalized-run-message
         - adapters-cli-only-no-sdk
   reviewed:
     - id: routing-eligibility-gate
       outcome: unchanged
-      reason: "Refined for a degenerate case the statement is silent on: a
-        finalized run whose body is EMPTY no longer routes (an empty body can
-        mention nobody, so routing it could only fire the default fallback -
-        which live-looped two agents through empty acknowledgment turns during
+      reason: "Refined for a degenerate case the statement is silent on: a finalized
+        run whose body is EMPTY no longer routes (an empty body can mention
+        nobody, so routing it could only fire the default fallback - which
+        live-looped two agents through empty acknowledgment turns during
         acceptance). All behaviors the statement enumerates are unchanged."
     - id: runs-are-one-message
       outcome: unchanged
-      reason: The acceptance asserts one run message per live turn - consuming
-        the invariant, not changing it.
+      reason: The acceptance asserts one run message per live turn - consuming the
+        invariant, not changing it.
     - id: delivery-payload-template-exact
       outcome: unchanged
       reason: Live payloads are composed by the pinned template; the transcript
@@ -41,8 +40,8 @@ anchors:
   m0-live-acceptance-chain:
     acceptance-live-chain:
       action: change
-      reason: Create the gated live acceptance spec driving both real adapters
-        through the daemon.
+      reason: Create the gated live acceptance spec driving both real adapters through
+        the daemon.
   routing-eligibility-gate:
     eligibility-gate:
       action: change
@@ -55,3 +54,5 @@ files:
   - packages/switchboard/src/router.ts
   - packages/switchboard/src/router.spec.ts
   - docs/SETUP.md
+applied:
+  applied_at: 2026-07-10T09:20:13.423Z

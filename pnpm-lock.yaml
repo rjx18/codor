@@ -53,6 +53,12 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+      '@wireroom/adapter-claude-code':
+        specifier: workspace:*
+        version: link:../adapters/claude-code
+      '@wireroom/adapter-codex':
+        specifier: workspace:*
+        version: link:../adapters/codex
 
   packages/web:
     dependencies:

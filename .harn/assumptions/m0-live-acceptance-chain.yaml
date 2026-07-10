@@ -1,0 +1,15 @@
+id: m0-live-acceptance-chain
+hash: a-77f4bce9033f
+title: M0 accepts only on a real routed claude-to-codex chain with artifacts
+state: active
+statement: The acceptance spec must drive REAL claude and codex CLIs through the
+  daemon - temp git repo fixture, codex member policy workspace-write, one human
+  post, no manual routing - and assert that the handoff chain fired from
+  claude's finalized run message, that the codex turn is exactly ONE finalized
+  message, and that hello.md exists on disk with the planned shape, because M0's
+  dial tone is done only when live harnesses complete an end-to-end routed
+  chain.
+depends_on:
+  - reply-is-finalized-run-message
+  - adapters-cli-only-no-sdk
+created_by: m0-acceptance

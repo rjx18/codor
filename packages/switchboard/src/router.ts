@@ -26,7 +26,11 @@ export interface EligibilityContext {
  * agent, or bridge member, and FINALIZED `run` messages. Never routed:
  * `system` messages, `ask`/`approval` cards, anything authored by the
  * system member, and chat replies to a card (audit replies) — none of
- * these may ever trigger an agent turn.
+ * these may ever trigger an agent turn. A finalized run with an EMPTY body
+ * (interrupted turn, or a model deliberately replying with nothing) is not
+ * routable either: an empty body can mention nobody, so routing it could
+ * only fire the untagged default — which live-looped two agents through
+ * endless empty acknowledgment turns (found in M0 acceptance).
  */
 export function isRoutable(message: Message, ctx: EligibilityContext): boolean {
   if (!ctx.author) return false;
@@ -35,7 +39,11 @@ export function isRoutable(message: Message, ctx: EligibilityContext): boolean {
     return false;
   }
   if (message.kind === 'run') {
-    return message.run !== undefined && message.run.status !== 'running';
+    return (
+      message.run !== undefined &&
+      message.run.status !== 'running' &&
+      message.body.trim() !== ''
+    );
   }
   // chat: audit replies on cards never route
   if (
