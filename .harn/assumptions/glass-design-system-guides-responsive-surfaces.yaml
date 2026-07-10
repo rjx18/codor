@@ -1,0 +1,12 @@
+id: glass-design-system-guides-responsive-surfaces
+hash: a-e08c9138515f
+title: The glass design system is the source for responsive product surfaces
+state: active
+statement: The Wireroom web app and forward-looking native concepts must derive
+  their visual hierarchy, semantic color, glass material, type, spacing,
+  responsive layout, accessibility, and motion choices from the versioned v2
+  design system and its desktop-first mockups, because product surfaces need a
+  cohesive high-craft identity without weakening the existing privacy and
+  interaction contracts.
+depends_on: []
+created_by: glass-design-foundation

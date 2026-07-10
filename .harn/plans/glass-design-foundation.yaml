@@ -7,13 +7,13 @@ assumptions:
       title: The glass design system is the source for responsive product surfaces
       statement: The Wireroom web app and forward-looking native concepts must derive
         their visual hierarchy, semantic color, glass material, type, spacing,
-        responsive layout, accessibility, and motion choices from the versioned v2
-        design system and its desktop-first mockups, because product surfaces need a
-        cohesive high-craft identity without weakening the existing privacy and
-        interaction contracts.
+        responsive layout, accessibility, and motion choices from the versioned
+        v2 design system and its desktop-first mockups, because product surfaces
+        need a cohesive high-craft identity without weakening the existing
+        privacy and interaction contracts.
       reason: The operator rejected the generic mobile-only M3 visuals and directed an
-        image-first glass redesign spanning desktop, iPhone, and Apple Watch before
-        implementation begins.
+        image-first glass redesign spanning desktop, iPhone, and Apple Watch
+        before implementation begins.
       depends_on: []
   reviewed: []
 anchors:
@@ -38,3 +38,5 @@ files:
   - tmp/build/design/v2/watch-quick-actions.png
   - tmp/build/design/v2/DESIGN-SYSTEM.md
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T19:57:55.351Z
