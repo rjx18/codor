@@ -10,18 +10,17 @@ assumptions:
         holding run event payloads, because run streams are unbounded JSONL
         blobs journaled by the daemon on disk and the DB must stay small with
         one-message-per-run structural.
-      reason: ARCHITECTURE room-store pins JSONL blobs on disk; P0.8 journals
-        events and reconciles against the blob, so moving events into the DB
-        changes crash reconcile and storage shape for every consumer.
+      reason: ARCHITECTURE room-store pins JSONL blobs on disk; P0.8 journals events
+        and reconciles against the blob, so moving events into the DB changes
+        crash reconcile and storage shape for every consumer.
       depends_on: []
     - id: message-id-txn-allocation
       title: Message ids allocate dense and monotonic inside the insert transaction
-      statement: Message ids must be computed per-room (MAX+1) and assigned INSIDE
-        the same synchronous store transaction that inserts the row, because
+      statement: Message ids must be computed per-room (MAX+1) and assigned INSIDE the
+        same synchronous store transaction that inserts the row, because
         PROTOCOL invariant 2 makes ids dense, monotonic, and permanent (#N refs)
         and allocation outside the transaction could race or leave gaps.
-      reason: PLAN-M0 P0.4; the router, refs, and acceptance assertions all point
-        at #N ids, so the allocation discipline is a review obligation.
+      reason: PLAN-M0 P0.4; the router, refs, and acceptance assertions all point at
       depends_on: []
     - id: owner-and-system-members-seeded
       title: Room creation seeds the owner human and the system member atomically
@@ -37,30 +36,29 @@ assumptions:
         - reserved-handles-rejected
     - id: changelog-covers-every-visible-entity
       title: Every client-visible mutation appends exactly one change-log row
-      statement: Every store mutation of a client-visible entity - message insert
-        and in-place finalize, member create/update, human inbox record
-        create/read, meter upsert, room create/config change - must append
-        exactly one changes(room_id, seq, entity, entity_id) row with a
-        per-room monotonic seq allocated in the same transaction, because sync
-        hydrates exclusively from this log and a missed append is an invisible
-        client desync.
-      reason: PLAN-M0 P0.4; builds directly on changelog-is-sync-cursor; P0.8
-        fanout and P0.9 delta-sync read only this log.
+      statement: Every store mutation of a client-visible entity - message insert and
+        in-place finalize, member create/update, human inbox record create/read,
+        meter upsert, room create/config change - must append exactly one
+        changes(room_id, seq, entity, entity_id) row with a per-room monotonic
+        seq allocated in the same transaction, because sync hydrates exclusively
+        from this log and a missed append is an invisible client desync.
+      reason: PLAN-M0 P0.4; builds directly on changelog-is-sync-cursor; P0.8 fanout
+        and P0.9 delta-sync read only this log.
       depends_on:
         - changelog-is-sync-cursor
   reviewed:
     - id: changelog-is-sync-cursor
       outcome: unchanged
-      reason: The store implements this contract physically (changes table +
-        per-room seq) without altering the schema-level cursor semantics.
+      reason: The store implements this contract physically (changes table + per-room
+        seq) without altering the schema-level cursor semantics.
     - id: interaction-state-machine-persisted
       outcome: unchanged
       reason: pending_interactions persists exactly the schema's state machine
         columns; no semantic change.
     - id: mention-spans-survive-renames
       outcome: unchanged
-      reason: Mentions are stored as span JSON verbatim from the schema; the
-        store never persists handle text for mentions.
+      reason: Mentions are stored as span JSON verbatim from the schema; the store
+        never persists handle text for mentions.
 anchors:
   run-blobs-off-db:
     store-schema-no-blobs:
@@ -80,6 +78,7 @@ anchors:
       action: change
       reason: Create the internal appendChange used by every mutating method.
 files:
+  - package.json
   - packages/switchboard/package.json
   - pnpm-lock.yaml
   - packages/switchboard/src/index.ts
