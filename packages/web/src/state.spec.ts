@@ -58,6 +58,17 @@ describe('frame application (in-place, seq-cursored)', () => {
     expect(useRoomStore.getState().seq).toBe(12);
   });
 
+  it('commits a hydration cursor only when sync_complete arrives', () => {
+    const { applyFrame } = useRoomStore.getState();
+    applyFrame({ type: 'sync_complete', seq: 4 });
+    applyFrame({ type: 'message', seq: 4, message: message({ id: 1, seq: 12 }) });
+    expect(useRoomStore.getState().messages[1]!.seq).toBe(12);
+    expect(useRoomStore.getState().seq).toBe(4);
+
+    applyFrame({ type: 'sync_complete', seq: 12 });
+    expect(useRoomStore.getState().seq).toBe(12);
+  });
+
   it('a run finalization REPLACES the message in place — never a duplicate', () => {
     const { applyFrame } = useRoomStore.getState();
     const running = message({

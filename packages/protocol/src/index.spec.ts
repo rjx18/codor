@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
 import * as protocol from './index.js';
@@ -10,6 +12,7 @@ describe('@wireroom/protocol barrel', () => {
       'AssignableHandleSchema',
       'MessageSchema',
       'MentionSpanSchema',
+      'parseBody',
       'AskCardSchema',
       'RunSummarySchema',
       'PendingInteractionSchema',
@@ -26,3 +29,15 @@ describe('@wireroom/protocol barrel', () => {
     }
   });
 });
+
+// harn:assume release-gate-runs-unit-and-browser ref=root-release-test-script
+it('keeps the fast test loop separate from the full browser release gate', () => {
+  const rootPackage = JSON.parse(
+    readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
+  ) as { scripts: Record<string, string> };
+  expect(rootPackage.scripts.test).toBe('pnpm -r test');
+  expect(rootPackage.scripts['test:all']).toBe(
+    'pnpm -r build && pnpm -r test && pnpm --filter @wireroom/web e2e',
+  );
+});
+// harn:end release-gate-runs-unit-and-browser

@@ -1,4 +1,4 @@
-import type { Delivery, Member, Message, RoomMeter, WireEvent } from '@wireroom/protocol';
+import { parseBody, type Delivery, type Member, type Message, type RoomMeter, type WireEvent } from '@wireroom/protocol';
 import { useEffect, useMemo, useState } from 'react';
 
 import { fetchRunEvents } from './api.js';
@@ -213,11 +213,12 @@ export function impliedRecipient(
   members: Record<string, Member>,
   messages: Record<number, Message>,
 ): { kind: 'mentions' | 'default' | 'commentary'; label: string } {
-  const byHandle = new Map(Object.values(members).map((m) => [m.handle, m]));
+  const roster = Object.values(members);
+  const byId = new Map(roster.map((member) => [member.id, member]));
   const handles: string[] = [];
-  for (const match of draft.matchAll(/(^|[^\w`@])@([a-z0-9][a-z0-9-]*)/g)) {
-    const member = byHandle.get(match[2]!);
-    if (member && (member.kind === 'human' || member.kind === 'agent') && !handles.includes(member.handle)) {
+  for (const span of parseBody(draft, roster).mentions) {
+    const member = byId.get(span.member_id);
+    if (member && !handles.includes(member.handle)) {
       handles.push(member.handle);
     }
   }

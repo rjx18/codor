@@ -1,0 +1,11 @@
+id: release-gate-runs-unit-and-browser
+hash: a-aa1027c3de79
+title: The root release test gate includes Vitest and Playwright
+state: active
+statement: The root test:all script must build the workspace, run every
+  package's fast Vitest suite, and then run the web Playwright suite, while pnpm
+  -r test remains the fast Vitest-only loop, because a release must not pass
+  without the browser flow.
+depends_on:
+  - client-syncs-by-seq
+created_by: m0fix-semantics-parity

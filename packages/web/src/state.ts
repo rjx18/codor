@@ -37,14 +37,16 @@ export const useRoomStore = create<RoomState>((set) => ({
 
   // harn:assume client-syncs-by-seq ref=store-upsert-in-place
   // Frames upsert entities IN PLACE by id — a run finalization replaces the
-  // existing message row (same #N, new content) — and every seq-carrying
-  // frame advances the cursor the next (re)subscribe will use.
+  // existing message row (same #N, new content). Hydration frames retain the
+  // prior cursor; sync_complete advances it only after the full snapshot lands.
   applyFrame: (frame) =>
     set((state) => {
       const bump = 'seq' in frame ? Math.max(state.seq, frame.seq) : state.seq;
       switch (frame.type) {
         case 'room':
           return { seq: bump, room: frame.room };
+        case 'sync_complete':
+          return { seq: bump };
         case 'member':
           return { seq: bump, members: { ...state.members, [frame.member.id]: frame.member } };
         case 'message':

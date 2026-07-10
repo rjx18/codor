@@ -19,6 +19,9 @@ export const RunItemTypeSchema = z.enum([
 ]);
 export type RunItemType = z.infer<typeof RunItemTypeSchema>;
 
+/** Opaque id reported by a harness before it is mapped to a Wireroom member. */
+export const HarnessNativeIdSchema = z.string().min(1);
+
 export const WireEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('run.started'),
@@ -43,15 +46,17 @@ export const WireEventSchema = z.discriminatedUnion('type', [
     member: MemberIdSchema,
     state: MemberStateSchema,
   }),
+  // harn:assume extension-events-use-native-identifiers ref=extension-native-event-schema
   z.object({
     type: z.literal('extension.started'),
-    parent: MemberIdSchema,
-    ext_member: MemberIdSchema,
+    parent: HarnessNativeIdSchema,
+    ext_member: HarnessNativeIdSchema,
   }),
   z.object({
     type: z.literal('extension.ended'),
-    ext_member: MemberIdSchema,
+    ext_member: HarnessNativeIdSchema,
     summary: z.string().optional(),
   }),
+  // harn:end extension-events-use-native-identifiers
 ]);
 export type WireEvent = z.infer<typeof WireEventSchema>;

@@ -1,7 +1,7 @@
 id: routing-eligibility-gate
 hash: a-65ab9463eb85
 title: Only human/agent/bridge chat and finalized runs ever route
-state: active
+state: retired
 statement: The router must route only chat messages authored by human, agent, or
   bridge members and run messages whose status is no longer running, and must
   never route system messages, ask/approval cards, anything authored by the
@@ -9,3 +9,4 @@ statement: The router must route only chat messages authored by human, agent, or
   message queues an agent turn and none of those sources may ever trigger one.
 depends_on: []
 created_by: router-semantics
+retired_by: m0fix-semantics-parity

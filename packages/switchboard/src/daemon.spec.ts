@@ -116,6 +116,27 @@ describe('reply-is-the-run-message chaining', () => {
     const betaRun = runMessages().find((m) => m.author === beta.id)!;
     expect(alphaDeliveries[1]!.message_id).toBe(betaRun.id);
   });
+
+  it.each(['completed', 'interrupted'] as const)(
+    'finalizes and displays an empty %s run without routing it',
+    async (status) => {
+      const alpha = spawnAgent('alpha');
+      fake.enqueue(
+        status === 'completed'
+          ? { kind: 'complete', final_text: '' }
+          : { kind: 'die-silently' },
+      );
+
+      daemon.postHumanMessage('eng', '@alpha finish quietly');
+      await daemon.settle();
+
+      const run = runMessages()[0]!;
+      expect(run.run!.status).toBe(status);
+      expect(run.body).toBe('');
+      expect(daemon.store.listDeliveries('eng', { recipient: daemon.ownerOf('eng').id })).toEqual([]);
+      expect(daemon.store.listDeliveries('eng', { recipient: alpha.id })[0]!.state).toBe('consumed');
+    },
+  );
 });
 
 describe('one inflight turn per member', () => {

@@ -129,11 +129,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           subscriptions.get(socket)!.add(frame.room);
           // hydrate everything changed since the client's cursor
           const sync = daemon.sync(frame.room, frame.since_seq);
-          send({ type: 'room', seq: sync.seq, room: sync.room });
-          for (const member of sync.members) send({ type: 'member', seq: sync.seq, member });
-          for (const message of sync.messages) send({ type: 'message', seq: message.seq, message });
-          for (const delivery of sync.inbox) send({ type: 'inbox', seq: sync.seq, delivery });
-          for (const meter of sync.meters) send({ type: 'meter', seq: sync.seq, meter });
+          const hydrationCursor = frame.since_seq;
+          send({ type: 'room', seq: hydrationCursor, room: sync.room });
+          for (const member of sync.members) send({ type: 'member', seq: hydrationCursor, member });
+          for (const message of sync.messages) send({ type: 'message', seq: hydrationCursor, message });
+          for (const delivery of sync.inbox) send({ type: 'inbox', seq: hydrationCursor, delivery });
+          for (const meter of sync.meters) send({ type: 'meter', seq: hydrationCursor, meter });
+          send({ type: 'sync_complete', seq: sync.seq });
         } else if (frame.type === 'post') {
           daemon.postHumanMessage(frame.room, frame.body, { reply_to: frame.reply_to });
         } else if (frame.type === 'act') {

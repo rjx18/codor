@@ -345,6 +345,16 @@ describe('wire events', () => {
       WireEventSchema.safeParse({ type: 'run.completed', status: 'running' }).success,
     ).toBe(false);
   });
+
+  it('accepts fixture-shaped native extension ids before member mapping', () => {
+    expect(
+      WireEventSchema.safeParse({
+        type: 'extension.started',
+        parent: '213a7049-0ddd-4db7-84ed-411dd7330fe7',
+        ext_member: 'a4fdb5021f374a8d1',
+      }).success,
+    ).toBe(true);
+  });
 });
 
 describe('WS client frames', () => {
@@ -415,6 +425,7 @@ describe('WS server frames', () => {
       },
     ],
     ['room', { type: 'room', seq: 5, room: { id: 'r', name: 'R', created_ts: TS, config: {} } }],
+    ['sync_complete', { type: 'sync_complete', seq: 6 }],
     [
       'run_event',
       {
@@ -432,7 +443,7 @@ describe('WS server frames', () => {
     expect(parsed.success, JSON.stringify(parsed.success ? '' : parsed.error)).toBe(true);
   });
 
-  it('entity frames carry the producing seq', () => {
+  it('live entity frames carry the producing seq', () => {
     const parsed = ServerFrameSchema.parse({ type: 'message', seq: 9, message: chatMessage });
     expect(parsed).toHaveProperty('seq', 9);
   });

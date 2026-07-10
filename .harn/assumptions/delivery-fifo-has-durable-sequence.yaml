@@ -1,0 +1,10 @@
+id: delivery-fifo-has-durable-sequence
+hash: a-bc2758d8f2a0
+title: Delivery FIFO uses a durable insertion sequence
+state: active
+statement: Every delivery must receive a per-room monotonic queue sequence in
+  the insertion transaction and queue reads must order by that sequence, because
+  millisecond timestamps can tie and UUID ordering is random rather than FIFO.
+depends_on:
+  - one-inflight-turn-per-member
+created_by: m0fix-semantics-parity

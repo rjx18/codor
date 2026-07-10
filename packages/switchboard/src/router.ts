@@ -1,10 +1,14 @@
 import {
-  HANDLE_REGEX,
+  isAddressable,
   type Member,
-  type MentionSpan,
   type Message,
+  parseBody,
+  type ParsedBody,
   type RoomConfig,
 } from '@wireroom/protocol';
+
+export { isAddressable, parseBody } from '@wireroom/protocol';
+export type { ParsedBody } from '@wireroom/protocol';
 
 /**
  * The pure router — PROTOCOL §3 as functions over (message, room state).
@@ -20,7 +24,7 @@ export interface EligibilityContext {
   repliedTo?: Message;
 }
 
-// harn:assume routing-eligibility-gate ref=eligibility-gate
+// harn:assume routing-eligibility-nonempty-finalized ref=eligibility-gate
 /**
  * Routing eligibility comes FIRST. Routed: `chat` authored by a human,
  * agent, or bridge member, and FINALIZED `run` messages. Never routed:
@@ -55,72 +59,7 @@ export function isRoutable(message: Message, ctx: EligibilityContext): boolean {
   }
   return true;
 }
-// harn:end routing-eligibility-gate
-
-// ── body grammar ────────────────────────────────────────────────────────
-
-export interface ParsedBody {
-  mentions: MentionSpan[];
-  refs: number[];
-  ledger_refs: string[];
-  /** Handle-shaped tokens that matched no member (misaddressing signal). */
-  unresolved: string[];
-}
-
-const RESERVED_TOKENS = new Set(['all', 'switchboard']);
-
-/** A member the grammar can address: humans and agents in ANY state. */
-export function isAddressable(member: Member): boolean {
-  return member.kind === 'human' || member.kind === 'agent';
-}
-
-/** Replaces fenced blocks and inline code with spaces (offsets preserved). */
-function blankCodeSpans(body: string): string {
-  const blank = (match: string): string => match.replace(/[^\n]/g, ' ');
-  return body.replace(/```[\s\S]*?(```|$)/g, blank).replace(/`[^`\n]*`/g, blank);
-}
-
-/**
- * PROTOCOL §3 parsing rules over `body` — fenced/inline code is skipped.
- * Mentions resolve to addressable members only; reserved tokens (`@all`,
- * `@switchboard`) are plain text and are NOT typos; anything else
- * handle-shaped that misses the roster lands in `unresolved`.
- */
-export function parseBody(body: string, members: Member[]): ParsedBody {
-  const byHandle = new Map(members.map((m) => [m.handle, m]));
-  const scan = blankCodeSpans(body);
-
-  const mentions: MentionSpan[] = [];
-  const unresolved: string[] = [];
-  const mentionRe = /(^|[^\w`@])@([a-z0-9][a-z0-9-]*)/g;
-  for (const match of scan.matchAll(mentionRe)) {
-    const handle = match[2]!;
-    const start = match.index + match[1]!.length;
-    if (!HANDLE_REGEX.test(handle)) continue;
-    if (RESERVED_TOKENS.has(handle)) continue; // reserved → plain text, not a typo
-    const member = byHandle.get(handle);
-    if (member && isAddressable(member)) {
-      mentions.push({ member_id: member.id, start, end: start + handle.length + 1 });
-    } else if (!member) {
-      unresolved.push(handle);
-    }
-    // non-addressable members (extensions/system/bridge) → plain text
-  }
-
-  const refs: number[] = [];
-  for (const match of scan.matchAll(/(^|[^\w#])#(\d+)/g)) {
-    const id = Number(match[2]);
-    if (id > 0 && !refs.includes(id)) refs.push(id);
-  }
-
-  const ledger_refs: string[] = [];
-  for (const match of scan.matchAll(/\[\[([^[\]\n]+)\]\]/g)) {
-    const name = match[1]!.trim();
-    if (name !== '' && !ledger_refs.includes(name)) ledger_refs.push(name);
-  }
-
-  return { mentions, refs, ledger_refs, unresolved: [...new Set(unresolved)] };
-}
+// harn:end routing-eligibility-nonempty-finalized
 
 // ── recipient resolution ────────────────────────────────────────────────
 

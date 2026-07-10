@@ -1,0 +1,12 @@
+id: sync-cursor-commits-after-hydration
+hash: a-d4b4c88c7f2d
+title: A reconnect cursor advances only after complete hydration
+state: active
+statement: A server sync must read one consistent SQLite snapshot and send
+  hydrated entity frames without advancing the requested cursor, followed by one
+  final sync_complete frame carrying the snapshot seq; the client advances to
+  that seq only after receiving the final frame, because a disconnect during
+  hydration must replay missing entities rather than skip them forever.
+depends_on:
+  - changelog-is-sync-cursor
+created_by: m0fix-semantics-parity

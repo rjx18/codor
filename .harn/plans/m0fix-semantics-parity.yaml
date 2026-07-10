@@ -9,106 +9,123 @@ assumptions:
     - id: routing-eligibility-nonempty-finalized
       title: Routing excludes empty-bodied finalized runs
       statement: The router must route only chat messages authored by human, agent, or
-        bridge members and nonempty finalized run messages, and must never route system
-        messages, ask or approval cards, audit replies, system-authored messages, running
-        placeholders, or empty-bodied finalized runs, because an empty run can only take
-        the untagged default and caused a live endless acknowledgement loop.
-      reason: M0 milestone review finding 12 formalizes the live P0.10 correction instead
-        of restoring the stale pinned behavior.
+        bridge members and nonempty finalized run messages, and must never route
+        system messages, ask or approval cards, audit replies, system-authored
+        messages, running placeholders, or empty-bodied finalized runs, because
+        an empty run can only take the untagged default and caused a live
+        endless acknowledgement loop.
+      reason: M0 milestone review finding 12 formalizes the live P0.10 correction
+        instead of restoring the stale pinned behavior.
       depends_on: []
     - id: sync-cursor-commits-after-hydration
       title: A reconnect cursor advances only after complete hydration
-      statement: A server sync must read one consistent SQLite snapshot and send hydrated
-        entity frames without advancing the requested cursor, followed by one final
-        sync_complete frame carrying the snapshot seq; the client advances to that seq
-        only after receiving the final frame, because a disconnect during hydration must
-        replay missing entities rather than skip them forever.
-      reason: M0 milestone review finding 7; the first hydration frame previously jumped
-        the client cursor to the final seq.
+      statement: A server sync must read one consistent SQLite snapshot and send
+        hydrated entity frames without advancing the requested cursor, followed
+        by one final sync_complete frame carrying the snapshot seq; the client
+        advances to that seq only after receiving the final frame, because a
+        disconnect during hydration must replay missing entities rather than
+        skip them forever.
+      reason: M0 milestone review finding 7; the first hydration frame previously
+        jumped the client cursor to the final seq.
       depends_on:
         - changelog-is-sync-cursor
     - id: delivery-fifo-has-durable-sequence
       title: Delivery FIFO uses a durable insertion sequence
-      statement: Every delivery must receive a per-room monotonic queue sequence in the
-        insertion transaction and queue reads must order by that sequence, because
-        millisecond timestamps can tie and UUID ordering is random rather than FIFO.
-      reason: M0 milestone review finding 11; ORDER BY ts,id could reverse same-tick posts.
+      statement: Every delivery must receive a per-room monotonic queue sequence in
+        the insertion transaction and queue reads must order by that sequence,
+        because millisecond timestamps can tie and UUID ordering is random
+        rather than FIFO.
+      reason: M0 milestone review finding 11; ORDER BY ts,id could reverse same-tick
+        posts.
       depends_on:
         - one-inflight-turn-per-member
     - id: body-parser-shared-across-router-and-web
       title: Router and composer use one body grammar parser
       statement: Mention, message-reference, ledger-reference, code-span escaping,
-        addressability, and unresolved-handle parsing must live in protocol and be used by
-        both switchboard routing and the web composer's implied-recipient preview, because
-        a preview that disagrees with delivery violates the before-send destination promise.
-      reason: M0 milestone review finding 13; the web had a second incomplete mention regex.
+        addressability, and unresolved-handle parsing must live in protocol and
+        be used by both switchboard routing and the web composer's
+        implied-recipient preview, because a preview that disagrees with
+        delivery violates the before-send destination promise.
+      reason: M0 milestone review finding 13; the web had a second incomplete mention
+        regex.
       depends_on:
         - mention-spans-survive-renames
     - id: extension-events-use-native-identifiers
       title: Extension lifecycle events carry harness-native identifiers
-      statement: extension.started parent and ext_member and extension.ended ext_member
-        must accept nonempty harness-native identifiers rather than MemberId ULIDs, because
-        Claude hooks emit a session UUID and opaque agent id which the switchboard maps to
-        extension members only in the later extension phase.
-      reason: M0 milestone review finding 14; normative hook fixtures failed the protocol
-        WireEvent schema.
+      statement: extension.started parent and ext_member and extension.ended
+        ext_member must accept nonempty harness-native identifiers rather than
+        MemberId ULIDs, because Claude hooks emit a session UUID and opaque
+        agent id which the switchboard maps to extension members only in the
+        later extension phase.
+      reason: M0 milestone review finding 14; normative hook fixtures failed the
+        protocol WireEvent schema.
       depends_on:
         - extensions-hooks-authoritative
     - id: release-gate-runs-unit-and-browser
       title: The root release test gate includes Vitest and Playwright
-      statement: The root test:all script must build the workspace, run every package's
-        fast Vitest suite, and then run the web Playwright suite, while pnpm -r test remains
-        the fast Vitest-only loop, because a release must not pass without the browser flow.
-      reason: M0 milestone review finding 15; the prior root test command omitted Playwright.
+      statement: The root test:all script must build the workspace, run every
+        package's fast Vitest suite, and then run the web Playwright suite,
+        while pnpm -r test remains the fast Vitest-only loop, because a release
+        must not pass without the browser flow.
+      reason: M0 milestone review finding 15; the prior root test command omitted
+        Playwright.
       depends_on:
         - client-syncs-by-seq
   reviewed:
     - id: reply-is-finalized-run-message
       outcome: unchanged
-      reason: Empty runs still finalize the same run message in place and display; only
-        onward routing is suppressed by the replacement eligibility assumption.
+      reason: Empty runs still finalize the same run message in place and display;
+        only onward routing is suppressed by the replacement eligibility
+        assumption.
     - id: changelog-is-sync-cursor
       outcome: unchanged
-      reason: Seq remains the only cursor; sync_complete makes its commit boundary safe.
+      reason: Seq remains the only cursor; sync_complete makes its commit boundary
+        safe.
     - id: changelog-covers-every-visible-entity
       outcome: unchanged
       reason: The same change rows hydrate; the store now reads them in one snapshot.
     - id: client-syncs-by-seq
       outcome: unchanged
-      reason: The client still tracks seq and upserts entities; it now commits a hydration
-        cursor only on sync_complete.
+      reason: The client still tracks seq and upserts entities; it now commits a
+        hydration cursor only on sync_complete.
     - id: implied-recipient-visible-before-send
       outcome: unchanged
-      reason: The preview contract remains and becomes byte-for-byte grammar-consistent
-        with switchboard routing.
+      reason: The preview contract remains and becomes byte-for-byte
+        grammar-consistent with switchboard routing.
     - id: default-recipient-latest-finalized
       outcome: unchanged
       reason: The fallback rule is unchanged once the shared parser finds no mentions.
     - id: mention-spans-survive-renames
       outcome: unchanged
-      reason: The shared parser continues producing stable member-id spans with offsets.
+      reason: The shared parser continues producing stable member-id spans with
+        offsets.
     - id: extensions-hooks-authoritative
       outcome: unchanged
-      reason: Claude hooks remain authoritative; only the normalization schema is aligned
-        with their fixture-proven native identifier shapes.
+      reason: Claude hooks remain authoritative; only the normalization schema is
+        aligned with their fixture-proven native identifier shapes.
     - id: claude-control-protocol-pinned
       outcome: unchanged
-      reason: Normative hook fixture bytes are unchanged and now pass the protocol schema.
+      reason: Normative hook fixture bytes are unchanged and now pass the protocol
+        schema.
     - id: run-blobs-off-db
       outcome: unchanged
-      reason: Queue sequence is bounded delivery metadata; run streams remain off SQLite.
+      reason: Queue sequence is bounded delivery metadata; run streams remain off
+        SQLite.
     - id: turn-finalization-transactional
       outcome: unchanged
-      reason: Empty run suppression is decided during the existing atomic fanout planning.
+      reason: Empty run suppression is decided during the existing atomic fanout
+        planning.
 anchors:
   routing-eligibility-gate:
     eligibility-gate:
       action: remove
-      reason: Replace the stale assumption anchor with the accurate nonempty-finalized rule.
+      reason: Replace the stale assumption anchor with the accurate nonempty-finalized
+        rule.
   routing-eligibility-nonempty-finalized:
     eligibility-gate:
       action: change
-      reason: Anchor the complete routing eligibility rule including empty finalized runs.
+      reason: Anchor the complete routing eligibility rule including empty finalized
+        runs.
   sync-cursor-commits-after-hydration:
     consistent-sync-snapshot:
       action: change
@@ -127,7 +144,8 @@ anchors:
   extension-events-use-native-identifiers:
     extension-native-event-schema:
       action: change
-      reason: Validate hook-native session and agent ids at the normalized event boundary.
+      reason: Validate hook-native session and agent ids at the normalized event
+        boundary.
   release-gate-runs-unit-and-browser:
     root-release-test-script:
       action: change
@@ -142,7 +160,8 @@ anchors:
       reason: Apply sync_complete as the only hydration cursor advance.
     ws-resubscribe-cursor:
       action: change
-      reason: Preserve the committed cursor across reconnects while partial hydration replays.
+      reason: Preserve the committed cursor across reconnects while partial hydration
+        replays.
   run-blobs-off-db:
     store-schema-no-blobs:
       action: change
@@ -154,8 +173,8 @@ anchors:
   turn-finalization-transactional:
     atomic-turn-finalization:
       action: change
-      reason: Regression-test that both completed and interrupted empty runs atomically
-        finalize without fanout.
+      reason: Regression-test that both completed and interrupted empty runs
+        atomically finalize without fanout.
   extensions-hooks-authoritative:
     hooks-endpoint-settings:
       action: change
@@ -183,3 +202,5 @@ files:
   - packages/web/src/state.spec.ts
   - packages/adapters/claude-code/src/translate.ts
   - packages/adapters/claude-code/src/translate.spec.ts
+applied:
+  applied_at: 2026-07-10T10:20:05.885Z

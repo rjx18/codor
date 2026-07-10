@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
   payload_snapshot TEXT,        -- immutable routed prompt context; never run events
   process_id INTEGER,            -- bounded attempt evidence, never run event payloads
   process_group_id INTEGER,
+  queue_seq INTEGER NOT NULL,    -- durable FIFO order; timestamps can tie
   ts TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pending_interactions (
@@ -129,6 +130,10 @@ function migrateDeliveryPayloadSnapshot(db: Database.Database): void {
   if (!columns.some((column) => column.name === 'process_group_id')) {
     db.exec('ALTER TABLE deliveries ADD COLUMN process_group_id INTEGER');
   }
+  if (!columns.some((column) => column.name === 'queue_seq')) {
+    db.exec('ALTER TABLE deliveries ADD COLUMN queue_seq INTEGER');
+  }
+  db.exec('UPDATE deliveries SET queue_seq = rowid WHERE queue_seq IS NULL');
 }
 // harn:end delivery-payload-snapshotted
 
@@ -185,6 +190,7 @@ interface DeliveryRow {
   payload_snapshot: string | null;
   process_id: number | null;
   process_group_id: number | null;
+  queue_seq: number;
   ts: string;
 }
 
@@ -673,6 +679,9 @@ export class Store {
     },
   ): Delivery {
     return this.db.transaction(() => {
+      const nextQueueSeq = this.db
+        .prepare('SELECT COALESCE(MAX(queue_seq), 0) + 1 AS seq FROM deliveries WHERE room = ?')
+        .get(room) as { seq: number };
       const validated = DeliverySchema.parse({
         id: randomUUID(),
         room,
@@ -684,8 +693,9 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO deliveries (id, room, message_id, recipient, state, attempt_count,
-             batch_id, run_msg_id, read_ts, payload_snapshot, process_id, process_group_id, ts)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             batch_id, run_msg_id, read_ts, payload_snapshot, process_id, process_group_id,
+             queue_seq, ts)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           validated.id,
@@ -700,6 +710,7 @@ export class Store {
           orNull(delivery.payload_snapshot),
           null,
           null,
+          nextQueueSeq.seq,
           validated.ts,
         );
       // Human inbox records are client-visible; recipient kind decides.
@@ -795,6 +806,7 @@ export class Store {
   }
   // harn:end attempt-start-evidence-persisted
 
+  // harn:assume delivery-fifo-has-durable-sequence ref=delivery-queue-sequence
   listDeliveries(
     room: string,
     filter: { recipient?: string; state?: Delivery['state'] } = {},
@@ -804,7 +816,7 @@ export class Store {
         `SELECT * FROM deliveries WHERE room = ?
            AND (? IS NULL OR recipient = ?)
            AND (? IS NULL OR state = ?)
-         ORDER BY ts, id`,
+         ORDER BY queue_seq, id`,
       )
       .all(
         room,
@@ -815,6 +827,7 @@ export class Store {
       ) as DeliveryRow[];
     return rows.map(deliveryFromRow);
   }
+  // harn:end delivery-fifo-has-durable-sequence
 
   // harn:assume turn-start-transactional ref=atomic-turn-start
   /** Creates/reuses the run and binds the complete batch in one transaction. */
@@ -1021,34 +1034,39 @@ export class Store {
     );
   }
 
-  /** Delta-sync: read the log since the cursor, hydrate changed rows. */
+  // harn:assume sync-cursor-commits-after-hydration ref=consistent-sync-snapshot
+  /** Delta-sync: hydrate rows and its final cursor from one SQLite snapshot. */
   sync(room: string, sinceSeq: number): SyncResult {
-    const changes = this.getChangesSince(room, sinceSeq);
-    const wanted = new Map<ChangeEntity, Set<string>>();
-    for (const change of changes) {
-      let ids = wanted.get(change.entity);
-      if (!ids) wanted.set(change.entity, (ids = new Set()));
-      ids.add(change.entity_id);
-    }
-    const roomRow = this.getRoom(room);
-    if (!roomRow) throw new Error(`no such room: ${room}`);
-    return {
-      seq: this.currentSeq(room),
-      room: roomRow,
-      messages: [...(wanted.get('message') ?? [])]
-        .map((id) => this.getMessage(room, Number(id)))
-        .filter((m): m is Message => m !== undefined),
-      members: [...(wanted.get('member') ?? [])]
-        .map((id) => this.getMember(room, id))
-        .filter((m): m is Member => m !== undefined),
-      inbox: [...(wanted.get('inbox') ?? [])]
-        .map((id) => this.getDelivery(room, id))
-        .filter((d): d is Delivery => d !== undefined),
-      meters: [...(wanted.get('meter') ?? [])]
-        .map((day) => this.getMeter(room, day))
-        .filter((m): m is RoomMeter => m !== undefined),
-    };
+    return this.db.transaction(() => {
+      const seq = this.currentSeq(room);
+      const changes = this.getChangesSince(room, sinceSeq);
+      const wanted = new Map<ChangeEntity, Set<string>>();
+      for (const change of changes) {
+        let ids = wanted.get(change.entity);
+        if (!ids) wanted.set(change.entity, (ids = new Set()));
+        ids.add(change.entity_id);
+      }
+      const roomRow = this.getRoom(room);
+      if (!roomRow) throw new Error(`no such room: ${room}`);
+      return {
+        seq,
+        room: roomRow,
+        messages: [...(wanted.get('message') ?? [])]
+          .map((id) => this.getMessage(room, Number(id)))
+          .filter((message): message is Message => message !== undefined),
+        members: [...(wanted.get('member') ?? [])]
+          .map((id) => this.getMember(room, id))
+          .filter((member): member is Member => member !== undefined),
+        inbox: [...(wanted.get('inbox') ?? [])]
+          .map((id) => this.getDelivery(room, id))
+          .filter((delivery): delivery is Delivery => delivery !== undefined),
+        meters: [...(wanted.get('meter') ?? [])]
+          .map((day) => this.getMeter(room, day))
+          .filter((meter): meter is RoomMeter => meter !== undefined),
+      };
+    })();
   }
+  // harn:end sync-cursor-commits-after-hydration
 
   // ── helpers ───────────────────────────────────────────────────────────
 

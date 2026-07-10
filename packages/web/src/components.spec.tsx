@@ -67,6 +67,13 @@ describe('impliedRecipient (invariant 3: visible before send)', () => {
     });
   });
 
+  it('uses the router grammar for fenced-code escaping', () => {
+    expect(impliedRecipient('```\n@richard\n```\ncontinue', members, runMessages)).toEqual({
+      kind: 'default',
+      label: '→ @alpha (untagged default)',
+    });
+  });
+
   it('untagged drafts show the latest FINALIZED agent as the default', () => {
     expect(impliedRecipient('looks good, continue', members, runMessages)).toEqual({
       kind: 'default',

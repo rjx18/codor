@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import type { WireEvent } from '@wireroom/protocol';
+import { type WireEvent, WireEventSchema } from '@wireroom/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { composeControlResponse } from './adapter.js';
@@ -197,19 +197,23 @@ describe('extensions via hooks (authoritative source)', () => {
   const [start, stop] = fixture('hooks-log.jsonl').map((l) => JSON.parse(l));
 
   it('SubagentStart maps to extension.started with native ids', () => {
-    expect(wireEventFromHook(start)).toEqual({
+    const event = wireEventFromHook(start);
+    expect(event).toEqual({
       type: 'extension.started',
       parent: start.session_id,
       ext_member: start.agent_id,
     });
+    expect(WireEventSchema.safeParse(event).success).toBe(true);
   });
 
   it('SubagentStop maps to extension.ended with the summary', () => {
-    expect(wireEventFromHook(stop)).toEqual({
+    const event = wireEventFromHook(stop);
+    expect(event).toEqual({
       type: 'extension.ended',
       ext_member: stop.agent_id,
       summary: 'PONG',
     });
+    expect(WireEventSchema.safeParse(event).success).toBe(true);
   });
 
   it('unknown hook payloads are dropped, not crashed on', () => {

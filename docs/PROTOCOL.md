@@ -139,7 +139,10 @@ agent-to-agent chain target the chain's originating human. Approvals carry `tool
 **Sync.** A per-room **change log** `(seq, entity, entity_id)` records every insert and
 in-place update across ALL client-visible entities — messages (incl. run finalization),
 members, human inbox records, meters, room config. Clients reconnect with `since_seq` and
-receive hydrated changed rows; `seq` is the only delta-sync cursor.
+receive hydrated changed rows from one consistent snapshot; `seq` is the only delta-sync
+cursor. Hydration entity frames retain the client's requested cursor, then a final
+`sync_complete {seq}` frame commits the snapshot cursor. Disconnecting before that final frame
+therefore replays the partial hydration rather than skipping unseen rows.
 
 **Human inbox lifecycle.** A delivery addressed to a human is an inbox record with `read_ts?`;
 the `mark_read` act sets it; unread counts derive from it; inbox changes flow through the
@@ -152,6 +155,10 @@ bridge member (bridge posts carry external humans' words), and **finalized** `ru
 Never routed: `system` messages (ledger notices, renames, holds), `ask`/`approval` cards,
 audit replies on cards, and anything authored by the `system` member — none of these can ever
 trigger an agent turn. A bridge can author routable messages but is never a recipient.
+**An empty-bodied finalized run still finalizes and displays, but never routes**, whether its
+status is `completed` or `interrupted`: it has no explicit recipient and applying the untagged
+default caused two live agents to enter an endless empty acknowledgement loop during M0
+acceptance.
 
 **Mentions select recipients; content is never split.** Every recipient receives the *full*
 message body plus all resolved references. Agents are trusted to read the whole message and work
@@ -261,8 +268,8 @@ ask.raised         { card }                                   // blocks the run
 approval.raised    { card }                                   // blocks the run
 run.completed      { final_text, usage, status }
 member.state       { member, state }                          // idle/running/queued/…
-extension.started  { parent, ext_member }                     // subagent observed
-extension.ended    { ext_member, summary? }
+extension.started  { parent, ext_member }                     // harness-native parent/agent ids
+extension.ended    { ext_member, summary? }                    // mapped to MemberIds by switchboard
 ```
 
 ## 5. Harness feature matrix

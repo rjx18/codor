@@ -146,9 +146,15 @@ describe('WebSocket', () => {
   it('subscribe hydrates from since_seq, then live frames follow a post', async () => {
     const client = await connect();
     client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
-    await client.next((f) => f.type === 'room');
+    const completedSync = await client.next((frame) => frame.type === 'sync_complete');
     const memberFrames = client.frames.filter((f) => f.type === 'member');
     expect(memberFrames.length).toBe(2); // hydrated owner + system
+    expect(
+      client.frames
+        .filter((frame) => frame.type !== 'sync_complete')
+        .every((frame) => !('seq' in frame) || frame.seq === 0),
+    ).toBe(true);
+    expect(completedSync).toMatchObject({ type: 'sync_complete', seq: daemon.store.currentSeq('eng') });
 
     daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/w' });
     fake.enqueue({ kind: 'complete', final_text: 'live and finalized' });

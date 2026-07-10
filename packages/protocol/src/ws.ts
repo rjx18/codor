@@ -73,9 +73,9 @@ export type ClientFrame = z.infer<typeof ClientFrameSchema>;
 // ── server → client ────────────────────────────────────────────────────────
 
 /**
- * Entity frames carry the change-log `seq` that produced them; a client's
- * cursor is always the max seq it has seen. `run_event` frames are ephemeral
- * live enrichment (blob replay serves history) and carry no seq.
+ * Live entity frames carry the change-log `seq` that produced them. Hydration
+ * entity frames retain the requested cursor until a final `sync_complete`
+ * commits the consistent snapshot cursor. `run_event` frames are ephemeral.
  */
 export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('message'), seq: SeqSchema, message: MessageSchema }),
@@ -83,6 +83,9 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('inbox'), seq: SeqSchema, delivery: DeliverySchema }),
   z.object({ type: z.literal('meter'), seq: SeqSchema, meter: RoomMeterSchema }),
   z.object({ type: z.literal('room'), seq: SeqSchema, room: RoomSchema }),
+  // harn:assume sync-cursor-commits-after-hydration ref=sync-complete-frame
+  z.object({ type: z.literal('sync_complete'), seq: SeqSchema }),
+  // harn:end sync-cursor-commits-after-hydration
   z.object({
     type: z.literal('run_event'),
     room: RoomIdSchema,

@@ -1,0 +1,12 @@
+id: extension-events-use-native-identifiers
+hash: a-f89a41b1417e
+title: Extension lifecycle events carry harness-native identifiers
+state: active
+statement: extension.started parent and ext_member and extension.ended
+  ext_member must accept nonempty harness-native identifiers rather than
+  MemberId ULIDs, because Claude hooks emit a session UUID and opaque agent id
+  which the switchboard maps to extension members only in the later extension
+  phase.
+depends_on:
+  - extensions-hooks-authoritative
+created_by: m0fix-semantics-parity

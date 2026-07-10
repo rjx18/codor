@@ -157,24 +157,40 @@ describe('routing eligibility gate', () => {
     expect(isRoutable(m, { author: codex })).toBe(true);
   });
 
-  it('never routes an EMPTY finalized run (interrupted turns / empty replies)', () => {
-    // Regression: live acceptance looped two agents through endless empty
-    // acknowledgment turns because empty bodies still hit the default rule.
-    const interrupted = msg({
-      author: codex.id,
-      kind: 'run',
-      body: '',
-      run: { status: 'interrupted', started_ts: '2026-07-10T07:00:00.000Z', tool_calls: 0, events_ref: 'runs/8.jsonl' },
-    });
-    expect(isRoutable(interrupted, { author: codex })).toBe(false);
-    const result = resolveRecipients(interrupted, ctx({ author: codex, triggerAuthor: claude.id }));
-    expect(result.routable).toBe(false);
-    expect(result.agents).toEqual([]);
+  it.each(['completed', 'interrupted'] as const)(
+    'never routes an empty %s run',
+    (status) => {
+      // Regression: live acceptance looped two agents through endless empty
+      // acknowledgment turns because empty bodies still hit the default rule.
+      const empty = msg({
+        author: codex.id,
+        kind: 'run',
+        body: '',
+        run: {
+          status,
+          started_ts: '2026-07-10T07:00:00.000Z',
+          tool_calls: 0,
+          events_ref: 'runs/8.jsonl',
+        },
+      });
+      expect(isRoutable(empty, { author: codex })).toBe(false);
+      const result = resolveRecipients(empty, ctx({ author: codex, triggerAuthor: claude.id }));
+      expect(result.routable).toBe(false);
+      expect(result.agents).toEqual([]);
+    },
+  );
+
+  it('treats whitespace-only finalized output as empty', () => {
     const blank = msg({
       author: codex.id,
       kind: 'run',
       body: '   \n ',
-      run: { status: 'completed', started_ts: '2026-07-10T07:00:00.000Z', tool_calls: 0, events_ref: 'runs/9.jsonl' },
+      run: {
+        status: 'completed',
+        started_ts: '2026-07-10T07:00:00.000Z',
+        tool_calls: 0,
+        events_ref: 'runs/9.jsonl',
+      },
     });
     expect(isRoutable(blank, { author: codex })).toBe(false);
   });

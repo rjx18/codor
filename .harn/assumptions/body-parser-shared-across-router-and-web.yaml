@@ -1,0 +1,12 @@
+id: body-parser-shared-across-router-and-web
+hash: a-8b49ce8d3f28
+title: Router and composer use one body grammar parser
+state: active
+statement: Mention, message-reference, ledger-reference, code-span escaping,
+  addressability, and unresolved-handle parsing must live in protocol and be
+  used by both switchboard routing and the web composer's implied-recipient
+  preview, because a preview that disagrees with delivery violates the
+  before-send destination promise.
+depends_on:
+  - mention-spans-survive-renames
+created_by: m0fix-semantics-parity
