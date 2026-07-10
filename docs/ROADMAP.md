@@ -21,9 +21,10 @@ milestone starts — this file stays the map, not the turf.
   No SDK dependency, by design.
 - `packages/web`: room timeline, collapsible runs, composer with @/# autocomplete + implied
   recipient, member rail, ask/approval cards.
-- **License + reuse audit** (the M0 gate for the build map): verify walkie + claude-watch
-  licenses (paseo already verified: AGPL-3.0 → pattern-only, no code reuse); **ACP spike** —
-  can it carry resume/usage/extensions? Decision recorded in ARCHITECTURE.md.
+- **License + reuse audit** (the M0 gate for the build map): verify walkie's license
+  (claude-watch verified MIT → fork cleared; paseo verified AGPL-3.0 → pattern-only, no code
+  reuse); **ACP spike** — can it carry resume/usage/extensions? Decision recorded in
+  ARCHITECTURE.md.
 - Tailnet deploy recipe (`tailscale serve`) + pairing token for the web client.
 
 **Acceptance:** from a browser on another machine (over tailnet), spawn a Codex session and a
@@ -36,6 +37,10 @@ result — no terminal involvement after setup.
 *Many sessions, custody in both directions, extensions. The manual review loop is dead.*
 
 - Multi-agent rooms: rename, per-member policy chips, queue/batch semantics, member revive.
+- **All-harnesses support**: Gemini CLI, OpenCode, and Copilot CLI adapters alongside
+  claude/codex (via ACP where the M0 spike cleared it, else direct CLI drivers written against
+  paseo's adapters as behavioral reference). Harnesses not installed on the box are
+  integration-tested against recorded streams; live smoke runs cover whatever is installed.
 - `/wireroom` skill (Claude Code) + `wireroom join` CLI (Codex): mirrored members, hook-based
   mirroring, adopt-on-TUI-exit custody transfer.
 - `wireroom attach <member>`: jump into any member's session from a terminal via native resume;
@@ -107,11 +112,13 @@ while no plaintext leaves the tailnet except sealed push payloads.
 - Adapter SDK: `HarnessAdapter` documented + reference third-party adapters (ACP-based if the
   M0 spike held; else OpenCode / Gemini / Copilot CLI direct, with paseo's adapter set as the
   behavioral reference — reimplemented, never copied, per its AGPL).
-- Multi-human rooms: org enrollment (invite QR, device keys), role enforcement
-  (owner/admin/member/observer), presence, per-human notification routing.
+- Multi-human rooms as a **Relay (paid) feature** per the API-key/DB test: org enrollment
+  (invite QR, device-key directory), role enforcement (owner/admin/member/observer), presence,
+  per-human notification routing. The role schema stays in the open protocol.
 - Ledger graph view in the web UI; optional Graphiti indexer for temporal queries.
-- Bridges: Slack + Telegram as opt-in room mirrors (ARCHITECTURE §bridges), with the bridged
-  banner and role-gated enablement.
+- Bridges: Slack + Telegram as opt-in room mirrors (ARCHITECTURE §bridges) — hosted via the
+  Relay plan (they need platform app credentials), with the bridged banner and role-gated
+  enablement.
 - Self-host guide, threat-model doc review (external eyes invited), docs site, demo video of
   the M1 acceptance loop, launch.
 

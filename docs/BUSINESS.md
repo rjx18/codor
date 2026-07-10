@@ -8,9 +8,22 @@ Wireroom sells the blind plumbing around a private product.
 ## The rule that makes it work
 
 Every hosted component is **content-blind** (handles ciphertext and minimal routing metadata
-only) and **self-hostable** (the paid service runs the same open-source code you could run
-yourself). The moat is polish, uptime, and zero-setup — not captivity. If a feature only works
+only). The moat is polish, uptime, and zero-setup — not captivity. If a feature only works
 because our server can read something, the feature is wrong.
+
+**The free/paid boundary is architectural, not artificial — the API-key/DB test:**
+
+- Runs purely on your box with no third-party credentials → **free, open source**. That's the
+  full solo product: rooms, all harness adapters, routing, custody, extensions, the ledger,
+  web/PWA over tailnet or P2P, E2EE.
+- Needs platform API keys (APNs, a Slack app, a Telegram bot, SSO) or hosted state (mailbox,
+  org directory, stable public endpoints) → **paid**: push, rendezvous relay, browser
+  gateway, encrypted mailbox, bridges/integrations, multi-member orgs.
+
+Nothing local is ever crippled to force the upgrade; the paid features are the ones that
+*inherently* require someone to run a server — and that someone is us. The local web UI's
+settings page shows exactly this list with a "connect to Wireroom Relay" pairing flow, which is
+the entire upsell.
 
 ## Division of labor: cloud vs. box
 
@@ -81,12 +94,13 @@ Three pillars, deliberately simple:
    to nothing — a hidden subscription behind a paid app would be a bait-and-switch).
 3. **The hosted relay is one cheap flat plan, ~$5/month**, for people who don't want to
    maintain anything: rendezvous/NAT relay, encrypted mailbox, browser gateway, hosted
-   bridges. It replaces "rent a VPS, run a TURN server, manage bot tokens." Self-hosting the
-   identical relay code is always documented and supported.
+   bridges (Slack/Telegram), and multi-member org enrollment (device-key directory + cross-user
+   routing — the role *schema* is in the open protocol, the org *service* is paid). It replaces
+   "rent a VPS, run a TURN server, manage bot tokens."
 
-Later, only if demand proves it (explicitly not launch scope): team seats (org relay capacity,
-metadata-only admin dashboard, SSO enrollment) and enterprise self-hosted-relay licensing with
-support.
+Later, only if demand proves it (explicitly not launch scope): team seats beyond the flat plan
+(org relay capacity, metadata-only admin dashboard, SSO enrollment) and enterprise
+self-hosted-relay licensing with support.
 
 ### The paseo parallel
 
@@ -101,8 +115,8 @@ relay ($5/mo) — so the project doesn't depend on donations.
 
 - Plaintext anything, ever, at any tier. No "compliance archive" of message content, no
   server-side search, no analytics on bodies.
-- Features deliberately withheld from self-hosters to force the subscription. The delta is
-  operations, not capability.
+- Local features deliberately withheld to force the subscription. The paid line is drawn by
+  the API-key/DB test above — operations and credentials, not capability on your own box.
 - Attention: no ads, no telemetry beyond opt-in crash reports.
 
 ## Sequencing

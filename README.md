@@ -53,6 +53,21 @@ you      (from your watch, by voice) @codex after the fix, also add a regression
   your tailnet or serverless P2P (Hyperswarm DHT + Noise, à la [walkie]). Optional push relay sees
   only ciphertext. No message content in any cloud, ever. See [docs/PRIVACY.md](docs/PRIVACY.md).
 
+## Setup — three ways, pick by effort
+
+1. **Tailnet (recommended):** `wireroom up` on the box where your agents live, `tailscale
+   serve` — the room is at `https://<box>.<tailnet>.ts.net` on every device you own. Zero
+   third parties.
+2. **Direct P2P (no shared network):** give both machines the same `line:secret` — they find
+   each other over the public Hyperswarm DHT and connect directly, Noise-encrypted. Zero
+   servers, zero setup beyond the secret.
+3. **Wireroom Relay (~$5/mo, zero maintenance):** pair from the local web UI's settings — adds
+   push notifications, reach-from-any-browser, offline mailbox, Slack/Telegram bridges, and
+   multi-member orgs. Content-blind by construction: it routes sealed envelopes it cannot read.
+
+The free local install is the complete solo product; the Relay covers exactly the features
+that inherently need someone to run a server or hold platform API keys ([docs/BUSINESS.md](docs/BUSINESS.md)).
+
 ## Docs
 
 | Doc | What's in it |
