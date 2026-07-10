@@ -64,6 +64,10 @@ assumptions:
     - id: spend-meter-always-on
       outcome: unchanged
       reason: Tokenless settings links retain the existing always-visible header meter.
+    - id: single-crypto-suite-libsodium
+      outcome: unchanged
+      reason: Pairing completion stores the already-authorized bearer beside the existing
+        libsodium device identity and room keys without changing crypto primitives.
 anchors:
   pwa-cold-launch-restores-local-auth:
     paired-access-bootstrap:
@@ -112,6 +116,11 @@ anchors:
       action: change
       reason: Surface remote revoke and local purge failures rather than leaving rejected
         promises or falsely claiming cleanup completed.
+  single-crypto-suite-libsodium:
+    browser-libsodium-suite:
+      action: change
+      reason: Persist same-origin access returned by a successful single-use device pairing
+        so the paired identity can cold launch immediately.
 files:
   - relay/src/server.ts
   - relay/src/server.spec.ts
@@ -130,6 +139,7 @@ files:
   - packages/web/src/App.tsx
   - packages/web/src/components.tsx
   - packages/web/src/components.spec.tsx
+  - packages/web/src/crypto.ts
   - packages/web/src/SettingsPage.tsx
   - packages/web/src/sw.ts
   - packages/web/tests/e2e.spec.ts
