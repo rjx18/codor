@@ -87,25 +87,97 @@ test('sodium-native and real Chromium page/SW sealed boxes interoperate across r
   }
 });
 
-test('browser unpair purges IndexedDB, caches, local storage, and service workers', async ({ page }) => {
-  await page.goto(`${BASE}/pair`);
-  const before = await page.evaluate(async () => {
-    const identity = await window.__wireroomCrypto.identity();
+test('settings unpair revokes the device and purges IndexedDB, caches, local storage, and push', async ({ page }) => {
+  const offer = await control<{ url: string }>('/pair-offer');
+  await page.goto(offer.url);
+  await page.getByRole('button', { name: 'Pair this browser' }).click();
+  await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
+  const before = await page.evaluate(() => window.__wireroomCrypto.identity());
+  const registered = await page.evaluate(async (deviceId) => {
+    const response = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/push-subscription`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer e2e-token', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        subscription: {
+          endpoint: 'https://push.example.test/unpair-device',
+          expirationTime: null,
+          keys: { p256dh: 'unpair-p256dh', auth: 'unpair-auth' },
+        },
+      }),
+    });
+    return response.status;
+  }, before.device_id);
+  expect(registered).toBe(201);
+
+  await page.goto(`${BASE}/settings?room=eng&token=e2e-token`);
+  await expect(page.getByTestId(`device-${before.device_id}`)).toBeVisible();
+  await page.evaluate(async () => {
     localStorage.setItem('wireroom-cache', 'sensitive');
     const cache = await caches.open('wireroom-test-cache');
     await cache.put('/cached-secret', new Response('sensitive'));
-    await window.__wireroomCrypto.worker({ op: 'identity' });
-    return identity;
+    const registration = await navigator.serviceWorker.ready;
+    const prototype = Object.getPrototypeOf(registration.pushManager) as object;
+    (window as unknown as { __unsubscribeCount: number }).__unsubscribeCount = 0;
+    Object.defineProperty(prototype, 'getSubscription', {
+      configurable: true,
+      value: async () => ({
+        unsubscribe: async () => {
+          (window as unknown as { __unsubscribeCount: number }).__unsubscribeCount += 1;
+          return true;
+        },
+      }),
+    });
   });
-  await page.evaluate(() => window.__wireroomCrypto.unpair());
+  await page.getByRole('button', { name: 'Unpair', exact: true }).click();
+  const revokeResponse = page.waitForResponse((response) =>
+    response.request().method() === 'DELETE' && response.url().includes(`/api/devices/${before.device_id}`));
+  await page.getByTestId('confirm-unpair-browser').click();
+  expect((await revokeResponse).status()).toBe(200);
+  await expect(page.getByTestId('browser-unpaired')).toBeVisible();
   const purged = await page.evaluate(async () => ({
     local: localStorage.length,
     caches: await caches.keys(),
     registrations: (await navigator.serviceWorker.getRegistrations()).length,
-    identity: await window.__wireroomCrypto.identity(),
+    databases: (await indexedDB.databases()).map((database) => database.name),
+    unsubscribed: (window as unknown as { __unsubscribeCount: number }).__unsubscribeCount,
   }));
   expect(purged.local).toBe(0);
   expect(purged.caches).toEqual([]);
   expect(purged.registrations).toBe(0);
-  expect(purged.identity.device_id).not.toBe(before.device_id);
+  expect(purged.databases.filter((name) => name?.startsWith('wireroom-'))).toEqual([]);
+  expect(purged.unsubscribed).toBeGreaterThan(0);
+  expect((await control<{ peers: { device_id: string }[] }>('/peers')).peers)
+    .not.toContainEqual(expect.objectContaining({ device_id: before.device_id }));
+});
+
+test('unpair still purges local browser state when remote revocation is unavailable', async ({ page }) => {
+  const offer = await control<{ url: string }>('/pair-offer');
+  await page.goto(offer.url);
+  await page.getByRole('button', { name: 'Pair this browser' }).click();
+  await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
+  const identity = await page.evaluate(() => window.__wireroomCrypto.identity());
+  await page.goto(`${BASE}/settings?room=eng&token=e2e-token`);
+  await expect(page.getByTestId(`device-${identity.device_id}`)).toBeVisible();
+  await page.evaluate(async () => {
+    localStorage.setItem('wireroom-cache', 'sensitive');
+    const cache = await caches.open('wireroom-test-cache');
+    await cache.put('/cached-secret', new Response('sensitive'));
+    const registration = await navigator.serviceWorker.ready;
+    const prototype = Object.getPrototypeOf(registration.pushManager) as object;
+    Object.defineProperty(prototype, 'getSubscription', {
+      configurable: true,
+      value: async () => ({ unsubscribe: async () => true }),
+    });
+  });
+  await page.route(`**/api/devices/${identity.device_id}`, (route) => route.abort('connectionfailed'));
+  await page.getByRole('button', { name: 'Unpair', exact: true }).click();
+  await page.getByTestId('confirm-unpair-browser').click();
+  await expect(page.getByTestId('browser-unpaired')).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('switchboard could not be reached');
+  expect(await page.evaluate(async () => ({
+    local: localStorage.length,
+    caches: await caches.keys(),
+    registrations: (await navigator.serviceWorker.getRegistrations()).length,
+    databases: (await indexedDB.databases()).map((database) => database.name),
+  }))).toEqual({ local: 0, caches: [], registrations: 0, databases: [] });
 });

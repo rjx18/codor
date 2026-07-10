@@ -35,6 +35,18 @@ export interface LedgerNote {
   type?: 'decision' | 'constraint' | 'contract';
 }
 
+export interface DeviceSummary {
+  device_id: string;
+  label?: string;
+  paired_at: string;
+  push_enabled: boolean;
+}
+
+export interface PushConfig {
+  enabled: boolean;
+  vapid_public_key?: string;
+}
+
 async function fetchJson<T>(path: string, options: ApiOptions): Promise<T> {
   const origin = options.origin ?? window.location.origin;
   const res = await fetch(`${origin}${path}`, {
@@ -42,6 +54,26 @@ async function fetchJson<T>(path: string, options: ApiOptions): Promise<T> {
   });
   if (!res.ok) throw new Error(`request failed: ${res.status}`);
   return (await res.json()) as T;
+}
+
+async function sendJson<T>(
+  path: string,
+  method: 'POST' | 'DELETE',
+  body: unknown,
+  options: ApiOptions,
+): Promise<T> {
+  const origin = options.origin ?? window.location.origin;
+  const response = await fetch(`${origin}${path}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${options.token}`,
+      ...(body !== undefined && { 'content-type': 'application/json' }),
+    },
+    ...(body !== undefined && { body: JSON.stringify(body) }),
+  });
+  if (!response.ok) throw new Error(`request failed: ${response.status}`);
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
 }
 
 export async function fetchAdapters(options: ApiOptions): Promise<AdapterRegistration[]> {
@@ -52,6 +84,31 @@ export async function fetchAdapters(options: ApiOptions): Promise<AdapterRegistr
 export async function fetchRooms(options: ApiOptions): Promise<Room[]> {
   const body = await fetchJson<{ rooms: Room[] }>('/api/rooms', options);
   return body.rooms;
+}
+
+export async function fetchDevices(options: ApiOptions): Promise<DeviceSummary[]> {
+  return (await fetchJson<{ devices: DeviceSummary[] }>('/api/devices', options)).devices;
+}
+
+export async function fetchPushConfig(options: ApiOptions): Promise<PushConfig> {
+  return fetchJson<PushConfig>('/api/push/config', options);
+}
+
+export async function registerPushSubscription(
+  deviceId: string,
+  subscription: PushSubscriptionJSON,
+  options: ApiOptions,
+): Promise<void> {
+  await sendJson(
+    `/api/devices/${encodeURIComponent(deviceId)}/push-subscription`,
+    'POST',
+    { subscription },
+    options,
+  );
+}
+
+export async function revokeDevice(deviceId: string, options: ApiOptions): Promise<void> {
+  await sendJson(`/api/devices/${encodeURIComponent(deviceId)}`, 'DELETE', undefined, options);
 }
 
 export async function fetchMemberDetails(

@@ -213,17 +213,33 @@ test('parent run expands authoritative extension lifecycle and summary', async (
 test('room settings persist opt-in brakes and meter labels uncosted tokens', async ({ page }) => {
   await page.goto('/?room=eng&token=e2e-token');
   await page.getByTestId('room-settings').click();
+  await expect(page.getByTestId('settings-page')).toBeVisible();
   await page.getByTestId('turn-brake-enabled').check();
   await page.getByTestId('turn-brake-value').fill('3');
   await page.getByTestId('stall-minutes').fill('12');
   await page.getByTestId('room-settings-save').click();
-  await expect(page.getByTestId('room-settings-dialog')).toHaveCount(0);
+  await expect(page.getByText('Room brakes saved.')).toBeVisible();
 
+  await page.getByRole('link', { name: 'Back to room' }).click();
   await page.getByTestId('room-settings').click();
   await expect(page.getByTestId('turn-brake-enabled')).toBeChecked();
   await expect(page.getByTestId('turn-brake-value')).toHaveValue('3');
   await expect(page.getByTestId('stall-minutes')).toHaveValue('12');
-  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByTestId('open-relay-pairing').click();
+  const relay = page.getByTestId('relay-pairing');
+  await expect(relay).toBeVisible();
+  for (const capability of [
+    'Push gateway',
+    'Rendezvous & NAT relay',
+    'Encrypted mailbox',
+    'Browser gateway',
+    'Hosted integrations',
+  ]) {
+    await expect(relay.getByText(capability, { exact: true })).toBeVisible();
+  }
+  await expect(relay).toContainText('Relay never sees');
+  await expect(relay).toContainText('$5/month hosted');
+  await page.getByRole('link', { name: 'Back to room' }).click();
 
   await control('/enqueue', {
     turns: [

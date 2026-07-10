@@ -2,6 +2,7 @@
 // FakeAdapter, plus a node-only control endpoint the Playwright runner uses
 // to script turns, holds, and server-side answers.
 import { createServer } from 'node:http';
+import { createECDH } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -13,29 +14,63 @@ import {
   FakeAdapter,
   LedgerManager,
   pairingUrl,
+  PushProducer,
+  PushSubscriptionStore,
   startServer,
 } from '@wireroom/switchboard';
+import { createRelayServer } from '@wireroom/relay';
 
 const API_PORT = 8137;
 const CONTROL_PORT = 8138;
+const RELAY_PORT = 8139;
 const TOKEN = 'e2e-token';
 
 const dir = mkdtempSync(join(tmpdir(), 'wireroom-e2e-'));
 const fake = new FakeAdapter('fake', { extensions: true });
 const ledger = new LedgerManager({ dataDir: dir });
+const crypto = new CryptoVault(dir);
+crypto.roomKeys.ensureRoom('eng');
+const pushSubscriptions = new PushSubscriptionStore(dir, crypto.keys);
+const pushed = [];
+const relay = createRelayServer({
+  allowedSenders: new Set([crypto.keys.identity.sign_public_key]),
+  openMode: false,
+  push: {
+    send: async (subscription, sealed, ttl) => {
+      pushed.push({ subscription, sealed: Buffer.from(sealed), ttl });
+    },
+  },
+});
+await relay.listen({ host: '127.0.0.1', port: RELAY_PORT });
+const pushProducer = new PushProducer({
+  relayUrl: `http://127.0.0.1:${String(RELAY_PORT)}`,
+  identity: crypto.keys.identity,
+  roomKeys: crypto.roomKeys,
+  subscriptions: pushSubscriptions,
+});
 const daemon = new Daemon({
   dbPath: join(dir, 'db.sqlite'),
   blobRoot: join(dir, 'blobs'),
   adapters: [fake],
   ledger,
+  pushProducer,
 });
 daemon.createRoom({ id: 'eng', name: 'Engineering', owner: { handle: 'richard', display_name: 'Richard' } });
 const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/work' });
-const crypto = new CryptoVault(dir);
-crypto.roomKeys.ensureRoom('eng');
+const vapid = createECDH('prime256v1');
+vapid.generateKeys();
+const vapidPublicKey = vapid.getPublicKey().toString('base64url');
 
 const staticRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
-await startServer({ daemon, token: TOKEN, port: API_PORT, staticRoot, crypto });
+await startServer({
+  daemon,
+  token: TOKEN,
+  port: API_PORT,
+  staticRoot,
+  crypto,
+  pushSubscriptions,
+  pushVapidPublicKey: vapidPublicKey,
+});
 
 const readBody = (req) =>
   new Promise((resolve) => {
@@ -79,6 +114,35 @@ createServer(async (req, res) => {
       });
       const delivery = daemon.store.createDelivery('eng', { message_id: message.id, recipient: alpha.id });
       daemon.holdDelivery('eng', delivery.id, body.reason ?? 'e2e hold');
+    } else if (url.pathname === '/push-hold') {
+      pushed.length = 0;
+      fake.enqueue({ kind: 'complete', final_text: '@richard released from notification' });
+      const owner = daemon.ownerOf('eng');
+      const message = daemon.store.postMessage('eng', {
+        author: owner.id,
+        kind: 'chat',
+        body: body.body ?? '@alpha deploy after review',
+      });
+      const delivery = daemon.store.createDelivery('eng', {
+        message_id: message.id,
+        recipient: alpha.id,
+        state: 'queued',
+      });
+      daemon.holdDelivery('eng', delivery.id, 'turn brake before hop 4');
+      await daemon.settle();
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        message_id: message.id,
+        delivery_id: delivery.id,
+      }));
+      return;
+    } else if (url.pathname === '/next-push') {
+      const notification = pushed.shift();
+      if (!notification) throw new Error('no captured push');
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        sealed: notification.sealed.toString('base64'),
+        ttl: notification.ttl,
+      }));
+      return;
     } else if (url.pathname === '/seed-history') {
       const owner = daemon.ownerOf('eng');
       const messages = [];

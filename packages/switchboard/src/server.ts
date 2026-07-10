@@ -27,6 +27,8 @@ export interface ServerOptions {
   crypto?: CryptoVault;
   /** Paired browser Web Push destinations; content remains on the switchboard. */
   pushSubscriptions?: PushSubscriptionStore;
+  /** Public VAPID application-server key used by browser PushManager.subscribe. */
+  pushVapidPublicKey?: string;
 }
 
 export interface RunningServer {
@@ -153,6 +155,42 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     options.pushSubscriptions.remove(deviceId);
     return reply.code(204).send();
   });
+
+  app.get('/api/push/config', (req, reply) => {
+    if (!authed(req, reply)) return;
+    return reply.send({
+      enabled: Boolean(options.pushSubscriptions && options.pushVapidPublicKey),
+      ...(options.pushVapidPublicKey && { vapid_public_key: options.pushVapidPublicKey }),
+    });
+  });
+
+  // harn:assume unpair-purges-all-browser-state ref=device-revoke-rest
+  app.get('/api/devices', (req, reply) => {
+    if (!authed(req, reply)) return;
+    if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
+    return reply.send({
+      devices: options.crypto.keys.listPeers()
+        .filter((peer) => peer.kind === 'device')
+        .map((peer) => ({
+          device_id: peer.device_id,
+          label: peer.label,
+          paired_at: peer.paired_at,
+          push_enabled: options.pushSubscriptions?.get(peer.device_id) !== undefined,
+        })),
+    });
+  });
+
+  app.delete('/api/devices/:deviceId', (req, reply) => {
+    if (!authed(req, reply)) return;
+    if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
+    const { deviceId } = req.params as { deviceId: string };
+    const peer = options.crypto.keys.getPeer(deviceId);
+    if (!peer || peer.kind !== 'device') return reply.code(404).send({ error: 'no such device' });
+    options.pushSubscriptions?.remove(deviceId);
+    const revoked = options.crypto.revokePeer(deviceId);
+    return reply.send({ revoked });
+  });
+  // harn:end unpair-purges-all-browser-state
 
   app.get('/api/rooms', (req, reply) => {
     if (!authed(req, reply)) return;

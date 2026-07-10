@@ -31,6 +31,7 @@ import {
   useRoomStore,
 } from './state.js';
 import { connect, type Connection } from './ws.js';
+import { storeBrowserAccess } from './crypto.js';
 
 function pageParams(): { room: string; token: string } {
   const params = new URLSearchParams(window.location.search);
@@ -109,6 +110,34 @@ export function App() {
   const restoreScroll = useRef<{ height: number; top: number } | undefined>(undefined);
   const previousLastId = useRef(0);
   const handledHash = useRef('');
+  const handledNotificationAction = useRef(false);
+
+  useEffect(() => {
+    if (TOKEN !== '') void storeBrowserAccess({ origin: window.location.origin, token: TOKEN });
+  }, [TOKEN]);
+
+  useEffect(() => {
+    if (!state.connected || state.seq === 0 || handledNotificationAction.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get('notification_action');
+    const messageId = Number(params.get('msg_id'));
+    if ((action !== 'mark_read' && action !== 'release_hold') || !Number.isSafeInteger(messageId)) {
+      return;
+    }
+    const delivery = Object.values(state.inbox).find((candidate) =>
+      candidate.message_id === messageId &&
+      (action === 'release_hold'
+        ? candidate.state === 'held'
+        : candidate.state === 'consumed' && candidate.read_ts === undefined));
+    if (!delivery) return;
+    handledNotificationAction.current = true;
+    connection.act(action === 'release_hold'
+      ? { act: 'release_hold', delivery_id: delivery.id }
+      : { act: 'mark_read', delivery_id: delivery.id });
+    params.delete('notification_action');
+    params.delete('msg_id');
+    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}${window.location.hash}`);
+  }, [connection, state.connected, state.inbox, state.seq]);
 
   const loadOlder = useCallback(async () => {
     const first = messages[0];
@@ -222,11 +251,11 @@ export function App() {
     <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-zinc-950 text-zinc-100">
       <Header
         roomName={state.room?.name ?? ROOM}
+        roomId={ROOM}
+        token={TOKEN}
         connected={state.connected}
         meter={state.meter}
         unread={unreadCount(state)}
-        config={state.room?.config}
-        connection={connection}
         onOpenNavigation={() => setDrawerOpen(true)}
       />
       {!state.connected && (

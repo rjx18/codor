@@ -31,6 +31,7 @@ export interface UpOptions {
   roomName?: string;
   owner?: string;
   relayUrl?: string;
+  pushVapidPublicKey?: string;
 }
 
 export interface RunningWireroom {
@@ -127,6 +128,7 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
       staticRoot: options.staticRoot ?? (existsSync(defaultStatic) ? defaultStatic : undefined),
       crypto,
       pushSubscriptions,
+      pushVapidPublicKey: options.pushVapidPublicKey,
     });
     return {
       daemon,

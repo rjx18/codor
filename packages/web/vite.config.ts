@@ -12,11 +12,11 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      injectRegister: false,
       includeAssets: ['wireroom-icon.svg', 'wireroom-192.png', 'wireroom-512.png'],
       injectManifest: {
         globPatterns: ['**/*.{html,js,css,svg,png,woff2}'],
+        rollupFormat: 'es',
       },
       manifest: {
         name: 'Wireroom',

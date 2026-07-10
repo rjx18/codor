@@ -220,6 +220,8 @@ describe('Header', () => {
     const html = renderToStaticMarkup(
       <Header
         roomName="Eng"
+        roomId="eng"
+        token="t"
         connected={true}
         meter={{
           room: 'eng',
@@ -231,14 +233,13 @@ describe('Header', () => {
           uncosted_tokens: 75,
         }}
         unread={2}
-        config={{ turn_brake: null, spend_brake_usd: null, stall_minutes: 30, redaction_enabled: true }}
-        connection={noopConnection}
       />,
     );
     expect(html).toContain('4 turns');
     expect(html).toContain('$1.50');
     expect(html).toContain('75 tokens uncosted');
     expect(html).toContain('data-testid="room-settings"');
+    expect(html).toContain('/settings?room=eng&amp;token=t');
     expect(html).toContain('inbox');
     expect(html).toContain('>2<');
   });

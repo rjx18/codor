@@ -1,0 +1,15 @@
+id: unpair-purges-all-browser-state
+hash: a-db31cd129bd2
+title: Browser unpair removes local state, subscription, and server authority
+state: active
+statement: Unpairing the current browser must attempt authenticated removal of
+  its paired device and push subscription at the switchboard, unsubscribe every
+  PushManager subscription, unregister service workers, delete every Wireroom
+  IndexedDB database and CacheStorage entry, clear localStorage and in-memory
+  room state, and leave the revoked device excluded from rotated room keys,
+  because an unpaired browser must retain neither readable content nor future
+  notification authority even when local cleanup follows a network failure.
+depends_on:
+  - revocation-rotates-room-keys
+  - push-decrypts-on-device-only
+created_by: sw-push-decrypt

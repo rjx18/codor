@@ -1,0 +1,14 @@
+id: push-decrypts-on-device-only
+hash: a-e4abcb9a8592
+title: Sealed push content opens only inside the paired service worker
+state: active
+statement: The owned service worker must read the sealed push bytes, try only
+  locally stored IndexedDB room keys with libsodium XChaCha20-Poly1305, reject
+  malformed or unauthenticated envelopes, and call showNotification with the
+  resulting redacted preview and open-room or release-hold actions, while the
+  relay and push service never receive plaintext, because notification content
+  crosses the cloud boundary only as room-key ciphertext.
+depends_on:
+  - push-previews-redacted-pad-then-sealed
+  - sw-injectmanifest-owned-worker
+created_by: sw-push-decrypt

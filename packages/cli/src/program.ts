@@ -109,6 +109,7 @@ export function createProgram(context: CliContext = {}): Command {
     .option('--room-name <name>', 'initial room name', 'Default')
     .option('--owner <handle>', 'initial owner handle')
     .option('--relay-url <url>', 'optional sealed push relay URL', env.WIREROOM_RELAY_URL)
+    .option('--push-vapid-public-key <key>', 'Web Push VAPID public key', env.WIREROOM_VAPID_PUBLIC_KEY)
     .action(async (options: {
       host: string;
       port: number;
@@ -117,6 +118,7 @@ export function createProgram(context: CliContext = {}): Command {
       roomName: string;
       owner?: string;
       relayUrl?: string;
+      pushVapidPublicKey?: string;
     }) => {
       const globals = program.opts<GlobalOptions>();
       const running = await startWireroom({
@@ -129,6 +131,7 @@ export function createProgram(context: CliContext = {}): Command {
         roomName: options.roomName,
         owner: options.owner,
         relayUrl: options.relayUrl,
+        pushVapidPublicKey: options.pushVapidPublicKey,
       });
       out(`wireroom http://localhost:${running.server.port}`);
       out(`socket ${running.server.socketPath}`);

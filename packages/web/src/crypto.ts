@@ -17,6 +17,11 @@ export interface StoredBrowserRoomKey {
   key: string;
 }
 
+export interface StoredBrowserAccess {
+  origin: string;
+  token: string;
+}
+
 interface BrowserPeer extends BrowserPublicIdentity {
   kind: 'device' | 'switchboard';
   label?: string;
@@ -27,7 +32,7 @@ interface PairingResult {
   room_keys: { room: string; generation: number; sealed_key: string }[];
 }
 
-const DATABASE = 'wireroom-crypto-v1';
+export const BROWSER_CRYPTO_DATABASE = 'wireroom-crypto-v1';
 const STORE = 'state';
 
 function encode(value: Uint8Array): string {
@@ -44,7 +49,7 @@ function decode(value: string): Uint8Array {
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE, 1);
+    const request = indexedDB.open(BROWSER_CRYPTO_DATABASE, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(STORE);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error('IndexedDB open failed'));
@@ -72,6 +77,19 @@ async function writeState(key: string, value: unknown): Promise<void> {
       transaction.objectStore(STORE).put(value, key);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB write failed'));
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function readAllState(): Promise<unknown[]> {
+  const database = await openDatabase();
+  try {
+    return await new Promise<unknown[]>((resolve, reject) => {
+      const request = database.transaction(STORE).objectStore(STORE).getAll();
+      request.onsuccess = () => resolve(request.result as unknown[]);
+      request.onerror = () => reject(request.error ?? new Error('IndexedDB read failed'));
     });
   } finally {
     database.close();
@@ -144,6 +162,25 @@ export async function storedBrowserRoomKey(room: string): Promise<StoredBrowserR
   return readState<StoredBrowserRoomKey>(`room:${room}`);
 }
 
+export async function storedBrowserRoomKeys(): Promise<StoredBrowserRoomKey[]> {
+  return (await readAllState()).filter((value): value is StoredBrowserRoomKey => {
+    if (typeof value !== 'object' || value === null) return false;
+    const candidate = value as Partial<StoredBrowserRoomKey>;
+    return typeof candidate.room === 'string' &&
+      typeof candidate.generation === 'number' &&
+      typeof candidate.key === 'string';
+  });
+}
+
+export async function storeBrowserAccess(access: StoredBrowserAccess): Promise<void> {
+  await writeState('access:switchboard', access);
+}
+
+export async function storedBrowserAccess(): Promise<StoredBrowserAccess | undefined> {
+  return readState<StoredBrowserAccess>('access:switchboard');
+}
+
+// harn:assume unpair-purges-all-browser-state ref=browser-unpair-purge
 export async function unpairBrowser(): Promise<void> {
   for (const registration of await navigator.serviceWorker.getRegistrations()) {
     const subscription = await registration.pushManager.getSubscription();
@@ -152,13 +189,20 @@ export async function unpairBrowser(): Promise<void> {
   }
   for (const name of await caches.keys()) await caches.delete(name);
   localStorage.clear();
-  await new Promise<void>((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(DATABASE);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB delete failed'));
-    request.onblocked = () => reject(new Error('IndexedDB delete was blocked'));
-  });
+  const databases = typeof indexedDB.databases === 'function'
+    ? await indexedDB.databases()
+    : [{ name: BROWSER_CRYPTO_DATABASE }];
+  await Promise.all(databases
+    .map((database) => database.name)
+    .filter((name): name is string => typeof name === 'string' && name.startsWith('wireroom-'))
+    .map((name) => new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(name);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error ?? new Error('IndexedDB delete failed'));
+      request.onblocked = () => reject(new Error('IndexedDB delete was blocked'));
+    })));
 }
+// harn:end unpair-purges-all-browser-state
 
 function publicIdentity(identity: BrowserIdentity): BrowserPublicIdentity {
   return {

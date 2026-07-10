@@ -218,7 +218,35 @@ describe('REST', () => {
     );
     expect(removed.status).toBe(204);
     expect(pushSubscriptions.get(peer.device_id)).toBeUndefined();
+
+    await fetch(`${base}/api/devices/${encodeURIComponent(peer.device_id)}/push-subscription`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ subscription }),
+    });
+    const devices = await fetch(`${base}/api/devices`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(await devices.json()).toMatchObject({
+      devices: [{ device_id: peer.device_id, label: 'push-browser', push_enabled: true }],
+    });
+    const generation = crypto.roomKeys.roomGeneration('eng');
+    const revoked = await fetch(`${base}/api/devices/${encodeURIComponent(peer.device_id)}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(revoked.status).toBe(200);
+    expect(crypto.keys.getPeer(peer.device_id)).toBeUndefined();
+    expect(crypto.roomKeys.roomGeneration('eng')).toBe(generation + 1);
+    expect(pushSubscriptions.get(peer.device_id)).toBeUndefined();
     device.close();
+  });
+
+  it('reports push disabled when no VAPID public key is configured', async () => {
+    const response = await fetch(`${base}/api/push/config`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(await response.json()).toEqual({ enabled: false });
   });
 
   it('serves redacted before-id history pages and room-scoped body search', async () => {

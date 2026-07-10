@@ -3,7 +3,6 @@ import {
   type Delivery,
   type Member,
   type Message,
-  type RoomConfig,
   type RoomMeter,
   type WireEvent,
 } from '@wireroom/protocol';
@@ -64,124 +63,14 @@ export function ledgerTextSegments(body: string): LedgerTextSegment[] {
 }
 // harn:end permalink-ids-stable
 
-export function RoomSettings(props: { config: RoomConfig; connection: Connection }) {
-  const [open, setOpen] = useState(false);
-  const [turnEnabled, setTurnEnabled] = useState(props.config.turn_brake !== null);
-  const [turnBrake, setTurnBrake] = useState(String(props.config.turn_brake ?? 3));
-  const [spendEnabled, setSpendEnabled] = useState(props.config.spend_brake_usd !== null);
-  const [spendBrake, setSpendBrake] = useState(String(props.config.spend_brake_usd ?? 10));
-  const [stallMinutes, setStallMinutes] = useState(String(props.config.stall_minutes));
-
-  useEffect(() => {
-    setTurnEnabled(props.config.turn_brake !== null);
-    setTurnBrake(String(props.config.turn_brake ?? 3));
-    setSpendEnabled(props.config.spend_brake_usd !== null);
-    setSpendBrake(String(props.config.spend_brake_usd ?? 10));
-    setStallMinutes(String(props.config.stall_minutes));
-  }, [props.config]);
-
-  return (
-    <>
-      <button
-        type="button"
-        data-testid="room-settings"
-        onClick={() => setOpen(true)}
-        aria-label="Room settings"
-        title="Room settings"
-        className="inline-flex h-11 w-11 items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-      >
-        <Settings aria-hidden="true" size={19} />
-      </button>
-      {open && (
-        <form
-          role="dialog"
-          aria-label="Room settings"
-          data-testid="room-settings-dialog"
-          className="fixed inset-0 z-50 m-auto h-fit max-h-[calc(100dvh-2rem)] w-[min(26rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 p-4 shadow-xl"
-          onSubmit={(event) => {
-            event.preventDefault();
-            props.connection.act({
-              act: 'configure_room',
-              turn_brake: turnEnabled ? Number(turnBrake) : null,
-              spend_brake_usd: spendEnabled ? Number(spendBrake) : null,
-              stall_minutes: Number(stallMinutes),
-            });
-            setOpen(false);
-          }}
-        >
-          <h2 className="text-sm font-semibold text-zinc-100">Room settings</h2>
-          <label className="mt-3 flex items-center gap-2 text-xs text-zinc-300">
-            <input
-              data-testid="turn-brake-enabled"
-              type="checkbox"
-              checked={turnEnabled}
-              onChange={(event) => setTurnEnabled(event.target.checked)}
-            />
-            Turn brake
-          </label>
-          <input
-            data-testid="turn-brake-value"
-            type="number"
-            min="1"
-            step="1"
-            disabled={!turnEnabled}
-            value={turnBrake}
-            onChange={(event) => setTurnBrake(event.target.value)}
-            className="mt-1 w-full border border-zinc-700 bg-zinc-900 p-2 text-sm text-zinc-100 disabled:opacity-40"
-          />
-          <label className="mt-3 flex items-center gap-2 text-xs text-zinc-300">
-            <input
-              data-testid="spend-brake-enabled"
-              type="checkbox"
-              checked={spendEnabled}
-              onChange={(event) => setSpendEnabled(event.target.checked)}
-            />
-            Spend brake
-          </label>
-          <input
-            data-testid="spend-brake-value"
-            type="number"
-            min="0.01"
-            step="0.01"
-            disabled={!spendEnabled}
-            value={spendBrake}
-            onChange={(event) => setSpendBrake(event.target.value)}
-            className="mt-1 w-full border border-zinc-700 bg-zinc-900 p-2 text-sm text-zinc-100 disabled:opacity-40"
-          />
-          <label className="mt-3 block text-xs text-zinc-300">
-            Stall minutes
-            <input
-              data-testid="stall-minutes"
-              type="number"
-              min="1"
-              step="1"
-              value={stallMinutes}
-              onChange={(event) => setStallMinutes(event.target.value)}
-              className="mt-1 w-full border border-zinc-700 bg-zinc-900 p-2 text-sm text-zinc-100"
-            />
-          </label>
-          <div className="mt-4 flex justify-end gap-2">
-            <button type="button" onClick={() => setOpen(false)} className="min-h-11 border border-zinc-700 px-3 text-sm text-zinc-300">
-              Cancel
-            </button>
-            <button type="submit" data-testid="room-settings-save" className="min-h-11 bg-sky-700 px-4 text-sm text-white">
-              Save
-            </button>
-          </div>
-        </form>
-      )}
-    </>
-  );
-}
-
 // harn:assume spend-meter-always-on ref=meter-settings-surface
 export function Header(props: {
   roomName: string;
+  roomId: string;
+  token: string;
   connected: boolean;
   meter: RoomMeter | undefined;
   unread: number;
-  config?: RoomConfig;
-  connection?: Connection;
   onOpenNavigation?: () => void;
 }) {
   return (
@@ -211,9 +100,15 @@ export function Header(props: {
         </span>
       )}
       <span className="ml-auto" />
-      {props.config && props.connection && (
-        <RoomSettings config={props.config} connection={props.connection} />
-      )}
+      <a
+        href={`/settings?${new URLSearchParams({ room: props.roomId, ...(props.token && { token: props.token }) }).toString()}`}
+        data-testid="room-settings"
+        aria-label="Settings"
+        title="Settings"
+        className="inline-flex h-11 w-11 items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+      >
+        <Settings aria-hidden="true" size={19} />
+      </a>
       <span data-testid="inbox-badge" className="inline-flex min-h-7 min-w-7 items-center justify-center rounded bg-zinc-800 px-2 text-xs text-zinc-200" title={`${String(props.unread)} unread`}>
         <span className="hidden sm:inline">inbox&nbsp;</span>
         {props.unread > 0 ? <strong className="text-amber-400">{props.unread}</strong> : 0}

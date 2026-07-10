@@ -371,6 +371,7 @@ describe('@wireroom/cli', () => {
       token: 'up-token',
       port: 0,
       owner: 'operator',
+      pushVapidPublicKey: 'm3-vapid-public-key',
     });
     expect(running.daemon.store.listRooms().map((room) => room.id)).toEqual(['default']);
     expect(running.daemon.registeredAdapters().map((adapter) => adapter.id)).toEqual([
@@ -381,6 +382,13 @@ describe('@wireroom/cli', () => {
       'opencode',
     ]);
     expect(running.server.socketPath).toBe(join(dir, 'up-data', 'wireroom.sock'));
+    const pushConfig = await fetch(`http://127.0.0.1:${String(running.server.port)}/api/push/config`, {
+      headers: { authorization: 'Bearer up-token' },
+    });
+    expect(await pushConfig.json()).toEqual({
+      enabled: true,
+      vapid_public_key: 'm3-vapid-public-key',
+    });
     await running.close();
   });
 });

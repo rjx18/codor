@@ -6,11 +6,12 @@ assumptions:
     - id: push-decrypts-on-device-only
       title: Sealed push content opens only inside the paired service worker
       statement: The owned service worker must read the sealed push bytes, try only
-        locally stored IndexedDB room keys with libsodium XChaCha20-Poly1305, reject
-        malformed or unauthenticated envelopes, and call showNotification with the
-        resulting redacted preview and open-room or release-hold actions, while the
-        relay and push service never receive plaintext, because notification content
-        crosses the cloud boundary only as room-key ciphertext.
+        locally stored IndexedDB room keys with libsodium XChaCha20-Poly1305,
+        reject malformed or unauthenticated envelopes, and call showNotification
+        with the resulting redacted preview and open-room or release-hold
+        actions, while the relay and push service never receive plaintext,
+        because notification content crosses the cloud boundary only as room-key
+        ciphertext.
       reason: PLAN-M3 P3.3, ROADMAP M3, and PRIVACY Tier 2 require decryption and
         rendering in the installed PWA worker, not the relay or page server.
       depends_on:
@@ -19,12 +20,13 @@ assumptions:
     - id: unpair-purges-all-browser-state
       title: Browser unpair removes local state, subscription, and server authority
       statement: Unpairing the current browser must attempt authenticated removal of
-        its paired device and push subscription at the switchboard, unsubscribe every
-        PushManager subscription, unregister service workers, delete every Wireroom
-        IndexedDB database and CacheStorage entry, clear localStorage and in-memory
-        room state, and leave the revoked device excluded from rotated room keys,
-        because an unpaired browser must retain neither readable content nor future
-        notification authority even when local cleanup follows a network failure.
+        its paired device and push subscription at the switchboard, unsubscribe
+        every PushManager subscription, unregister service workers, delete every
+        Wireroom IndexedDB database and CacheStorage entry, clear localStorage
+        and in-memory room state, and leave the revoked device excluded from
+        rotated room keys, because an unpaired browser must retain neither
+        readable content nor future notification authority even when local
+        cleanup follows a network failure.
       reason: PLAN-M3 P3.3 and PRIVACY Keys and pairing explicitly require a complete
         browser purge plus revocation on unpair.
       depends_on:
@@ -43,11 +45,12 @@ assumptions:
     - id: sw-caches-shell-only-no-message-data
       outcome: unchanged
       reason: Push handling reads IndexedDB keys and renders directly; it adds no
-        fetch handler or runtime message cache and preserves shell-only precaching.
+        fetch handler or runtime message cache and preserves shell-only
+        precaching.
     - id: revocation-rotates-room-keys
       outcome: unchanged
-      reason: Authenticated device deletion calls the existing CryptoVault revoke
-        path and then removes the associated push subscription.
+      reason: Authenticated device deletion calls the existing CryptoVault revoke path
+        and then removes the associated push subscription.
     - id: spend-meter-always-on
       outcome: unchanged
       reason: Moving brake controls from the header dialog to Settings keeps the
@@ -72,21 +75,22 @@ anchors:
         and route clicks to permanent room/message URLs.
     notification-permission-registration:
       action: change
-      reason: Add the explicit permission, PushManager subscription, and paired
-        device registration flow used from Settings.
+      reason: Add the explicit permission, PushManager subscription, and paired device
+        registration flow used from Settings.
   unpair-purges-all-browser-state:
     browser-unpair-purge:
       action: change
       reason: Expand browser cleanup across push subscriptions, service workers,
-        CacheStorage, localStorage, all Wireroom IndexedDB databases, and memory.
+        CacheStorage, localStorage, all Wireroom IndexedDB databases, and
+        memory.
     device-revoke-rest:
       action: change
       reason: Add authenticated device listing/revocation and couple revocation to
         push-subscription removal and room-key rotation.
     settings-unpair-action:
       action: change
-      reason: Make current-browser unpair explicit, safe, and locally complete even
-        if remote cleanup reports a failure.
+      reason: Make current-browser unpair explicit, safe, and locally complete even if
+        remote cleanup reports a failure.
   single-crypto-suite-libsodium:
     browser-libsodium-suite:
       action: change
@@ -134,3 +138,5 @@ files:
   - tmp/build/design/m3/settings.png
   - tmp/build/design/m3/relay-pairing.png
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T16:55:52.671Z
