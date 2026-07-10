@@ -75,3 +75,56 @@ two physical machines over the internet.
 The production home-side line launcher and friendlier peer-enrollment UX are documentation and
 packaging work for M5; this M2 verification uses the already exported switchboard APIs, matching
 the automated acceptance topology exactly.
+
+## Real iPhone Home Screen PWA and Web Push
+
+Status on 2026-07-11: **not run**, by the M3 operator directive. Automated acceptance uses a
+Chromium standalone app window and CDP push delivery; this step verifies the physical iOS Home
+Screen install, APNs-backed Web Push, cold delivery, and notification navigation.
+
+1. Use an iPhone on iOS 16.4 or later. Serve the switchboard web app from a stable HTTPS URL the
+   phone can reach, with `WIREROOM_RELAY_URL` set to the public relay from the next section and
+   `WIREROOM_VAPID_PUBLIC_KEY` set to that relay deployment's public VAPID key. Never place the
+   VAPID private key on the switchboard or phone.
+2. Open a fresh single-use browser pairing URL on the iPhone and pair it. In the browser Share
+   sheet choose **Add to Home Screen**, then launch Wireroom from its Home Screen icon. Confirm it
+   opens without browser chrome, the room stream and bottom composer fit without horizontal
+   scrolling, the rooms/members drawer opens, and the app survives a cold relaunch.
+3. From the Home Screen app, open Settings and tap **Enable** under notifications. Accept the iOS
+   prompt. The prompt must follow that tap; do not treat a permission request on page load as a
+   pass. Confirm the paired device row changes to `Push on`.
+4. Fully close the Home Screen app. From the switchboard, create exactly one human-targeted event:
+   an unread human inbox record, targeted ask/approval, brake hold, or first stall flag. Confirm a
+   concise redacted notification arrives on the Lock Screen and Notification Center without a
+   room name, member handle, secret marker, run event, code, or ledger content that the redactor
+   should remove.
+5. Tap the notification and confirm the Home Screen app opens the correct room/message fragment.
+   Record whether this iOS version exposes the custom `Release hold` action; WebKit versions may
+   present only the main notification tap. If the custom action is present, trigger it and confirm
+   the held delivery releases exactly once.
+6. In Settings, unpair this browser. Confirm the push subscription disappears server-side and the
+   phone no longer receives a notification for another targeted event. Reopening the icon must
+   require pairing again and must not show prior room content offline.
+
+## Public Web Push relay
+
+Status on 2026-07-11: **not run**, by the M3 operator directive. This verifies the self-hosted
+container and real push-provider hop; do not use `OPEN_MODE` for this check.
+
+1. On a public host, build `relay/Dockerfile` from the repository root. Generate one VAPID keypair
+   outside the repository and configure `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`,
+   `VAPID_PRIVATE_KEY`, and `ALLOWED_SENDERS`. The allowlist value is the switchboard's Ed25519
+   public identity. Do not print or commit private keys, pairing tokens, line secrets, or browser
+   subscription values.
+2. Run the container without a persistent volume. Terminate TLS at a reverse proxy and expose only
+   `GET /health` and `POST /notify`. Confirm startup fails with neither `ALLOWED_SENDERS` nor an
+   explicit open mode, and confirm an unsigned or wrong-sender notify request is rejected.
+3. Configure the switchboard with the relay's HTTPS URL and matching public VAPID key, then perform
+   the iPhone pairing and notification steps above. Confirm the relay returns success, the sealed
+   notification reaches the phone, and relay logs contain no preview plaintext or private key.
+4. Restart the relay container and trigger one more targeted notification. It must still forward
+   without restoring a database, queue, subscription file, or mailbox. A deliberately expired test
+   subscription should surface as `410 subscription_expired` so the switchboard removes it.
+5. Record the public URL, image digest, iOS version, Safari/WebKit version, HTTP result codes, and
+   pass/fail observations only. Do not record the VAPID private key, full PushSubscription, sealed
+   payload, bearer token, or device private keys.

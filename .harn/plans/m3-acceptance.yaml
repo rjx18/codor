@@ -6,28 +6,38 @@ assumptions:
   reviewed:
     - id: release-gate-runs-unit-and-browser
       outcome: unchanged
-      reason: The root release gate remains the recursive build, fast suite, and Playwright suite; P3.4 adds the final mobile standalone-window narrative to that existing browser gate.
+      reason: The root release gate remains the recursive build, fast suite, and
+        Playwright suite; P3.4 adds the final mobile standalone-window narrative
+        to that existing browser gate.
     - id: sw-injectmanifest-owned-worker
       outcome: unchanged
-      reason: Acceptance installs and launches the existing source-owned module worker without changing its lifecycle, precache injection, or registration contract.
+      reason: Acceptance installs and launches the existing source-owned module worker
+        without changing its lifecycle, precache injection, or registration
+        contract.
     - id: sw-caches-shell-only-no-message-data
       outcome: unchanged
-      reason: The installed-window scenario consumes the already-tested shell-only precache and does not add any runtime cache or message persistence.
+      reason: The installed-window scenario consumes the already-tested shell-only
+        precache and does not add any runtime cache or message persistence.
     - id: push-decrypts-on-device-only
       outcome: unchanged
-      reason: Acceptance delivers the existing sealed producer envelope through CDP and observes the real worker's IndexedDB key lookup, libsodium open, notification render, and action route without changing the envelope.
+      reason: Acceptance delivers the existing sealed producer envelope through CDP
+        and observes the real worker's IndexedDB key lookup, libsodium open,
+        notification render, and action route without changing the envelope.
     - id: client-syncs-by-seq
       outcome: unchanged
-      reason: The mobile M1 narrative exercises the established post, ask, hold, and reconnect behavior without changing sync cursor semantics.
+      reason: The mobile M1 narrative exercises the established post, ask, hold, and
+        reconnect behavior without changing sync cursor semantics.
 anchors:
   release-gate-runs-unit-and-browser:
     root-release-test-script:
       action: keep
-      reason: pnpm test:all remains the final M3 command and now reaches the added acceptance through the web e2e script.
+      reason: pnpm test:all remains the final M3 command and now reaches the added
+        acceptance through the web e2e script.
   sw-injectmanifest-owned-worker:
     owned-worker-lifecycle:
       action: keep
-      reason: The acceptance consumes the installed worker exactly as built in P3.1 and extended in P3.3.
+      reason: The acceptance consumes the installed worker exactly as built in P3.1
+        and extended in P3.3.
   sw-caches-shell-only-no-message-data:
     app-shell-precache-only:
       action: keep
@@ -35,11 +45,13 @@ anchors:
   push-decrypts-on-device-only:
     sw-push-notification-handler:
       action: keep
-      reason: CDP drives the production push listener and observes its render result without changing worker behavior.
+      reason: CDP drives the production push listener and observes its render result
+        without changing worker behavior.
   client-syncs-by-seq:
     ws-resubscribe-cursor:
       action: keep
-      reason: The installed mobile flow consumes the existing reconnect-by-seq path unchanged.
+      reason: The installed mobile flow consumes the existing reconnect-by-seq path
+        unchanged.
 files:
   - packages/web/package.json
   - packages/web/tests/m3-acceptance.e2e.spec.ts
@@ -47,6 +59,11 @@ files:
   - MANUAL-VERIFY.md
   - tmp/build/PROGRESS.md
 notes:
-  - Use only FakeAdapter and the in-process relay; no live model or push-provider call is permitted.
-  - Launch Chromium's real app-window mode at the iPhone 14 viewport under Xvfb and assert standalone display-mode before driving the M1 flow.
-  - Keep real iPhone installation and push plus a public relay deployment as explicit operator-only MANUAL-VERIFY steps.
+  - Use only FakeAdapter and the in-process relay; no live model or
+    push-provider call is permitted.
+  - Launch Chromium's real app-window mode at the iPhone 14 viewport under Xvfb
+    and assert standalone display-mode before driving the M1 flow.
+  - Keep real iPhone installation and push plus a public relay deployment as
+    explicit operator-only MANUAL-VERIFY steps.
+applied:
+  applied_at: 2026-07-10T17:13:26.410Z
