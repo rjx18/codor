@@ -103,6 +103,13 @@ describe('device identity, pairing, challenge auth, and room keys', () => {
     now += 31_000;
     expect(() => expiring.verify(expired.challenge_id, signChallenge(expired, peer.keys.identity)))
       .toThrow('challenge expired');
+    const bounded = new ChallengeAuthority(home.keys, () => now);
+    for (let index = 0; index < 32; index++) {
+      bounded.issue(peer.keys.identity.device_id, transcript);
+    }
+    expect(bounded.pendingCount(peer.keys.identity.device_id)).toBe(8);
+    now += 31_000;
+    expect(bounded.pendingCount()).toBe(0);
     expect(authenticateLocalToken('local-secret', 'local-secret', '127.0.0.1')).toBe(true);
     expect(authenticateLocalToken('local-secret', 'local-secret', '::1')).toBe(true);
     expect(authenticateLocalToken('local-secret', 'local-secret', '192.0.2.10')).toBe(false);

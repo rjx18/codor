@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { CryptoVault } from '../crypto/pairing.js';
+import { hashTranscript } from '../crypto/challenge.js';
 import { HyperswarmTransport, lineTopic } from './hyperswarm.js';
 import {
   EnvelopeDecoder,
+  EnvelopeDeduplicator,
   encodeEnvelope,
   envelopeUlid,
   type NoiseDuplex,
@@ -126,6 +128,63 @@ describe('length-prefixed envelopes', () => {
     expect(rejected).toContain('before peer authentication');
     expect(stream.destroyed).toBe(true);
     peer.close();
+  });
+
+  it('bounds repeated unverified identity challenges before authentication', async () => {
+    class StubStream extends EventEmitter implements NoiseDuplex {
+      readonly handshakeHash = Buffer.alloc(32, 11);
+      destroyed = false;
+      writes = 0;
+      write(): boolean { this.writes += 1; return true; }
+      destroy(error?: Error): void {
+        this.destroyed = true;
+        if (error) this.emit('error', error);
+        this.emit('close');
+      }
+      override on(event: 'data' | 'close' | 'error', listener: (...args: never[]) => void): this {
+        return super.on(event, listener);
+      }
+      override off(event: 'data' | 'close' | 'error', listener: (...args: never[]) => void): this {
+        return super.off(event, listener);
+      }
+    }
+    const home = makeVault('challenge-bound-home');
+    const remote = makeVault('challenge-bound-remote');
+    enrollEachOther(home, remote);
+    const peer = new ReliablePeer(home, () => undefined, () => undefined, () => undefined);
+    const stream = new StubStream();
+    peer.attach(stream);
+    const transcriptHash = hashTranscript(stream.handshakeHash);
+    for (let index = 0; index < 32; index++) {
+      stream.emit('data', encodeEnvelope({
+        envelope_id: envelopeUlid(),
+        room: '',
+        kind: 'hello',
+        payload: {
+          type: 'identity',
+          device_id: remote.keys.identity.device_id,
+          transcript_hash: transcriptHash,
+        },
+      }));
+    }
+    await waitFor(() => stream.writes === 33);
+    expect(home.challenges.pendingCount(remote.keys.identity.device_id)).toBe(8);
+    peer.close();
+  });
+
+  it('retains exact deduplication beyond the old ten-thousand-envelope eviction point', () => {
+    const dedup = new EnvelopeDeduplicator();
+    const first = envelopeUlid();
+    dedup.remember(first);
+    for (let index = 0; index < 10_001; index++) dedup.remember(envelopeUlid());
+    expect(dedup.has(first)).toBe(true);
+    expect(dedup.size).toBe(10_002);
+
+    const bounded = new EnvelopeDeduplicator(2);
+    const ids = [envelopeUlid(), envelopeUlid(), envelopeUlid()];
+    for (const id of ids) bounded.remember(id);
+    expect(bounded.size).toBe(2);
+    expect(bounded.has(ids[0]!)).toBe(false);
   });
 });
 

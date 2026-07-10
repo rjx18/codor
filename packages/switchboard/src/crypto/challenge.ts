@@ -25,6 +25,8 @@ export interface AuthenticatedConnection {
 }
 
 const CHALLENGE_TTL_MS = 30_000;
+const MAX_PENDING_PER_PEER = 8;
+const MAX_PENDING_TOTAL = 1_024;
 const CHALLENGE_DOMAIN = Buffer.from('wireroom-auth-v1\0', 'utf8');
 
 function random(bytes: number): Buffer {
@@ -83,6 +85,9 @@ export class ChallengeAuthority {
   issue(peerId: string, transcriptHash: string): AuthChallenge {
     if (!this.keys.getPeer(peerId)) throw new Error('peer is not enrolled');
     decodeKey(transcriptHash, sodium.crypto_generichash_BYTES, 'transcript hash');
+    this.sweepExpired();
+    this.trimPending((challenge) => challenge.peer_id === peerId, MAX_PENDING_PER_PEER);
+    this.trimPending(() => true, MAX_PENDING_TOTAL);
     const issued = this.now();
     const challenge: StoredChallenge = {
       challenge_id: random(16).toString('base64url'),
@@ -93,6 +98,13 @@ export class ChallengeAuthority {
     };
     this.pending.set(challenge.challenge_id, challenge);
     return challenge;
+  }
+
+  pendingCount(peerId?: string): number {
+    this.sweepExpired();
+    return peerId === undefined
+      ? this.pending.size
+      : [...this.pending.values()].filter((challenge) => challenge.peer_id === peerId).length;
   }
 
   verify(challengeId: string, signature: string): PeerRecord {
@@ -109,6 +121,26 @@ export class ChallengeAuthority {
     );
     if (!valid) throw new Error('invalid challenge signature');
     return peer;
+  }
+
+  private sweepExpired(): void {
+    const now = this.now();
+    for (const [id, challenge] of this.pending) {
+      if (now > Date.parse(challenge.expires_at)) this.pending.delete(id);
+    }
+  }
+
+  private trimPending(
+    matches: (challenge: StoredChallenge) => boolean,
+    maximum: number,
+  ): void {
+    let count = [...this.pending.values()].filter(matches).length;
+    for (const [id, challenge] of this.pending) {
+      if (count < maximum) return;
+      if (!matches(challenge)) continue;
+      this.pending.delete(id);
+      count -= 1;
+    }
   }
 }
 

@@ -88,6 +88,36 @@ export function encodeEnvelope(envelope: TransportEnvelope): Buffer {
   return framed;
 }
 
+const DEFAULT_DEDUP_CAPACITY = 50_000;
+
+export class EnvelopeDeduplicator {
+  private readonly seen = new Set<string>();
+  private readonly order: string[] = [];
+
+  constructor(private readonly capacity = DEFAULT_DEDUP_CAPACITY) {
+    if (!Number.isSafeInteger(capacity) || capacity < 1) {
+      throw new Error('dedup capacity must be a positive integer');
+    }
+  }
+
+  get size(): number {
+    return this.seen.size;
+  }
+
+  has(envelopeId: string): boolean {
+    return this.seen.has(envelopeId);
+  }
+
+  remember(envelopeId: string): void {
+    if (this.seen.has(envelopeId)) return;
+    this.seen.add(envelopeId);
+    this.order.push(envelopeId);
+    while (this.order.length > this.capacity) {
+      this.seen.delete(this.order.shift()!);
+    }
+  }
+}
+
 export class EnvelopeDecoder {
   private buffered = Buffer.alloc(0);
 
@@ -121,8 +151,7 @@ export class ReliablePeer {
   private stream: NoiseDuplex | undefined;
   private decoder = new EnvelopeDecoder();
   private readonly pending = new Map<string, TransportEnvelope>();
-  private readonly seen = new Set<string>();
-  private readonly seenOrder: string[] = [];
+  private readonly dedup = new EnvelopeDeduplicator();
   private processing = Promise.resolve();
   private currentTranscript = '';
   private remoteIdentity: string | undefined;
@@ -233,7 +262,7 @@ export class ReliablePeer {
       this.pending.delete(payload.envelope_id);
       return;
     }
-    if (this.seen.has(envelope.envelope_id)) {
+    if (this.dedup.has(envelope.envelope_id)) {
       this.sendAck(envelope.envelope_id);
       return;
     }
@@ -306,10 +335,7 @@ export class ReliablePeer {
   }
 
   private remember(envelopeId: string): void {
-    this.seen.add(envelopeId);
-    this.seenOrder.push(envelopeId);
-    if (this.seenOrder.length <= 10_000) return;
-    this.seen.delete(this.seenOrder.shift()!);
+    this.dedup.remember(envelopeId);
   }
 
   private reject(error: unknown): void {
