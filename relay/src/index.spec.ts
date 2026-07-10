@@ -18,9 +18,11 @@ describe('relay environment', () => {
       VAPID_SUBJECT: 'mailto:ops@example.com',
       VAPID_PUBLIC_KEY: 'public',
       VAPID_PRIVATE_KEY: 'private',
+      TRUST_PROXY: '127.0.0.1, 10.0.0.0/8',
     });
     expect(config.port).toBe(9000);
     expect(config.openMode).toBe(true);
     expect(config.allowedSenders.size).toBe(0);
+    expect(config.trustProxy).toEqual(['127.0.0.1', '10.0.0.0/8']);
   });
 });

@@ -371,6 +371,7 @@ describe('@wireroom/cli', () => {
       token: 'up-token',
       port: 0,
       owner: 'operator',
+      relayUrl: 'https://relay.example.test',
       pushVapidPublicKey: 'm3-vapid-public-key',
     });
     expect(running.daemon.store.listRooms().map((room) => room.id)).toEqual(['default']);

@@ -95,9 +95,9 @@ Screen install, APNs-backed Web Push, cold delivery, and notification navigation
    pass. Confirm the paired device row changes to `Push on`.
 4. Fully close the Home Screen app. From the switchboard, create exactly one human-targeted event:
    an unread human inbox record, targeted ask/approval, brake hold, or first stall flag. Confirm a
-   concise redacted notification arrives on the Lock Screen and Notification Center without a
-   room name, member handle, secret marker, run event, code, or ledger content that the redactor
-   should remove.
+   concise redacted notification arrives on the Lock Screen and Notification Center. A handle may
+   legitimately appear in a hold or message preview; confirm instead that configured secret
+   markers and any content the redactor should remove are absent.
 5. Tap the notification and confirm the Home Screen app opens the correct room/message fragment.
    Record whether this iOS version exposes the custom `Release hold` action; WebKit versions may
    present only the main notification tap. If the custom action is present, trigger it and confirm
@@ -105,6 +105,10 @@ Screen install, APNs-backed Web Push, cold delivery, and notification navigation
 6. In Settings, unpair this browser. Confirm the push subscription disappears server-side and the
    phone no longer receives a notification for another targeted event. Reopening the icon must
    require pairing again and must not show prior room content offline.
+7. With two browsers paired, revoke a third disposable device so every room key rotates. Fully
+   close one surviving browser, trigger one targeted event, and confirm its next push still opens;
+   the revoked device must receive or decrypt nothing. This checks the device-sealed key refresh
+   on a real push provider rather than only the automated worker simulation.
 
 ## Public Web Push relay
 
@@ -118,7 +122,9 @@ container and real push-provider hop; do not use `OPEN_MODE` for this check.
    subscription values.
 2. Run the container without a persistent volume. Terminate TLS at a reverse proxy and expose only
    `GET /health` and `POST /notify`. Confirm startup fails with neither `ALLOWED_SENDERS` nor an
-   explicit open mode, and confirm an unsigned or wrong-sender notify request is rejected.
+   explicit open mode, and confirm an unsigned or wrong-sender notify request is rejected. If open
+   mode is tested, set `TRUST_PROXY` to the proxy's exact address/CIDR and verify two distinct
+   forwarded client addresses do not share one rate bucket.
 3. Configure the switchboard with the relay's HTTPS URL and matching public VAPID key, then perform
    the iPhone pairing and notification steps above. Confirm the relay returns success, the sealed
    notification reaches the phone, and relay logs contain no preview plaintext or private key.

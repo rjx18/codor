@@ -30,6 +30,7 @@ interface BrowserPeer extends BrowserPublicIdentity {
 interface PairingResult {
   switchboard: BrowserPublicIdentity;
   room_keys: { room: string; generation: number; sealed_key: string }[];
+  access_token: string;
 }
 
 export const BROWSER_CRYPTO_DATABASE = 'wireroom-crypto-v1';
@@ -147,6 +148,9 @@ export async function completeBrowserPairing(url: URL): Promise<PairingResult> {
   if (result.switchboard.sign_public_key !== expectedSwitchboard) {
     throw new Error('switchboard signing key does not match the pairing link');
   }
+  if (typeof result.access_token !== 'string' || result.access_token === '') {
+    throw new Error('switchboard pairing did not return browser access');
+  }
   await writeState('peer:switchboard', { ...result.switchboard, kind: 'switchboard' } satisfies BrowserPeer);
   for (const sealed of result.room_keys) {
     await writeState(`room:${sealed.room}`, {
@@ -155,6 +159,7 @@ export async function completeBrowserPairing(url: URL): Promise<PairingResult> {
       key: encode(await openForBrowser(sealed.sealed_key)),
     } satisfies StoredBrowserRoomKey);
   }
+  await storeBrowserAccess({ origin: new URL(endpoint).origin, token: result.access_token });
   return result;
 }
 

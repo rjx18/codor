@@ -27,6 +27,7 @@ export interface RelayEnvironment {
   VAPID_SUBJECT?: string;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
+  TRUST_PROXY?: string;
 }
 
 export function relayConfigFromEnv(env: RelayEnvironment) {
@@ -39,6 +40,7 @@ export function relayConfigFromEnv(env: RelayEnvironment) {
     (env.ALLOWED_SENDERS ?? '').split(',').map((value) => value.trim()).filter(Boolean),
   );
   const openMode = env.OPEN_MODE === '1' || env.OPEN_MODE === 'true';
+  const trustProxy = (env.TRUST_PROXY ?? '').split(',').map((value) => value.trim()).filter(Boolean);
   if (!openMode && allowedSenders.size === 0) {
     throw new Error('ALLOWED_SENDERS is required unless OPEN_MODE=true');
   }
@@ -47,6 +49,7 @@ export function relayConfigFromEnv(env: RelayEnvironment) {
     port: Number(env.PORT ?? '8787'),
     allowedSenders,
     openMode,
+    trustProxy,
     vapid: {
       subject: required('VAPID_SUBJECT'),
       publicKey: required('VAPID_PUBLIC_KEY'),
@@ -64,6 +67,7 @@ export async function startRelayFromEnv(env: RelayEnvironment = process.env): Pr
     push: new WebPushSender(config.vapid),
     allowedSenders: config.allowedSenders,
     openMode: config.openMode,
+    ...(config.trustProxy.length > 0 && { trustProxy: config.trustProxy }),
   });
   await app.listen({ host: config.host, port: config.port });
 }

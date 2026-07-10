@@ -43,6 +43,7 @@ export interface DaemonOptions {
   residency?: ResidencyCoordinator;
   ledger?: LedgerManager;
   pushProducer?: HumanPushNotifier;
+  onBackgroundError?: (error: Error) => void;
 }
 
 export interface MemberDetails {
@@ -142,6 +143,7 @@ export class Daemon {
   private readonly residency?: ResidencyCoordinator;
   private readonly ledger?: LedgerManager;
   private readonly pushProducer?: HumanPushNotifier;
+  private readonly onBackgroundError: (error: Error) => void;
   private readonly stopResidencyReachability?: () => void;
   private closing = false;
   private closed = false;
@@ -153,6 +155,7 @@ export class Daemon {
     this.residency = options.residency;
     this.ledger = options.ledger;
     this.pushProducer = options.pushProducer;
+    this.onBackgroundError = options.onBackgroundError ?? (() => undefined);
     this.ledger?.setRoomValidator((room) => this.store.getRoom(room) !== undefined);
     this.ledger?.setChangeHandler(({ room, name, author }) => {
       if (this.store.getRoom(room)) this.postSystemMessage(room, `@${author} updated [[${name}]]`);
@@ -199,7 +202,14 @@ export class Daemon {
 
   /** Tracks a fire-and-forget turn chain so settle() can await quiescence. */
   private track(promise: Promise<void>): void {
-    const wrapped = promise.catch(() => undefined).finally(() => this.active.delete(wrapped));
+    const wrapped = promise.catch((error: unknown) => {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      try {
+        this.onBackgroundError(failure);
+      } catch {
+        // A diagnostic sink must never break daemon settlement.
+      }
+    }).finally(() => this.active.delete(wrapped));
     this.active.add(wrapped);
   }
 
@@ -317,7 +327,13 @@ export class Daemon {
         preview,
         target_human_ids: targetHumanIds,
         ...(deliveryId && { delivery_id: deliveryId }),
-      }).then(() => undefined),
+      }).then((results) => {
+        const failures = results.filter((result) => result.status === 'failed');
+        if (failures.length > 0) {
+          const statuses = failures.map((result) => result.http_status ?? result.error ?? 'unknown').join(',');
+          throw new Error(`push delivery failed for ${String(failures.length)} device(s): ${statuses}`);
+        }
+      }),
     );
   }
   // harn:end push-only-for-human-targeted-events

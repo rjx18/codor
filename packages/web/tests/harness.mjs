@@ -70,6 +70,7 @@ await startServer({
   crypto,
   pushSubscriptions,
   pushVapidPublicKey: vapidPublicKey,
+  pushRelayEnabled: true,
 });
 
 const readBody = (req) =>
@@ -150,7 +151,10 @@ createServer(async (req, res) => {
       }));
       return;
     } else if (url.pathname === '/next-push') {
-      const notification = pushed.shift();
+      const index = body.endpoint
+        ? pushed.findIndex((candidate) => candidate.subscription.endpoint === body.endpoint)
+        : pushed.length - 1;
+      const notification = index >= 0 ? pushed.splice(index, 1)[0] : undefined;
       if (!notification) throw new Error('no captured push');
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
         sealed: notification.sealed.toString('base64'),

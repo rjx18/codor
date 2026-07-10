@@ -14,7 +14,6 @@ import {
   type BrowserPushPreview,
   type NotificationAction,
 } from './push.js';
-import { storedBrowserAccess } from './crypto.js';
 
 declare const self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: (PrecacheEntry | string)[];
@@ -82,10 +81,6 @@ async function showPushFailure(error: unknown): Promise<void> {
 }
 
 async function openWindowTarget(targetUrl: URL): Promise<void> {
-  const access = await storedBrowserAccess();
-  if (access?.origin === self.location.origin && access.token !== '') {
-    targetUrl.searchParams.set('token', access.token);
-  }
   const target = targetUrl.href;
   const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   const existing = clients.find((client): client is WindowClient =>

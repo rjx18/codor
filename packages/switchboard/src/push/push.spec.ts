@@ -130,6 +130,15 @@ describe('push envelope', () => {
 });
 
 describe('PushProducer', () => {
+  it('rejects an insecure non-local relay URL before any notification is queued', () => {
+    expect(() => new PushProducer({
+      relayUrl: 'http://relay.example.test',
+      identity: crypto.keys.identity,
+      roomKeys: crypto.roomKeys,
+      subscriptions,
+    })).toThrow('relay_url must use https except on localhost');
+  });
+
   it('makes no relay request when relay_url is absent', async () => {
     const request = vi.fn<typeof fetch>();
     const producer = new PushProducer({
@@ -238,6 +247,33 @@ describe('PushProducer', () => {
 });
 
 describe('Daemon human push trigger allowlist', () => {
+  it('reports failed background push deliveries through a sanitized diagnostic', async () => {
+    const report = vi.fn();
+    const fake = new FakeAdapter();
+    const daemon = new Daemon({
+      dbPath: join(dir, 'push-failure.sqlite'),
+      blobRoot: join(dir, 'push-failure-blobs'),
+      adapters: [fake],
+      pushProducer: {
+        notify: async () => [{ device_id: 'device-secret', status: 'failed', http_status: 502 }],
+      },
+      onBackgroundError: report,
+    });
+    daemon.createRoom({ id: 'failure', name: 'Failure', owner: { handle: 'richard', display_name: 'Richard' } });
+    daemon.spawnMember('failure', { harness: 'fake', handle: 'alpha', cwd: '/work' });
+    fake.enqueue({ kind: 'complete', final_text: '@richard result' });
+
+    daemon.postHumanMessage('failure', '@alpha report');
+    await daemon.settle();
+
+    expect(report).toHaveBeenCalledOnce();
+    expect(report.mock.calls[0]![0]).toMatchObject({
+      message: 'push delivery failed for 1 device(s): 502',
+    });
+    expect(report.mock.calls[0]![0].message).not.toContain('device-secret');
+    await daemon.close();
+  });
+
   it('fires for inbox, ask, brake hold, and stall but not ordinary system or manual holds', async () => {
     const events: HumanPushEvent[] = [];
     const notifier: HumanPushNotifier = {

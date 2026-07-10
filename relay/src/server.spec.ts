@@ -2,7 +2,7 @@ import sodium from 'sodium-native';
 import { describe, expect, it, vi } from 'vitest';
 
 import { PushDeliveryError, type PushSender } from './push.js';
-import { createRelayServer } from './server.js';
+import { createRelayServer, WindowRateLimiter } from './server.js';
 import {
   canonicalNotifyBytes,
   MAX_SEALED_BYTES,
@@ -186,5 +186,55 @@ describe('POST /notify', () => {
     expect((await app.inject({ method: 'POST', url: '/notify', ...request })).statusCode).toBe(202);
     expect((await app.inject({ method: 'POST', url: '/notify', ...request })).statusCode).toBe(429);
     await app.close();
+  });
+
+  it('uses a configured trusted proxy address instead of collapsing all clients', async () => {
+    const first = signer();
+    const second = signer();
+    const app = createRelayServer({
+      push: { send: vi.fn(async () => undefined) },
+      allowedSenders: new Set(),
+      openMode: true,
+      openRateLimit: 1,
+      now: () => NOW,
+      trustProxy: ['127.0.0.1'],
+    });
+    const firstRequest = signed(body(), first);
+    const secondRequest = signed(body(), second);
+    const third = signer();
+    const thirdRequest = signed(body(), third);
+
+    const fromFirst = await app.inject({
+      method: 'POST', url: '/notify', ...firstRequest,
+      headers: { ...firstRequest.headers, 'x-forwarded-for': '203.0.113.10' },
+    });
+    const fromSecond = await app.inject({
+      method: 'POST', url: '/notify', ...secondRequest,
+      headers: { ...secondRequest.headers, 'x-forwarded-for': '203.0.113.11' },
+    });
+    const repeatedAddress = await app.inject({
+      method: 'POST', url: '/notify', ...thirdRequest,
+      headers: { ...thirdRequest.headers, 'x-forwarded-for': '203.0.113.10' },
+    });
+
+    expect(fromFirst.statusCode).toBe(202);
+    expect(fromSecond.statusCode).toBe(202);
+    expect(repeatedAddress.statusCode).toBe(429);
+    await app.close();
+  });
+});
+
+describe('WindowRateLimiter', () => {
+  it('sweeps expired entries and stays within its configured key bound', () => {
+    let now = 1_000;
+    const limiter = new WindowRateLimiter(1, 100, () => now, 3);
+    expect(limiter.take('a')).toBe(true);
+    expect(limiter.take('b')).toBe(true);
+    expect(limiter.take('c')).toBe(true);
+    expect(limiter.take('d')).toBe(true);
+    expect(limiter.size).toBe(3);
+    now += 101;
+    expect(limiter.take('fresh')).toBe(true);
+    expect(limiter.size).toBe(1);
   });
 });

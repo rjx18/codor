@@ -31,8 +31,6 @@ import {
   useRoomStore,
 } from './state.js';
 import { connect, type Connection } from './ws.js';
-import { storeBrowserAccess } from './crypto.js';
-
 function pageParams(): { room: string; token: string } {
   const params = new URLSearchParams(window.location.search);
   return { room: params.get('room') ?? 'default', token: params.get('token') ?? '' };
@@ -44,9 +42,11 @@ function fragmentMessageId(): number | undefined {
 }
 
 // harn:assume permalink-ids-stable ref=message-history-surface
-export function App() {
+export function App(props: { token?: string } = {}) {
   const state = useRoomStore();
-  const { room: ROOM, token: TOKEN } = useMemo(pageParams, []);
+  const page = useMemo(pageParams, []);
+  const ROOM = page.room;
+  const TOKEN = props.token ?? page.token;
   const connectionRef = useRef<Connection | null>(null);
   if (connectionRef.current === null) {
     connectionRef.current = connect({ room: ROOM, token: TOKEN });
@@ -111,10 +111,6 @@ export function App() {
   const previousLastId = useRef(0);
   const handledHash = useRef('');
   const handledNotificationAction = useRef(false);
-
-  useEffect(() => {
-    if (TOKEN !== '') void storeBrowserAccess({ origin: window.location.origin, token: TOKEN });
-  }, [TOKEN]);
 
   useEffect(() => {
     if (!state.connected || state.seq === 0 || handledNotificationAction.current) return;
@@ -465,7 +461,6 @@ export function App() {
                 {(rooms.length > 0 ? rooms : state.room ? [state.room] : []).map((room) => {
                   const selected = room.id === ROOM;
                   const query = new URLSearchParams({ room: room.id });
-                  if (TOKEN !== '') query.set('token', TOKEN);
                   return (
                     <li key={room.id}>
                       <a

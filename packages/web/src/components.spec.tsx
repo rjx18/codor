@@ -239,7 +239,8 @@ describe('Header', () => {
     expect(html).toContain('$1.50');
     expect(html).toContain('75 tokens uncosted');
     expect(html).toContain('data-testid="room-settings"');
-    expect(html).toContain('/settings?room=eng&amp;token=t');
+    expect(html).toContain('/settings?room=eng');
+    expect(html).not.toContain('token=t');
     expect(html).toContain('inbox');
     expect(html).toContain('>2<');
   });

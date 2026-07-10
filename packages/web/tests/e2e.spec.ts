@@ -44,6 +44,7 @@ test('ledger changes appear in the room and [[refs]] open a read-only note viewe
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await control('/ledger-init', { name: 'risk-limits', author: 'alpha' });
   await expect(page.getByText('@alpha updated [[risk-limits]]')).toBeVisible();
+  await page.waitForTimeout(100);
   await control('/ledger-direct', { name: 'risk-limits', noteBody: 'Keep exposure below 1%.' });
   const notice = page.getByText('@operator updated [[risk-limits]]');
   await expect(notice).toBeVisible();
@@ -215,10 +216,13 @@ test('room settings persist opt-in brakes and meter labels uncosted tokens', asy
   await page.getByTestId('room-settings').click();
   await expect(page.getByTestId('settings-page')).toBeVisible();
   await page.getByTestId('turn-brake-enabled').check();
+  await page.getByTestId('turn-brake-value').fill('0');
+  await page.getByTestId('room-settings-save').click();
+  await expect(page.getByText('Enter positive values for enabled brakes and the stall interval.')).toBeVisible();
   await page.getByTestId('turn-brake-value').fill('3');
   await page.getByTestId('stall-minutes').fill('12');
   await page.getByTestId('room-settings-save').click();
-  await expect(page.getByText('Room brakes saved.')).toBeVisible();
+  await expect(page.getByText('Room brake update requested.')).toBeVisible();
 
   await page.getByRole('link', { name: 'Back to room' }).click();
   await page.getByTestId('room-settings').click();
@@ -239,6 +243,7 @@ test('room settings persist opt-in brakes and meter labels uncosted tokens', asy
   }
   await expect(relay).toContainText('Relay never sees');
   await expect(relay).toContainText('$5/month hosted');
+  expect(await page.evaluate(() => localStorage.getItem('wireroom-relay-pairing'))).toBeNull();
   await page.getByRole('link', { name: 'Back to room' }).click();
 
   await control('/enqueue', {

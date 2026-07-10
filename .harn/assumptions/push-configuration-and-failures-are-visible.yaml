@@ -1,0 +1,13 @@
+id: push-configuration-and-failures-are-visible
+hash: a-a69c3833b650
+title: Push configuration truth and delivery failures are operator-visible
+state: active
+statement: Push must report enabled only when relay URL, VAPID key, and paired
+  subscription storage are all configured; invalid relay URLs must fail startup,
+  and background delivery failures must reach an operator-visible diagnostic
+  callback without logging subscription secrets, because silent
+  safety-notification loss is indistinguishable from success.
+depends_on:
+  - push-only-for-human-targeted-events
+  - relay-stateless-subscription-in-request
+created_by: m3fix-pwa-recovery-observability

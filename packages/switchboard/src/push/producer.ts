@@ -42,6 +42,7 @@ export interface PushDeliveryResult {
   device_id?: string;
   status: 'disabled' | 'ignored' | 'sent' | 'expired' | 'failed';
   http_status?: number;
+  error?: 'network_error';
 }
 
 export interface PushProducerOptions {
@@ -165,25 +166,31 @@ function relayEndpoint(relayUrl: string): string {
   return url.toString();
 }
 
+// harn:assume push-configuration-and-failures-are-visible ref=push-delivery-diagnostics
 export class PushProducer implements HumanPushNotifier {
   private readonly request: typeof fetch;
   private readonly now: () => number;
   private readonly ttl: number;
+  private readonly endpoint?: string;
 
   constructor(private readonly options: PushProducerOptions) {
     this.request = options.fetch ?? fetch;
     this.now = options.now ?? Date.now;
     this.ttl = options.ttl ?? 60;
+    this.endpoint = options.relayUrl ? relayEndpoint(options.relayUrl) : undefined;
+  }
+
+  get enabled(): boolean {
+    return this.endpoint !== undefined;
   }
 
   async notify(event: HumanPushEvent): Promise<PushDeliveryResult[]> {
-    if (!this.options.relayUrl) return [{ status: 'disabled' }];
+    if (!this.endpoint) return [{ status: 'disabled' }];
     if (event.target_human_ids.length === 0) return [{ status: 'ignored' }];
     const records = this.options.subscriptions.list();
     if (records.length === 0) return [];
     const preview = buildPushPreview(event);
     const sealed = sealPushPreview(preview, this.options.roomKeys.roomKey(event.room));
-    const endpoint = relayEndpoint(this.options.relayUrl);
     return Promise.all(records.map((record) => {
       const roomKey = this.options.roomKeys.sealedFor(record.device_id)
         .find((candidate) => candidate.room === event.room);
@@ -192,7 +199,7 @@ export class PushProducer implements HumanPushNotifier {
         status: 'ignored' as const,
       };
       return this.send(
-        endpoint,
+        this.endpoint!,
         record,
         wrapPushForDevice(sealed, roomKey.sealed_key, roomKey.generation),
       );
@@ -241,8 +248,9 @@ export class PushProducer implements HumanPushNotifier {
       }
       return { device_id: record.device_id, status: 'sent', http_status: response.status };
     } catch {
-      return { device_id: record.device_id, status: 'failed' };
+      return { device_id: record.device_id, status: 'failed', error: 'network_error' };
     }
   }
 }
+// harn:end push-configuration-and-failures-are-visible
 // harn:end push-previews-redacted-pad-then-sealed

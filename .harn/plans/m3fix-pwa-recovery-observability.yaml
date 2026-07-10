@@ -6,24 +6,26 @@ assumptions:
     - id: pwa-cold-launch-restores-local-auth
       title: Installed PWA cold launches from paired local access
       statement: The web entrypoint must store an explicitly supplied bearer token in
-        Wireroom IndexedDB, remove it from browser-visible URLs, and recover it in
-        memory for later same-origin PWA launches, settings navigation, and notification
-        clicks, because the manifest starts at a tokenless URL and paired access must
-        survive a cold launch without leaking credentials through history or referrers.
+        Wireroom IndexedDB, remove it from browser-visible URLs, and recover it
+        in memory for later same-origin PWA launches, settings navigation, and
+        notification clicks, because the manifest starts at a tokenless URL and
+        paired access must survive a cold launch without leaking credentials
+        through history or referrers.
       reason: The M3 adversarial review found that manifest cold launches always used
-        an empty token even though the paired token was already stored for the worker.
+        an empty token even though the paired token was already stored for the
+        worker.
       depends_on:
         - server-token-required
         - unpair-purges-all-browser-state
     - id: push-configuration-and-failures-are-visible
       title: Push configuration truth and delivery failures are operator-visible
       statement: Push must report enabled only when relay URL, VAPID key, and paired
-        subscription storage are all configured; invalid relay URLs must fail startup,
-        and background delivery failures must reach an operator-visible diagnostic
-        callback without logging subscription secrets, because silent safety-notification
-        loss is indistinguishable from success.
-      reason: The M3 adversarial review found that settings could report enabled without
-        a relay and every relay or producer failure was swallowed.
+        subscription storage are all configured; invalid relay URLs must fail
+        startup, and background delivery failures must reach an operator-visible
+        diagnostic callback without logging subscription secrets, because silent
+        safety-notification loss is indistinguishable from success.
+      reason: The M3 adversarial review found that settings could report enabled
+        without a relay and every relay or producer failure was swallowed.
       depends_on:
         - push-only-for-human-targeted-events
         - relay-stateless-subscription-in-request
@@ -31,7 +33,8 @@ assumptions:
     - id: server-token-required
       outcome: unchanged
       reason: REST and WebSocket requests still require the same non-empty configured
-        bearer; only the paired browser's local retrieval and URL handling change.
+        bearer; only the paired browser's local retrieval and URL handling
+        change.
     - id: unpair-purges-all-browser-state
       outcome: unchanged
       reason: Moving bearer persistence into entrypoint bootstrap retains IndexedDB
@@ -55,19 +58,20 @@ assumptions:
     - id: notify-signed-by-allowlisted-switchboard
       outcome: unchanged
       reason: Open-mode address limiting moves before signature verification, while
-        sender limiting remains after a valid Ed25519 signature and allowlist mode is
-        unchanged.
+        sender limiting remains after a valid Ed25519 signature and allowlist
+        mode is unchanged.
     - id: permalink-ids-stable
       outcome: unchanged
-      reason: Removing bearer query parameters preserves room and message fragments and
-        does not change permanent message identifiers.
+      reason: Removing bearer query parameters preserves room and message fragments
+        and does not change permanent message identifiers.
     - id: spend-meter-always-on
       outcome: unchanged
       reason: Tokenless settings links retain the existing always-visible header meter.
     - id: single-crypto-suite-libsodium
       outcome: unchanged
-      reason: Pairing completion stores the already-authorized bearer beside the existing
-        libsodium device identity and room keys without changing crypto primitives.
+      reason: Pairing completion stores the already-authorized bearer beside the
+        existing libsodium device identity and room keys without changing crypto
+        primitives.
 anchors:
   pwa-cold-launch-restores-local-auth:
     paired-access-bootstrap:
@@ -101,8 +105,8 @@ anchors:
   permalink-ids-stable:
     message-history-surface:
       action: change
-      reason: Accept the in-memory bootstrapped bearer and omit it from room links while
-        retaining fragments and history behavior.
+      reason: Accept the in-memory bootstrapped bearer and omit it from room links
+        while retaining fragments and history behavior.
     message-permalink-rendering:
       action: change
       reason: Omit the bearer from the settings URL while preserving permanent message
@@ -114,13 +118,13 @@ anchors:
   unpair-purges-all-browser-state:
     settings-unpair-action:
       action: change
-      reason: Surface remote revoke and local purge failures rather than leaving rejected
-        promises or falsely claiming cleanup completed.
+      reason: Surface remote revoke and local purge failures rather than leaving
+        rejected promises or falsely claiming cleanup completed.
   single-crypto-suite-libsodium:
     browser-libsodium-suite:
       action: change
-      reason: Persist same-origin access returned by a successful single-use device pairing
-        so the paired identity can cold launch immediately.
+      reason: Persist same-origin access returned by a successful single-use device
+        pairing so the paired identity can cold launch immediately.
 files:
   - relay/src/server.ts
   - relay/src/server.spec.ts
@@ -148,3 +152,5 @@ files:
   - packages/web/tests/harness.mjs
   - MANUAL-VERIFY.md
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T19:28:08.328Z

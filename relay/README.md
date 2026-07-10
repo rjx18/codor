@@ -19,10 +19,14 @@ Set these environment variables:
 | `OPEN_MODE` | Explicitly set `true` instead of an allowlist; strict in-memory rate limits apply |
 | `HOST` | Listen address, default `0.0.0.0` |
 | `PORT` | Listen port, default `8787` |
+| `TRUST_PROXY` | Optional comma-separated proxy IPs/CIDRs allowed to supply the client address |
 
 Startup fails closed unless `ALLOWED_SENDERS` is non-empty or `OPEN_MODE=true`. VAPID keys can be
 generated once with `pnpm exec web-push generate-vapid-keys`; do not print or commit the private
 key. Open mode is intended for controlled community deployments, not as the default.
+When TLS terminates at a reverse proxy, set `TRUST_PROXY` to that proxy's exact address or
+private CIDR. Do not use a universal trust value: trusting arbitrary forwarded addresses lets
+callers evade the open-mode per-address limit. Without it, the direct socket address is used.
 
 ## Signed notify contract
 

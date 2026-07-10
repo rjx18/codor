@@ -105,6 +105,7 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
     adapters: configuredAdapters(),
     ledger,
     pushProducer,
+    onBackgroundError: (error) => console.error(`[wireroom] background task failed: ${error.message}`),
   });
   if (daemon.store.listRooms().length === 0) {
     const room = options.room ?? 'default';
@@ -129,6 +130,7 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
       crypto,
       pushSubscriptions,
       pushVapidPublicKey: options.pushVapidPublicKey,
+      pushRelayEnabled: pushProducer.enabled,
     });
     return {
       daemon,

@@ -16,6 +16,8 @@ export interface RelayServerOptions extends SenderPolicy {
   now?: () => number;
   openRateLimit?: number;
   openRateWindowMs?: number;
+  openRateMaximumEntries?: number;
+  trustProxy?: boolean | string | string[];
 }
 
 interface RateEntry {
@@ -23,25 +25,48 @@ interface RateEntry {
   resetAt: number;
 }
 
-class WindowRateLimiter {
+export class WindowRateLimiter {
   private readonly entries = new Map<string, RateEntry>();
+  private nextSweep = 0;
 
   constructor(
     private readonly maximum: number,
     private readonly windowMs: number,
     private readonly now: () => number,
+    private readonly maximumEntries = 10_000,
   ) {}
 
   take(key: string): boolean {
     const now = this.now();
+    if (now >= this.nextSweep) {
+      for (const [entryKey, entry] of this.entries) {
+        if (entry.resetAt <= now) this.entries.delete(entryKey);
+      }
+      this.nextSweep = now + this.windowMs;
+    }
     const current = this.entries.get(key);
     if (!current || current.resetAt <= now) {
+      if (!current && this.entries.size >= this.maximumEntries) {
+        let oldestKey: string | undefined;
+        let oldestReset = Number.POSITIVE_INFINITY;
+        for (const [entryKey, entry] of this.entries) {
+          if (entry.resetAt < oldestReset) {
+            oldestKey = entryKey;
+            oldestReset = entry.resetAt;
+          }
+        }
+        if (oldestKey) this.entries.delete(oldestKey);
+      }
       this.entries.set(key, { count: 1, resetAt: now + this.windowMs });
       return true;
     }
     if (current.count >= this.maximum) return false;
     current.count += 1;
     return true;
+  }
+
+  get size(): number {
+    return this.entries.size;
   }
 }
 
@@ -62,13 +87,21 @@ export function createRelayServer(options: RelayServerOptions): FastifyInstance 
     options.openRateLimit ?? 10,
     options.openRateWindowMs ?? 60_000,
     now,
+    options.openRateMaximumEntries ?? 10_000,
   );
-  const app = Fastify({ logger: false, bodyLimit: 16 * 1024 });
+  const app = Fastify({
+    logger: false,
+    bodyLimit: 16 * 1024,
+    ...(options.trustProxy !== undefined && { trustProxy: options.trustProxy }),
+  });
 
   app.get('/health', async () => ({ ok: true }));
 
   app.post('/notify', async (request, reply) => {
     try {
+      if (options.openMode && !rateLimit.take(`address:${request.ip}`)) {
+        return reply.code(429).send({ error: 'rate_limited' });
+      }
       const { body, sealed } = parseNotifyRequest(request.body);
       const auth: NotifyAuth = {
         sender: requiredHeader(request.headers['x-wireroom-sender'], 'x-wireroom-sender'),
@@ -76,9 +109,7 @@ export function createRelayServer(options: RelayServerOptions): FastifyInstance 
         signature: requiredHeader(request.headers['x-wireroom-signature'], 'x-wireroom-signature'),
       };
       verifyNotifySignature(body, auth, options, now());
-      if (options.openMode && (
-        !rateLimit.take(`sender:${auth.sender}`) || !rateLimit.take(`address:${request.ip}`)
-      )) {
+      if (options.openMode && !rateLimit.take(`sender:${auth.sender}`)) {
         return reply.code(429).send({ error: 'rate_limited' });
       }
       // harn:assume relay-opaque-forwarder-no-crypto ref=relay-opaque-push-boundary

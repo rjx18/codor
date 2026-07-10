@@ -1,0 +1,14 @@
+id: pwa-cold-launch-restores-local-auth
+hash: a-d1092871a585
+title: Installed PWA cold launches from paired local access
+state: active
+statement: The web entrypoint must store an explicitly supplied bearer token in
+  Wireroom IndexedDB, remove it from browser-visible URLs, and recover it in
+  memory for later same-origin PWA launches, settings navigation, and
+  notification clicks, because the manifest starts at a tokenless URL and paired
+  access must survive a cold launch without leaking credentials through history
+  or referrers.
+depends_on:
+  - server-token-required
+  - unpair-purges-all-browser-state
+created_by: m3fix-pwa-recovery-observability

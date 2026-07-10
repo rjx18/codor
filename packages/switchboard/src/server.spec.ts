@@ -163,6 +163,7 @@ describe('REST', () => {
     expect(await complete.json()).toMatchObject({
       switchboard: { device_id: crypto.keys.identity.device_id },
       room_keys: [{ room: 'eng', generation: 1 }],
+      access_token: TOKEN,
     });
     expect(crypto.keys.getPeer(device.keys.identity.device_id)).toMatchObject({
       sign_public_key: device.keys.identity.sign_public_key,
@@ -247,6 +248,28 @@ describe('REST', () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(await response.json()).toEqual({ enabled: false });
+  });
+
+  it('reports push disabled when VAPID exists without a relay producer', async () => {
+    await server.close();
+    server = await startServer({
+      daemon,
+      token: TOKEN,
+      crypto,
+      pushSubscriptions,
+      pushVapidPublicKey: 'configured-vapid-key',
+      pushRelayEnabled: false,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+
+    const response = await fetch(`${base}/api/push/config`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+
+    expect(await response.json()).toEqual({
+      enabled: false,
+      vapid_public_key: 'configured-vapid-key',
+    });
   });
 
   it('serves redacted before-id history pages and room-scoped body search', async () => {

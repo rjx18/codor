@@ -31,6 +31,9 @@ test('pairing page renders a QR and enrolls the browser dual identity', async ({
   expect(peers.peers).toHaveLength(1);
   expect(peers.peers[0]!.device_id).toBe(peers.peers[0]!.sign_public_key);
   expect(peers.peers[0]!.encryption_public_key).not.toBe(peers.peers[0]!.sign_public_key);
+  await page.goto('/?room=eng');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await expect(page).not.toHaveURL(/(?:\?|&)token=/);
 });
 
 test('sodium-native and real Chromium page/SW sealed boxes interoperate across restart', async () => {
@@ -180,4 +183,28 @@ test('unpair still purges local browser state when remote revocation is unavaila
     registrations: (await navigator.serviceWorker.getRegistrations()).length,
     databases: (await indexedDB.databases()).map((database) => database.name),
   }))).toEqual({ local: 0, caches: [], registrations: 0, databases: [] });
+});
+
+test('unpair reports a blocked local purge instead of rejecting silently', async ({ page }) => {
+  const offer = await control<{ url: string }>('/pair-offer');
+  await page.goto(offer.url);
+  await page.getByRole('button', { name: 'Pair this browser' }).click();
+  await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
+  const identity = await page.evaluate(() => window.__wireroomCrypto.identity());
+  await page.goto(`${BASE}/settings?room=eng&token=e2e-token`);
+  await expect(page.getByTestId(`device-${identity.device_id}`)).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(IDBFactory.prototype, 'deleteDatabase', {
+      configurable: true,
+      value: () => { throw new Error('blocked by another tab'); },
+    });
+  });
+
+  await page.getByRole('button', { name: 'Unpair', exact: true }).click();
+  await page.getByTestId('confirm-unpair-browser').click();
+
+  await expect(page.getByTestId('browser-unpaired')).toBeVisible();
+  await expect(page.getByText('Local cleanup could not be confirmed. Close other Wireroom tabs before pairing again.')).toBeVisible();
+  expect((await control<{ peers: { device_id: string }[] }>('/peers')).peers)
+    .not.toContainEqual(expect.objectContaining({ device_id: identity.device_id }));
 });

@@ -29,6 +29,8 @@ export interface ServerOptions {
   pushSubscriptions?: PushSubscriptionStore;
   /** Public VAPID application-server key used by browser PushManager.subscribe. */
   pushVapidPublicKey?: string;
+  /** True only when the producer has a validated relay destination. */
+  pushRelayEnabled?: boolean;
 }
 
 export interface RunningServer {
@@ -113,7 +115,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       : undefined;
     if (!pairingToken) return reply.code(401).send({ error: 'pairing token required' });
     try {
-      return reply.send(options.crypto.pairing.complete(pairingToken, req.body as PairingRequest));
+      return reply.send({
+        ...options.crypto.pairing.complete(pairingToken, req.body as PairingRequest),
+        access_token: token,
+      });
     } catch (error) {
       return reply.code(401).send({ error: String(error) });
     }
@@ -159,7 +164,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   app.get('/api/push/config', (req, reply) => {
     if (!authed(req, reply)) return;
     return reply.send({
-      enabled: Boolean(options.pushSubscriptions && options.pushVapidPublicKey),
+      enabled: Boolean(
+        options.pushSubscriptions && options.pushVapidPublicKey && options.pushRelayEnabled,
+      ),
       ...(options.pushVapidPublicKey && { vapid_public_key: options.pushVapidPublicKey }),
     });
   });

@@ -4,22 +4,52 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { PairingPage } from './pairing';
 import { SettingsPage } from './SettingsPage';
+import { storedBrowserAccess, storeBrowserAccess } from './crypto';
 import './styles.css';
 
 const root = document.querySelector('#root');
 if (!root) {
   throw new Error('missing #root element');
 }
+const rootElement = root;
 
-createRoot(root).render(
-  <StrictMode>
-    {window.location.pathname === '/pair'
-      ? <PairingPage />
-      : window.location.pathname === '/settings'
-        ? <SettingsPage />
-        : <App />}
-  </StrictMode>,
-);
+// harn:assume pwa-cold-launch-restores-local-auth ref=paired-access-bootstrap
+async function resolveAccessToken(): Promise<string> {
+  const url = new URL(window.location.href);
+  const explicit = url.searchParams.get('token') ?? '';
+  if (explicit !== '') {
+    try {
+      await storeBrowserAccess({ origin: window.location.origin, token: explicit });
+      url.searchParams.delete('token');
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch {
+      // Keep the explicit URL token when persistent browser storage is unavailable.
+    }
+    return explicit;
+  }
+  try {
+    const stored = await storedBrowserAccess();
+    return stored?.origin === window.location.origin ? stored.token : '';
+  } catch {
+    return '';
+  }
+}
+
+async function render(): Promise<void> {
+  const token = await resolveAccessToken();
+  createRoot(rootElement).render(
+    <StrictMode>
+      {window.location.pathname === '/pair'
+        ? <PairingPage />
+        : window.location.pathname === '/settings'
+          ? <SettingsPage token={token} />
+          : <App token={token} />}
+    </StrictMode>,
+  );
+}
+
+void render();
+// harn:end pwa-cold-launch-restores-local-auth
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

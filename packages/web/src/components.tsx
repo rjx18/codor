@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { fetchLedgerNote, fetchRunEvents } from './api.js';
 import type { AdapterRegistration, LedgerNote, MemberDetail } from './api.js';
+import { storedBrowserAccess } from './crypto.js';
 import { latestFinalizedAgentAuthor, me, type MemberStateObservation } from './state.js';
 import type { Connection } from './ws.js';
 
@@ -101,7 +102,7 @@ export function Header(props: {
       )}
       <span className="ml-auto" />
       <a
-        href={`/settings?${new URLSearchParams({ room: props.roomId, ...(props.token && { token: props.token }) }).toString()}`}
+        href={`/settings?${new URLSearchParams({ room: props.roomId }).toString()}`}
         data-testid="room-settings"
         aria-label="Settings"
         title="Settings"
@@ -794,9 +795,13 @@ export function MessageRow(props: { message: Message; authorHandle: string; mine
             data-testid={`ledger-ref-${segment.name}`}
             className="text-sky-300 underline decoration-zinc-600 underline-offset-2 hover:text-sky-200"
             onClick={() => {
-              const token = new URLSearchParams(window.location.search).get('token') ?? '';
               setNoteError(false);
-              void fetchLedgerNote(message.room, segment.name, { token })
+              const urlToken = new URLSearchParams(window.location.search).get('token') ?? '';
+              void storedBrowserAccess()
+                .catch(() => undefined)
+                .then((access) => fetchLedgerNote(message.room, segment.name, {
+                  token: access?.origin === window.location.origin ? access.token : urlToken,
+                }))
                 .then(setNote)
                 .catch(() => setNoteError(true));
             }}

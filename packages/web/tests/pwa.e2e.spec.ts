@@ -17,6 +17,11 @@ async function control<T>(path: string, body: unknown = {}): Promise<T> {
 test('mobile room keeps the stream primary with a thumb-safe drawer and composer', async ({ page }) => {
   await page.goto('/?room=eng&token=e2e-token');
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await expect(page).not.toHaveURL(/(?:\?|&)token=/);
+  await expect(page.getByTestId('room-settings')).not.toHaveAttribute('href', /token=/);
+
+  await page.goto('/?room=eng');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
 
   const viewport = page.viewportSize()!;
   expect(viewport.width).toBeLessThanOrEqual(430);
@@ -46,7 +51,7 @@ test('manifest is installable and the owned worker caches only the offline shell
 }) => {
   await control('/seed-history');
   await page.goto('/?room=eng&token=e2e-token');
-  await expect(page.getByText('archive-entry-0075')).toBeVisible();
+  await expect(page.getByText('archive-entry-0075').last()).toBeVisible();
 
   const manifest = await page.evaluate(async () => {
     const response = await fetch('/manifest.webmanifest');
@@ -64,7 +69,7 @@ test('manifest is installable and the owned worker caches only the offline shell
   await page.evaluate(async () => navigator.serviceWorker.ready);
   await page.reload();
   await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
-  await expect(page.getByText('archive-entry-0075')).toBeVisible();
+  await expect(page.getByText('archive-entry-0075').last()).toBeVisible();
 
   const cached = await page.evaluate(async () => {
     const entries: { url: string; body: string }[] = [];
