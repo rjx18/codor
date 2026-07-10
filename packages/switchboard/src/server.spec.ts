@@ -11,6 +11,7 @@ import { BlobStore } from './blobs.js';
 import { CryptoVault } from './crypto/pairing.js';
 import { FakeAdapter } from './fake-adapter.js';
 import { LedgerManager } from './ledger/watch.js';
+import { PushSubscriptionStore } from './push/subscriptions.js';
 import { type RunningServer, startServer } from './server.js';
 
 const TOKEN = 'test-token-123';
@@ -19,6 +20,7 @@ let dir: string;
 let fake: FakeAdapter;
 let daemon: Daemon;
 let crypto: CryptoVault;
+let pushSubscriptions: PushSubscriptionStore;
 let server: RunningServer;
 let base: string;
 
@@ -34,7 +36,8 @@ beforeEach(async () => {
   daemon.createRoom({ id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' } });
   crypto = new CryptoVault(dir);
   crypto.roomKeys.ensureRoom('eng');
-  server = await startServer({ daemon, token: TOKEN, crypto });
+  pushSubscriptions = new PushSubscriptionStore(dir, crypto.keys);
+  server = await startServer({ daemon, token: TOKEN, crypto, pushSubscriptions });
   base = `http://127.0.0.1:${server.port}`;
 });
 
@@ -171,6 +174,50 @@ describe('REST', () => {
       body: JSON.stringify(request),
     });
     expect(replay.status).toBe(401);
+    device.close();
+  });
+
+  it('registers and removes full Web Push subscriptions only for paired devices', async () => {
+    const auth = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
+    const subscription = {
+      endpoint: 'https://push.example.test/device-token',
+      expirationTime: null,
+      keys: { p256dh: 'browser-p256dh', auth: 'browser-auth' },
+    };
+    const unpaired = await fetch(`${base}/api/devices/not-paired/push-subscription`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ subscription }),
+    });
+    expect(unpaired.status).toBe(400);
+
+    const device = new CryptoVault(join(dir, 'push-browser'));
+    const peer = crypto.keys.enrollPeer({
+      ...device.keys.publicIdentity(),
+      kind: 'device',
+      label: 'push-browser',
+    });
+    crypto.roomKeys.enrollPeer(peer);
+    const registered = await fetch(
+      `${base}/api/devices/${encodeURIComponent(peer.device_id)}/push-subscription`,
+      {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify({ subscription }),
+      },
+    );
+    expect(registered.status).toBe(201);
+    expect(await registered.json()).toMatchObject({
+      subscription: { device_id: peer.device_id, subscription },
+    });
+    expect(pushSubscriptions.get(peer.device_id)?.subscription).toEqual(subscription);
+
+    const removed = await fetch(
+      `${base}/api/devices/${encodeURIComponent(peer.device_id)}/push-subscription`,
+      { method: 'DELETE', headers: { authorization: `Bearer ${TOKEN}` } },
+    );
+    expect(removed.status).toBe(204);
+    expect(pushSubscriptions.get(peer.device_id)).toBeUndefined();
     device.close();
   });
 

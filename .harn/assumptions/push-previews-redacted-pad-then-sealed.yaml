@@ -1,0 +1,16 @@
+id: push-previews-redacted-pad-then-sealed
+hash: a-13050ba6144a
+title: Push previews are redacted and padded before room-key encryption
+state: active
+statement: Each human-targeted event must become a preview with room, msg_id,
+  kind, and at most 120 redaction-filtered characters, serialize with an
+  authenticated length prefix into the smallest fitting 512 or 2048 byte bucket,
+  then encrypt that complete padded bucket with libsodium XChaCha20- Poly1305
+  under the room key before the switchboard signs and sends the request, because
+  the relay and browser push service may observe only fixed- bucket ciphertext
+  and delivery metadata.
+depends_on:
+  - push-only-for-human-targeted-events
+  - sealed-room-keys-per-enrollee
+  - notify-signed-by-allowlisted-switchboard
+created_by: push-producer

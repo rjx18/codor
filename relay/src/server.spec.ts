@@ -104,7 +104,7 @@ describe('POST /notify', () => {
     await app.close();
   });
 
-  it('rejects payloads larger than the sealed 2048-byte bucket plus MAC', async () => {
+  it('rejects payloads larger than a 2048-byte bucket plus XChaCha nonce and tag', async () => {
     const identity = signer();
     const push: PushSender = { send: vi.fn(async () => undefined) };
     const app = createRelayServer({

@@ -12,7 +12,8 @@ assumptions:
         when relay_url is absent, because push is an optional human doorbell and
         never a transcript mirror or agent-event stream.
       reason: PLAN-M3 P3.2b and PRIVACY Tier 2 define the complete v1 push trigger
-        allowlist and require the feature to disappear without relay configuration.
+        allowlist and require the feature to disappear without relay
+        configuration.
       depends_on:
         - relay-stateless-subscription-in-request
     - id: push-previews-redacted-pad-then-sealed
@@ -20,10 +21,10 @@ assumptions:
       statement: Each human-targeted event must become a preview with room, msg_id,
         kind, and at most 120 redaction-filtered characters, serialize with an
         authenticated length prefix into the smallest fitting 512 or 2048 byte
-        bucket, then encrypt that complete padded bucket with libsodium XChaCha20-
-        Poly1305 under the room key before the switchboard signs and sends the
-        request, because the relay and browser push service may observe only fixed-
-        bucket ciphertext and delivery metadata.
+        bucket, then encrypt that complete padded bucket with libsodium
+        XChaCha20- Poly1305 under the room key before the switchboard signs and
+        sends the request, because the relay and browser push service may
+        observe only fixed- bucket ciphertext and delivery metadata.
       reason: PLAN-M3 P3.2b, PRIVACY Tier 2, and the single-suite decision require
         redact then pad then seal, with no relay-side crypto.
       depends_on:
@@ -33,8 +34,8 @@ assumptions:
   reviewed:
     - id: single-crypto-suite-libsodium
       outcome: unchanged
-      reason: Producer encryption and signing use the existing sodium-native room
-        key and Ed25519 identity without a WebCrypto or custom envelope variant.
+      reason: Producer encryption and signing use the existing sodium-native room key
+        and Ed25519 identity without a WebCrypto or custom envelope variant.
     - id: redaction-before-fanout
       outcome: unchanged
       reason: Push previews call the same switchboard redaction filter before any
@@ -45,8 +46,8 @@ assumptions:
         schedules a human notification without interrupting the member.
     - id: relay-opaque-forwarder-no-crypto
       outcome: unchanged
-      reason: The relay byte ceiling is corrected for the nonce and AEAD tag around
-        a 2048-byte padded plaintext, but the relay still only validates size and
+      reason: The relay byte ceiling is corrected for the nonce and AEAD tag around a
+        2048-byte padded plaintext, but the relay still only validates size and
         forwards exact opaque bytes.
 anchors:
   push-only-for-human-targeted-events:
@@ -62,12 +63,13 @@ anchors:
     producer-pad-seal-sign:
       action: change
       reason: Implement preview redaction/truncation, 512/2048 random padding,
-        XChaCha20-Poly1305 sealing, canonical Ed25519 signing, and relay posting.
+        XChaCha20-Poly1305 sealing, canonical Ed25519 signing, and relay
+        posting.
   stall-flags-never-kills:
     run-stall-watchdog:
       action: change
-      reason: Schedule an optional human push when the existing non-killing stall
-        flag is first applied.
+      reason: Schedule an optional human push when the existing non-killing stall flag
+        is first applied.
 files:
   - relay/src/seal.ts
   - relay/src/server.spec.ts
@@ -82,3 +84,5 @@ files:
   - packages/cli/src/program.ts
   - packages/cli/src/index.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T16:13:10.269Z

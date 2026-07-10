@@ -11,6 +11,7 @@ import { ClientFrameSchema, RoomIdSchema, type ServerFrame } from '@wireroom/pro
 import { constantTimeEqual } from './crypto/challenge.js';
 import type { CryptoVault, PairingRequest } from './crypto/pairing.js';
 import type { Daemon } from './daemon.js';
+import type { PushSubscriptionStore } from './push/subscriptions.js';
 
 export interface ServerOptions {
   daemon: Daemon;
@@ -24,6 +25,8 @@ export interface ServerOptions {
   socketPath?: string;
   /** Device enrollment and room-key authority for this switchboard. */
   crypto?: CryptoVault;
+  /** Paired browser Web Push destinations; content remains on the switchboard. */
+  pushSubscriptions?: PushSubscriptionStore;
 }
 
 export interface RunningServer {
@@ -123,6 +126,32 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     } catch (error) {
       return reply.code(400).send({ error: String(error) });
     }
+  });
+
+  app.post('/api/devices/:deviceId/push-subscription', (req, reply) => {
+    if (!authed(req, reply)) return;
+    if (!options.pushSubscriptions) {
+      return reply.code(404).send({ error: 'push subscriptions are not configured' });
+    }
+    const { deviceId } = req.params as { deviceId: string };
+    try {
+      const body = req.body as { subscription?: unknown };
+      return reply.code(201).send({
+        subscription: options.pushSubscriptions.register(deviceId, body.subscription),
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+
+  app.delete('/api/devices/:deviceId/push-subscription', (req, reply) => {
+    if (!authed(req, reply)) return;
+    if (!options.pushSubscriptions) {
+      return reply.code(404).send({ error: 'push subscriptions are not configured' });
+    }
+    const { deviceId } = req.params as { deviceId: string };
+    options.pushSubscriptions.remove(deviceId);
+    return reply.code(204).send();
   });
 
   app.get('/api/rooms', (req, reply) => {

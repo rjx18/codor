@@ -13,6 +13,8 @@ import {
   Daemon,
   HyperswarmTransport,
   LedgerManager,
+  PushProducer,
+  PushSubscriptionStore,
   ResidencyCoordinator,
   startServer,
   type LineConfig,
@@ -28,6 +30,7 @@ export interface UpOptions {
   room?: string;
   roomName?: string;
   owner?: string;
+  relayUrl?: string;
 }
 
 export interface RunningWireroom {
@@ -87,12 +90,20 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
   const dataDir = resolve(options.dataDir ?? join(homedir(), '.wireroom'));
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const crypto = new CryptoVault(dataDir);
+  const pushSubscriptions = new PushSubscriptionStore(dataDir, crypto.keys);
+  const pushProducer = new PushProducer({
+    relayUrl: options.relayUrl,
+    identity: crypto.keys.identity,
+    roomKeys: crypto.roomKeys,
+    subscriptions: pushSubscriptions,
+  });
   const ledger = new LedgerManager({ dataDir });
   const daemon = new Daemon({
     dbPath: join(dataDir, 'switchboard.sqlite'),
     blobRoot: join(dataDir, 'blobs'),
     adapters: configuredAdapters(),
     ledger,
+    pushProducer,
   });
   if (daemon.store.listRooms().length === 0) {
     const room = options.room ?? 'default';
@@ -115,6 +126,7 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
       socketPath: join(dataDir, 'wireroom.sock'),
       staticRoot: options.staticRoot ?? (existsSync(defaultStatic) ? defaultStatic : undefined),
       crypto,
+      pushSubscriptions,
     });
     return {
       daemon,

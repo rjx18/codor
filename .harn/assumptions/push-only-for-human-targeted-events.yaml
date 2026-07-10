@@ -1,0 +1,13 @@
+id: push-only-for-human-targeted-events
+hash: a-081f0ce25440
+title: Push production is limited to events requiring human attention
+state: active
+statement: The switchboard must produce pushes only for unread human inbox
+  deliveries, ask or approval cards targeting a human, turn or spend brake
+  holds, and newly stalled runs, must select only active paired browser devices
+  with registered subscriptions, and must make no relay request when relay_url
+  is absent, because push is an optional human doorbell and never a transcript
+  mirror or agent-event stream.
+depends_on:
+  - relay-stateless-subscription-in-request
+created_by: push-producer

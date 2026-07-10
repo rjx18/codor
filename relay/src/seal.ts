@@ -1,7 +1,10 @@
 import sodium from 'sodium-native';
 import { z } from 'zod';
 
-export const MAX_SEALED_BYTES = 2_048 + sodium.crypto_secretbox_MACBYTES;
+export const MAX_SEALED_BYTES =
+  2_048 +
+  sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES +
+  sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES;
 export const MAX_SIGNATURE_AGE_MS = 5 * 60_000;
 
 const PushSubscriptionSchema = z.strictObject({
