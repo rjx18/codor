@@ -69,11 +69,14 @@ auditable, and a self-hosted relay is always a supported configuration.
 
 Three pillars, deliberately simple:
 
-1. **Everything open source.** Every package — switchboard, adapters, web, CLI, skill, relay,
-   *and the app source*. MIT. Nothing crippled in self-host, ever.
-2. **The iPhone + Apple Watch apps are a one-time purchase** on the App Store. You're paying
-   for the signed, notarized, push-capable binary and its upkeep; building your own from the
-   repo stays free. Basic sealed push pings are **included with the app purchase** (App Store
+1. **Everything self-hostable is open source.** Switchboard, adapters, web/PWA, CLI, skill,
+   protocol, relay — MIT, nothing crippled, forever. The one deliberate exception: the native
+   apps (next pillar). The free path to every capability exists without them — the open PWA is
+   the free phone client.
+2. **The iPhone + Apple Watch apps are closed-source and a one-time purchase** on the App
+   Store. They are first-party clients of the open protocol — anyone can build a competing
+   client from PROTOCOL.md; ours is the polished one you pay once for. They live in a private
+   repo, not here. Basic sealed push pings are **included with the app purchase** (App Store
    builds can only receive push through our APNs key anyway, and doorbell pings cost us close
    to nothing — a hidden subscription behind a paid app would be a bait-and-switch).
 3. **The hosted relay is one cheap flat plan, ~$5/month**, for people who don't want to
@@ -89,9 +92,10 @@ support.
 
 Paseo runs the same access triad — hosted E2EE relay ("Paseo can't read your traffic") /
 direct LAN / bring-your-own tunnel (Tailscale, Cloudflare) — which validates the topology.
-The difference is the business: paseo is sponsorware (GitHub Sponsors); Wireroom charges for
-the two things with real marginal cost and real convenience value — the apps (one-time) and
-the relay ($5/mo) — so the project doesn't depend on donations.
+The difference is the business: paseo is sponsorware (GitHub Sponsors) with everything open
+(AGPL); Wireroom keeps the self-hostable stack open (MIT) and charges for the two things with
+real marginal cost and real convenience value — the closed native apps (one-time) and the
+relay ($5/mo) — so the project doesn't depend on donations.
 
 ## What we will not sell
 

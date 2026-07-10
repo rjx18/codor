@@ -86,7 +86,9 @@ native app installed on anything.
 
 ## M4 — Native glass (iPhone + Apple Watch)
 
-*Convenience layers on the same API — the only milestone that needs the Mac.*
+*Convenience layers on the same API — the only milestone that needs the Mac. Built in the
+private apps repo (closed-source, paid one-time — BUSINESS.md); this repo gains only protocol
+and doc updates.*
 
 - SwiftUI iPhone app: QR pairing, rooms, ask/approval sheets, dictation composer; APNs through
   the same relay, NSE decrypt, keys in Keychain.

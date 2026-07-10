@@ -40,9 +40,10 @@ you      (from your watch, by voice) @codex after the fix, also add a regression
   (`claude -p`, `codex exec`) — no SDK coupling, so any harness with headless mode + resume can
   join. Subagents show up automatically as short-lived *extensions*.
 - **Surfaces, web-first:** the web room works everywhere from day one — desk browser and
-  installable PWA on any phone (with sealed push notifications). Native iPhone and Apple Watch
-  apps follow as convenience layers (voice-first on the wrist: hear what shipped, answer
-  questions, approve actions).
+  installable PWA on any phone (with sealed push notifications). First-party native iPhone and
+  Apple Watch apps follow as paid convenience layers on the same open protocol (voice-first on
+  the wrist: hear what shipped, answer questions, approve actions); the PWA in this repo is the
+  free client.
 - **A ledger, not context soup.** Optional per-room shared memory as an Obsidian-compatible
   vault — markdown notes, `[[wikilink]]` graph, citable in messages, bootstrapped by the
   switchboard, readable by every member and by you in Obsidian itself.

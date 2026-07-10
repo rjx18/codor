@@ -205,7 +205,7 @@ verified in M0 before any code lands (unverified entries marked ⚠).
 | Tailnet access | Tailscale (user-supplied): `tailscale serve` for TLS; app connectors for custom-domain team access | depend | zero code: bind the tailnet IP; connector setup is documentation, not software |
 | Session-store discovery | partyline-sh/cli (MIT, Go) | port | its readers for `~/.claude` / `~/.codex` / Gemini session stores solve attach-by-session-id; port the formats to TS (Go binary doesn't transplant into a Node daemon) |
 | Blind ciphertext relay | partyline-sh relay + `ptysess` (Noise NNpsk0, key in URL fragment) | pattern / candidate depend | same philosophy as our push relay; M0 audit checks how separable it is from their hosted control plane — if it's a clean generic pipe, run it wholesale for room sync |
-| Watch/phone bridge | claude-watch ⚠ | fork | SwiftUI watch app + phone relay + SSE bridge; rework bridge → our WS protocol |
+| Watch/phone bridge | claude-watch ⚠ | fork — **only if its license permits closed derivatives** (MIT/BSD/Apache); if copyleft, pattern-only | SwiftUI watch app + phone relay + SSE bridge; rework bridge → our WS protocol; lands in the private apps repo |
 | Multi-surface daemon shape | Paseo (verified **AGPL-3.0**) | pattern ONLY | license verdict: no code may be copied into this MIT codebase — design cues only (daemon/WS/pairing shape, event rendering ideas). Stack also mismatches: their web/desktop is Expo/react-native-web in Electron; ours is React DOM |
 | E2EE primitives | libsodium (`sodium-native`) / Noise via hyperswarm | depend | never hand-rolled; MLS (OpenMLS) only if multi-party keys outgrow sealed-box fan-out |
 | Encrypted push | Matrix `sygnal` pattern; NSE decrypt on device | pattern (gateway is ~200 lines) | see PRIVACY §push; consider `ntfy` where APNs isn't required |
@@ -227,15 +227,15 @@ wireroom/
   packages/switchboard/   # daemon: store, router, adapter host, WS/REST
   packages/adapters/      # claude-code/, codex/, acp/ (spike)
   packages/cli/           # wireroom join/spawn/post/tail
-  packages/web/           # React SPA
-  apps/ios/               # SwiftUI iPhone + Watch targets (Mac/Xcode only)
+  packages/web/           # React SPA / installable PWA (the free client, incl. phones)
   relay/                  # push relay (self-hostable, tiny)
   skills/                 # /wireroom Claude Code skill; AGENTS.md snippet for Codex
   docs/
 ```
 
-pnpm workspaces; no build framework beyond tsc/vite. iOS lives in-repo but builds only on a Mac
-(Xcode 16+); nothing else depends on it.
+pnpm workspaces; no build framework beyond tsc/vite. The native iPhone/Watch apps are **not in
+this repo**: they are closed-source, paid, first-party clients of the open protocol
+(BUSINESS.md), developed in a private repo on a Mac (Xcode 16+). Nothing here depends on them.
 
 ## Failure behavior
 
