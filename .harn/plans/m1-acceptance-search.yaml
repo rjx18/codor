@@ -1,0 +1,112 @@
+id: m1-acceptance-search
+title: P1.8 paged history, room search, stable permalinks, and M1 acceptance
+assumptions:
+  retire: []
+  create:
+    - id: permalink-ids-stable
+      title: Message permalinks use permanent room-local ids
+      statement: >-
+        Every history page, room-search result, and rendered timeline item must identify a
+        message by its permanent room-local integer id and expose that item at the URL
+        fragment #N, while paging and live hydration merge by the same id without
+        reassigning or duplicating it, because copied permalinks and search jumps must keep
+        resolving after in-place run finalization and later message inserts.
+      reason: >-
+        PLAN-M1 P1.8 makes #N permalinks the public identity shared by the REST history/search
+        surface and the paged web timeline.
+      depends_on:
+        - message-id-txn-allocation
+        - client-syncs-by-seq
+  reviewed:
+    - id: message-id-txn-allocation
+      outcome: unchanged
+      reason: History and search are read-only consumers of the existing dense,
+        transactionally allocated per-room message id.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: REST history rows merge into the browser cache by id without moving the
+        change-log cursor; WebSocket hydration and reconnect finalizations continue to
+        upsert in place and commit only sync_complete cursors.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Both new REST readers project stored messages through the daemon before
+        serialization, while SQLite retains the raw body.
+    - id: server-token-required
+      outcome: unchanged
+      reason: History and search routes use the same mandatory REST authentication gate.
+    - id: release-gate-runs-unit-and-browser
+      outcome: unchanged
+      reason: P1.8 extends the fast and Playwright suites and finishes with the existing
+        root test:all release gate.
+anchors:
+  permalink-ids-stable:
+    message-history-search:
+      action: change
+      reason: Add bounded before-id history pages and room-scoped literal substring search
+        over message bodies, both returning permanent message ids.
+    message-history-rest:
+      action: change
+      reason: Expose authenticated, redacted history and search endpoints with validated
+        page/query parameters.
+    paged-message-cache:
+      action: change
+      reason: Retain a bounded initial timeline page, merge older REST pages by id, and
+        preserve live in-place updates.
+    message-history-surface:
+      action: change
+      reason: Add room search, automatic older-page loading, stable scroll restoration,
+        and hash navigation through the contiguous history cache.
+    message-permalink-rendering:
+      action: change
+      reason: >-
+        Give chat, system, run, ask, and approval rows visible #N links and matching DOM
+        fragment ids.
+    m1-live-acceptance:
+      action: change
+      reason: Exercise the real cheap-model review loop and extension, a live-session join,
+        the attach custody round trip, and a separate opt-in brake hold/release, then write
+        an honest acceptance transcript.
+  message-id-txn-allocation:
+    message-id-allocation:
+      action: keep
+      reason: Paged readers and permalink rendering must not alter allocation semantics.
+  client-syncs-by-seq:
+    store-upsert-in-place:
+      action: change
+      reason: Add history-page cache merging and initial-page retention without advancing
+        the WebSocket seq cursor or changing in-place finalization behavior.
+    ws-resubscribe-cursor:
+      action: keep
+      reason: History paging is independent of reconnect cursors.
+  redaction-before-fanout:
+    redacted-frame-emit:
+      action: keep
+      reason: New REST routes call the existing projection without changing its rules.
+    redaction-projection:
+      action: keep
+      reason: Search and history reuse the established redactor unchanged.
+  server-token-required:
+    token-validation:
+      action: keep
+      reason: New endpoints reuse the existing authed helper without changing startup or
+        credential validation.
+  release-gate-runs-unit-and-browser:
+    root-release-test-script:
+      action: keep
+      reason: The existing test:all command remains the final M1 gate.
+files:
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web/src/api.ts
+  - packages/web/src/state.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/App.tsx
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/e2e.spec.ts
+  - packages/cli/src/m1-acceptance.spec.ts
+  - tmp/build/ACCEPT-M1.md
+  - tmp/build/PROGRESS.md
