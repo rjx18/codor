@@ -8,9 +8,9 @@ assumptions:
       statement: Renaming a room member must change only its handle and optional
         display name after an explicit room-uniqueness check, keep the stable
         member id referenced by existing MentionSpan rows, and post a non-routed
-        system message whose old and new handle spans resolve to that same member
-        id, because queued work and permanent message history must survive handle
-        changes without being retargeted.
+        system message whose old and new handle spans resolve to that same
+        member id, because queued work and permanent message history must
+        survive handle changes without being retargeted.
       reason: PLAN-M1 P1.1 and PROTOCOL sections 1 and 3 require stable member-id
         mention resolution across renames.
       depends_on:
@@ -18,11 +18,11 @@ assumptions:
         - reserved-handles-rejected
     - id: revive-via-session-ref
       title: Revive reattaches the persisted native session
-      statement: Reviving a dead agent must require its persisted session_ref,
-        call the registered adapter's attach with that exact reference, restore
-        the persisted cwd and policy on the attached session, and only then mark
-        the member idle and drain its held FIFO queue, because revive continues
-        the same session rather than spawning a replacement context.
+      statement: Reviving a dead agent must require its persisted session_ref, call
+        the registered adapter's attach with that exact reference, restore the
+        persisted cwd and policy on the attached session, and only then mark the
+        member idle and drain its held FIFO queue, because revive continues the
+        same session rather than spawning a replacement context.
       reason: PLAN-M1 P1.1 and ARCHITECTURE session ownership make session_ref the
         durable identity anchor.
       depends_on:
@@ -35,8 +35,8 @@ assumptions:
         queued and historical MentionSpan rows still point to that id.
     - id: reserved-handles-rejected
       outcome: unchanged
-      reason: Spawn and rename continue through the assignable handle schema and
-        add an explicit per-room uniqueness check without relaxing syntax.
+      reason: Spawn and rename continue through the assignable handle schema and add
+        an explicit per-room uniqueness check without relaxing syntax.
     - id: adapter-process-lifecycle-supervised
       outcome: unchanged
       reason: Kill delegates to adapter interrupt, whose existing implementation
@@ -64,8 +64,8 @@ assumptions:
         sequence; observed state history is appended as member frames arrive.
     - id: redaction-before-fanout
       outcome: unchanged
-      reason: Member detail REST responses pass through the daemon projection
-        before serialization just like sync and run data.
+      reason: Member detail REST responses pass through the daemon projection before
+        serialization just like sync and run data.
 anchors:
   rename-preserves-mention-resolution:
     member-rename-stable-mentions:
@@ -103,3 +103,5 @@ files:
   - packages/web/tests/harness.mjs
   - packages/web/tests/e2e.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T10:36:51.428Z

@@ -1,0 +1,14 @@
+id: rename-preserves-mention-resolution
+hash: a-9c30ec7acb17
+title: Renaming a member preserves every resolved mention
+state: active
+statement: Renaming a room member must change only its handle and optional
+  display name after an explicit room-uniqueness check, keep the stable member
+  id referenced by existing MentionSpan rows, and post a non-routed system
+  message whose old and new handle spans resolve to that same member id, because
+  queued work and permanent message history must survive handle changes without
+  being retargeted.
+depends_on:
+  - mention-spans-survive-renames
+  - reserved-handles-rejected
+created_by: member-management

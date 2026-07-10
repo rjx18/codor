@@ -2,7 +2,7 @@ import type { Member, Message } from '@wireroom/protocol';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { AskCardView, Header, impliedRecipient, RunMessageView } from './components.js';
+import { AskCardView, Header, MemberCard, impliedRecipient, RunMessageView } from './components.js';
 import type { Connection } from './ws.js';
 
 const ULID_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
@@ -174,5 +174,41 @@ describe('Header', () => {
     expect(html).toContain('$1.50');
     expect(html).toContain('inbox');
     expect(html).toContain('>2<');
+  });
+});
+
+describe('MemberCard', () => {
+  it('shows session identity, spend, queue count, state history, and lifecycle actions', () => {
+    const member: Member = {
+      ...alpha,
+      harness: 'fake',
+      session_ref: 'fake-session-1',
+      cwd: '/work/review',
+      policy: 'read-only',
+      state: 'paused',
+    };
+    const html = renderToStaticMarkup(
+      <MemberCard
+        member={member}
+        detail={{
+          member,
+          queued_count: 2,
+          spend: { turns: 3, input_tokens: 120, output_tokens: 30, cost_usd: 0.12 },
+        }}
+        history={[
+          { state: 'idle', ts: TS },
+          { state: 'running', ts: TS },
+          { state: 'paused', ts: TS },
+        ]}
+        connection={noopConnection}
+      />,
+    );
+    expect(html).toContain('fake-session-1');
+    expect(html).toContain('/work/review');
+    expect(html).toContain('$0.12');
+    expect(html).toContain('150 tk');
+    expect(html).toContain('2 queued');
+    expect(html).toContain('idle &gt; running &gt; paused');
+    expect(html).toContain('Unpause');
   });
 });

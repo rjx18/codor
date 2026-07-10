@@ -2,7 +2,8 @@ import { parseBody, type Delivery, type Member, type Message, type RoomMeter, ty
 import { useEffect, useMemo, useState } from 'react';
 
 import { fetchRunEvents } from './api.js';
-import { latestFinalizedAgentAuthor, me } from './state.js';
+import type { AdapterRegistration, MemberDetail } from './api.js';
+import { latestFinalizedAgentAuthor, me, type MemberStateObservation } from './state.js';
 import type { Connection } from './ws.js';
 
 const stateDot: Record<string, string> = {
@@ -43,18 +44,315 @@ export function Header(props: {
   );
 }
 
-export function MemberRail(props: { members: Member[] }) {
+export function SpawnAgentDialog(props: {
+  adapters: AdapterRegistration[];
+  connection: Connection;
+}) {
+  const [open, setOpen] = useState(false);
+  const [harness, setHarness] = useState('');
+  const [handle, setHandle] = useState('');
+  const [cwd, setCwd] = useState('.');
+  const [policy, setPolicy] = useState('read-only');
+
+  useEffect(() => {
+    if (harness === '' && props.adapters[0]) setHarness(props.adapters[0].id);
+  }, [harness, props.adapters]);
+
+  const submit = (): void => {
+    if (!harness || !handle || !cwd) return;
+    props.connection.act({ act: 'spawn', harness, handle, cwd, policy });
+    setHandle('');
+    setOpen(false);
+  };
+
   return (
-    <aside className="w-48 shrink-0 border-r border-zinc-800 p-3">
-      <ul className="space-y-2">
+    <>
+      <button
+        type="button"
+        data-testid="spawn-agent"
+        onClick={() => setOpen(true)}
+        className="w-full border border-zinc-700 px-2 py-1 text-sm text-zinc-100 hover:bg-zinc-800"
+      >
+        Spawn agent
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-label="Spawn agent"
+            data-testid="spawn-dialog"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submit();
+            }}
+            className="w-full max-w-md border border-zinc-700 bg-zinc-950 p-4 shadow-xl"
+          >
+            <h2 className="text-sm font-semibold text-zinc-100">Spawn agent</h2>
+            <label className="mt-3 block text-xs text-zinc-400">
+              Harness
+              <select
+                data-testid="spawn-harness"
+                value={harness}
+                onChange={(event) => setHarness(event.target.value)}
+                className="mt-1 w-full border border-zinc-700 bg-zinc-900 p-2 text-sm text-zinc-100"
+              >
+                {props.adapters.map((adapter) => (
+                  <option key={adapter.id} value={adapter.id}>
+                    {adapter.id} {adapter.capabilities.resume ? '' : '(ephemeral)'}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="mt-3 block text-xs text-zinc-400">
+              Handle
+              <input
+                data-testid="spawn-handle"
+                value={handle}
+                onChange={(event) => setHandle(event.target.value)}
+                pattern="[a-z0-9][a-z0-9-]{1,30}"
+                required
+                className="mt-1 w-full border border-zinc-700 bg-zinc-900 p-2 text-sm text-zinc-100"
+              />
+            </label>
+            <label className="mt-3 block text-xs text-zinc-400">
+              Working directory
+              <input
+                data-testid="spawn-cwd"
+                value={cwd}
+                onChange={(event) => setCwd(event.target.value)}
+                required
+                className="mt-1 w-full border border-zinc-700 bg-zinc-900 p-2 text-sm text-zinc-100"
+              />
+            </label>
+            <label className="mt-3 block text-xs text-zinc-400">
+              Policy
+              <select
+                data-testid="spawn-policy"
+                value={policy}
+                onChange={(event) => setPolicy(event.target.value)}
+                className="mt-1 w-full border border-zinc-700 bg-zinc-900 p-2 text-sm text-zinc-100"
+              >
+                <option value="read-only">read-only</option>
+                <option value="workspace-write">workspace-write</option>
+                <option value="full-access">full-access</option>
+              </select>
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="border border-zinc-700 px-3 py-1 text-sm text-zinc-300"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                data-testid="spawn-submit"
+                disabled={props.adapters.length === 0}
+                className="bg-sky-700 px-3 py-1 text-sm text-white disabled:opacity-40"
+              >
+                Spawn
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function MemberCard(props: {
+  member: Member;
+  detail: MemberDetail | undefined;
+  history: MemberStateObservation[];
+  connection: Connection;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [handle, setHandle] = useState(props.member.handle);
+  const [displayName, setDisplayName] = useState(props.member.display_name);
+  const state = props.member.state ?? 'idle';
+  const tokens =
+    (props.detail?.spend.input_tokens ?? 0) + (props.detail?.spend.output_tokens ?? 0);
+
+  useEffect(() => {
+    setHandle(props.member.handle);
+    setDisplayName(props.member.display_name);
+  }, [props.member.display_name, props.member.handle]);
+
+  if (props.member.kind !== 'agent') {
+    return (
+      <li data-testid={`member-${props.member.handle}`} className="flex items-center gap-2 py-2 text-sm">
+        <span className={`h-2 w-2 rounded-full ${stateDot[state] ?? 'bg-zinc-400'}`} />
+        <span className="min-w-0 truncate text-zinc-200">@{props.member.handle}</span>
+        <span className="ml-auto text-[10px] uppercase text-zinc-500">{props.member.kind}</span>
+      </li>
+    );
+  }
+
+  return (
+    <li
+      data-testid={`member-${props.member.handle}`}
+      className="border-b border-zinc-800 py-3 text-sm"
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${stateDot[state] ?? 'bg-zinc-400'}`} />
+        <strong className="min-w-0 truncate font-medium text-zinc-100">@{props.member.handle}</strong>
+        <span className="text-[10px] uppercase text-zinc-500">{state}</span>
+        {(props.detail?.queued_count ?? 0) > 0 && (
+          <span
+            data-testid={`member-${props.member.handle}-queued`}
+            className="ml-auto rounded bg-amber-900 px-1.5 py-0.5 text-[10px] text-amber-200"
+          >
+            {props.detail!.queued_count} queued
+          </span>
+        )}
+      </div>
+      <dl className="mt-2 grid grid-cols-[4rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-[11px]">
+        <dt className="text-zinc-500">Harness</dt>
+        <dd className="truncate text-zinc-300">{props.member.harness ?? '-'}</dd>
+        <dt className="text-zinc-500">Session</dt>
+        <dd className="truncate font-mono text-zinc-300" title={props.member.session_ref}>
+          {props.member.session_ref ?? 'pending'}
+        </dd>
+        <dt className="text-zinc-500">Cwd</dt>
+        <dd className="truncate font-mono text-zinc-300" title={props.member.cwd}>
+          {props.member.cwd ?? '-'}
+        </dd>
+        <dt className="text-zinc-500">Spend</dt>
+        <dd className="text-zinc-300">
+          ${(props.detail?.spend.cost_usd ?? 0).toFixed(2)} · {tokens} tk
+        </dd>
+      </dl>
+      {props.member.policy && (
+        <span className="mt-2 inline-block rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
+          {props.member.policy}
+        </span>
+      )}
+      <p
+        data-testid={`member-${props.member.handle}-history`}
+        className="mt-2 truncate text-[10px] text-zinc-500"
+        title={props.history.map((item) => `${item.ts} ${item.state}`).join('\n')}
+      >
+        {props.history.map((item) => item.state).join(' > ') || state}
+      </p>
+      {renaming ? (
+        <form
+          className="mt-2 grid gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            props.connection.act({
+              act: 'rename',
+              member_id: props.member.id,
+              handle,
+              display_name: displayName,
+            });
+            setRenaming(false);
+          }}
+        >
+          <input
+            data-testid={`rename-${props.member.handle}-handle`}
+            value={handle}
+            onChange={(event) => setHandle(event.target.value)}
+            pattern="[a-z0-9][a-z0-9-]{1,30}"
+            required
+            className="border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-100"
+          />
+          <input
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+            required
+            className="border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-100"
+          />
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              data-testid={`rename-${props.member.handle}-submit`}
+              className="bg-sky-800 px-2 py-1 text-xs text-white"
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => setRenaming(false)}
+              className="border border-zinc-700 px-2 py-1 text-xs text-zinc-300"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="mt-2 flex flex-wrap gap-1">
+          <button
+            type="button"
+            data-testid={`rename-${props.member.handle}`}
+            onClick={() => setRenaming(true)}
+            className="border border-zinc-700 px-2 py-1 text-xs text-zinc-300"
+          >
+            Rename
+          </button>
+          {state === 'dead' ? (
+            <button
+              type="button"
+              data-testid={`revive-${props.member.handle}`}
+              disabled={!props.member.session_ref}
+              onClick={() => props.connection.act({ act: 'revive', member_id: props.member.id })}
+              className="bg-emerald-800 px-2 py-1 text-xs text-white disabled:opacity-40"
+            >
+              Revive
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid={`kill-${props.member.handle}`}
+              onClick={() => props.connection.act({ act: 'kill', member_id: props.member.id })}
+              className="bg-red-900 px-2 py-1 text-xs text-red-100"
+            >
+              Kill
+            </button>
+          )}
+          {state !== 'dead' && (
+            <button
+              type="button"
+              data-testid={`${state === 'paused' ? 'unpause' : 'pause'}-${props.member.handle}`}
+              onClick={() =>
+                props.connection.act({
+                  act: state === 'paused' ? 'unpause' : 'pause',
+                  member_id: props.member.id,
+                })
+              }
+              className="border border-zinc-700 px-2 py-1 text-xs text-zinc-300"
+            >
+              {state === 'paused' ? 'Unpause' : 'Pause'}
+            </button>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+export function MemberRail(props: {
+  members: Member[];
+  details: Record<string, MemberDetail>;
+  history: Record<string, MemberStateObservation[]>;
+  adapters: AdapterRegistration[];
+  connection: Connection;
+}) {
+  return (
+    <aside className="w-80 shrink-0 overflow-y-auto border-r border-zinc-800 p-3">
+      <SpawnAgentDialog adapters={props.adapters} connection={props.connection} />
+      <ul className="mt-3">
         {props.members
           .filter((m) => m.kind !== 'system')
           .map((m) => (
-            <li key={m.id} data-testid={`member-${m.handle}`} className="flex items-center gap-2 text-sm">
-              <span className={`h-2 w-2 rounded-full ${stateDot[m.state ?? 'idle'] ?? 'bg-zinc-400'}`} />
-              <span className="text-zinc-200">@{m.handle}</span>
-              {m.policy && <span className="rounded bg-zinc-800 px-1 text-[10px] text-zinc-400">{m.policy}</span>}
-            </li>
+            <MemberCard
+              key={m.id}
+              member={m}
+              detail={props.details[m.id]}
+              history={props.history[m.id] ?? []}
+              connection={props.connection}
+            />
           ))}
       </ul>
     </aside>

@@ -94,6 +94,46 @@ describe('REST', () => {
     expect(sync.seq).toBeGreaterThan(0);
   });
 
+  it('lists registered adapters and exposes full member lifecycle REST actions', async () => {
+    const auth = { authorization: `Bearer ${TOKEN}` };
+    const adaptersRes = await fetch(`${base}/api/adapters`, { headers: auth });
+    expect(await adaptersRes.json()).toMatchObject({
+      adapters: [{ id: 'fake', capabilities: { resume: true } }],
+    });
+
+    const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/review' });
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@alpha initialize');
+    await daemon.settle();
+
+    const detailsRes = await fetch(`${base}/api/rooms/eng/members`, { headers: auth });
+    const details = (await detailsRes.json()) as {
+      members: { member: { id: string }; spend: { turns: number } }[];
+    };
+    expect(details.members.find((item) => item.member.id === alpha.id)?.spend.turns).toBe(1);
+
+    const renamedRes = await fetch(`${base}/api/rooms/eng/members/${alpha.id}`, {
+      method: 'PATCH',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ handle: 'reviewer', display_name: 'Reviewer' }),
+    });
+    expect(await renamedRes.json()).toMatchObject({ id: alpha.id, handle: 'reviewer' });
+
+    for (const [action, state] of [
+      ['pause', 'paused'],
+      ['unpause', 'idle'],
+      ['kill', 'dead'],
+      ['revive', 'idle'],
+    ] as const) {
+      const res = await fetch(`${base}/api/rooms/eng/members/${alpha.id}/${action}`, {
+        method: 'POST',
+        headers: auth,
+      });
+      expect(await res.json()).toMatchObject({ id: alpha.id, state });
+    }
+    expect(fake.wasAttached(daemon.store.getMember('eng', alpha.id)!.session_ref!)).toBe(true);
+  });
+
   it('serves run blobs through the redacted endpoint', async () => {
     daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/w' });
     fake.enqueue({

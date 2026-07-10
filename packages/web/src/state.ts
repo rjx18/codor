@@ -1,6 +1,7 @@
 import type {
   Delivery,
   Member,
+  MemberState,
   Message,
   Room,
   RoomMeter,
@@ -9,11 +10,17 @@ import type {
 } from '@wireroom/protocol';
 import { create } from 'zustand';
 
+export interface MemberStateObservation {
+  state: MemberState;
+  ts: string;
+}
+
 export interface RoomState {
   connected: boolean;
   room: Room | undefined;
   seq: number;
   members: Record<string, Member>;
+  memberHistory: Record<string, MemberStateObservation[]>;
   messages: Record<number, Message>;
   inbox: Record<string, Delivery>;
   meter: RoomMeter | undefined;
@@ -29,6 +36,7 @@ export const useRoomStore = create<RoomState>((set) => ({
   room: undefined,
   seq: 0,
   members: {},
+  memberHistory: {},
   messages: {},
   inbox: {},
   meter: undefined,
@@ -48,7 +56,23 @@ export const useRoomStore = create<RoomState>((set) => ({
         case 'sync_complete':
           return { seq: bump };
         case 'member':
-          return { seq: bump, members: { ...state.members, [frame.member.id]: frame.member } };
+          {
+            const nextState = frame.member.state ?? 'idle';
+            const history = state.memberHistory[frame.member.id] ?? [];
+            const last = history.at(-1);
+            const nextHistory =
+              last?.state === nextState
+                ? history
+                : [...history, { state: nextState, ts: new Date().toISOString() }].slice(-12);
+            return {
+              seq: bump,
+              members: { ...state.members, [frame.member.id]: frame.member },
+              memberHistory: {
+                ...state.memberHistory,
+                [frame.member.id]: nextHistory,
+              },
+            };
+          }
         case 'message':
           return { seq: bump, messages: { ...state.messages, [frame.message.id]: frame.message } };
         case 'inbox':
@@ -72,7 +96,17 @@ export const useRoomStore = create<RoomState>((set) => ({
 
   setConnected: (connected) => set({ connected }),
   reset: () =>
-    set({ room: undefined, seq: 0, members: {}, messages: {}, inbox: {}, meter: undefined, runEvents: {}, errors: [] }),
+    set({
+      room: undefined,
+      seq: 0,
+      members: {},
+      memberHistory: {},
+      messages: {},
+      inbox: {},
+      meter: undefined,
+      runEvents: {},
+      errors: [],
+    }),
 }));
 
 // ── pure selectors (unit-tested) ────────────────────────────────────────

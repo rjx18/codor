@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   AskCardView,
@@ -11,6 +11,12 @@ import {
   handleLookup,
   isMe,
 } from './components.js';
+import {
+  fetchAdapters,
+  fetchMemberDetails,
+  type AdapterRegistration,
+  type MemberDetail,
+} from './api.js';
 import { heldDeliveries, sortedMessages, unreadCount, useRoomStore } from './state.js';
 import { connect, type Connection } from './ws.js';
 
@@ -27,6 +33,33 @@ export function App() {
     connectionRef.current = connect({ room: ROOM, token: TOKEN });
   }
   const connection = connectionRef.current;
+  const [adapters, setAdapters] = useState<AdapterRegistration[]>([]);
+  const [memberDetails, setMemberDetails] = useState<Record<string, MemberDetail>>({});
+
+  useEffect(() => {
+    let current = true;
+    void fetchAdapters({ token: TOKEN })
+      .then((items) => {
+        if (current) setAdapters(items);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [TOKEN]);
+
+  useEffect(() => {
+    if (!state.connected) return;
+    let current = true;
+    void fetchMemberDetails(ROOM, { token: TOKEN })
+      .then((items) => {
+        if (current) setMemberDetails(Object.fromEntries(items.map((item) => [item.member.id, item])));
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [ROOM, TOKEN, state.connected, state.seq]);
 
   const messages = useMemo(() => sortedMessages(state.messages), [state.messages]);
   const handles = handleLookup(state.members);
@@ -53,7 +86,13 @@ export function App() {
       />
       <HoldBanner held={heldDeliveries(state.inbox)} handleOf={handles} connection={connection} />
       <div className="flex min-h-0 flex-1">
-        <MemberRail members={Object.values(state.members)} />
+        <MemberRail
+          members={Object.values(state.members)}
+          details={memberDetails}
+          history={state.memberHistory}
+          adapters={adapters}
+          connection={connection}
+        />
         <main className="flex min-w-0 flex-1 flex-col">
           <div data-testid="timeline" className="flex-1 space-y-3 overflow-y-auto p-4">
             {messages.map((message) => {

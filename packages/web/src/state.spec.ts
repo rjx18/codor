@@ -108,6 +108,20 @@ describe('frame application (in-place, seq-cursored)', () => {
     expect(state.runEvents[1]).toHaveLength(1);
     expect(state.seq).toBe(2); // ephemeral frames never move the cursor
   });
+
+  it('records distinct observed member state transitions without duplicating refreshes', () => {
+    const { applyFrame } = useRoomStore.getState();
+    applyFrame({ type: 'member', seq: 1, member: { ...alpha, state: 'idle' } });
+    applyFrame({ type: 'member', seq: 2, member: { ...alpha, state: 'queued' } });
+    applyFrame({ type: 'member', seq: 3, member: { ...alpha, state: 'queued' } });
+    applyFrame({ type: 'member', seq: 4, member: { ...alpha, state: 'running' } });
+
+    expect(useRoomStore.getState().memberHistory[alpha.id]!.map((item) => item.state)).toEqual([
+      'idle',
+      'queued',
+      'running',
+    ]);
+  });
 });
 
 describe('selectors', () => {

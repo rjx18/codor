@@ -52,6 +52,100 @@ const spawnAgent = (handle: string, cwd = '/work') =>
 const runMessages = () =>
   daemon.store.listMessages('eng', { limit: 100 }).filter((m) => m.kind === 'run');
 
+describe('member management', () => {
+  it('renames mid-queue without retargeting mentions and rejects duplicate handles', async () => {
+    const alpha = spawnAgent('alpha');
+    spawnAgent('beta');
+    fake.enqueue(
+      {
+        kind: 'ask',
+        card: { kind: 'ask', prompt: 'Hold this turn?', options: [{ label: 'continue' }] },
+        reply: () => 'first done',
+      },
+      { kind: 'complete', final_text: '@richard queued work done' },
+    );
+    daemon.postHumanMessage('eng', '@alpha start');
+    const interaction = await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
+    );
+    const queuedMessage = daemon.postHumanMessage('eng', '@alpha queued work');
+    expect(daemon.memberDetails('eng').find((item) => item.member.id === alpha.id)!.queued_count).toBe(1);
+
+    expect(() => daemon.renameMember('eng', alpha.id, 'beta')).toThrow('already in use');
+    const renamed = daemon.renameMember('eng', alpha.id, 'gamma', 'Gamma');
+    expect(renamed.id).toBe(alpha.id);
+    expect(queuedMessage.mentions).toEqual([
+      expect.objectContaining({ member_id: alpha.id }),
+    ]);
+    const notice = daemon.store.listMessages('eng', { limit: 100 }).at(-1)!;
+    expect(notice.kind).toBe('system');
+    expect(notice.mentions.map((mention) => mention.member_id)).toEqual([alpha.id, alpha.id]);
+
+    await daemon.answerInteraction('eng', interaction.id, 'continue');
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(2);
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id })).toHaveLength(2);
+  });
+
+  it('pause holds the FIFO and unpause drains it as one turn', async () => {
+    const alpha = spawnAgent('alpha');
+    daemon.pauseMember('eng', alpha.id);
+    daemon.postHumanMessage('eng', '@alpha one');
+    daemon.postHumanMessage('eng', '@alpha two');
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.memberDetails('eng').find((item) => item.member.id === alpha.id)!.queued_count).toBe(2);
+
+    fake.enqueue({ kind: 'complete', final_text: '@richard both done' });
+    daemon.unpauseMember('eng', alpha.id);
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(1);
+    expect(fake.deliveries[0]!.payload).toContain('@alpha one');
+    expect(fake.deliveries[0]!.payload).toContain('@alpha two');
+  });
+
+  it('kill leaves a revivable dead member and revive attaches the exact session ref', async () => {
+    const alpha = spawnAgent('alpha', '/persisted/work');
+    fake.enqueue({ kind: 'complete', final_text: '@richard ready' });
+    daemon.postHumanMessage('eng', '@alpha initialize');
+    await daemon.settle();
+    const sessionRef = daemon.store.getMember('eng', alpha.id)!.session_ref!;
+
+    expect(daemon.killMember('eng', alpha.id).state).toBe('dead');
+    daemon.postHumanMessage('eng', '@alpha resume this');
+    await daemon.settle();
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id, state: 'queued' })).toHaveLength(1);
+
+    fake.enqueue({ kind: 'complete', final_text: '@richard revived' });
+    daemon.reviveMember('eng', alpha.id);
+    await daemon.settle();
+    expect(fake.wasAttached(sessionRef)).toBe(true);
+    expect(fake.deliveries.at(-1)).toMatchObject({
+      session_ref: sessionRef,
+      cwd: '/persisted/work',
+      attached: true,
+    });
+    expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('idle');
+  });
+
+  it('kill while blocked orphans the card and finalization preserves dead state', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Keep waiting?', options: [{ label: 'yes' }] },
+      reply: () => 'unreachable',
+    });
+    daemon.postHumanMessage('eng', '@alpha block');
+    const interaction = await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
+    );
+    daemon.killMember('eng', alpha.id);
+    await daemon.settle();
+    expect(daemon.store.getInteraction(interaction.id)!.state).toBe('orphaned');
+    expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('dead');
+  });
+});
+
 describe('reply-is-the-run-message chaining', () => {
   it('a two-agent chain produces exactly ONE message per turn, routed from the finalized run', async () => {
     const alpha = spawnAgent('alpha');
@@ -616,9 +710,9 @@ describe('routing-time payload snapshots', () => {
       { kind: 'complete', final_text: '@richard alpha done' },
       { kind: 'complete', final_text: '@richard beta done' },
     );
-    daemon.reviveMember('eng', alpha.id);
+    daemon.unpauseMember('eng', alpha.id);
     await daemon.settle();
-    daemon.reviveMember('eng', beta.id);
+    daemon.unpauseMember('eng', beta.id);
     await daemon.settle();
 
     expect(fake.deliveries).toHaveLength(2);

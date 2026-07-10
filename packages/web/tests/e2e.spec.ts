@@ -91,3 +91,36 @@ test('room v1: post → live run → expand → ask → hold release → reconne
   // were untagged → trigger author = richard) — badge shows unread items
   await expect(page.getByTestId('inbox-badge')).toBeVisible();
 });
+
+test('member rail: spawn → run → rename → kill → queued badge → revive', async ({ page }) => {
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  await page.getByTestId('spawn-agent').click();
+  await expect(page.getByTestId('spawn-dialog')).toBeVisible();
+  await page.getByTestId('spawn-handle').fill('beta');
+  await page.getByTestId('spawn-cwd').fill('/work/review');
+  await page.getByTestId('spawn-submit').click();
+  await expect(page.getByTestId('member-beta')).toBeVisible();
+
+  await control('/enqueue', { turns: [{ kind: 'complete', final_text: '@richard beta ready' }] });
+  await page.getByTestId('composer-input').fill('@beta initialize');
+  await page.getByTestId('composer-send').click();
+  await expect(page.getByText('@richard beta ready')).toBeVisible();
+
+  await page.getByTestId('rename-beta').click();
+  await page.getByTestId('rename-beta-handle').fill('gamma');
+  await page.getByTestId('rename-beta-submit').click();
+  await expect(page.getByTestId('member-gamma')).toBeVisible();
+
+  await page.getByTestId('kill-gamma').click();
+  await expect(page.getByTestId('revive-gamma')).toBeEnabled();
+  await page.getByTestId('composer-input').fill('@gamma queued while dead');
+  await page.getByTestId('composer-send').click();
+  await expect(page.getByTestId('member-gamma-queued')).toHaveText('1 queued');
+
+  await control('/enqueue', { turns: [{ kind: 'complete', final_text: '@richard revived work done' }] });
+  await page.getByTestId('revive-gamma').click();
+  await expect(page.getByText('@richard revived work done')).toBeVisible();
+  await expect(page.getByTestId('member-gamma-history')).toContainText('dead > idle');
+});

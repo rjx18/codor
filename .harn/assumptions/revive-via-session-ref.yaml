@@ -1,0 +1,13 @@
+id: revive-via-session-ref
+hash: a-c156a5978a5c
+title: Revive reattaches the persisted native session
+state: active
+statement: Reviving a dead agent must require its persisted session_ref, call
+  the registered adapter's attach with that exact reference, restore the
+  persisted cwd and policy on the attached session, and only then mark the
+  member idle and drain its held FIFO queue, because revive continues the same
+  session rather than spawning a replacement context.
+depends_on:
+  - adapter-process-lifecycle-supervised
+  - one-inflight-turn-per-member
+created_by: member-management

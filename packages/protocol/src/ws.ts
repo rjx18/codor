@@ -52,6 +52,9 @@ export const ActSchema = z.discriminatedUnion('act', [
     display_name: z.string().optional(),
   }),
   z.object({ act: z.literal('revive'), member_id: MemberIdSchema }),
+  z.object({ act: z.literal('kill'), member_id: MemberIdSchema }),
+  z.object({ act: z.literal('pause'), member_id: MemberIdSchema }),
+  z.object({ act: z.literal('unpause'), member_id: MemberIdSchema }),
   z.object({ act: z.literal('interrupt'), member_id: MemberIdSchema }),
 ]);
 export type Act = z.infer<typeof ActSchema>;

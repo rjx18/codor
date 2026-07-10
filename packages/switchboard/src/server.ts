@@ -48,6 +48,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     void reply.send({ rooms: daemon.store.listRooms() });
   });
 
+  app.get('/api/adapters', (req, reply) => {
+    if (!authed(req, reply)) return;
+    void reply.send({ adapters: daemon.registeredAdapters() });
+  });
+
   app.post('/api/rooms', (req, reply) => {
     if (!authed(req, reply)) return;
     const body = req.body as { id: string; name: string; owner: { handle: string; display_name: string } };
@@ -79,6 +84,35 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const body = req.body as { harness: string; handle: string; cwd: string; policy?: string; model?: string };
     void reply.send(daemon.spawnMember(room, body));
   });
+
+  app.get('/api/rooms/:room/members', (req, reply) => {
+    if (!authed(req, reply)) return;
+    const { room } = req.params as { room: string };
+    void reply.send({ members: daemon.project(room, daemon.memberDetails(room)) });
+  });
+
+  app.patch('/api/rooms/:room/members/:memberId', (req, reply) => {
+    if (!authed(req, reply)) return;
+    const { room, memberId } = req.params as { room: string; memberId: string };
+    const body = req.body as { handle: string; display_name?: string };
+    void reply.send(daemon.renameMember(room, memberId, body.handle, body.display_name));
+  });
+
+  for (const action of ['revive', 'kill', 'pause', 'unpause'] as const) {
+    app.post(`/api/rooms/:room/members/:memberId/${action}`, (req, reply) => {
+      if (!authed(req, reply)) return;
+      const { room, memberId } = req.params as { room: string; memberId: string };
+      const member =
+        action === 'revive'
+          ? daemon.reviveMember(room, memberId)
+          : action === 'kill'
+            ? daemon.killMember(room, memberId)
+            : action === 'pause'
+              ? daemon.pauseMember(room, memberId)
+              : daemon.unpauseMember(room, memberId);
+      void reply.send(member);
+    });
+  }
 
   if (options.staticRoot !== undefined) {
     await app.register(fastifyStatic, { root: options.staticRoot });
@@ -159,6 +193,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             });
           } else if (act.act === 'rename') daemon.renameMember(frame.room, act.member_id, act.handle, act.display_name);
           else if (act.act === 'revive') daemon.reviveMember(frame.room, act.member_id);
+          else if (act.act === 'kill') daemon.killMember(frame.room, act.member_id);
+          else if (act.act === 'pause') daemon.pauseMember(frame.room, act.member_id);
+          else if (act.act === 'unpause') daemon.unpauseMember(frame.room, act.member_id);
           else if (act.act === 'interrupt') daemon.interruptMember(frame.room, act.member_id);
         }
       } catch (error) {

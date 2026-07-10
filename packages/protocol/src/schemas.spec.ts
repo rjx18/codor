@@ -379,6 +379,9 @@ describe('WS client frames', () => {
     ['spawn', { act: 'spawn', harness: 'codex', handle: 'coder', cwd: '/w', policy: 'read-only' }],
     ['rename', { act: 'rename', member_id: ULID_A, handle: 'reviewer' }],
     ['revive', { act: 'revive', member_id: ULID_A }],
+    ['kill', { act: 'kill', member_id: ULID_A }],
+    ['pause', { act: 'pause', member_id: ULID_A }],
+    ['unpause', { act: 'unpause', member_id: ULID_A }],
     ['interrupt', { act: 'interrupt', member_id: ULID_A }],
   ];
 
