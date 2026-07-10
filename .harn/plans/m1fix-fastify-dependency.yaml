@@ -7,8 +7,8 @@ assumptions:
     - id: monorepo-workspace-layout
       outcome: unchanged
       reason: The switchboard remains inside the existing packages/* workspace and its
-        recursive build/test coverage is unchanged; only its missing direct runtime
-        dependency declaration is repaired.
+        recursive build/test coverage is unchanged; only its missing direct
+        runtime dependency declaration is repaired.
 anchors:
   monorepo-workspace-layout:
     workspace-globs:
@@ -26,3 +26,5 @@ notes:
     frozen install can resolve packages/switchboard/src/server.ts directly.
   - This package-manifest regression has no useful unit-test seam; pnpm -r build
     is the regression gate, followed by pnpm -r test for the repository gate.
+applied:
+  applied_at: 2026-07-10T14:55:50.402Z

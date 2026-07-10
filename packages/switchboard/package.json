@@ -20,6 +20,7 @@
     "@wireroom/protocol": "workspace:*",
     "better-sqlite3": "^12.11.1",
     "chokidar": "^5.0.0",
+    "fastify": "^5.10.0",
     "gray-matter": "^4.0.3",
     "hyperswarm": "^4.17.0",
     "sodium-native": "^5.1.0",
