@@ -92,10 +92,13 @@ describe.skipIf(!LIVE)('M1 live acceptance (WIREROOM_M1_ACCEPT=1)', () => {
         room.id,
         '@claude Do not use tools. Produce PLAN v1 with exactly one implementation item: ' +
           'write m1.txt containing M1. Deliberately omit verification. End with one line that ' +
-          'begins `@codex` without the backticks and asks it to review. Tell the reviewer: if ' +
-          'verification is missing, request one verification item and tag me to fold it; if a ' +
-          'revised plan includes verification, reply APPROVED and tag the human owner. Do not ' +
-          'tag anyone else.',
+          'begins `@codex` without the backticks and asks it to review. Tell the reviewer, ' +
+          'quoting these handles exactly but without the backticks: if verification is ' +
+          'missing, request one verification item and tag `@claude` to fold it; if a revised ' +
+          'plan includes verification, reply APPROVED and tag `@richard`. Later, when the ' +
+          'reviewer asks you to fold, produce PLAN v2 adding that single verification item ' +
+          'and end with one line that begins `@codex` without the backticks resubmitting for ' +
+          'review. Do not tag anyone else.',
       );
       expect(await settleWithin(daemon, 600_000), 'review loop did not settle').toBe(true);
       expect(watchdogPaused, 'review loop exceeded the six-run safety budget').toBe(false);

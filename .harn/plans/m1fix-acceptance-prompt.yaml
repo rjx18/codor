@@ -18,8 +18,11 @@ files:
   - packages/cli/src/m1-acceptance.spec.ts
   - tmp/build/PROGRESS.md
 notes:
-  - Apply the orchestrator-supplied reviewPost string verbatim and do not improve or
-    otherwise alter the acceptance scenario.
-  - Do not rerun live acceptance; it is environment-gated and the passing transcript
-    in tmp/build/ACCEPT-M1.md at 2026-07-10T14:05:03Z is the evidence.
+  - Apply the orchestrator-supplied reviewPost string verbatim and do not
+    improve or otherwise alter the acceptance scenario.
+  - Do not rerun live acceptance; it is environment-gated and the passing
+    transcript in tmp/build/ACCEPT-M1.md at 2026-07-10T14:05:03Z is the
+    evidence.
   - Run pnpm -r test without live credentials so the acceptance remains skipped.
+applied:
+  applied_at: 2026-07-10T14:57:28.059Z
