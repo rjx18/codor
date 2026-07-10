@@ -1,0 +1,95 @@
+id: m3fix-push-key-lifecycle
+title: M3 review fix for rotated push keys and durable notification actions
+assumptions:
+  retire: []
+  create:
+    - id: push-room-key-rotation-reaches-surviving-devices
+      title: Push envelopes carry the current room key only to their paired device
+      statement: Every produced push must include the current room key sealed to the
+        target paired device, and the service worker must open and persist that key
+        before authenticating the room-key ciphertext, because revocation and newly
+        created rooms must not strand surviving devices on stale key generations or
+        expose the refreshed key to the relay or a revoked device.
+      reason: The M3 adversarial review found that rotateAll made every later push
+        undecryptable on remaining paired browsers because pairing was the only room-key
+        delivery path.
+      depends_on:
+        - push-decrypts-on-device-only
+        - revocation-rotates-room-keys
+        - sealed-room-keys-per-enrollee
+  reviewed:
+    - id: push-decrypts-on-device-only
+      outcome: unchanged
+      reason: The worker still performs every key unwrap and preview decrypt locally;
+        the relay and browser push service continue to receive only opaque bytes.
+    - id: push-previews-redacted-pad-then-sealed
+      outcome: unchanged
+      reason: The redacted preview remains randomly padded to the fixed buckets and
+        authenticated with the room key before the device-specific sealed-key wrapper
+        is added.
+    - id: revocation-rotates-room-keys
+      outcome: unchanged
+      reason: Revocation still rotates every room and excludes the removed device;
+        the new envelope lets only surviving enrolled devices obtain the rotated key.
+    - id: sealed-room-keys-per-enrollee
+      outcome: unchanged
+      reason: Room keys continue to use the existing X25519 sealed-box fan-out, now
+        delivered alongside each target device's opaque push ciphertext.
+    - id: single-crypto-suite-libsodium
+      outcome: unchanged
+      reason: The envelope reuses sodium-native and libsodium-wrappers sealed boxes and
+        XChaCha20-Poly1305 without introducing a second crypto suite.
+    - id: push-only-for-human-targeted-events
+      outcome: unchanged
+      reason: Adding exact delivery ids to actionable previews does not add any push
+        trigger or broaden the human-targeted allowlist.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Notification navigation retains permanent message fragments while acts
+        now use their exact delivery id rather than guessing from the message id.
+anchors:
+  push-previews-redacted-pad-then-sealed:
+    producer-pad-seal-sign:
+      action: change
+      reason: Wrap each sealed preview with the current room key sealed specifically to
+        the target device and keep the signed relay request opaque.
+  push-decrypts-on-device-only:
+    browser-push-envelope-open:
+      action: change
+      reason: Parse the versioned device envelope, open its sealed room key locally,
+        authenticate the preview, and persist the refreshed generation.
+    sw-push-notification-handler:
+      action: change
+      reason: Render authenticated notifications after key refresh and show a generic
+        user-visible fallback when malformed or stale pushes cannot open.
+  single-crypto-suite-libsodium:
+    browser-libsodium-suite:
+      action: change
+      reason: Expose local sealed-box opening and room-key persistence to the owned
+        service worker using the existing browser libsodium identity.
+  push-only-for-human-targeted-events:
+    push-target-dispatch:
+      action: change
+      reason: Carry the exact inbox or held delivery id into actionable push previews.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: Resolve notification acts by exact delivery id, clean consumed action
+        parameters, and preserve message-id fragment navigation.
+files:
+  - packages/switchboard/src/push/producer.ts
+  - packages/switchboard/src/push/push.spec.ts
+  - packages/switchboard/src/index.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - relay/src/seal.ts
+  - relay/src/server.spec.ts
+  - packages/web/src/crypto.ts
+  - packages/web/src/push.ts
+  - packages/web/src/push.spec.ts
+  - packages/web/src/sw.ts
+  - packages/web/src/notifications.ts
+  - packages/web/src/App.tsx
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/push.e2e.spec.ts
+  - tmp/build/PROGRESS.md
