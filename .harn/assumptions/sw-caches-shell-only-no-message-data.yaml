@@ -1,0 +1,13 @@
+id: sw-caches-shell-only-no-message-data
+hash: a-3c889032d955
+title: Offline storage contains the app shell and never room data
+state: active
+statement: The service worker must precache only build-time app-shell assets and
+  satisfy offline navigation from that shell, must register no runtime cache for
+  REST, WebSocket, POST, message, or run data, and room messages must remain
+  only in the page's bounded in-memory zustand state, because an offline reload
+  may reveal the shell but must not persist readable room content in
+  CacheStorage.
+depends_on:
+  - sw-injectmanifest-owned-worker
+created_by: pwa-shell

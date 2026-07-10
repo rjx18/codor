@@ -7,6 +7,13 @@ import {
   type RoomMeter,
   type WireEvent,
 } from '@wireroom/protocol';
+import {
+  ChevronDown,
+  ChevronRight,
+  Menu,
+  Send,
+  Settings,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { fetchLedgerNote, fetchRunEvents } from './api.js';
@@ -31,7 +38,7 @@ function MessagePermalink(props: { id: number }) {
     <a
       href={`#${props.id}`}
       aria-label={`Permalink to message ${String(props.id)}`}
-      className="text-[10px] text-zinc-500 hover:text-sky-300"
+      className="inline-flex min-h-11 min-w-11 items-center justify-center text-[11px] text-zinc-500 hover:text-sky-300"
     >
       #{props.id}
     </a>
@@ -79,16 +86,18 @@ export function RoomSettings(props: { config: RoomConfig; connection: Connection
         type="button"
         data-testid="room-settings"
         onClick={() => setOpen(true)}
-        className="border border-zinc-700 px-2 py-1 text-xs text-zinc-300"
+        aria-label="Room settings"
+        title="Room settings"
+        className="inline-flex h-11 w-11 items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
       >
-        Settings
+        <Settings aria-hidden="true" size={19} />
       </button>
       {open && (
         <form
           role="dialog"
           aria-label="Room settings"
           data-testid="room-settings-dialog"
-          className="fixed inset-0 z-30 m-auto h-fit w-[min(26rem,calc(100vw-2rem))] border border-zinc-700 bg-zinc-950 p-4 shadow-xl"
+          className="fixed inset-0 z-50 m-auto h-fit max-h-[calc(100dvh-2rem)] w-[min(26rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 p-4 shadow-xl"
           onSubmit={(event) => {
             event.preventDefault();
             props.connection.act({
@@ -152,10 +161,10 @@ export function RoomSettings(props: { config: RoomConfig; connection: Connection
             />
           </label>
           <div className="mt-4 flex justify-end gap-2">
-            <button type="button" onClick={() => setOpen(false)} className="border border-zinc-700 px-3 py-1 text-sm text-zinc-300">
+            <button type="button" onClick={() => setOpen(false)} className="min-h-11 border border-zinc-700 px-3 text-sm text-zinc-300">
               Cancel
             </button>
-            <button type="submit" data-testid="room-settings-save" className="bg-sky-700 px-3 py-1 text-sm text-white">
+            <button type="submit" data-testid="room-settings-save" className="min-h-11 bg-sky-700 px-4 text-sm text-white">
               Save
             </button>
           </div>
@@ -173,28 +182,41 @@ export function Header(props: {
   unread: number;
   config?: RoomConfig;
   connection?: Connection;
+  onOpenNavigation?: () => void;
 }) {
   return (
-    <header className="flex items-center gap-3 border-b border-zinc-800 px-4 py-2">
-      <h1 className="font-semibold text-zinc-100">{props.roomName}</h1>
+    <header className="flex min-h-14 items-center gap-2 border-b border-zinc-800 bg-zinc-950/95 px-2 sm:gap-3 sm:px-4">
+      {props.onOpenNavigation && (
+        <button
+          type="button"
+          data-testid="open-room-drawer"
+          aria-label="Open rooms and members"
+          title="Rooms and members"
+          onClick={props.onOpenNavigation}
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center text-zinc-300 hover:bg-zinc-800 lg:hidden"
+        >
+          <Menu aria-hidden="true" size={21} />
+        </button>
+      )}
+      <h1 className="min-w-0 truncate text-sm font-semibold text-zinc-100 sm:text-base">{props.roomName}</h1>
       <span
         data-testid="connection"
-        className={`h-2 w-2 rounded-full ${props.connected ? 'bg-emerald-500' : 'bg-red-500'}`}
+        className={`h-2 w-2 shrink-0 rounded-full ${props.connected ? 'bg-emerald-500' : 'bg-red-500'}`}
         title={props.connected ? 'connected' : 'disconnected'}
       />
       {props.meter && (
-        <span data-testid="meter" className="text-xs text-zinc-400">
-          today · {props.meter.turns} turns · ${props.meter.cost_usd.toFixed(2)}
-          {(props.meter.uncosted_tokens ?? 0) > 0 &&
-            ` + ${props.meter.uncosted_tokens ?? 0} tokens uncosted`}
+        <span data-testid="meter" className="hidden min-w-0 truncate text-xs text-zinc-400 min-[390px]:inline">
+          {props.meter.turns} turns · ${props.meter.cost_usd.toFixed(2)}
+          {(props.meter.uncosted_tokens ?? 0) > 0 && ` · ${props.meter.uncosted_tokens ?? 0} tokens uncosted`}
         </span>
       )}
       <span className="ml-auto" />
       {props.config && props.connection && (
         <RoomSettings config={props.config} connection={props.connection} />
       )}
-      <span data-testid="inbox-badge" className="rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-200">
-        inbox {props.unread > 0 ? <strong className="text-amber-400">{props.unread}</strong> : 0}
+      <span data-testid="inbox-badge" className="inline-flex min-h-7 min-w-7 items-center justify-center rounded bg-zinc-800 px-2 text-xs text-zinc-200" title={`${String(props.unread)} unread`}>
+        <span className="hidden sm:inline">inbox&nbsp;</span>
+        {props.unread > 0 ? <strong className="text-amber-400">{props.unread}</strong> : 0}
       </span>
     </header>
   );
@@ -228,7 +250,7 @@ export function SpawnAgentDialog(props: {
         type="button"
         data-testid="spawn-agent"
         onClick={() => setOpen(true)}
-        className="w-full border border-zinc-700 px-2 py-1 text-sm text-zinc-100 hover:bg-zinc-800"
+        className="min-h-11 w-full border border-zinc-700 px-3 text-sm text-zinc-100 hover:bg-zinc-800"
       >
         Spawn agent
       </button>
@@ -299,7 +321,7 @@ export function SpawnAgentDialog(props: {
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="border border-zinc-700 px-3 py-1 text-sm text-zinc-300"
+                className="min-h-11 border border-zinc-700 px-3 text-sm text-zinc-300"
               >
                 Cancel
               </button>
@@ -307,7 +329,7 @@ export function SpawnAgentDialog(props: {
                 type="submit"
                 data-testid="spawn-submit"
                 disabled={props.adapters.length === 0}
-                className="bg-sky-700 px-3 py-1 text-sm text-white disabled:opacity-40"
+                className="min-h-11 bg-sky-700 px-4 text-sm text-white disabled:opacity-40"
               >
                 Spawn
               </button>
@@ -405,7 +427,7 @@ export function MemberCard(props: {
             onClick={() =>
               void navigator.clipboard?.writeText(`wireroom attach @${props.member.handle}`)
             }
-            className="shrink-0 border border-zinc-700 px-1.5 py-1 text-zinc-300"
+            className="min-h-11 shrink-0 border border-zinc-700 px-3 text-zinc-300"
           >
             Copy
           </button>
@@ -439,26 +461,26 @@ export function MemberCard(props: {
             onChange={(event) => setHandle(event.target.value)}
             pattern="[a-z0-9][a-z0-9-]{1,30}"
             required
-            className="border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-100"
+            className="min-h-11 border border-zinc-700 bg-zinc-900 px-2 text-xs text-zinc-100"
           />
           <input
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
             required
-            className="border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-100"
+            className="min-h-11 border border-zinc-700 bg-zinc-900 px-2 text-xs text-zinc-100"
           />
           <div className="flex gap-2">
             <button
               type="submit"
               data-testid={`rename-${props.member.handle}-submit`}
-              className="bg-sky-800 px-2 py-1 text-xs text-white"
+              className="min-h-11 bg-sky-800 px-3 text-xs text-white"
             >
               Save
             </button>
             <button
               type="button"
               onClick={() => setRenaming(false)}
-              className="border border-zinc-700 px-2 py-1 text-xs text-zinc-300"
+              className="min-h-11 border border-zinc-700 px-3 text-xs text-zinc-300"
             >
               Cancel
             </button>
@@ -470,7 +492,7 @@ export function MemberCard(props: {
             type="button"
             data-testid={`rename-${props.member.handle}`}
             onClick={() => setRenaming(true)}
-            className="border border-zinc-700 px-2 py-1 text-xs text-zinc-300"
+            className="min-h-11 border border-zinc-700 px-3 text-xs text-zinc-300"
           >
             Rename
           </button>
@@ -479,7 +501,7 @@ export function MemberCard(props: {
               type="button"
               data-testid={`adopt-${props.member.handle}`}
               onClick={() => props.connection.act({ act: 'adopt', member_id: props.member.id })}
-              className="bg-emerald-800 px-2 py-1 text-xs text-white"
+              className="min-h-11 bg-emerald-800 px-3 text-xs text-white"
             >
               Adopt
             </button>
@@ -489,7 +511,7 @@ export function MemberCard(props: {
               data-testid={`revive-${props.member.handle}`}
               disabled={!props.member.session_ref}
               onClick={() => props.connection.act({ act: 'revive', member_id: props.member.id })}
-              className="bg-emerald-800 px-2 py-1 text-xs text-white disabled:opacity-40"
+              className="min-h-11 bg-emerald-800 px-3 text-xs text-white disabled:opacity-40"
             >
               Revive
             </button>
@@ -498,7 +520,7 @@ export function MemberCard(props: {
               type="button"
               data-testid={`kill-${props.member.handle}`}
               onClick={() => props.connection.act({ act: 'kill', member_id: props.member.id })}
-              className="bg-red-900 px-2 py-1 text-xs text-red-100"
+              className="min-h-11 bg-red-900 px-3 text-xs text-red-100"
             >
               Kill
             </button>
@@ -513,7 +535,7 @@ export function MemberCard(props: {
                   member_id: props.member.id,
                 })
               }
-              className="border border-zinc-700 px-2 py-1 text-xs text-zinc-300"
+              className="min-h-11 border border-zinc-700 px-3 text-xs text-zinc-300"
             >
               {state === 'paused' ? 'Unpause' : 'Pause'}
             </button>
@@ -530,9 +552,10 @@ export function MemberRail(props: {
   history: Record<string, MemberStateObservation[]>;
   adapters: AdapterRegistration[];
   connection: Connection;
+  className?: string;
 }) {
   return (
-    <aside className="w-80 shrink-0 overflow-y-auto border-r border-zinc-800 p-3">
+    <aside className={`w-80 shrink-0 overflow-y-auto border-r border-zinc-800 p-3 ${props.className ?? ''}`}>
       <SpawnAgentDialog adapters={props.adapters} connection={props.connection} />
       <ul className="mt-3">
         {props.members
@@ -621,9 +644,9 @@ export function RunMessageView(props: {
           type="button"
           data-testid={`run-${props.message.id}-toggle`}
           onClick={() => setExpanded((e) => !e)}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs text-zinc-400"
+          className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left text-xs text-zinc-400"
         >
-          <span>{expanded ? '▾' : '▸'}</span>
+          {expanded ? <ChevronDown aria-hidden="true" size={16} /> : <ChevronRight aria-hidden="true" size={16} />}
           <span className="text-zinc-300">@{props.authorHandle}</span>
           {running ? (
             <span data-testid={`run-${props.message.id}-live`} className="text-sky-400">
@@ -710,10 +733,10 @@ export function AskCardView(props: {
     <div
       id={String(props.message.id)}
       data-testid={`card-${props.message.id}`}
-      className="scroll-mt-16 rounded border border-fuchsia-900 bg-fuchsia-950/30 p-2 target:border-sky-600"
+      className="scroll-mt-16 rounded-lg border border-amber-900/80 bg-amber-950/20 p-3 target:border-sky-600"
     >
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-fuchsia-300">
+        <p className="text-xs text-amber-300">
           {ask.kind === 'ask' ? 'question from' : 'approval requested by'} @{props.authorHandle}
           {ask.tool && ` · ${ask.tool}`}
         </p>
@@ -721,7 +744,7 @@ export function AskCardView(props: {
       </div>
       <p className="mt-1 text-sm text-zinc-100">{ask.prompt}</p>
       {ask.detail && <code className="mt-1 block text-xs text-zinc-400">{ask.detail}</code>}
-      <div className="mt-2 flex gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         {(ask.options ?? []).map((option) => (
           <button
             key={option.label}
@@ -737,7 +760,7 @@ export function AskCardView(props: {
               });
               setSent(true);
             }}
-            className="rounded bg-fuchsia-800 px-2 py-1 text-xs text-white disabled:opacity-40"
+            className="min-h-11 rounded-md border border-zinc-700 bg-zinc-900 px-4 text-sm text-zinc-100 hover:border-sky-600 disabled:opacity-40"
           >
             {option.label}
           </button>
@@ -755,24 +778,24 @@ export function HoldBanner(props: {
 }) {
   if (props.held.length === 0) return null;
   return (
-    <div data-testid="hold-banner" className="border-b border-amber-900 bg-amber-950/40 px-4 py-2 text-sm text-amber-200">
+    <div data-testid="hold-banner" className="border-b border-amber-900 bg-amber-950/40 px-3 py-2 text-sm text-amber-200 sm:px-4">
       {props.held.map((delivery) => (
-        <div key={delivery.id} className="flex items-center gap-3">
-          <span>
+        <div key={delivery.id} className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <span className="min-w-0 flex-1">
             delivery #{delivery.message_id} → @{props.handleOf(delivery.recipient)} is held
           </span>
           <button
             type="button"
             data-testid={`release-${delivery.id}`}
             onClick={() => props.connection.act({ act: 'release_hold', delivery_id: delivery.id })}
-            className="rounded bg-amber-700 px-2 py-0.5 text-xs text-white"
+            className="min-h-11 rounded-md bg-amber-700 px-3 text-xs text-white"
           >
             release
           </button>
           <button
             type="button"
             onClick={() => props.connection.act({ act: 'redeliver', delivery_id: delivery.id })}
-            className="rounded bg-zinc-700 px-2 py-0.5 text-xs text-white"
+            className="min-h-11 rounded-md bg-zinc-700 px-3 text-xs text-white"
           >
             redeliver
           </button>
@@ -826,11 +849,11 @@ export function Composer(props: {
     setDraft('');
   };
   return (
-    <div className="border-t border-zinc-800 p-3">
-      <p data-testid="implied-recipient" data-kind={implied.kind} className="mb-1 text-xs text-zinc-400">
+    <div className="shrink-0 border-t border-zinc-800 bg-zinc-950/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4">
+      <p data-testid="implied-recipient" data-kind={implied.kind} className="mb-1 truncate text-xs text-zinc-400">
         {implied.label}
       </p>
-      <div className="flex gap-2">
+      <div className="flex items-end gap-2">
         <textarea
           data-testid="composer-input"
           value={draft}
@@ -842,16 +865,19 @@ export function Composer(props: {
             }
           }}
           rows={2}
-          placeholder="Message the room — @handle to address, #N to reference"
-          className="flex-1 resize-none rounded border border-zinc-700 bg-zinc-900 p-2 text-sm text-zinc-100"
+          aria-label="Message the room"
+          placeholder="Message the room"
+          className="min-h-12 min-w-0 flex-1 resize-none rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-base text-zinc-100 outline-none focus:border-sky-600 sm:text-sm"
         />
         <button
           type="button"
           data-testid="composer-send"
+          aria-label="Send message"
+          title="Send message"
           onClick={send}
-          className="rounded bg-sky-700 px-3 text-sm text-white"
+          className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-40"
         >
-          send
+          <Send aria-hidden="true" size={20} />
         </button>
       </div>
     </div>
@@ -902,7 +928,7 @@ export function MessageRow(props: { message: Message; authorHandle: string; mine
           <button
             type="button"
             aria-label="Close ledger note"
-            className="ml-auto px-2 py-1 text-zinc-400 hover:text-zinc-100"
+            className="ml-auto min-h-11 px-3 text-zinc-400 hover:text-zinc-100"
             onClick={() => {
               setNote(undefined);
               setNoteError(false);

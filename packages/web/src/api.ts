@@ -1,4 +1,4 @@
-import type { AdapterCapabilities, Member, Message, WireEvent } from '@wireroom/protocol';
+import type { AdapterCapabilities, Member, Message, Room, WireEvent } from '@wireroom/protocol';
 
 export interface ApiOptions {
   token: string;
@@ -47,6 +47,11 @@ async function fetchJson<T>(path: string, options: ApiOptions): Promise<T> {
 export async function fetchAdapters(options: ApiOptions): Promise<AdapterRegistration[]> {
   const body = await fetchJson<{ adapters: AdapterRegistration[] }>('/api/adapters', options);
   return body.adapters;
+}
+
+export async function fetchRooms(options: ApiOptions): Promise<Room[]> {
+  const body = await fetchJson<{ rooms: Room[] }>('/api/rooms', options);
+  return body.rooms;
 }
 
 export async function fetchMemberDetails(

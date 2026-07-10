@@ -1,4 +1,5 @@
-import type { Message } from '@wireroom/protocol';
+import type { Message, Room } from '@wireroom/protocol';
+import { X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -17,6 +18,7 @@ import {
   fetchAdapters,
   fetchMessageHistory,
   fetchMemberDetails,
+  fetchRooms,
   searchMessages,
   type AdapterRegistration,
   type MemberDetail,
@@ -58,12 +60,26 @@ export function App() {
   const [historyBusy, setHistoryBusy] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
   const [historyError, setHistoryError] = useState(false);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     let current = true;
     void fetchAdapters({ token: TOKEN })
       .then((items) => {
         if (current) setAdapters(items);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [TOKEN]);
+
+  useEffect(() => {
+    let current = true;
+    void fetchRooms({ token: TOKEN })
+      .then((items) => {
+        if (current) setRooms(items);
       })
       .catch(() => undefined);
     return () => {
@@ -203,7 +219,7 @@ export function App() {
   }, [messages]);
 
   return (
-    <div className="flex h-screen flex-col bg-zinc-950 text-zinc-100">
+    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-zinc-950 text-zinc-100">
       <Header
         roomName={state.room?.name ?? ROOM}
         connected={state.connected}
@@ -211,20 +227,33 @@ export function App() {
         unread={unreadCount(state)}
         config={state.room?.config}
         connection={connection}
+        onOpenNavigation={() => setDrawerOpen(true)}
       />
+      {!state.connected && (
+        <div
+          role="status"
+          data-testid="offline-banner"
+          className="border-b border-zinc-700 bg-zinc-900 px-3 py-2 text-center text-xs text-zinc-300"
+        >
+          Offline · room history stays on your switchboard
+        </div>
+      )}
       <HoldBanner held={heldDeliveries(state.inbox)} handleOf={handles} connection={connection} />
       <div className="flex min-h-0 flex-1">
-        <MemberRail
-          members={Object.values(state.members)}
-          details={memberDetails}
-          history={state.memberHistory}
-          adapters={adapters}
-          connection={connection}
-        />
-        <main className="flex min-w-0 flex-1 flex-col">
+        <div className="hidden min-h-0 lg:block">
+          <MemberRail
+            members={Object.values(state.members)}
+            details={memberDetails}
+            history={state.memberHistory}
+            adapters={adapters}
+            connection={connection}
+            className="h-full"
+          />
+        </div>
+        <main data-testid="room-view" className="flex min-w-0 flex-1 flex-col bg-zinc-950">
           <form
             data-testid="message-search"
-            className="flex min-h-12 items-center gap-2 border-b border-zinc-800 px-4 py-2"
+            className="mx-auto flex min-h-14 w-full max-w-4xl items-center gap-2 border-b border-zinc-800 px-3 py-2 sm:px-4"
             onSubmit={(event) => {
               event.preventDefault();
               const query = searchQuery.trim();
@@ -244,12 +273,12 @@ export function App() {
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search messages"
-              className="min-w-0 flex-1 border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-100"
+              className="min-h-11 min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 text-base text-zinc-100 outline-none focus:border-sky-600 sm:text-sm"
             />
             <button
               type="submit"
               disabled={searching || searchQuery.trim() === ''}
-              className="min-w-20 bg-sky-700 px-3 py-1 text-sm text-white disabled:opacity-40"
+              className="min-h-11 min-w-20 rounded-md bg-sky-700 px-3 text-sm text-white disabled:opacity-40"
             >
               {searching ? 'Searching' : 'Search'}
             </button>
@@ -261,14 +290,14 @@ export function App() {
                   setSearchResults([]);
                   setSearched(false);
                 }}
-                className="border border-zinc-700 px-3 py-1 text-sm text-zinc-300"
+                className="min-h-11 rounded-md border border-zinc-700 px-3 text-sm text-zinc-300"
               >
                 Clear
               </button>
             )}
           </form>
           {searched && (
-            <div data-testid="search-results" className="max-h-48 overflow-y-auto border-b border-zinc-800 bg-zinc-900 px-4 py-2">
+            <div data-testid="search-results" className="mx-auto max-h-48 w-full max-w-4xl overflow-y-auto border-b border-zinc-800 bg-zinc-900 px-4 py-2">
               <p className="mb-1 text-xs text-zinc-500">{searchResults.length} matches</p>
               <ol className="space-y-1">
                 {searchResults.map((message) => (
@@ -290,6 +319,7 @@ export function App() {
               </ol>
             </div>
           )}
+          {/* harn:assume sw-caches-shell-only-no-message-data ref=page-memory-message-cache */}
           <div
             ref={timeline}
             data-testid="timeline"
@@ -298,7 +328,7 @@ export function App() {
               stickToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
               if (node.scrollTop < 80) void loadOlder();
             }}
-            className="flex-1 space-y-3 overflow-y-auto p-4"
+            className="mx-auto w-full max-w-4xl flex-1 space-y-2 overflow-y-auto px-3 py-4 sm:space-y-3 sm:px-5"
           >
             <div className="flex h-6 items-center justify-center">
               {hasOlder && (
@@ -307,7 +337,7 @@ export function App() {
                   data-testid="load-history"
                   disabled={historyBusy}
                   onClick={() => void loadOlder()}
-                  className="text-xs text-zinc-500 hover:text-sky-300 disabled:opacity-50"
+                  className="min-h-11 px-3 text-xs text-zinc-500 hover:text-sky-300 disabled:opacity-50"
                 >
                   {historyBusy ? 'Loading' : 'Load earlier'}
                 </button>
@@ -350,9 +380,78 @@ export function App() {
               );
             })}
           </div>
+          {/* harn:end sw-caches-shell-only-no-message-data */}
           <Composer members={state.members} messages={state.messages} connection={connection} />
         </main>
       </div>
+
+      {drawerOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <button
+            type="button"
+            aria-label="Close rooms and members"
+            className="absolute inset-0 h-full w-full bg-black/75"
+            onClick={() => setDrawerOpen(false)}
+          />
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Rooms and members"
+            data-testid="room-drawer"
+            className="relative flex h-full w-[min(88vw,24rem)] flex-col border-r border-zinc-700 bg-zinc-950 shadow-2xl"
+          >
+            <div className="flex min-h-16 items-center border-b border-zinc-800 px-4">
+              <strong className="text-lg font-semibold text-zinc-100">Wireroom</strong>
+              <button
+                type="button"
+                aria-label="Close rooms and members"
+                title="Close"
+                onClick={() => setDrawerOpen(false)}
+                className="ml-auto inline-flex h-11 w-11 items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              >
+                <X aria-hidden="true" size={22} />
+              </button>
+            </div>
+            <nav aria-label="Rooms" className="border-b border-zinc-800 p-3">
+              <p className="px-2 pb-2 text-[11px] font-medium uppercase text-zinc-500">Rooms</p>
+              <ul className="space-y-1">
+                {(rooms.length > 0 ? rooms : state.room ? [state.room] : []).map((room) => {
+                  const selected = room.id === ROOM;
+                  const query = new URLSearchParams({ room: room.id });
+                  if (TOKEN !== '') query.set('token', TOKEN);
+                  return (
+                    <li key={room.id}>
+                      <a
+                        href={`/?${query.toString()}`}
+                        data-testid={`room-link-${room.id}`}
+                        aria-current={selected ? 'page' : undefined}
+                        className={`flex min-h-14 items-center border-l-2 px-3 text-sm ${
+                          selected
+                            ? 'border-sky-400 bg-zinc-900 text-zinc-100'
+                            : 'border-transparent text-zinc-300 hover:bg-zinc-900'
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1 truncate font-medium">{room.name}</span>
+                        {selected && unreadCount(state) > 0 && (
+                          <span className="ml-3 text-xs font-semibold text-sky-300">{unreadCount(state)}</span>
+                        )}
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </nav>
+            <MemberRail
+              members={Object.values(state.members)}
+              details={memberDetails}
+              history={state.memberHistory}
+              adapters={adapters}
+              connection={connection}
+              className="min-h-0 w-full flex-1 border-r-0 pb-[max(1rem,env(safe-area-inset-bottom))]"
+            />
+          </aside>
+        </div>
+      )}
     </div>
   );
 }
