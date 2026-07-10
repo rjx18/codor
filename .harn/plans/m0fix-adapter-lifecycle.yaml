@@ -106,10 +106,24 @@ anchors:
       action: change
       reason: Hold attempts with durable spawn evidence and refuse release while their
         recorded process is still alive.
+  turn-start-transactional:
+    atomic-turn-start:
+      action: change
+      reason: Clear stale process identity when the existing atomic boundary begins a
+        fresh attempt.
+  delivery-payload-snapshotted:
+    delivery-payload-storage:
+      action: change
+      reason: Extend the deliveries migration beside the existing snapshot migration
+        with bounded process-identity columns.
   run-blobs-off-db:
     store-schema-no-blobs:
       action: change
       reason: Add bounded process-id columns only; run evidence stays in JSONL blobs.
+  m0-live-acceptance-chain:
+    acceptance-live-chain:
+      action: change
+      reason: Await graceful daemon shutdown in the live acceptance cleanup.
 files:
   - packages/protocol/src/adapter.ts
   - packages/adapters/codex/src/adapter.ts
