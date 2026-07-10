@@ -1,0 +1,118 @@
+id: glass-web-settings-pairing
+title: A3.2 glass settings, relay disclosure, pairing, and theme choice
+assumptions:
+  retire: []
+  create:
+    - id: web-settings-controls-preserve-product-truth
+      title: Settings controls preserve brake, device, and relay truth
+      statement: The responsive Settings surface must bind its glass controls to the
+        existing notification, paired-device, turn-brake, spend-brake, stall-flag, and
+        relay behavior; show both brakes as opt-in and the stall flag as never killing;
+        distinguish the stateless v1 push disclosure from separately labeled hosted
+        roadmap capabilities; and never invent an account, billing, retention, or blanket
+        approval control, because settings copy and affordances are operational promises.
+      reason: The corrected v2 desktop and iPhone settings references remove the generic
+        SaaS controls that the A1/A2 review found in the first generated set.
+      depends_on:
+        - design-references-preserve-wireroom-semantics
+        - unpair-purges-all-browser-state
+    - id: web-theme-choice-stays-local
+      title: Theme choice is local, immediate, and limited to system dark or light
+      statement: The web app must apply a locally stored system, dark, or light preference
+        before React renders, expose the same three choices in Settings, and keep the
+        preference inside localStorage so unpair clears it with all other browser state,
+        because explicit color-mode choice must not flash, sync, or become account data.
+      reason: Part A requires dark-first light support and the v2 settings references show a
+        functional segmented theme control rather than decorative labels.
+      depends_on:
+        - web-glass-theme-accessible-modes
+        - unpair-purges-all-browser-state
+    - id: pairing-offer-token-remains-qr-only
+      title: Pairing UI never renders the single-use token as visible text
+      statement: The pairing route may encode the authenticated single-use offer in its QR
+        and submit it through the existing libsodium device enrollment, but the visible DOM
+        must show only switchboard identity and privacy guidance rather than token or bearer
+        values, because screenshots, shoulder surfing, and assistive text extraction must not
+        disclose live enrollment authority.
+      reason: The pairing page is being expanded visually around a URL that contains a live
+        pairing token, so the refresh needs an explicit non-disclosure boundary.
+      depends_on:
+        - single-crypto-suite-libsodium
+        - pwa-cold-launch-restores-local-auth
+  reviewed:
+    - id: glass-design-system-guides-responsive-surfaces
+      outcome: unchanged
+      reason: Settings and pairing implement the corrected desktop and iPhone v2 references.
+    - id: design-references-preserve-wireroom-semantics
+      outcome: unchanged
+      reason: The implementation keeps exact brake, pairing, accountless, relay, and PWA
+        privacy semantics rather than copying generated visual drift.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: An explicit local preference selects the same reviewed semantic token sets.
+    - id: unpair-purges-all-browser-state
+      outcome: unchanged
+      reason: Device rows and confirmation controls are recomposed without changing remote
+        revoke, local purge, warning, reset, or rekey behavior.
+    - id: pwa-cold-launch-restores-local-auth
+      outcome: unchanged
+      reason: Applying theme before the existing async auth bootstrap does not change token
+        storage, stripping, same-origin recovery, or route selection.
+    - id: single-crypto-suite-libsodium
+      outcome: unchanged
+      reason: Pairing presentation changes leave identity generation, sealed room keys, and
+        cross-runtime enrollment untouched.
+anchors:
+  web-settings-controls-preserve-product-truth:
+    glass-settings-surface:
+      action: change
+      reason: Recompose Settings into responsive category navigation and unframed control rows
+        while retaining the existing handlers and honest relay boundary.
+    glass-settings-regression:
+      action: change
+      reason: Prove desktop structure, mobile fit, exact brake/stall copy, device actions, and
+        push-versus-hosted relay disclosure in Chromium.
+  web-theme-choice-stays-local:
+    local-theme-preference:
+      action: change
+      reason: Add validated local preference read, apply, and update helpers.
+    settings-theme-control:
+      action: change
+      reason: Bind the System, Dark, and Light segmented control to the local helper.
+    theme-choice-regression:
+      action: change
+      reason: Prove immediate mode changes, persistence across a tokenless room launch, and
+        reset to system without server traffic.
+  pairing-offer-token-remains-qr-only:
+    glass-pairing-surface:
+      action: change
+      reason: Rebuild pairing around the existing QR/enrollment action with privacy disclosure
+        and no visible offer authority.
+    pairing-token-visibility-regression:
+      action: change
+      reason: Prove enrollment still works while pairing and bearer values never enter visible
+        page text.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Support explicit data-theme overrides and add settings/pairing glass geometry
+        without changing semantic colors or accessibility fallbacks.
+  unpair-purges-all-browser-state:
+    settings-unpair-action:
+      action: change
+      reason: Restyle paired-device rows and confirmations while preserving the exact purge
+        and remote-failure branches.
+  pwa-cold-launch-restores-local-auth:
+    paired-access-bootstrap:
+      action: change
+      reason: Apply the already-local theme synchronously before the unchanged access-token
+        bootstrap and route render.
+files:
+  - packages/web/src/main.tsx
+  - packages/web/src/theme.ts
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/pairing.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/crypto.e2e.spec.ts
+  - packages/web/tests/e2e.spec.ts
+  - tmp/build/PROGRESS.md
