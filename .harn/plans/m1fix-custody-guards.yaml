@@ -1,0 +1,83 @@
+id: m1fix-custody-guards
+title: M1 review fixes for single-writer custody and attach guards
+assumptions:
+  retire: []
+  create:
+    - id: turn-start-requires-owned-custody
+      title: Every daemon turn start passes one owned-custody gate
+      statement: Every ordinary, reconciled, or operator-released adapter turn must pass
+        the same current-member gate immediately before start, requiring owned custody,
+        an eligible member state, no pending attach, and no existing in-flight turn,
+        because no recovery or release path may bypass the room's single-writer custody
+        guarantee.
+      reason: Accepted M1 review findings 1 and 3 found recovery and lifecycle paths that
+        could drive a session while an interactive attach lease still owned it.
+      depends_on:
+        - custody-uncertain-never-double-writes
+        - mirrored-deliveries-queue
+        - one-inflight-turn-per-member
+  reviewed:
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: Attach now rejects awaiting-input turns and treats completion without a
+        recorded native child as unconfirmed rather than weakening the lease contract.
+    - id: custody-uncertain-never-double-writes
+      outcome: unchanged
+      reason: Missing child evidence now fails closed in both expiry and explicit completion,
+        and kill, revive, release, and retry cannot bypass the surviving lease.
+    - id: mirror-one-message-per-native-turn
+      outcome: unchanged
+      reason: Mirror input remains authoritative only while the member is mirrored; feeds
+        arriving after adoption are rejected before message creation or routing.
+    - id: revive-via-session-ref
+      outcome: unchanged
+      reason: Revive still reconstructs the exact persisted session but now refuses while an
+        interactive attach lease exists.
+    - id: one-inflight-turn-per-member
+      outcome: unchanged
+      reason: The existing pump guards become a shared pre-start decision used by reconcile
+        retries and operator releases as well as the ordinary queue drain.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Eligible retries still reuse their bound run message; ineligible retries remain
+        held rather than being delivered through a custody bypass.
+anchors:
+  turn-start-requires-owned-custody:
+    shared-turn-start-custody-gate:
+      action: change
+      reason: Factor the ordinary pump's custody, state, attach, and in-flight checks into the
+        single decision used by all turn-start paths.
+  attach-custody-lease-tracks-child-pid:
+    attach-release-handshake:
+      action: change
+      reason: Reject awaiting-input acquisition promptly and make childless completion
+        custody-uncertain.
+  custody-uncertain-never-double-writes:
+    attach-lease-loss-reconcile:
+      action: change
+      reason: Treat an expired or completed lease with no recorded child as uncertain and
+        retain mirrored custody plus the durable lease.
+  mirror-one-message-per-native-turn:
+    mirrored-turn-dedupe-route:
+      action: change
+      reason: Reject native mirror feed events unless the matched member currently has
+        mirrored custody.
+  revive-via-session-ref:
+    revive-native-session:
+      action: change
+      reason: Refuse revive while an attach lease may still own the native session.
+  one-inflight-turn-per-member:
+    inflight-guard:
+      action: change
+      reason: Centralize the exact pre-start guard without changing eligible FIFO batching.
+  delivery-attempt-wal-reconcile:
+    boot-reconcile:
+      action: change
+      reason: Hold a retry whose member cannot pass the shared turn-start custody gate.
+    wal-bind-before-spawn:
+      action: keep
+      reason: The atomic attempt binding remains unchanged after eligibility is established.
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - tmp/build/PROGRESS.md
