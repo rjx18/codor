@@ -8,7 +8,7 @@
                     │   │  │  switchboard (daemon)         │           │
    iPhone app  ─────┼──▶│  │  · rooms + message store      │  spawns/  │
                     │   │  │  · mention router             │  resumes  │
-   Apple Watch ──┐  │   │  │  · member lifecycle           │──────────▶│ claude -p / Agent SDK
+   Apple Watch ──┐  │   │  │  · member lifecycle           │──────────▶│ claude -p (stream-json)
    (via phone or │  │   │  │  · event journal (run blobs)  │           │ codex exec --json
     push relay)  │  │   │  │  · WS/REST API                │◀──────────│ (harness CLIs, local)
                  │  │   │  └───────┬──────────────┬───────┘           │
@@ -34,8 +34,9 @@ Single Node/TypeScript process (Bun-compatible; plain Node for widest reuse). Ow
   (the per-member FIFO inboxes), `budgets`. Run event streams are **JSONL blobs on disk**
   (`~/.wireroom/rooms/<room>/runs/<msg-id>.jsonl`), referenced by `RunSummary.events_ref` —
   the DB stays small and the "one message per run" rule is structural.
-- **Router** — implements PROTOCOL §3 exactly (segmentation, refs, defaults, fan-out, batching,
-  hop/spend guards). Pure function over (message, room state) → deliveries; unit-test heaven.
+- **Router** — implements PROTOCOL §3 exactly (recipient selection from mentions, whole-message
+  payloads, ref resolution, defaults, fan-out, batching, the opt-in brakes). Pure function over
+  (message, room state) → deliveries; unit-test heaven.
 - **Adapter host** — spawns/attaches harness sessions as child processes, supervises them,
   journals their events, marks members `dead` on crash (with a `system` message + push), and
   resumes them by `session_ref` on switchboard restart. Sessions are the durable thing;
@@ -56,11 +57,17 @@ interface HarnessAdapter {
 }
 ```
 
-- **claude-code**: preferred driver is the **Claude Agent SDK** (`query({resume, canUseTool})`) —
-  gives streaming events, ask-user, and runtime permission callbacks (→ `approval.raised`) with
-  no subprocess parsing. Fallback: `claude -p --resume <id> --output-format stream-json`.
-  Extensions: observed via Task tool-call events in the parent stream, enriched by hooks
-  (`SubagentStop`) + transcript-JSONL tailing when available.
+Design rule: **adapters drive plain CLIs, never SDKs.** An agent in Wireroom runs exactly as it
+would in your terminal — a normal subprocess in a shell runtime, addressed over stdin/stdout.
+This keeps every harness loosely coupled and identically shaped (spawn a process, write JSONL,
+read JSONL), which is also what makes new harnesses cheap and native-resume/jump-in trivial.
+
+- **claude-code**: drives `claude -p --resume <session-id> --output-format stream-json
+  --input-format stream-json` — the same wire protocol the Agent SDK wraps, spoken directly.
+  Events, `AskUserQuestion`, and runtime permission prompts all arrive as JSONL on stdout
+  (control requests answered on stdin; `--permission-prompt-tool` as fallback). Extensions:
+  observed via Task tool-call events in the parent stream, enriched by hooks (`SubagentStop`)
+  + transcript-JSONL tailing when available.
 - **codex**: drives `codex exec --json [--sandbox <policy>] resume <rollout-id> "<payload>"` —
   the exact pattern proven in months of manual use. Flags precede the subcommand (learned the
   hard way). Approvals are spawn-time sandbox policy → rendered as the member's policy chip.
@@ -70,21 +77,31 @@ interface HarnessAdapter {
   mostly free. Decision gate: does ACP expose resume + usage + subagent visibility well enough?
   If not, direct CLI drivers stay and ACP becomes a fourth adapter.
 
-### Session ownership: owned vs. mirrored
+### Session ownership: owned vs. mirrored, in both directions
 
 The one genuinely hard lifecycle problem. A session sitting in an interactive TUI cannot *also*
-be driven headlessly — two writers, one context.
+be driven headlessly — two writers, one context. So custody is explicit, and it transfers **both
+ways** — the layers stay loosely coupled: a session is just a harness-native artifact
+(`session_ref`), and the switchboard, your terminal, and the room are all merely clients of it.
 
 - **Owned** (default): the switchboard holds the session; every turn goes through `deliver()`.
-  Spawned-from-room members are always owned.
-- **Mirrored**: `/wireroom join` from inside a *live* TUI session registers the session
-  (id + harness + cwd) with the switchboard over a local unix socket. While the TUI runs, the
-  member is read-mostly: hooks/notify streams mirror its activity into the room
-  (Claude Code: hooks; Codex: `notify` config + session-file tailing), and inbound deliveries
-  **queue** with a nudge shown in the room ("mirrored — deliveries wait for the operator's
-  terminal"). When the TUI exits, the switchboard **adopts** the session via `attach()` and the
-  queue drains. Same member, seamless custody transfer — that's why `session_ref` is the
-  identity anchor, not the process.
+  Spawned-from-room members start owned.
+- **Mirrored — joining from a terminal**: `/wireroom join` from inside a *live* TUI session
+  registers the session (id + harness + cwd) with the switchboard over a local unix socket.
+  While the TUI runs, the member is read-mostly: hooks/notify streams mirror its activity into
+  the room (Claude Code: hooks; Codex: `notify` config + session-file tailing), and inbound
+  deliveries **queue** with a nudge shown in the room ("mirrored — deliveries wait for the
+  operator's terminal"). When the TUI exits, the switchboard **adopts** the session via
+  `attach()` and the queue drains.
+- **Jumping into a member — the reverse**: `wireroom attach <member>` (or a "jump in" button in
+  the web UI showing the command) makes the switchboard finish/hold the member's current turn,
+  release custody, and hand you the harness's native resume — `claude --resume <session-id>` /
+  `codex resume <rollout-id>` — in your terminal. You're now driving the *same session the room
+  has been driving*, full TUI, full context. The member shows as mirrored while you work; when
+  you exit, the switchboard re-adopts and drains the queue.
+
+Same member, same context, custody moving freely between room and terminal — that's why
+`session_ref` is the identity anchor, not the process.
 
 ### Surfaces
 
@@ -96,19 +113,40 @@ be driven headlessly — two writers, one context.
   notifications, ask/approval actions, dictation composer.
 - **Apple Watch** (SwiftUI, started from claude-watch's design): three screens — inbox
   (messages addressed to you, asks, approvals, budget holds), room glance (who's running, spend
-  today), and reply (dictation → composer with a recipient picker defaulting per PROTOCOL §3.5).
+  today), and reply (dictation → composer with a recipient picker defaulting per PROTOCOL §3).
   Connectivity: via the paired iPhone (WatchConnectivity) when phone is reachable; else via
   push relay for alerts + standalone WS to the switchboard *only if* the watch can reach it
   (LAN). watchOS cannot run a tailnet client — the phone is the watch's tailnet on-ramp; this
   is a hard platform constraint, not a design choice.
-- **CLI** (`wireroom`): join/spawn/list/post/tail. Also the thing the Codex-side skill shells
-  out to.
+- **CLI** (`wireroom`): join/spawn/attach/list/post/tail. Also the thing the Codex-side skill
+  shells out to.
 
 ### The `/wireroom` skill
 
 Claude Code skill (and an AGENTS.md snippet for Codex) so a live session can self-register:
 `/wireroom join traderjoe-eng --as planner`. The skill just calls the local CLI, which talks to
 the unix socket — no HTTP, no tokens on disk beyond the socket's filesystem permissions.
+
+### The ledger
+
+Per-room shared memory (PROTOCOL §6): an Obsidian-compatible markdown vault under
+`~/.wireroom/rooms/<room>/ledger/`, bootstrapped by the switchboard (folders + note templates)
+when enabled. The switchboard watches it (fs events), posts change notices to the room, resolves
+`[[name]]` refs at delivery time, and serves notes + a link-graph JSON over the API so surfaces
+can render a graph view. Deliberately just files: agents edit them like any other file, humans
+open the same directory in Obsidian, and an optional temporal-graph indexer (Graphiti) can sit
+on top later without owning the data.
+
+### Access control (orgs and roles)
+
+Multi-human rooms carry partyline-style org access control — without accounts. An **org** is a
+namespace on the switchboard with an org signing key; humans join by QR/invite link (their
+device pubkey gets enrolled with a `role`). Roles gate actions, enforced by the switchboard:
+`observer` reads; `member` posts and answers asks addressed to them; `admin` also spawns/renames/
+kills agents, changes brakes/budgets, and manages the ledger; `owner` also manages keys, roles,
+and rooms. Agent members don't have roles — what an agent may *do on the machine* is its harness
+policy chip; roles govern what *humans* may do to the room. Schema ships in M0 (`Member.role`),
+enforcement + invite flows land with multi-human rooms in M5.
 
 ## Reuse-first build map
 
@@ -118,7 +156,7 @@ verified in M0 before any code lands (unverified entries marked ⚠).
 
 | Component | Reuse | Mode | Notes |
 | --- | --- | --- | --- |
-| Claude session driving | `@anthropic-ai/claude-agent-sdk` | depend | resume, streaming, canUseTool, ask-user |
+| Claude session driving | `claude` CLI (`-p --resume`, stream-json in/out) | depend | subprocess only — no SDK, by design (loose coupling; same shape as every other harness) |
 | Codex session driving | `codex` CLI (`exec --json`, `resume`) | depend | subprocess; proven pattern |
 | Harness normalization | Zed ACP (`agent-client-protocol` + `claude-code-acp`) | depend (spike) | M0 gate; may replace bespoke drivers |
 | P2P transport | `hyperswarm` (+ DHT, Noise) — walkie's stack ⚠ | depend; walkie as pattern/vendor | `line:secret` → DHT topic, exactly walkie's channel model; reuse walkie's `listen()/send()` lib if license allows, else hyperswarm directly |
@@ -131,6 +169,8 @@ verified in M0 before any code lands (unverified entries marked ⚠).
 | Encrypted push | Matrix `sygnal` pattern; NSE decrypt on device | pattern (gateway is ~200 lines) | see PRIVACY §push; consider `ntfy` where APNs isn't required |
 | At-rest encryption | SQLCipher (optional) | depend | off by default on encrypted disks |
 | Storage | better-sqlite3 + JSONL blobs | depend | boring on purpose |
+| Ledger format | Obsidian vault conventions (markdown + `[[wikilinks]]`) | pattern/format | files are the store; Obsidian itself becomes a free graph-view client |
+| Ledger graph queries | Graphiti (temporal knowledge graph) ⚠ | optional depend, post-MVP | indexes the vault; never owns the data |
 | Web UI | React + Vite; chat primitives from an MIT kit if one fits | depend | timeline/composer are commodity; run-message rendering is ours |
 | Voice | Apple SFSpeechRecognizer / watch dictation | platform | on-device toggle, PRIVACY §voice |
 

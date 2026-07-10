@@ -25,18 +25,27 @@ you      (from your watch, by voice) @codex after the fix, also add a regression
 
 - **A chat room for agent sessions.** A member isn't "Claude" or "Codex" — it's a *session* of a
   harness. Run three Codex sessions in one room and name them `coder`, `reviewer`, `red-team`.
-- **@-mentions route work.** Tagging an agent delivers your message (the part after the tag) into
-  its session as its next turn. `#123` references pull earlier messages in as context. Every
-  message has at least one recipient — untagged messages go to whoever replied last.
+- **@-mentions route work.** Tags pick the recipients; each one receives the whole message as
+  its session's next turn, with `#123` references attached verbatim as context. Every message
+  has at least one recipient — untagged messages go to whoever replied last. Agent chains run
+  to completion by default (brakes are per-room opt-ins, with an always-on spend meter).
 - **Runs stay compact.** An agent's execution streams live (tool calls, output, cost) but lands as
   a single collapsible message — the room reads like a conversation, not a log dump.
 - **Sessions are persistent and isolated.** No shared context soup: the only thing that crosses
   between agents is what you (or they) explicitly say and reference.
-- **Join from anywhere.** Spawn agents from the web, or type `/wireroom join` inside a live
-  Claude Code / Codex session to patch it into the room. Subagents show up automatically as
-  short-lived *extensions*.
+- **Join from anywhere, jump in from anywhere.** Spawn agents from the web, or type
+  `/wireroom join` inside a live Claude Code / Codex session to patch it into the room — and the
+  reverse: `wireroom attach <member>` drops any room member's session into your terminal via the
+  harness's native resume, then hands it back when you exit. Agents are plain CLI processes
+  (`claude -p`, `codex exec`) — no SDK coupling, so any harness with headless mode + resume can
+  join. Subagents show up automatically as short-lived *extensions*.
 - **Surfaces:** web (desk), iPhone (on the move), Apple Watch (voice-first: hear what shipped,
   answer questions, approve actions).
+- **A ledger, not context soup.** Optional per-room shared memory as an Obsidian-compatible
+  vault — markdown notes, `[[wikilink]]` graph, citable in messages, bootstrapped by the
+  switchboard, readable by every member and by you in Obsidian itself.
+- **Rooms scale to teams.** Org roles (owner/admin/member/observer) on device keys — access
+  control without accounts or a hosted control plane.
 - **Private by construction.** Local-first: your machine is the source of truth. Remote access via
   your tailnet or serverless P2P (Hyperswarm DHT + Noise, à la [walkie]). Optional push relay sees
   only ciphertext. No message content in any cloud, ever. See [docs/PRIVACY.md](docs/PRIVACY.md).
@@ -68,10 +77,12 @@ concept doesn't fit the metaphor, that's a design smell.
 - [claude-watch](https://github.com/shobhit99/claude-watch) — Claude Code on your wrist. Our watch
   surface starts from its bridge/relay/watch design.
 - [Partyline](https://partyline.sh) ([partyline-sh/cli](https://github.com/partyline-sh/cli),
-  MIT, Go) — session manager + multiplayer terminal + party channels. Closest neighbor, and a
-  reuse source (session-store discovery, blind-relay design). The difference: Partyline shares
-  *terminals and context* between humans and agents; Wireroom routes *turns* — a mention is a
-  delivery into a headless session, so agents drive each other with no human multiplexing.
+  MIT, Go) — session manager, E2EE shared terminals, and hosted "parties" where agents answer
+  `@name` mentions. Closest neighbor and a reuse source (session-store discovery, blind-relay
+  design). The difference is the deal-breaker we're built on: parties run through partyline's
+  hosted backend behind a login and are explicitly not end-to-end encrypted, with no
+  phone/watch surface and no persistent named-session member model. Wireroom is the private,
+  local-first, session-native version of that room.
 
 Built reuse-first: where good open source exists we depend on it or vendor it; we only write the
 glue and the room semantics. The full build-vs-reuse map is in

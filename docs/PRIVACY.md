@@ -4,6 +4,16 @@ The constraint that outranks features: **message content never exists in plainte
 infrastructure you don't control.** Rooms carry your source code, your strategies, your secrets'
 shadows — treat every room like a production credential.
 
+## Where do messages live? (the question to get right)
+
+**There is no server.** Messages are stored exactly once, in SQLite on the machine where the
+switchboard runs — *your* machine, the same one that already holds every agent's full transcript
+in plaintext under `~/.claude/projects` and `~/.codex/sessions`. Room history adds no new trust:
+it lives beside data of identical sensitivity, on disk you own, optionally SQLCipher-encrypted.
+Storing it locally is what makes `#N` references, history, and restart-resume possible. Phones,
+watches, and browsers hold only caches (wiped on unpair); the push relay holds nothing at rest;
+no cloud ever holds content, encrypted or not.
+
 ## Principles
 
 1. **Local-first.** The switchboard on your machine is the sole source of truth. Delete the
@@ -76,7 +86,7 @@ device fetches content over tier 0/1 when opened.
 
 | Location | Data | Protection |
 | --- | --- | --- |
-| Switchboard host | full plaintext history (SQLite + run JSONL) | your disk; optional SQLCipher; filesystem perms |
+| Switchboard host | full plaintext history (SQLite + run JSONL + ledger vault) | your disk; optional SQLCipher; filesystem perms |
 | iPhone/Watch | decrypted cache of recent messages | OS sandbox + device encryption; wipe on unpair |
 | Browser (web) | in-memory + localStorage cache | cleared on unpair |
 | Push relay | nothing at rest | memory-only forwarding |
@@ -107,8 +117,8 @@ Defense in depth; the real boundary remains: rooms are as sensitive as the code 
 - Stolen paired device — device unlock guards the key; revocation rotates room keys.
 - Curious DHT observer — sees that *some* topic has peers; secrets make topics unguessable.
 - A malicious *message* (prompt injection via room content) — mitigated structurally: agents
-  only ever receive explicitly addressed segments + refs, never ambient room scroll; hop budgets
-  cap runaway chains; approvals/policy chips bound what a hijacked session can do.
+  only ever receive messages they were explicitly addressed in (+ refs), never ambient room scroll; opt-in brakes
+  and the always-on spend meter bound and expose runaway chains; approvals/policy chips bound what a hijacked session can do.
 
 **Not defended (declared honestly):**
 

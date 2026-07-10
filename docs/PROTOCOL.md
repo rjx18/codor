@@ -18,6 +18,8 @@ Member {
   host?: string         // which switchboard machine owns the session
   state?: 'idle' | 'running' | 'queued' | 'awaiting_input' | 'paused' | 'dead'
   parent?: MemberId     // extensions only: the member whose run spawned them
+  // humans only — org access control (schema from day one, enforcement lands M5):
+  role?: 'owner' | 'admin' | 'member' | 'observer'
 }
 ```
 
@@ -69,37 +71,46 @@ switchboard feeds it back to the blocked session. **Approvals** are the same sha
 
 ## 3. Mention grammar and routing
 
+**Mentions select recipients; content is never split.** Every recipient receives the *full*
+message body plus all resolved references. Agents are trusted to read the whole message and work
+out which parts concern them — exactly like a human in a group chat. (An earlier draft delivered
+per-mention segments; dropped: harder to reason about, and messages often have dependencies
+between the parts addressed to different members.)
+
 Parsing rules, applied to `body` (fenced code blocks and inline code are skipped):
 
-1. `@handle` — a mention. Valid only if `handle` resolves to a live, addressable member of the
-   room; otherwise it's plain text (no guessing, no fuzzy match).
-2. Each mention opens a **segment**: from just after the tag to just before the next mention or
-   end-of-message. The segment is what the mentioned member receives.
-3. **Preamble** — text before the first mention — is room commentary. Everyone (human) can read
-   it in the room; no agent receives it. This is deliberate: it's where status is narrated
-   without inflating anyone's context.
-4. `#N` — a reference. Wherever it appears, `N` is recorded in `refs`; references inside a
-   segment are resolved and attached to *that* segment's delivery. A reference includes the
-   target message's body verbatim (for `run` messages: `final_text`, not the event blob). One
-   level deep — referenced messages' own refs are not chased.
-5. **Default recipient.** A message with zero valid mentions is routed whole-body to the **last
-   agent member that posted in the room**; if none exists, it's commentary. Agent-authored
-   messages default to *the member whose message triggered their run* (usually the tagger),
-   which makes plain "done, all tests pass" replies flow back to whoever delegated.
-6. **Fan-out.** Multiple mentions produce independent deliveries, one per segment, in message
-   order: `@codex xxx then @claude yyy` → Codex gets `xxx then`, Claude gets `yyy`. Mentioning
-   the same member twice concatenates its segments into one delivery.
-7. Self-mentions are ignored. `@all` is reserved (post-MVP broadcast). Escaping: `` `@codex` ``
-   (backticks) renders the literal.
+1. `@handle` — a mention, valid anywhere in the message. Valid only if `handle` resolves to a
+   live, addressable member of the room; otherwise it's plain text (no guessing, no fuzzy
+   match). The recipient set is the union of valid mentions (duplicates collapse).
+2. `#N` — a reference. Each distinct `N` is recorded in `refs`, resolved once, and attached to
+   every delivery of this message. A reference includes the target message's body verbatim (for
+   `run` messages: `final_text`, not the event blob). One level deep — referenced messages' own
+   refs are not chased.
+3. `[[note-name]]` — a **ledger reference** (see §6): resolves to that note in the room's ledger
+   and attaches its current content to every delivery, exactly like a `#N` ref. Unresolvable
+   names stay plain text.
+4. **Default recipient.** A message with zero valid mentions is delivered to the **last agent
+   member that posted in the room**; if no agent has ever posted, it's room commentary
+   (delivered to nobody). Agent-authored messages default to *the member whose message
+   triggered their run* (usually the tagger), so a plain "done, all tests pass" flows back to
+   whoever delegated.
+5. **Fan-out.** Multiple mentions produce one delivery per recipient, each carrying the
+   identical full payload: `@codex xxx then @claude yyy` → both receive the whole message; the
+   header tells each who else got it.
+6. Self-mentions are ignored (an agent tagging itself doesn't re-trigger itself). `@all` is
+   reserved (post-MVP broadcast). Escaping: `` `@codex` `` (backticks) renders the literal.
 
 ### Delivery payload
 
-What actually lands in the recipient session's next turn — exact template:
+What actually lands in each recipient session's next turn — exact template (identical for every
+recipient of the message except the `you=` field):
 
 ```text
-[wireroom room=traderjoe-eng msg=#93107 from=@richard (human)]
+[wireroom room=traderjoe-eng msg=#93107 from=@richard (human)
+ to=@codex @claude · you=@codex]
 
-Start implementation of phase 3, see my comments in #92832 before starting.
+Nice work overnight. @codex Start implementation of phase 3, see my comments
+in #92832 before starting. @claude while codex does that, draft the M4 test plan.
 
 --- referenced #92832 · @claude · 2026-07-10T02:14Z ---
 The rebalance path still used stale closes; phase 3 must gate on fresh marks
@@ -121,17 +132,21 @@ queue (`state: queued` shown in the room). On idle, **all queued deliveries for 
 batched into one turn**, ordered, each with its `[wireroom …]` header — one resume call, no
 interleaving ambiguity. A `paused` or `dead` member holds its queue; the room shows the backlog.
 
-### Loop guards and budgets
+### Visibility and optional brakes
 
-Protocol-level, enforced by the switchboard (see VISION §principles — spend is a signal):
+**Default: agents run until the work is done.** Agent→agent chains are the product, not a
+hazard — the switchboard never interrupts them out of the box. What it does do is make spend
+and progress impossible to miss, and offer opt-in brakes per room:
 
-- **Hop budget**: max consecutive agent→agent deliveries with no human-authored message
-  (default 8). On breach: the delivery is *held*, room gets a `system` message, humans get a
-  push ("loop paused after 8 hops — release?"). Releasing grants another window.
-- **Room spend meter**: cumulative `usage.cost_usd` per day, warning and hard-stop thresholds
-  (defaults $10 warn / $25 stop, configurable). Hard-stop behaves like a hop-budget hold.
-- **Turn timeout**: a run with no events for N minutes (default 30) is flagged `stalled` in the
-  room; never auto-killed — operators kill, software doesn't.
+- **Room spend meter** (always on, never blocking): cumulative `usage.cost_usd` and turn count
+  for the day, live in the room header on every surface.
+- **Turn brake** (opt-in, off by default): max consecutive agent→agent deliveries with no
+  human-authored message. On breach the next delivery is *held*, the room gets a `system`
+  message, and humans get a push ("paused after N hops — release?"). For rooms where you want a
+  checkpoint, not a leash.
+- **Spend brake** (opt-in, off by default): daily cost threshold that holds like the turn brake.
+- **Stall flag** (always on, never killing): a run with no events for N minutes (default 30) is
+  flagged `stalled` in the room; operators kill, software doesn't.
 
 ## 4. Normalized events (adapter output)
 
@@ -154,26 +169,54 @@ extension.ended    { ext_member, summary? }
 
 What each adapter maps from; the normalization column is the contract surfaces rely on.
 
+Adapters are **plain CLI drivers by design** — every agent runs exactly as it would in a
+terminal (`claude -p`, `codex exec`), spawned as a subprocess, spoken to over stdin/stdout
+JSONL. No harness SDKs: nothing to couple to, and any coding agent with a headless mode and a
+resumable session becomes integrable the same way.
+
 | Capability | Claude Code | Codex CLI | Normalized as |
 | --- | --- | --- | --- |
-| Headless drive + resume | Agent SDK `query({resume})` / `claude -p --resume <id> --output-format stream-json` | `codex exec --json [--sandbox …] resume <rollout-id> "<prompt>"` | adapter `deliver()` |
-| Event stream | stream-json / SDK messages | `--json` JSONL events | `run.item` |
-| Ask-user | `AskUserQuestion` (options, multi-select) | — (none) | `ask.raised` card; Codex: plain replies suffice, nothing raised |
-| Permissions | permission modes + SDK `canUseTool` callback | sandbox modes (`read-only` ↔ `--dangerously-bypass…`), set at spawn | `approval.raised` (Claude, runtime) + a static **policy chip** on the member (both) |
-| Subagents | Task tool; hooks (`SubagentStart/Stop`) + transcript JSONL | — | `extension.*` (Claude); n/a |
+| Headless drive + resume | `claude -p --resume <session-id> --output-format stream-json --input-format stream-json` | `codex exec --json [--sandbox …] resume <rollout-id> "<prompt>"` | adapter `deliver()` |
+| Event stream | stream-json JSONL on stdout | `--json` JSONL events | `run.item` |
+| Ask-user | `AskUserQuestion` — surfaced as a control request on the stream-json control protocol | — (none) | `ask.raised` card; Codex: plain replies suffice, nothing raised |
+| Permissions | permission modes; runtime prompts via the stream-json control protocol (`--permission-prompt-tool` fallback) | sandbox modes (`read-only` ↔ `--dangerously-bypass…`), set at spawn | `approval.raised` (Claude, runtime) + a static **policy chip** on the member (both) |
+| Subagents | Task tool-calls in the stream; hooks (`SubagentStart/Stop`) + transcript JSONL | — | `extension.*` (Claude); n/a |
 | Usage/cost | result usage block | token counts in events | `run.completed.usage` → room meter |
 | Join-from-live-session | `/wireroom` skill + hooks (see ARCHITECTURE §ownership) | `wireroom join` CLI reading `~/.codex/sessions` | member with `session_ref` |
-| Interrupt | SDK interrupt / SIGINT | SIGINT on child | member action `interrupt` |
+| Jump-into-member (attach TUI) | `claude --resume <session-id>` in your terminal | `codex resume <rollout-id>` | `wireroom attach <member>`; member goes mirrored until you exit |
+| Interrupt | SIGINT on child | SIGINT on child | member action `interrupt` |
 
 **Extensibility:** an adapter is ~one file implementing `spawn / attach / deliver / interrupt`
 (ARCHITECTURE §adapters). Zed's **Agent Client Protocol (ACP)** is evaluated in M0 as a shortcut:
 where a maintained ACP adapter exists for a harness (Claude Code has one; others growing), our
 adapter can be a thin ACP client instead of a CLI driver — reuse over rebuild.
 
-## 6. Invariants
+## 6. The ledger — shared memory as a graph
 
-1. A recipient receives its segment + attached refs and **nothing else** — never the preamble,
-   never other members' segments, never room history.
+Partyline's "context threads" idea (shared decisions, constraints, contracts that any member can
+read and extend), rebuilt local-first and graph-shaped:
+
+- **Storage is an Obsidian-compatible vault**: a directory of markdown notes with `[[wikilink]]`
+  edges, living beside the room store (`~/.wireroom/rooms/<room>/ledger/`). No database, no
+  service — the graph *is* the link structure. Open it in Obsidian and you get the graph view
+  for free; agents read and write it as plain files.
+- **The switchboard bootstraps it**: enabling the ledger on a room initializes the vault
+  (folders, templates for `decision`, `constraint`, `contract`, index note) and tells agent
+  members where it lives and how to cite it (`[[name]]`) in their conventions trailer.
+- **Reads are refs** (§3): citing `[[risk-limits]]` in a message attaches that note to the
+  delivery — same explicit-context-transfer rule as everything else, no ambient injection.
+- **Writes are auditable**: agents append/edit notes via `wireroom ledger` (or direct file
+  edits in their cwd — it's their machine); the switchboard watches the vault and posts a
+  compact `system` message on change ("@claude updated [[marker-semantics]]"), so the room sees
+  memory evolve.
+- **Optional graph backend** (post-MVP): a temporal knowledge-graph engine (e.g. Graphiti) can
+  index the same vault for time-aware queries; the vault stays the source of truth.
+
+## 7. Invariants
+
+1. A recipient receives the full message it was mentioned in, plus that message's refs, and
+   **nothing else** — never ambient room history. Context transfer is always an explicit act:
+   say it, or reference it with `#N`.
 2. `Message.id` is dense and monotonic per room; `#N` is permanent (edits are new messages;
    there is no message deletion inside a room, only room deletion).
 3. Every non-commentary message resolves to ≥1 recipient at post time; the composer surfaces
