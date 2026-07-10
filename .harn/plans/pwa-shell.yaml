@@ -81,6 +81,7 @@ files:
   - packages/web/public/wireroom-512.png
   - packages/web/src/sw.ts
   - packages/web/src/App.tsx
+  - packages/web/src/api.ts
   - packages/web/src/components.tsx
   - packages/web/src/styles.css
   - packages/web/tests/pwa.e2e.spec.ts
