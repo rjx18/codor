@@ -7,12 +7,13 @@ assumptions:
       title: OpenCode capabilities match its direct run interface
       statement: The OpenCode adapter must drive one `opencode run --format json`
         process per turn, capture and reuse the top-level sessionID in the
-        persisted working directory, discover root sessions through the documented
-        global JSON database command, expose the native session TUI, translate final
-        text, completed tools, errors, and step-finish token and reported-dollar
-        usage, and declare asks and extensions unsupported with approvals fixed at
-        process spawn, because every advertised capability must be demonstrated
-        by fixture replay, subprocess conformance, or the single live PONG probe.
+        persisted working directory, discover root sessions through the
+        documented global JSON database command, expose the native session TUI,
+        translate final text, completed tools, errors, and step-finish token and
+        reported-dollar usage, and declare asks and extensions unsupported with
+        approvals fixed at process spawn, because every advertised capability
+        must be demonstrated by fixture replay, subprocess conformance, or the
+        single live PONG probe.
       reason: PLAN-M1 P1.7b makes the installed OpenCode CLI the one live adapter
         acceptance while requiring capability truth; `opencode run` resumes by
         session id and emits raw JSON parts but owns permission decisions and
@@ -27,18 +28,18 @@ assumptions:
   reviewed:
     - id: adapters-cli-only-no-sdk
       outcome: unchanged
-      reason: The implementation spawns the installed first-party opencode CLI
-        and consumes its documented JSON lines without importing the OpenCode SDK,
+      reason: The implementation spawns the installed first-party opencode CLI and
+        consumes its documented JSON lines without importing the OpenCode SDK,
         talking to its HTTP server, or embedding Paseo's server connector.
     - id: adapter-process-lifecycle-supervised
       outcome: unchanged
       reason: OpenCode receives the same spawn, stderr, error, close, stream-EOF,
-        detached-process-group, and group-interrupt supervision as every existing
-        CLI adapter.
+        detached-process-group, and group-interrupt supervision as every
+        existing CLI adapter.
     - id: spend-meter-always-on
       outcome: unchanged
-      reason: OpenCode step-finish token counts and reported cost normalize into
-        the existing run usage shape consumed by the always-on meter.
+      reason: OpenCode step-finish token counts and reported cost normalize into the
+        existing run usage shape consumed by the always-on meter.
     - id: attach-custody-lease-tracks-child-pid
       outcome: unchanged
       reason: The OpenCode native session TUI is added to the existing inherited-
@@ -51,24 +52,24 @@ anchors:
         success boundary because OpenCode emits no separate result event.
     opencode-capability-conformance:
       action: change
-      reason: Assert resume argv and stable session identity, global root-session discovery,
-        native attach, false interaction capabilities, reported usage, and one
-        live PONG on the configured free model.
+      reason: Assert resume argv and stable session identity, global root-session
+        discovery, native attach, false interaction capabilities, reported
+        usage, and one live PONG on the configured free model.
   adapters-cli-only-no-sdk:
     opencode-cli-subprocess-driver:
       action: change
-      reason: Add the direct opencode run process driver and intentionally reject
-        the SDK and persistent HTTP-server pattern observed in Paseo.
+      reason: Add the direct opencode run process driver and intentionally reject the
+        SDK and persistent HTTP-server pattern observed in Paseo.
   adapter-process-lifecycle-supervised:
     opencode-cli-process-supervision:
       action: change
-      reason: Supervise OpenCode through stdout EOF and signal its process group
-        for interrupt and cleanup.
+      reason: Supervise OpenCode through stdout EOF and signal its process group for
+        interrupt and cleanup.
   attach-custody-lease-tracks-child-pid:
     interactive-child-supervision:
       action: change
-      reason: Resolve OpenCode attach to its native `opencode --session ID` TUI in
-        the existing child supervisor.
+      reason: Resolve OpenCode attach to its native `opencode --session ID` TUI in the
+        existing child supervisor.
 files:
   - packages/adapters/opencode/package.json
   - packages/adapters/opencode/tsconfig.json
@@ -90,3 +91,5 @@ files:
   - packages/cli/src/attach.ts
   - pnpm-lock.yaml
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-10T12:08:37.722Z

@@ -36,6 +36,12 @@ importers:
         specifier: workspace:*
         version: link:../../protocol
 
+  packages/adapters/opencode:
+    dependencies:
+      '@wireroom/protocol':
+        specifier: workspace:*
+        version: link:../../protocol
+
   packages/cli:
     dependencies:
       '@wireroom/adapter-claude-code':
@@ -47,6 +53,9 @@ importers:
       '@wireroom/adapter-gemini':
         specifier: workspace:*
         version: link:../adapters/gemini
+      '@wireroom/adapter-opencode':
+        specifier: workspace:*
+        version: link:../adapters/opencode
       '@wireroom/protocol':
         specifier: workspace:*
         version: link:../protocol

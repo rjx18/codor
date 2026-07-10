@@ -1,0 +1,17 @@
+id: opencode-capability-truth
+hash: a-24f35c3af1bd
+title: OpenCode capabilities match its direct run interface
+state: active
+statement: The OpenCode adapter must drive one `opencode run --format json`
+  process per turn, capture and reuse the top-level sessionID in the persisted
+  working directory, discover root sessions through the documented global JSON
+  database command, expose the native session TUI, translate final text,
+  completed tools, errors, and step-finish token and reported-dollar usage, and
+  declare asks and extensions unsupported with approvals fixed at process spawn,
+  because every advertised capability must be demonstrated by fixture replay,
+  subprocess conformance, or the single live PONG probe.
+depends_on:
+  - adapters-cli-only-no-sdk
+  - adapter-process-lifecycle-supervised
+  - spend-meter-always-on
+created_by: adapter-opencode

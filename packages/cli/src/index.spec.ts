@@ -89,6 +89,20 @@ describe('@wireroom/cli', () => {
     });
   });
 
+  it('resolves OpenCode interactive resume through the supervised attach path', () => {
+    expect(nativeResumeCommand({
+      id: 'opencode-member',
+      kind: 'agent',
+      handle: 'opencode',
+      display_name: 'OpenCode',
+      harness: 'opencode',
+      session_ref: 'ses_0b418b8aeffelyQqZS0JoBHFvF',
+    }, { WIREROOM_OPENCODE_COMMAND: '/opt/opencode' })).toEqual({
+      command: '/opt/opencode',
+      args: ['--session', 'ses_0b418b8aeffelyQqZS0JoBHFvF'],
+    });
+  });
+
   it('spawns, posts, and tails through the unix WebSocket protocol', async () => {
     await cli('rooms');
     expect(output).toContain('eng\tEngineering');
@@ -279,6 +293,7 @@ describe('@wireroom/cli', () => {
       'claude-code',
       'codex',
       'gemini',
+      'opencode',
     ]);
     expect(running.server.socketPath).toBe(join(dir, 'up-data', 'wireroom.sock'));
     await running.close();

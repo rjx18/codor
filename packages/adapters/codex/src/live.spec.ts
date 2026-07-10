@@ -19,7 +19,7 @@ describe.skipIf(!LIVE)('codex live smoke (WIREROOM_LIVE_SMOKE=1)', () => {
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
   const adapter = new CodexAdapter();
-  const session = adapter.spawn({ cwd: dir, policy: 'read-only' });
+  const session = adapter.spawn({ cwd: dir, policy: 'read-only', model: 'gpt-5.4-mini' });
 
   it('PONG turn completes and captures a session_ref', { timeout: 180_000 }, async () => {
     const events: WireEvent[] = [];

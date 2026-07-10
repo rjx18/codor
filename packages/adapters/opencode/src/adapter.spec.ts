@@ -1,0 +1,99 @@
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import type { WireEvent } from '@wireroom/protocol';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { OpenCodeAdapter, openCodeAutoApprove } from './adapter.js';
+
+const dirs: string[] = [];
+
+function executable(source: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'wireroom-opencode-adapter-'));
+  dirs.push(dir);
+  const path = join(dir, 'fake-opencode');
+  writeFileSync(path, `#!/usr/bin/env node\n${source}`);
+  chmodSync(path, 0o755);
+  return path;
+}
+
+async function collect(adapter: OpenCodeAdapter): Promise<WireEvent[]> {
+  const events: WireEvent[] = [];
+  for await (const event of adapter.deliver(adapter.spawn({ cwd: process.cwd() }), 'hello')) {
+    events.push(event);
+  }
+  return events;
+}
+
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+describe('OpenCode subprocess and capability conformance', () => {
+  it('enables CLI-owned auto approval only for explicit full-access policies', () => {
+    expect(openCodeAutoApprove('read-only')).toBe(false);
+    expect(openCodeAutoApprove('workspace-write')).toBe(false);
+    expect(openCodeAutoApprove('danger-full-access')).toBe(true);
+    expect(openCodeAutoApprove('auto')).toBe(true);
+  });
+
+  it('passes JSON, model, auto, resume, payload, and cwd without stdin', async () => {
+    const command = executable(`
+const fs = require('node:fs');
+const detail = JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd(),input:fs.readFileSync(0,'utf8')});
+console.log(JSON.stringify({type:'step_start',sessionID:'ses_existing',part:{type:'step-start'}}));
+console.log(JSON.stringify({type:'text',sessionID:'ses_existing',part:{type:'text',text:detail,time:{start:1,end:2}}}));
+console.log(JSON.stringify({type:'step_finish',sessionID:'ses_existing',part:{type:'step-finish',tokens:{input:1,output:2},cost:0.01}}));
+`);
+    const adapter = new OpenCodeAdapter(command);
+    const cwd = mkdtempSync(join(tmpdir(), 'wireroom-opencode-cwd-'));
+    dirs.push(cwd);
+    const session = adapter.attach('ses_existing');
+    session.cwd = cwd;
+    session.model = 'opencode/deepseek-v4-flash-free';
+    session.policy = 'danger-full-access';
+    const events: WireEvent[] = [];
+    for await (const event of adapter.deliver(session, 'PONG')) events.push(event);
+    const done = events.at(-1) as Extract<WireEvent, { type: 'run.completed' }>;
+    expect(JSON.parse(done.final_text!)).toEqual({
+      argv: [
+        'run', '--format', 'json',
+        '--model', 'opencode/deepseek-v4-flash-free',
+        '--auto',
+        '--session', 'ses_existing',
+        'PONG',
+      ],
+      cwd,
+      input: '',
+    });
+    expect(done.usage).toEqual({ input_tokens: 1, output_tokens: 2, cost_usd: 0.01 });
+    expect(session.session_ref).toBe('ses_existing');
+  });
+
+  it('turns missing commands and nonzero exits into failed runs', async () => {
+    expect((await collect(new OpenCodeAdapter('/definitely/missing/wireroom-opencode'))).at(-1))
+      .toMatchObject({ type: 'run.completed', status: 'failed' });
+    const command = executable("process.stderr.write('native failure\\n'); process.exit(7);\n");
+    expect((await collect(new OpenCodeAdapter(command))).at(-1)).toMatchObject({
+      type: 'run.completed',
+      status: 'failed',
+      final_text: 'native failure',
+    });
+  });
+
+  it('discovers every root id through the documented global JSON database command', () => {
+    const command = executable(`
+const expected = ['db','--format','json','SELECT id FROM session WHERE parent_id IS NULL ORDER BY time_updated DESC'];
+if (JSON.stringify(process.argv.slice(2)) !== JSON.stringify(expected)) process.exit(3);
+console.log(JSON.stringify([{id:'ses_first'},{id:'ses_second'},{title:'missing id'}]));
+`);
+    expect(new OpenCodeAdapter(command).discoverSessions()).toEqual(['ses_first', 'ses_second']);
+  });
+
+  it('rejects interaction responses because run owns headless permissions', async () => {
+    await expect(new OpenCodeAdapter().respondInteraction()).rejects.toThrow(
+      'no response channel',
+    );
+  });
+});

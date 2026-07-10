@@ -20,7 +20,7 @@ describe.skipIf(!LIVE)('claude live smoke (WIREROOM_LIVE_SMOKE=1)', () => {
   const adapter = new ClaudeCodeAdapter();
 
   it('PONG turn completes with cost and captures a session_ref', { timeout: 240_000 }, async () => {
-    const session = adapter.spawn({ cwd: dir });
+    const session = adapter.spawn({ cwd: dir, model: 'haiku' });
     const events: WireEvent[] = [];
     for await (const event of adapter.deliver(
       session,
@@ -35,7 +35,7 @@ describe.skipIf(!LIVE)('claude live smoke (WIREROOM_LIVE_SMOKE=1)', () => {
   });
 
   it('a live AskUserQuestion is answered via stdin control', { timeout: 240_000 }, async () => {
-    const session = adapter.spawn({ cwd: dir });
+    const session = adapter.spawn({ cwd: dir, model: 'haiku' });
     const events: WireEvent[] = [];
     for await (const event of adapter.deliver(
       session,
