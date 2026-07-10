@@ -65,23 +65,33 @@ code operated by us:
 This table is the sales page, verbatim. The relay code stays open source so the claim is
 auditable, and a self-hosted relay is always a supported configuration.
 
-## Tiers
+## Pricing (decided 2026-07-10)
 
-- **Free (self-host):** the entire core, forever — switchboard, adapters, web, CLI, skill, P2P,
-  E2EE, ledger, bridges. MIT. Run your own relay if you want push/mailbox. Nothing crippled.
-- **Pro (individual):** Wireroom Relay bundle — push, rendezvous, mailbox, browser gateway —
-  plus the App Store apps at no extra charge. Order of $5–10/mo; it replaces "run a VPS +
-  manage APNs keys."
-- **Team:** per-seat. Relay capacity for the org, metadata-only admin dashboard (uptime, usage,
-  device inventory — no content), SSO/IdP bridging for enrollment (identity is not content),
-  priority support.
-- **Enterprise:** self-hosted relay with a commercial license + support contract, compliance
-  documentation, security review access.
+Three pillars, deliberately simple:
 
-**Apps:** the iOS + Watch apps are the other natural revenue line — paid on the App Store (or
-free with Relay subscription unlock), while the source stays in the repo so building your own
-remains free. Paying for a signed, notarized, push-capable binary is a convenience purchase,
-consistent with the rule.
+1. **Everything open source.** Every package — switchboard, adapters, web, CLI, skill, relay,
+   *and the app source*. MIT. Nothing crippled in self-host, ever.
+2. **The iPhone + Apple Watch apps are a one-time purchase** on the App Store. You're paying
+   for the signed, notarized, push-capable binary and its upkeep; building your own from the
+   repo stays free. Basic sealed push pings are **included with the app purchase** (App Store
+   builds can only receive push through our APNs key anyway, and doorbell pings cost us close
+   to nothing — a hidden subscription behind a paid app would be a bait-and-switch).
+3. **The hosted relay is one cheap flat plan, ~$5/month**, for people who don't want to
+   maintain anything: rendezvous/NAT relay, encrypted mailbox, browser gateway, hosted
+   bridges. It replaces "rent a VPS, run a TURN server, manage bot tokens." Self-hosting the
+   identical relay code is always documented and supported.
+
+Later, only if demand proves it (explicitly not launch scope): team seats (org relay capacity,
+metadata-only admin dashboard, SSO enrollment) and enterprise self-hosted-relay licensing with
+support.
+
+### The paseo parallel
+
+Paseo runs the same access triad — hosted E2EE relay ("Paseo can't read your traffic") /
+direct LAN / bring-your-own tunnel (Tailscale, Cloudflare) — which validates the topology.
+The difference is the business: paseo is sponsorware (GitHub Sponsors); Wireroom charges for
+the two things with real marginal cost and real convenience value — the apps (one-time) and
+the relay ($5/mo) — so the project doesn't depend on donations.
 
 ## What we will not sell
 
@@ -94,6 +104,7 @@ consistent with the rule.
 ## Sequencing
 
 Monetization work starts **after** M5's open-source launch — credibility first. The relay is
-built in M4 regardless (push needs it); turning it into a billed service is mostly accounts-
-for-billing (billing identity is the one place an email exists, and it maps to keys, not to
-content), quotas, and a sales page that is mostly the table above.
+built in M3 regardless (web push needs it); turning it into a billed service is mostly
+accounts-for-billing (billing identity is the one place an email exists, and it maps to keys,
+not to content), quotas, and a sales page that is mostly the table above. The apps ship paid
+from day one in M4 — that requires no billing infrastructure at all, Apple handles it.
