@@ -121,6 +121,11 @@ relay ($5/mo) — so the project doesn't depend on donations.
 
 ## The SaaS control plane (relay business only)
 
+To be explicit before the stack: **the local product has no auth and no Supabase — nothing in
+this section exists on a user's machine.** The switchboard, web app, CLI, and P2P transport
+never show a sign-in; identity is device keypairs paired by QR. Auth exists in exactly one
+place in the universe: the $5/month hosted platform's control plane, run only by us.
+
 The paid relay splits into a stateless **data plane** (the open-source envelope routers — no
 accounts, no database) and a small **control plane** that exists only because money and orgs
 do. Stack, pinned:
