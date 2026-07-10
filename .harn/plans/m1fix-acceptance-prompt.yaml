@@ -1,0 +1,25 @@
+id: m1fix-acceptance-prompt
+title: Disambiguate the M1 live review-loop prompt
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: The M1 acceptance scenario still exercises stable room-local message
+        identities; only its live-model routing instructions become explicit.
+anchors:
+  permalink-ids-stable:
+    m1-live-acceptance:
+      action: change
+      reason: Replace the ambiguous review-loop message with the exact wording that
+        passed the single live verification run on 2026-07-10.
+files:
+  - packages/cli/src/m1-acceptance.spec.ts
+  - tmp/build/PROGRESS.md
+notes:
+  - Apply the orchestrator-supplied reviewPost string verbatim and do not improve or
+    otherwise alter the acceptance scenario.
+  - Do not rerun live acceptance; it is environment-gated and the passing transcript
+    in tmp/build/ACCEPT-M1.md at 2026-07-10T14:05:03Z is the evidence.
+  - Run pnpm -r test without live credentials so the acceptance remains skipped.
