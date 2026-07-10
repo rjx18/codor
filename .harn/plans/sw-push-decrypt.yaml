@@ -102,9 +102,15 @@ anchors:
       action: change
       reason: Consume authenticated notification action query parameters after sync
         and map their msg_id back to existing inbox/hold acts.
+  sw-injectmanifest-owned-worker:
+    vite-pwa-owned-worker:
+      action: change
+      reason: Align the injectManifest worker output and registration format so the
+        bundled libsodium worker can evaluate its import.meta-based WASM loader.
 files:
   - packages/web/package.json
   - pnpm-lock.yaml
+  - packages/web/vite.config.ts
   - packages/web/src/push.ts
   - packages/web/src/push.spec.ts
   - packages/web/src/notifications.ts
