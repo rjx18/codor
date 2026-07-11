@@ -48,6 +48,8 @@ export class LedgerManager {
   private readonly suppressed = new Set<string>();
   private onChange?: (change: LedgerChange) => void;
   private roomExists: (room: string) => boolean = () => false;
+  private remoteWriteAuthorized: (peerId: string, room: string, author: string) => boolean =
+    () => false;
   private readonly stopTransport?: () => void;
 
   constructor(options: LedgerManagerOptions) {
@@ -74,6 +76,12 @@ export class LedgerManager {
 
   setRoomValidator(validator: (room: string) => boolean): void {
     this.roomExists = validator;
+  }
+
+  setRemoteWriteAuthorizer(
+    authorizer: (peerId: string, room: string, author: string) => boolean,
+  ): void {
+    this.remoteWriteAuthorized = authorizer;
   }
 
   enable(room: string): LedgerVault {
@@ -153,6 +161,9 @@ export class LedgerManager {
       if (!this.roomExists(envelope.room)) throw new Error(`no such home room ${envelope.room}`);
       if (request.write.author === 'operator') {
         throw new Error("remote ledger writes cannot claim the reserved 'operator' author");
+      }
+      if (!this.remoteWriteAuthorized(peerId, envelope.room, request.write.author)) {
+        throw new Error('peer is not authorized to write this room ledger as that member');
       }
       result = { request_id: request.request_id, ok: true, note: this.add(envelope.room, request.write) };
     } catch (error) {

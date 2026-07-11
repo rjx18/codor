@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { ServerFrame } from '@wireroom/protocol';
+import type { Member, ServerFrame } from '@wireroom/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 
@@ -15,6 +15,9 @@ import { PushSubscriptionStore } from './push/subscriptions.js';
 import { type RunningServer, startServer } from './server.js';
 
 const TOKEN = 'test-token-123';
+const ADMIN_TOKEN = 'admin-token-123';
+const MEMBER_TOKEN = 'member-token-123';
+const OBSERVER_TOKEN = 'observer-token-123';
 
 let dir: string;
 let fake: FakeAdapter;
@@ -23,6 +26,9 @@ let crypto: CryptoVault;
 let pushSubscriptions: PushSubscriptionStore;
 let server: RunningServer;
 let base: string;
+let admin: Member;
+let member: Member;
+let observer: Member;
 
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'wireroom-server-'));
@@ -34,10 +40,29 @@ beforeEach(async () => {
     ledger: new LedgerManager({ dataDir: dir }),
   });
   daemon.createRoom({ id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' } });
+  admin = daemon.store.addMember('eng', {
+    kind: 'human', handle: 'admin-user', display_name: 'Admin', role: 'admin',
+  });
+  member = daemon.store.addMember('eng', {
+    kind: 'human', handle: 'member-user', display_name: 'Member', role: 'member',
+  });
+  observer = daemon.store.addMember('eng', {
+    kind: 'human', handle: 'observer-user', display_name: 'Observer', role: 'observer',
+  });
   crypto = new CryptoVault(dir);
   crypto.roomKeys.ensureRoom('eng');
   pushSubscriptions = new PushSubscriptionStore(dir, crypto.keys);
-  server = await startServer({ daemon, token: TOKEN, crypto, pushSubscriptions });
+  server = await startServer({
+    daemon,
+    token: TOKEN,
+    principals: [
+      { token: ADMIN_TOKEN, member_id: admin.id },
+      { token: MEMBER_TOKEN, member_id: member.id },
+      { token: OBSERVER_TOKEN, member_id: observer.id },
+    ],
+    crypto,
+    pushSubscriptions,
+  });
   base = `http://127.0.0.1:${server.port}`;
 });
 
@@ -84,7 +109,9 @@ function connectUrl(url: string): Promise<{ ws: WebSocket; frames: ServerFrame[]
   });
 }
 
-const connect = () => connectUrl(`ws://127.0.0.1:${server.port}/ws?token=${TOKEN}`);
+const connectAs = (token: string) =>
+  connectUrl(`ws://127.0.0.1:${server.port}/ws?token=${token}`);
+const connect = () => connectAs(TOKEN);
 
 describe('REST', () => {
   it('fails closed when the configured token is missing or empty', async () => {
@@ -130,7 +157,7 @@ describe('REST', () => {
     expect(res.status).toBe(200);
     const sync = (await res.json()) as { seq: number; members: unknown[]; room: { id: string } };
     expect(sync.room.id).toBe('eng');
-    expect(sync.members).toHaveLength(2); // owner + system, seeded
+    expect(sync.members).toHaveLength(5); // owner, three role fixtures, and system
     expect(sync.seq).toBeGreaterThan(0);
   });
 
@@ -406,6 +433,29 @@ describe('REST', () => {
     expect(() => blobs.path('../escape', 'runs/1.jsonl')).toThrow('escapes');
     expect(() => blobs.path('eng', '../../../escape.jsonl')).toThrow('escapes');
   });
+
+  it('keeps device revocation owner-only even when an admin bearer is valid', async () => {
+    const device = new CryptoVault(join(dir, 'role-device'));
+    const peer = crypto.keys.enrollPeer({
+      ...device.keys.publicIdentity(), kind: 'device', label: 'role-device',
+    });
+    crypto.roomKeys.enrollPeer(peer);
+
+    const forbidden = await fetch(`${base}/api/devices/${encodeURIComponent(peer.device_id)}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
+    expect(forbidden.status).toBe(403);
+    expect(crypto.keys.getPeer(peer.device_id)).toBeDefined();
+
+    const allowed = await fetch(`${base}/api/devices/${encodeURIComponent(peer.device_id)}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(allowed.status).toBe(200);
+    expect(crypto.keys.getPeer(peer.device_id)).toBeUndefined();
+    device.close();
+  });
 });
 
 describe('WebSocket', () => {
@@ -417,6 +467,69 @@ describe('WebSocket', () => {
       startServer({ daemon, token: TOKEN, socketPath: join(publicParent, 'wireroom.sock') }),
     ).rejects.toThrow('unix socket parent must be a private directory');
     expect(statSync(publicParent).mode & 0o777).toBe(0o755);
+  });
+
+  it('derives post authors and act authority from each authenticated human', async () => {
+    const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/w' });
+
+    const observerClient = await connectAs(OBSERVER_TOKEN);
+    observerClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await expect(observerClient.next((frame) => frame.type === 'self')).resolves.toMatchObject({
+      type: 'self', member_id: observer.id,
+    });
+    observerClient.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: 'forbidden post' }));
+    await expect(observerClient.next((frame) =>
+      frame.type === 'error' && frame.message.includes('forbidden'))).resolves.toMatchObject({
+      ref: 'post',
+    });
+    expect(daemon.store.searchMessages('eng', 'forbidden post')).toEqual([]);
+
+    const memberClient = await connectAs(MEMBER_TOKEN);
+    memberClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await memberClient.next((frame) => frame.type === 'sync_complete');
+    memberClient.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: 'member commentary' }));
+    await expect(memberClient.next((frame) =>
+      frame.type === 'message' && frame.message.body === 'member commentary')).resolves.toMatchObject({
+      message: { author: member.id },
+    });
+    memberClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'rename', member_id: alpha.id, handle: 'member-hack' },
+    }));
+    await expect(memberClient.next((frame) =>
+      frame.type === 'error' && frame.message.includes('member cannot rename'))).resolves.toBeDefined();
+    expect(daemon.store.getMember('eng', alpha.id)?.handle).toBe('alpha');
+
+    const adminClient = await connectAs(ADMIN_TOKEN);
+    adminClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await adminClient.next((frame) => frame.type === 'sync_complete');
+    adminClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'rename', member_id: alpha.id, handle: 'admin-renamed' },
+    }));
+    await expect(adminClient.next((frame) =>
+      frame.type === 'member' && frame.member.id === alpha.id && frame.member.handle === 'admin-renamed'))
+      .resolves.toMatchObject({
+      member: { handle: 'admin-renamed' },
+    });
+    adminClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'set_role', member_id: member.id, role: 'observer' },
+    }));
+    const roleError = await adminClient.next((frame) => frame.type === 'error');
+    expect(roleError).toMatchObject({ message: expect.stringContaining('admin cannot set role') });
+
+    const ownerClient = await connect();
+    ownerClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await ownerClient.next((frame) => frame.type === 'sync_complete');
+    ownerClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'set_role', member_id: member.id, role: 'observer' },
+    }));
+    await expect(ownerClient.next((frame) =>
+      frame.type === 'member' && frame.member.id === member.id && frame.member.role === 'observer'))
+      .resolves.toBeDefined();
+
+    observerClient.ws.close();
+    memberClient.ws.close();
+    adminClient.ws.close();
+    ownerClient.ws.close();
   });
 
   it('serves the identical room and sync frames over a mode-0600 unix socket', async () => {
@@ -449,7 +562,7 @@ describe('WebSocket', () => {
     client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
     const completedSync = await client.next((frame) => frame.type === 'sync_complete');
     const memberFrames = client.frames.filter((f) => f.type === 'member');
-    expect(memberFrames.length).toBe(2); // hydrated owner + system
+    expect(memberFrames.length).toBe(5); // hydrated owner, role fixtures, and system
     expect(
       client.frames
         .filter((frame) => frame.type !== 'sync_complete')

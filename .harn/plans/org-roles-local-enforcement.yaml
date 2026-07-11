@@ -6,14 +6,16 @@ assumptions:
     - id: roles-gate-human-acts-not-agents
       title: Roles gate authenticated human acts rather than agent execution
       statement: Every network post, act, and mutating REST request must derive its
-        human actor from the authenticated principal and enforce the PROTOCOL section
-        1 observer, member, admin, and owner matrix, including targeted interaction
-        answers, own-inbox read state, owner-only devices and role changes, and
-        admin-authorized peer-to-room ledger writes, while internal agent execution
-        remains governed by harness policy instead of a human role.
-      reason: Client-supplied authors and a process-wide bearer previously acted as the
-        owner everywhere, so schema roles existed without being an authorization
-        boundary and any enrolled switchboard could write any home ledger.
+        human actor from the authenticated principal and enforce the PROTOCOL
+        section 1 observer, member, admin, and owner matrix, including targeted
+        interaction answers, own-inbox read state, owner-only devices and role
+        changes, and admin-authorized peer-to-room ledger writes, while internal
+        agent execution remains governed by harness policy instead of a human
+        role.
+      reason: Client-supplied authors and a process-wide bearer previously acted as
+        the owner everywhere, so schema roles existed without being an
+        authorization boundary and any enrolled switchboard could write any home
+        ledger.
       depends_on:
         - server-token-required
         - owner-and-system-members-seeded
@@ -48,8 +50,8 @@ assumptions:
         after the resident proves it received the final event acknowledgement.
     - id: client-syncs-by-seq
       outcome: unchanged
-      reason: A non-cursor self-identity frame identifies the authenticated human while
-        entity hydration and cursor commit semantics remain unchanged.
+      reason: A non-cursor self-identity frame identifies the authenticated human
+        while entity hydration and cursor commit semantics remain unchanged.
     - id: web-room-rail-creates-owner-room
       outcome: unchanged
       reason: Room creation stays functional for owners and is absent for lower roles.
@@ -71,18 +73,21 @@ assumptions:
         authorization data to the service-worker cache.
     - id: custody-uncertain-never-double-writes
       outcome: unchanged
-      reason: The attach command remains truthful and is now shown only to an admin or owner.
+      reason: The attach command remains truthful and is now shown only to an admin or
+        owner.
     - id: run-context-selects-and-follows-live-evidence
       outcome: unchanged
-      reason: Capability props pass through the context rail without altering selected-run
-        evidence fetching or live follow behavior.
+      reason: Capability props pass through the context rail without altering
+        selected-run evidence fetching or live follow behavior.
     - id: web-glass-theme-accessible-modes
       outcome: unchanged
-      reason: The observer status bar uses the existing semantic glass tokens in both modes.
+      reason: The observer status bar uses the existing semantic glass tokens in both
+        modes.
     - id: adapter-registry-sole-harness-source
       outcome: unchanged
-      reason: The home residency launcher and resident outpost both consume the same validated
-        adapter registry while the home gains its deferred transport wiring.
+      reason: The home residency launcher and resident outpost both consume the same
+        validated adapter registry while the home gains its deferred transport
+        wiring.
 anchors:
   roles-gate-human-acts-not-agents:
     role-matrix-source:
@@ -112,7 +117,8 @@ anchors:
   ledger-writes-audited-in-room:
     ledger-change-audit:
       action: change
-      reason: Reject remote writes unless peer, room, and attributed member are authorized.
+      reason: Reject remote writes unless peer, room, and attributed member are
+        authorized.
   resident-attempt-journal-reconciles:
     resident-attempt-wal:
       action: change
@@ -146,11 +152,13 @@ anchors:
       reason: Style the read-only role status with existing semantic mode tokens.
     glass-theme-regression:
       action: change
-      reason: Wait for the authoritative owner role before exercising mobile Settings scroll.
+      reason: Wait for the authoritative owner role before exercising mobile Settings
+        scroll.
   adapter-registry-sole-harness-source:
     registry-cli-composition:
       action: change
-      reason: Compose optional home transport and residency from the already-loaded registry.
+      reason: Compose optional home transport and residency from the already-loaded
+        registry.
   web-room-rail-creates-owner-room:
     room-rail-create-action:
       action: change
@@ -166,11 +174,13 @@ anchors:
   web-settings-controls-preserve-product-truth:
     glass-settings-surface:
       action: change
-      reason: Keep truthful settings content while hiding mutating role-restricted controls.
+      reason: Keep truthful settings content while hiding mutating role-restricted
+        controls.
   web-settings-desktop-focuses-one-category:
     focused-settings-category:
       action: change
-      reason: Filter focused navigation and content to categories reachable by the role.
+      reason: Filter focused navigation and content to categories reachable by the
+        role.
 files:
   - docs/ROLES.md
   - packages/protocol/src/member.ts
@@ -199,3 +209,5 @@ files:
   - packages/cli/src/program.ts
   - packages/cli/src/index.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T01:55:38.768Z

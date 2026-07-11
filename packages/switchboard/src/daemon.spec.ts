@@ -868,6 +868,26 @@ describe('interactions: the full state machine', () => {
     expect(run.body).toBe('chose ALPHA');
   });
 
+  it('rejects an interaction answer from a human outside the persisted targets', async () => {
+    const alpha = spawnAgent('alpha');
+    const observer = daemon.store.addMember('eng', {
+      kind: 'human', handle: 'watcher', display_name: 'Watcher', role: 'observer',
+    });
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Choose?', options: [{ label: 'yes' }] },
+      reply: () => 'not reached',
+    });
+    daemon.postHumanMessage('eng', '@alpha ask');
+    const interaction = await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id));
+
+    await expect(daemon.answerInteraction('eng', interaction.id, 'yes', observer.id))
+      .rejects.toThrow('is not addressed');
+    expect(daemon.store.getInteraction(interaction.id)?.state).toBe('pending');
+    expect(fake.respondCalls).toEqual([]);
+  });
+
   it('the audit reply on the card never routes (no delivery, no turn)', async () => {
     const alpha = spawnAgent('alpha');
     fake.enqueue({
@@ -1285,6 +1305,24 @@ describe('human inbox lifecycle + sync', () => {
     const sync = daemon.sync('eng', cursor);
     expect(sync.inbox).toHaveLength(1);
     expect(sync.inbox[0]!.read_ts).toBeDefined();
+  });
+
+  it('lets a human mark only their own inbox delivery read', async () => {
+    const other = daemon.store.addMember('eng', {
+      kind: 'human', handle: 'other-user', display_name: 'Other', role: 'member',
+    });
+    const owner = daemon.ownerOf('eng');
+    const message = daemon.store.postMessage('eng', {
+      author: other.id, kind: 'chat', body: '@richard private inbox item',
+    });
+    const delivery = daemon.store.createDelivery('eng', {
+      message_id: message.id, recipient: owner.id, state: 'consumed',
+    });
+
+    expect(() => daemon.markRead('eng', delivery.id, other.id)).toThrow('does not belong');
+    expect(daemon.store.getDelivery('eng', delivery.id)?.read_ts).toBeUndefined();
+    daemon.markRead('eng', delivery.id, owner.id);
+    expect(daemon.store.getDelivery('eng', delivery.id)?.read_ts).toBeDefined();
   });
 
   it('sync across a run finalization returns the message once, in final state', async () => {

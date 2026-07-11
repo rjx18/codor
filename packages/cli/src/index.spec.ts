@@ -375,12 +375,18 @@ describe('@wireroom/cli', () => {
       owner: 'operator',
       relayUrl: 'https://relay.example.test',
       pushVapidPublicKey: 'm3-vapid-public-key',
+      line: { name: 'home-launcher', secret: 'local-test-secret' },
+      bootstrap: [],
     });
     expect(running.daemon.store.listRooms().map((room) => room.id)).toEqual(['default']);
     expect(running.daemon.registeredAdapters().map((adapter) => adapter.id)).toEqual(
       [...BUILTIN_ADAPTER_IDS].sort(),
     );
     expect(running.server.socketPath).toBe(join(dir, 'up-data', 'wireroom.sock'));
+    expect(running.transport).toBeDefined();
+    expect(running.residency?.registeredAdapters().map((adapter) => adapter.id)).toEqual(
+      [...BUILTIN_ADAPTER_IDS].sort(),
+    );
     const pushConfig = await fetch(`http://127.0.0.1:${String(running.server.port)}/api/push/config`, {
       headers: { authorization: 'Bearer up-token' },
     });

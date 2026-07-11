@@ -510,6 +510,7 @@ test('glass shell responds to light preference without losing contrast or materi
 
   await page.setViewportSize({ width: 390, height: 600 });
   await page.goto('/settings?room=eng');
+  await expect(page.getByTestId('room-settings-save')).toBeVisible();
   const beforeScroll = await page.evaluate(() => window.scrollY);
   await page.mouse.wheel(0, 1200);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(beforeScroll);
@@ -635,3 +636,30 @@ test('theme choice applies immediately, survives a tokenless launch, and returns
   expect(mutatingApiRequests).toEqual([]);
 });
 // harn:end web-theme-choice-stays-local
+
+test('authenticated roles remove commands the local matrix does not allow', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?room=eng&token=e2e-observer-token');
+  await expect(page.getByTestId('member-observer-user')).toBeVisible();
+  await expect(page.getByTestId('read-only-room')).toBeVisible();
+  await expect(page.getByTestId('composer-input')).toHaveCount(0);
+  await expect(page.getByTestId('spawn-agent')).toHaveCount(0);
+  await expect(page.getByTestId('create-room')).toHaveCount(0);
+
+  await page.goto('/settings?room=eng&token=e2e-observer-token');
+  await expect(page.getByRole('link', { name: 'Appearance', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Privacy', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Brakes', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Paired devices', exact: true })).toHaveCount(0);
+
+  await page.goto('/?room=eng&token=e2e-admin-token');
+  await expect(page.getByTestId('member-admin-user')).toBeVisible();
+  await expect(page.getByTestId('composer-input')).toBeVisible();
+  await expect(page.getByTestId('spawn-agent')).toBeVisible();
+  await expect(page.getByTestId('create-room')).toHaveCount(0);
+
+  await page.goto('/settings?room=eng&token=e2e-admin-token');
+  await expect(page.getByRole('link', { name: 'Brakes', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Relay', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Paired devices', exact: true })).toHaveCount(0);
+});

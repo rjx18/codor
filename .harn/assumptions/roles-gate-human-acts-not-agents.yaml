@@ -1,0 +1,16 @@
+id: roles-gate-human-acts-not-agents
+hash: a-cea050edaa2a
+title: Roles gate authenticated human acts rather than agent execution
+state: active
+statement: Every network post, act, and mutating REST request must derive its
+  human actor from the authenticated principal and enforce the PROTOCOL section
+  1 observer, member, admin, and owner matrix, including targeted interaction
+  answers, own-inbox read state, owner-only devices and role changes, and
+  admin-authorized peer-to-room ledger writes, while internal agent execution
+  remains governed by harness policy instead of a human role.
+depends_on:
+  - server-token-required
+  - owner-and-system-members-seeded
+  - interaction-state-machine-persisted
+  - ledger-writes-audited-in-room
+created_by: org-roles-local-enforcement

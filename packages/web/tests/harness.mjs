@@ -24,6 +24,9 @@ const API_PORT = 8137;
 const CONTROL_PORT = 8138;
 const RELAY_PORT = 8139;
 const TOKEN = 'e2e-token';
+const ADMIN_TOKEN = 'e2e-admin-token';
+const MEMBER_TOKEN = 'e2e-member-token';
+const OBSERVER_TOKEN = 'e2e-observer-token';
 
 const dir = mkdtempSync(join(tmpdir(), 'wireroom-e2e-'));
 const fake = new FakeAdapter('fake', { extensions: true });
@@ -56,6 +59,15 @@ const daemon = new Daemon({
   pushProducer,
 });
 daemon.createRoom({ id: 'eng', name: 'Engineering', owner: { handle: 'richard', display_name: 'Richard' } });
+const admin = daemon.store.addMember('eng', {
+  kind: 'human', handle: 'admin-user', display_name: 'Admin', role: 'admin',
+});
+const member = daemon.store.addMember('eng', {
+  kind: 'human', handle: 'member-user', display_name: 'Member', role: 'member',
+});
+const observer = daemon.store.addMember('eng', {
+  kind: 'human', handle: 'observer-user', display_name: 'Observer', role: 'observer',
+});
 const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/work' });
 const vapid = createECDH('prime256v1');
 vapid.generateKeys();
@@ -65,6 +77,11 @@ const staticRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 await startServer({
   daemon,
   token: TOKEN,
+  principals: [
+    { token: ADMIN_TOKEN, member_id: admin.id },
+    { token: MEMBER_TOKEN, member_id: member.id },
+    { token: OBSERVER_TOKEN, member_id: observer.id },
+  ],
   port: API_PORT,
   staticRoot,
   crypto,

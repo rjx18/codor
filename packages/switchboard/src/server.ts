@@ -6,8 +6,9 @@ import { dirname } from 'node:path';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { ClientFrameSchema, RoomIdSchema, type ServerFrame } from '@wireroom/protocol';
+import { ClientFrameSchema, RoomIdSchema, type Member, type ServerFrame } from '@wireroom/protocol';
 
+import { assertHumanCapability, roleAllows, type HumanCapability } from './authorization.js';
 import { constantTimeEqual } from './crypto/challenge.js';
 import type { CryptoVault, PairingRequest } from './crypto/pairing.js';
 import type { Daemon } from './daemon.js';
@@ -17,6 +18,8 @@ export interface ServerOptions {
   daemon: Daemon;
   /** Single pairing token — the authenticated principal IS the room owner. */
   token: string;
+  /** Optional pre-enrolled local principals; enrollment/directory service is out of scope. */
+  principals?: readonly { token: string; member_id: string }[];
   host?: string;
   port?: number;
   /** Serve the built web SPA from this directory (the switchboard IS the web host). */
@@ -38,6 +41,11 @@ export interface RunningServer {
   port: number;
   socketPath?: string;
   close(): Promise<void>;
+}
+
+interface AuthPrincipal {
+  /** Undefined is the backwards-compatible single-operator owner token. */
+  memberId?: string;
 }
 
 async function prepareSocketPath(socketPath: string): Promise<void> {
@@ -93,19 +101,92 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   if (typeof token !== 'string' || token.trim() === '') {
     throw new Error('startServer requires a non-empty authentication token');
   }
+  const configuredPrincipals = options.principals ?? [];
+  const principalTokens = new Set<string>();
+  for (const principal of configuredPrincipals) {
+    if (principal.token.trim() === '') throw new Error('principal tokens must be non-empty');
+    if (constantTimeEqual(principal.token, token) || principalTokens.has(principal.token)) {
+      throw new Error('principal tokens must be unique');
+    }
+    principalTokens.add(principal.token);
+  }
   // harn:end server-token-required
   const app = Fastify();
 
-  const authed = (req: FastifyRequest, reply: FastifyReply): boolean => {
+  const principalForToken = (candidate: string | undefined): AuthPrincipal | undefined => {
+    if (candidate === undefined) return undefined;
+    if (constantTimeEqual(candidate, token)) return {};
+    const configured = configuredPrincipals.find((principal) =>
+      constantTimeEqual(candidate, principal.token));
+    return configured ? { memberId: configured.member_id } : undefined;
+  };
+
+  const authed = (req: FastifyRequest, reply: FastifyReply): AuthPrincipal | undefined => {
     const header = req.headers.authorization;
     const query = (req.query as { token?: string }).token;
-    if (
-      (typeof header === 'string' && constantTimeEqual(header, `Bearer ${token}`)) ||
-      (typeof query === 'string' && constantTimeEqual(query, token))
-    ) return true;
+    const bearer = typeof header === 'string' && header.startsWith('Bearer ')
+      ? header.slice('Bearer '.length)
+      : undefined;
+    const principal = principalForToken(bearer) ?? principalForToken(query);
+    if (principal) return principal;
     void reply.code(401).send({ error: 'unauthorized' });
-    return false;
+    return undefined;
   };
+
+  const memberForRoom = (principal: AuthPrincipal, room: string): Member => {
+    if (principal.memberId === undefined) return daemon.ownerOf(room);
+    const member = daemon.store.getMember(room, principal.memberId);
+    if (member?.kind !== 'human') throw new Error('principal is not a human member of this room');
+    return member;
+  };
+
+  const memberForGlobal = (principal: AuthPrincipal): Member | undefined => {
+    if (principal.memberId === undefined) return undefined;
+    for (const room of daemon.store.listRooms()) {
+      const member = daemon.store.getMember(room.id, principal.memberId);
+      if (member?.kind === 'human') return member;
+    }
+    throw new Error('principal is not a human member');
+  };
+
+  const authorizeRoom = (
+    principal: AuthPrincipal,
+    room: string,
+    capability: HumanCapability,
+    reply?: FastifyReply,
+  ): Member | undefined => {
+    if (!daemon.store.getRoom(room)) {
+      if (reply) void reply.code(404).send({ error: `no such room ${room}` });
+      return undefined;
+    }
+    try {
+      const member = memberForRoom(principal, room);
+      assertHumanCapability(member, capability);
+      return member;
+    } catch (error) {
+      if (reply) void reply.code(403).send({ error: String(error) });
+      return undefined;
+    }
+  };
+
+  const authorizeGlobal = (
+    principal: AuthPrincipal,
+    capability: HumanCapability,
+    reply?: FastifyReply,
+  ): boolean => {
+    try {
+      const member = memberForGlobal(principal);
+      if (member) assertHumanCapability(member, capability);
+      else if (!roleAllows('owner', capability)) throw new Error(`forbidden: owner cannot ${capability}`);
+      return true;
+    } catch (error) {
+      if (reply) void reply.code(403).send({ error: String(error) });
+      return false;
+    }
+  };
+
+  const roomsFor = (principal: AuthPrincipal) => daemon.store.listRooms().filter((room) =>
+    principal.memberId === undefined || daemon.store.getMember(room.id, principal.memberId)?.kind === 'human');
 
   app.post('/api/pairing/complete', (req, reply) => {
     if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
@@ -125,7 +206,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   app.post('/api/pairing/offers', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_devices', reply)) return;
     if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
     try {
       const { endpoint } = req.body as { endpoint: string };
@@ -136,7 +218,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   app.post('/api/devices/:deviceId/push-subscription', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_devices', reply)) return;
     if (!options.pushSubscriptions) {
       return reply.code(404).send({ error: 'push subscriptions are not configured' });
     }
@@ -152,7 +235,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   app.delete('/api/devices/:deviceId/push-subscription', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_devices', reply)) return;
     if (!options.pushSubscriptions) {
       return reply.code(404).send({ error: 'push subscriptions are not configured' });
     }
@@ -162,7 +246,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   app.get('/api/push/config', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'read', reply)) return;
     return reply.send({
       enabled: Boolean(
         options.pushSubscriptions && options.pushVapidPublicKey && options.pushRelayEnabled,
@@ -173,7 +258,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   // harn:assume unpair-purges-all-browser-state ref=device-revoke-rest
   app.get('/api/devices', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_devices', reply)) return;
     if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
     return reply.send({
       devices: options.crypto.keys.listPeers()
@@ -188,7 +274,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   app.delete('/api/devices/:deviceId', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_devices', reply)) return;
     if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
     const { deviceId } = req.params as { deviceId: string };
     const peer = options.crypto.keys.getPeer(deviceId);
@@ -200,17 +287,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   // harn:end unpair-purges-all-browser-state
 
   app.get('/api/rooms', (req, reply) => {
-    if (!authed(req, reply)) return;
-    void reply.send({ rooms: daemon.store.listRooms() });
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'read', reply)) return;
+    void reply.send({ rooms: roomsFor(principal) });
   });
 
   app.get('/api/adapters', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'read', reply)) return;
     void reply.send({ adapters: daemon.registeredAdapters() });
   });
 
   app.post('/api/rooms', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_rooms', reply)) return;
     const body = req.body as { id: string; name: string; owner: { handle: string; display_name: string } };
     RoomIdSchema.parse(body.id);
     const created = daemon.createRoom(body);
@@ -219,8 +309,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   app.get('/api/rooms/:room/sync', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal) return;
     const { room } = req.params as { room: string };
+    if (!authorizeRoom(principal, room, 'read', reply)) return;
     const sinceSeq = Number((req.query as { since_seq?: string }).since_seq ?? 0);
     try {
       void reply.send(daemon.sync(room, sinceSeq));
@@ -245,8 +337,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   };
 
   app.get('/api/rooms/:room/messages', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal) return;
     const { room } = req.params as { room: string };
+    if (!authorizeRoom(principal, room, 'read', reply)) return;
     if (!daemon.store.getRoom(room)) return reply.code(404).send({ error: `no such room ${room}` });
     try {
       const query = req.query as { before?: string; limit?: string };
@@ -267,8 +361,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   app.get('/api/rooms/:room/search', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal) return;
     const { room } = req.params as { room: string };
+    if (!authorizeRoom(principal, room, 'read', reply)) return;
     if (!daemon.store.getRoom(room)) return reply.code(404).send({ error: `no such room ${room}` });
     try {
       const query = req.query as { q?: string; limit?: string };
@@ -284,14 +380,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   // harn:end permalink-ids-stable
 
   app.get('/api/rooms/:room/runs/:msgId', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal) return;
     const { room, msgId } = req.params as { room: string; msgId: string };
+    if (!authorizeRoom(principal, room, 'read', reply)) return;
     void reply.send({ events: daemon.readRunBlob(room, Number(msgId)) });
   });
 
   app.get('/api/rooms/:room/ledger/:name', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal) return;
     const { room, name } = req.params as { room: string; name: string };
+    if (!authorizeRoom(principal, room, 'read', reply)) return;
     try {
       const note = daemon.getLedgerNote(room, name);
       if (!note) return reply.code(404).send({ error: `no such ledger note ${name}` });
@@ -302,29 +402,37 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   app.post('/api/rooms/:room/members', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal) return;
     const { room } = req.params as { room: string };
+    if (!authorizeRoom(principal, room, 'spawn', reply)) return;
     const body = req.body as { harness: string; handle: string; cwd: string; policy?: string; model?: string };
     void reply.send(daemon.spawnMember(room, body));
   });
 
   app.get('/api/rooms/:room/members', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal) return;
     const { room } = req.params as { room: string };
+    if (!authorizeRoom(principal, room, 'read', reply)) return;
     void reply.send({ members: daemon.project(room, daemon.memberDetails(room)) });
   });
 
   app.patch('/api/rooms/:room/members/:memberId', (req, reply) => {
-    if (!authed(req, reply)) return;
+    const principal = authed(req, reply);
+    if (!principal) return;
     const { room, memberId } = req.params as { room: string; memberId: string };
+    if (!authorizeRoom(principal, room, 'rename', reply)) return;
     const body = req.body as { handle: string; display_name?: string };
     void reply.send(daemon.renameMember(room, memberId, body.handle, body.display_name));
   });
 
   for (const action of ['revive', 'kill', 'pause', 'unpause'] as const) {
     app.post(`/api/rooms/:room/members/:memberId/${action}`, (req, reply) => {
-      if (!authed(req, reply)) return;
+      const principal = authed(req, reply);
+      if (!principal) return;
       const { room, memberId } = req.params as { room: string; memberId: string };
+      if (!authorizeRoom(principal, room, action, reply)) return;
       const member =
         action === 'revive'
           ? daemon.reviveMember(room, memberId)
@@ -366,11 +474,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   // harn:assume unix-socket-same-protocol ref=unix-websocket-listener
   const bindProtocol = (
     server: WebSocketServer,
-    authenticate: (url: URL) => boolean,
+    authenticate: (url: URL) => AuthPrincipal | undefined,
   ): void => {
     server.on('connection', (socket, req) => {
       const url = new URL(req.url ?? '/', 'http://localhost');
-      if (!authenticate(url)) {
+      const principal = authenticate(url);
+      if (!principal) {
         socket.close(4401, 'unauthorized');
         return;
       }
@@ -390,6 +499,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         }
         try {
           if (frame.type === 'mirror_turn') {
+            const joined = daemon.store.findMemberBySessionRef(frame.harness, frame.session_ref);
+            if (!joined) throw new Error(`no mirrored member for ${frame.harness} session ${frame.session_ref}`);
+            assertHumanCapability(memberForRoom(principal, joined.room), 'mirror_turn');
             const mirrored = daemon.mirrorTurn(frame);
             send({
               type: 'mirror_ack',
@@ -398,19 +510,26 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               deduped: mirrored.deduped,
             });
           } else if (frame.type === 'mirror_session_end') {
+            const joined = daemon.store.findMemberBySessionRef(frame.harness, frame.session_ref);
+            if (!joined) throw new Error(`no mirrored member for ${frame.harness} session ${frame.session_ref}`);
+            assertHumanCapability(memberForRoom(principal, joined.room), 'mirror_session_end');
             send({
               type: 'mirror_ack',
               adopted: daemon.mirrorSessionEnd(frame.harness, frame.session_ref),
             });
           } else if (frame.type === 'list_rooms') {
+            if (!authorizeGlobal(principal, 'read')) throw new Error('forbidden: principal cannot list rooms');
             send({
               type: 'rooms',
-              rooms: daemon.store.listRooms().map((room) => daemon.project(room.id, room)),
+              rooms: roomsFor(principal).map((room) => daemon.project(room.id, room)),
             });
           } else if (frame.type === 'subscribe') {
+            const actor = memberForRoom(principal, frame.room);
+            assertHumanCapability(actor, 'read');
             subscriptions.get(socket)!.add(frame.room);
             const sync = daemon.sync(frame.room, frame.since_seq);
             const hydrationCursor = frame.since_seq;
+            send({ type: 'self', member_id: actor.id });
             send({ type: 'room', seq: hydrationCursor, room: sync.room });
             for (const member of sync.members) send({ type: 'member', seq: hydrationCursor, member });
             for (const message of sync.messages) send({ type: 'message', seq: hydrationCursor, message });
@@ -418,12 +537,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             for (const meter of sync.meters) send({ type: 'meter', seq: hydrationCursor, meter });
             send({ type: 'sync_complete', seq: sync.seq });
           } else if (frame.type === 'post') {
-            daemon.postHumanMessage(frame.room, frame.body, { reply_to: frame.reply_to });
+            const actor = memberForRoom(principal, frame.room);
+            assertHumanCapability(actor, 'post');
+            daemon.postHumanMessage(frame.room, frame.body, {
+              author: actor.id,
+              reply_to: frame.reply_to,
+            });
           } else if (frame.type === 'act') {
             const act = frame.act;
+            const actor = memberForRoom(principal, frame.room);
+            assertHumanCapability(actor, act.act);
             if (act.act === 'answer_interaction') {
               void daemon
-                .answerInteraction(frame.room, act.interaction_id, act.answer)
+                .answerInteraction(frame.room, act.interaction_id, act.answer, actor.id)
                 .catch((error: unknown) =>
                   send({ type: 'error', message: String(error), ref: 'answer_interaction' }),
                 );
@@ -477,7 +603,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             }
             else if (act.act === 'redeliver') daemon.redeliver(frame.room, act.delivery_id);
             else if (act.act === 'release_hold') daemon.releaseHold(frame.room, act.delivery_id);
-            else if (act.act === 'mark_read') daemon.markRead(frame.room, act.delivery_id);
+            else if (act.act === 'mark_read') daemon.markRead(frame.room, act.delivery_id, actor.id);
             else if (act.act === 'spawn') {
               daemon.spawnMember(frame.room, {
                 harness: act.harness,
@@ -492,6 +618,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             else if (act.act === 'pause') daemon.pauseMember(frame.room, act.member_id);
             else if (act.act === 'unpause') daemon.unpauseMember(frame.room, act.member_id);
             else if (act.act === 'interrupt') daemon.interruptMember(frame.room, act.member_id);
+            else if (act.act === 'set_role') daemon.setHumanRole(frame.room, act.member_id, act.role);
           }
         } catch (error) {
           send({ type: 'error', message: String(error), ref: frame.type });
@@ -500,11 +627,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     });
   };
 
-  bindProtocol(wss, (url) => constantTimeEqual(url.searchParams.get('token') ?? '', token));
+  bindProtocol(wss, (url) => principalForToken(url.searchParams.get('token') ?? undefined));
   if (options.socketPath !== undefined) {
     ipcServer = createHttpServer((_req, res) => res.writeHead(404).end());
     ipcWss = new WebSocketServer({ server: ipcServer, path: '/ws' });
-    bindProtocol(ipcWss, () => true);
+    bindProtocol(ipcWss, () => ({}));
     try {
       await listenUnix(ipcServer, options.socketPath);
     } catch (error) {

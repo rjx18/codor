@@ -133,6 +133,7 @@ export function createProgram(context: CliContext = {}): Command {
     .option('--owner <handle>', 'initial owner handle')
     .option('--relay-url <url>', 'optional sealed push relay URL', env.WIREROOM_RELAY_URL)
     .option('--push-vapid-public-key <key>', 'Web Push VAPID public key', env.WIREROOM_VAPID_PUBLIC_KEY)
+    .option('--join <line>', 'join a private home/outpost line as name:secret')
     .option('--adapter <name=module>', 'trusted adapter module (repeatable)', collectAdapter, [])
     .action(async (options: {
       host: string;
@@ -143,6 +144,7 @@ export function createProgram(context: CliContext = {}): Command {
       owner?: string;
       relayUrl?: string;
       pushVapidPublicKey?: string;
+      join?: string;
       adapter: string[];
     }) => {
       const globals = program.opts<GlobalOptions>();
@@ -157,6 +159,7 @@ export function createProgram(context: CliContext = {}): Command {
         owner: options.owner,
         relayUrl: options.relayUrl,
         pushVapidPublicKey: options.pushVapidPublicKey,
+        line: options.join ? parseLine(options.join) : undefined,
         adapters: parseAdapterModules(options.adapter),
       });
       out(`wireroom http://localhost:${running.server.port}`);

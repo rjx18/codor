@@ -1260,6 +1260,17 @@ button:disabled {
   box-shadow: var(--wr-shadow-strong), inset 0 1px rgba(255, 255, 255, 0.085), 0 0 0 1px color-mix(in srgb, var(--wr-cyan) 18%, transparent);
 }
 
+.wr-read-only-room {
+  min-height: 56px;
+  display: grid;
+  place-items: center;
+  padding: 12px 20px max(12px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--glass-line);
+  background: color-mix(in srgb, var(--glass-panel-strong) 88%, transparent);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .wr-composer-heading {
   display: flex;
   min-width: 0;

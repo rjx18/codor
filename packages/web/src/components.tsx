@@ -379,6 +379,7 @@ export function MemberCard(props: {
   connection: Connection;
   expanded?: boolean;
   onToggle?: () => void;
+  canManage?: boolean;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [handle, setHandle] = useState(props.member.handle);
@@ -387,6 +388,7 @@ export function MemberCard(props: {
   const tokens =
     (props.detail?.spend.input_tokens ?? 0) + (props.detail?.spend.output_tokens ?? 0);
   const expanded = props.expanded ?? true;
+  const canManage = props.canManage ?? true;
 
   useEffect(() => {
     setHandle(props.member.handle);
@@ -465,7 +467,7 @@ export function MemberCard(props: {
         </span>
       )}
       {/* harn:assume custody-uncertain-never-double-writes ref=attach-custody-web-hint */}
-      {props.member.session_ref && props.member.custody !== 'mirrored' && state !== 'dead' && (
+      {canManage && props.member.session_ref && props.member.custody !== 'mirrored' && state !== 'dead' && (
         <div className="mt-2 flex min-w-0 items-center gap-2 text-[10px]">
           <code
             data-testid={`attach-command-${props.member.handle}`}
@@ -493,7 +495,7 @@ export function MemberCard(props: {
       >
         {props.history.map((item) => item.state).join(' > ') || state}
       </p>
-      {renaming ? (
+      {canManage && (renaming ? (
         <form
           className="mt-2 grid gap-2"
           onSubmit={(event) => {
@@ -593,7 +595,7 @@ export function MemberCard(props: {
             </button>
           )}
         </div>
-      )}
+      ))}
       </div>}
     </li>
   );
@@ -607,6 +609,7 @@ export function MemberRail(props: {
   connection: Connection;
   variant?: 'rail' | 'context' | 'drawer';
   className?: string;
+  canManageAgents?: boolean;
 }) {
   const variant = props.variant ?? 'rail';
   const firstAgentId = props.members.find((member) => member.kind === 'agent')?.id;
@@ -628,7 +631,9 @@ export function MemberRail(props: {
     <aside className={`wr-member-rail wr-member-rail-${variant} ${props.className ?? ''}`}>
       <div className="wr-member-rail-heading">
         <div className="wr-rail-label"><span>Members</span><span>{props.members.filter((m) => m.kind !== 'system').length}</span></div>
-        <SpawnAgentDialog adapters={props.adapters} connection={props.connection} />
+        {(props.canManageAgents ?? true) && (
+          <SpawnAgentDialog adapters={props.adapters} connection={props.connection} />
+        )}
       </div>
       <ul className="mt-3">
         {props.members
@@ -644,6 +649,7 @@ export function MemberRail(props: {
               onToggle={m.kind === 'agent'
                 ? () => setSelectedMemberId((current) => current === m.id ? undefined : m.id)
                 : undefined}
+              canManage={props.canManageAgents}
             />
           ))}
       </ul>
@@ -889,6 +895,7 @@ export function AskCardView(props: {
   authorHandle: string;
   answered: boolean;
   connection: Connection;
+  canAnswer?: boolean;
 }) {
   const ask = props.message.ask!;
   const [sent, setSent] = useState(false);
@@ -915,7 +922,7 @@ export function AskCardView(props: {
       </div>
       <p className="wr-ask-prompt">{ask.prompt}</p>
       {ask.detail && <code className="wr-ask-detail">{ask.detail}</code>}
-      <div className="wr-ask-actions">
+      {(props.canAnswer ?? true) && <div className="wr-ask-actions">
         {(ask.options ?? []).map((option, index) => {
           const destructive = /^(deny|reject|no|cancel)$/i.test(option.label);
           const permission = approval && !destructive;
@@ -948,7 +955,7 @@ export function AskCardView(props: {
           </button>
           );
         })}
-      </div>
+      </div>}
       {done && <p className="mt-1 text-xs text-zinc-400">answered</p>}
     </div>
   );
@@ -958,6 +965,8 @@ export function HoldBanner(props: {
   held: Delivery[];
   handleOf: (memberId: string) => string;
   connection: Connection;
+  canRelease?: boolean;
+  canRedeliver?: boolean;
 }) {
   if (props.held.length === 0) return null;
   return (
@@ -969,21 +978,21 @@ export function HoldBanner(props: {
             <strong>Delivery held</strong>
             <small>#{delivery.message_id} to @{props.handleOf(delivery.recipient)}</small>
           </span>
-          <button
+          {(props.canRelease ?? true) && <button
             type="button"
             data-testid={`release-${delivery.id}`}
             onClick={() => props.connection.act({ act: 'release_hold', delivery_id: delivery.id })}
             className="wr-attention-button min-h-11 px-3 text-xs"
           >
             <Play aria-hidden="true" size={15} /> Release
-          </button>
-          <button
+          </button>}
+          {(props.canRedeliver ?? true) && <button
             type="button"
             onClick={() => props.connection.act({ act: 'redeliver', delivery_id: delivery.id })}
             className="wr-secondary-button min-h-11 px-3 text-xs"
           >
             <RotateCcw aria-hidden="true" size={15} /> Redeliver
-          </button>
+          </button>}
         </div>
       ))}
     </div>
@@ -1211,5 +1220,8 @@ export function MessageRow(props: { message: Message; authorHandle: string; mine
 export const handleLookup = (members: Record<string, Member>) => (memberId: string): string =>
   members[memberId]?.handle ?? 'unknown';
 
-export const isMe = (members: Record<string, Member>, memberId: string): boolean =>
-  me(members)?.id === memberId;
+export const isMe = (
+  members: Record<string, Member>,
+  memberId: string,
+  selfMemberId?: string,
+): boolean => me(members, selfMemberId)?.id === memberId;

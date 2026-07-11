@@ -26,6 +26,8 @@ import {
 import {
   heldDeliveries,
   HISTORY_PAGE_SIZE,
+  me,
+  roleAtLeast,
   sortedMessages,
   unreadCount,
   useRoomStore,
@@ -299,6 +301,11 @@ export function App(props: { token?: string } = {}) {
   const owner = Object.values(state.members).find(
     (member) => member.kind === 'human' && member.role === 'owner',
   );
+  // harn:assume roles-gate-human-acts-not-agents ref=role-aware-web-controls
+  const self = me(state.members, state.selfMemberId);
+  const canPost = roleAtLeast(self?.role, 'member');
+  const canManageAgents = roleAtLeast(self?.role, 'admin');
+  const canManageRooms = roleAtLeast(self?.role, 'owner');
   const held = heldDeliveries(state.inbox);
 
   useEffect(() => {
@@ -365,6 +372,7 @@ export function App(props: { token?: string } = {}) {
           connected={state.connected}
           token={TOKEN}
           owner={owner ? { handle: owner.handle, display_name: owner.display_name } : undefined}
+          canCreateRoom={canManageRooms}
         />
         <main data-testid="room-view" className="wr-room-main">
           <Header
@@ -395,7 +403,13 @@ export function App(props: { token?: string } = {}) {
               Offline · room history stays on your switchboard
             </div>
           )}
-          <HoldBanner held={held} handleOf={handles} connection={connection} />
+          <HoldBanner
+            held={held}
+            handleOf={handles}
+            connection={connection}
+            canRelease={canPost}
+            canRedeliver={canManageAgents}
+          />
           {searchOpen && (
             <form
               id="room-message-search"
@@ -545,6 +559,9 @@ export function App(props: { token?: string } = {}) {
                     authorHandle={handles(message.author)}
                     answered={answeredCards.has(message.id)}
                     connection={connection}
+                    canAnswer={canPost && self !== undefined && Object.values(state.inbox).some(
+                      (delivery) => delivery.message_id === message.id && delivery.recipient === self.id,
+                    )}
                   />
                 );
               }
@@ -553,13 +570,19 @@ export function App(props: { token?: string } = {}) {
                   key={message.id}
                   message={message}
                   authorHandle={handles(message.author)}
-                  mine={isMe(state.members, message.author)}
+                  mine={isMe(state.members, message.author, state.selfMemberId)}
                 />
               );
             })}
           </div>
           {/* harn:end sw-caches-shell-only-no-message-data */}
-          <Composer members={state.members} messages={state.messages} connection={connection} />
+          {canPost ? (
+            <Composer members={state.members} messages={state.messages} connection={connection} />
+          ) : (
+            <div data-testid="read-only-room" className="wr-read-only-room">
+              Observer access · room commands are read-only
+            </div>
+          )}
         </main>
         <ContextRail
           members={Object.values(state.members)}
@@ -575,6 +598,7 @@ export function App(props: { token?: string } = {}) {
           room={ROOM}
           token={TOKEN}
           className="wr-context-desktop"
+          canManageAgents={canManageAgents}
         />
       </div>
 
@@ -614,6 +638,7 @@ export function App(props: { token?: string } = {}) {
               connected={state.connected}
               token={TOKEN}
               owner={owner ? { handle: owner.handle, display_name: owner.display_name } : undefined}
+              canCreateRoom={canManageRooms}
               onNavigate={() => setDrawerOpen(false)}
             />
             <MemberRail
@@ -624,6 +649,7 @@ export function App(props: { token?: string } = {}) {
               connection={connection}
               variant="drawer"
               className="min-h-0 flex-1 pb-[max(1rem,env(safe-area-inset-bottom))]"
+              canManageAgents={canManageAgents}
             />
           </aside>
         </div>
@@ -666,6 +692,7 @@ export function App(props: { token?: string } = {}) {
               token={TOKEN}
               testId="context-sheet"
               className="min-h-0 flex-1"
+              canManageAgents={canManageAgents}
             />
           </section>
         </div>
@@ -673,5 +700,6 @@ export function App(props: { token?: string } = {}) {
     </div>
   );
   // harn:end web-room-visual-hierarchy-matches-glass-reference
+  // harn:end roles-gate-human-acts-not-agents
 }
 // harn:end permalink-ids-stable

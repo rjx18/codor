@@ -6,12 +6,14 @@ import type {
   Member,
   Message,
   PendingInteraction,
+  Role,
   ServerFrame,
   Session,
   WireEvent,
 } from '@wireroom/protocol';
 
 import { BlobStore } from './blobs.js';
+import { roleAllows } from './authorization.js';
 import type { LedgerManager } from './ledger/watch.js';
 import type { LedgerNote, LedgerWrite } from './ledger/vault.js';
 import type { HumanPushKind, HumanPushNotifier } from './push/producer.js';
@@ -157,6 +159,16 @@ export class Daemon {
     this.pushProducer = options.pushProducer;
     this.onBackgroundError = options.onBackgroundError ?? (() => undefined);
     this.ledger?.setRoomValidator((room) => this.store.getRoom(room) !== undefined);
+    this.ledger?.setRemoteWriteAuthorizer((peerId, room, author) => {
+      const members = this.store.listMembers(room);
+      const peerBelongsToRoom = members.some((member) =>
+        member.kind === 'agent' && member.host === peerId);
+      if (!peerBelongsToRoom) return false;
+      const attributed = members.find((member) => member.handle === author);
+      if (attributed?.kind === 'agent') return attributed.host === peerId;
+      return attributed?.kind === 'human' && attributed.role !== undefined &&
+        roleAllows(attributed.role, 'manage_ledger');
+    });
     this.ledger?.setChangeHandler(({ room, name, author }) => {
       if (this.store.getRoom(room)) this.postSystemMessage(room, `@${author} updated [[${name}]]`);
     });
@@ -382,6 +394,20 @@ export class Daemon {
     return [...this.adapters.values()]
       .map((adapter) => ({ id: adapter.id, capabilities: adapter.capabilities }))
       .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  setHumanRole(room: string, memberId: string, role: Role): Member {
+    const member = this.store.getMember(room, memberId);
+    if (member?.kind !== 'human') throw new Error(`no such human member: ${memberId}`);
+    if (member.role === 'owner' && role !== 'owner') {
+      const owners = this.store.listMembers(room).filter((candidate) =>
+        candidate.kind === 'human' && candidate.role === 'owner');
+      if (owners.length === 1) throw new Error('a room must retain at least one owner');
+    }
+    const updated = this.store.updateMember(room, memberId, { role });
+    this.emitMember(room, updated);
+    this.postSystemMessage(room, `@${updated.handle} is now ${role}`);
+    return updated;
   }
 
   memberDetails(room: string): MemberDetails[] {
@@ -876,6 +902,8 @@ export class Daemon {
 
   postHumanMessage(room: string, body: string, opts: { author?: string; reply_to?: number } = {}): Message {
     const authorId = opts.author ?? this.ownerOf(room).id;
+    const author = this.store.getMember(room, authorId);
+    if (author?.kind !== 'human') throw new Error(`no such human author: ${authorId}`);
     const parsed = parseBody(body, this.store.listMembers(room));
     const message = this.store.postMessage(room, {
       author: authorId,
@@ -1641,6 +1669,9 @@ export class Daemon {
     if (!interaction) throw new Error(`no such interaction ${interactionId}`);
     if (interaction.state !== 'pending') throw new Error(`interaction ${interactionId} is ${interaction.state}`);
     const by = byMemberId ?? this.ownerOf(room).id;
+    if (!interaction.targets.includes(by)) {
+      throw new Error(`interaction ${interactionId} is not addressed to member ${by}`);
+    }
     const answered = this.store.upsertInteraction({
       ...interaction,
       state: 'answered',
@@ -1961,10 +1992,14 @@ export class Daemon {
     }
   }
 
-  markRead(room: string, deliveryId: string): Delivery {
-    const delivery = this.store.updateDelivery(room, deliveryId, { read_ts: new Date().toISOString() });
-    this.emitInbox(room, delivery);
-    return delivery;
+  markRead(room: string, deliveryId: string, byMemberId?: string): Delivery {
+    const delivery = this.store.getDelivery(room, deliveryId);
+    if (!delivery) throw new Error(`no such delivery ${deliveryId}`);
+    const by = byMemberId ?? this.ownerOf(room).id;
+    if (delivery.recipient !== by) throw new Error(`delivery ${deliveryId} does not belong to member ${by}`);
+    const updated = this.store.updateDelivery(room, deliveryId, { read_ts: new Date().toISOString() });
+    this.emitInbox(room, updated);
+    return updated;
   }
 
   unreadCount(room: string, memberId: string): number {

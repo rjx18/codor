@@ -7,6 +7,7 @@ import type {
   RoomMeter,
   ServerFrame,
   WireEvent,
+  Role,
 } from '@wireroom/protocol';
 import { create } from 'zustand';
 
@@ -17,6 +18,7 @@ export interface MemberStateObservation {
 
 export interface RoomState {
   connected: boolean;
+  selfMemberId: string | undefined;
   room: Room | undefined;
   seq: number;
   members: Record<string, Member>;
@@ -34,8 +36,14 @@ export interface RoomState {
 
 export const HISTORY_PAGE_SIZE = 50;
 
+const ROLE_RANK: Record<Role, number> = { observer: 0, member: 1, admin: 2, owner: 3 };
+
+export const roleAtLeast = (role: Role | undefined, minimum: Role): boolean =>
+  role !== undefined && ROLE_RANK[role] >= ROLE_RANK[minimum];
+
 export const useRoomStore = create<RoomState>((set) => ({
   connected: false,
+  selfMemberId: undefined,
   room: undefined,
   seq: 0,
   members: {},
@@ -55,6 +63,8 @@ export const useRoomStore = create<RoomState>((set) => ({
     set((state) => {
       const bump = 'seq' in frame ? Math.max(state.seq, frame.seq) : state.seq;
       switch (frame.type) {
+        case 'self':
+          return { selfMemberId: frame.member_id };
         case 'room':
           return { seq: bump, room: frame.room };
         case 'sync_complete': {
@@ -120,6 +130,7 @@ export const useRoomStore = create<RoomState>((set) => ({
   reset: () =>
     set({
       room: undefined,
+      selfMemberId: undefined,
       seq: 0,
       members: {},
       memberHistory: {},
@@ -136,11 +147,17 @@ export const useRoomStore = create<RoomState>((set) => ({
 export const sortedMessages = (messages: Record<number, Message>): Message[] =>
   Object.values(messages).sort((a, b) => a.id - b.id);
 
-export const me = (members: Record<string, Member>): Member | undefined =>
-  Object.values(members).find((m) => m.kind === 'human' && m.role === 'owner');
+export const me = (
+  members: Record<string, Member>,
+  selfMemberId?: string,
+): Member | undefined => selfMemberId !== undefined
+  ? members[selfMemberId]
+  : Object.values(members).find((m) => m.kind === 'human' && m.role === 'owner');
 
-export const unreadCount = (state: Pick<RoomState, 'inbox' | 'members'>): number => {
-  const self = me(state.members);
+export const unreadCount = (
+  state: Pick<RoomState, 'inbox' | 'members' | 'selfMemberId'>,
+): number => {
+  const self = me(state.members, state.selfMemberId);
   if (!self) return 0;
   return Object.values(state.inbox).filter(
     (d) => d.recipient === self.id && d.state === 'consumed' && d.read_ts === undefined,

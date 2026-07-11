@@ -216,6 +216,26 @@ describe('ledger vault v1', () => {
     });
     expect(local.body).toContain('direct filesystem attribution remains valid');
 
+    const unauthorizedId = envelopeUlid();
+    outpost.send(homeCrypto.keys.identity.device_id, {
+      room: 'eng',
+      kind: 'ledger_add',
+      payload: {
+        request_id: unauthorizedId,
+        write: {
+          name: 'unbound-peer',
+          type: 'contract',
+          author: 'lab',
+          body: 'An enrolled peer is not automatically a room member.',
+        },
+      },
+    });
+    expect(await resultFor(unauthorizedId)).toMatchObject({ ok: false });
+    expect(manager.note('eng', 'unbound-peer')).toBeUndefined();
+
+    manager.setRemoteWriteAuthorizer((peerId, room, author) =>
+      peerId === outpostCrypto.keys.identity.device_id && room === 'eng' && author === 'lab');
+
     await addRemoteLedgerNote(outpost, homeCrypto.keys.identity.device_id, 'eng', {
       name: 'wire-contract', type: 'contract', author: 'lab', body: 'Frames are acknowledged.',
     });

@@ -52,6 +52,7 @@ async function waitFor(check: () => boolean, timeoutMs = 10_000): Promise<void> 
 async function setup(options: {
   homeBoundary?: (transport: HyperswarmTransport) => ResidencyCoordinatorOptions['boundaryHook'];
   outpostBoundary?: (transport: HyperswarmTransport) => ResidencyCoordinatorOptions['boundaryHook'];
+  maxPendingCompletionAcks?: number;
 } = {}): Promise<Fixture> {
   const root = mkdtempSync(join(tmpdir(), 'wireroom-residency-'));
   const testnet = await createTestnet(3);
@@ -81,6 +82,9 @@ async function setup(options: {
     journalPath: join(root, 'home', 'resident.sqlite'),
     blobRoot: join(root, 'home', 'resident-blobs'),
     boundaryHook: options.homeBoundary?.(homeTransport),
+    ...(options.maxPendingCompletionAcks !== undefined && {
+      maxPendingCompletionAcks: options.maxPendingCompletionAcks,
+    }),
   });
   const outpostResidency = new ResidencyCoordinator({
     transport: outpostTransport,
@@ -147,6 +151,22 @@ afterEach(async () => {
 });
 
 describe('multi-box member residency over hyperdht/testnet', () => {
+  it('backpressures before completion tracking can exceed its configured bound', async () => {
+    const fixture = await setup({ maxPendingCompletionAcks: 1 });
+    const host = fixture.outpostVault.keys.identity.device_id;
+    const member = {
+      id: fixture.memberId,
+      harness: 'fake',
+      cwd: '/lab/work',
+    };
+    fixture.homeResidency.deliver(host, {
+      rpc_id: 'bounded-rpc-1', room: 'eng', member, payload: 'first', trigger_msg: 1,
+    });
+    expect(() => fixture.homeResidency.deliver(host, {
+      rpc_id: 'bounded-rpc-2', room: 'eng', member, payload: 'second', trigger_msg: 2,
+    })).toThrow('completion acknowledgements in flight');
+  });
+
   it('keeps room authority at home, runs the outpost adapter, preserves ids, and never routes an empty remote run', async () => {
     const fixture = await setup();
     fixture.fake.enqueue({
@@ -178,6 +198,7 @@ describe('multi-box member residency over hyperdht/testnet', () => {
       'run.item',
       'run.completed',
     ]);
+    await waitFor(() => fixture.homeResidency.pendingCompletionAckCount() === 0);
 
     fixture.fake.enqueue({ kind: 'complete', final_text: '' });
     fixture.daemon.postHumanMessage('eng', '@lab finish silently');
@@ -278,6 +299,7 @@ describe('multi-box member residency over hyperdht/testnet', () => {
         .filter((message) => message.kind === 'run');
       expect(runs).toHaveLength(1);
       expect(runs[0]).toMatchObject({ body: '@richard exactly once', run: { status: 'completed' } });
+      await waitFor(() => fixture.homeResidency.pendingCompletionAckCount() === 0);
     }, 20_000);
   }
 

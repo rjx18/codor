@@ -30,7 +30,7 @@ import {
 import { ensureBrowserIdentity, unpairBrowser } from './crypto.js';
 import { enablePushNotifications, notificationPermission } from './notifications.js';
 import { RoomRail } from './shell.js';
-import { heldDeliveries, me, unreadCount, useRoomStore } from './state.js';
+import { heldDeliveries, me, roleAtLeast, unreadCount, useRoomStore } from './state.js';
 import {
   readThemeChoice,
   storeThemeChoice,
@@ -117,10 +117,6 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
   };
 
   useEffect(() => {
-    void refreshDevices().catch(() => setNotice('Device settings are unavailable.'));
-  }, [token]);
-
-  useEffect(() => {
     const config = state.room?.config;
     if (!config) return;
     setTurnEnabled(config.turn_brake !== null);
@@ -138,8 +134,28 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
 
   const currentDevice = devices.find((device) => device.device_id === currentDeviceId);
   const roomHref = `/?${new URLSearchParams({ room }).toString()}`;
-  const owner = me(state.members);
-  const activeSectionLabel = settingsSections.find(([id]) => id === activeSection)?.[1] ?? 'Settings';
+  const self = me(state.members, state.selfMemberId);
+  const owner = Object.values(state.members).find((member) =>
+    member.kind === 'human' && member.role === 'owner');
+  const canAdmin = roleAtLeast(self?.role, 'admin');
+  const canOwner = roleAtLeast(self?.role, 'owner');
+  const visibleSections = settingsSections.filter(([id]) =>
+    id === 'appearance' || id === 'privacy' ||
+    (canAdmin && (id === 'brakes' || id === 'relay')) ||
+    (canOwner && (id === 'notifications' || id === 'devices')));
+  const visibleActiveSection = visibleSections.some(([id]) => id === activeSection)
+    ? activeSection
+    : 'appearance';
+  const activeSectionLabel = settingsSections.find(([id]) => id === visibleActiveSection)?.[1] ?? 'Settings';
+
+  useEffect(() => {
+    if (self === undefined) return;
+    if (canOwner) {
+      void refreshDevices().catch(() => setNotice('Device settings are unavailable.'));
+    } else {
+      void fetchPushConfig({ token }).then(setPushConfig).catch(() => undefined);
+    }
+  }, [canOwner, self?.id, token]);
 
   if (unpaired) {
     return (
@@ -167,6 +183,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
           connected={state.connected}
           token={token}
           owner={owner ? { handle: owner.handle, display_name: owner.display_name } : undefined}
+          canCreateRoom={canOwner}
         />
         <aside data-testid="settings-nav" className="wr-settings-nav">
           <div className="wr-settings-nav-title">
@@ -174,11 +191,11 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
             <strong>Settings</strong>
           </div>
           <nav aria-label="Settings categories">
-            {settingsSections.map(([id, label]) => (
+            {visibleSections.map(([id, label]) => (
               <a
                 key={id}
                 href={`#${id}`}
-                aria-current={activeSection === id ? 'location' : undefined}
+                aria-current={visibleActiveSection === id ? 'location' : undefined}
                 onClick={() => setActiveSection(id)}
               >
                 {label}<ChevronRight aria-hidden="true" size={14} />
@@ -205,7 +222,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
             {notice && <p role="status" className="wr-settings-notice">{notice}</p>}
 
             {/* harn:assume web-settings-desktop-focuses-one-category ref=focused-settings-category */}
-            <section id="appearance" data-testid="settings-section-appearance" data-active={activeSection === 'appearance'} className="wr-settings-section">
+            <section id="appearance" data-testid="settings-section-appearance" data-active={visibleActiveSection === 'appearance'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <Palette aria-hidden="true" size={18} />
                 <div><h2>Appearance</h2><p>Local to this browser.</p></div>
@@ -249,7 +266,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
               {/* harn:end web-theme-choice-stays-local */}
             </section>
 
-            <section id="notifications" data-testid="settings-section-notifications" data-active={activeSection === 'notifications'} className="wr-settings-section">
+            {canOwner && <section id="notifications" data-testid="settings-section-notifications" data-active={visibleActiveSection === 'notifications'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <Bell aria-hidden="true" size={18} />
                 <div><h2>Notifications</h2><p>Sealed previews for this paired browser.</p></div>
@@ -284,9 +301,9 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
                   Enable
                 </button>
               </div>
-            </section>
+            </section>}
 
-            <section id="brakes" data-testid="settings-section-brakes" data-active={activeSection === 'brakes'} className="wr-settings-section">
+            {canAdmin && <section id="brakes" data-testid="settings-section-brakes" data-active={visibleActiveSection === 'brakes'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <Gauge aria-hidden="true" size={18} />
                 <div><h2>Room brakes</h2><p>Opt-in holds for this room. Both are off by default.</p></div>
@@ -363,9 +380,9 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
                   <button type="submit" data-testid="room-settings-save" className="wr-primary-button min-h-11 px-5">Save brakes</button>
                 </div>
               </form>
-            </section>
+            </section>}
 
-            <section id="relay" data-testid="settings-section-relay" data-active={activeSection === 'relay'} className="wr-settings-section">
+            {canAdmin && <section id="relay" data-testid="settings-section-relay" data-active={visibleActiveSection === 'relay'} className="wr-settings-section">
               <button
                 type="button"
                 data-testid="open-relay-pairing"
@@ -378,10 +395,10 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
                 <ChevronRight aria-hidden="true" size={18} />
               </button>
               {relayOpen && <RelayPairing />}
-            </section>
+            </section>}
 
             {/* harn:assume unpair-purges-all-browser-state ref=settings-unpair-action */}
-            <section id="devices" data-testid="settings-section-devices" data-active={activeSection === 'devices'} className="wr-settings-section">
+            {canOwner && <section id="devices" data-testid="settings-section-devices" data-active={visibleActiveSection === 'devices'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <Laptop aria-hidden="true" size={18} />
                 <div><h2>Paired devices</h2><p>Device authority and sealed push state.</p></div>
@@ -454,10 +471,10 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
                 })}
                 {devices.length === 0 && <li className="wr-empty-row">No paired devices</li>}
               </ul>
-            </section>
+            </section>}
             {/* harn:end unpair-purges-all-browser-state */}
 
-            <section id="privacy" data-testid="settings-section-privacy" data-active={activeSection === 'privacy'} className="wr-settings-section">
+            <section id="privacy" data-testid="settings-section-privacy" data-active={visibleActiveSection === 'privacy'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <ShieldCheck aria-hidden="true" size={18} />
                 <div><h2>Privacy</h2><p>Local plaintext, content-blind relay.</p></div>

@@ -415,6 +415,7 @@ describe('WS client frames', () => {
     ['pause', { act: 'pause', member_id: ULID_A }],
     ['unpause', { act: 'unpause', member_id: ULID_A }],
     ['interrupt', { act: 'interrupt', member_id: ULID_A }],
+    ['set_role', { act: 'set_role', member_id: ULID_A, role: 'admin' }],
   ];
 
   it.each(acts)('accepts act %s', (_name, act) => {
@@ -428,6 +429,22 @@ describe('WS client frames', () => {
     expect(
       ActSchema.safeParse({ act: 'rename', member_id: ULID_A, handle: 'switchboard' }).success,
     ).toBe(false);
+  });
+
+  it('requires a role exactly for human members', () => {
+    expect(MemberSchema.safeParse({
+      id: ULID_A,
+      kind: 'human',
+      handle: 'viewer',
+      display_name: 'Viewer',
+    }).success).toBe(false);
+    expect(MemberSchema.safeParse({
+      id: ULID_A,
+      kind: 'agent',
+      handle: 'runner',
+      display_name: 'Runner',
+      role: 'admin',
+    }).success).toBe(false);
   });
 
   it('accepts session-keyed mirror lifecycle frames and acknowledgements', () => {
@@ -462,6 +479,7 @@ describe('WS server frames', () => {
   });
 
   const frames: [string, unknown][] = [
+    ['self', { type: 'self', member_id: ULID_A }],
     ['message', { type: 'message', seq: 1, message: chatMessage }],
     ['member', { type: 'member', seq: 2, member }],
     [

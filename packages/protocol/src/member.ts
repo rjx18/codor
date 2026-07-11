@@ -74,5 +74,18 @@ export const MemberSchema = z
         message: `handle '${member.handle}' is reserved for the system member`,
       });
     }
+    if (member.kind === 'human' && member.role === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['role'],
+        message: 'human members require a role',
+      });
+    } else if (member.kind !== 'human' && member.role !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['role'],
+        message: 'only human members may have a role',
+      });
+    }
   });
 export type Member = z.infer<typeof MemberSchema>;

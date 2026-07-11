@@ -32,6 +32,7 @@ export function RoomList(props: {
   token?: string;
   owner?: { handle: string; display_name: string };
   onNavigate?: () => void;
+  canCreateRoom?: boolean;
 }) {
   const [creating, setCreating] = useState(false);
   const [roomId, setRoomId] = useState('');
@@ -78,7 +79,7 @@ export function RoomList(props: {
     <nav aria-label="Rooms" className="wr-room-list">
       <div className="wr-rail-label">
         <span>Rooms</span>
-        {props.token && props.owner ? (
+        {props.token && props.owner && (props.canCreateRoom ?? true) ? (
           <button
             ref={createTrigger}
             type="button"
@@ -135,7 +136,7 @@ export function RoomList(props: {
           );
         })}
       </ul>
-      {creating && props.token && props.owner && (
+      {creating && props.token && props.owner && (props.canCreateRoom ?? true) && (
         <div className="wr-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
           <button
             type="button"
@@ -221,6 +222,7 @@ export function RoomRail(props: {
   connected: boolean;
   token: string;
   owner: { handle: string; display_name: string } | undefined;
+  canCreateRoom?: boolean;
 }) {
   return (
     <aside data-testid="room-rail" className="wr-room-rail">
@@ -356,6 +358,7 @@ export function ContextRail(props: {
   token: string;
   testId?: string;
   className?: string;
+  canManageAgents?: boolean;
 }) {
   const idPrefix = props.testId ?? 'context-rail';
   const membersTabId = `${idPrefix}-members-tab`;
@@ -413,6 +416,7 @@ export function ContextRail(props: {
             connection={props.connection}
             variant="context"
             className="h-full min-h-0"
+            canManageAgents={props.canManageAgents}
           />
         </div>
       ) : (

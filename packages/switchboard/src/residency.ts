@@ -80,6 +80,8 @@ export interface ResidencyCoordinatorOptions {
   adapters: HarnessAdapter[];
   journalPath: string;
   blobRoot: string;
+  completionAckRetryMs?: number;
+  maxPendingCompletionAcks?: number;
   boundaryHook?: (
     boundary: ResidencyBoundary,
     detail: { rpc_id: string; event_index: number; event: WireEvent },
@@ -285,7 +287,9 @@ export class ResidencyCoordinator {
   private readonly sessions = new Map<string, Session>();
   private readonly activeResidentAttempts = new Set<string>();
   private readonly pendingHomeAttempts = new Map<string, PendingRemote>();
-  private readonly completedHomeIndexes = new Map<string, { host: string; index: number }>();
+  private readonly completedHomeIndexes = new Map<string, { host: string; room: string; index: number }>();
+  private readonly maxPendingCompletionAcks: number;
+  private readonly completionAckTimer: NodeJS.Timeout;
   private readonly reachabilityHandlers = new Set<(peerId: string, connected: boolean) => void>();
   private readonly stopEnvelope: () => void;
   private readonly stopPeerState: () => void;
@@ -295,6 +299,16 @@ export class ResidencyCoordinator {
     this.transport = options.transport;
     for (const adapter of options.adapters) this.adapters.set(adapter.id, adapter);
     this.journal = new ResidentAttemptJournal(options.journalPath, options.blobRoot);
+    this.maxPendingCompletionAcks = options.maxPendingCompletionAcks ?? 1_024;
+    if (!Number.isSafeInteger(this.maxPendingCompletionAcks) || this.maxPendingCompletionAcks < 1) {
+      throw new Error('maxPendingCompletionAcks must be a positive integer');
+    }
+    const retryMs = options.completionAckRetryMs ?? 1_000;
+    if (!Number.isSafeInteger(retryMs) || retryMs < 1) {
+      throw new Error('completionAckRetryMs must be a positive integer');
+    }
+    this.completionAckTimer = setInterval(() => this.retryCompletionAcks(), retryMs);
+    this.completionAckTimer.unref();
     this.stopEnvelope = this.transport.onEnvelope((envelope, peerId) =>
       this.handleEnvelope(envelope, peerId));
     this.stopPeerState = this.transport.onPeerState((peerId, connected) =>
@@ -322,6 +336,12 @@ export class ResidencyCoordinator {
     if (!this.isReachable(host)) throw new Error(`resident ${host} is unreachable`);
     const existing = this.pendingHomeAttempts.get(request.rpc_id);
     if (existing) return existing.stream;
+    const outstandingForHost = [...this.completedHomeIndexes.values()]
+      .filter((completion) => completion.host === host).length +
+      [...this.pendingHomeAttempts.values()].filter((pending) => pending.host === host).length;
+    if (outstandingForHost >= this.maxPendingCompletionAcks) {
+      throw new Error(`resident ${host} has too many completion acknowledgements in flight`);
+    }
     const pending: PendingRemote = {
       host,
       request,
@@ -341,6 +361,7 @@ export class ResidencyCoordinator {
     this.closed = true;
     this.stopEnvelope();
     this.stopPeerState();
+    clearInterval(this.completionAckTimer);
     for (const [key, session] of this.sessions) {
       const harness = key.split('\0').at(-1)!;
       this.adapters.get(harness)?.interrupt(session);
@@ -363,6 +384,28 @@ export class ResidencyCoordinator {
     } else if (envelope.kind === 'run_event_ack') {
       const ack = envelope.payload as { rpc_id: string; event_index: number };
       this.journal.acknowledge(peerId, ack.rpc_id, ack.event_index);
+      const attempt = this.journal.get(peerId, ack.rpc_id);
+      if (attempt?.state === 'completed') {
+        const finalIndex = this.journal.events(attempt).length - 1;
+        if (finalIndex >= 0 && ack.event_index >= finalIndex) {
+          try {
+            this.transport.send(peerId, {
+              room: attempt.room,
+              kind: 'resident_completion_ack',
+              payload: { rpc_id: ack.rpc_id, event_index: finalIndex },
+            });
+          } catch {
+            // The home retries the terminal event ack until this reply is delivered.
+          }
+        }
+      }
+    } else if (envelope.kind === 'resident_completion_ack') {
+      const ack = envelope.payload as { rpc_id?: unknown; event_index?: unknown };
+      if (typeof ack.rpc_id !== 'string' || !Number.isSafeInteger(ack.event_index)) return;
+      const completed = this.completedHomeIndexes.get(ack.rpc_id);
+      if (completed?.host === peerId && completed.index === ack.event_index) {
+        this.completedHomeIndexes.delete(ack.rpc_id);
+      }
     } else if (envelope.kind === 'resident_session') {
       const session = envelope.payload as { rpc_id: string; session_ref: string };
       this.pendingHomeAttempts.get(session.rpc_id)?.hooks.onSessionRef?.(session.session_ref);
@@ -372,6 +415,7 @@ export class ResidencyCoordinator {
   private handlePeerState(peerId: string, connected: boolean): void {
     for (const handler of this.reachabilityHandlers) handler(peerId, connected);
     if (!connected) return;
+    this.retryCompletionAcks(peerId);
     const attempts = [...this.pendingHomeAttempts.values()]
       .filter((pending) => pending.host === peerId)
       .map((pending) => ({
@@ -569,12 +613,16 @@ export class ResidencyCoordinator {
     if (!pending || pending.host !== peerId) {
       const completed = this.completedHomeIndexes.get(payload.rpc_id);
       if (completed?.host === peerId && payload.event_index <= completed.index) {
-        this.transport.sendRunEventAck(peerId, room, payload.rpc_id, completed.index);
+        this.sendCompletionEventAck(payload.rpc_id, completed);
       }
       return;
     }
     if (payload.event_index < pending.nextEventIndex) {
-      this.transport.sendRunEventAck(peerId, room, payload.rpc_id, pending.nextEventIndex - 1);
+      try {
+        this.transport.sendRunEventAck(peerId, room, payload.rpc_id, pending.nextEventIndex - 1);
+      } catch {
+        // Reconnect reconciliation resends the indexed event and recovers the ack.
+      }
       return;
     }
     pending.buffered.set(payload.event_index, payload.event as WireEvent);
@@ -594,11 +642,47 @@ export class ResidencyCoordinator {
         event: completed.event,
       });
     }
-    this.transport.sendRunEventAck(peerId, room, payload.rpc_id, pending.nextEventIndex - 1);
     if (completed) {
-      this.completedHomeIndexes.set(payload.rpc_id, { host: peerId, index: completed.event_index });
+      const completion = { host: peerId, room, index: completed.event_index };
+      this.completedHomeIndexes.set(payload.rpc_id, completion);
+      this.sendCompletionEventAck(payload.rpc_id, completion);
       pending.stream.complete();
       this.pendingHomeAttempts.delete(payload.rpc_id);
+    } else {
+      try {
+        this.transport.sendRunEventAck(peerId, room, payload.rpc_id, pending.nextEventIndex - 1);
+      } catch {
+        // Reconnect reconciliation resends the indexed event and recovers the ack.
+      }
+    }
+  }
+
+  pendingCompletionAckCount(host?: string): number {
+    return [...this.completedHomeIndexes.values()]
+      .filter((completion) => host === undefined || completion.host === host).length;
+  }
+
+  private sendCompletionEventAck(
+    rpcId: string,
+    completion: { host: string; room: string; index: number },
+  ): void {
+    if (!this.isReachable(completion.host)) return;
+    try {
+      this.transport.sendRunEventAck(
+        completion.host,
+        completion.room,
+        rpcId,
+        completion.index,
+      );
+    } catch {
+      // The retry timer or peer reconnect repeats this exact terminal ack.
+    }
+  }
+
+  private retryCompletionAcks(host?: string): void {
+    for (const [rpcId, completion] of this.completedHomeIndexes) {
+      if (host !== undefined && completion.host !== host) continue;
+      this.sendCompletionEventAck(rpcId, completion);
     }
   }
 

@@ -31,6 +31,8 @@ export interface UpOptions {
   pushVapidPublicKey?: string;
   adapters?: AdapterModuleConfig;
   adapterBaseDir?: string;
+  line?: LineConfig;
+  bootstrap?: { host: string; port: number }[];
 }
 
 export interface RunningWireroom {
@@ -38,6 +40,8 @@ export interface RunningWireroom {
   crypto: CryptoVault;
   server: RunningServer;
   dataDir: string;
+  transport?: HyperswarmTransport;
+  residency?: ResidencyCoordinator;
   close(): Promise<void>;
 }
 
@@ -86,6 +90,17 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
   const dataDir = resolve(options.dataDir ?? join(homedir(), '.wireroom'));
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const crypto = new CryptoVault(dataDir);
+  const transport = options.line ? new HyperswarmTransport({
+    lines: [options.line],
+    crypto,
+    bootstrap: options.bootstrap,
+  }) : undefined;
+  const residency = transport ? new ResidencyCoordinator({
+    transport,
+    adapters,
+    journalPath: join(dataDir, 'resident.sqlite'),
+    blobRoot: join(dataDir, 'resident-blobs'),
+  }) : undefined;
   const pushSubscriptions = new PushSubscriptionStore(dataDir, crypto.keys);
   const pushProducer = new PushProducer({
     relayUrl: options.relayUrl,
@@ -93,11 +108,13 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
     roomKeys: crypto.roomKeys,
     subscriptions: pushSubscriptions,
   });
-  const ledger = new LedgerManager({ dataDir });
+  const ledger = new LedgerManager({ dataDir, transport });
   const daemon = new Daemon({
     dbPath: join(dataDir, 'switchboard.sqlite'),
     blobRoot: join(dataDir, 'blobs'),
     adapters,
+    hostId: residency ? crypto.keys.identity.device_id : undefined,
+    residency,
     ledger,
     pushProducer,
     onBackgroundError: (error) => console.error(`[wireroom] background task failed: ${error.message}`),
@@ -112,9 +129,10 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
     });
   }
   for (const room of daemon.store.listRooms()) crypto.roomKeys.ensureRoom(room.id);
-  await daemon.reconcile();
   const defaultStatic = resolve(process.cwd(), 'packages/web/dist');
   try {
+    await transport?.start();
+    await daemon.reconcile();
     const server = await startServer({
       daemon,
       token: options.token,
@@ -132,14 +150,20 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
       crypto,
       server,
       dataDir,
+      transport,
+      residency,
       close: async () => {
         await server.close();
         await daemon.close();
+        await residency?.close();
+        await transport?.close();
         crypto.close();
       },
     };
   } catch (error) {
     await daemon.close({ force: true });
+    await residency?.close();
+    await transport?.close();
     crypto.close();
     throw error;
   }

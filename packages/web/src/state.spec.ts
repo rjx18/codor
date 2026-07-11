@@ -13,6 +13,7 @@ import {
 
 const ULID_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
 const ULID_B = '01BX5ZZKBKACTAV9WEVGEMMVRZ';
+const ULID_C = '01CX5ZZKBKACTAV9WEVGEMMVRZ';
 const TS = '2026-07-10T07:00:00.000Z';
 
 const richard: Member = {
@@ -167,6 +168,36 @@ describe('selectors', () => {
       delivery: { id: 'd1', room: 'eng', message_id: 1, recipient: ULID_A, state: 'consumed', attempt_count: 0, read_ts: TS, ts: TS },
     });
     expect(unreadCount(useRoomStore.getState())).toBe(0);
+  });
+
+  it('uses the authenticated self frame instead of assuming the owner is me', () => {
+    const { applyFrame } = useRoomStore.getState();
+    const observer: Member = {
+      id: ULID_C,
+      kind: 'human',
+      handle: 'observer-user',
+      display_name: 'Observer',
+      role: 'observer',
+      conventions_sent: false,
+      misaddressed: false,
+    };
+    applyFrame({ type: 'member', seq: 1, member: richard });
+    applyFrame({ type: 'member', seq: 2, member: observer });
+    applyFrame({ type: 'self', member_id: observer.id });
+    applyFrame({
+      type: 'inbox',
+      seq: 3,
+      delivery: { id: 'owner', room: 'eng', message_id: 1, recipient: richard.id, state: 'consumed', attempt_count: 0, ts: TS },
+    });
+    applyFrame({
+      type: 'inbox',
+      seq: 4,
+      delivery: { id: 'observer', room: 'eng', message_id: 2, recipient: observer.id, state: 'consumed', attempt_count: 0, ts: TS },
+    });
+
+    const state = useRoomStore.getState();
+    expect(me(state.members, state.selfMemberId)?.id).toBe(observer.id);
+    expect(unreadCount(state)).toBe(1);
   });
 
   it('heldDeliveries surfaces the hold banner rows', () => {

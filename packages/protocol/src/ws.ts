@@ -87,6 +87,11 @@ export const ActSchema = z.discriminatedUnion('act', [
   z.object({ act: z.literal('pause'), member_id: MemberIdSchema }),
   z.object({ act: z.literal('unpause'), member_id: MemberIdSchema }),
   z.object({ act: z.literal('interrupt'), member_id: MemberIdSchema }),
+  z.object({
+    act: z.literal('set_role'),
+    member_id: MemberIdSchema,
+    role: z.enum(['owner', 'admin', 'member', 'observer']),
+  }),
 ]);
 export type Act = z.infer<typeof ActSchema>;
 
@@ -144,6 +149,7 @@ export type AttachLease = z.infer<typeof AttachLeaseSchema>;
  */
 export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('rooms'), rooms: z.array(RoomSchema) }),
+  z.object({ type: z.literal('self'), member_id: MemberIdSchema }),
   z.object({
     type: z.literal('attach_lease'),
     status: z.enum(['acquired', 'child_recorded', 'completed', 'uncertain']),
