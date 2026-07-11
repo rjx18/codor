@@ -1,0 +1,107 @@
+id: bridges-optin-banner
+title: Add opt-in Slack and Telegram room bridges
+assumptions:
+  retire: []
+  create:
+    - id: bridged-room-wears-banner
+      title: Bridged rooms permanently disclose their external content boundary
+      statement: A room with any enabled Slack or Telegram bridge must persist a bridged config flag and render a permanent plain-language external-platform privacy banner on room, settings, and ledger surfaces, because readable room content deliberately leaves the local trust boundary until the bridge is disabled.
+      reason: PRIVACY defines bridging as the one deliberate plaintext export exception.
+      depends_on:
+        - restrained-design-system-guides-responsive-surfaces
+        - web-room-visual-hierarchy-matches-restrained-reference
+    - id: bridge-enable-admin-or-owner
+      title: Bridge enrollment and ingress are admin-authorized and idempotent
+      statement: Only an authenticated admin or owner may enable a room bridge or submit bridge ingress, bridge members must remain non-addressable post-only authors, and each bridge member platform external-id tuple must persist at most one routed message while outbound mirroring suppresses that bridge's own origin.
+      reason: The protocol role matrix and BridgeOrigin contract require explicit opt-in, deduplication, and echo suppression.
+      depends_on:
+        - roles-gate-human-acts-not-agents
+        - routing-eligibility-nonempty-finalized
+        - default-recipient-latest-finalized
+  reviewed:
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Existing admin enable_bridge capability gates every mutating bridge REST route.
+    - id: routing-eligibility-nonempty-finalized
+      outcome: unchanged
+      reason: Bridge chat remains routable while bridge members remain ineligible recipients.
+    - id: default-recipient-latest-finalized
+      outcome: unchanged
+      reason: Untagged bridge ingress uses the same latest-finalized-agent fallback as human posts.
+    - id: extensions-not-addressable-v1
+      outcome: unchanged
+      reason: The shared addressability predicate already excludes bridge members as well as extensions.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: Bridge members, messages, and the bridged room flag use existing change-log paths.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: The permanent bridge warning is a concise semantic band, not a promotional card.
+    - id: web-settings-pairing-match-restrained-reference
+      outcome: unchanged
+      reason: Settings gains the same compact permanent warning without changing existing controls.
+    - id: graph-derived-from-vault-links-readonly
+      outcome: unchanged
+      reason: Ledger stays read-only while disclosing the bridged room boundary.
+anchors:
+  bridged-room-wears-banner:
+    bridged-room-config:
+      action: change
+      reason: Persist the opt-in flag with a safe false default.
+    bridged-room-banner:
+      action: change
+      reason: Render one reusable permanent privacy warning on every room surface.
+    bridged-room-regression:
+      action: change
+      reason: Prove banner persistence and visibility in the browser.
+  bridge-enable-admin-or-owner:
+    bridge-origin-uniqueness:
+      action: change
+      reason: Add the durable member-platform-external-id uniqueness constraint and idempotent insert.
+    bridge-daemon-ingress:
+      action: change
+      reason: Create post-only bridge members and route parsed inbound bodies.
+    bridge-rest-boundary:
+      action: change
+      reason: Gate enable, ingress, and outbound reads at admin capability.
+    bridge-runtime:
+      action: change
+      reason: Share polling, retry, and echo suppression across platform transports.
+    bridge-platform-regression:
+      action: change
+      reason: Mock-test Slack and Telegram inbound, outbound, retry dedup, and echo suppression.
+files:
+  - pnpm-workspace.yaml
+  - pnpm-lock.yaml
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/bridges/core/package.json
+  - packages/bridges/core/tsconfig.json
+  - packages/bridges/core/src/index.ts
+  - packages/bridges/core/src/index.spec.ts
+  - packages/bridges/slack/package.json
+  - packages/bridges/slack/tsconfig.json
+  - packages/bridges/slack/src/index.ts
+  - packages/bridges/slack/src/index.spec.ts
+  - packages/bridges/slack/src/bin.ts
+  - packages/bridges/telegram/package.json
+  - packages/bridges/telegram/tsconfig.json
+  - packages/bridges/telegram/src/index.ts
+  - packages/bridges/telegram/src/index.spec.ts
+  - packages/bridges/telegram/src/bin.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/App.tsx
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/LedgerGraph.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/harness.mjs
+  - tmp/build/design/v4/desktop-bridged-room.png
+  - tmp/build/PROGRESS.md
+  - MANUAL-VERIFY.md
