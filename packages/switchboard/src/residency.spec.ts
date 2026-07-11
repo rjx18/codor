@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CryptoVault } from './crypto/pairing.js';
 import { Daemon } from './daemon.js';
@@ -14,6 +14,7 @@ import {
   type ResidencyCoordinatorOptions,
 } from './residency.js';
 import { HyperswarmTransport } from './transport/hyperswarm.js';
+import type { OutgoingEnvelope, TransportEnvelope } from './transport/peer.js';
 
 const require = createRequire(import.meta.url);
 const createTestnet = require('hyperdht/testnet') as (
@@ -40,6 +41,46 @@ interface Fixture {
 }
 
 const fixtures: Fixture[] = [];
+
+class StubTransport {
+  private envelopeHandler:
+    | ((envelope: TransportEnvelope, peerId: string) => void | Promise<void>)
+    | undefined;
+  private peerStateHandler: ((peerId: string, connected: boolean) => void) | undefined;
+  readonly sent: { peerId: string; envelope: OutgoingEnvelope }[] = [];
+
+  onEnvelope(
+    handler: (envelope: TransportEnvelope, peerId: string) => void | Promise<void>,
+  ): () => void {
+    this.envelopeHandler = handler;
+    return () => {
+      this.envelopeHandler = undefined;
+    };
+  }
+
+  onPeerState(handler: (peerId: string, connected: boolean) => void): () => void {
+    this.peerStateHandler = handler;
+    return () => {
+      this.peerStateHandler = undefined;
+    };
+  }
+
+  peerIds(): string[] {
+    return ['expected-host', 'attacker-host'];
+  }
+
+  send(peerId: string, envelope: OutgoingEnvelope): string {
+    this.sent.push({ peerId, envelope });
+    return `sent-${String(this.sent.length)}`;
+  }
+
+  async emit(peerId: string, envelope: OutgoingEnvelope): Promise<void> {
+    await this.envelopeHandler?.({
+      envelope_id: '01J00000000000000000000000',
+      ...envelope,
+    }, peerId);
+  }
+}
 
 async function waitFor(check: () => boolean, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -151,6 +192,47 @@ afterEach(async () => {
 });
 
 describe('multi-box member residency over hyperdht/testnet', () => {
+  it('accepts a resident session reference only from the pending attempt host and room', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wireroom-resident-session-auth-'));
+    const transport = new StubTransport();
+    const coordinator = new ResidencyCoordinator({
+      transport: transport as unknown as HyperswarmTransport,
+      adapters: [],
+      journalPath: join(root, 'resident.sqlite'),
+      blobRoot: join(root, 'blobs'),
+    });
+    const onSessionRef = vi.fn();
+    try {
+      coordinator.deliver('expected-host', {
+        rpc_id: 'home:eng:7',
+        room: 'eng',
+        member: { id: 'remote-agent', harness: 'fake', cwd: '/work' },
+        payload: 'continue',
+        trigger_msg: 7,
+      }, { onSessionRef });
+      const update = {
+        kind: 'resident_session',
+        room: 'eng',
+        payload: { rpc_id: 'home:eng:7', session_ref: 'expected-session' },
+      };
+
+      await transport.emit('attacker-host', update);
+      await transport.emit('expected-host', { ...update, room: 'other-room' });
+      await transport.emit('expected-host', {
+        ...update,
+        payload: { ...update.payload, session_ref: '' },
+      });
+      expect(onSessionRef).not.toHaveBeenCalled();
+
+      await transport.emit('expected-host', update);
+      expect(onSessionRef).toHaveBeenCalledOnce();
+      expect(onSessionRef).toHaveBeenCalledWith('expected-session');
+    } finally {
+      await coordinator.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('backpressures before completion tracking can exceed its configured bound', async () => {
     const fixture = await setup({ maxPendingCompletionAcks: 1 });
     const host = fixture.outpostVault.keys.identity.device_id;

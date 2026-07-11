@@ -11,6 +11,7 @@ import {
   hashTranscript,
   signChallenge,
 } from './challenge.js';
+import { BrowserDeviceSessionAuthority } from './browser-sessions.js';
 import { CryptoVault, pairingUrl } from './pairing.js';
 import { openSealedBox } from './roomkeys.js';
 
@@ -97,6 +98,14 @@ describe('device identity, pairing, challenge auth, and room keys', () => {
     expect(() => home.challenges.verify(challenge.challenge_id, signature)).toThrow(
       'already-consumed',
     );
+    const transportChallenge = home.challenges.issue(peer.keys.identity.device_id, transcript);
+    for (let index = 0; index < 32; index++) {
+      home.browserChallenges.issue(peer.keys.identity.device_id, transcript);
+    }
+    expect(home.challenges.verify(
+      transportChallenge.challenge_id,
+      signChallenge(transportChallenge, peer.keys.identity),
+    ).device_id).toBe(peer.keys.identity.device_id);
     let now = Date.now();
     const expiring = new ChallengeAuthority(home.keys, () => now);
     const expired = expiring.issue(peer.keys.identity.device_id, transcript);
@@ -115,6 +124,30 @@ describe('device identity, pairing, challenge auth, and room keys', () => {
     home.close();
     peer.close();
     forger.close();
+  });
+
+  it('bounds device sessions and invalidates every bearer on peer revocation', () => {
+    const home = vault('browser-session-home');
+    const device = vault('browser-session-device');
+    const offer = home.pairing.issue('http://localhost:8137');
+    home.pairing.complete(offer.pairing_token, {
+      ...device.keys.publicIdentity(),
+      kind: 'device',
+    });
+    let now = Date.now();
+    const sessions = new BrowserDeviceSessionAuthority(home.keys, () => now);
+    const first = sessions.issue(device.keys.identity.device_id);
+    expect(sessions.authenticate(first.access_token)).toBe(device.keys.identity.device_id);
+    for (let index = 0; index < 12; index++) sessions.issue(device.keys.identity.device_id);
+    expect(sessions.count(device.keys.identity.device_id)).toBe(8);
+    now += 25 * 60 * 60 * 1_000;
+    expect(sessions.count()).toBe(0);
+    const revoked = sessions.issue(device.keys.identity.device_id);
+    home.revokePeer(device.keys.identity.device_id);
+    expect(sessions.authenticate(revoked.access_token)).toBeUndefined();
+    sessions.close();
+    home.close();
+    device.close();
   });
 
   it('revokes, rotates every room, excludes the old device, and drops its live connection', async () => {

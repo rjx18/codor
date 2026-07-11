@@ -18,7 +18,7 @@ import {
   Sun,
   Unplug,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   fetchDevices,
@@ -27,7 +27,11 @@ import {
   type DeviceSummary,
   type PushConfig,
 } from './api.js';
-import { ensureBrowserIdentity, unpairBrowser } from './crypto.js';
+import {
+  currentBrowserAccessToken,
+  ensureBrowserIdentity,
+  unpairBrowser,
+} from './crypto.js';
 import { enablePushNotifications, notificationPermission } from './notifications.js';
 import { BridgedRoomBanner } from './components.js';
 import { RoomRail } from './shell.js';
@@ -77,12 +81,19 @@ function sectionFromHash(): SettingsSection {
 }
 
 // harn:assume web-settings-controls-preserve-product-truth ref=glass-settings-surface
-export function SettingsPage(props: { token?: string } = {}): JSX.Element {
+export function SettingsPage(props: {
+  token?: string;
+  refreshToken?: () => Promise<string>;
+} = {}): JSX.Element {
   const state = useRoomStore();
   const page = useMemo(pageParams, []);
   const room = page.room;
   const token = props.token ?? page.token;
-  const connection = useMemo(() => connect({ room, token }), [room, token]);
+  const accessToken = useCallback(() => currentBrowserAccessToken(token), [token]);
+  const connection = useMemo(
+    () => connect({ room, token: accessToken(), refreshToken: props.refreshToken }),
+    [room, accessToken, props.refreshToken],
+  );
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [pushConfig, setPushConfig] = useState<PushConfig>({ enabled: false });
   const [currentDeviceId, setCurrentDeviceId] = useState('');
@@ -108,8 +119,8 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
 
   const refreshDevices = async (): Promise<void> => {
     const [nextDevices, nextConfig, identity] = await Promise.all([
-      fetchDevices({ token }),
-      fetchPushConfig({ token }),
+      fetchDevices({ token: accessToken() }),
+      fetchPushConfig({ token: accessToken() }),
       ensureBrowserIdentity(),
     ]);
     setDevices(nextDevices);
@@ -154,9 +165,9 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
     if (canOwner) {
       void refreshDevices().catch(() => setNotice('Device settings are unavailable.'));
     } else {
-      void fetchPushConfig({ token }).then(setPushConfig).catch(() => undefined);
+      void fetchPushConfig({ token: accessToken() }).then(setPushConfig).catch(() => undefined);
     }
-  }, [canOwner, self?.id, token]);
+  }, [accessToken, canOwner, self?.id]);
 
   if (unpaired) {
     return (
@@ -181,7 +192,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
           currentUnread={unreadCount(state)}
           currentHeld={heldDeliveries(state.inbox).length}
           connected={state.connected}
-          token={token}
+          token={accessToken()}
           owner={owner ? { handle: owner.handle, display_name: owner.display_name } : undefined}
           canCreateRoom={canOwner}
         />
@@ -286,7 +297,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
                     setNotice(undefined);
                     void enablePushNotifications({
                       deviceId: currentDevice.device_id,
-                      token,
+                      token: accessToken(),
                       vapidPublicKey: pushConfig.vapid_public_key,
                     }).then(
                       async () => {
@@ -436,10 +447,11 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
                               if (current) {
                                 void (async () => {
                                   try {
-                                    await revokeDevice(device.device_id, { token });
+                                    await revokeDevice(device.device_id, { token: accessToken() });
                                   } catch {
                                     setUnpairWarning('The switchboard could not be reached. Revoke this browser from another paired device before treating it as fully revoked.');
                                   } finally {
+                                    connection.disconnect();
                                     state.reset();
                                     try {
                                       await unpairBrowser();
@@ -452,7 +464,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
                                   }
                                 })().finally(() => setBusy(false));
                               } else {
-                                void revokeDevice(device.device_id, { token })
+                                void revokeDevice(device.device_id, { token: accessToken() })
                                   .then(refreshDevices)
                                   .catch(() => setNotice('The device could not be revoked.'))
                                   .finally(() => {

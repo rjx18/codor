@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import sodium from 'sodium-native';
 
+import { BrowserDeviceSessionAuthority } from './browser-sessions.js';
 import { ChallengeAuthority, constantTimeEqual } from './challenge.js';
 import {
   DeviceKeyStore,
@@ -133,12 +134,16 @@ export class CryptoVault {
   readonly roomKeys: RoomKeyStore;
   readonly pairing: PairingService;
   readonly challenges: ChallengeAuthority;
+  readonly browserChallenges: ChallengeAuthority;
+  readonly browserSessions: BrowserDeviceSessionAuthority;
 
   constructor(readonly dataDir: string) {
     this.keys = new DeviceKeyStore(dataDir);
     this.roomKeys = new RoomKeyStore(dataDir, this.keys);
     this.pairing = new PairingService(dataDir, this.keys, this.roomKeys);
     this.challenges = new ChallengeAuthority(this.keys);
+    this.browserChallenges = new ChallengeAuthority(this.keys);
+    this.browserSessions = new BrowserDeviceSessionAuthority(this.keys);
   }
 
   revokePeer(reference: string): PeerRecord {
@@ -148,6 +153,7 @@ export class CryptoVault {
   }
 
   close(): void {
+    this.browserSessions.close();
     this.keys.close();
   }
 }

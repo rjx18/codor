@@ -1,0 +1,13 @@
+id: mirrored-turn-commit-transactional
+hash: a-ce1f099dfab7
+title: Mirrored turn dedupe and fanout commit atomically
+state: active
+statement: A mirrored native turn must commit its native-id mapping, finalized
+  run message, misaddress state, and every onward delivery in one SQLite
+  transaction, because a crash or persistence error must leave either no turn or
+  one fully routed turn rather than an unmapped duplicate or a finalized reply
+  with missing fanout.
+depends_on:
+  - mirror-one-message-per-native-turn
+  - turn-finalization-transactional
+created_by: final-repository-review-fixes

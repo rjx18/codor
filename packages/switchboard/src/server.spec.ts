@@ -8,6 +8,7 @@ import WebSocket from 'ws';
 
 import { Daemon } from './daemon.js';
 import { BlobStore } from './blobs.js';
+import { signChallenge, type AuthChallenge } from './crypto/challenge.js';
 import { CryptoVault } from './crypto/pairing.js';
 import { FakeAdapter } from './fake-adapter.js';
 import { LedgerManager } from './ledger/watch.js';
@@ -112,6 +113,30 @@ function connectUrl(url: string): Promise<{ ws: WebSocket; frames: ServerFrame[]
 const connectAs = (token: string) =>
   connectUrl(`ws://127.0.0.1:${server.port}/ws?token=${token}`);
 const connect = () => connectAs(TOKEN);
+
+async function authenticateDevice(device: CryptoVault): Promise<string> {
+  const challengeResponse = await fetch(`${base}/api/auth/challenge`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ device_id: device.keys.identity.device_id }),
+  });
+  expect(challengeResponse.status).toBe(200);
+  const offered = (await challengeResponse.json()) as {
+    challenge: AuthChallenge;
+    switchboard_device_id: string;
+  };
+  expect(offered.switchboard_device_id).toBe(crypto.keys.identity.device_id);
+  const sessionResponse = await fetch(`${base}/api/auth/session`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      challenge_id: offered.challenge.challenge_id,
+      signature: signChallenge(offered.challenge, device.keys.identity),
+    }),
+  });
+  expect(sessionResponse.status).toBe(200);
+  return ((await sessionResponse.json()) as { access_token: string }).access_token;
+}
 
 describe('REST', () => {
   it('fails closed when the configured token is missing or empty', async () => {
@@ -317,11 +342,12 @@ describe('REST', () => {
       body: JSON.stringify(request),
     });
     expect(complete.status).toBe(200);
-    expect(await complete.json()).toMatchObject({
+    const completed = await complete.json() as Record<string, unknown>;
+    expect(completed).toMatchObject({
       switchboard: { device_id: crypto.keys.identity.device_id },
       room_keys: [{ room: 'eng', generation: 1 }],
-      access_token: TOKEN,
     });
+    expect(completed).not.toHaveProperty('access_token');
     expect(crypto.keys.getPeer(device.keys.identity.device_id)).toMatchObject({
       sign_public_key: device.keys.identity.sign_public_key,
       encryption_public_key: device.keys.identity.encryption_public_key,
@@ -332,6 +358,28 @@ describe('REST', () => {
       body: JSON.stringify(request),
     });
     expect(replay.status).toBe(401);
+
+    const deviceToken = await authenticateDevice(device);
+    expect(deviceToken).not.toBe(TOKEN);
+    expect((await fetch(`${base}/api/rooms`, {
+      headers: { authorization: `Bearer ${deviceToken}` },
+    })).status).toBe(200);
+    const socket = await connectAs(deviceToken);
+    const closed = new Promise<number>((resolve) => socket.ws.once('close', resolve));
+    const revoked = await fetch(`${base}/api/devices/${encodeURIComponent(device.keys.identity.device_id)}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(revoked.status).toBe(200);
+    expect(await closed).toBe(4403);
+    expect((await fetch(`${base}/api/rooms`, {
+      headers: { authorization: `Bearer ${deviceToken}` },
+    })).status).toBe(401);
+    expect((await fetch(`${base}/api/auth/challenge`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ device_id: device.keys.identity.device_id }),
+    })).status).toBe(401);
     device.close();
   });
 
@@ -803,6 +851,58 @@ describe('WebSocket', () => {
     expect(completed).toMatchObject({ member: { id: alpha.id, custody: 'owned' } });
     expect(fake.wasAttached(daemon.store.getMember('eng', alpha.id)!.session_ref!)).toBe(true);
     client.ws.close();
+  });
+
+  it('rejects attach lease follow-up actions from an administrator in another room', async () => {
+    daemon.createRoom({
+      id: 'ops',
+      name: 'Ops',
+      owner: { handle: 'ops-owner', display_name: 'Ops Owner' },
+    });
+    const agent = daemon.spawnMember('ops', {
+      harness: 'fake',
+      handle: 'ops-agent',
+      cwd: '/work/ops',
+    });
+    fake.enqueue({ kind: 'complete', final_text: '@ops-owner initialized' });
+    daemon.postHumanMessage('ops', '@ops-agent initialize');
+    await daemon.settle();
+    const { lease } = await daemon.acquireAttachLease('ops', agent.id, 4321);
+    const futureHeartbeat = Date.now() + 60_000;
+    daemon.store.heartbeatAttachLease(lease.id, futureHeartbeat);
+
+    const rejectedAct = async (act: Record<string, unknown>): Promise<ServerFrame> => {
+      const client = await connectAs(ADMIN_TOKEN);
+      client.ws.send(JSON.stringify({ type: 'act', room: 'eng', act }));
+      const error = await client.next((frame) => frame.type === 'error');
+      client.ws.close();
+      return error;
+    };
+
+    await expect(rejectedAct({
+      act: 'attach_child',
+      lease_id: lease.id,
+      child_pid: 987_654_321,
+      process_group_id: 987_654_321,
+    })).resolves.toMatchObject({ type: 'error', ref: 'act' });
+    expect(daemon.store.getAttachLease(lease.id)).toMatchObject({
+      room: 'ops',
+      child_pid: undefined,
+      process_group_id: undefined,
+    });
+
+    await expect(rejectedAct({
+      act: 'attach_heartbeat',
+      lease_id: lease.id,
+    })).resolves.toMatchObject({ type: 'error', ref: 'act' });
+    expect(daemon.store.getAttachLease(lease.id)?.heartbeat_ts).toBe(futureHeartbeat);
+
+    await expect(rejectedAct({
+      act: 'attach_complete',
+      lease_id: lease.id,
+    })).resolves.toMatchObject({ type: 'error', ref: 'act' });
+    expect(daemon.store.getAttachLease(lease.id)).toBeDefined();
+    expect(daemon.store.getMember('ops', agent.id)).toMatchObject({ custody: 'mirrored' });
   });
 
   it('acts flow through: mark_read clears the unread count', async () => {

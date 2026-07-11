@@ -1,0 +1,13 @@
+id: attach-lease-actions-room-bound
+hash: a-d09006b0c422
+title: Attach lease follow-up actions stay inside their authorized room
+state: active
+statement: Every child-report, heartbeat, and completion action for an attach
+  lease must load that lease and verify its persisted room equals the
+  authenticated frame room before mutation, because an administrator in one room
+  must not be able to alter another room's custody even when a lease id is
+  disclosed.
+depends_on:
+  - roles-gate-human-acts-not-agents
+  - attach-custody-lease-tracks-child-pid
+created_by: final-repository-review-fixes

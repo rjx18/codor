@@ -1,5 +1,5 @@
 export { Store } from './store.js';
-export type { NewMember, NewMessage, SyncResult } from './store.js';
+export type { AtomicMirroredTurn, NewMember, NewMessage, SyncResult } from './store.js';
 export {
   composeDeliveryPayloads,
   composePayload,
@@ -74,6 +74,8 @@ export type {
   AuthChallenge,
   AuthenticatedConnection,
 } from './crypto/challenge.js';
+export { BrowserDeviceSessionAuthority } from './crypto/browser-sessions.js';
+export type { BrowserDeviceSession } from './crypto/browser-sessions.js';
 export {
   HyperswarmTransport,
   lineTopic,

@@ -19,7 +19,8 @@ export interface StoredBrowserRoomKey {
 
 export interface StoredBrowserAccess {
   origin: string;
-  token: string;
+  authority?: 'device' | 'operator';
+  token?: string;
 }
 
 interface BrowserPeer extends BrowserPublicIdentity {
@@ -30,11 +31,19 @@ interface BrowserPeer extends BrowserPublicIdentity {
 interface PairingResult {
   switchboard: BrowserPublicIdentity;
   room_keys: { room: string; generation: number; sealed_key: string }[];
-  access_token: string;
+}
+
+interface BrowserAuthChallenge {
+  challenge_id: string;
+  server_nonce: string;
+  transcript_hash: string;
+  expires_at: string;
 }
 
 export const BROWSER_CRYPTO_DATABASE = 'wireroom-crypto-v1';
 const STORE = 'state';
+const AUTH_CHALLENGE_DOMAIN = new TextEncoder().encode('wireroom-auth-v1\0');
+let activeAccessToken: string | undefined;
 
 function encode(value: Uint8Array): string {
   let binary = '';
@@ -46,6 +55,34 @@ function decode(value: string): Uint8Array {
   const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
   const binary = atob(padded);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function concatBytes(...values: Uint8Array[]): Uint8Array {
+  const output = new Uint8Array(values.reduce((length, value) => length + value.length, 0));
+  let offset = 0;
+  for (const value of values) {
+    output.set(value, offset);
+    offset += value.length;
+  }
+  return output;
+}
+
+function challengeBytes(challenge: BrowserAuthChallenge): Uint8Array {
+  const nonce = decode(challenge.server_nonce);
+  const transcript = decode(challenge.transcript_hash);
+  if (nonce.length !== 32 || transcript.length !== 32) {
+    throw new Error('device authentication challenge is malformed');
+  }
+  return concatBytes(AUTH_CHALLENGE_DOMAIN, nonce, transcript);
+}
+
+export function setActiveBrowserAccessToken(token: string): string {
+  activeAccessToken = token;
+  return token;
+}
+
+export function currentBrowserAccessToken(fallback = ''): string {
+  return activeAccessToken ?? fallback;
 }
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -148,9 +185,6 @@ export async function completeBrowserPairing(url: URL): Promise<PairingResult> {
   if (result.switchboard.sign_public_key !== expectedSwitchboard) {
     throw new Error('switchboard signing key does not match the pairing link');
   }
-  if (typeof result.access_token !== 'string' || result.access_token === '') {
-    throw new Error('switchboard pairing did not return browser access');
-  }
   await writeState('peer:switchboard', { ...result.switchboard, kind: 'switchboard' } satisfies BrowserPeer);
   for (const sealed of result.room_keys) {
     await writeState(`room:${sealed.room}`, {
@@ -159,9 +193,88 @@ export async function completeBrowserPairing(url: URL): Promise<PairingResult> {
       key: encode(await openForBrowser(sealed.sealed_key)),
     } satisfies StoredBrowserRoomKey);
   }
-  await storeBrowserAccess({ origin: new URL(endpoint).origin, token: result.access_token });
+  await storeBrowserAccess({ origin: new URL(endpoint).origin, authority: 'device' });
   return result;
 }
+
+// harn:assume paired-browser-challenge-session ref=browser-session-signin
+export async function openBrowserDeviceSession(origin = window.location.origin): Promise<string | undefined> {
+  await sodium.ready;
+  const switchboard = await readState<BrowserPeer>('peer:switchboard');
+  if (switchboard?.kind !== 'switchboard') return undefined;
+  const identity = await requiredIdentity();
+  const challengeResponse = await fetch(`${origin}/api/auth/challenge`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ device_id: identity.device_id }),
+  });
+  if (!challengeResponse.ok) {
+    throw new Error(`device authentication failed: ${String(challengeResponse.status)}`);
+  }
+  const offered = await challengeResponse.json() as {
+    challenge?: BrowserAuthChallenge;
+    switchboard_device_id?: string;
+  };
+  if (offered.switchboard_device_id !== switchboard.device_id || !offered.challenge) {
+    throw new Error('device authentication switchboard identity mismatch');
+  }
+  const challenge = offered.challenge;
+  const expectedTranscript = encode(sodium.crypto_generichash(
+    sodium.crypto_generichash_BYTES,
+    new TextEncoder().encode(`wireroom-browser-session-v1\0${switchboard.device_id}`),
+    null,
+  ));
+  if (
+    typeof challenge.challenge_id !== 'string' || challenge.challenge_id === '' ||
+    typeof challenge.server_nonce !== 'string' ||
+    typeof challenge.transcript_hash !== 'string' ||
+    challenge.transcript_hash !== expectedTranscript ||
+    typeof challenge.expires_at !== 'string' ||
+    Date.parse(challenge.expires_at) <= Date.now()
+  ) {
+    throw new Error('device authentication challenge is invalid');
+  }
+  const signature = encode(sodium.crypto_sign_detached(
+    challengeBytes(challenge),
+    decode(identity.sign_secret_key),
+  ));
+  const sessionResponse = await fetch(`${origin}/api/auth/session`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ challenge_id: challenge.challenge_id, signature }),
+  });
+  if (!sessionResponse.ok) {
+    throw new Error(`device authentication failed: ${String(sessionResponse.status)}`);
+  }
+  const session = await sessionResponse.json() as {
+    access_token?: unknown;
+    device_id?: unknown;
+    expires_at?: unknown;
+  };
+  if (
+    typeof session.access_token !== 'string' || session.access_token === '' ||
+    session.device_id !== identity.device_id ||
+    typeof session.expires_at !== 'string' ||
+    Date.parse(session.expires_at) <= Date.now()
+  ) {
+    throw new Error('device authentication session is invalid');
+  }
+  return session.access_token;
+}
+
+export async function restoreBrowserAccess(origin = window.location.origin): Promise<string> {
+  const switchboard = await readState<BrowserPeer>('peer:switchboard');
+  if (switchboard?.kind === 'switchboard') {
+    return (await openBrowserDeviceSession(origin)) ?? '';
+  }
+  const stored = await storedBrowserAccess();
+  return stored?.origin === origin &&
+      stored.authority !== 'device' &&
+      typeof stored.token === 'string'
+    ? stored.token
+    : '';
+}
+// harn:end paired-browser-challenge-session
 
 export async function storedBrowserRoomKey(room: string): Promise<StoredBrowserRoomKey | undefined> {
   return readState<StoredBrowserRoomKey>(`room:${room}`);
@@ -195,6 +308,13 @@ export async function persistBrowserRoomKey(
 }
 
 export async function storeBrowserAccess(access: StoredBrowserAccess): Promise<void> {
+  if (
+    access.origin === '' ||
+    (access.authority === 'operator' && (typeof access.token !== 'string' || access.token === '')) ||
+    (access.authority === 'device' && access.token !== undefined)
+  ) {
+    throw new Error('browser access metadata is invalid');
+  }
   await writeState('access:switchboard', access);
 }
 
@@ -204,6 +324,7 @@ export async function storedBrowserAccess(): Promise<StoredBrowserAccess | undef
 
 // harn:assume unpair-purges-all-browser-state ref=browser-unpair-purge
 export async function unpairBrowser(): Promise<void> {
+  activeAccessToken = '';
   for (const registration of await navigator.serviceWorker.getRegistrations()) {
     const subscription = await registration.pushManager.getSubscription();
     if (subscription) await subscription.unsubscribe();

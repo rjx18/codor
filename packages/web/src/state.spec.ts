@@ -88,6 +88,38 @@ describe('frame application (in-place, seq-cursored)', () => {
     expect(state.seq).toBe(HISTORY_PAGE_SIZE + 5);
   });
 
+  it('retains the full-history default recipient after the visible page is trimmed', () => {
+    const { applyFrame } = useRoomStore.getState();
+    applyFrame({ type: 'member', seq: 0, member: alpha });
+    applyFrame({
+      type: 'message',
+      seq: 0,
+      message: message({
+        id: 1,
+        seq: 3,
+        kind: 'run',
+        author: alpha.id,
+        body: 'done',
+        run: {
+          status: 'completed',
+          started_ts: TS,
+          ended_ts: TS,
+          tool_calls: 0,
+          events_ref: 'runs/1.jsonl',
+          final_text: 'done',
+        },
+      }),
+    });
+    for (let id = 2; id <= HISTORY_PAGE_SIZE + 2; id++) {
+      applyFrame({ type: 'message', seq: 0, message: message({ id, seq: id + 2 }) });
+    }
+    applyFrame({ type: 'sync_complete', seq: HISTORY_PAGE_SIZE + 4 });
+
+    const state = useRoomStore.getState();
+    expect(state.messages[1]).toBeUndefined();
+    expect(state.latestFinalizedAgentId).toBe(alpha.id);
+  });
+
   it('a run finalization REPLACES the message in place — never a duplicate', () => {
     const { applyFrame } = useRoomStore.getState();
     const running = message({

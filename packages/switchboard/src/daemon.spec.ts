@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import type { ServerFrame } from '@wireroom/protocol';
 import { createTurnTranslator, wireEventFromHook } from '@wireroom/adapter-claude-code';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Daemon } from './daemon.js';
 import { FakeAdapter } from './fake-adapter.js';
@@ -306,6 +306,44 @@ describe('mirrored join and adoption', () => {
     expect(daemon.mirrorSessionEnd('claude-code', 'claude-session-1')).toBe(true);
     expect(daemon.store.getMember('eng', claude.id)!.custody).toBe('owned');
     expect(claudeFake.wasAttached('claude-session-1')).toBe(true);
+  });
+
+  it('rolls back the mirrored run and fanout when its native-id mapping cannot persist', () => {
+    const planner = daemon.joinMember('eng', {
+      harness: 'fake',
+      handle: 'planner',
+      session_ref: 'native-planner-fault-session',
+      cwd: '/work/planning',
+    });
+    const owner = daemon.ownerOf('eng');
+    const recordMirroredTurn = daemon.store.recordMirroredTurn.bind(daemon.store);
+    let failOnce = true;
+    const recordSpy = vi.spyOn(daemon.store, 'recordMirroredTurn').mockImplementation(
+      (room, memberId, nativeTurnId, messageId) => {
+        if (failOnce) {
+          failOnce = false;
+          throw new Error('dedupe write failed');
+        }
+        recordMirroredTurn(room, memberId, nativeTurnId, messageId);
+      },
+    );
+
+    const turn = {
+      harness: 'fake',
+      session_ref: 'native-planner-fault-session',
+      native_turn_id: 'native-turn-fault',
+      body: '@richard persisted exactly once',
+    };
+    expect(() => daemon.mirrorTurn(turn)).toThrow('dedupe write failed');
+    expect(runMessages()).toEqual([]);
+    expect(daemon.store.listDeliveries('eng', { recipient: owner.id })).toEqual([]);
+
+    const retry = daemon.mirrorTurn(turn);
+    expect(retry.deduped).toBe(false);
+    expect(runMessages()).toHaveLength(1);
+    expect(runMessages()[0]).toMatchObject({ author: planner.id, body: turn.body });
+    expect(daemon.store.listDeliveries('eng', { recipient: owner.id })).toHaveLength(1);
+    recordSpy.mockRestore();
   });
 });
 
@@ -613,6 +651,23 @@ describe('reply-is-the-run-message chaining', () => {
     expect(alphaDeliveries.length).toBe(2); // original + beta's reply
     const betaRun = runMessages().find((m) => m.author === beta.id)!;
     expect(alphaDeliveries[1]!.message_id).toBe(betaRun.id);
+  });
+
+  it('routes an untagged human message to the latest finalized agent across full room history', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@alpha establish the default recipient');
+    await daemon.settle();
+    daemon.pauseMember('eng', alpha.id);
+
+    for (let index = 0; index < 501; index++) {
+      daemon.postSystemMessage('eng', `later system event ${String(index)}`);
+    }
+    const continuation = daemon.postHumanMessage('eng', 'continue from the deep history');
+
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id })).toContainEqual(
+      expect.objectContaining({ message_id: continuation.id, state: 'queued' }),
+    );
   });
 
   it.each(['completed', 'interrupted'] as const)(

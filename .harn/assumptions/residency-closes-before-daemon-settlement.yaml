@@ -1,0 +1,13 @@
+id: residency-closes-before-daemon-settlement
+hash: a-99548488e166
+title: Residency shutdown releases pending remote turns before daemon settlement
+state: active
+statement: A composed home switchboard must close its residency coordinator
+  before awaiting daemon settlement while leaving transport teardown until
+  afterward, so pending remote streams fail closed as ambiguous and cannot hang
+  graceful shutdown when an outpost is offline or a remote adapter is still
+  running.
+depends_on:
+  - resident-attempt-journal-reconciles
+  - remote-deliveries-queue-when-unreachable
+created_by: final-repository-review-fixes

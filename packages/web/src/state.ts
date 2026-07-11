@@ -27,6 +27,8 @@ export interface RoomState {
   inbox: Record<string, Delivery>;
   meter: RoomMeter | undefined;
   runEvents: Record<number, WireEvent[]>;
+  /** Full-hydration routing hint retained when visible history is paged down. */
+  latestFinalizedAgentId: string | undefined;
   errors: string[];
   applyFrame(frame: ServerFrame): void;
   mergeHistory(messages: Message[]): void;
@@ -52,6 +54,7 @@ export const useRoomStore = create<RoomState>((set) => ({
   inbox: {},
   meter: undefined,
   runEvents: {},
+  latestFinalizedAgentId: undefined,
   errors: [],
 
   // harn:assume client-syncs-by-seq ref=store-upsert-in-place
@@ -97,8 +100,18 @@ export const useRoomStore = create<RoomState>((set) => ({
               },
             };
           }
-        case 'message':
-          return { seq: bump, messages: { ...state.messages, [frame.message.id]: frame.message } };
+        case 'message': {
+          const finalizedAgent =
+            frame.message.kind === 'run' &&
+            frame.message.run !== undefined &&
+            frame.message.run.status !== 'running' &&
+            state.members[frame.message.author]?.kind === 'agent';
+          return {
+            seq: bump,
+            messages: { ...state.messages, [frame.message.id]: frame.message },
+            ...(finalizedAgent && { latestFinalizedAgentId: frame.message.author }),
+          };
+        }
         case 'inbox':
           return { seq: bump, inbox: { ...state.inbox, [frame.delivery.id]: frame.delivery } };
         case 'meter':
@@ -138,6 +151,7 @@ export const useRoomStore = create<RoomState>((set) => ({
       inbox: {},
       meter: undefined,
       runEvents: {},
+      latestFinalizedAgentId: undefined,
       errors: [],
     }),
 }));

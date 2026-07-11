@@ -154,15 +154,17 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
       residency,
       close: async () => {
         await server.close();
-        await daemon.close();
+        // harn:assume residency-closes-before-daemon-settlement ref=residency-first-shutdown
         await residency?.close();
+        await daemon.close();
         await transport?.close();
         crypto.close();
+        // harn:end residency-closes-before-daemon-settlement
       },
     };
   } catch (error) {
-    await daemon.close({ force: true });
     await residency?.close();
+    await daemon.close({ force: true });
     await transport?.close();
     crypto.close();
     throw error;

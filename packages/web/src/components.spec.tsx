@@ -106,6 +106,13 @@ describe('impliedRecipient (invariant 3: visible before send)', () => {
     });
   });
 
+  it('uses the retained full-history recipient when its run is outside the visible page', () => {
+    expect(impliedRecipient('continue', members, {}, alpha.id)).toEqual({
+      kind: 'default',
+      label: '→ @alpha (untagged default)',
+    });
+  });
+
   it('unknown handles do not select recipients', () => {
     expect(impliedRecipient('@nosuch hello', members, {}).kind).toBe('commentary');
   });

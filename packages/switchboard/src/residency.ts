@@ -407,8 +407,21 @@ export class ResidencyCoordinator {
         this.completedHomeIndexes.delete(ack.rpc_id);
       }
     } else if (envelope.kind === 'resident_session') {
-      const session = envelope.payload as { rpc_id: string; session_ref: string };
-      this.pendingHomeAttempts.get(session.rpc_id)?.hooks.onSessionRef?.(session.session_ref);
+      // harn:assume resident-session-updates-host-bound ref=resident-session-host-binding
+      const session = envelope.payload as { rpc_id?: unknown; session_ref?: unknown };
+      if (
+        typeof session.rpc_id !== 'string' ||
+        typeof session.session_ref !== 'string' ||
+        session.session_ref.length === 0
+      ) return;
+      const pending = this.pendingHomeAttempts.get(session.rpc_id);
+      if (
+        !pending ||
+        pending.host !== peerId ||
+        pending.request.room !== envelope.room
+      ) return;
+      pending.hooks.onSessionRef?.(session.session_ref);
+      // harn:end resident-session-updates-host-bound
     }
   }
 

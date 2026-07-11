@@ -5,7 +5,11 @@ import { App } from './App';
 import { PairingPage } from './pairing';
 import { SettingsPage } from './SettingsPage';
 import { LedgerGraphPage } from './LedgerGraph';
-import { storedBrowserAccess, storeBrowserAccess } from './crypto';
+import {
+  restoreBrowserAccess,
+  setActiveBrowserAccessToken,
+  storeBrowserAccess,
+} from './crypto';
 import { applyThemeChoice } from './theme';
 import './styles.css';
 
@@ -18,24 +22,27 @@ if (!root) {
 const rootElement = root;
 
 // harn:assume pwa-cold-launch-restores-local-auth ref=paired-access-bootstrap
-async function resolveAccessToken(): Promise<string> {
+export async function resolveAccessToken(): Promise<string> {
   const url = new URL(window.location.href);
   const explicit = url.searchParams.get('token') ?? '';
   if (explicit !== '') {
     try {
-      await storeBrowserAccess({ origin: window.location.origin, token: explicit });
+      await storeBrowserAccess({
+        origin: window.location.origin,
+        authority: 'operator',
+        token: explicit,
+      });
       url.searchParams.delete('token');
       window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
     } catch {
       // Keep the explicit URL token when persistent browser storage is unavailable.
     }
-    return explicit;
+    return setActiveBrowserAccessToken(explicit);
   }
   try {
-    const stored = await storedBrowserAccess();
-    return stored?.origin === window.location.origin ? stored.token : '';
+    return setActiveBrowserAccessToken(await restoreBrowserAccess(window.location.origin));
   } catch {
-    return '';
+    return setActiveBrowserAccessToken('');
   }
 }
 
@@ -48,8 +55,8 @@ async function render(): Promise<void> {
         : window.location.pathname === '/ledger'
           ? <LedgerGraphPage token={token} />
         : window.location.pathname === '/settings'
-          ? <SettingsPage token={token} />
-          : <App token={token} />}
+          ? <SettingsPage token={token} refreshToken={resolveAccessToken} />
+          : <App token={token} refreshToken={resolveAccessToken} />}
     </StrictMode>,
   );
 }

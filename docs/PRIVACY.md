@@ -80,7 +80,10 @@ device fetches content over tier 0/1 when opened.
   subscription.
 - **Connection auth:** peers and devices authenticate with a nonce-challenge signed by the
   Ed25519 identity (replay-bound to the session transcript) — possession of a room key alone
-  is never treated as identity.
+  is never treated as identity. A paired browser signs a fresh, single-use switchboard challenge
+  on each cold start and receives only a bounded in-memory device session; pairing never discloses
+  the configured operator bearer. Restarting the switchboard invalidates those page sessions and
+  the browser signs in again from its origin-scoped identity.
 - **Pairing:** the web/switchboard shows a QR (switchboard endpoint + ephemeral pairing token +
   switchboard pubkey); the device scans, exchanges pubkeys over the resulting channel, done.
   Same UX as Paseo/claude-watch pairing, plus the key exchange.
@@ -88,7 +91,8 @@ device fetches content over tier 0/1 when opened.
   (libsodium `crypto_box_seal`) to each authorized device pubkey. Rotation on member-device
   revocation. v1 fan-out is sealed-box per device (rooms have ~2–5 devices — MLS is
   over-engineering at this scale; revisit via OpenMLS only if team rooms grow).
-- **Revocation:** remove a device → rotate room keys → old device can decrypt nothing new. One
+- **Revocation:** remove a device → invalidate its browser sessions and close its live sockets →
+  rotate room keys → old device can neither fetch current plaintext nor decrypt anything new. One
   command, documented, tested.
 - **Crypto is never hand-rolled:** libsodium + hyperswarm's Noise. We write key *management*,
   not primitives.
@@ -99,7 +103,7 @@ device fetches content over tier 0/1 when opened.
 | --- | --- | --- |
 | Switchboard host | full plaintext history (SQLite + run JSONL + ledger vault) | your disk + OS full-disk encryption (the supported at-rest story; app-level DB encryption is deferred — it would cover only the DB, not blobs/ledger, and mislead); filesystem perms |
 | iPhone/Watch | decrypted cache of recent messages | OS sandbox + device encryption; wipe on unpair |
-| Browser (web) | in-memory + localStorage cache | cleared on unpair |
+| Browser (web) | identity, sealed room keys, and pairing marker in origin-scoped IndexedDB; current room state and device access session in page memory; an operator bearer is stored only when explicitly supplied | origin sandbox; all Wireroom IndexedDB, CacheStorage, localStorage, service workers, and push state cleared on unpair |
 | Push relay | nothing at rest | memory-only forwarding |
 | DHT (tier 1) | topic hashes, peer IPs | inherent to P2P; documented |
 | APNs | ciphertext in transit | E2EE payload, padded |

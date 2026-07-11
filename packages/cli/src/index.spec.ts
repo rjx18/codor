@@ -394,7 +394,19 @@ describe('@wireroom/cli', () => {
       enabled: true,
       vapid_public_key: 'm3-vapid-public-key',
     });
+    const closeOrder: string[] = [];
+    const closeResidency = running.residency!.close.bind(running.residency);
+    running.residency!.close = async () => {
+      closeOrder.push('residency');
+      await closeResidency();
+    };
+    const closeDaemon = running.daemon.close.bind(running.daemon);
+    running.daemon.close = async (options) => {
+      closeOrder.push('daemon');
+      await closeDaemon(options);
+    };
     await running.close();
+    expect(closeOrder).toEqual(['residency', 'daemon']);
   });
 
   // harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition

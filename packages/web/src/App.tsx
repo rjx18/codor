@@ -34,6 +34,7 @@ import {
 } from './state.js';
 import { connect, type Connection } from './ws.js';
 import { ContextRail, RoomList, RoomRail } from './shell.js';
+import { currentBrowserAccessToken } from './crypto.js';
 function pageParams(): { room: string; token: string } {
   const params = new URLSearchParams(window.location.search);
   return { room: params.get('room') ?? 'default', token: params.get('token') ?? '' };
@@ -45,14 +46,22 @@ function fragmentMessageId(): number | undefined {
 }
 
 // harn:assume permalink-ids-stable ref=message-history-surface
-export function App(props: { token?: string } = {}) {
+export function App(props: {
+  token?: string;
+  refreshToken?: () => Promise<string>;
+} = {}) {
   const state = useRoomStore();
   const page = useMemo(pageParams, []);
   const ROOM = page.room;
   const TOKEN = props.token ?? page.token;
+  const accessToken = useCallback(() => currentBrowserAccessToken(TOKEN), [TOKEN]);
   const connectionRef = useRef<Connection | null>(null);
   if (connectionRef.current === null) {
-    connectionRef.current = connect({ room: ROOM, token: TOKEN });
+    connectionRef.current = connect({
+      room: ROOM,
+      token: accessToken(),
+      refreshToken: props.refreshToken,
+    });
   }
   const connection = connectionRef.current;
   const [adapters, setAdapters] = useState<AdapterRegistration[]>([]);
@@ -74,8 +83,9 @@ export function App(props: { token?: string } = {}) {
   const contextCloseRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
+    if (!state.connected) return;
     let current = true;
-    void fetchAdapters({ token: TOKEN })
+    void fetchAdapters({ token: accessToken() })
       .then((items) => {
         if (current) setAdapters(items);
       })
@@ -83,11 +93,12 @@ export function App(props: { token?: string } = {}) {
     return () => {
       current = false;
     };
-  }, [TOKEN]);
+  }, [accessToken, state.connected]);
 
   useEffect(() => {
+    if (!state.connected) return;
     let current = true;
-    void fetchRooms({ token: TOKEN })
+    void fetchRooms({ token: accessToken() })
       .then((items) => {
         if (current) setRooms(items);
       })
@@ -95,12 +106,12 @@ export function App(props: { token?: string } = {}) {
     return () => {
       current = false;
     };
-  }, [TOKEN]);
+  }, [accessToken, state.connected]);
 
   useEffect(() => {
     if (!state.connected) return;
     let current = true;
-    void fetchMemberDetails(ROOM, { token: TOKEN })
+    void fetchMemberDetails(ROOM, { token: accessToken() })
       .then((items) => {
         if (current) setMemberDetails(Object.fromEntries(items.map((item) => [item.member.id, item])));
       })
@@ -108,7 +119,7 @@ export function App(props: { token?: string } = {}) {
     return () => {
       current = false;
     };
-  }, [ROOM, TOKEN, state.connected, state.seq]);
+  }, [ROOM, accessToken, state.connected, state.seq]);
 
   const messages = useMemo(() => sortedMessages(state.messages), [state.messages]);
   const handles = handleLookup(state.members);
@@ -178,7 +189,7 @@ export function App(props: { token?: string } = {}) {
       const page = await fetchMessageHistory(
         ROOM,
         { before: first.id, limit: HISTORY_PAGE_SIZE },
-        { token: TOKEN },
+        { token: accessToken() },
       );
       state.mergeHistory(page.messages);
       setHasOlder(page.has_more);
@@ -189,7 +200,7 @@ export function App(props: { token?: string } = {}) {
       historyBusyRef.current = false;
       setHistoryBusy(false);
     }
-  }, [ROOM, TOKEN, hasOlder, messages, state.mergeHistory, state.seq]);
+  }, [ROOM, accessToken, hasOlder, messages, state.mergeHistory, state.seq]);
 
   const revealMessage = useCallback(async (id: number) => {
     let found = state.messages[id] !== undefined;
@@ -199,7 +210,7 @@ export function App(props: { token?: string } = {}) {
         const page = await fetchMessageHistory(
           ROOM,
           { before, limit: HISTORY_PAGE_SIZE },
-          { token: TOKEN },
+          { token: accessToken() },
         );
         if (page.messages.length === 0) break;
         state.mergeHistory(page.messages);
@@ -221,7 +232,7 @@ export function App(props: { token?: string } = {}) {
         document.getElementById(String(id))?.scrollIntoView({ block: 'center' });
       });
     });
-  }, [ROOM, TOKEN, messages, state.messages, state.mergeHistory]);
+  }, [ROOM, accessToken, messages, state.messages, state.mergeHistory]);
 
   useLayoutEffect(() => {
     const node = timeline.current;
@@ -369,7 +380,7 @@ export function App(props: { token?: string } = {}) {
           currentUnread={unreadCount(state)}
           currentHeld={held.length}
           connected={state.connected}
-          token={TOKEN}
+          token={accessToken()}
           owner={owner ? { handle: owner.handle, display_name: owner.display_name } : undefined}
           canCreateRoom={canManageRooms}
         />
@@ -377,7 +388,7 @@ export function App(props: { token?: string } = {}) {
           <Header
             roomName={state.room?.name ?? ROOM}
             roomId={ROOM}
-            token={TOKEN}
+            token={accessToken()}
             connected={state.connected}
             meter={state.meter}
             unread={unreadCount(state)}
@@ -421,7 +432,7 @@ export function App(props: { token?: string } = {}) {
                 if (query === '') return;
                 setSearching(true);
                 setSearched(true);
-                void searchMessages(ROOM, query, { token: TOKEN })
+                void searchMessages(ROOM, query, { token: accessToken() })
                   .then(setSearchResults)
                   .catch(() => setSearchResults([]))
                   .finally(() => setSearching(false));
@@ -541,7 +552,7 @@ export function App(props: { token?: string } = {}) {
                       authorHandle={handles(message.author)}
                       liveEventCount={state.runEvents[message.id]?.length ?? 0}
                       room={ROOM}
-                      token={TOKEN}
+                      token={accessToken()}
                       onInspect={() => {
                         setSelectedRunId(message.id);
                         setContextView('run');
@@ -571,13 +582,19 @@ export function App(props: { token?: string } = {}) {
                   message={message}
                   authorHandle={handles(message.author)}
                   mine={isMe(state.members, message.author, state.selfMemberId)}
+                  token={accessToken()}
                 />
               );
             })}
           </div>
           {/* harn:end sw-caches-shell-only-no-message-data */}
           {canPost ? (
-            <Composer members={state.members} messages={state.messages} connection={connection} />
+            <Composer
+              members={state.members}
+              messages={state.messages}
+              defaultRecipientId={state.latestFinalizedAgentId}
+              connection={connection}
+            />
           ) : (
             <div data-testid="read-only-room" className="wr-read-only-room">
               Observer access · room commands are read-only
@@ -596,7 +613,7 @@ export function App(props: { token?: string } = {}) {
           view={contextView}
           onView={setContextView}
           room={ROOM}
-          token={TOKEN}
+          token={accessToken()}
           className="wr-context-desktop"
           canManageAgents={canManageAgents}
         />
@@ -636,7 +653,7 @@ export function App(props: { token?: string } = {}) {
               currentUnread={unreadCount(state)}
               currentHeld={held.length}
               connected={state.connected}
-              token={TOKEN}
+              token={accessToken()}
               owner={owner ? { handle: owner.handle, display_name: owner.display_name } : undefined}
               canCreateRoom={canManageRooms}
               onNavigate={() => setDrawerOpen(false)}
@@ -694,7 +711,7 @@ export function App(props: { token?: string } = {}) {
               view={contextView}
               onView={setContextView}
               room={ROOM}
-              token={TOKEN}
+              token={accessToken()}
               testId="context-sheet"
               className="min-h-0 flex-1"
               canManageAgents={canManageAgents}

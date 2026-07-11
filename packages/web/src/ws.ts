@@ -1,5 +1,6 @@
 import type { Act, ServerFrame } from '@wireroom/protocol';
 
+import { setActiveBrowserAccessToken } from './crypto.js';
 import { useRoomStore } from './state.js';
 
 export interface Connection {
@@ -14,6 +15,8 @@ export interface ConnectOptions {
   token: string;
   /** ws(s):// origin; defaults to the page origin. */
   origin?: string;
+  /** Re-authenticates a paired browser after a server restart invalidates its page session. */
+  refreshToken?: () => Promise<string>;
 }
 
 // harn:assume client-syncs-by-seq ref=ws-resubscribe-cursor
@@ -37,10 +40,11 @@ export function connect(options: ConnectOptions): Connection {
   let socket: WebSocket | undefined;
   let manuallyClosed = false;
   let retryMs = 500;
+  let token = options.token;
 
   const open = (): void => {
     manuallyClosed = false;
-    socket = new WebSocket(`${origin}/ws?token=${encodeURIComponent(options.token)}`);
+    socket = new WebSocket(`${origin}/ws?token=${encodeURIComponent(token)}`);
     socket.onopen = () => {
       retryMs = 500;
       setConnected(true);
@@ -55,12 +59,27 @@ export function connect(options: ConnectOptions): Connection {
     socket.onmessage = (event) => {
       applyFrame(JSON.parse(event.data as string) as ServerFrame);
     };
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       setConnected(false);
-      if (!manuallyClosed) {
+      if (manuallyClosed) return;
+      if (event.code === 4403) {
+        setActiveBrowserAccessToken('');
+        return;
+      }
+      const reconnect = (): void => {
+        if (manuallyClosed) return;
         setTimeout(open, retryMs);
         retryMs = Math.min(retryMs * 2, 10_000);
-      }
+      };
+      if (event.code === 4401 && options.refreshToken) {
+        void options.refreshToken().then(
+          (refreshed) => {
+            token = setActiveBrowserAccessToken(refreshed);
+            reconnect();
+          },
+          reconnect,
+        );
+      } else reconnect();
     };
   };
   open();

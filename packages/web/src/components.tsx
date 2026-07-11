@@ -41,7 +41,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchLedgerNote, fetchRunEvents } from './api.js';
 import type { AdapterRegistration, LedgerNote, MemberDetail } from './api.js';
-import { storedBrowserAccess } from './crypto.js';
+import { currentBrowserAccessToken } from './crypto.js';
 import { latestFinalizedAgentAuthor, me, type MemberStateObservation } from './state.js';
 import type { Connection } from './ws.js';
 
@@ -1035,6 +1035,7 @@ export function impliedRecipient(
   draft: string,
   members: Record<string, Member>,
   messages: Record<number, Message>,
+  defaultRecipientId?: string,
 ): { kind: 'mentions' | 'default' | 'commentary'; label: string } {
   const roster = Object.values(members);
   const byId = new Map(roster.map((member) => [member.id, member]));
@@ -1048,7 +1049,10 @@ export function impliedRecipient(
   if (handles.length > 0) {
     return { kind: 'mentions', label: `→ ${handles.map((h) => `@${h}`).join(' ')}` };
   }
-  const fallback = latestFinalizedAgentAuthor(messages, members);
+  const retained = defaultRecipientId === undefined ? undefined : members[defaultRecipientId];
+  const fallback = retained?.kind === 'agent'
+    ? retained
+    : latestFinalizedAgentAuthor(messages, members);
   if (fallback) return { kind: 'default', label: `→ @${fallback.handle} (untagged default)` };
   return { kind: 'commentary', label: 'room commentary — delivered to nobody' };
 }
@@ -1056,12 +1060,13 @@ export function impliedRecipient(
 export function Composer(props: {
   members: Record<string, Member>;
   messages: Record<number, Message>;
+  defaultRecipientId?: string;
   connection: Connection;
 }) {
   const [draft, setDraft] = useState('');
   const implied = useMemo(
-    () => impliedRecipient(draft, props.members, props.messages),
-    [draft, props.members, props.messages],
+    () => impliedRecipient(draft, props.members, props.messages, props.defaultRecipientId),
+    [draft, props.members, props.messages, props.defaultRecipientId],
   );
   const send = (): void => {
     if (draft.trim() === '') return;
@@ -1109,7 +1114,12 @@ export function Composer(props: {
 }
 // harn:end implied-recipient-visible-before-send
 
-export function MessageRow(props: { message: Message; authorHandle: string; mine: boolean }) {
+export function MessageRow(props: {
+  message: Message;
+  authorHandle: string;
+  mine: boolean;
+  token?: string;
+}) {
   const { message } = props;
   const [note, setNote] = useState<LedgerNote>();
   const [noteError, setNoteError] = useState(false);
@@ -1160,11 +1170,9 @@ export function MessageRow(props: { message: Message; authorHandle: string; mine
             onClick={() => {
               setNoteError(false);
               const urlToken = new URLSearchParams(window.location.search).get('token') ?? '';
-              void storedBrowserAccess()
-                .catch(() => undefined)
-                .then((access) => fetchLedgerNote(message.room, segment.name, {
-                  token: access?.origin === window.location.origin ? access.token : urlToken,
-                }))
+              void fetchLedgerNote(message.room, segment.name, {
+                token: currentBrowserAccessToken(props.token ?? urlToken),
+              })
                 .then(setNote)
                 .catch(() => setNoteError(true));
             }}

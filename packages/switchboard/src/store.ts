@@ -438,6 +438,13 @@ export interface AtomicTurnCompletion {
   deliveries: Delivery[];
 }
 
+export interface AtomicMirroredTurn {
+  message: Message;
+  deliveries: Delivery[];
+  member?: Member;
+  deduped: boolean;
+}
+
 export interface DeliveryAttemptProcess {
   pid?: number;
   process_group_id?: number;
@@ -686,6 +693,50 @@ export class Store {
       .run(room, memberId, nativeTurnId, messageId);
   }
 
+  // harn:assume mirrored-turn-commit-transactional ref=atomic-mirrored-turn
+  commitMirroredTurn(
+    room: string,
+    opts: {
+      memberId: string;
+      nativeTurnId: string;
+      finalize(placeholder: Message): {
+        message: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run'>>;
+        fanout: FanoutDelivery[];
+        markMisaddressed?: boolean;
+      };
+    },
+  ): AtomicMirroredTurn {
+    return this.db.transaction(() => {
+      const existingId = this.getMirroredMessageId(room, opts.memberId, opts.nativeTurnId);
+      if (existingId !== undefined) {
+        const message = this.getMessage(room, existingId);
+        if (!message) throw new Error(`mirrored turn points to missing message #${existingId}`);
+        return { message, deliveries: [], deduped: true };
+      }
+
+      const placeholder = this.postMessage(room, {
+        author: opts.memberId,
+        kind: 'run',
+        body: '',
+      });
+      const finalized = opts.finalize(placeholder);
+      const message = this.updateMessage(room, placeholder.id, finalized.message);
+      const member = finalized.markMisaddressed
+        ? this.updateMember(room, opts.memberId, { misaddressed: true })
+        : undefined;
+      const deliveries = finalized.fanout.map((delivery) => this.createDelivery(room, {
+        message_id: message.id,
+        recipient: delivery.recipient,
+        state: delivery.state,
+        payload_snapshot: delivery.payload_snapshot,
+        hop_count: delivery.hop_count,
+      }));
+      this.recordMirroredTurn(room, opts.memberId, opts.nativeTurnId, message.id);
+      return { message, deliveries, member, deduped: false };
+    })();
+  }
+  // harn:end mirrored-turn-commit-transactional
+
   createAttachLease(input: {
     room: string;
     member_id: string;
@@ -857,6 +908,21 @@ export class Store {
       'SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE room = ?',
     ).get(room) as { id: number };
     return row.id;
+  }
+
+  latestFinalizedAgentAuthor(room: string): string | undefined {
+    const row = this.db.prepare(
+      `SELECT messages.author
+       FROM messages
+       JOIN members ON members.room = messages.room AND members.id = messages.author
+       WHERE messages.room = ?
+         AND messages.kind = 'run'
+         AND members.kind = 'agent'
+         AND json_extract(messages.run, '$.status') <> 'running'
+       ORDER BY messages.id DESC
+       LIMIT 1`,
+    ).get(room) as { author: string } | undefined;
+    return row?.author;
   }
 
   listMessagesAfter(room: string, after: number, limit = 100): Message[] {

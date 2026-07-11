@@ -8,8 +8,9 @@ quota, or subscription failure.
 1. Create the final GitHub repository privately, add it as this checkout's `origin`, and verify the
    complete history contains no credentials, pairing URLs, DHT line secrets, bridge tokens, VAPID
    private keys, browser subscriptions, or local data directories. Do not make it public yet.
-2. Restore the workspace spend cap, run one independent read-only full-repository Codex review,
-   and fold every real finding through Harn. This gate must pass before tagging 0.1.0.
+2. Confirm the completed full-repository Codex review and its
+   `final-repository-review-fixes` Harn fold remain in the candidate history. Run the review again
+   if any later code commit lands; no unreviewed code may precede the 0.1.0 tag.
 3. Inspect current first-party output, harden the acceptance fixtures without weakening their
    routing contracts, and run the M0 and M1 live acceptances once on the pinned cheap models. Both
    exact chains must pass before tagging 0.1.0; another extra or missing route blocks publication.
@@ -57,17 +58,26 @@ prompts or assertions without weakening the routing contract, then run each live
 the pinned cheap models. Treat another extra/missing route as a failed release check, not a reason
 to loop paid prompts.
 
-## Final Codex review fallback record
+## Final Codex review record
 
-The required independent full-repository Codex review was attempted once in a read-only sandbox
-against the complete launch candidate. Codex CLI session
-`019f5075-57b5-79e3-ae2a-5d229869c9a9` exited 1 before repository analysis because the workspace
-owner's spend cap was exhausted; an unrelated unavailable Supabase MCP also reported missing auth.
-No retry or probe was made because the quota error was explicit. This review is **skipped with
-reason**, not passed, and the local dependency, license, secret-pattern, build, recursive, browser,
-and clean-clone gates are not represented as a substitute reviewer verdict. Operator action: run
-one read-only full-repository Codex review after the workspace cap is restored and fold any real
-finding before tagging 0.1.0.
+Status on 2026-07-11: **completed and folded**. At the operator's explicit direction, the primary
+Codex session performed the full-repository audit itself without a subagent or another paid model
+call, starting from launch candidate `ba71d0a`. The review accepted one BLOCKER and five MAJOR
+findings: pairing disclosed the global operator bearer so revocation did not end plaintext API
+access; attach follow-up actions could mutate a lease from another room; an enrolled peer could
+spoof a pending remote session reference; normal shutdown could await a remote stream before
+closing the component able to fail it; mirrored native turns did not commit dedupe and fanout
+atomically; and default-recipient routing silently ignored finalized agents more than 500 messages
+back. The implementation self-review also separated unauthenticated browser challenges from the
+Noise challenge pool and kept refreshed device access authoritative for later REST actions.
+
+All accepted findings and regressions are in Harn plan `final-repository-review-fixes`; the exact
+applied commit is recorded by `harn log`. No finding was rejected as a false positive. Reviewed
+non-findings remain intentional and documented: the local operator bearer is an administrative
+credential, per-human push targeting is deferred, remote ledger attribution follows the explicit
+room-host policy, and the mode-0600 Unix socket trusts the local OS account boundary. The earlier
+quota-exhausted Codex CLI attempt remains historical evidence only and is superseded by this
+completed in-session review.
 
 ## Claude review fallback record
 
@@ -114,6 +124,10 @@ returned `OK` with exit 0; no second full attempt followed. No Claude process
 remains. A later repository review should cover role-filtered Settings
 controls, brake semantics, pairing authority non-disclosure, revoke/unpair
 failure handling, and relay-boundary copy in this range.
+
+The completed final full-repository Codex review above covered every range whose per-phase Claude
+review is historically recorded here as skipped. No additional repository-coverage action remains
+for those ranges; the Claude dispositions stay skipped rather than being rewritten as passes.
 
 ## Gemini CLI
 

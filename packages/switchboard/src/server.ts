@@ -15,7 +15,7 @@ import {
 } from '@wireroom/protocol';
 
 import { assertHumanCapability, roleAllows, type HumanCapability } from './authorization.js';
-import { constantTimeEqual } from './crypto/challenge.js';
+import { constantTimeEqual, hashTranscript } from './crypto/challenge.js';
 import type { CryptoVault, PairingRequest } from './crypto/pairing.js';
 import type { Daemon } from './daemon.js';
 import type { PushSubscriptionStore } from './push/subscriptions.js';
@@ -52,6 +52,8 @@ export interface RunningServer {
 interface AuthPrincipal {
   /** Undefined is the backwards-compatible single-operator owner token. */
   memberId?: string;
+  /** Paired browser session; resolves to the owner until the device directory ships. */
+  deviceId?: string;
 }
 
 async function prepareSocketPath(socketPath: string): Promise<void> {
@@ -118,13 +120,21 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   }
   // harn:end server-token-required
   const app = Fastify();
+  const browserAuthTranscript = options.crypto
+    ? hashTranscript(Buffer.from(
+        `wireroom-browser-session-v1\0${options.crypto.keys.identity.device_id}`,
+        'utf8',
+      ))
+    : undefined;
 
   const principalForToken = (candidate: string | undefined): AuthPrincipal | undefined => {
     if (candidate === undefined) return undefined;
     if (constantTimeEqual(candidate, token)) return {};
     const configured = configuredPrincipals.find((principal) =>
       constantTimeEqual(candidate, principal.token));
-    return configured ? { memberId: configured.member_id } : undefined;
+    if (configured) return { memberId: configured.member_id };
+    const deviceId = options.crypto?.browserSessions.authenticate(candidate);
+    return deviceId ? { deviceId } : undefined;
   };
 
   const authed = (req: FastifyRequest, reply: FastifyReply): AuthPrincipal | undefined => {
@@ -194,6 +204,46 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const roomsFor = (principal: AuthPrincipal) => daemon.store.listRooms().filter((room) =>
     principal.memberId === undefined || daemon.store.getMember(room.id, principal.memberId)?.kind === 'human');
 
+  // harn:assume paired-browser-challenge-session ref=browser-device-session-rest
+  app.post('/api/auth/challenge', (req, reply) => {
+    if (!options.crypto || !browserAuthTranscript) {
+      return reply.code(404).send({ error: 'device authentication is not configured' });
+    }
+    try {
+      const body = req.body as { device_id?: unknown };
+      if (typeof body.device_id !== 'string' || body.device_id === '') {
+        throw new Error('device id is required');
+      }
+      const challenge = options.crypto.browserChallenges.issue(body.device_id, browserAuthTranscript);
+      return reply.header('cache-control', 'no-store').send({
+        challenge,
+        switchboard_device_id: options.crypto.keys.identity.device_id,
+      });
+    } catch {
+      return reply.code(401).send({ error: 'device authentication failed' });
+    }
+  });
+
+  app.post('/api/auth/session', (req, reply) => {
+    if (!options.crypto) {
+      return reply.code(404).send({ error: 'device authentication is not configured' });
+    }
+    try {
+      const body = req.body as { challenge_id?: unknown; signature?: unknown };
+      if (typeof body.challenge_id !== 'string' || typeof body.signature !== 'string') {
+        throw new Error('challenge response is required');
+      }
+      const peer = options.crypto.browserChallenges.verify(body.challenge_id, body.signature);
+      if (peer.kind !== 'device') throw new Error('only paired devices may open browser sessions');
+      return reply.header('cache-control', 'no-store').send(
+        options.crypto.browserSessions.issue(peer.device_id),
+      );
+    } catch {
+      return reply.code(401).send({ error: 'device authentication failed' });
+    }
+  });
+  // harn:end paired-browser-challenge-session
+
   app.post('/api/pairing/complete', (req, reply) => {
     if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
     const authorization = req.headers.authorization;
@@ -202,10 +252,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       : undefined;
     if (!pairingToken) return reply.code(401).send({ error: 'pairing token required' });
     try {
-      return reply.send({
-        ...options.crypto.pairing.complete(pairingToken, req.body as PairingRequest),
-        access_token: token,
-      });
+      return reply.header('cache-control', 'no-store').send(
+        options.crypto.pairing.complete(pairingToken, req.body as PairingRequest),
+      );
     } catch (error) {
       return reply.code(401).send({ error: String(error) });
     }
@@ -561,6 +610,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   let ipcServer: HttpServer | undefined;
   let ipcWss: WebSocketServer | undefined;
   const subscriptions = new Map<WebSocket, Set<string>>();
+  const deviceSockets = new Map<string, Set<WebSocket>>();
+  // harn:assume paired-browser-challenge-session ref=browser-device-session-socket
+  const stopDeviceRevocations = options.crypto?.keys.onPeerRevoked((deviceId) => {
+    const sockets = deviceSockets.get(deviceId);
+    if (!sockets) return;
+    deviceSockets.delete(deviceId);
+    for (const socket of sockets) socket.close(4403, 'device revoked');
+  });
+  // harn:end paired-browser-challenge-session
 
   const unsubscribeFrames = daemon.onFrame((room, frame) => {
     for (const [socket, rooms] of subscriptions) {
@@ -583,7 +641,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         return;
       }
       subscriptions.set(socket, new Set());
-      socket.on('close', () => subscriptions.delete(socket));
+      if (principal.deviceId) {
+        const sockets = deviceSockets.get(principal.deviceId) ?? new Set<WebSocket>();
+        sockets.add(socket);
+        deviceSockets.set(principal.deviceId, sockets);
+      }
+      socket.on('close', () => {
+        subscriptions.delete(socket);
+        if (!principal.deviceId) return;
+        const sockets = deviceSockets.get(principal.deviceId);
+        sockets?.delete(socket);
+        if (sockets?.size === 0) deviceSockets.delete(principal.deviceId);
+      });
 
       const send = (frame: ServerFrame): void => {
         socket.send(JSON.stringify(frame));
@@ -675,6 +744,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                   ref: 'attach_acquire',
                 }));
             } else if (act.act === 'attach_child') {
+              // harn:assume attach-lease-actions-room-bound ref=attach-lease-room-authorization
+              const attachLease = daemon.store.getAttachLease(act.lease_id);
+              if (!attachLease || attachLease.room !== frame.room) {
+                throw new Error(`no such attach lease ${act.lease_id}`);
+              }
               const { lease, member } = daemon.reportAttachChild(
                 act.lease_id,
                 act.child_pid,
@@ -682,8 +756,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               );
               send({ type: 'attach_lease', status: 'child_recorded', lease, member });
             } else if (act.act === 'attach_heartbeat') {
+              const attachLease = daemon.store.getAttachLease(act.lease_id);
+              if (!attachLease || attachLease.room !== frame.room) {
+                throw new Error(`no such attach lease ${act.lease_id}`);
+              }
               daemon.heartbeatAttachLease(act.lease_id);
             } else if (act.act === 'attach_complete') {
+              const attachLease = daemon.store.getAttachLease(act.lease_id);
+              if (!attachLease || attachLease.room !== frame.room) {
+                throw new Error(`no such attach lease ${act.lease_id}`);
+              }
               const completed = daemon.completeAttachLease(act.lease_id);
               send({
                 type: 'attach_lease',
@@ -691,6 +773,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 lease: completed.lease,
                 member: completed.member,
               });
+              // harn:end attach-lease-actions-room-bound
             } else if (act.act === 'configure_room') {
               daemon.configureRoom(frame.room, {
                 ...(act.turn_brake !== undefined && { turn_brake: act.turn_brake }),
@@ -735,6 +818,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       await listenUnix(ipcServer, options.socketPath);
     } catch (error) {
       unsubscribeFrames();
+      stopDeviceRevocations?.();
       ipcWss.close();
       wss.close();
       await app.close();
@@ -749,6 +833,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     socketPath: options.socketPath,
     close: async () => {
       unsubscribeFrames();
+      stopDeviceRevocations?.();
       for (const socket of subscriptions.keys()) socket.terminate();
       wss.close();
       ipcWss?.close();

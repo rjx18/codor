@@ -1,0 +1,13 @@
+id: resident-session-updates-host-bound
+hash: a-52116b03ba28
+title: Resident session references come only from the assigned host
+state: active
+statement: A home switchboard must accept a resident session-reference update
+  only when its rpc id is pending and the authenticated sender and envelope room
+  match that attempt's assigned host and room, with a nonempty session
+  reference, because another enrolled peer must not be able to redirect a remote
+  member's resumable session.
+depends_on:
+  - resident-attempt-journal-reconciles
+  - room-home-single-authority
+created_by: final-repository-review-fixes

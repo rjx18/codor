@@ -1021,37 +1021,40 @@ export class Daemon {
     if (joined.member.custody !== 'mirrored') {
       throw new Error(`member @${joined.member.handle} is not mirrored; native turn was dropped`);
     }
-    const existingId = this.store.getMirroredMessageId(
-      joined.room,
-      joined.member.id,
-      input.native_turn_id,
-    );
-    if (existingId !== undefined) {
-      return { message: this.store.getMessage(joined.room, existingId)!, deduped: true };
-    }
 
     const parsed = parseBody(input.body, this.store.listMembers(joined.room));
     const startedTs = new Date().toISOString();
-    const placeholder = this.store.postMessage(joined.room, {
-      author: joined.member.id,
-      kind: 'run',
-      body: '',
-    });
-    const eventsRef = this.blobs.ref(placeholder.id);
-    const message = this.store.updateMessage(joined.room, placeholder.id, {
-      body: input.body,
-      mentions: parsed.mentions,
-      refs: parsed.refs,
-      ledger_refs: parsed.ledger_refs,
-      run: {
-        status: 'completed',
-        started_ts: startedTs,
-        ended_ts: startedTs,
-        tool_calls: 0,
-        events_ref: eventsRef,
-        final_text: input.body,
+    const committed = this.store.commitMirroredTurn(joined.room, {
+      memberId: joined.member.id,
+      nativeTurnId: input.native_turn_id,
+      finalize: (placeholder) => {
+        const eventsRef = this.blobs.ref(placeholder.id);
+        const patch = {
+          body: input.body,
+          mentions: parsed.mentions,
+          refs: parsed.refs,
+          ledger_refs: parsed.ledger_refs,
+          run: {
+            status: 'completed' as const,
+            started_ts: startedTs,
+            ended_ts: startedTs,
+            tool_calls: 0,
+            events_ref: eventsRef,
+            final_text: input.body,
+          },
+        };
+        const draft: Message = { ...placeholder, ...patch };
+        const { result, fanout } = this.planFanout(
+          joined.room,
+          draft,
+          this.ownerOf(joined.room).id,
+        );
+        return { message: patch, fanout, markMisaddressed: result.misaddressed };
       },
     });
+    if (committed.deduped) return { message: committed.message, deduped: true };
+
+    const eventsRef = committed.message.run!.events_ref;
     this.blobs.append(joined.room, eventsRef, {
       type: 'run.item',
       item_type: 'reasoning_summary',
@@ -1066,15 +1069,10 @@ export class Daemon {
       status: 'completed',
       final_text: input.body,
     });
-    this.store.recordMirroredTurn(
-      joined.room,
-      joined.member.id,
-      input.native_turn_id,
-      message.id,
-    );
-    this.emitMessage(joined.room, message);
-    this.routeAndFanout(joined.room, message, this.ownerOf(joined.room).id);
-    return { message, deduped: false };
+    this.emitMessage(joined.room, committed.message);
+    if (committed.member) this.emitMember(joined.room, committed.member);
+    this.dispatchCreatedDeliveries(joined.room, committed.deliveries);
+    return { message: committed.message, deduped: false };
   }
   // harn:end mirror-one-message-per-native-turn
 
@@ -1133,20 +1131,7 @@ export class Daemon {
   // ── routing / fanout ──────────────────────────────────────────────────
 
   private latestFinalizedAgentAuthor(room: string): string | undefined {
-    const members = new Map(this.store.listMembers(room).map((m) => [m.id, m]));
-    const recent = this.store.listMessages(room, { limit: 500 });
-    for (let i = recent.length - 1; i >= 0; i--) {
-      const message = recent[i]!;
-      if (
-        message.kind === 'run' &&
-        message.run !== undefined &&
-        message.run.status !== 'running' &&
-        members.get(message.author)?.kind === 'agent'
-      ) {
-        return message.author;
-      }
-    }
-    return undefined;
+    return this.store.latestFinalizedAgentAuthor(room);
   }
 
   private routeAndFanout(room: string, message: Message, triggerAuthor?: string): void {
@@ -1167,6 +1152,10 @@ export class Daemon {
         hop_count: delivery.hop_count,
       }),
     );
+    this.dispatchCreatedDeliveries(room, created);
+  }
+
+  private dispatchCreatedDeliveries(room: string, created: Delivery[]): void {
     for (const delivery of created) {
       const recipient = this.store.getMember(room, delivery.recipient);
       if (recipient?.kind === 'human') this.emitInbox(room, delivery);

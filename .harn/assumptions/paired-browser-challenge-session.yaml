@@ -1,0 +1,15 @@
+id: paired-browser-challenge-session
+hash: a-dcb94a417d8e
+title: Paired browsers use revocable signed device sessions
+state: active
+statement: A paired browser must prove possession of its enrolled Ed25519 key
+  with a fresh single-use switchboard challenge before receiving a bounded
+  in-memory access session; pairing must never return the operator bearer, and
+  device revocation must invalidate its sessions and close its live WebSocket
+  connections, because rotating room keys alone cannot revoke plaintext API
+  access.
+depends_on:
+  - ed25519-identity-x25519-encryption
+  - revocation-rotates-room-keys
+  - pwa-cold-launch-restores-local-auth
+created_by: final-repository-review-fixes
