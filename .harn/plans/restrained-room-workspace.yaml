@@ -4,17 +4,17 @@ assumptions:
   retire:
     - id: web-room-visual-hierarchy-matches-glass-reference
       reason: The operator rejected the v2 control-room hierarchy as neon,
-        science-fiction, and over-designed in favor of the approved v4 restrained
-        references.
+        science-fiction, and over-designed in favor of the approved v4
+        restrained references.
   create:
     - id: web-room-visual-hierarchy-matches-restrained-reference
       title: The room surface matches the restrained editorial references
       statement: The web room must prioritize conversation through full-height matte
-        panes, text-first room rows, unframed messages and evidence, a plain context
-        inspector, sparse functional glass, compact system typography, and scarce
-        semantic color from wide desktop through the installed mobile PWA, because
-        the approved v4 references define a calm operational tool rather than a
-        neon control room or generic chat layout.
+        panes, text-first room rows, unframed messages and evidence, a plain
+        context inspector, sparse functional glass, compact system typography,
+        and scarce semantic color from wide desktop through the installed mobile
+        PWA, because the approved v4 references define a calm operational tool
+        rather than a neon control room or generic chat layout.
       reason: The operator approved the ImageGen v4 desktop room, run detail, light
         room, iPhone room, and drawer direction for implementation.
       depends_on:
@@ -62,18 +62,21 @@ anchors:
       reason: Bind the room render tree to the approved v4 hierarchy.
     restrained-room-visual-regression:
       action: change
-      reason: Prove flat panes, sparse glass, compact type, and semantic color in browser.
+      reason: Prove flat panes, sparse glass, compact type, and semantic color in
+        browser.
   web-shell-responsive-three-pane:
     responsive-room-shell:
       action: change
-      reason: Reframe the existing responsive panes with approved proportions and rail rows.
+      reason: Reframe the existing responsive panes with approved proportions and rail
+        rows.
     responsive-shell-regression:
       action: change
       reason: Verify the revised pane geometry and mobile drawer still fit.
   web-glass-theme-accessible-modes:
     semantic-glass-theme:
       action: change
-      reason: Replace cyan and gradient tokens with the v4 dark and light neutral system.
+      reason: Replace cyan and gradient tokens with the v4 dark and light neutral
+        system.
     glass-theme-regression:
       action: change
       reason: Assert accessible restrained tokens and limited functional blur.
@@ -102,11 +105,14 @@ anchors:
   roles-gate-human-acts-not-agents:
     role-aware-web-controls:
       action: change
-      reason: Keep role-hidden controls intact while replacing the surrounding hierarchy marker.
+      reason: Keep role-hidden controls intact while replacing the surrounding
+        hierarchy marker.
 files:
   - packages/web/src/App.tsx
   - packages/web/src/shell.tsx
   - packages/web/src/components.tsx
   - packages/web/src/styles.css
   - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/m3-acceptance.e2e.spec.ts
+  - packages/web/tests/pwa.e2e.spec.ts
   - tmp/build/PROGRESS.md
