@@ -1,0 +1,18 @@
+id: codor-p7-release-disposition
+title: P7 record the approved full-review disposition
+assumptions:
+  reviewed:
+    - id: release-candidate-requires-clean-codor-deployment
+      outcome: unchanged
+      reason: The reviewer approved Phase 7 and the full 1a442f2..e71b584 repository
+        range, so the release record can replace its pending state with the
+        final disposition and deliberate service-stop note.
+anchors:
+  release-candidate-requires-clean-codor-deployment:
+    final-release-verification-record:
+      action: change
+      reason: Record the approved full repository review and final live-service state.
+files:
+  - MANUAL-VERIFY.md
+applied:
+  applied_at: 2026-07-11T22:12:12.108Z

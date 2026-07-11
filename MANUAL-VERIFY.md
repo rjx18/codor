@@ -44,14 +44,16 @@ quota, or subscription failure.
 <!-- harn:assume release-candidate-requires-clean-codor-deployment ref=final-release-verification-record -->
 ## Codor release-candidate verification
 
-Status on 2026-07-12: **the clean deployment and bounded live smoke passed; the mandatory
-`1a442f2..HEAD` repository review is pending**. A clean local clone at the Phase 6 candidate was
+Status on 2026-07-12: **the clean deployment, bounded live smoke, deterministic gates, and
+mandatory `1a442f2..HEAD` repository review passed**. A clean local clone at the Phase 6 candidate was
 installed with a frozen lockfile, built, linked as `codor`, and configured only through `codor
-setup`. The user service is enabled and active, Tailscale Serve is published, the terminal QR
-rendered, and the generated configuration, environment, and data paths have private modes. One
-browser paired through the tailnet HTTPS origin; Settings showed it as the current browser with an
-available unpair control. No token, pairing URL, device identity, session reference, or key material
-is retained in this record.
+setup`. The user service was enabled and active for the live smoke, Tailscale Serve was published,
+the terminal QR rendered, and the generated configuration, environment, and data paths had private
+modes. One browser paired through the tailnet HTTPS origin; Settings showed it as the current
+browser with an available unpair control. The service remains enabled but was deliberately stopped
+through systemd before the deterministic browser gates so the test harness owned its ports; the
+reviewer confirmed the stop was clean rather than a crash. No token, pairing URL, device identity,
+session reference, or key material is retained in this record.
 
 The browser created channel `smoke` through the folder picker using `/home/richard/codor`, selected
 a color, and observed the default `@codor` member. Before live inference, both smoke members were
@@ -74,9 +76,17 @@ interactive session without another prompt, and emitted the release message. Exi
 removed the lease, restored owned/idle custody, and emitted the re-adoption message. Both agent
 members were then killed and removed through the UI; the `smoke` channel itself remains, as required.
 
-The deterministic release matrix and fresh-clone proof must pass on the exact candidate commit
-before this record is sent for the mandatory full repository review. Reviewer findings, accepted
-folds, and the final disposition will be recorded here before the development-checkout rename.
+The complete release matrix passed before the Phase 7 commit and again on exact clean commit
+`e71b584`: recursive build, 603 unit tests with 9 credential-gated skips, all 35 FakeAdapter
+Playwright tests, license and release-order audits, fresh-clone install/build/boot/CLI/API/teardown,
+Harn, whitespace, and rename greps. The reviewer independently repeated the exact-commit build,
+test, audit, and fresh-clone gates.
+
+Final disposition on 2026-07-12: **VERDICT: APPROVED**. The reviewer declared this verdict the
+mandatory full repository review of `1a442f2..e71b584`, accounted for every commit in the range,
+confirmed that every earlier finding was fixed or formally resolved, and reported no open finding.
+This records-only disposition commit was explicitly authorized after approval; any later code change
+must reopen the full review before release.
 <!-- harn:end release-candidate-requires-clean-codor-deployment -->
 
 ## Launch-sweep live acceptance record
