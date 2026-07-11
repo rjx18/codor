@@ -3,7 +3,8 @@ title: Make the restrained design foundation durable and unambiguous
 assumptions:
   retire:
     - id: glass-design-system-guides-responsive-surfaces
-      reason: The operator rejected the v2 neon control-room direction and v4 is now the only active visual source.
+      reason: The operator rejected the v2 neon control-room direction and v4 is now
+        the only active visual source.
   create: []
   reviewed:
     - id: restrained-design-system-guides-responsive-surfaces
@@ -14,7 +15,8 @@ assumptions:
       reason: Move product-fidelity guidance from the rejected v2 document to v4.
     - id: web-glass-theme-accessible-modes
       outcome: unchanged
-      reason: Accessible semantic modes remain active while their obsolete umbrella is retired.
+      reason: Accessible semantic modes remain active while their obsolete umbrella is
+        retired.
     - id: web-shell-responsive-three-pane
       outcome: unchanged
       reason: Responsive pane behavior remains active under the v4 design source.
@@ -30,7 +32,8 @@ anchors:
   design-references-preserve-wireroom-semantics:
     glass-product-fidelity:
       action: change
-      reason: Move the product-truth anchor from v2 to the authoritative v4 design system.
+      reason: Move the product-truth anchor from v2 to the authoritative v4 design
+        system.
 files:
   - tmp.plan
   - tmp/build/PLAN-M5.md
@@ -50,3 +53,5 @@ files:
   - tmp/build/design/v4/watch-push-ask.png
   - tmp/build/design/v4/watch-room-glance.png
   - tmp/build/design/v4/watch-quick-actions.png
+applied:
+  applied_at: 2026-07-11T05:26:31.254Z
