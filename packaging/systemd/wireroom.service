@@ -1,8 +1,5 @@
 [Unit]
 Description=Wireroom local-first agent switchboard
-After=network-online.target
-Wants=network-online.target
-
 [Service]
 Type=simple
 WorkingDirectory=%h/wireroom

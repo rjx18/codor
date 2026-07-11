@@ -2,6 +2,10 @@ import { fileURLToPath, URL } from 'node:url';
 
 import { defineConfig } from 'vitepress';
 
+import { darkFirstAppearanceScript } from './theme/appearance.mjs';
+
+const repositoryUrl = process.env.WIREROOM_REPOSITORY_URL?.replace(/\/+$/, '');
+
 const reference = [
   { text: 'Protocol', link: '/docs/PROTOCOL' },
   { text: 'Architecture', link: '/docs/ARCHITECTURE' },
@@ -58,7 +62,7 @@ export default defineConfig({
   head: [
     ['meta', { name: 'theme-color', content: '#101114' }],
     ['meta', { name: 'color-scheme', content: 'dark light' }],
-    ['script', {}, `try{if(!localStorage.getItem('vitepress-theme-appearance'))document.documentElement.classList.add('dark')}catch{}`],
+    ['script', {}, darkFirstAppearanceScript],
   ],
   themeConfig: {
     logo: false,
@@ -66,18 +70,16 @@ export default defineConfig({
     nav: [
       { text: 'Docs', link: '/docs/VISION' },
       { text: 'Self-host', link: '/docs/SELF-HOST' },
-      { text: 'Source', link: 'https://github.com/wireroom/wireroom' },
+      ...(repositoryUrl ? [{ text: 'Source', link: repositoryUrl }] : []),
     ],
     sidebar,
     outline: { level: [2, 3], label: 'On this page' },
     search: { provider: 'local' },
-    socialLinks: [
-      { icon: 'github', link: 'https://github.com/wireroom/wireroom' },
-    ],
-    editLink: {
-      pattern: 'https://github.com/wireroom/wireroom/edit/main/docs/:path',
+    socialLinks: repositoryUrl ? [{ icon: 'github', link: repositoryUrl }] : [],
+    editLink: repositoryUrl ? {
+      pattern: `${repositoryUrl}/edit/main/docs/:path`,
       text: 'Edit this page on GitHub',
-    },
+    } : undefined,
     footer: {
       message: 'Local-first. Open protocol. MIT licensed.',
       copyright: 'Wireroom',

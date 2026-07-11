@@ -60,11 +60,10 @@ in origin-scoped IndexedDB and launches without a token query string.
 
 ## Run with systemd
 
-The checked-in [`wireroom.service`](https://github.com/wireroom/wireroom/blob/main/packaging/systemd/wireroom.service) is a user-service
-template. It assumes the checkout is `~/wireroom`, Node is `/usr/bin/node`, and the data directory
-is `~/.wireroom`. Check `command -v node` and edit `ExecStart` if your installation uses a
-different path. An nvm-only shell installation is not available to systemd unless you provide its
-absolute Node path.
+The checked-in `packaging/systemd/wireroom.service` is a user-service template. It assumes the
+checkout is `~/wireroom`, Node is `/usr/bin/node`, and the data directory is `~/.wireroom`. Check
+`command -v node` and edit `ExecStart` if your installation uses a different path. An nvm-only
+shell installation is not available to systemd unless you provide its absolute Node path.
 
 ```sh
 install -d -m 700 ~/.config/wireroom ~/.config/systemd/user
@@ -144,16 +143,16 @@ and never put them in unit files, command transcripts, screenshots, or the repos
 
 ## Optional relay and bridges
 
-The open [`relay/`](https://github.com/wireroom/wireroom/tree/main/relay) forwards sealed Web Push payloads and stores no queue or
-room data. Build its Dockerfile, configure a VAPID keypair and explicit sender allowlist outside the
-repository, and pass only the relay URL and public VAPID key to `wireroom up`. The switchboard keeps
-room and device keys; the relay receives padded ciphertext.
+The open `relay/` workspace forwards sealed Web Push payloads and stores no queue or room data.
+Build its Dockerfile, configure a VAPID keypair and explicit sender allowlist outside the repository,
+and pass only the relay URL and public VAPID key to `wireroom up`. The switchboard keeps room and
+device keys; the relay receives padded ciphertext.
 
 Slack and Telegram bridges are separate opt-in processes in `packages/bridges/`. They require an
 admin-or-owner Wireroom token plus platform tokens in environment variables. A bridged room exports
-readable content to that platform and permanently says so in every room surface. See
-[privacy boundary](/docs/PRIVACY#bridges-the-deliberate-exception) and the
-[live checklist](https://github.com/wireroom/wireroom/blob/main/MANUAL-VERIFY.md) before enabling one.
+readable content to that platform and permanently says so in every room surface. Read
+`docs/PRIVACY.md`, "Bridged rooms: the one deliberate exception", and the repository's
+`MANUAL-VERIFY.md` live checklist before enabling one.
 
 ## Back up and restore
 

@@ -4,15 +4,18 @@ assumptions:
   reviewed:
     - id: fresh-clone-install-proven-by-script
       outcome: unchanged
-      reason: The fixes make documentation links, the user unit, and the website shell truthful without changing the clean-clone proof contract.
+      reason: The fixes make documentation links, the user unit, and the website shell
+        truthful without changing the clean-clone proof contract.
     - id: restrained-design-system-guides-responsive-surfaces
       outcome: unchanged
-      reason: Preserving a visitor-selected light appearance restores the approved dark-first plus light contract.
+      reason: Preserving a visitor-selected light appearance restores the approved
+        dark-first plus light contract.
 anchors:
   fresh-clone-install-proven-by-script:
     selfhost-guide:
       action: change
-      reason: Repair the bridge privacy reference and avoid unpublished repository URLs.
+      reason: Repair the bridge privacy reference and avoid unpublished repository
+        URLs.
     systemd-service:
       action: change
       reason: Remove system-manager network targets that do not order a user service.
@@ -25,3 +28,5 @@ files:
   - website/.vitepress/theme/appearance.mjs
   - website/scripts/verify-site.mjs
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T09:06:59.748Z

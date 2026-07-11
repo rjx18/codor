@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vitepress dev .",
-    "build": "vitepress build .",
-    "test": "vitepress build ."
+    "build": "vitepress build . && node scripts/verify-site.mjs",
+    "test": "pnpm run build"
   },
   "devDependencies": {
     "vitepress": "^1.6.4",
