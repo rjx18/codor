@@ -1,0 +1,10 @@
+id: restrained-settings-review-record
+title: Record the unavailable restrained Settings review
+assumptions:
+  retire: []
+  create: []
+  reviewed: []
+anchors: {}
+files:
+  - MANUAL-VERIFY.md
+  - tmp/build/PROGRESS.md
