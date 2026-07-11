@@ -1,0 +1,45 @@
+id: ledger-graph-review-fixes
+title: Fold the ledger graph review findings
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: graph-derived-from-vault-links-readonly
+      outcome: unchanged
+      reason: Keep the projection available across malformed notes and make its UI sheet accessible.
+    - id: ledger-writes-audited-in-room
+      outcome: unchanged
+      reason: A graph parse failure must never suppress an unrelated vault change notice.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Correct the mobile sheet cascade while preserving opaque fallbacks.
+anchors:
+  graph-derived-from-vault-links-readonly:
+    ledger-graph-cache:
+      action: change
+      reason: Skip malformed notes and use machine-deterministic ordering.
+    ledger-graph-rest:
+      action: change
+      reason: Fail the graph route cleanly if an unexpected projection error escapes.
+    ledger-graph-web:
+      action: change
+      reason: Add non-passive zoom and a focus-managed responsive inspector sheet.
+    ledger-graph-regression:
+      action: change
+      reason: Cover malformed frontmatter without losing valid graph nodes or audit notices.
+  ledger-writes-audited-in-room:
+    ledger-change-audit:
+      action: change
+      reason: Keep change attribution and notification alive when a touched note cannot parse.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Scope tablet and phone sheet layouts without cascade overlap.
+files:
+  - packages/switchboard/src/ledger/watch.ts
+  - packages/switchboard/src/ledger/ledger.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/web/src/LedgerGraph.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+  - tmp/build/PROGRESS.md
