@@ -1,0 +1,278 @@
+id: final-repository-review-fixes
+title: Fold the independent full-repository review findings
+assumptions:
+  retire: []
+  create:
+    - id: paired-browser-challenge-session
+      title: Paired browsers use revocable signed device sessions
+      statement: A paired browser must prove possession of its enrolled Ed25519 key
+        with a fresh single-use switchboard challenge before receiving a bounded
+        in-memory access session; pairing must never return the operator bearer,
+        and device revocation must invalidate its sessions and close its live WebSocket
+        connections, because rotating room keys alone cannot revoke plaintext API access.
+      reason: The final repository review found that every paired browser received the
+        shared owner bearer, so a revoked device could reconnect and keep reading rooms.
+      depends_on:
+        - ed25519-identity-x25519-encryption
+        - revocation-rotates-room-keys
+        - pwa-cold-launch-restores-local-auth
+    - id: attach-lease-actions-room-bound
+      title: Attach lease follow-up actions stay inside their authorized room
+      statement: Every child-report, heartbeat, and completion action for an attach
+        lease must load that lease and verify its persisted room equals the authenticated
+        frame room before mutation, because an administrator in one room must not be able
+        to alter another room's custody even when a lease id is disclosed.
+      reason: The final repository review found that follow-up attach acts authorized
+        only the frame room and then mutated a globally looked-up lease id.
+      depends_on:
+        - roles-gate-human-acts-not-agents
+        - attach-custody-lease-tracks-child-pid
+    - id: resident-session-updates-host-bound
+      title: Resident session references come only from the assigned host
+      statement: A home switchboard must accept a resident session-reference update only
+        when its rpc id is pending and the authenticated sender and envelope room match
+        that attempt's assigned host and room, with a nonempty session reference, because
+        another enrolled peer must not be able to redirect a remote member's resumable session.
+      reason: The final repository review found that resident_session envelopes trusted
+        only a predictable rpc id and did not check the sending peer or room.
+      depends_on:
+        - resident-attempt-journal-reconciles
+        - room-home-single-authority
+    - id: residency-closes-before-daemon-settlement
+      title: Residency shutdown releases pending remote turns before daemon settlement
+      statement: A composed home switchboard must close its residency coordinator before
+        awaiting daemon settlement while leaving transport teardown until afterward, so
+        pending remote streams fail closed as ambiguous and cannot hang graceful shutdown
+        when an outpost is offline or a remote adapter is still running.
+      reason: The final repository review found that normal shutdown awaited the daemon
+        before closing the only component capable of ending a pending remote stream.
+      depends_on:
+        - resident-attempt-journal-reconciles
+        - remote-deliveries-queue-when-unreachable
+    - id: mirrored-turn-commit-transactional
+      title: Mirrored turn dedupe and fanout commit atomically
+      statement: A mirrored native turn must commit its native-id mapping, finalized run
+        message, misaddress state, and every onward delivery in one SQLite transaction,
+        because a crash or persistence error must leave either no turn or one fully routed
+        turn rather than an unmapped duplicate or a finalized reply with missing fanout.
+      reason: The final repository review found that mirrorTurn persisted the message and
+        blob before its dedupe mapping and created fanout afterward in separate transactions.
+      depends_on:
+        - mirror-one-message-per-native-turn
+        - turn-finalization-transactional
+  reviewed:
+    - id: revocation-rotates-room-keys
+      outcome: unchanged
+      reason: Revocation still removes the peer, rotates all room keys, and now also
+        invalidates browser sessions and closes browser WebSockets as the assumption requires.
+    - id: pwa-cold-launch-restores-local-auth
+      outcome: unchanged
+      reason: Explicit operator bearers still persist tokenlessly while paired cold launches
+        now recover access by signing from the existing origin-scoped identity.
+    - id: unpair-purges-all-browser-state
+      outcome: unchanged
+      reason: Current-device unpair still revokes remotely and purges every local store,
+        and now parks its connection before deleting the identity used for refresh.
+    - id: single-crypto-suite-libsodium
+      outcome: unchanged
+      reason: Browser challenge signatures and server session tokens use the existing
+        libsodium Ed25519, generichash, and random primitives.
+    - id: server-token-required
+      outcome: unchanged
+      reason: The configured operator bearer remains mandatory and valid; device sessions
+        add a revocable authenticated principal rather than a tokenless bypass.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: TCP and private Unix WebSockets retain one dispatcher while network device
+        sessions gain revocation tracking and attach actions gain room binding.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Device sessions still resolve to the room owner and attach follow-ups now
+        preserve the room boundary already required by the role matrix.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: Lease child, heartbeat, completion, and uncertain-custody semantics stay
+        intact after the server verifies the lease belongs to the authorized room.
+    - id: resident-attempt-journal-reconciles
+      outcome: unchanged
+      reason: Expected-host session updates and shutdown cancellation strengthen provenance
+        and settlement without changing completed, never-started, or ambiguous outcomes.
+    - id: room-home-single-authority
+      outcome: unchanged
+      reason: The home remains the only session-reference and durable room authority and
+        now rejects updates from an unrelated authenticated peer.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Shutdown ordering changes only resource teardown; home and outpost still use
+        the one validated adapter registry.
+    - id: mirror-one-message-per-native-turn
+      outcome: unchanged
+      reason: The same finalized mirrored run and native turn id now share an atomic commit
+        boundary that enforces the existing at-most-one contract across faults.
+    - id: turn-finalization-transactional
+      outcome: unchanged
+      reason: Ordinary adapter turns retain their existing transaction while mirrored turns
+        gain the equivalent finalized-message and fanout atomicity.
+    - id: run-blobs-off-db
+      outcome: unchanged
+      reason: Mirrored event evidence remains JSONL on disk; the SQLite transaction stores
+        only its events_ref pointer, dedupe mapping, and ordinary room entities.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: The mirrored transaction continues to use normal store mutations so each
+        message, member, and inbox change receives its ordinary sequence row.
+    - id: default-recipient-latest-finalized
+      outcome: unchanged
+      reason: Server routing now queries the latest finalized agent across the full room
+        history rather than an undocumented 500-message window.
+    - id: implied-recipient-visible-before-send
+      outcome: unchanged
+      reason: The web store retains the latest finalized agent id before paging trims old
+        messages, keeping the composer label identical to server routing.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: Device-session refresh does not change sequence cursors, and the derived latest
+        finalized author updates from the same in-place message frames.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Passing current in-memory device access to note fetches and reconnects leaves
+        room-local message ids, history paging, and fragments unchanged.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: Device access and the retained routing hint remain page memory or crypto
+        IndexedDB state and add no service-worker API or message cache route.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: Supplying the authoritative default recipient and current note-fetch token
+        changes no room layout or restrained visual treatment.
+    - id: web-settings-controls-preserve-product-truth
+      outcome: unchanged
+      reason: Settings keeps the same role-filtered controls and now makes the unpair claim
+        true by stopping the current connection before local credential deletion.
+anchors:
+  paired-browser-challenge-session:
+    device-session-token-authority:
+      action: change
+      reason: Create bounded hashed device sessions invalidated by key-store revocation.
+    browser-device-session-rest:
+      action: change
+      reason: Exchange fresh signed challenges for device-bound access without returning
+        the configured operator bearer from pairing.
+    browser-device-session-socket:
+      action: change
+      reason: Bind device WebSockets to the enrolled id and close them on revocation.
+    browser-session-signin:
+      action: change
+      reason: Sign the switchboard challenge from the origin-scoped browser identity and
+        keep only the resulting page-session bearer in memory.
+  attach-lease-actions-room-bound:
+    attach-lease-room-authorization:
+      action: change
+      reason: Reject follow-up lease ids whose persisted room differs from the act frame.
+  resident-session-updates-host-bound:
+    resident-session-host-binding:
+      action: change
+      reason: Validate pending attempt, expected peer, room, and session reference before update.
+  residency-closes-before-daemon-settlement:
+    residency-first-shutdown:
+      action: change
+      reason: Fail pending remote streams before daemon settlement, then tear down transport.
+  mirrored-turn-commit-transactional:
+    atomic-mirrored-turn:
+      action: change
+      reason: Commit the mirrored mapping, message, member flag, and fanout together.
+  revocation-rotates-room-keys:
+    revoke-rekey-disconnect:
+      action: change
+      reason: Add the device-session authority to CryptoVault so peer removal invalidates access.
+  pwa-cold-launch-restores-local-auth:
+    paired-access-bootstrap:
+      action: change
+      reason: Prefer a fresh signed device session on paired cold launch while preserving
+        explicit operator bearer persistence and URL stripping.
+  unpair-purges-all-browser-state:
+    settings-unpair-action:
+      action: change
+      reason: Park automatic reconnect before revoking and deleting the signing identity.
+    browser-unpair-purge:
+      action: change
+      reason: Store pairing as device authority rather than the unrevocable operator bearer.
+    device-revoke-rest:
+      action: change
+      reason: Revoke the peer, its push record, its browser sessions, and its live sockets.
+  single-crypto-suite-libsodium:
+    browser-libsodium-suite:
+      action: change
+      reason: Add canonical browser challenge signing using the existing libsodium identity.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Track device principals on the shared dispatcher and enforce room-bound leases.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Reorder only the composed residency and daemon shutdown calls.
+  mirror-one-message-per-native-turn:
+    mirrored-turn-dedupe-route:
+      action: change
+      reason: Route and emit only after the atomic mirrored turn commit succeeds.
+  client-syncs-by-seq:
+    ws-resubscribe-cursor:
+      action: change
+      reason: Refresh a rejected device session before resubscribing with the same seq cursor.
+    store-upsert-in-place:
+      action: change
+      reason: Derive and retain the latest finalized agent id from ordinary upsert frames.
+  permalink-ids-stable:
+    paged-message-cache:
+      action: change
+      reason: Preserve the derived routing hint when the visible message cache trims to one page.
+    message-history-surface:
+      action: change
+      reason: Pass refreshable device access and the retained routing hint without changing ids.
+  implied-recipient-visible-before-send:
+    composer-implied-recipient:
+      action: change
+      reason: Prefer the retained full-history finalized-agent id over the paged message subset.
+  sw-caches-shell-only-no-message-data:
+    page-memory-message-cache:
+      action: change
+      reason: Pass the current in-memory session token into ledger-note reads without caching it.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: Supply the retained default recipient to the unchanged composer layout.
+  web-settings-controls-preserve-product-truth:
+    glass-settings-surface:
+      action: change
+      reason: Accept a refresh callback and stop the device connection during unpair.
+files:
+  - packages/switchboard/src/crypto/browser-sessions.ts
+  - packages/switchboard/src/crypto/challenge.ts
+  - packages/switchboard/src/crypto/crypto.spec.ts
+  - packages/switchboard/src/crypto/pairing.ts
+  - packages/switchboard/src/index.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/residency.ts
+  - packages/switchboard/src/residency.spec.ts
+  - packages/cli/src/up.ts
+  - packages/cli/src/index.spec.ts
+  - packages/web/src/crypto.ts
+  - packages/web/src/main.tsx
+  - packages/web/src/ws.ts
+  - packages/web/src/state.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/App.tsx
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/tests/crypto.e2e.spec.ts
+  - packages/web/tests/pwa.e2e.spec.ts
+  - docs/PRIVACY.md
+  - MANUAL-VERIFY.md
+  - tmp/build/PROGRESS.md
