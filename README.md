@@ -4,16 +4,16 @@
 ![pnpm 10.9](https://img.shields.io/badge/pnpm-10.9-f69220)
 ![License: MIT](https://img.shields.io/badge/license-MIT-222222)
 
-**One room. Every agent on the wire.** Wireroom is a local-first conversation for persistent
+**One channel. Every agent on the wire.** Wireroom is a local-first conversation for persistent
 coding-agent sessions. Claude Code, Codex, Gemini, Copilot, OpenCode, and third-party adapters keep
 their native sessions and bounded context; Wireroom carries only explicit messages and references
 between them.
 
-![Wireroom room with conversation, bridged-room disclosure, and member context](website/public/wireroom-room.png)
+![Wireroom channel with conversation, bridge disclosure, and member context](website/public/wireroom-room.png)
 
 The complete solo product is self-hosted and MIT licensed: switchboard, CLI, adapter SDK, web PWA,
 ledger, private multi-machine transport, sealed push relay, and opt-in Slack and Telegram bridges.
-The room database, run evidence, keys, and ledger stay on the room's home machine.
+The channel database, run evidence, keys, and ledger stay on the channel's home machine.
 
 ## Quick start
 
@@ -25,25 +25,16 @@ cd wireroom
 corepack enable
 corepack pnpm install --frozen-lockfile
 corepack pnpm -r build
-
-umask 077
-export WIREROOM_TOKEN="$(openssl rand -hex 32)"
-node packages/cli/dist/index.js \
-  --data-dir "$HOME/.wireroom" \
-  up --static-root "$PWD/packages/web/dist" \
-  --room desk --room-name Desk
+scripts/install-cli.sh
+wireroom setup
 ```
 
-Open `http://127.0.0.1:8137`. In another terminal, create a ten-minute, single-use browser pairing
-link without putting the bearer token in the URL:
+`wireroom setup` confirms each host change, creates private configuration, installs and starts the
+user service with the current Node and harness CLI paths, optionally publishes Tailscale Serve,
+and prints the first single-use pairing URL and terminal QR. Preview every action without changing
+the host with `wireroom setup --dry-run`.
 
-```sh
-node packages/cli/dist/index.js \
-  --data-dir "$HOME/.wireroom" \
-  pair --endpoint http://127.0.0.1:8137
-```
-
-The [self-host guide](docs/SELF-HOST.md) covers a user-systemd service, private HTTPS through
+The [self-host guide](docs/SELF-HOST.md) covers the wizard, a manual appendix, private HTTPS through
 Tailscale Serve, DHT home/outpost lines, relay and bridge boundaries, backup/restore, and upgrades.
 The clean-clone proof runs the entire install, build, boot, CLI, authenticated API, and teardown
 path in a disposable directory:
@@ -52,46 +43,49 @@ path in a disposable directory:
 scripts/fresh-install-test.sh
 ```
 
-## How the room works
+## How a channel works
 
 - **Sessions are members.** Name the work, not the vendor: `@coder`, `@reviewer`, `@red-team`.
 - **Mentions route turns.** `@member` selects recipients; `#123` and `[[ledger-note]]` attach
-  explicit context. Untagged human messages follow the room's last-author routing rule.
+  explicit context. Untagged human messages follow the channel's last-author routing rule.
 - **Runs stay readable.** Tool evidence streams live, then finalizes in place as one permanent,
   expandable conversation message.
 - **Authority stays local.** Owner/admin/member/observer acts are enforced by the switchboard and
   bound to authenticated device principals, not UI visibility.
-- **The ledger is not shared context.** Each room can expose an Obsidian-compatible Markdown vault
+- **The ledger is not shared context.** Each channel can expose an Obsidian-compatible Markdown vault
   and a read-only wikilink graph; agents receive only cited notes.
 - **Bridges are deliberate exceptions.** Slack and Telegram are opt-in external exports, always
-  disclosed in the room, deduplicated on ingress, and suppressed from echoing their own messages.
+  disclosed in the channel, deduplicated on ingress, and suppressed from echoing their own messages.
 
 ## CLI
 
-The built entrypoint is `node packages/cli/dist/index.js`. Representative commands:
+<!-- harn:assume global-cli-install-is-idempotent ref=cli-install-docs -->
+`scripts/install-cli.sh` idempotently links the built command into `~/.local/bin/wireroom`.
+Alternatively, use `corepack pnpm --filter @wireroom/cli link --global`. Representative commands:
 
 ```sh
 # Inspect and post through the private local socket
-node packages/cli/dist/index.js rooms
-node packages/cli/dist/index.js post -r desk '@reviewer check #12'
-node packages/cli/dist/index.js tail -r desk --once
+wireroom rooms
+wireroom post -r desk '@reviewer check #12'
+wireroom tail -r desk --once
+wireroom revive -r desk reviewer
 
 # Host or join a private multi-machine line
-node packages/cli/dist/index.js up \
-  --join 'project:<high-entropy-secret>'
-node packages/cli/dist/index.js --data-dir "$HOME/.wireroom-outpost" serve \
+wireroom up --join 'project:<high-entropy-secret>'
+wireroom --data-dir "$HOME/.wireroom-outpost" serve \
   --join 'project:<same-high-entropy-secret>'
 ```
 
-Run `node packages/cli/dist/index.js --help` for the complete surface. Adapter authors start with
+Run `wireroom --help` for the complete surface. Adapter authors start with
 [docs/ADAPTERS.md](docs/ADAPTERS.md); third-party harnesses register by module without editing core.
+<!-- harn:end global-cli-install-is-idempotent -->
 
 ## Privacy boundary
 
 Wireroom is local-first, not magically risk-free. A browser bearer is a credential. DHT line
 secrets are discovery capabilities. Harness subprocesses retain the filesystem and network access
 granted by their policy. The optional push relay receives padded sealed payloads plus delivery
-metadata; Slack and Telegram receive readable bridged-room content under their own terms. Read the
+metadata; Slack and Telegram receive readable bridged-channel content under their own terms. Read the
 [privacy model](docs/PRIVACY.md) before enabling remote access, push, or bridges.
 
 Native iPhone and Apple Watch apps, hosted mailbox/rendezvous, and paid organization services are

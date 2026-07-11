@@ -810,7 +810,15 @@ export class Daemon {
     const existing = this.store.getMember(room, memberId);
     if (!existing || existing.kind !== 'agent') throw new Error(`no such agent member: ${memberId}`);
     if (existing.custody !== 'owned') throw new Error(`member @${existing.handle} is not switchboard-owned`);
-    if (existing.state === 'dead') throw new Error(`member @${existing.handle} is dead; revive it first`);
+    // harn:assume cli-member-recovery-is-actionable ref=attach-error-remediation
+    if (existing.state === 'dead') {
+      throw new Error(
+        existing.session_ref
+          ? `member @${existing.handle} is dead; revive it to retry`
+          : `member @${existing.handle} is dead; remove it and spawn a replacement`,
+      );
+    }
+    // harn:end cli-member-recovery-is-actionable
     if (existing.state === 'awaiting_input') {
       throw new Error(`member @${existing.handle} is awaiting input; answer or interrupt it before attach`);
     }

@@ -1,0 +1,17 @@
+id: cli-setup-wizard-preserves-service-environment
+hash: a-504a221e621f
+title: Setup installs a private service with the operator's executable paths
+state: active
+statement: The setup command must confirm each mutating step, create private
+  configuration and data directories plus a mode-600 token, install the
+  checked-in user service with the absolute current Node executable, write a
+  mode-600 environment file whose PATH includes every detected harness CLI
+  directory, the Node bin, and the local user bin, enable the user service,
+  optionally publish Tailscale Serve, and expose all resulting actions and unit
+  content without side effects under dry-run, because an nvm-managed
+  installation and shell-only harness paths are otherwise invisible to the user
+  service.
+depends_on:
+  - fresh-clone-install-proven-by-script
+  - tailnet-auto-pairing-explicit-trust
+created_by: codor-p5-cli-docs

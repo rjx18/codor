@@ -1,0 +1,11 @@
+id: terminal-pairing-qr-matches-plain-url
+hash: a-a6f8765a4fd0
+title: Terminal pairing QR encodes the exact displayed pairing URL
+state: active
+statement: The pair and setup commands must render a compact UTF-8 terminal QR
+  whose payload is byte-for-byte the same single-use pairing URL printed next to
+  it, while pair supports an explicit no-QR mode, because operators need a
+  scannable enrollment path without hidden or divergent authority.
+depends_on:
+  - pairing-offer-token-remains-qr-only
+created_by: codor-p5-cli-docs

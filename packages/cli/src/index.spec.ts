@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +20,7 @@ import {
   nativeResumeCommand,
   packageName,
   parseMirrorHook,
+  renderTerminalQr,
   runCli,
   startWireroom,
 } from './index.js';
@@ -78,6 +80,7 @@ describe('@wireroom/cli', () => {
       'up',
       'rooms',
       'serve',
+      'setup',
       'spawn',
       'post',
       'tail',
@@ -86,6 +89,7 @@ describe('@wireroom/cli', () => {
       'adopt',
       'mirror-hook',
       'attach',
+      'revive',
       'pair',
       'peers',
       'revoke',
@@ -102,7 +106,7 @@ describe('@wireroom/cli', () => {
   });
 
   it('pairs, lists, and revokes a device while rotating room keys', async () => {
-    await cli('pair', '--endpoint', `http://127.0.0.1:${String(server.port)}`);
+    await cli('pair', '--no-qr', '--endpoint', `http://127.0.0.1:${String(server.port)}`);
     const url = new URL(output[0]!);
     expect(url.pathname).toBe('/pair');
     const token = url.searchParams.get('pairing_token')!;
@@ -146,6 +150,140 @@ describe('@wireroom/cli', () => {
     expect(readFileSync(join(destination, 'ledger', 'constraints', 'risk-limits.md'), 'utf8'))
       .toContain('Keep exposure below 2%.');
   });
+
+  // harn:assume terminal-pairing-qr-matches-plain-url ref=pairing-qr-regression
+  it('renders a pairing QR from the exact plain URL and supports explicit plain-only output', async () => {
+    let qrPayload: string | undefined;
+    await runCli(['node', 'wireroom', '--data-dir', dir, 'pair'], {
+      stdout: (line) => output.push(line),
+      renderQr: (payload) => {
+        qrPayload = payload;
+        return '<terminal-qr>';
+      },
+    });
+    expect(output[0]).toBe('<terminal-qr>');
+    expect(qrPayload).toBe(output[1]);
+    expect(new URL(qrPayload!).pathname).toBe('/pair');
+    expect(renderTerminalQr(qrPayload!)).toMatch(/[▀▄█]/);
+
+    output = [];
+    await cli('pair', '--no-qr');
+    expect(output).toHaveLength(2);
+    expect(output[0]).toMatch(/^http:\/\/127\.0\.0\.1:8137\/pair\?/);
+  });
+  // harn:end terminal-pairing-qr-matches-plain-url
+
+  // harn:assume cli-setup-wizard-preserves-service-environment ref=setup-regression
+  it('snapshots setup dry-run with the absolute Node path and every detected harness directory', async () => {
+    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const home = '/home/setup-test';
+    const installed = new Map([
+      ['claude', `${home}/.local/bin/claude`],
+      ['codex', `${home}/.nvm/versions/node/v22.8.0/bin/codex`],
+      ['opencode', `${home}/.opencode/bin/opencode`],
+      ['tailscale', '/usr/bin/tailscale'],
+    ]);
+    await runCli(['node', 'wireroom', 'setup', '--dry-run'], {
+      env: { HOME: home, USER: 'setup-test', PATH: '/usr/local/bin:/usr/bin' },
+      stdout: (line) => output.push(line),
+      setup: {
+        home,
+        nodePath: `${home}/.nvm/versions/node/v22.8.0/bin/node`,
+        repoRoot,
+        which: (command) => installed.get(command),
+      },
+    });
+    expect(output.join('\n').replaceAll(repoRoot, '<repo>/')).toMatchInlineSnapshot(`
+      "[dry-run] create /home/setup-test/.config/wireroom and /home/setup-test/.wireroom mode 700; create /home/setup-test/.config/wireroom/token mode 600 if absent
+      [dry-run] install <repo>/packaging/systemd/wireroom.service -> /home/setup-test/.config/systemd/user/wireroom.service mode 600
+      [dry-run] unit content:
+      [Unit]
+      Description=Wireroom local-first agent switchboard
+      [Service]
+      Type=simple
+      WorkingDirectory=%h/wireroom
+      EnvironmentFile=%h/.config/wireroom/env
+      UMask=0077
+      # harn:assume fresh-clone-install-proven-by-script ref=systemd-service
+      ExecStart=/home/setup-test/.nvm/versions/node/v22.8.0/bin/node %h/wireroom/packages/cli/dist/index.js --data-dir %h/.wireroom up --static-root %h/wireroom/packages/web/dist --room desk --room-name Desk
+      # harn:end fresh-clone-install-proven-by-script
+      Restart=on-failure
+      RestartSec=5s
+      TimeoutStopSec=30s
+      KillMode=mixed
+
+      [Install]
+      WantedBy=default.target
+      [dry-run] write /home/setup-test/.config/wireroom/env mode 600
+      WIREROOM_TOKEN=<redacted generated-or-existing token>
+      PATH=/home/setup-test/.local/bin:/home/setup-test/.nvm/versions/node/v22.8.0/bin:/home/setup-test/.opencode/bin:/usr/local/bin:/usr/bin
+      [dry-run] systemctl --user daemon-reload
+      [dry-run] systemctl --user enable --now wireroom.service
+      [dry-run] tailscale serve --bg http://127.0.0.1:8137
+      [dry-run] tailscale serve status
+      [dry-run] generate a ten-minute pairing link and exact-payload terminal QR"
+    `);
+    expect(existsSync(join(home, '.config', 'wireroom'))).toBe(false);
+  });
+
+  it('writes private setup files, runs confirmed host steps, and pairs against the Serve origin', async () => {
+    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const home = join(dir, 'setup-home');
+    const commands: string[] = [];
+    let qrPayload: string | undefined;
+    await runCli(['node', 'wireroom', 'setup'], {
+      env: { HOME: home, USER: 'setup-test', PATH: '/usr/bin' },
+      stdout: (line) => output.push(line),
+      setup: {
+        confirm: async () => true,
+        exec: (command, args) => {
+          commands.push([command, ...args].join(' '));
+          if (command === 'loginctl') return 'no';
+          if (command === 'tailscale' && args.join(' ') === 'serve status') {
+            return 'https://setup-host.example.ts.net (tailnet only)';
+          }
+          return '';
+        },
+        home,
+        nodePath: '/opt/node/bin/node',
+        randomToken: () => 'a'.repeat(64),
+        renderQr: (payload) => {
+          qrPayload = payload;
+          return '<setup-qr>';
+        },
+        repoRoot,
+        which: (command) => new Map([
+          ['claude', join(home, '.local', 'bin', 'claude')],
+          ['codex', '/opt/node/bin/codex'],
+          ['tailscale', '/usr/bin/tailscale'],
+        ]).get(command),
+      },
+    });
+
+    const configDir = join(home, '.config', 'wireroom');
+    const tokenPath = join(configDir, 'token');
+    const envPath = join(configDir, 'env');
+    const unitPath = join(home, '.config', 'systemd', 'user', 'wireroom.service');
+    expect(statSync(configDir).mode & 0o777).toBe(0o700);
+    expect(statSync(join(home, '.wireroom')).mode & 0o777).toBe(0o700);
+    expect(statSync(tokenPath).mode & 0o777).toBe(0o600);
+    expect(statSync(envPath).mode & 0o777).toBe(0o600);
+    expect(readFileSync(unitPath, 'utf8')).toContain('ExecStart=/opt/node/bin/node ');
+    expect(readFileSync(envPath, 'utf8')).toContain(
+      `PATH=${join(home, '.local', 'bin')}:/opt/node/bin:/usr/bin`,
+    );
+    expect(commands).toEqual([
+      'systemctl --user daemon-reload',
+      'systemctl --user enable --now wireroom.service',
+      'loginctl show-user setup-test -p Linger --value',
+      'tailscale serve --bg http://127.0.0.1:8137',
+      'tailscale serve status',
+    ]);
+    expect(qrPayload).toBe(output[output.indexOf('<setup-qr>') + 1]);
+    expect(new URL(qrPayload!).origin).toBe('https://setup-host.example.ts.net');
+    expect(output.join('\n')).not.toContain('a'.repeat(64));
+  });
+  // harn:end cli-setup-wizard-preserves-service-environment
 
   it('resolves Gemini interactive resume through the supervised attach path', () => {
     expect(nativeResumeCommand({
@@ -318,6 +456,61 @@ describe('@wireroom/cli', () => {
     expect(codexFake.deliveries).toHaveLength(2);
     expect(codexFake.deliveries.at(-1)!.payload).toContain('queued while interactive');
   });
+
+  // harn:assume cli-member-recovery-is-actionable ref=cli-recovery-regression
+  it('revives by act and makes ambiguous or dead attach failures actionable', async () => {
+    const revivable = daemon.spawnMember('eng', { harness: 'fake', handle: 'revivable', cwd: dir });
+    fake.enqueue({ kind: 'complete', final_text: '@richard session ready' });
+    daemon.postHumanMessage('eng', '@revivable initialize');
+    await daemon.settle();
+    daemon.killMember('eng', revivable.id);
+
+    output = [];
+    await cli('revive', '-r', 'eng', '@revivable');
+    expect(output).toEqual(['revived @revivable']);
+    expect(daemon.store.getMember('eng', revivable.id)?.state).toBe('idle');
+
+    daemon.killMember('eng', revivable.id);
+    await expect(cli('attach', '-r', 'eng', '@revivable')).rejects.toThrow(
+      'member @revivable is dead; revive it to retry',
+    );
+
+    const firstTurnDeath = daemon.spawnMember('eng', { harness: 'fake', handle: 'first-turn', cwd: dir });
+    daemon.killMember('eng', firstTurnDeath.id);
+    await expect(cli('attach', '-r', 'eng', '@first-turn')).rejects.toThrow(
+      'member @first-turn is dead; remove it and spawn a replacement',
+    );
+
+    daemon.createRoom({
+      id: 'ops',
+      name: 'Operations',
+      owner: { handle: 'operator', display_name: 'Operator' },
+    });
+    daemon.spawnMember('eng', { harness: 'fake', handle: 'shared', cwd: dir });
+    const deadCandidate = daemon.spawnMember('ops', { harness: 'fake', handle: 'shared', cwd: dir });
+    daemon.killMember('ops', deadCandidate.id);
+    await expect(cli('attach', '@shared')).rejects.toThrow(
+      'member @shared is ambiguous: eng (idle), ops (dead); pass --room <channel-id>',
+    );
+  });
+  // harn:end cli-member-recovery-is-actionable
+
+  // harn:assume global-cli-install-is-idempotent ref=cli-install-regression
+  it('installs the built CLI as one stable per-user symlink on repeated runs', () => {
+    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const home = join(dir, 'install-home');
+    const script = join(repoRoot, 'scripts', 'install-cli.sh');
+    const env = { ...process.env, HOME: home };
+    execFileSync(script, { env, stdio: 'pipe' });
+    execFileSync(script, { env, stdio: 'pipe' });
+    expect(readlinkSync(join(home, '.local', 'bin', 'wireroom'))).toBe(
+      join(repoRoot, 'packages', 'cli', 'dist', 'index.js'),
+    );
+    const installed = join(home, '.local', 'bin', 'wireroom');
+    expect(statSync(installed).mode & 0o111).not.toBe(0);
+    expect(execFileSync(installed, ['--help'], { env, encoding: 'utf8' })).toContain('Usage: wireroom');
+  });
+  // harn:end global-cli-install-is-idempotent
 
   it('parses documented Claude hooks and Codex notify plus rollout tailing', () => {
     const fixtures = fileURLToPath(new URL('../fixtures/', import.meta.url));

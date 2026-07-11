@@ -1,0 +1,14 @@
+id: cli-member-recovery-is-actionable
+hash: a-107116943094
+title: CLI member recovery names the exact next operator action
+state: active
+statement: The CLI must expose revive for a selected channel member, list every
+  candidate as channel-id and state when attach is ambiguous, and tell dead
+  members with a persisted session to revive while telling first-turn deaths to
+  remove and spawn a replacement, because recovery errors must not leave an
+  operator at a dead end.
+depends_on:
+  - revive-via-session-ref
+  - attach-custody-lease-tracks-child-pid
+  - removed-members-remain-attribution-tombstones
+created_by: codor-p5-cli-docs

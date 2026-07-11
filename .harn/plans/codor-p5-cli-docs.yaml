@@ -1,0 +1,153 @@
+id: codor-p5-cli-docs
+title: P5 setup wizard, terminal pairing, recovery CLI, and operator docs
+assumptions:
+  create:
+    - id: cli-setup-wizard-preserves-service-environment
+      title: Setup installs a private service with the operator's executable paths
+      statement: The setup command must confirm each mutating step, create private
+        configuration and data directories plus a mode-600 token, install the
+        checked-in user service with the absolute current Node executable, write
+        a mode-600 environment file whose PATH includes every detected harness
+        CLI directory, the Node bin, and the local user bin, enable the user
+        service, optionally publish Tailscale Serve, and expose all resulting
+        actions and unit content without side effects under dry-run, because an
+        nvm-managed installation and shell-only harness paths are otherwise
+        invisible to the user service.
+      reason: Phase 5 implements the S9 one-shot setup workflow under current naming.
+      depends_on:
+        - fresh-clone-install-proven-by-script
+        - tailnet-auto-pairing-explicit-trust
+    - id: terminal-pairing-qr-matches-plain-url
+      title: Terminal pairing QR encodes the exact displayed pairing URL
+      statement: The pair and setup commands must render a compact UTF-8 terminal QR
+        whose payload is byte-for-byte the same single-use pairing URL printed
+        next to it, while pair supports an explicit no-QR mode, because
+        operators need a scannable enrollment path without hidden or divergent
+        authority.
+      reason: Phase 5 adds S9 terminal QR output to the existing pairing flow.
+      depends_on:
+        - pairing-offer-token-remains-qr-only
+    - id: cli-member-recovery-is-actionable
+      title: CLI member recovery names the exact next operator action
+      statement: The CLI must expose revive for a selected channel member, list every
+        candidate as channel-id and state when attach is ambiguous, and tell
+        dead members with a persisted session to revive while telling first-turn
+        deaths to remove and spawn a replacement, because recovery errors must
+        not leave an operator at a dead end.
+      reason: Phase 5 implements the R6 recovery command and attach diagnostics.
+      depends_on:
+        - revive-via-session-ref
+        - attach-custody-lease-tracks-child-pid
+        - removed-members-remain-attribution-tombstones
+    - id: global-cli-install-is-idempotent
+      title: The built CLI has one idempotent per-user installation path
+      statement: The checked-in install script must require a built CLI and
+        idempotently replace the current-name symlink in the user's local bin
+        with the absolute built entrypoint, while operator docs present it as
+        the primary command installation path and retain pnpm link as an
+        alternative, because normal operation must not depend on
+        repository-relative node invocations.
+      reason: Phase 5 adds the requested global CLI installation workflow.
+      depends_on:
+        - fresh-clone-install-proven-by-script
+  reviewed:
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: The primary docs move to setup and the install script while retaining
+        one explicit repository-entrypoint fallback and the clean-clone proof.
+    - id: tailnet-auto-pairing-explicit-trust
+      outcome: unchanged
+      reason: Setup can offer Serve, but the trust flag remains opt-in and the exact
+        security warning remains documented.
+    - id: revive-via-session-ref
+      outcome: unchanged
+      reason: The new CLI command invokes the existing exact-session revive act.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: Only pre-acquisition dead-member remediation text changes; lease and
+        child supervision remain unchanged.
+    - id: removed-members-remain-attribution-tombstones
+      outcome: unchanged
+      reason: First-turn dead-member guidance points at the existing remove and
+        replacement semantics without changing tombstones.
+    - id: pairing-offer-token-remains-qr-only
+      outcome: unchanged
+      reason: Terminal QR and plain URL output use the existing single-use offer and
+        do not expose pairing authority in the web surface.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Setup detects executable directories only for the service PATH; daemon
+        and outpost adapter composition still use the trusted registry
+        exclusively.
+anchors:
+  cli-setup-wizard-preserves-service-environment:
+    setup-command-surface:
+      action: change
+      reason: Register setup and dry-run on the current CLI command surface.
+    setup-runtime:
+      action: change
+      reason: Implement confirmation, private files, executable PATH discovery,
+        systemd, optional Serve, and dry-run rendering.
+    setup-regression:
+      action: change
+      reason: Snapshot the dry run including absolute Node and all harness paths.
+  terminal-pairing-qr-matches-plain-url:
+    terminal-qr-renderer:
+      action: change
+      reason: Render compact UTF-8 terminal QR output for an exact payload.
+    pair-qr-command:
+      action: change
+      reason: Add QR output and the explicit no-QR option to pair.
+    pairing-qr-regression:
+      action: change
+      reason: Prove the QR renderer receives the exact displayed pairing URL.
+  cli-member-recovery-is-actionable:
+    cli-revive-and-attach-surface:
+      action: change
+      reason: Add revive and candidate-rich attach ambiguity diagnostics.
+    attach-error-remediation:
+      action: change
+      reason: Distinguish revivable and first-turn dead attach failures.
+    cli-recovery-regression:
+      action: change
+      reason: Prove revive act behavior, candidate errors, and dead-member guidance.
+  global-cli-install-is-idempotent:
+    per-user-cli-install-script:
+      action: change
+      reason: Install the built current-name command into the user local bin.
+    cli-install-regression:
+      action: change
+      reason: Execute the installer twice and verify one stable symlink.
+    cli-install-docs:
+      action: change
+      reason: Document the install script and pnpm link alternative without bare node
+        entrypoints in primary workflows.
+  fresh-clone-install-proven-by-script:
+    selfhost-guide:
+      action: change
+      reason: Make setup the primary path and move manual operation to an appendix.
+  attach-custody-lease-tracks-child-pid:
+    attach-release-handshake:
+      action: change
+      reason: Improve only the dead-member precondition error before lease creation.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Preserve adapter composition while setup imports move the broad CLI
+        anchor's source position.
+files:
+  - packages/cli/package.json
+  - packages/cli/src/index.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/setup.ts
+  - packages/cli/src/terminal-qr.ts
+  - packages/cli/src/index.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - scripts/install-cli.sh
+  - pnpm-lock.yaml
+  - README.md
+  - docs/SELF-HOST.md
+  - docs/SETUP.md
+applied:
+  applied_at: 2026-07-11T19:06:14.018Z

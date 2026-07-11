@@ -21,6 +21,8 @@ import {
 import { ProtocolClient, type ProtocolClientOptions } from './connection.js';
 import { detectSession } from './detect.js';
 import { parseMirrorHook } from './mirror.js';
+import { runSetup, type SetupOverrides } from './setup.js';
+import { renderTerminalQr } from './terminal-qr.js';
 import { parseLine, startOutpost, startWireroom, waitForShutdown } from './up.js';
 
 export interface CliContext {
@@ -30,6 +32,8 @@ export interface CliContext {
   interactiveCommand?: InteractiveCommandResolver;
   spawnInteractive?: InteractiveSpawner;
   attachHeartbeatMs?: number;
+  renderQr?(payload: string): string;
+  setup?: SetupOverrides;
 }
 
 interface GlobalOptions {
@@ -204,6 +208,24 @@ export function createProgram(context: CliContext = {}): Command {
       await waitForShutdown(running.close);
     });
   // harn:end adapter-registry-sole-harness-source
+
+  // harn:assume cli-setup-wizard-preserves-service-environment ref=setup-command-surface
+  program
+    .command('setup')
+    .description('configure the local switchboard user service and first browser pairing')
+    .option('--dry-run', 'print every action and generated unit content without changing the host')
+    .action(async (options: { dryRun?: boolean }) => {
+      await runSetup({
+        dryRun: options.dryRun === true,
+        env,
+        out,
+        overrides: {
+          ...context.setup,
+          renderQr: context.renderQr ?? context.setup?.renderQr,
+        },
+      });
+    });
+  // harn:end cli-setup-wizard-preserves-service-environment
 
   program
     .command('spawn')
@@ -433,6 +455,7 @@ export function createProgram(context: CliContext = {}): Command {
       });
     });
 
+  // harn:assume cli-member-recovery-is-actionable ref=cli-revive-and-attach-surface
   program
     .command('attach')
     .argument('<member>')
@@ -461,6 +484,7 @@ export function createProgram(context: CliContext = {}): Command {
             if (frame.type === 'error') throw new Error(frame.message);
             if (
               frame.type === 'member' &&
+              frame.member.removed_ts === undefined &&
               (frame.member.id === memberRef || frame.member.handle === wanted)
             ) {
               matches.push({ room, member: frame.member });
@@ -469,7 +493,13 @@ export function createProgram(context: CliContext = {}): Command {
           }
         }
         if (matches.length === 0) throw new Error(`no such member ${memberRef}`);
-        if (matches.length > 1) throw new Error(`member ${memberRef} is ambiguous; pass --room`);
+        if (matches.length > 1) {
+          const candidates = matches
+            .map(({ room, member }) => `${room} (${member.state ?? member.kind})`)
+            .sort()
+            .join(', ');
+          throw new Error(`member ${memberRef} is ambiguous: ${candidates}; pass --room <channel-id>`);
+        }
         const match = matches[0]!;
         client.send({
           type: 'act',
@@ -505,17 +535,59 @@ export function createProgram(context: CliContext = {}): Command {
         else out(`@${acquired.member.handle} custody remains uncertain until its process group exits`);
       });
     });
+
+  program
+    .command('revive')
+    .description('revive a dead agent from its persisted native session')
+    .argument('<member>')
+    .requiredOption('-r, --room <room>', 'channel id')
+    .action(async (memberRef: string, options: RoomOptions) => {
+      await withClient(async (client) => {
+        const wanted = memberRef.replace(/^@/, '');
+        let member: Member | undefined;
+        client.send({ type: 'subscribe', room: options.room, since_seq: 0 });
+        for (;;) {
+          const frame = await client.next();
+          if (
+            frame.type === 'member' &&
+            frame.member.removed_ts === undefined &&
+            (frame.member.id === memberRef || frame.member.handle === wanted)
+          ) {
+            member = frame.member;
+          }
+          if (frame.type === 'error') throw new Error(frame.message);
+          if (frame.type === 'sync_complete') break;
+        }
+        if (!member) throw new Error(`no such member ${memberRef}`);
+        client.send({ type: 'act', room: options.room, act: { act: 'revive', member_id: member.id } });
+        for (;;) {
+          const frame = await client.next();
+          if (frame.type === 'error') throw new Error(frame.message);
+          if (frame.type === 'member' && frame.member.id === member.id && frame.member.state !== 'dead') {
+            out(`revived @${frame.member.handle}`);
+            return;
+          }
+        }
+      });
+    });
+  // harn:end cli-member-recovery-is-actionable
+
+  // harn:assume terminal-pairing-qr-matches-plain-url ref=pair-qr-command
   program
     .command('pair')
     .description('create a ten-minute browser or peer pairing link')
     .option('--endpoint <url>', 'switchboard browser endpoint', 'http://127.0.0.1:8137')
-    .action((options: { endpoint: string }) => {
+    .option('--no-qr', 'print the plain pairing URL without a terminal QR')
+    .action((options: { endpoint: string; qr: boolean }) => {
       withCrypto((crypto) => {
         const offer = crypto.pairing.issue(options.endpoint);
-        out(pairingUrl(offer));
+        const url = pairingUrl(offer);
+        if (options.qr) out((context.renderQr ?? renderTerminalQr)(url));
+        out(url);
         out(`expires ${offer.expires_at}`);
       });
     });
+  // harn:end terminal-pairing-qr-matches-plain-url
 
   program.command('peers').description('list enrolled devices and switchboards').action(() => {
     withCrypto((crypto) => {
