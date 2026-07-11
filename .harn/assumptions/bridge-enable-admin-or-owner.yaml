@@ -1,0 +1,14 @@
+id: bridge-enable-admin-or-owner
+hash: a-839958c7850a
+title: Bridge enrollment and ingress are admin-authorized and idempotent
+state: active
+statement: Only an authenticated admin or owner may enable a room bridge or
+  submit bridge ingress, bridge members must remain non-addressable post-only
+  authors whose messages retain external-sender attribution, and each bridge
+  member platform external-id tuple must persist at most one routed message
+  while outbound mirroring suppresses that bridge's own origin.
+depends_on:
+  - roles-gate-human-acts-not-agents
+  - routing-eligibility-nonempty-finalized
+  - default-recipient-latest-finalized
+created_by: bridges-optin-banner

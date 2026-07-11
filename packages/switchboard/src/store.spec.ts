@@ -59,6 +59,48 @@ describe('message id allocation', () => {
   });
 });
 
+describe('bridge origin persistence', () => {
+  it('deduplicates retries by bridge member, platform, and external id', () => {
+    openRoom(store);
+    const bridge = store.addMember('eng', {
+      kind: 'bridge',
+      handle: 'slack-bridge',
+      display_name: 'Slack · C123',
+    });
+    const origin = { platform: 'slack', external_id: '171.42', sender_name: 'Sarah' };
+    const first = store.postBridgeMessage('eng', bridge.id, 'Ship it', origin, {
+      mentions: [], refs: [], ledger_refs: [],
+    });
+    const retry = store.postBridgeMessage('eng', bridge.id, 'Ship it again', origin, {
+      mentions: [], refs: [], ledger_refs: [],
+    });
+
+    expect(first.deduped).toBe(false);
+    expect(retry.deduped).toBe(true);
+    expect(retry.message.id).toBe(first.message.id);
+    expect(retry.message.body).toBe('Ship it');
+    expect(store.listMessagesAfter('eng', 0)).toHaveLength(1);
+  });
+
+  it('rejects non-bridge authors and keeps distinct external ids', () => {
+    const { owner } = openRoom(store);
+    const origin = { platform: 'telegram', external_id: '7', sender_name: 'Lea' };
+    expect(() => store.postBridgeMessage('eng', owner.id, 'No', origin, {
+      mentions: [], refs: [], ledger_refs: [],
+    })).toThrow('no such bridge member');
+    const bridge = store.addMember('eng', {
+      kind: 'bridge', handle: 'telegram-bridge', display_name: 'Telegram · 42',
+    });
+    store.postBridgeMessage('eng', bridge.id, 'One', origin, {
+      mentions: [], refs: [], ledger_refs: [],
+    });
+    store.postBridgeMessage('eng', bridge.id, 'Two', { ...origin, external_id: '8' }, {
+      mentions: [], refs: [], ledger_refs: [],
+    });
+    expect(store.listMessagesAfter('eng', 0).map((message) => message.body)).toEqual(['One', 'Two']);
+  });
+});
+
 describe('message history and search', () => {
   it('pages older messages by permanent room-local id in timeline order', () => {
     const { owner } = openRoom(store);

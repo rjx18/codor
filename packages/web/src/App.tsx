@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import {
   AskCardView,
+  BridgedRoomBanner,
   Composer,
   Header,
   HoldBanner,
@@ -396,6 +397,7 @@ export function App(props: { token?: string } = {}) {
               setContextOpen(true);
             }}
           />
+          {state.room?.config.bridged && <BridgedRoomBanner />}
           {!state.connected && (
             <div role="status" data-testid="offline-banner" className="wr-offline-banner">
               Offline · room history stays on your switchboard

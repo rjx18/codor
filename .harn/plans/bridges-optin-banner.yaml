@@ -5,15 +5,26 @@ assumptions:
   create:
     - id: bridged-room-wears-banner
       title: Bridged rooms permanently disclose their external content boundary
-      statement: A room with any enabled Slack or Telegram bridge must persist a bridged config flag and render a permanent plain-language external-platform privacy banner on room, settings, and ledger surfaces, because readable room content deliberately leaves the local trust boundary until the bridge is disabled.
-      reason: PRIVACY defines bridging as the one deliberate plaintext export exception.
+      statement: A room with any enabled Slack or Telegram bridge must persist a
+        bridged config flag and render a permanent plain-language
+        external-platform privacy banner on room, settings, and ledger surfaces,
+        because readable room content deliberately leaves the local trust
+        boundary until the bridge is disabled.
+      reason: PRIVACY defines bridging as the one deliberate plaintext export
+        exception.
       depends_on:
         - restrained-design-system-guides-responsive-surfaces
         - web-room-visual-hierarchy-matches-restrained-reference
     - id: bridge-enable-admin-or-owner
       title: Bridge enrollment and ingress are admin-authorized and idempotent
-      statement: Only an authenticated admin or owner may enable a room bridge or submit bridge ingress, bridge members must remain non-addressable post-only authors whose messages retain external-sender attribution, and each bridge member platform external-id tuple must persist at most one routed message while outbound mirroring suppresses that bridge's own origin.
-      reason: The protocol role matrix and BridgeOrigin contract require explicit opt-in, deduplication, and echo suppression.
+      statement: Only an authenticated admin or owner may enable a room bridge or
+        submit bridge ingress, bridge members must remain non-addressable
+        post-only authors whose messages retain external-sender attribution, and
+        each bridge member platform external-id tuple must persist at most one
+        routed message while outbound mirroring suppresses that bridge's own
+        origin.
+      reason: The protocol role matrix and BridgeOrigin contract require explicit
+        opt-in, deduplication, and echo suppression.
       depends_on:
         - roles-gate-human-acts-not-agents
         - routing-eligibility-nonempty-finalized
@@ -21,34 +32,43 @@ assumptions:
   reviewed:
     - id: roles-gate-human-acts-not-agents
       outcome: unchanged
-      reason: Existing admin enable_bridge capability gates every mutating bridge REST route.
+      reason: Existing admin enable_bridge capability gates every mutating bridge REST
+        route.
     - id: routing-eligibility-nonempty-finalized
       outcome: unchanged
-      reason: Bridge chat remains routable while bridge members remain ineligible recipients.
+      reason: Bridge chat remains routable while bridge members remain ineligible
+        recipients.
     - id: default-recipient-latest-finalized
       outcome: unchanged
-      reason: Untagged bridge ingress uses the same latest-finalized-agent fallback as human posts.
+      reason: Untagged bridge ingress uses the same latest-finalized-agent fallback as
+        human posts.
     - id: extensions-not-addressable-v1
       outcome: unchanged
-      reason: The shared addressability predicate already excludes bridge members as well as extensions.
+      reason: The shared addressability predicate already excludes bridge members as
+        well as extensions.
     - id: changelog-covers-every-visible-entity
       outcome: unchanged
-      reason: Bridge members, messages, and the bridged room flag use existing change-log paths.
+      reason: Bridge members, messages, and the bridged room flag use existing
+        change-log paths.
     - id: web-room-visual-hierarchy-matches-restrained-reference
       outcome: unchanged
-      reason: The permanent bridge warning is a concise semantic band, not a promotional card.
+      reason: The permanent bridge warning is a concise semantic band, not a
+        promotional card.
     - id: web-settings-pairing-match-restrained-reference
       outcome: unchanged
-      reason: Settings gains the same compact permanent warning without changing existing controls.
+      reason: Settings gains the same compact permanent warning without changing
+        existing controls.
     - id: graph-derived-from-vault-links-readonly
       outcome: unchanged
       reason: Ledger stays read-only while disclosing the bridged room boundary.
     - id: web-glass-theme-accessible-modes
       outcome: unchanged
-      reason: Banner colors use existing semantic tokens and retain light, dark, contrast, and reduced-transparency behavior.
+      reason: Banner colors use existing semantic tokens and retain light, dark,
+        contrast, and reduced-transparency behavior.
     - id: monorepo-workspace-layout
       outcome: unchanged
-      reason: The nested bridge-package glob extends the existing pinned pnpm workspace without changing package ownership boundaries.
+      reason: The nested bridge-package glob extends the existing pinned pnpm
+        workspace without changing package ownership boundaries.
 anchors:
   bridged-room-wears-banner:
     bridged-room-config:
@@ -63,7 +83,8 @@ anchors:
   bridge-enable-admin-or-owner:
     bridge-origin-uniqueness:
       action: change
-      reason: Add the durable member-platform-external-id uniqueness constraint and idempotent insert.
+      reason: Add the durable member-platform-external-id uniqueness constraint and
+        idempotent insert.
     bridge-daemon-ingress:
       action: change
       reason: Create post-only bridge members and route parsed inbound bodies.
@@ -75,10 +96,12 @@ anchors:
       reason: Share polling, retry, and echo suppression across platform transports.
     bridge-platform-regression:
       action: change
-      reason: Mock-test Slack and Telegram inbound, outbound, retry dedup, and echo suppression.
+      reason: Mock-test Slack and Telegram inbound, outbound, retry dedup, and echo
+        suppression.
     bridge-origin-attribution:
       action: change
-      reason: Render bridge-authored messages with their platform and external sender name.
+      reason: Render bridge-authored messages with their platform and external sender
+        name.
   web-room-visual-hierarchy-matches-restrained-reference:
     restrained-room-visual-hierarchy:
       action: change
@@ -90,11 +113,13 @@ anchors:
   graph-derived-from-vault-links-readonly:
     ledger-graph-web:
       action: change
-      reason: Place the disclosure above the read-only graph without changing graph behavior.
+      reason: Place the disclosure above the read-only graph without changing graph
+        behavior.
   web-glass-theme-accessible-modes:
     semantic-glass-theme:
       action: change
-      reason: Add responsive semantic banner styling for all supported appearance modes.
+      reason: Add responsive semantic banner styling for all supported appearance
+        modes.
   monorepo-workspace-layout:
     workspace-globs:
       action: change
@@ -134,3 +159,5 @@ files:
   - tmp/build/design/v4/desktop-bridged-room.png
   - tmp/build/PROGRESS.md
   - MANUAL-VERIFY.md
+applied:
+  applied_at: 2026-07-11T07:37:27.138Z

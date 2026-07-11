@@ -2,5 +2,6 @@
 packages:
   - packages/*
   - packages/adapters/*
+  - packages/bridges/*
   - relay
 # harn:end monorepo-workspace-layout

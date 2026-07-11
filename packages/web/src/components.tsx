@@ -9,6 +9,7 @@ import {
 import {
   Activity,
   Bot,
+  Cable,
   ChevronDown,
   ChevronRight,
   CircleCheck,
@@ -86,6 +87,20 @@ export function ledgerTextSegments(body: string): LedgerTextSegment[] {
   return segments;
 }
 // harn:end permalink-ids-stable
+
+// harn:assume bridged-room-wears-banner ref=bridged-room-banner
+export function BridgedRoomBanner() {
+  return (
+    <aside data-testid="bridged-room-banner" className="wr-bridge-banner" aria-label="Bridged room privacy notice">
+      <Cable aria-hidden="true" size={15} />
+      <p>
+        <strong>Bridged room</strong>
+        <span>Messages are mirrored externally. Slack or Telegram stores this room's content under its own privacy terms.</span>
+      </p>
+    </aside>
+  );
+}
+// harn:end bridged-room-wears-banner
 
 // harn:assume spend-meter-always-on ref=meter-settings-surface
 export function Header(props: {
@@ -1213,10 +1228,21 @@ export function MessageRow(props: { message: Message; authorHandle: string; mine
         data-testid={`msg-${message.id}`}
         className={`wr-message scroll-mt-16 ${props.mine ? 'is-mine' : ''}`}
       >
-        <span className="wr-actor-mark wr-actor-human" aria-hidden="true"><UserRound size={17} /></span>
+        <span className="wr-actor-mark wr-actor-human" aria-hidden="true">
+          {message.origin ? <Cable size={17} /> : <UserRound size={17} />}
+        </span>
         <div className="wr-message-content">
           <div className="wr-message-meta">
-            <strong>@{props.authorHandle}</strong>
+            <span className="wr-message-author">
+              <strong>@{props.authorHandle}</strong>
+              {/* harn:assume bridge-enable-admin-or-owner ref=bridge-origin-attribution */}
+              {message.origin && (
+                <span className="wr-message-origin">
+                  via {message.origin.platform}: {message.origin.sender_name}
+                </span>
+              )}
+              {/* harn:end bridge-enable-admin-or-owner */}
+            </span>
             <time dateTime={message.ts}>{new Date(message.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
             <MessagePermalink id={message.id} />
           </div>

@@ -14,6 +14,9 @@ export const RoomConfigSchema = z.object({
   spend_brake_usd: z.number().positive().nullable().default(null), // daily cost hold threshold
   stall_minutes: z.number().int().positive().default(30),
   redaction_enabled: z.boolean().default(true),
+  // harn:assume bridged-room-wears-banner ref=bridged-room-config
+  bridged: z.boolean().default(false),
+  // harn:end bridged-room-wears-banner
 });
 export type RoomConfig = z.infer<typeof RoomConfigSchema>;
 // harn:end brakes-default-off

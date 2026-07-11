@@ -29,6 +29,7 @@ import {
   type LedgerNote,
 } from './api.js';
 import { RoomRail } from './shell.js';
+import { BridgedRoomBanner } from './components.js';
 
 const WIDTH = 1000;
 const HEIGHT = 700;
@@ -99,6 +100,7 @@ export function LedgerGraphPage(props: { token: string }) {
 
   const room = requestedRoom || rooms[0]?.id || '';
   const roomName = rooms.find((candidate) => candidate.id === room)?.name ?? room;
+  const bridged = rooms.find((candidate) => candidate.id === room)?.config.bridged === true;
 
   useEffect(() => {
     if (room === '') return;
@@ -231,7 +233,7 @@ export function LedgerGraphPage(props: { token: string }) {
         owner={owner}
         canCreateRoom={false}
       />
-      <main className="wr-ledger-main">
+      <main className={`wr-ledger-main ${bridged ? 'is-bridged' : ''}`}>
         <header className="wr-ledger-header">
           <a href={`/?${new URLSearchParams({ room }).toString()}`} className="wr-icon-button" aria-label="Back to room" title="Back to room">
             <ArrowLeft aria-hidden="true" size={18} />
@@ -263,6 +265,7 @@ export function LedgerGraphPage(props: { token: string }) {
             <Maximize2 aria-hidden="true" size={17} />
           </button>
         </header>
+        {bridged && <BridgedRoomBanner />}
         <div
           ref={graphSurface}
           data-testid="ledger-graph-surface"

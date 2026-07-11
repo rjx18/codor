@@ -1,0 +1,26 @@
+{
+  "name": "@wireroom/bridge-slack",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "wireroom-bridge-slack": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@slack/bolt": "^4.7.3",
+    "@wireroom/bridge-core": "workspace:*",
+    "@wireroom/protocol": "workspace:*"
+  }
+}

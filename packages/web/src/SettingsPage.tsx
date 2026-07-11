@@ -29,6 +29,7 @@ import {
 } from './api.js';
 import { ensureBrowserIdentity, unpairBrowser } from './crypto.js';
 import { enablePushNotifications, notificationPermission } from './notifications.js';
+import { BridgedRoomBanner } from './components.js';
 import { RoomRail } from './shell.js';
 import { heldDeliveries, me, roleAtLeast, unreadCount, useRoomStore } from './state.js';
 import {
@@ -220,6 +221,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
             {notice && <p role="status" className="wr-settings-notice">{notice}</p>}
 
             {/* harn:assume web-settings-pairing-match-restrained-reference ref=restrained-settings-pairing-surface */}
+            {state.room?.config.bridged && <BridgedRoomBanner />}
             <section id="appearance" data-testid="settings-section-appearance" data-active={visibleActiveSection === 'appearance'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <Palette aria-hidden="true" size={18} />

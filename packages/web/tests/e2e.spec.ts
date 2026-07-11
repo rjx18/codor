@@ -903,3 +903,31 @@ test('authenticated roles remove commands the local matrix does not allow', asyn
   await expect(page.getByRole('link', { name: 'Relay', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Paired devices', exact: true })).toHaveCount(0);
 });
+
+// harn:assume bridged-room-wears-banner ref=bridged-room-regression
+test('bridged rooms permanently disclose the external boundary and attribute relayed authors', async ({ page }) => {
+  const seeded = await control<{ message_id: number }>('/bridge-enable', {
+    platform: 'slack',
+    channel: 'C123',
+    senderName: 'Sarah Chen',
+    message: '@alpha review [[launch-plan]]',
+  });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  const banner = page.getByTestId('bridged-room-banner');
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText('Bridged room');
+  await expect(banner).toContainText('stores this room\'s content under its own privacy terms');
+  await expect(page.getByTestId(`msg-${String(seeded.message_id)}`)).toContainText('via slack: Sarah Chen');
+
+  await page.goto('/settings?room=eng&token=e2e-token');
+  await expect(page.getByTestId('bridged-room-banner')).toBeVisible();
+  await page.goto('/ledger?room=eng');
+  await expect(page.getByTestId('bridged-room-banner')).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('bridged-room-banner')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+});
+// harn:end bridged-room-wears-banner

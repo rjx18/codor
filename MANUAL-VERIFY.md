@@ -180,3 +180,29 @@ container and real push-provider hop; do not use `OPEN_MODE` for this check.
 5. Record the public URL, image digest, iOS version, Safari/WebKit version, HTTP result codes, and
    pass/fail observations only. Do not record the VAPID private key, full PushSubscription, sealed
    payload, bearer token, or device private keys.
+
+## Live Slack and Telegram bridges
+
+Status on 2026-07-11: **not run**, by the M5 spend and credential directive. Bolt and grammY are
+built against injected mock gateways; no Slack app token, Telegram bot token, or live external
+channel was available or requested on this machine.
+
+1. Create a disposable Slack channel and a Socket Mode Slack app with message read/write scopes.
+   Run `wireroom-bridge-slack` with `WIREROOM_URL`, an admin-or-owner `WIREROOM_TOKEN`,
+   `WIREROOM_ROOM`, `SLACK_CHANNEL_ID`, `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and
+   `SLACK_APP_TOKEN`. Confirm the room immediately shows the permanent bridged privacy band.
+2. Post one Slack message containing a unique marker, one `@agent` mention, one `#N` reference,
+   and one `[[ledger-note]]` reference. Confirm exactly one Wireroom message appears as
+   `via slack: <display name>` and routes only to the valid agent. Force Slack to retry the same
+   event and confirm no second room message or agent turn appears.
+3. Post one local Wireroom message and confirm exactly one Slack copy appears. Confirm the inbound
+   message from step 2 is not echoed back. Restart the bridge and repeat with a fresh marker; do
+   not record tokens, signing secrets, channel contents, or bearer headers.
+4. Create a disposable Telegram group, add a bot with permission to read and send messages, and
+   run `wireroom-bridge-telegram` with `WIREROOM_URL`, an admin-or-owner `WIREROOM_TOKEN`,
+   `WIREROOM_ROOM`, `TELEGRAM_CHAT_ID`, and `TELEGRAM_BOT_TOKEN`. Repeat the inbound retry,
+   sender attribution, reference preservation, outbound mirror, and own-origin echo checks.
+5. Attempt bridge enable and ingress with observer and member credentials and confirm both receive
+   403. Attempt to mention the bridge handle and use the bridge member id to answer an ask; neither
+   may select the bridge as a recipient or answerer. Revoke every disposable platform token after
+   recording platform/app versions and pass/fail results only.

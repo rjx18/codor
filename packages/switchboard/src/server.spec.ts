@@ -134,6 +134,42 @@ describe('REST', () => {
     expect((await fetch(`${base}/api/rooms?token=wrong-token`)).status).toBe(401);
   });
 
+  it('gates bridge enable and ingress at admin and suppresses own-origin outbound echoes', async () => {
+    const request = (token: string, path: string, init: RequestInit = {}) => fetch(`${base}${path}`, {
+      ...init,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...init.headers },
+    });
+    const payload = JSON.stringify({ platform: 'slack', channel: 'C123' });
+    expect((await request(MEMBER_TOKEN, '/api/rooms/eng/bridges', { method: 'POST', body: payload })).status).toBe(403);
+    expect((await request(OBSERVER_TOKEN, '/api/rooms/eng/bridges', { method: 'POST', body: payload })).status).toBe(403);
+    const enabledResponse = await request(ADMIN_TOKEN, '/api/rooms/eng/bridges', { method: 'POST', body: payload });
+    expect(enabledResponse.status).toBe(201);
+    const enabled = (await enabledResponse.json()) as { member: Member; after: number };
+
+    daemon.postHumanMessage('eng', 'Local message');
+    const inbound = JSON.stringify({
+      body: 'Slack message',
+      origin: { platform: 'slack', external_id: '171.42', sender_name: 'Sarah' },
+    });
+    const first = await request(ADMIN_TOKEN, `/api/rooms/eng/bridges/${enabled.member.id}/messages`, {
+      method: 'POST', body: inbound,
+    });
+    const retry = await request(ADMIN_TOKEN, `/api/rooms/eng/bridges/${enabled.member.id}/messages`, {
+      method: 'POST', body: inbound,
+    });
+    expect(first.status).toBe(200);
+    expect((await retry.json()) as { deduped: boolean }).toMatchObject({ deduped: true });
+    expect((await request(MEMBER_TOKEN, `/api/rooms/eng/bridges/${enabled.member.id}/messages`, {
+      method: 'POST', body: inbound,
+    })).status).toBe(403);
+
+    const outbound = await request(ADMIN_TOKEN, `/api/rooms/eng/bridges/${enabled.member.id}/outbound?after=${String(enabled.after)}`);
+    expect(outbound.status).toBe(200);
+    const body = (await outbound.json()) as { messages: { body: string }[]; next_after: number };
+    expect(body.messages.map((message) => message.body)).toEqual(['Local message']);
+    expect(body.next_after).toBeGreaterThan(enabled.after);
+  });
+
   it('serves a redacted, read-only ledger note to authenticated surfaces', async () => {
     daemon.addLedgerNote('eng', {
       name: 'risk-limits',

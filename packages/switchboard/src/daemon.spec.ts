@@ -152,6 +152,52 @@ describe('member management', () => {
   });
 });
 
+describe('room bridges', () => {
+  it('creates a post-only non-addressable bridge and routes retry-safe ingress', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'complete', final_text: '@richard initial answer' });
+    daemon.postHumanMessage('eng', '@alpha establish the default recipient');
+    await daemon.settle();
+
+    const enabled = daemon.enableBridge('eng', 'slack', 'C123');
+    expect(enabled.member).toMatchObject({ kind: 'bridge', handle: 'slack-bridge' });
+    expect(daemon.store.getRoom('eng')?.config.bridged).toBe(true);
+    expect(daemon.enableBridge('eng', 'slack', 'C123').member.id).toBe(enabled.member.id);
+    expect(() => daemon.enableBridge('eng', 'slack', 'C999')).toThrow('another channel');
+
+    fake.enqueue({ kind: 'complete', final_text: '@richard received via Slack' });
+    const origin = { platform: 'slack', external_id: '171.42', sender_name: 'Sarah' };
+    const first = daemon.postBridgeMessage('eng', enabled.member.id, 'Please continue', origin);
+    const retry = daemon.postBridgeMessage('eng', enabled.member.id, 'Duplicate retry', origin);
+    await daemon.settle();
+
+    expect(first.deduped).toBe(false);
+    expect(retry).toMatchObject({ deduped: true, message: { id: first.message.id } });
+    expect(fake.deliveries).toHaveLength(2);
+    expect(fake.deliveries.at(-1)?.payload).toContain('Please continue');
+    expect(first.message.origin).toEqual(origin);
+  });
+
+  it('cannot mention a bridge or use a bridge to answer an interaction', async () => {
+    const alpha = spawnAgent('alpha');
+    const bridge = daemon.enableBridge('eng', 'telegram', '-10022').member;
+    daemon.postHumanMessage('eng', '@telegram-bridge this is commentary');
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.listMessages('eng', { limit: 10 }).at(-1)?.mentions).toEqual([]);
+
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Approve?', options: [{ label: 'yes' }] },
+      reply: () => 'done',
+    });
+    daemon.postHumanMessage('eng', '@alpha ask');
+    const interaction = await until(() => daemon.store.listInteractions('eng', 'pending')[0]);
+    await expect(daemon.answerInteraction('eng', interaction.id, 'yes', bridge.id))
+      .rejects.toThrow('is not addressed to member');
+  });
+});
+
 describe('mirrored join and adoption', () => {
   it('holds inbound deliveries, mirrors one routed run per native turn, then adopts and drains', async () => {
     const planner = daemon.joinMember('eng', {

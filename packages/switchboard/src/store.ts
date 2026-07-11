@@ -4,6 +4,8 @@ import Database from 'better-sqlite3';
 import {
   type AttachLease,
   AttachLeaseSchema,
+  type BridgeOrigin,
+  BridgeOriginSchema,
   type ChangeEntity,
   type ChangeLogEntry,
   ChangeLogEntrySchema,
@@ -180,6 +182,20 @@ function migrateMeterUncostedTokens(db: Database.Database): void {
     db.exec('ALTER TABLE meters ADD COLUMN uncosted_tokens INTEGER NOT NULL DEFAULT 0');
   }
 }
+
+// harn:assume bridge-enable-admin-or-owner ref=bridge-origin-uniqueness
+function migrateBridgeOriginUniqueness(db: Database.Database): void {
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS message_bridge_origin_unique
+    ON messages (
+      author,
+      json_extract(origin, '$.platform'),
+      json_extract(origin, '$.external_id')
+    )
+    WHERE origin IS NOT NULL
+  `);
+}
+// harn:end bridge-enable-admin-or-owner
 
 const toBool = (n: number): boolean => n !== 0;
 const fromBool = (b: boolean): number => (b ? 1 : 0);
@@ -444,6 +460,7 @@ export class Store {
     migrateMemberCustody(this.db);
     migrateDeliveryHopCount(this.db);
     migrateMeterUncostedTokens(this.db);
+    migrateBridgeOriginUniqueness(this.db);
   }
 
   close(): void {
@@ -802,6 +819,52 @@ export class Store {
     })();
   }
   // harn:end message-id-txn-allocation
+
+  postBridgeMessage(
+    room: string,
+    bridgeMemberId: string,
+    body: string,
+    origin: BridgeOrigin,
+    parsed: Pick<Message, 'mentions' | 'refs' | 'ledger_refs'>,
+  ): { message: Message; deduped: boolean } {
+    const member = this.getMember(room, bridgeMemberId);
+    if (member?.kind !== 'bridge') throw new Error(`no such bridge member: ${bridgeMemberId}`);
+    const validOrigin = BridgeOriginSchema.parse(origin);
+    return this.db.transaction(() => {
+      const existing = this.db.prepare(
+        `SELECT * FROM messages
+         WHERE room = ? AND author = ?
+           AND json_extract(origin, '$.platform') = ?
+           AND json_extract(origin, '$.external_id') = ?
+         LIMIT 1`,
+      ).get(room, bridgeMemberId, validOrigin.platform, validOrigin.external_id) as MessageRow | undefined;
+      if (existing) return { message: messageFromRow(existing), deduped: true };
+      return {
+        message: this.postMessage(room, {
+          author: bridgeMemberId,
+          kind: 'chat',
+          body,
+          ...parsed,
+          origin: validOrigin,
+        }),
+        deduped: false,
+      };
+    })();
+  }
+
+  latestMessageId(room: string): number {
+    const row = this.db.prepare(
+      'SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE room = ?',
+    ).get(room) as { id: number };
+    return row.id;
+  }
+
+  listMessagesAfter(room: string, after: number, limit = 100): Message[] {
+    const rows = this.db.prepare(
+      `SELECT * FROM messages WHERE room = ? AND id > ? ORDER BY id ASC LIMIT ?`,
+    ).all(room, after, limit) as MessageRow[];
+    return rows.map(messageFromRow);
+  }
 
   /**
    * In-place update of a message (run finalization: body becomes final_text,

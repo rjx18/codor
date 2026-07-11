@@ -6,7 +6,13 @@ import { dirname } from 'node:path';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { ClientFrameSchema, RoomIdSchema, type Member, type ServerFrame } from '@wireroom/protocol';
+import {
+  ClientFrameSchema,
+  RoomIdSchema,
+  type BridgeOrigin,
+  type Member,
+  type ServerFrame,
+} from '@wireroom/protocol';
 
 import { assertHumanCapability, roleAllows, type HumanCapability } from './authorization.js';
 import { constantTimeEqual } from './crypto/challenge.js';
@@ -414,6 +420,77 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return reply.code(404).send({ error: String(error) });
     }
   });
+
+  // harn:assume bridge-enable-admin-or-owner ref=bridge-rest-boundary
+  app.post('/api/rooms/:room/bridges', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeRoom(principal, room, 'enable_bridge', reply)) return;
+    try {
+      const body = req.body as { platform?: unknown; channel?: unknown };
+      if (body.platform !== 'slack' && body.platform !== 'telegram') {
+        throw new Error('platform must be slack or telegram');
+      }
+      if (typeof body.channel !== 'string' || body.channel.trim() === '' || body.channel.length > 200) {
+        throw new Error('channel must contain 1 to 200 characters');
+      }
+      return reply.code(201).send(daemon.enableBridge(room, body.platform, body.channel));
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+
+  app.post('/api/rooms/:room/bridges/:memberId/messages', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room, memberId } = req.params as { room: string; memberId: string };
+    if (!authorizeRoom(principal, room, 'enable_bridge', reply)) return;
+    try {
+      const body = req.body as { body?: unknown; origin?: unknown };
+      if (typeof body.body !== 'string' || body.body.trim() === '' || body.body.length > 100_000) {
+        throw new Error('body must contain 1 to 100000 characters');
+      }
+      return reply.send(daemon.postBridgeMessage(
+        room,
+        memberId,
+        body.body,
+        body.origin as BridgeOrigin,
+      ));
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+
+  app.get('/api/rooms/:room/bridges/:memberId/outbound', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room, memberId } = req.params as { room: string; memberId: string };
+    if (!authorizeRoom(principal, room, 'enable_bridge', reply)) return;
+    try {
+      const bridge = daemon.store.getMember(room, memberId);
+      if (bridge?.kind !== 'bridge') return reply.code(404).send({ error: 'no such bridge' });
+      const query = req.query as { after?: string; limit?: string };
+      const after = query.after === undefined ? 0 : Number(query.after);
+      const limit = query.limit === undefined ? 100 : Number(query.limit);
+      if (!Number.isSafeInteger(after) || after < 0) throw new Error('after must be a non-negative integer');
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+        throw new Error('limit must be an integer from 1 to 100');
+      }
+      const scanned = daemon.bridgeMessagesAfter(room, after, limit);
+      const platform = bridge.handle.slice(0, -'-bridge'.length);
+      const messages = scanned.filter((message) => !(
+        message.author === bridge.id && message.origin?.platform === platform
+      ));
+      return reply.send({
+        messages: daemon.project(room, messages),
+        next_after: scanned.at(-1)?.id ?? after,
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+  // harn:end bridge-enable-admin-or-owner
 
   app.post('/api/rooms/:room/members', (req, reply) => {
     const principal = authed(req, reply);

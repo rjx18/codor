@@ -284,12 +284,14 @@ describe('room config', () => {
     expect(config.spend_brake_usd).toBeNull();
     expect(config.stall_minutes).toBe(30);
     expect(config.redaction_enabled).toBe(true);
+    expect(config.bridged).toBe(false);
   });
 
   it('supports opting in to brakes per room', () => {
     const config = RoomConfigSchema.parse({ turn_brake: 8, spend_brake_usd: 25 });
     expect(config.turn_brake).toBe(8);
     expect(config.spend_brake_usd).toBe(25);
+    expect(RoomConfigSchema.parse({ bridged: true }).bridged).toBe(true);
   });
 
   it('rooms default their whole config', () => {

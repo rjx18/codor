@@ -220,6 +220,24 @@ createServer(async (req, res) => {
       ]) {
         daemon.addLedgerNote('eng', { ...write, author: 'richard' });
       }
+    } else if (url.pathname === '/bridge-enable') {
+      const enabled = daemon.enableBridge('eng', body.platform ?? 'slack', body.channel ?? 'C123');
+      const posted = daemon.store.postBridgeMessage(
+        'eng',
+        enabled.member.id,
+        body.message ?? '@alpha review [[launch-plan]]',
+        {
+          platform: body.platform ?? 'slack',
+          external_id: body.externalId ?? '171.42',
+          sender_name: body.senderName ?? 'Sarah Chen',
+        },
+        { mentions: [], refs: [], ledger_refs: ['launch-plan'] },
+      );
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        member_id: enabled.member.id,
+        message_id: posted.message.id,
+      }));
+      return;
     } else if (url.pathname === '/ledger-direct') {
       const name = body.name ?? 'risk-limits';
       writeFileSync(

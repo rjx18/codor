@@ -1,6 +1,7 @@
 import type {
   AskCard,
   AttachLease,
+  BridgeOrigin,
   Delivery,
   HarnessAdapter,
   Member,
@@ -388,6 +389,73 @@ export class Daemon {
     if (!this.store.getRoom(room)) throw new Error(`no such room ${room}`);
     return this.ledger?.graph(room) ?? { nodes: [], edges: [] };
   }
+
+  // harn:assume bridge-enable-admin-or-owner ref=bridge-daemon-ingress
+  enableBridge(
+    room: string,
+    platform: 'slack' | 'telegram',
+    channel: string,
+  ): { member: Member; after: number } {
+    if (!this.store.getRoom(room)) throw new Error(`no such room ${room}`);
+    const normalizedChannel = channel.trim();
+    if (normalizedChannel === '') throw new Error('bridge channel is required');
+    const handle = `${platform}-bridge`;
+    const existing = this.store.getMemberByHandle(room, handle);
+    if (existing) {
+      if (existing.kind !== 'bridge') throw new Error(`handle @${handle} is already in use`);
+      const expectedName = `${platform === 'slack' ? 'Slack' : 'Telegram'} · ${normalizedChannel}`;
+      if (existing.display_name !== expectedName) {
+        throw new Error(`${platform} bridge is already paired to another channel`);
+      }
+      if (this.store.getRoom(room)?.config.bridged !== true) {
+        this.configureRoom(room, { bridged: true });
+      }
+      return { member: existing, after: this.store.latestMessageId(room) };
+    }
+    const member = this.store.addMember(room, {
+      kind: 'bridge',
+      handle,
+      display_name: `${platform === 'slack' ? 'Slack' : 'Telegram'} · ${normalizedChannel}`,
+    });
+    this.emitMember(room, member);
+    this.configureRoom(room, { bridged: true });
+    return { member, after: this.store.latestMessageId(room) };
+  }
+
+  postBridgeMessage(
+    room: string,
+    bridgeMemberId: string,
+    body: string,
+    origin: BridgeOrigin,
+  ): { message: Message; deduped: boolean } {
+    const bridge = this.store.getMember(room, bridgeMemberId);
+    if (bridge?.kind !== 'bridge') throw new Error(`no such bridge member: ${bridgeMemberId}`);
+    const platform = bridge.handle.endsWith('-bridge')
+      ? bridge.handle.slice(0, -'-bridge'.length)
+      : '';
+    if (origin.platform !== platform) throw new Error('bridge origin platform does not match member');
+    const normalizedBody = body.trim();
+    if (normalizedBody === '') throw new Error('bridge message body is required');
+    const parsed = parseBody(normalizedBody, this.store.listMembers(room));
+    const result = this.store.postBridgeMessage(
+      room,
+      bridgeMemberId,
+      normalizedBody,
+      origin,
+      parsed,
+    );
+    if (!result.deduped) {
+      this.emitMessage(room, result.message);
+      this.routeAndFanout(room, result.message);
+    }
+    return result;
+  }
+
+  bridgeMessagesAfter(room: string, after: number, limit = 100): Message[] {
+    if (!this.store.getRoom(room)) throw new Error(`no such room ${room}`);
+    return this.store.listMessagesAfter(room, after, limit);
+  }
+  // harn:end bridge-enable-admin-or-owner
 
   ownerOf(room: string): Member {
     const owner = this.store.listMembers(room).find((m) => m.kind === 'human' && m.role === 'owner');
