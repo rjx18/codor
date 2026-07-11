@@ -1,0 +1,143 @@
+id: org-roles-local-enforcement
+title: Enforce the protocol role matrix at every local human boundary
+assumptions:
+  retire: []
+  create:
+    - id: roles-gate-human-acts-not-agents
+      title: Roles gate authenticated human acts rather than agent execution
+      statement: Every network post, act, and mutating REST request must derive its
+        human actor from the authenticated principal and enforce the PROTOCOL section
+        1 observer, member, admin, and owner matrix, including targeted interaction
+        answers, own-inbox read state, owner-only devices and role changes, and
+        admin-authorized peer-to-room ledger writes, while internal agent execution
+        remains governed by harness policy instead of a human role.
+      reason: Client-supplied authors and a process-wide bearer previously acted as the
+        owner everywhere, so schema roles existed without being an authorization
+        boundary and any enrolled switchboard could write any home ledger.
+      depends_on:
+        - server-token-required
+        - owner-and-system-members-seeded
+        - interaction-state-machine-persisted
+        - ledger-writes-audited-in-room
+  reviewed:
+    - id: server-token-required
+      outcome: unchanged
+      reason: Bearer authentication remains mandatory and now resolves a server-side
+        principal before any room role is evaluated.
+    - id: owner-and-system-members-seeded
+      outcome: unchanged
+      reason: The default token continues to resolve to each room's seeded owner.
+    - id: interaction-state-machine-persisted
+      outcome: unchanged
+      reason: Role enforcement adds target validation without changing pending,
+        answered, acknowledged, or orphaned persistence.
+    - id: unpair-purges-all-browser-state
+      outcome: unchanged
+      reason: Revocation remains complete but is now restricted to an owner principal.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: The private local socket keeps the same frames and resolves to the local
+        operator owner rather than bypassing authorization dispatch.
+    - id: ledger-writes-audited-in-room
+      outcome: unchanged
+      reason: Accepted writes retain their audit notice while unauthorized peers and
+        authors fail before a vault mutation.
+    - id: resident-attempt-journal-reconciles
+      outcome: unchanged
+      reason: A terminal per-RPC acknowledgement bounds completed home indexes only
+        after the resident proves it received the final event acknowledgement.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: A non-cursor self-identity frame identifies the authenticated human while
+        entity hydration and cursor commit semantics remain unchanged.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: Room creation stays functional for owners and is absent for lower roles.
+    - id: web-settings-controls-preserve-product-truth
+      outcome: unchanged
+      reason: Existing controls retain their behavior but privileged controls are not
+        rendered for roles that cannot invoke them.
+    - id: web-room-visual-hierarchy-matches-glass-reference
+      outcome: unchanged
+      reason: Read-only and lower-role variants preserve the established glass room
+        hierarchy while omitting unauthorized commands.
+anchors:
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: change
+      reason: Implement one executable role matrix and principal-derived actor checks.
+    role-matrix-integration:
+      action: change
+      reason: Exercise every act by every role plus target and device boundaries.
+    role-aware-web-controls:
+      action: change
+      reason: Hide post, agent, room, brake, pairing, and device commands by self role.
+  server-token-required:
+    token-validation:
+      action: change
+      reason: Resolve valid tokens to principals without weakening fail-closed startup.
+  unpair-purges-all-browser-state:
+    device-revoke-rest:
+      action: change
+      reason: Require owner authority before subscription removal, revoke, and rekey.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Feed both TCP and trusted local sockets through principal-aware dispatch.
+  ledger-writes-audited-in-room:
+    ledger-change-audit:
+      action: change
+      reason: Reject remote writes unless peer, room, and attributed member are authorized.
+  resident-attempt-journal-reconciles:
+    resident-attempt-wal:
+      action: change
+      reason: Add terminal acknowledgement retries and backpressure-bounded home state.
+  client-syncs-by-seq:
+    store-upsert-in-place:
+      action: change
+      reason: Store the self identity frame outside the room change cursor.
+  web-room-rail-creates-owner-room:
+    room-rail-create-action:
+      action: change
+      reason: Render Create room only for the authenticated owner.
+  web-room-visual-hierarchy-matches-glass-reference:
+    glass-room-visual-hierarchy:
+      action: change
+      reason: Pass role capabilities through the responsive room composition.
+  web-shell-responsive-three-pane:
+    responsive-room-shell:
+      action: change
+      reason: Preserve all pane variants while removing unauthorized rail commands.
+  web-settings-controls-preserve-product-truth:
+    glass-settings-surface:
+      action: change
+      reason: Keep truthful settings content while hiding mutating role-restricted controls.
+  web-settings-desktop-focuses-one-category:
+    focused-settings-category:
+      action: change
+      reason: Filter focused navigation and content to categories reachable by the role.
+files:
+  - docs/ROLES.md
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/authorization.ts
+  - packages/switchboard/src/authorization.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/ledger/watch.ts
+  - packages/switchboard/src/ledger/ledger.spec.ts
+  - packages/switchboard/src/residency.ts
+  - packages/switchboard/src/residency.spec.ts
+  - packages/web/src/App.tsx
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/shell.tsx
+  - packages/web/src/state.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/harness.mjs
+  - tmp/build/PROGRESS.md
