@@ -1,0 +1,52 @@
+id: restrained-design-foundation-review-fixes
+title: Make the restrained design foundation durable and unambiguous
+assumptions:
+  retire:
+    - id: glass-design-system-guides-responsive-surfaces
+      reason: The operator rejected the v2 neon control-room direction and v4 is now the only active visual source.
+  create: []
+  reviewed:
+    - id: restrained-design-system-guides-responsive-surfaces
+      outcome: unchanged
+      reason: Track the v4 contract and its complete approved mockup set.
+    - id: design-references-preserve-wireroom-semantics
+      outcome: unchanged
+      reason: Move product-fidelity guidance from the rejected v2 document to v4.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Accessible semantic modes remain active while their obsolete umbrella is retired.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: Responsive pane behavior remains active under the v4 design source.
+anchors:
+  glass-design-system-guides-responsive-surfaces:
+    glass-responsive-contract:
+      action: remove
+      reason: Remove the rejected v2 umbrella contract.
+  restrained-design-system-guides-responsive-surfaces:
+    restrained-responsive-contract:
+      action: change
+      reason: Make the existing v4 source anchor durable in tracked repository content.
+  design-references-preserve-wireroom-semantics:
+    glass-product-fidelity:
+      action: change
+      reason: Move the product-truth anchor from v2 to the authoritative v4 design system.
+files:
+  - tmp.plan
+  - tmp/build/PLAN-M5.md
+  - tmp/build/PROGRESS.md
+  - tmp/build/design/v2/DESIGN-SYSTEM.md
+  - tmp/build/design/v4/DESIGN-SYSTEM.md
+  - tmp/build/design/v4/desktop-room.png
+  - tmp/build/design/v4/desktop-room-light.png
+  - tmp/build/design/v4/desktop-run-detail.png
+  - tmp/build/design/v4/desktop-settings.png
+  - tmp/build/design/v4/desktop-relay-pairing.png
+  - tmp/build/design/v4/desktop-ledger-graph.png
+  - tmp/build/design/v4/iphone-room.png
+  - tmp/build/design/v4/iphone-drawer.png
+  - tmp/build/design/v4/iphone-settings.png
+  - tmp/build/design/v4/iphone-relay-pairing.png
+  - tmp/build/design/v4/watch-push-ask.png
+  - tmp/build/design/v4/watch-room-glance.png
+  - tmp/build/design/v4/watch-quick-actions.png
