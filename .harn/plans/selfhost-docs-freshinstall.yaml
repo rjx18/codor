@@ -3,63 +3,89 @@ title: Add self-host operations, restrained docs site, and fresh-clone proof
 assumptions:
   retire:
     - id: monorepo-workspace-layout
-      reason: The original packages/adapters/relay-only statement became false when M5 added nested bridge packages and cannot describe a VitePress package whose test gate is a static build rather than Vitest.
+      reason: The original packages/adapters/relay-only statement became false when M5
+        added nested bridge packages and cannot describe a VitePress package
+        whose test gate is a static build rather than Vitest.
   create:
     - id: fresh-clone-install-proven-by-script
       title: A fresh clone builds, boots, and accepts a CLI smoke message
-      statement: The documented Node 22 and pnpm self-host path must be executable by one checked-in script that clones a selected repository ref over file protocol into a clean temporary directory, installs the frozen lockfile, builds every workspace including the VitePress site, starts a loopback switchboard with isolated data, posts and tails a unique message through the public CLI, verifies the authenticated room API, and always tears down the daemon and temporary files.
-      reason: M5 is only open-source launch ready when a stranger can reproduce a complete local install rather than trusting development-worktree state.
+      statement: The documented Node 22 and pnpm self-host path must be executable by
+        one checked-in script that clones a selected repository ref over file
+        protocol into a clean temporary directory, installs the frozen lockfile,
+        builds every workspace including the VitePress site, starts a loopback
+        switchboard with isolated data, posts and tails a unique message through
+        the public CLI, verifies the authenticated room API, and always tears
+        down the daemon and temporary files.
+      reason: M5 is only open-source launch ready when a stranger can reproduce a
+        complete local install rather than trusting development-worktree state.
       depends_on:
         - workspace-gates-cover-all-buildable-projects
         - adapter-registry-sole-harness-source
     - id: workspace-gates-cover-all-buildable-projects
       title: Recursive and project gates cover every buildable workspace
-      statement: pnpm-workspace.yaml must enumerate packages/*, nested adapters, nested bridges, website, and relay so recursive build and test scripts cannot skip a buildable project, while vitest.workspace.ts must enumerate every project that actually owns Vitest specs and leave the VitePress website to its package-level static-build test.
-      reason: Different package types need honest gates, but no buildable source tree may silently fall outside all gates.
+      statement: pnpm-workspace.yaml must enumerate packages/*, nested adapters,
+        nested bridges, website, and relay so recursive build and test scripts
+        cannot skip a buildable project, while vitest.workspace.ts must
+        enumerate every project that actually owns Vitest specs and leave the
+        VitePress website to its package-level static-build test.
+      reason: Different package types need honest gates, but no buildable source tree
+        may silently fall outside all gates.
       depends_on: []
   reviewed:
     - id: restrained-design-system-guides-responsive-surfaces
       outcome: unchanged
-      reason: The docs site extends the approved matte editorial hierarchy and sparse functional glass without changing the product-surface contract.
+      reason: The docs site extends the approved matte editorial hierarchy and sparse
+        functional glass without changing the product-surface contract.
     - id: adapter-registry-sole-harness-source
       outcome: unchanged
-      reason: Self-host commands use the existing built-ins and repeatable trusted adapter module option rather than adding a harness list.
+      reason: Self-host commands use the existing built-ins and repeatable trusted
+        adapter module option rather than adding a harness list.
 anchors:
   monorepo-workspace-layout:
     workspace-globs:
       action: remove
-      reason: Replace the stale workspace marker with the accurate all-project gate assumption.
+      reason: Replace the stale workspace marker with the accurate all-project gate
+        assumption.
     vitest-projects:
       action: remove
-      reason: Replace the stale mirrored-globs claim with explicit project-type coverage.
+      reason: Replace the stale mirrored-globs claim with explicit project-type
+        coverage.
   workspace-gates-cover-all-buildable-projects:
     workspace-globs:
       action: change
       reason: Add the VitePress package and retain nested bridge coverage.
     vitest-projects:
       action: change
-      reason: Add bridge test projects while intentionally excluding the static-only docs site.
+      reason: Add bridge test projects while intentionally excluding the static-only
+        docs site.
   fresh-clone-install-proven-by-script:
     selfhost-guide:
       action: change
-      reason: Document install, systemd, private access, DHT lines, relay options, and backup/restore.
+      reason: Document install, systemd, private access, DHT lines, relay options, and
+        backup/restore.
     systemd-service:
       action: change
       reason: Ship a user-service template matching the documented foreground CLI.
     vitepress-docs-site:
       action: change
-      reason: Build the restrained landing page and mirror authoritative repository docs.
+      reason: Build the restrained landing page and mirror authoritative repository
+        docs.
     fresh-install-script:
       action: change
-      reason: Implement clean clone, frozen install, build, daemon smoke, and unconditional teardown.
+      reason: Implement clean clone, frozen install, build, daemon smoke, and
+        unconditional teardown.
     fresh-install-regression:
       action: change
-      reason: Assert the public CLI post/tail and authenticated room API from the clean clone.
+      reason: Assert the public CLI post/tail and authenticated room API from the
+        clean clone.
   restrained-design-system-guides-responsive-surfaces:
     restrained-responsive-contract:
       action: change
-      reason: Record the landing and documentation mock paths plus the docs-site material rules.
+      reason: Record the landing and documentation mock paths plus the docs-site
+        material rules.
 files:
+  - .gitignore
+  - package.json
   - pnpm-workspace.yaml
   - pnpm-lock.yaml
   - vitest.workspace.ts
