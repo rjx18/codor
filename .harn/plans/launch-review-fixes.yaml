@@ -4,10 +4,12 @@ assumptions:
   reviewed:
     - id: fresh-clone-install-proven-by-script
       outcome: unchanged
-      reason: Release-order and audit fixes do not change the clean-clone proof contract.
+      reason: Release-order and audit fixes do not change the clean-clone proof
+        contract.
     - id: workspace-gates-cover-all-buildable-projects
       outcome: unchanged
-      reason: The root release audits extend the final gate without changing workspace coverage.
+      reason: The root release audits extend the final gate without changing workspace
+        coverage.
 anchors: {}
 files:
   - README.md
@@ -16,3 +18,5 @@ files:
   - scripts/license-audit.mjs
   - scripts/release-audit.mjs
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T09:36:23.343Z

@@ -30,14 +30,39 @@ const tracked = execFileSync('git', ['ls-files', '-z'], {
   cwd: new URL('../', import.meta.url),
   encoding: 'utf8',
 }).split('\0').filter(Boolean);
-const source = tracked.filter((path) => /\.(?:css|js|mjs|sh|ts|tsx)$/.test(path));
-const spdxPattern = new RegExp(`${['SPDX', 'License-Identifier'].join('-')}:\\s*([^\\s*]+)`);
-const agplHeaderPattern = new RegExp(['GNU', 'AFFERO', 'GENERAL', 'PUBLIC', 'LICENSE'].join(' '), 'i');
+const source = tracked.filter((path) => /\.(?:cjs|css|html|js|jsx|mjs|scss|sh|ts|tsx|vue)$/.test(path));
+const spdxPattern = new RegExp(`${['SPDX', 'License-Identifier'].join('-')}:\\s*([^\\s*]+)`, 'g');
+const incompatibleHeaderPattern = new RegExp(
+  [
+    'GNU\\s+(?:(?:AFFERO|LESSER)\\s+)?GENERAL\\s+PUBLIC\\s+LICENSE',
+    'Apache\\s+License',
+    'Mozilla\\s+Public\\s+License',
+    'All\\s+rights\\s+reserved',
+  ].join('|'),
+  'i',
+);
+
+function validateSource(path, body) {
+  const spdxTags = [...body.matchAll(spdxPattern)].map((match) => match[1]);
+  for (const spdx of spdxTags) {
+    assert.equal(spdx, 'MIT', `${path} carries conflicting SPDX license ${spdx}`);
+  }
+  assert.doesNotMatch(body, incompatibleHeaderPattern, `${path} contains an incompatible license header`);
+}
+
+const spdxLabel = ['SPDX', 'License-Identifier'].join('-');
+assert.throws(
+  () => validateSource('multiple-header fixture', `// ${spdxLabel}: MIT\n// ${spdxLabel}: GPL-3.0-only`),
+  /GPL-3\.0-only/,
+);
+assert.throws(
+  () => validateSource('wrapped-header fixture', ['GNU AFFERO', 'GENERAL PUBLIC LICENSE'].join('\n')),
+  /incompatible license header/,
+);
+
 for (const path of source) {
   const body = await readFile(new URL(path, root), 'utf8');
-  const spdx = body.match(spdxPattern);
-  assert.ok(!spdx || spdx[1] === 'MIT', `${path} carries conflicting SPDX license ${spdx?.[1]}`);
-  assert.doesNotMatch(body, agplHeaderPattern, `${path} contains an AGPL license header`);
+  validateSource(path, body);
 }
 
 process.stdout.write(`license audit passed: LICENSE, ${manifests.length} manifests, ${source.length} source files\n`);

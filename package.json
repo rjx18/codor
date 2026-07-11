@@ -13,7 +13,9 @@
     "test": "pnpm -r test",
     "test:all": "pnpm -r build && pnpm -r test && pnpm --filter @wireroom/web e2e",
     "lint": "pnpm -r --if-present lint",
-    "audit:license": "node scripts/license-audit.mjs"
+    "audit:license": "node scripts/license-audit.mjs",
+    "audit:release": "node scripts/release-audit.mjs",
+    "release:check": "pnpm test:all && pnpm audit:license && pnpm audit:release"
   },
   "devDependencies": {
     "@types/node": "^22.8.0",

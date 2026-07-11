@@ -5,29 +5,37 @@ quota, or subscription failure.
 
 ## Final operator release checklist
 
-1. Create the public GitHub repository under the final owner/name, add it as this checkout's
-   `origin`, and verify the complete history contains no credentials, pairing URLs, DHT line
-   secrets, bridge tokens, VAPID private keys, browser subscriptions, or local data directories.
-2. Push the reviewed `main` commit, enable branch protection and secret scanning, then create the
-   signed `v0.1.0` tag and GitHub release from `CHANGELOG.md`. Do not publish any workspace to npm;
-   the 0.1.0 distribution is the source checkout and every package remains `private` deliberately.
-3. Build the public documentation with the real remote URL:
+1. Create the final GitHub repository privately, add it as this checkout's `origin`, and verify the
+   complete history contains no credentials, pairing URLs, DHT line secrets, bridge tokens, VAPID
+   private keys, browser subscriptions, or local data directories. Do not make it public yet.
+2. Restore the workspace spend cap, run one independent read-only full-repository Codex review,
+   and fold every real finding through Harn. This gate must pass before tagging 0.1.0.
+3. Inspect current first-party output, harden the acceptance fixtures without weakening their
+   routing contracts, and run the M0 and M1 live acceptances once on the pinned cheap models. Both
+   exact chains must pass before tagging 0.1.0; another extra or missing route blocks publication.
+4. After all folds, run `pnpm test:all`, `pnpm audit:license`, `pnpm audit:release`, and
+   `scripts/fresh-install-test.sh` on the exact candidate commit. Every deterministic gate and the
+   clean-clone proof must pass.
+5. Push the reviewed `main` commit, enable branch protection and secret scanning, make the repository
+   public, then create the signed `v0.1.0` tag and GitHub release from `CHANGELOG.md`. Do not publish
+   any workspace to npm; the distribution is the source checkout and every package remains `private`.
+6. Build the public documentation with the real remote URL:
    `WIREROOM_REPOSITORY_URL=https://github.com/<owner>/<repo> pnpm --filter @wireroom/website build`.
    Deploy only `website/.vitepress/dist/`, then verify Source, GitHub, and edit links point to the
    final repository and every documentation route loads over HTTPS.
-4. On a clean Linux or macOS host, follow `docs/SELF-HOST.md` without using this development
+7. On a clean Linux or macOS host, follow `docs/SELF-HOST.md` without using this development
    worktree. Confirm the user-systemd unit uses the host's absolute Node path, survives logout or
    reboot when linger is enabled, stops cleanly, and restores from one encrypted stopped backup.
-5. Configure Tailscale Serve on a disposable tailnet host and pair one remote browser through its
+8. Configure Tailscale Serve on a disposable tailnet host and pair one remote browser through its
    HTTPS origin. Use the app connector only if a team already operates the required public domain,
    stable Linux connector, policy tags, route approval, and origin restrictions.
-6. Complete the physical cross-machine DHT, public Web Push relay, real iPhone Home Screen PWA,
+9. Complete the physical cross-machine DHT, public Web Push relay, real iPhone Home Screen PWA,
    and live Slack/Telegram sections below. Revoke every disposable peer, bridge token, and push
    credential after recording versions and pass/fail results without secret values.
-7. Run the Gemini and GitHub Copilot one-shot adapter probes only with operator-owned authenticated
+10. Run the Gemini and GitHub Copilot one-shot adapter probes only with operator-owned authenticated
    subscriptions. Stop on the first auth, quota, or subscription failure; never retry to manufacture
    a green result.
-8. Keep Stripe and paid hosted organization services disabled. They are post-launch work in
+11. Keep Stripe and paid hosted organization services disabled. They are post-launch work in
    `docs/BUSINESS.md`; 0.1.0 must not collect payment or imply that hosted mailbox, directory,
    presence, or native iPhone/Watch products already exist.
 
@@ -37,9 +45,10 @@ Status on 2026-07-11: **both one-shot live re-runs completed but did not satisfy
 assertions; neither was retried**. M0 settled with two Claude runs where the fixture requires one.
 M1 settled with three runs where the plan-review-fold-re-review fixture requires four, and stopped
 before its live extension step. Both temporary rooms were removed by the fixture before failed
-message bodies could be retained, so no root cause is claimed. The historical M0 transcript and
-prior M1 pass remain in `tmp/build/ACCEPT-M0.md` and Git commit `79eac33`; they are not represented
-as fresh passes. The zero-spend M1 remainder passed against the current Codex session: mirrored
+message bodies could be retained, so no root cause is claimed. The historical M0 transcript was an
+ignored run artifact until `27d7944`, with its contemporaneous successful completion recorded in
+`1a8ae03`; the prior tracked M1 pass is in `79eac33`. Neither is represented as a fresh pass. The
+zero-spend M1 remainder passed against the current Codex session: mirrored
 join, attach lease/re-adoption, and exact turn-brake hold/release all completed. Deterministic
 recursive and Playwright gates remain separate and must be green before publication.
 

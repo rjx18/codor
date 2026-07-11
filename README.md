@@ -90,7 +90,7 @@ Run `node packages/cli/dist/index.js --help` for the complete surface. Adapter a
 
 Wireroom is local-first, not magically risk-free. A browser bearer is a credential. DHT line
 secrets are discovery capabilities. Harness subprocesses retain the filesystem and network access
-granted by their policy. The optional push relay receives padded sealed payloads but delivery
+granted by their policy. The optional push relay receives padded sealed payloads plus delivery
 metadata; Slack and Telegram receive readable bridged-room content under their own terms. Read the
 [privacy model](docs/PRIVACY.md) before enabling remote access, push, or bridges.
 
