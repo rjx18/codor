@@ -149,6 +149,10 @@ assumptions:
       outcome: unchanged
       reason: Settings keeps the same role-filtered controls and now makes the unpair claim
         true by stopping the current connection before local credential deletion.
+    - id: web-settings-pairing-match-restrained-reference
+      outcome: unchanged
+      reason: Reading the refreshed in-memory device session at action time changes no Settings
+        structure, responsive layout, disclosure, or restrained visual treatment.
 anchors:
   paired-browser-challenge-session:
     device-session-token-authority:
@@ -246,6 +250,10 @@ anchors:
     glass-settings-surface:
       action: change
       reason: Accept a refresh callback and stop the device connection during unpair.
+  web-settings-pairing-match-restrained-reference:
+    restrained-settings-pairing-surface:
+      action: change
+      reason: Keep Settings REST actions on the refreshed device session without changing its surface.
 files:
   - packages/switchboard/src/crypto/browser-sessions.ts
   - packages/switchboard/src/crypto/challenge.ts
