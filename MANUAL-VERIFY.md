@@ -30,31 +30,24 @@ process remains. A later repository review must cover the role matrix,
 principal binding, peer ledger authorization, completion-ack lifecycle, and
 home launcher in that range.
 
-The restrained design-foundation review of `f63a00b..d4ec5c8` is also
-**skipped with reason**, not passed. The full read-only invocation terminated
-without emitting findings; the orchestration session did not retain its final
-exit code. The one permitted tiny probe returned `OK` with exit code 0, and no
-full retry followed to avoid another silent retry loop. No Claude process
-remains. A later repository review should check `tmp.plan`, the v4 mockup
-inventory, the sparse-glass design contract, and its protocol/privacy fidelity.
+The restrained design-foundation range `f63a00b..d4ec5c8` was later recovered
+with the corrected headless read-only invocation. All five findings were folded
+in fix commit `208af1b`; no operator review action remains for this range.
 
-The restrained room review of `cc5f4b5..e2f78b5` is also **skipped with
-reason**, not passed. The full read-only invocation emitted no findings and
-reached the enforced 300-second timeout with exit code 124. The one permitted
-tiny probe returned `OK` with exit code 0; no full retry followed. No Claude
-process remains. A later repository review should cover role-aware mobile
-navigation, run-event presentation, responsive pane behavior, theme/fallback
-CSS, and the retained service-worker and browser-crypto boundaries in this
-range.
+The restrained room range `cc5f4b5..e2f78b5` was later recovered with the
+corrected invocation. All seven findings were folded in fix commit `019c859`,
+including the reduced-transparency blocker; no operator review action remains
+for this range.
 
-The restrained Settings/pairing review of `65f0bbe..7b265b2` is also
-**skipped with reason**, not passed. The full read-only invocation emitted no
-findings and reached the enforced 300-second timeout with exit code 124. The
-one permitted tiny probe returned `OK` with exit code 0; no full retry
-followed. No Claude process remains. A later repository review should cover
-role-filtered Settings controls, brake semantics, pairing authority
-non-disclosure, revoke/unpair failure handling, and relay-boundary copy in this
-range.
+The restrained Settings/pairing review of `65f0bbe..7b265b2` remains **skipped
+with reason**, not passed. A recovered invocation removed incompatible plan
+mode, ran from `/home/richard/git/wireroom`, and allowed only read-only Git and
+file/search tools, but still emitted no findings before the increased
+900-second timeout exited 124. The single permitted corrected-mode probe
+returned `OK` with exit 0; no second full attempt followed. No Claude process
+remains. A later repository review should cover role-filtered Settings
+controls, brake semantics, pairing authority non-disclosure, revoke/unpair
+failure handling, and relay-boundary copy in this range.
 
 ## Gemini CLI
 
