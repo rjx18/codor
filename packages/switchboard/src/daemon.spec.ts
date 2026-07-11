@@ -176,6 +176,20 @@ describe('room bridges', () => {
     expect(fake.deliveries).toHaveLength(2);
     expect(fake.deliveries.at(-1)?.payload).toContain('Please continue');
     expect(first.message.origin).toEqual(origin);
+
+    fake.enqueue({ kind: 'complete', final_text: '@richard explicit bridge delivery received' });
+    const explicit = daemon.postBridgeMessage(
+      'eng',
+      enabled.member.id,
+      `@alpha inspect #${String(first.message.id)} [[launch-plan]]`,
+      { ...origin, external_id: '171.43' },
+    ).message;
+    await daemon.settle();
+    expect(explicit.mentions).toEqual([expect.objectContaining({ member_id: alpha.id })]);
+    expect(explicit.refs).toEqual([first.message.id]);
+    expect(explicit.ledger_refs).toEqual(['launch-plan']);
+    expect(fake.deliveries).toHaveLength(3);
+    expect(fake.deliveries.at(-1)?.payload).toContain('@alpha inspect');
   });
 
   it('cannot mention a bridge or use a bridge to answer an interaction', async () => {

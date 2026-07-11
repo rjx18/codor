@@ -170,6 +170,71 @@ describe('REST', () => {
     expect(body.next_after).toBeGreaterThan(enabled.after);
   });
 
+  it('holds outbound before a running placeholder, then mirrors its final body exactly once', async () => {
+    const request = (path: string) => fetch(`${base}${path}`, {
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
+    const enabledResponse = await fetch(`${base}/api/rooms/eng/bridges`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ platform: 'telegram', channel: '-10022' }),
+    });
+    const enabled = (await enabledResponse.json()) as { member: Member; after: number };
+    const owner = daemon.ownerOf('eng');
+    const agent = daemon.store.addMember('eng', {
+      kind: 'agent', handle: 'outbound-agent', display_name: 'Outbound agent',
+    });
+    const local = daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'Before run' });
+    const started = new Date().toISOString();
+    const run = daemon.store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: '',
+      run: { status: 'running', started_ts: started, tool_calls: 0, events_ref: 'runs/outbound.jsonl' },
+    });
+    daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'After run' });
+
+    const blocked = (await (await request(
+      `/api/rooms/eng/bridges/${enabled.member.id}/outbound?after=${String(enabled.after)}`,
+    )).json()) as { messages: { id: number; body: string }[]; next_after: number };
+    expect(blocked.messages.map((message) => message.body)).toEqual(['Before run']);
+    expect(blocked.next_after).toBe(local.id);
+
+    daemon.store.updateMessage('eng', run.id, {
+      body: 'Final agent answer',
+      run: {
+        status: 'completed',
+        started_ts: started,
+        ended_ts: new Date().toISOString(),
+        tool_calls: 0,
+        events_ref: 'runs/outbound.jsonl',
+        final_text: 'Final agent answer',
+      },
+    });
+    const ready = (await (await request(
+      `/api/rooms/eng/bridges/${enabled.member.id}/outbound?after=${String(blocked.next_after)}`,
+    )).json()) as { messages: { id: number; body: string }[]; next_after: number };
+    expect(ready.messages.map((message) => message.body)).toEqual(['Final agent answer', 'After run']);
+    expect(ready.messages.map((message) => message.id)).toEqual([run.id, run.id + 1]);
+
+    const empty = daemon.store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: '',
+      run: {
+        status: 'interrupted', started_ts: started, ended_ts: started,
+        tool_calls: 0, events_ref: 'runs/empty.jsonl', final_text: '',
+      },
+    });
+    const tail = daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'Past empty run' });
+    const afterEmpty = (await (await request(
+      `/api/rooms/eng/bridges/${enabled.member.id}/outbound?after=${String(ready.next_after)}`,
+    )).json()) as { messages: { id: number; body: string }[]; next_after: number };
+    expect(afterEmpty.messages.map((message) => message.body)).toEqual(['Past empty run']);
+    expect(afterEmpty.next_after).toBe(tail.id);
+    expect(empty.id).toBe(tail.id - 1);
+  });
+
   it('serves a redacted, read-only ledger note to authenticated surfaces', async () => {
     daemon.addLedgerNote('eng', {
       name: 'risk-limits',

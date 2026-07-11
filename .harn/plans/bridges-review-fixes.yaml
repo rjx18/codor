@@ -5,32 +5,45 @@ assumptions:
   create:
     - id: bridge-runtime-persists-delivery-progress
       title: Bridge delivery progress survives transient failures and restarts
-      statement: A bridge runtime must persist its outbound message-id cursor after each successful platform post and persist inbound external events before acknowledging their handler, retry pending ingress locally, and hold its outbound cursor before a running run placeholder until that message finalizes, so transient failures and process restarts neither drop accepted ingress nor replay already-acknowledged batch prefixes.
-      reason: The bridge is a durable room transcript boundary, while run messages finalize in place and platform delivery can fail between individual messages.
+      statement: A bridge runtime must persist its outbound message-id cursor after
+        each successful platform post and persist inbound external events before
+        acknowledging their handler, retry pending ingress locally, and hold its
+        outbound cursor before a running run placeholder until that message
+        finalizes, so transient failures and process restarts neither drop
+        accepted ingress nor replay already-acknowledged batch prefixes.
+      reason: The bridge is a durable room transcript boundary, while run messages
+        finalize in place and platform delivery can fail between individual
+        messages.
       depends_on:
         - bridge-enable-admin-or-owner
         - runs-are-one-message
   reviewed:
     - id: bridge-enable-admin-or-owner
       outcome: unchanged
-      reason: Durable local progress strengthens retry idempotency without changing authorization, origin uniqueness, or echo suppression.
+      reason: Durable local progress strengthens retry idempotency without changing
+        authorization, origin uniqueness, or echo suppression.
     - id: runs-are-one-message
       outcome: unchanged
-      reason: The bridge must adapt to the existing in-place run lifecycle rather than changing message identity.
+      reason: The bridge must adapt to the existing in-place run lifecycle rather than
+        changing message identity.
     - id: routing-eligibility-nonempty-finalized
       outcome: unchanged
-      reason: Bridge outbound readiness mirrors finalized non-empty runs while retaining other visible room messages.
+      reason: Bridge outbound readiness mirrors finalized non-empty runs while
+        retaining other visible room messages.
 anchors:
   bridge-runtime-persists-delivery-progress:
     bridge-durable-progress:
       action: change
-      reason: Persist cursor and pending ingress with private local files and retry pending work.
+      reason: Persist cursor and pending ingress with private local files and retry
+        pending work.
     bridge-outbound-ready-window:
       action: change
-      reason: Stop an outbound id window before a running placeholder and skip empty finalized runs safely.
+      reason: Stop an outbound id window before a running placeholder and skip empty
+        finalized runs safely.
     bridge-durable-regression:
       action: change
-      reason: Prove restart cursor recovery, ingress retry, batch-prefix progress, and HTTP client contract.
+      reason: Prove restart cursor recovery, ingress retry, batch-prefix progress, and
+        HTTP client contract.
   bridge-enable-admin-or-owner:
     bridge-runtime:
       action: change
@@ -40,10 +53,12 @@ anchors:
       reason: Platform mapping behavior is unchanged.
     bridge-rest-boundary:
       action: change
-      reason: Return only the ready ordered window without losing a later in-place finalization.
+      reason: Return only the ready ordered window without losing a later in-place
+        finalization.
     bridge-daemon-ingress:
       action: keep
-      reason: The daemon ingress implementation remains unchanged while its mention and reference behavior gains regression coverage.
+      reason: The daemon ingress implementation remains unchanged while its mention
+        and reference behavior gains regression coverage.
   runs-are-one-message:
     run-message-lifecycle:
       action: keep
@@ -62,3 +77,5 @@ files:
   - packages/switchboard/src/server.spec.ts
   - MANUAL-VERIFY.md
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T07:59:34.072Z

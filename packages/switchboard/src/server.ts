@@ -462,6 +462,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
   });
 
+  // harn:assume bridge-runtime-persists-delivery-progress ref=bridge-outbound-ready-window
   app.get('/api/rooms/:room/bridges/:memberId/outbound', (req, reply) => {
     const principal = authed(req, reply);
     if (!principal) return;
@@ -479,17 +480,24 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       }
       const scanned = daemon.bridgeMessagesAfter(room, after, limit);
       const platform = bridge.handle.slice(0, -'-bridge'.length);
-      const messages = scanned.filter((message) => !(
-        message.author === bridge.id && message.origin?.platform === platform
-      ));
+      const messages = [];
+      let nextAfter = after;
+      for (const message of scanned) {
+        if (message.kind === 'run' && message.run?.status === 'running') break;
+        nextAfter = message.id;
+        if (message.kind === 'run' && message.body.trim() === '') continue;
+        if (message.author === bridge.id && message.origin?.platform === platform) continue;
+        messages.push(message);
+      }
       return reply.send({
         messages: daemon.project(room, messages),
-        next_after: scanned.at(-1)?.id ?? after,
+        next_after: nextAfter,
       });
     } catch (error) {
       return reply.code(400).send({ error: String(error) });
     }
   });
+  // harn:end bridge-runtime-persists-delivery-progress
   // harn:end bridge-enable-admin-or-owner
 
   app.post('/api/rooms/:room/members', (req, reply) => {

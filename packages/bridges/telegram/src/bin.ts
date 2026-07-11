@@ -1,4 +1,7 @@
-import { BridgeRuntime, HttpBridgeApi } from '@wireroom/bridge-core';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+import { BridgeRuntime, HttpBridgeApi, JsonBridgeStateStore } from '@wireroom/bridge-core';
 
 import { GrammyTelegramGateway, TelegramTransport } from './index.js';
 
@@ -14,6 +17,13 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 const chatId = env('TELEGRAM_CHAT_ID');
+const room = env('WIREROOM_ROOM');
+const statePath = process.env.WIREROOM_BRIDGE_STATE?.trim() || join(
+  homedir(),
+  '.wireroom',
+  'bridges',
+  `${room.replace(/[^a-zA-Z0-9._-]/g, '_')}-telegram.json`,
+);
 const runtime = new BridgeRuntime({
   api: new HttpBridgeApi({
     baseUrl: env('WIREROOM_URL'),
@@ -23,8 +33,9 @@ const runtime = new BridgeRuntime({
     chatId,
     gateway: new GrammyTelegramGateway(env('TELEGRAM_BOT_TOKEN')),
   }),
-  room: env('WIREROOM_ROOM'),
+  room,
   channel: chatId,
+  stateStore: new JsonBridgeStateStore(statePath),
   onError: (error) => console.error(error.message),
 });
 

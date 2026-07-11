@@ -1,0 +1,14 @@
+id: bridge-runtime-persists-delivery-progress
+hash: a-fd93cd160076
+title: Bridge delivery progress survives transient failures and restarts
+state: active
+statement: A bridge runtime must persist its outbound message-id cursor after
+  each successful platform post and persist inbound external events before
+  acknowledging their handler, retry pending ingress locally, and hold its
+  outbound cursor before a running run placeholder until that message finalizes,
+  so transient failures and process restarts neither drop accepted ingress nor
+  replay already-acknowledged batch prefixes.
+depends_on:
+  - bridge-enable-admin-or-owner
+  - runs-are-one-message
+created_by: bridges-review-fixes

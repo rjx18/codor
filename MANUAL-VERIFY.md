@@ -190,14 +190,17 @@ channel was available or requested on this machine.
 1. Create a disposable Slack channel and a Socket Mode Slack app with message read/write scopes.
    Run `wireroom-bridge-slack` with `WIREROOM_URL`, an admin-or-owner `WIREROOM_TOKEN`,
    `WIREROOM_ROOM`, `SLACK_CHANNEL_ID`, `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and
-   `SLACK_APP_TOKEN`. Confirm the room immediately shows the permanent bridged privacy band.
+   `SLACK_APP_TOKEN`. Keep the default private state file under `~/.wireroom/bridges/`, or set
+   `WIREROOM_BRIDGE_STATE` to a persistent owner-only path. Confirm the room immediately shows the
+   permanent bridged privacy band.
 2. Post one Slack message containing a unique marker, one `@agent` mention, one `#N` reference,
    and one `[[ledger-note]]` reference. Confirm exactly one Wireroom message appears as
    `via slack: <display name>` and routes only to the valid agent. Force Slack to retry the same
    event and confirm no second room message or agent turn appears.
 3. Post one local Wireroom message and confirm exactly one Slack copy appears. Confirm the inbound
-   message from step 2 is not echoed back. Restart the bridge and repeat with a fresh marker; do
-   not record tokens, signing secrets, channel contents, or bearer headers.
+   message from step 2 is not echoed back. Stop the bridge, post a second local marker, restart with
+   the same state file, and confirm the downtime marker appears once. Do not record tokens, signing
+   secrets, state-file contents, channel contents, or bearer headers.
 4. Create a disposable Telegram group, add a bot with permission to read and send messages, and
    run `wireroom-bridge-telegram` with `WIREROOM_URL`, an admin-or-owner `WIREROOM_TOKEN`,
    `WIREROOM_ROOM`, `TELEGRAM_CHAT_ID`, and `TELEGRAM_BOT_TOKEN`. Repeat the inbound retry,
