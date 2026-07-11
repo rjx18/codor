@@ -55,6 +55,10 @@ assumptions:
       outcome: unchanged
       reason: PWA launch colors are aligned to the existing canvas without changing
         worker ownership, registration, or shell-only precaching.
+    - id: web-room-visual-hierarchy-matches-glass-reference
+      outcome: unchanged
+      reason: The compact member inspector keeps the existing hierarchy while a
+        discovered selection effect is corrected so an operator can collapse it.
 anchors:
   web-settings-desktop-focuses-one-category:
     focused-settings-category:
@@ -103,10 +107,16 @@ anchors:
     vite-pwa-owned-worker:
       action: change
       reason: Align manifest background and theme colors to the dark-first canvas.
+  web-room-visual-hierarchy-matches-glass-reference:
+    glass-room-visual-regression:
+      action: change
+      reason: Restore the collapse regression after fixing the selected-member effect
+        that immediately reopened a user-collapsed inspector.
 files:
   - packages/web/index.html
   - packages/web/vite.config.ts
   - packages/web/src/SettingsPage.tsx
+  - packages/web/src/components.tsx
   - packages/web/src/pairing.tsx
   - packages/web/src/styles.css
   - packages/web/tests/crypto.e2e.spec.ts
