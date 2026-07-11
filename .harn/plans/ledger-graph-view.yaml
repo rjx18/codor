@@ -1,0 +1,84 @@
+id: ledger-graph-view
+title: Add the read-only vault wikilink graph
+assumptions:
+  retire: []
+  create:
+    - id: graph-derived-from-vault-links-readonly
+      title: Ledger graph is a read-only projection of watched vault wikilinks
+      statement: The home switchboard must derive deterministic note nodes and
+        untyped edges from existing vault [[wikilinks]] when the vault is enabled
+        or watched files change, expose only that room-scoped projection to an
+        authorized reader, and let the web graph select and read notes without
+        any graph mutation path.
+      reason: The roadmap promises a useful local graph view, but treating the
+        visualization as a second editable model would diverge from the vault and
+        violate the ledger's home-only source of truth.
+      depends_on:
+        - ledger-writes-audited-in-room
+        - roles-gate-human-acts-not-agents
+        - glass-design-system-guides-responsive-surfaces
+  reviewed:
+    - id: ledger-writes-audited-in-room
+      outcome: unchanged
+      reason: Graph rebuilds accompany the existing audit path without changing notices.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: The endpoint is observer-readable and exposes no graph mutation capability.
+    - id: pwa-cold-launch-restores-local-auth
+      outcome: unchanged
+      reason: The new tokenless ledger route consumes the same paired local bearer bootstrap.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: The room header adds graph navigation without removing or weakening its meter.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Graph canvas, nodes, controls, and inspector consume the existing semantic modes.
+    - id: glass-design-system-guides-responsive-surfaces
+      outcome: unchanged
+      reason: The existing ImageGen graph mock and design-system graph contract remain authoritative.
+anchors:
+  graph-derived-from-vault-links-readonly:
+    ledger-graph-cache:
+      action: change
+      reason: Parse watched vault notes and cache deterministic nodes and edges.
+    ledger-graph-rest:
+      action: change
+      reason: Expose the authorized room-scoped projection without a write route.
+    ledger-graph-web:
+      action: change
+      reason: Render bounded D3 force layout, filters, pan/zoom, legend, and note inspector.
+    ledger-graph-regression:
+      action: change
+      reason: Prove golden graph derivation and browser click-through to the note viewer.
+  ledger-writes-audited-in-room:
+    ledger-change-audit:
+      action: change
+      reason: Rebuild the graph beside managed and filesystem change attribution.
+  pwa-cold-launch-restores-local-auth:
+    paired-access-bootstrap:
+      action: change
+      reason: Route paired tokenless ledger launches through the existing bootstrap.
+  spend-meter-always-on:
+    meter-settings-surface:
+      action: change
+      reason: Add a named ledger graph navigation icon alongside the unchanged meter.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Add responsive graph and inspector styling from semantic tokens.
+files:
+  - packages/switchboard/src/ledger/watch.ts
+  - packages/switchboard/src/ledger/ledger.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web/package.json
+  - pnpm-lock.yaml
+  - packages/web/src/api.ts
+  - packages/web/src/main.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/LedgerGraph.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/harness.mjs
+  - tmp/build/PROGRESS.md
