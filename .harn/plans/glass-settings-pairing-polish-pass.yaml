@@ -111,5 +111,6 @@ files:
   - packages/web/src/styles.css
   - packages/web/tests/crypto.e2e.spec.ts
   - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/push.e2e.spec.ts
   - MANUAL-VERIFY.md
   - tmp/build/PROGRESS.md
