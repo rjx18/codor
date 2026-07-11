@@ -17,7 +17,7 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   fetchLedgerGraph,
@@ -78,12 +78,16 @@ export function LedgerGraphPage(props: { token: string }) {
   const [type, setType] = useState<'all' | 'decision' | 'constraint' | 'contract'>('all');
   const [selected, setSelected] = useState<string>();
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [overlayMode, setOverlayMode] = useState(() => window.matchMedia('(max-width: 1359px)').matches);
   const [note, setNote] = useState<LedgerNote>();
   const [noteFailed, setNoteFailed] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [drag, setDrag] = useState<{ x: number; y: number; panX: number; panY: number }>();
   const graphSurface = useRef<HTMLDivElement>(null);
+  const inspector = useRef<HTMLElement>(null);
+  const inspectorClose = useRef<HTMLButtonElement>(null);
+  const inspectorTrigger = useRef<HTMLElement | SVGElement>();
 
   useEffect(() => {
     let current = true;
@@ -113,6 +117,28 @@ export function LedgerGraphPage(props: { token: string }) {
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
   }, [props.token, room]);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1359px)');
+    const changed = (): void => {
+      setOverlayMode(media.matches);
+      if (!media.matches) setInspectorOpen(false);
+    };
+    changed();
+    media.addEventListener('change', changed);
+    return () => media.removeEventListener('change', changed);
+  }, []);
+
+  useEffect(() => {
+    const surface = graphSurface.current;
+    if (!surface) return;
+    const wheel = (event: WheelEvent): void => {
+      event.preventDefault();
+      setZoom((value) => Math.max(0.6, Math.min(2.2, value * (event.deltaY > 0 ? 0.9 : 1.1))));
+    };
+    surface.addEventListener('wheel', wheel, { passive: false });
+    return () => surface.removeEventListener('wheel', wheel);
+  }, []);
 
   useEffect(() => {
     if (room === '') return;
@@ -150,9 +176,45 @@ export function LedgerGraphPage(props: { token: string }) {
   const links = graph.edges.filter((edge) => edge.source === selected).map((edge) => edge.target);
   const backlinks = graph.edges.filter((edge) => edge.target === selected).map((edge) => edge.source);
 
-  const selectNode = (id: string): void => {
+  const closeInspector = useCallback((): void => {
+    setInspectorOpen(false);
+    requestAnimationFrame(() => inspectorTrigger.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    if (!overlayMode || !inspectorOpen) return;
+    requestAnimationFrame(() => inspectorClose.current?.focus());
+    const keydown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeInspector();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = [...(inspector.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? [])];
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', keydown, true);
+    return () => document.removeEventListener('keydown', keydown, true);
+  }, [closeInspector, inspectorOpen, overlayMode]);
+
+  const selectNode = (id: string, trigger?: HTMLElement | SVGElement): void => {
     setSelected(id);
-    setInspectorOpen(true);
+    if (overlayMode) {
+      if (trigger) inspectorTrigger.current = trigger;
+      setInspectorOpen(true);
+    }
     setQuery('');
     setType('all');
   };
@@ -205,10 +267,6 @@ export function LedgerGraphPage(props: { token: string }) {
           ref={graphSurface}
           data-testid="ledger-graph-surface"
           className="wr-ledger-surface"
-          onWheel={(event) => {
-            event.preventDefault();
-            setZoom((value) => Math.max(0.6, Math.min(2.2, value * (event.deltaY > 0 ? 0.9 : 1.1))));
-          }}
           onPointerDown={(event) => {
             if ((event.target as Element).closest('g[role="button"]')) return;
             setDrag({ x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y });
@@ -219,6 +277,8 @@ export function LedgerGraphPage(props: { token: string }) {
             setPan({ x: drag.panX + event.clientX - drag.x, y: drag.panY + event.clientY - drag.y });
           }}
           onPointerUp={() => setDrag(undefined)}
+          onPointerCancel={() => setDrag(undefined)}
+          onLostPointerCapture={() => setDrag(undefined)}
         >
           {loading ? <p role="status" className="wr-ledger-state">Loading ledger</p> : failed ? (
             <p role="alert" className="wr-ledger-state">Ledger graph unavailable</p>
@@ -244,11 +304,11 @@ export function LedgerGraphPage(props: { token: string }) {
                     tabIndex={0}
                     aria-label={`Open note ${displayName(node.name)}`}
                     transform={`translate(${node.x ?? 0} ${node.y ?? 0})`}
-                    onClick={(event) => { event.stopPropagation(); selectNode(node.id); }}
+                    onClick={(event) => { event.stopPropagation(); selectNode(node.id, event.currentTarget); }}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        selectNode(node.id);
+                        selectNode(node.id, event.currentTarget);
                       }
                     }}
                   >
@@ -265,10 +325,20 @@ export function LedgerGraphPage(props: { token: string }) {
           </div>
         </div>
       </main>
-      <aside data-testid="ledger-inspector" className={`wr-ledger-inspector ${inspectorOpen ? 'is-open' : ''}`} aria-label="Selected ledger note">
+      {overlayMode && inspectorOpen && (
+        <button type="button" className="wr-ledger-inspector-scrim" aria-label="Dismiss note inspector" onClick={closeInspector} />
+      )}
+      <aside
+        ref={inspector}
+        data-testid="ledger-inspector"
+        className={`wr-ledger-inspector ${inspectorOpen ? 'is-open' : ''}`}
+        aria-label="Selected ledger note"
+        role={overlayMode ? 'dialog' : undefined}
+        aria-modal={overlayMode ? true : undefined}
+      >
         <div className="wr-ledger-inspector-top">
           <div className="wr-ledger-readonly"><LockKeyhole aria-hidden="true" size={13} /> Read-only</div>
-          <button type="button" className="wr-icon-button wr-ledger-inspector-close" aria-label="Close note inspector" onClick={() => setInspectorOpen(false)}>
+          <button ref={inspectorClose} type="button" className="wr-icon-button wr-ledger-inspector-close" aria-label="Close note inspector" onClick={closeInspector}>
             <X aria-hidden="true" size={17} />
           </button>
         </div>

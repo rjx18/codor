@@ -41,13 +41,21 @@ export interface LedgerGraph {
 }
 
 const LEDGER_LINK = /\[\[([a-z0-9][a-z0-9-]{0,62})\]\]/g;
+const codeUnitCompare = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 
 export function deriveLedgerGraph(snapshot: Record<string, string>): LedgerGraph {
-  const entries = Object.entries(snapshot).sort(([left], [right]) => left.localeCompare(right));
+  const entries = Object.entries(snapshot).sort(([left], [right]) => codeUnitCompare(left, right));
   const sourceByName = new Map<string, { node: LedgerGraphNode; body: string }>();
   for (const [relativePath, content] of entries) {
     if (relativePath === 'INDEX.md' || relativePath.endsWith('/_template.md')) continue;
-    const parsed = matter(content);
+    let parsed: ReturnType<typeof matter>;
+    try {
+      // Passing options disables gray-matter's cache, which otherwise retains a
+      // partial empty parse after a YAML exception and revives the bad file later.
+      parsed = matter(content, {});
+    } catch {
+      continue;
+    }
     const fallback = basename(relativePath, '.md').replace(/^_/, '');
     const name = typeof parsed.data.name === 'string' ? parsed.data.name : fallback;
     if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || sourceByName.has(name)) continue;
@@ -69,8 +77,8 @@ export function deriveLedgerGraph(snapshot: Record<string, string>): LedgerGraph
   }
   return {
     nodes: [...sourceByName.values()].map(({ node }) => node)
-      .sort((left, right) => left.id.localeCompare(right.id)),
-    edges: [...edgeKeys].sort().map((key) => {
+      .sort((left, right) => codeUnitCompare(left.id, right.id)),
+    edges: [...edgeKeys].sort(codeUnitCompare).map((key) => {
       const [source, target] = key.split('\u0000');
       return { source: source!, target: target! };
     }),
@@ -216,11 +224,19 @@ export class LedgerManager {
 
   private recordChange(room: string, vault: LedgerVault, path: string): void {
     if (this.suppressed.delete(resolve(path))) return;
-    const note = vault.noteAt(path);
+    let note: LedgerNote | undefined;
+    try {
+      note = vault.noteAt(path);
+    } catch {
+      note = undefined;
+    }
     const fallback = basename(path, '.md').replace(/^_/, '');
     const author = vault.consumeAuditAuthor(path) ?? 'operator';
-    this.rebuildGraph(room, vault);
-    this.onChange?.({ room, name: note?.name ?? fallback, author });
+    try {
+      this.rebuildGraph(room, vault);
+    } finally {
+      this.onChange?.({ room, name: note?.name ?? fallback, author });
+    }
   }
 
   private async handleEnvelope(

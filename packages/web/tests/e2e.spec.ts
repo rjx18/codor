@@ -85,6 +85,12 @@ test('ledger graph renders the vault projection and opens a read-only note inspe
   const surface = (await page.getByTestId('ledger-graph-surface').boundingBox())!;
   expect(surface.width).toBeGreaterThan(500);
   expect(surface.height).toBeGreaterThan(500);
+  const beforeZoom = await page.getByTestId('ledger-graph-surface').locator('svg > g').getAttribute('transform');
+  await page.getByTestId('ledger-graph-surface').hover();
+  await page.mouse.wheel(0, -120);
+  await expect.poll(() => page.getByTestId('ledger-graph-surface').locator('svg > g').getAttribute('transform'))
+    .not.toBe(beforeZoom);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
 
   await risk.click();
   const inspector = page.getByTestId('ledger-inspector');
@@ -103,10 +109,24 @@ test('ledger graph renders the vault projection and opens a read-only note inspe
   await page.setViewportSize({ width: 1150, height: 820 });
   await page.reload();
   await expect(page.getByTestId('ledger-inspector')).toBeHidden();
-  await page.getByTestId('ledger-node-launch-plan').click();
+  const intermediateNode = page.getByTestId('ledger-node-launch-plan');
+  await intermediateNode.click();
   await expect(page.getByTestId('ledger-inspector')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Close note inspector' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Close note inspector' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('ledger-inspector')).toBeHidden();
+  await expect(intermediateNode).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1150);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await page.getByTestId('ledger-node-launch-plan').click();
+  const mobileInspector = (await page.getByTestId('ledger-inspector').boundingBox())!;
+  expect(mobileInspector.x).toBe(0);
+  expect(mobileInspector.width).toBe(390);
+  expect(mobileInspector.y + mobileInspector.height).toBeCloseTo(844, 0);
+  expect(mobileInspector.height).toBeLessThanOrEqual(844 * 0.58 + 1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
 
 test('room v1: post → live run → expand → ask → hold release → reconnect shows the finalized message', async ({

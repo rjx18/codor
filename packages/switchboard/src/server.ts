@@ -393,7 +393,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (!principal) return;
     const { room } = req.params as { room: string };
     if (!authorizeRoom(principal, room, 'read', reply)) return;
-    return reply.send({ graph: daemon.project(room, daemon.ledgerGraph(room)) });
+    try {
+      return reply.send({ graph: daemon.project(room, daemon.ledgerGraph(room)) });
+    } catch {
+      return reply.code(500).send({ error: 'ledger graph unavailable' });
+    }
   });
   // harn:end graph-derived-from-vault-links-readonly
 

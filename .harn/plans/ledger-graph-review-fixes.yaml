@@ -6,10 +6,12 @@ assumptions:
   reviewed:
     - id: graph-derived-from-vault-links-readonly
       outcome: unchanged
-      reason: Keep the projection available across malformed notes and make its UI sheet accessible.
+      reason: Keep the projection available across malformed notes and make its UI
+        sheet accessible.
     - id: ledger-writes-audited-in-room
       outcome: unchanged
-      reason: A graph parse failure must never suppress an unrelated vault change notice.
+      reason: A graph parse failure must never suppress an unrelated vault change
+        notice.
     - id: web-glass-theme-accessible-modes
       outcome: unchanged
       reason: Correct the mobile sheet cascade while preserving opaque fallbacks.
@@ -26,11 +28,13 @@ anchors:
       reason: Add non-passive zoom and a focus-managed responsive inspector sheet.
     ledger-graph-regression:
       action: change
-      reason: Cover malformed frontmatter without losing valid graph nodes or audit notices.
+      reason: Cover malformed frontmatter without losing valid graph nodes or audit
+        notices.
   ledger-writes-audited-in-room:
     ledger-change-audit:
       action: change
-      reason: Keep change attribution and notification alive when a touched note cannot parse.
+      reason: Keep change attribution and notification alive when a touched note
+        cannot parse.
   web-glass-theme-accessible-modes:
     semantic-glass-theme:
       action: change
@@ -43,3 +47,5 @@ files:
   - packages/web/src/styles.css
   - packages/web/tests/e2e.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T06:57:12.658Z

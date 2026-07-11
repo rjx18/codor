@@ -38,6 +38,7 @@ describe('ledger vault v1', () => {
     expect(deriveLedgerGraph({
       'INDEX.md': '---\nname: index\n---\n# Room Ledger\n',
       'constraints/_template.md': '---\nname: constraint-template\ntype: constraint\n---\n# Constraint\n',
+      'decisions/broken.md': '---\nname: [unterminated\ntype: decision\n---\nBroken.\n',
       'decisions/launch-plan.md': '---\nname: launch-plan\ntype: decision\n---\nShip with [[risk-limits]] and [[wire-contract]].\n',
       'constraints/risk-limits.md': '---\nname: risk-limits\ntype: constraint\n---\nBacklink [[launch-plan]], duplicate [[launch-plan]], missing [[not-here]].\n',
       'contracts/wire-contract.md': '---\nname: wire-contract\ntype: contract\n---\nFrames remain acknowledged.\n',
@@ -98,6 +99,22 @@ describe('ledger vault v1', () => {
       nodes: [{ id: 'risk-limits', type: 'constraint' }],
       edges: [],
     });
+    writeFileSync(
+      join(root, 'rooms', 'eng', 'ledger', 'decisions', 'broken.md'),
+      '---\nname: [unterminated\ntype: decision\n---\nBroken frontmatter must not poison the vault.\n',
+    );
+    await waitFor(() => changes.some((change) =>
+      change.name === 'broken' && change.author === 'operator'));
+    expect(() => manager.add('eng', {
+      name: 'valid-after-broken',
+      type: 'decision',
+      author: 'richard',
+      body: 'Valid writes and notices remain available.',
+    })).not.toThrow();
+    expect(manager.graph('eng').nodes.map((node) => node.id)).toEqual([
+      'risk-limits',
+      'valid-after-broken',
+    ]);
   });
 
   it('resolves [[refs]] at home into the snapshotted payload and advertises ledger syntax', async () => {
