@@ -1,7 +1,7 @@
 id: monorepo-workspace-layout
 hash: a-3eb9da97b641
 title: Workspace globs are packages/*, packages/adapters/*, relay
-state: active
+state: retired
 statement: pnpm-workspace.yaml and vitest.workspace.ts must list the same
   package globs - packages/*, packages/adapters/*, and relay - for every
   buildable package in the repo, because pnpm -r build/test and the vitest
@@ -9,3 +9,4 @@ statement: pnpm-workspace.yaml and vitest.workspace.ts must list the same
   them.
 depends_on: []
 created_by: repo-scaffold
+retired_by: selfhost-docs-freshinstall

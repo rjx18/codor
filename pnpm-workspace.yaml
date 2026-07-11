@@ -1,7 +1,8 @@
-# harn:assume monorepo-workspace-layout ref=workspace-globs
+# harn:assume workspace-gates-cover-all-buildable-projects ref=workspace-globs
 packages:
   - packages/*
   - packages/adapters/*
   - packages/bridges/*
+  - website
   - relay
-# harn:end monorepo-workspace-layout
+# harn:end workspace-gates-cover-all-buildable-projects

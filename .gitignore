@@ -1,6 +1,7 @@
 # node
 node_modules/
 dist/
+website/.vitepress/cache/
 *.tsbuildinfo
 .pnpm-store/
 

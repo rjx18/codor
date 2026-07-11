@@ -1,0 +1,1 @@
+../../docs/SELF-HOST.md

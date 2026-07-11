@@ -1,0 +1,15 @@
+id: fresh-clone-install-proven-by-script
+hash: a-bcb567edb10f
+title: A fresh clone builds, boots, and accepts a CLI smoke message
+state: active
+statement: The documented Node 22 and pnpm self-host path must be executable by
+  one checked-in script that clones a selected repository ref over file protocol
+  into a clean temporary directory, installs the frozen lockfile, builds every
+  workspace including the VitePress site, starts a loopback switchboard with
+  isolated data, posts and tails a unique message through the public CLI,
+  verifies the authenticated room API, and always tears down the daemon and
+  temporary files.
+depends_on:
+  - workspace-gates-cover-all-buildable-projects
+  - adapter-registry-sole-harness-source
+created_by: selfhost-docs-freshinstall

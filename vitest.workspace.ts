@@ -1,12 +1,12 @@
 import { defineWorkspace } from 'vitest/config';
 
-// harn:assume monorepo-workspace-layout ref=vitest-projects
-// Mirrors pnpm-workspace.yaml. 'packages/!(adapters)' skips the bare
-// packages/adapters directory: it has no package.json (pnpm skips it,
-// vitest would treat it as a project and double-run the adapter specs).
+// harn:assume workspace-gates-cover-all-buildable-projects ref=vitest-projects
+// VitePress has a package-level static build test; this list covers projects
+// that own Vitest specs and excludes bare grouping directories.
 export default defineWorkspace([
-  'packages/!(adapters)',
+  'packages/!(adapters|bridges)',
   'packages/adapters/*',
+  'packages/bridges/*',
   'relay',
 ]);
-// harn:end monorepo-workspace-layout
+// harn:end workspace-gates-cover-all-buildable-projects

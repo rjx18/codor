@@ -1,0 +1,11 @@
+id: workspace-gates-cover-all-buildable-projects
+hash: a-23a118ced8b6
+title: Recursive and project gates cover every buildable workspace
+state: active
+statement: pnpm-workspace.yaml must enumerate packages/*, nested adapters,
+  nested bridges, website, and relay so recursive build and test scripts cannot
+  skip a buildable project, while vitest.workspace.ts must enumerate every
+  project that actually owns Vitest specs and leave the VitePress website to its
+  package-level static-build test.
+depends_on: []
+created_by: selfhost-docs-freshinstall
