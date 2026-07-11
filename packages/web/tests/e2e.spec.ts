@@ -545,7 +545,7 @@ test('restrained shell keeps accessible light tokens and limits glass to functio
 // harn:end web-glass-theme-accessible-modes
 
 // harn:assume web-settings-controls-preserve-product-truth ref=glass-settings-regression
-test('glass settings keep desktop structure, mobile fit, and honest relay boundaries', async ({ page, request }) => {
+test('restrained settings keep row-based desktop focus, mobile fit, and honest relay boundaries', async ({ page, request }) => {
   const freshRoom = `brake-default-${String(Date.now())}`;
   const created = await request.post('/api/rooms', {
     headers: { authorization: 'Bearer e2e-token' },
@@ -580,8 +580,24 @@ test('glass settings keep desktop structure, mobile fit, and honest relay bounda
   const contentBox = (await content.boundingBox())!;
   expect(roomBox.x + roomBox.width).toBeLessThanOrEqual(categoryBox.x + 0.5);
   expect(categoryBox.x + categoryBox.width).toBeLessThanOrEqual(contentBox.x + 0.5);
+  const settingsStyle = await page.evaluate(() => {
+    const nav = getComputedStyle(document.querySelector<HTMLElement>('.wr-settings-nav')!);
+    const content = getComputedStyle(document.querySelector<HTMLElement>('.wr-settings-content')!);
+    const row = getComputedStyle(document.querySelector<HTMLElement>('.wr-setting-row')!);
+    return {
+      navBackground: nav.backgroundColor,
+      contentBackground: content.backgroundColor,
+      navMaterial: nav.backdropFilter || nav.getPropertyValue('-webkit-backdrop-filter'),
+      rowRadius: parseFloat(row.borderTopLeftRadius),
+      contentImage: content.backgroundImage,
+    };
+  });
+  expect(settingsStyle.navBackground).toBe(settingsStyle.contentBackground);
+  expect(settingsStyle.navMaterial).toBe('none');
+  expect(settingsStyle.rowRadius).toBe(0);
+  expect(settingsStyle.contentImage).toBe('none');
 
-  // harn:assume web-settings-desktop-focuses-one-category ref=focused-settings-regression
+  // harn:assume web-settings-pairing-match-restrained-reference ref=restrained-settings-pairing-regression
   await expect(page.getByTestId('settings-section-appearance')).toBeVisible();
   await expect(page.getByTestId('settings-section-brakes')).toBeHidden();
   await page.getByRole('link', { name: 'Brakes', exact: true }).click();
@@ -624,7 +640,7 @@ test('glass settings keep desktop structure, mobile fit, and honest relay bounda
   await page.reload();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(844);
   await expect(page.getByTestId('theme-system')).toBeVisible();
-  // harn:end web-settings-desktop-focuses-one-category
+  // harn:end web-settings-pairing-match-restrained-reference
 });
 // harn:end web-settings-controls-preserve-product-truth
 

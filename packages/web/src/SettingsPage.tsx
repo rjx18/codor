@@ -173,7 +173,6 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
 
   return (
     <main data-testid="settings-page" className="wr-settings-page">
-      <div className="wr-wiring" aria-hidden="true" />
       <div className="wr-settings-grid">
         <RoomRail
           rooms={state.room ? [state.room] : []}
@@ -187,7 +186,6 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
         />
         <aside data-testid="settings-nav" className="wr-settings-nav">
           <div className="wr-settings-nav-title">
-            <Palette aria-hidden="true" size={19} />
             <strong>Settings</strong>
           </div>
           <nav aria-label="Settings categories">
@@ -221,7 +219,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
           <div className="wr-settings-body">
             {notice && <p role="status" className="wr-settings-notice">{notice}</p>}
 
-            {/* harn:assume web-settings-desktop-focuses-one-category ref=focused-settings-category */}
+            {/* harn:assume web-settings-pairing-match-restrained-reference ref=restrained-settings-pairing-surface */}
             <section id="appearance" data-testid="settings-section-appearance" data-active={visibleActiveSection === 'appearance'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <Palette aria-hidden="true" size={18} />
@@ -487,7 +485,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
                 <span className="wr-status-copy"><i className="wr-presence is-live" /> Local only</span>
               </div>
             </section>
-            {/* harn:end web-settings-desktop-focuses-one-category */}
+            {/* harn:end web-settings-pairing-match-restrained-reference */}
           </div>
         </div>
       </div>

@@ -36,6 +36,21 @@ test('pairing page renders a QR without visible authority and enrolls the browse
   await expect(page.getByRole('heading', { name: 'Relay never sees' })).toBeVisible();
   await expect(page.getByText(/Padded ciphertext size/)).toBeVisible();
   await expect(page.getByText(/Sender, room or member names/)).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const pairingStyle = await page.evaluate(() => {
+    const shell = getComputedStyle(document.querySelector<HTMLElement>('.wr-pairing-shell')!);
+    const button = getComputedStyle(document.querySelector<HTMLElement>('.wr-pair-button')!);
+    return {
+      display: shell.display,
+      radius: parseFloat(shell.borderTopLeftRadius),
+      material: shell.backdropFilter || shell.getPropertyValue('-webkit-backdrop-filter'),
+      buttonMaterial: button.backdropFilter || button.getPropertyValue('-webkit-backdrop-filter'),
+    };
+  });
+  expect(pairingStyle.display).toBe('grid');
+  expect(pairingStyle.radius).toBe(0);
+  expect(pairingStyle.material).toBe('none');
+  expect(pairingStyle.buttonMaterial).toContain('blur');
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('button', { name: 'Pair this browser' })).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);

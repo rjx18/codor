@@ -4,9 +4,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
-  LockKeyhole,
   ShieldCheck,
-  Workflow,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
@@ -99,78 +97,76 @@ export function PairingPage(): JSX.Element {
   // harn:assume pairing-discloses-browser-and-relay-boundaries ref=pairing-boundary-workspace
   return (
     <main data-testid="pairing-page" className="wr-pairing-page">
-      <div className="wr-wiring" aria-hidden="true" />
       <header className="wr-pairing-brand">
-        <span className="wr-brand-mark" aria-hidden="true"><Workflow size={22} /></span>
         <strong>Wireroom</strong>
         <span>Local device enrollment</span>
       </header>
 
       <section className="wr-pairing-shell">
-        <div className="wr-pairing-heading">
-          <span className="wr-pairing-icon" aria-hidden="true"><LockKeyhole size={24} /></span>
-          <div>
-            <p>Private by construction</p>
-            <h1>Pair this browser</h1>
-            <span>Authorize this browser with your local switchboard. This is not an account login.</span>
+        <div className="wr-pairing-enrollment">
+          <div className="wr-pairing-heading">
+            <div>
+              <h1>Pair this browser</h1>
+              <span>Authorize this browser with your local switchboard. This is not an account login.</span>
+            </div>
           </div>
-        </div>
 
-        {hasOffer ? (
-          <div className="wr-pairing-grid">
-            <div className="wr-qr-pane">
-              {qr ? (
-                <img src={qr} alt="Pairing QR code" />
-              ) : (
-                <div role="status" className="wr-qr-placeholder">Preparing QR</div>
-              )}
-              <div className="wr-switchboard-identity">
-                <ShieldCheck aria-hidden="true" size={18} />
-                <span><strong>Local switchboard</strong><small>{endpointLabel}</small></span>
+          {hasOffer ? (
+            <div className="wr-pairing-grid">
+              <div className="wr-qr-pane">
+                {qr ? (
+                  <img src={qr} alt="Pairing QR code" />
+                ) : (
+                  <div role="status" className="wr-qr-placeholder">Preparing QR</div>
+                )}
+                <div className="wr-switchboard-identity">
+                  <ShieldCheck aria-hidden="true" size={18} />
+                  <span><strong>Local switchboard</strong><small>{endpointLabel}</small></span>
+                </div>
+              </div>
+
+              <div className="wr-pairing-action">
+                <h2>Browser authority</h2>
+                <p>A fresh signing and encryption identity stays in this origin's IndexedDB. Private keys never enter the QR or switchboard.</p>
+                <ul>
+                  <li><Check aria-hidden="true" size={15} /> Dual signing and encryption keys</li>
+                  <li><Check aria-hidden="true" size={15} /> Room keys stored locally for this device</li>
+                  <li><Check aria-hidden="true" size={15} /> Revoke and purge from Settings</li>
+                </ul>
+                <button
+                  type="button"
+                  disabled={state === 'pairing' || state === 'paired'}
+                  onClick={() => {
+                    setState('pairing');
+                    setFailure(undefined);
+                    void completeBrowserPairing(currentUrl).then(
+                      () => setState('paired'),
+                      (error: unknown) => {
+                        const signingMismatch = error instanceof Error && error.message.includes('signing key does not match');
+                        setFailure(signingMismatch
+                          ? 'Security check failed. Stop: the switchboard identity does not match this pairing link.'
+                          : 'Pairing failed. Check the switchboard connection and request a fresh link.');
+                        setState('failed');
+                      },
+                    );
+                  }}
+                  className="wr-primary-button wr-pair-button"
+                >
+                  <KeyRound aria-hidden="true" size={18} />
+                  {state === 'pairing' ? 'Pairing' : state === 'paired' ? 'Paired' : 'Pair this browser'}
+                </button>
+                {state === 'paired' && <p role="status" className="wr-pair-success"><Check aria-hidden="true" size={15} /> Browser paired. You can open your rooms.</p>}
+                {state === 'failed' && <p role="alert" className="wr-form-error">{failure}</p>}
               </div>
             </div>
-
-            <div className="wr-pairing-action">
-              <h2>Browser authority</h2>
-              <p>A fresh signing and encryption identity stays in this origin's IndexedDB. Private keys never enter the QR or switchboard.</p>
-              <ul>
-                <li><Check aria-hidden="true" size={15} /> Dual signing and encryption keys</li>
-                <li><Check aria-hidden="true" size={15} /> Room keys stored locally for this device</li>
-                <li><Check aria-hidden="true" size={15} /> Revoke and purge from Settings</li>
-              </ul>
-              <button
-                type="button"
-                disabled={state === 'pairing' || state === 'paired'}
-                onClick={() => {
-                  setState('pairing');
-                  setFailure(undefined);
-                  void completeBrowserPairing(currentUrl).then(
-                    () => setState('paired'),
-                    (error: unknown) => {
-                      const signingMismatch = error instanceof Error && error.message.includes('signing key does not match');
-                      setFailure(signingMismatch
-                        ? 'Security check failed. Stop: the switchboard identity does not match this pairing link.'
-                        : 'Pairing failed. Check the switchboard connection and request a fresh link.');
-                      setState('failed');
-                    },
-                  );
-                }}
-                className="wr-primary-button wr-pair-button"
-              >
-                <KeyRound aria-hidden="true" size={18} />
-                {state === 'pairing' ? 'Pairing' : state === 'paired' ? 'Paired' : 'Pair this browser'}
-              </button>
-              {state === 'paired' && <p role="status" className="wr-pair-success"><Check aria-hidden="true" size={15} /> Browser paired. You can open your rooms.</p>}
-              {state === 'failed' && <p role="alert" className="wr-form-error">{failure}</p>}
+          ) : (
+            <div className="wr-pairing-empty">
+              <KeyRound aria-hidden="true" size={24} />
+              <h2>No active pairing offer</h2>
+              <p>Open pairing on your switchboard and follow its single-use link on this browser.</p>
             </div>
-          </div>
-        ) : (
-          <div className="wr-pairing-empty">
-            <KeyRound aria-hidden="true" size={24} />
-            <h2>No active pairing offer</h2>
-            <p>Open pairing on your switchboard and follow its single-use link on this browser.</p>
-          </div>
-        )}
+          )}
+        </div>
 
         <div className="wr-pairing-disclosure">
           <section>

@@ -87,7 +87,8 @@ anchors:
       reason: Present the exact boundary as plain rows in desktop and mobile layouts.
     pairing-boundary-regression:
       action: change
-      reason: Prove the pairing shell stays flat while its one action surface retains functional blur.
+      reason: Prove the pairing shell stays flat while its one action surface retains
+        functional blur.
   pairing-offer-token-remains-qr-only:
     glass-pairing-surface:
       action: change
@@ -105,3 +106,5 @@ files:
   - packages/web/tests/e2e.spec.ts
   - packages/web/tests/m3-acceptance.e2e.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T04:33:27.553Z
