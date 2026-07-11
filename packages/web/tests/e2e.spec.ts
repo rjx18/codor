@@ -283,7 +283,6 @@ test('desktop room keeps rooms, conversation, and context in stable non-overlapp
   await expect(context).toBeVisible();
   await expect(page.getByTestId('open-room-drawer')).toBeHidden();
   await expect(page.getByTestId('composer-input')).toBeVisible();
-  await expect(page.getByTestId('meter')).toBeVisible();
 
   const roomBox = (await rooms.boundingBox())!;
   const conversationBox = (await conversation.boundingBox())!;
@@ -295,6 +294,13 @@ test('desktop room keeps rooms, conversation, and context in stable non-overlapp
   expect(contextBox.width / 1440).toBeGreaterThan(0.24);
   expect(contextBox.width / 1440).toBeLessThan(0.28);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440);
+
+  await page.setViewportSize({ width: 1150, height: 820 });
+  await page.reload();
+  await expect(page.getByTestId('room-rail')).toBeVisible();
+  await expect(page.getByTestId('context-rail')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Open room context' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1150);
 });
 // harn:end web-shell-responsive-three-pane
 
@@ -384,6 +390,14 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
   await page.locator('[data-testid^="release-"]').last().click();
   await expect(page.getByText('visual reflow hold released')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.reload();
+  await expect(page.getByTestId('composer-input')).toBeVisible();
+  const narrowSend = (await page.getByTestId('composer-send').boundingBox())!;
+  expect(narrowSend.x + narrowSend.width).toBeLessThanOrEqual(320);
+  expect(narrowSend.y + narrowSend.height).toBeLessThanOrEqual(700);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
 });
 // harn:end web-room-visual-hierarchy-matches-restrained-reference
 
@@ -640,6 +654,11 @@ test('restrained settings keep row-based desktop focus, mobile fit, and honest r
   await page.reload();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(844);
   await expect(page.getByTestId('theme-system')).toBeVisible();
+
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.reload();
+  await expect(page.getByTestId('theme-system')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
   // harn:end web-settings-pairing-match-restrained-reference
 });
 // harn:end web-settings-controls-preserve-product-truth

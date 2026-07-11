@@ -6,27 +6,33 @@ assumptions:
   reviewed:
     - id: restrained-design-system-guides-responsive-surfaces
       outcome: unchanged
-      reason: Final CSS cleanup and cross-viewport verification enforce the approved contract.
+      reason: Final CSS cleanup and cross-viewport verification enforce the approved
+        contract.
     - id: web-glass-theme-accessible-modes
       outcome: unchanged
-      reason: Dormant gradients and glow are removed without weakening semantic modes or fallbacks.
+      reason: Dormant gradients and glow are removed without weakening semantic modes
+        or fallbacks.
     - id: web-shell-responsive-three-pane
       outcome: unchanged
-      reason: Wide, intermediate, and mobile pane behavior remains intact through final QA.
+      reason: Wide, intermediate, and mobile pane behavior remains intact through
+        final QA.
     - id: web-room-visual-hierarchy-matches-restrained-reference
       outcome: unchanged
       reason: The room remains matte, row-based, and sparse at every checked width.
     - id: web-settings-pairing-match-restrained-reference
       outcome: unchanged
-      reason: Settings and pairing retain their approved desktop and mobile compositions.
+      reason: Settings and pairing retain their approved desktop and mobile
+        compositions.
 anchors:
   web-glass-theme-accessible-modes:
     semantic-glass-theme:
       action: change
-      reason: Remove dormant gradient and glow declarations from the production stylesheet.
+      reason: Remove dormant gradient and glow declarations from the production
+        stylesheet.
     glass-theme-regression:
       action: change
-      reason: Verify intermediate and narrow layouts retain the restrained computed treatment.
+      reason: Verify intermediate and narrow layouts retain the restrained computed
+        treatment.
   web-shell-responsive-three-pane:
     responsive-shell-regression:
       action: change
@@ -43,3 +49,5 @@ files:
   - packages/web/src/styles.css
   - packages/web/tests/e2e.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T04:58:25.842Z

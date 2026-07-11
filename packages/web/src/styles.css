@@ -148,10 +148,7 @@ button:disabled {
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
-  background:
-    linear-gradient(124deg, color-mix(in srgb, var(--wr-cyan) 7%, transparent), transparent 34%),
-    linear-gradient(56deg, transparent 64%, color-mix(in srgb, var(--wr-violet) 4%, transparent)),
-    linear-gradient(180deg, color-mix(in srgb, var(--wr-canvas) 92%, var(--wr-text)) 0%, var(--wr-canvas) 48%, color-mix(in srgb, var(--wr-canvas) 95%, var(--wr-violet)) 100%);
+  background: var(--wr-canvas);
   color: var(--wr-text);
 }
 
@@ -161,10 +158,7 @@ button:disabled {
   z-index: -1;
   pointer-events: none;
   opacity: 0.34;
-  background-image:
-    linear-gradient(90deg, transparent 0 9.94%, var(--wr-line) 10%, transparent 10.06% 100%),
-    linear-gradient(0deg, transparent 0 86%, var(--wr-line) 86.08%, transparent 86.16% 100%);
-  background-size: 18rem 18rem, 22rem 22rem;
+  background: none;
 }
 
 .wr-app-grid {
@@ -241,7 +235,7 @@ button:disabled {
   flex: 0 0 38px;
   border: 1px solid color-mix(in srgb, var(--wr-cyan) 34%, transparent);
   border-radius: 8px;
-  background: linear-gradient(145deg, var(--wr-cyan-soft), transparent);
+  background: var(--wr-glass-soft);
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.08), 0 9px 30px rgba(40, 215, 229, 0.08);
 }
 
@@ -335,7 +329,7 @@ button:disabled {
   width: 2px;
   border-radius: 2px;
   background: var(--wr-cyan);
-  box-shadow: 0 0 16px color-mix(in srgb, var(--wr-cyan) 70%, transparent);
+  box-shadow: none;
   content: '';
 }
 
@@ -349,7 +343,7 @@ button:disabled {
   border: 1px solid var(--wr-line);
   border-radius: 6px;
   color: var(--wr-cyan);
-  background: linear-gradient(145deg, var(--wr-glass-soft), transparent);
+  background: var(--wr-glass-soft);
   font-size: 19px;
 }
 
@@ -831,7 +825,7 @@ button:disabled {
   justify-content: center;
   border: 1px solid var(--wr-line-strong);
   border-radius: 50%;
-  background: linear-gradient(145deg, var(--wr-glass-soft), transparent);
+  background: var(--wr-glass-soft);
   color: var(--wr-muted);
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.07), 0 10px 28px rgba(0, 0, 0, 0.16);
 }
@@ -936,7 +930,7 @@ button:disabled {
 
 .wr-run-card[data-run-status='running']::before {
   background: var(--wr-cyan);
-  box-shadow: 0 0 22px color-mix(in srgb, var(--wr-cyan) 65%, transparent);
+  box-shadow: none;
 }
 
 .wr-run-card[data-run-status='completed']::before {
@@ -1156,7 +1150,7 @@ button:disabled {
   inset: 0 auto 0 0;
   width: 3px;
   background: var(--wr-amber);
-  box-shadow: 0 0 24px color-mix(in srgb, var(--wr-amber) 54%, transparent);
+  box-shadow: none;
   content: '';
 }
 
@@ -1637,9 +1631,9 @@ button:disabled {
 
 .wr-context-tabs button[aria-selected='true'] {
   border-color: var(--wr-line);
-  background: linear-gradient(145deg, var(--wr-cyan-soft), transparent);
-  color: var(--wr-cyan);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.055);
+  background: var(--wr-surface-selected);
+  color: var(--wr-text);
+  box-shadow: none;
 }
 
 .wr-run-context {
@@ -1977,9 +1971,7 @@ button:disabled {
 
 .wr-settings-content {
   min-width: 0;
-  background:
-    linear-gradient(125deg, color-mix(in srgb, var(--wr-cyan) 4%, transparent), transparent 38%),
-    color-mix(in srgb, var(--wr-canvas) 88%, transparent);
+  background: var(--wr-surface);
 }
 
 .wr-settings-header {
@@ -2164,8 +2156,7 @@ button:disabled {
   appearance: none;
   border: 0;
   border-radius: 22px;
-  background:
-    linear-gradient(var(--wr-glass-soft), var(--wr-glass-soft)) center / 42px 24px no-repeat;
+  background: var(--wr-surface-selected);
   cursor: pointer;
 }
 
@@ -2184,8 +2175,7 @@ button:disabled {
 }
 
 .wr-checkbox:checked {
-  background:
-    linear-gradient(var(--wr-cyan), var(--wr-cyan)) center / 42px 24px no-repeat;
+  background: var(--wr-emerald);
 }
 
 .wr-checkbox:checked::after {
