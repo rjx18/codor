@@ -44,6 +44,7 @@ export const BROWSER_CRYPTO_DATABASE = 'wireroom-crypto-v1';
 const STORE = 'state';
 const AUTH_CHALLENGE_DOMAIN = new TextEncoder().encode('wireroom-auth-v1\0');
 let activeAccessToken: string | undefined;
+const trustedPairingAttempts = new Map<string, Promise<boolean>>();
 
 function encode(value: Uint8Array): string {
   let binary = '';
@@ -169,6 +170,18 @@ export async function openForBrowser(ciphertext: string): Promise<Uint8Array> {
   );
 }
 
+async function persistBrowserPairing(result: PairingResult, origin: string): Promise<void> {
+  await writeState('peer:switchboard', { ...result.switchboard, kind: 'switchboard' } satisfies BrowserPeer);
+  for (const sealed of result.room_keys) {
+    await writeState(`room:${sealed.room}`, {
+      room: sealed.room,
+      generation: sealed.generation,
+      key: encode(await openForBrowser(sealed.sealed_key)),
+    } satisfies StoredBrowserRoomKey);
+  }
+  await storeBrowserAccess({ origin: new URL(origin).origin, authority: 'device' });
+}
+
 export async function completeBrowserPairing(url: URL): Promise<PairingResult> {
   const endpoint = url.searchParams.get('endpoint');
   const token = url.searchParams.get('pairing_token');
@@ -185,17 +198,37 @@ export async function completeBrowserPairing(url: URL): Promise<PairingResult> {
   if (result.switchboard.sign_public_key !== expectedSwitchboard) {
     throw new Error('switchboard signing key does not match the pairing link');
   }
-  await writeState('peer:switchboard', { ...result.switchboard, kind: 'switchboard' } satisfies BrowserPeer);
-  for (const sealed of result.room_keys) {
-    await writeState(`room:${sealed.room}`, {
-      room: sealed.room,
-      generation: sealed.generation,
-      key: encode(await openForBrowser(sealed.sealed_key)),
-    } satisfies StoredBrowserRoomKey);
-  }
-  await storeBrowserAccess({ origin: new URL(endpoint).origin, authority: 'device' });
+  await persistBrowserPairing(result, endpoint);
   return result;
 }
+
+// harn:assume unpaired-browser-always-has-enrollment-path ref=trusted-browser-pairing-client
+export function tryTrustedBrowserPairing(origin = window.location.origin): Promise<boolean> {
+  const normalizedOrigin = new URL(origin).origin;
+  const existing = trustedPairingAttempts.get(normalizedOrigin);
+  if (existing) return existing;
+  const attempt = (async () => {
+    const statusResponse = await fetch(`${normalizedOrigin}/api/pairing/status`);
+    if (!statusResponse.ok) {
+      throw new Error(`trusted pairing status failed: ${String(statusResponse.status)}`);
+    }
+    const status = await statusResponse.json() as { trusted_enrollment?: unknown };
+    if (status.trusted_enrollment !== true) return false;
+
+    const identity = await ensureBrowserIdentity();
+    const response = await fetch(`${normalizedOrigin}/api/pairing/complete`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...identity, kind: 'device', label: navigator.userAgent }),
+    });
+    if (!response.ok) throw new Error(`trusted pairing failed: ${String(response.status)}`);
+    await persistBrowserPairing(await response.json() as PairingResult, normalizedOrigin);
+    return true;
+  })();
+  trustedPairingAttempts.set(normalizedOrigin, attempt);
+  return attempt;
+}
+// harn:end unpaired-browser-always-has-enrollment-path
 
 // harn:assume paired-browser-challenge-session ref=browser-session-signin
 export async function openBrowserDeviceSession(origin = window.location.origin): Promise<string | undefined> {

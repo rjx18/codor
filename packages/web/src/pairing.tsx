@@ -4,6 +4,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  LoaderCircle,
   ShieldCheck,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -15,6 +16,7 @@ import {
   ensureBrowserIdentity,
   openForBrowser,
   sealForBrowserPeer,
+  tryTrustedBrowserPairing,
   unpairBrowser,
 } from './crypto';
 
@@ -71,17 +73,42 @@ window.__wireroomCrypto = {
   worker: workerCall,
 };
 
-export function PairingPage(): JSX.Element {
+export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {}): JSX.Element {
   const currentUrl = useMemo(() => new URL(window.location.href), []);
   const hasOffer = currentUrl.searchParams.has('pairing_token');
   const [qr, setQr] = useState<string>();
-  const [state, setState] = useState<'ready' | 'pairing' | 'paired' | 'failed'>('ready');
+  const [state, setState] = useState<'checking' | 'ready' | 'pairing' | 'paired' | 'failed'>(
+    props.autoPair && !hasOffer ? 'checking' : 'ready',
+  );
   const [failure, setFailure] = useState<string>();
+  const [pairingLink, setPairingLink] = useState('');
 
   useEffect(() => {
     if (!hasOffer) return;
     void QRCode.toDataURL(currentUrl.toString(), { margin: 1, width: 320 }).then(setQr);
   }, [currentUrl, hasOffer]);
+
+  useEffect(() => {
+    if (!props.autoPair || hasOffer) return;
+    let current = true;
+    void tryTrustedBrowserPairing().then(
+      (paired) => {
+        if (!current) return;
+        if (!paired) {
+          setState('ready');
+          return;
+        }
+        setState('paired');
+        window.location.replace(props.returnTo ?? '/');
+      },
+      () => {
+        if (current) setState('ready');
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [hasOffer, props.autoPair, props.returnTo]);
 
   const endpointLabel = useMemo(() => {
     const endpoint = currentUrl.searchParams.get('endpoint');
@@ -93,6 +120,7 @@ export function PairingPage(): JSX.Element {
     }
   }, [currentUrl]);
 
+  // harn:assume unpaired-browser-always-has-enrollment-path ref=unpaired-pairing-workspace
   // harn:assume pairing-offer-token-remains-qr-only ref=glass-pairing-surface
   // harn:assume pairing-discloses-browser-and-relay-boundaries ref=pairing-boundary-workspace
   return (
@@ -159,12 +187,54 @@ export function PairingPage(): JSX.Element {
                 {state === 'failed' && <p role="alert" className="wr-form-error">{failure}</p>}
               </div>
             </div>
-          ) : (
-            <div className="wr-pairing-empty">
-              <KeyRound aria-hidden="true" size={24} />
-              <h2>No active pairing offer</h2>
-              <p>Open pairing on your switchboard and follow its single-use link on this browser.</p>
+          ) : state === 'checking' ? (
+            <div data-testid="trusted-pairing-progress" role="status" className="wr-pairing-empty">
+              <LoaderCircle className="wr-progress-icon" aria-hidden="true" size={24} />
+              <h2>Checking tailnet access</h2>
+              <p>This browser is requesting device enrollment from the local switchboard.</p>
             </div>
+          ) : (
+            <form
+              data-testid="manual-pairing"
+              className="wr-pairing-empty wr-manual-pairing"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setFailure(undefined);
+                try {
+                  const link = new URL(pairingLink.trim());
+                  if (
+                    link.pathname !== '/pair' ||
+                    !link.searchParams.has('endpoint') ||
+                    !link.searchParams.has('pairing_token') ||
+                    !link.searchParams.has('switchboard_sign_pub')
+                  ) throw new Error('invalid pairing link');
+                  window.location.assign(link.toString());
+                } catch {
+                  setFailure('Paste the complete pairing link from the host.');
+                }
+              }}
+            >
+              <KeyRound aria-hidden="true" size={24} />
+              <h2>Pair this browser</h2>
+              <p>Run <code>codor pair</code> on the host, then paste its pairing link here.</p>
+              <label className="wr-field-label">
+                Pairing link
+                <input
+                  type="password"
+                  data-testid="pairing-link"
+                  value={pairingLink}
+                  onChange={(event) => setPairingLink(event.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  required
+                  className="wr-input min-h-11 px-3"
+                />
+              </label>
+              <button type="submit" className="wr-primary-button min-h-11 px-4">
+                Open pairing
+              </button>
+              {failure && <p role="alert" className="wr-form-error">{failure}</p>}
+            </form>
           )}
         </div>
 
@@ -187,4 +257,5 @@ export function PairingPage(): JSX.Element {
   );
   // harn:end pairing-discloses-browser-and-relay-boundaries
   // harn:end pairing-offer-token-remains-qr-only
+  // harn:end unpaired-browser-always-has-enrollment-path
 }

@@ -1109,4 +1109,37 @@ describe('Phase 3 REST boundaries', () => {
     expect(crypto.keys.getPeer(device.keys.identity.device_id)).toBeUndefined();
     device.close();
   });
+
+  // harn:assume unpaired-browser-always-has-enrollment-path ref=trusted-pairing-status-regression
+  it('reports trusted enrollment availability without leaking the tailnet identity', async () => {
+    const headers = { 'Tailscale-User-Login': 'operator@example.com' };
+    const off = await fetch(`${base}/api/pairing/status`, { headers });
+    expect(off.status).toBe(200);
+    expect(await off.json()).toEqual({ trusted_enrollment: false });
+
+    await server.close();
+    server = await startServer({
+      daemon,
+      token: TOKEN,
+      principals: [
+        { token: ADMIN_TOKEN, member_id: admin.id },
+        { token: MEMBER_TOKEN, member_id: member.id },
+        { token: OBSERVER_TOKEN, member_id: observer.id },
+      ],
+      crypto,
+      pushSubscriptions,
+      trustTailscaleServe: true,
+      homeDir: dir,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+
+    const missingIdentity = await fetch(`${base}/api/pairing/status`);
+    expect(missingIdentity.status).toBe(200);
+    expect(await missingIdentity.json()).toEqual({ trusted_enrollment: false });
+
+    const on = await fetch(`${base}/api/pairing/status`, { headers });
+    expect(on.status).toBe(200);
+    expect(await on.json()).toEqual({ trusted_enrollment: true });
+  });
+  // harn:end unpaired-browser-always-has-enrollment-path
 });

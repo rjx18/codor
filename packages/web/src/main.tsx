@@ -48,15 +48,20 @@ export async function resolveAccessToken(): Promise<string> {
 
 async function render(): Promise<void> {
   const token = await resolveAccessToken();
+  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   createRoot(rootElement).render(
     <StrictMode>
+      {/* harn:assume unpaired-browser-always-has-enrollment-path ref=unpaired-auth-gate */}
       {window.location.pathname === '/pair'
         ? <PairingPage />
+        : token === ''
+          ? <PairingPage autoPair returnTo={returnTo} />
         : window.location.pathname === '/ledger'
           ? <LedgerGraphPage token={token} />
         : window.location.pathname === '/settings'
           ? <SettingsPage token={token} refreshToken={resolveAccessToken} />
           : <App token={token} refreshToken={resolveAccessToken} />}
+      {/* harn:end unpaired-browser-always-has-enrollment-path */}
     </StrictMode>,
   );
 }

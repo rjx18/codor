@@ -167,8 +167,9 @@ describe('RunMessageView', () => {
         token="t"
       />,
     );
-    expect(html).toContain('running · ');
-    expect(html).toContain(' · Bash');
+    expect(html).toContain('>running</span>');
+    expect(html).toContain('wr-run-separator');
+    expect(html).toContain('>Bash</span>');
     expect(html).toContain('pnpm test');
     expect(html).not.toContain('Run started');
     expect(html).toContain('data-run-status="running"');
@@ -195,6 +196,24 @@ describe('RunMessageView', () => {
     expect(html).toContain('id="7"');
     expect(html).toContain('href="#7"');
   });
+
+  // harn:assume acknowledgement-marker-protocol ref=ack-web-regression
+  it('renders acknowledgements as one muted permalinked line without a toggle', () => {
+    const html = renderToStaticMarkup(
+      <RunMessageView
+        message={{ ...finalizedRun, body: '<ACK_OK>', ack: true }}
+        authorHandle="alpha"
+        liveEvents={{ events: [], dropped_count: 0 }}
+        room="eng"
+        token="t"
+      />,
+    );
+    expect(html).toContain('data-testid="ack-alpha"');
+    expect(html).toContain('@alpha acknowledged');
+    expect(html).toContain('href="#7"');
+    expect(html).not.toContain('run-7-toggle');
+  });
+  // harn:end acknowledgement-marker-protocol
 });
 
 describe('AskCardView', () => {

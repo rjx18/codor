@@ -81,7 +81,7 @@ test('normalized rows stream in order, elapsed time ticks, and completion collap
   await expect(page.getByTestId(`run-${runId}-body`)).toHaveText(
     'Done - timeline rows are live and the suite passes.',
   );
-  await expect(page.getByTestId(`run-${runId}-status`)).toContainText('3 tools · $0.04');
+  await expect(page.getByTestId(`run-${runId}-status`)).toContainText(/3 tools\s*·\s*\$0\.04/);
 
   await page.getByTestId(`run-${runId}-toggle`).click();
   for (const theme of ['dark', 'light']) {

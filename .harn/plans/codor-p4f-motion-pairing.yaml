@@ -1,0 +1,196 @@
+id: codor-p4f-motion-pairing
+title: P4f motion, acknowledgement, and unpaired enrollment polish
+assumptions:
+  create:
+    - id: web-motion-is-purposeful-and-reduced-motion-safe
+      title: Web motion communicates live state without blocking reduced-motion use
+      statement: The web surface must use the shared 120, 180, and 250 millisecond
+        motion tokens for row, dialog, popup, run-reveal, tab, and running-state
+        feedback, animate only transform and opacity except for the sanctioned
+        run-collapse grid track, remove shimmer at finalization, and replace
+        motion with instant transitions plus a static accent when reduced motion
+        is requested, because live activity should be legible without jank or
+        vestibular cost.
+      reason: Phase 4f implements S14 under the reviewer's contradiction resolution.
+      depends_on:
+        - normalized-run-items-presented-live
+        - web-glass-theme-accessible-modes
+    - id: unpaired-browser-always-has-enrollment-path
+      title: Unpaired app visits always render an actionable enrollment screen
+      statement: Any app route without restored browser access must show a dedicated
+        pairing screen that first reads an unauthenticated, non-mutating
+        200-status trusted-enrollment probe, attempts enrollment with a progress
+        state only when available, and otherwise instructs the operator to run
+        codor pair and accepts a concealed pairing link that navigates to the
+        existing offer route, because an unpaired browser must never land on a
+        blank, permanently reconnecting application, or expected authorization
+        error.
+      reason: Phase 4f implements the S8b fallback and S8 client path.
+      depends_on:
+        - tailnet-auto-pairing-explicit-trust
+        - pairing-offer-token-remains-qr-only
+        - pwa-cold-launch-restores-local-auth
+  reviewed:
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: Run evidence and collapse semantics remain intact while gaining motion
+        and shimmer classes.
+    - id: acknowledgement-marker-protocol
+      outcome: unchanged
+      reason: Durable ack runs gain their specified muted web representation without
+        changing evidence.
+    - id: tailnet-auto-pairing-explicit-trust
+      outcome: unchanged
+      reason: A read-only status probe exposes only trusted-enrollment availability;
+        the existing off-by-default completion authorization remains unchanged.
+    - id: pwa-cold-launch-restores-local-auth
+      outcome: unchanged
+      reason: Successful operator or device restoration still wins before the new
+        unpaired gate.
+    - id: pairing-offer-token-remains-qr-only
+      outcome: unchanged
+      reason: The paste field conceals the link and the offer route retains its
+        non-visible token treatment.
+    - id: pairing-discloses-browser-and-relay-boundaries
+      outcome: unchanged
+      reason: Manual and automatic entry states share the existing honest enrollment
+        disclosures.
+    - id: single-crypto-suite-libsodium
+      outcome: unchanged
+      reason: Trusted completion reuses the same browser identity, sealed-room-key,
+        and storage path.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Motion and enrollment states use semantic colors, focus, and
+        reduced-motion fallbacks.
+    - id: normalized-run-evidence-inspector
+      outcome: unchanged
+      reason: Active row shimmer and the queued empty-state screenshot do not alter
+        evidence selection.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: Member state-dot shimmer is visual only and leaves replacement controls
+        unchanged.
+    - id: live-run-event-cache-bounded
+      outcome: unchanged
+      reason: The run reveal lifetime changes only presentation; the bounded cache and
+        full-journal recovery behavior remain unchanged.
+    - id: extensions-not-addressable-v1
+      outcome: unchanged
+      reason: Extension evidence remains visible but non-addressable while its run
+        rendering gains presentation-only motion.
+anchors:
+  web-motion-is-purposeful-and-reduced-motion-safe:
+    motion-runtime-classes:
+      action: change
+      reason: Mark running headers, member dots, active rows, and animated run reveals.
+    motion-token-style:
+      action: change
+      reason: Define tokens, keyframes, sanctioned grid reveal, shimmer, cross-fades,
+        and reduced-motion behavior.
+    motion-browser-regression:
+      action: change
+      reason: Prove shimmer lifetime and reduced-motion replacement in Chromium.
+  unpaired-browser-always-has-enrollment-path:
+    unpaired-auth-gate:
+      action: change
+      reason: Route tokenless unrestored app visits to enrollment rather than an
+        unauthorized app.
+    unpaired-pairing-workspace:
+      action: change
+      reason: Add trusted progress, host instructions, and concealed pairing-link
+        paste flow.
+    trusted-browser-pairing-client:
+      action: change
+      reason: Persist trusted completion through the existing browser crypto and
+        access path.
+    pairing-gate-browser-regression:
+      action: change
+      reason: Prove progress, manual fallback, and navigation to the existing offer
+        route.
+    trusted-pairing-status-rest:
+      action: change
+      reason: Expose an unauthenticated read-only 200-status availability probe
+        without leaking the tailnet identity.
+    trusted-pairing-status-regression:
+      action: change
+      reason: Prove status remains 200 and reports the correct boolean with trusted
+        enrollment on and off.
+  acknowledgement-marker-protocol:
+    ack-web-marker:
+      action: change
+      reason: Render acknowledgements as one muted permalinked line without run
+        expansion.
+    ack-web-regression:
+      action: change
+      reason: Lock the compact acknowledgement surface and absence of a toggle.
+  normalized-run-items-presented-live:
+    live-run-message-surface:
+      action: change
+      reason: Add the sanctioned reveal lifetime, symmetric separators, shimmer, and
+        ack branch.
+    live-run-stream-regression:
+      action: change
+      reason: Match the completion summary assertion to the structured separators
+        whose visual spacing is enforced by CSS.
+    run-stream-responsive-style:
+      action: change
+      reason: Apply motion tokens and active-state styling to the existing run surface.
+  live-run-event-cache-bounded:
+    full-journal-recovery:
+      action: change
+      reason: Preserve journal recovery while the containing run surface gains a
+        delayed visual collapse lifetime.
+  extensions-not-addressable-v1:
+    extension-run-rendering:
+      action: change
+      reason: Preserve non-addressable extension rendering while adding run-surface
+        presentation motion.
+  normalized-run-evidence-inspector:
+    normalized-row-selection:
+      action: change
+      reason: Mark only the currently running tool row for shimmer.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    dead-member-replacement-controls:
+      action: change
+      reason: Mark the running member state dot without changing controls.
+  pwa-cold-launch-restores-local-auth:
+    paired-access-bootstrap:
+      action: change
+      reason: Preserve restored access while adding the explicit unpaired branch.
+  pairing-offer-token-remains-qr-only:
+    glass-pairing-surface:
+      action: change
+      reason: Add a concealed manual link input without rendering offer authority as
+        visible text.
+  pairing-discloses-browser-and-relay-boundaries:
+    pairing-boundary-workspace:
+      action: change
+      reason: Add manual and trusted enrollment states inside the existing disclosure
+        workspace.
+  single-crypto-suite-libsodium:
+    browser-libsodium-suite:
+      action: change
+      reason: Reuse identity and room-key persistence for trusted tailnet completion.
+  tailnet-auto-pairing-explicit-trust:
+    trusted-tailnet-pairing-rest:
+      action: change
+      reason: Keep POST authorization intact while adding the adjacent read-only
+        trusted-enrollment status probe.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Add motion tokens, reduced-motion fallback, and unpaired form styles.
+files:
+  - packages/web/src/main.tsx
+  - packages/web/src/crypto.ts
+  - packages/web/src/pairing.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/motion-pairing.e2e.spec.ts
+  - packages/web/tests/run-stream.e2e.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+applied:
+  applied_at: 2026-07-11T18:30:15.050Z

@@ -586,6 +586,7 @@ export function SpawnAgentDialog(props: {
 }
 // harn:end web-spawn-dialog-exposes-canonical-agent-controls
 
+// harn:assume web-motion-is-purposeful-and-reduced-motion-safe ref=motion-runtime-classes
 // harn:assume web-spawn-dialog-exposes-canonical-agent-controls ref=dead-member-replacement-controls
 export function MemberCard(props: {
   member: Member;
@@ -643,7 +644,7 @@ export function MemberCard(props: {
           <small>{props.member.harness ?? 'agent'} · {props.member.policy ?? 'default policy'}</small>
         </span>
         <span className="wr-member-state" data-state={state}>
-          <i aria-hidden="true" /> {state.replaceAll('_', ' ')}
+          <i className={state === 'running' ? 'wr-shimmer' : undefined} aria-hidden="true" /> {state.replaceAll('_', ' ')}
         </span>
         {(props.detail?.queued_count ?? 0) > 0 && (
           <span
@@ -940,7 +941,7 @@ function RunEvidenceRow(props: {
       data-run-row
       data-row-kind="tool"
       data-row-status={props.row.status}
-      className={props.running && props.row.status === 'running' ? 'is-active' : undefined}
+      className={props.running && props.row.status === 'running' ? 'is-active wr-shimmer' : undefined}
     >
       <button
         type="button"
@@ -1007,6 +1008,7 @@ export function RunMessageView(props: {
   const run = props.message.run!;
   const running = run.status === 'running';
   const [expanded, setExpanded] = useState(running);
+  const [renderEvents, setRenderEvents] = useState(running);
   const [journal, setJournal] = useState<WireEvent[] | undefined>(undefined);
   const [journalFailed, setJournalFailed] = useState(false);
   const wasRunning = useRef(running);
@@ -1033,6 +1035,17 @@ export function RunMessageView(props: {
   }, [running]);
 
   useEffect(() => {
+    if (expanded) {
+      setRenderEvents(true);
+      return;
+    }
+    if (!renderEvents) return;
+    const delay = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180;
+    const timer = window.setTimeout(() => setRenderEvents(false), delay);
+    return () => window.clearTimeout(timer);
+  }, [expanded, renderEvents]);
+
+  useEffect(() => {
     setJournal(undefined);
     setJournalFailed(false);
   }, [props.message.id]);
@@ -1046,6 +1059,18 @@ export function RunMessageView(props: {
     ) loadJournal();
   }, [expanded, journal, journalFailed, props.liveEvents.dropped_count, props.message.id, props.room, props.token]);
 
+  // harn:assume acknowledgement-marker-protocol ref=ack-web-marker
+  if (props.message.ack === true) {
+    return (
+      <div id={String(props.message.id)} data-testid={`ack-${props.authorHandle}`} className="wr-ack-line scroll-mt-16">
+        <CircleCheck aria-hidden="true" size={15} />
+        <span>@{props.authorHandle} acknowledged</span>
+        <MessagePermalink id={props.message.id} />
+      </div>
+    );
+  }
+  // harn:end acknowledgement-marker-protocol
+
   // harn:assume normalized-run-items-presented-live ref=live-run-message-surface
   // harn:assume live-run-event-cache-bounded ref=full-journal-recovery
   return (
@@ -1055,7 +1080,7 @@ export function RunMessageView(props: {
       data-run-status={run.status}
       className="wr-run-card scroll-mt-16"
     >
-      <div className="wr-run-heading">
+      <div className={`wr-run-heading ${running ? 'wr-shimmer' : ''}`}>
         <span className="wr-actor-mark wr-actor-agent" aria-hidden="true">
           <Bot size={18} />
         </span>
@@ -1064,7 +1089,14 @@ export function RunMessageView(props: {
           data-testid={`run-${props.message.id}-toggle`}
           aria-expanded={expanded}
           aria-controls={`run-${String(props.message.id)}-events`}
-          onClick={() => setExpanded((e) => !e)}
+          onClick={() => {
+            if (expanded) {
+              setExpanded(false);
+              return;
+            }
+            setRenderEvents(true);
+            requestAnimationFrame(() => setExpanded(true));
+          }}
           className="wr-run-toggle"
         >
           {expanded ? <ChevronDown aria-hidden="true" size={16} /> : <ChevronRight aria-hidden="true" size={16} />}
@@ -1072,12 +1104,12 @@ export function RunMessageView(props: {
             <strong>@{props.authorHandle}</strong>
           </span>
           <span className={`wr-run-status is-${run.status}`} data-testid={`run-${props.message.id}-status`}>
-            {running && 'running · '}
-            {!running && run.status !== 'completed' && `${run.status} · `}
+            {running && <><span>running</span><span className="wr-run-separator" aria-hidden="true">·</span></>}
+            {!running && run.status !== 'completed' && <><span>{run.status}</span><span className="wr-run-separator" aria-hidden="true">·</span></>}
             <RunElapsedTime startedTs={run.started_ts} endedTs={run.ended_ts} running={running} />
-            {running && activeTool && ` · ${activeTool.title}`}
-            {!running && ` · ${String(run.tool_calls)} ${run.tool_calls === 1 ? 'tool' : 'tools'}`}
-            {!running && ` · ${run.usage?.cost_usd === undefined ? 'cost not reported' : `$${run.usage.cost_usd.toFixed(2)}`}`}
+            {running && activeTool && <><span className="wr-run-separator" aria-hidden="true">·</span><span>{activeTool.title}</span></>}
+            {!running && <><span className="wr-run-separator" aria-hidden="true">·</span><span>{String(run.tool_calls)} {run.tool_calls === 1 ? 'tool' : 'tools'}</span></>}
+            {!running && <><span className="wr-run-separator" aria-hidden="true">·</span><span>{run.usage?.cost_usd === undefined ? 'cost not reported' : `$${run.usage.cost_usd.toFixed(2)}`}</span></>}
           </span>
         </button>
         {props.onInspect && (
@@ -1099,13 +1131,19 @@ export function RunMessageView(props: {
           {props.message.body}
         </p>
       )}
-      {expanded && (
+      {renderEvents && (
         <div
-          id={`run-${String(props.message.id)}-events`}
-          data-testid={`run-${props.message.id}-events`}
-          data-event-count={evidence.length}
-          className="wr-run-events"
+          className={`wr-run-reveal ${expanded ? 'is-open' : ''}`}
+          aria-hidden={!expanded}
+          {...(expanded ? {} : { inert: '' })}
         >
+          <div className="wr-run-reveal-inner">
+            <div
+              id={`run-${String(props.message.id)}-events`}
+              data-testid={`run-${props.message.id}-events`}
+              data-event-count={evidence.length}
+              className="wr-run-events"
+            >
           {missingEarlier && (
             <button
               type="button"
@@ -1137,18 +1175,20 @@ export function RunMessageView(props: {
               ))}
             </div>
           )}
-          <ol className="wr-run-event-list">
-            {rows.map((row) => (
-              <RunEvidenceRow
-                key={row.id}
-                row={row}
-                running={running}
-                selected={props.selectedEventIndex === row.eventIndex}
-                onSelect={props.onInspectRow}
-              />
-            ))}
-            {journalFailed && rows.length === 0 && <li role="status">Evidence unavailable</li>}
-          </ol>
+              <ol className="wr-run-event-list">
+                {rows.map((row) => (
+                  <RunEvidenceRow
+                    key={row.id}
+                    row={row}
+                    running={running}
+                    selected={props.selectedEventIndex === row.eventIndex}
+                    onSelect={props.onInspectRow}
+                  />
+                ))}
+                {journalFailed && rows.length === 0 && <li role="status">Evidence unavailable</li>}
+              </ol>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -1169,6 +1209,7 @@ export function RunStallBadge(props: { message: Message }) {
     </span>
   );
 }
+// harn:end web-motion-is-purposeful-and-reduced-motion-safe
 
 export function AskCardView(props: {
   message: Message;

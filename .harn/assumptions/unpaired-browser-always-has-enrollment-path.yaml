@@ -1,0 +1,16 @@
+id: unpaired-browser-always-has-enrollment-path
+hash: a-ddd8de5948ef
+title: Unpaired app visits always render an actionable enrollment screen
+state: active
+statement: Any app route without restored browser access must show a dedicated
+  pairing screen that first reads an unauthenticated, non-mutating 200-status
+  trusted-enrollment probe, attempts enrollment with a progress state only when
+  available, and otherwise instructs the operator to run codor pair and accepts
+  a concealed pairing link that navigates to the existing offer route, because
+  an unpaired browser must never land on a blank, permanently reconnecting
+  application, or expected authorization error.
+depends_on:
+  - tailnet-auto-pairing-explicit-trust
+  - pairing-offer-token-remains-qr-only
+  - pwa-cold-launch-restores-local-auth
+created_by: codor-p4f-motion-pairing

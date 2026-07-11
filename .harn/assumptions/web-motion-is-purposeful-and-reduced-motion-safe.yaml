@@ -1,0 +1,15 @@
+id: web-motion-is-purposeful-and-reduced-motion-safe
+hash: a-63c8ab6ea569
+title: Web motion communicates live state without blocking reduced-motion use
+state: active
+statement: The web surface must use the shared 120, 180, and 250 millisecond
+  motion tokens for row, dialog, popup, run-reveal, tab, and running-state
+  feedback, animate only transform and opacity except for the sanctioned
+  run-collapse grid track, remove shimmer at finalization, and replace motion
+  with instant transitions plus a static accent when reduced motion is
+  requested, because live activity should be legible without jank or vestibular
+  cost.
+depends_on:
+  - normalized-run-items-presented-live
+  - web-glass-theme-accessible-modes
+created_by: codor-p4f-motion-pairing

@@ -249,6 +249,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end paired-browser-challenge-session
 
+  // harn:assume unpaired-browser-always-has-enrollment-path ref=trusted-pairing-status-rest
+  app.get('/api/pairing/status', (req, reply) => {
+    const tailnetLogin = req.headers['tailscale-user-login'];
+    return reply.header('cache-control', 'no-store').send({
+      trusted_enrollment:
+        options.trustTailscaleServe === true &&
+        typeof tailnetLogin === 'string' &&
+        tailnetLogin.trim() !== '',
+    });
+  });
+  // harn:end unpaired-browser-always-has-enrollment-path
+
   app.post('/api/pairing/complete', (req, reply) => {
     if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
     const authorization = req.headers.authorization;
