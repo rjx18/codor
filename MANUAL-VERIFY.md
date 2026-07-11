@@ -14,6 +14,14 @@ as **skipped with reason**, not passed. The implementation still completed its
 independent Playwright visual/behavior gates and recursive tests; a later full
 repository review must cover this range again if Claude is available.
 
+The corrective Settings/pairing review of `47ae835..c2ef646` is likewise
+**skipped with reason**, not passed. The one full read-only invocation produced
+no output and reached its hard 300-second timeout with exit code 124. The one
+permitted tiny probe then returned `OK` with exit code 0, confirming the CLI and
+model route were available, but no second full review was attempted to avoid a
+retry loop and unnecessary quota use. No Claude process remains. A later full
+repository review must cover this range as well.
+
 ## Gemini CLI
 
 Status on 2026-07-10: **not run**. The `gemini` executable is not installed and
