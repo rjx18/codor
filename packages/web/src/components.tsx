@@ -22,6 +22,7 @@ import {
   GitCommitHorizontal,
   Inbox,
   Menu,
+  Network,
   PanelRight,
   PauseCircle,
   Play,
@@ -186,6 +187,15 @@ export function Header(props: {
             <PanelRight aria-hidden="true" size={18} />
           </button>
         )}
+        <a
+          href={`/ledger?${new URLSearchParams({ room: props.roomId }).toString()}`}
+          data-testid="open-ledger-graph"
+          aria-label="Open ledger graph"
+          title="Ledger graph"
+          className="wr-icon-button"
+        >
+          <Network aria-hidden="true" size={18} />
+        </a>
         <a
           href={`/settings?${new URLSearchParams({ room: props.roomId }).toString()}`}
           data-testid="room-settings"

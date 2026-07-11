@@ -211,6 +211,15 @@ createServer(async (req, res) => {
         author: body.author ?? 'richard',
         body: body.noteBody ?? 'Keep exposure below 2%.',
       });
+    } else if (url.pathname === '/ledger-graph-init') {
+      for (const write of [
+        { name: 'launch-plan', type: 'decision', body: '# Launch plan\n\nShip with [[risk-limits]] and [[wire-contract]].' },
+        { name: 'risk-limits', type: 'constraint', body: '# Risk limits\n\nKeep exposure below 2%. Link back to [[launch-plan]].' },
+        { name: 'wire-contract', type: 'contract', body: '# Wire contract\n\nFrames remain acknowledged. See [[launch-plan]].' },
+        { name: 'release-checklist', type: 'decision', body: '# Release checklist\n\nConfirm [[wire-contract]].' },
+      ]) {
+        daemon.addLedgerNote('eng', { ...write, author: 'richard' });
+      }
     } else if (url.pathname === '/ledger-direct') {
       const name = body.name ?? 'risk-limits';
       writeFileSync(

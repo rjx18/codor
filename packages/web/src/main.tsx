@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { PairingPage } from './pairing';
 import { SettingsPage } from './SettingsPage';
+import { LedgerGraphPage } from './LedgerGraph';
 import { storedBrowserAccess, storeBrowserAccess } from './crypto';
 import { applyThemeChoice } from './theme';
 import './styles.css';
@@ -44,6 +45,8 @@ async function render(): Promise<void> {
     <StrictMode>
       {window.location.pathname === '/pair'
         ? <PairingPage />
+        : window.location.pathname === '/ledger'
+          ? <LedgerGraphPage token={token} />
         : window.location.pathname === '/settings'
           ? <SettingsPage token={token} />
           : <App token={token} />}

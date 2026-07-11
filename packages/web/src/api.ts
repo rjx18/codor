@@ -35,6 +35,23 @@ export interface LedgerNote {
   type?: 'decision' | 'constraint' | 'contract';
 }
 
+export interface LedgerGraphNode {
+  id: string;
+  name: string;
+  type?: 'decision' | 'constraint' | 'contract';
+  relative_path: string;
+}
+
+export interface LedgerGraphEdge {
+  source: string;
+  target: string;
+}
+
+export interface LedgerGraph {
+  nodes: LedgerGraphNode[];
+  edges: LedgerGraphEdge[];
+}
+
 export interface DeviceSummary {
   device_id: string;
   label?: string;
@@ -182,4 +199,15 @@ export async function fetchLedgerNote(
     options,
   );
   return body.note;
+}
+
+export async function fetchLedgerGraph(
+  room: string,
+  options: ApiOptions,
+): Promise<LedgerGraph> {
+  const body = await fetchJson<{ graph: LedgerGraph }>(
+    `/api/rooms/${encodeURIComponent(room)}/ledger`,
+    options,
+  );
+  return body.graph;
 }

@@ -69,6 +69,46 @@ test('ledger changes appear in the room and [[refs]] open a read-only note viewe
   await expect(ledgerReference).toBeFocused();
 });
 
+test('ledger graph renders the vault projection and opens a read-only note inspector', async ({ page }) => {
+  await control('/ledger-graph-init');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await page.getByTestId('open-ledger-graph').click();
+  await expect(page).toHaveURL(/\/ledger\?room=eng$/);
+  await expect(page.getByTestId('ledger-graph-page')).toBeVisible();
+
+  const launch = page.getByTestId('ledger-node-launch-plan');
+  const risk = page.getByTestId('ledger-node-risk-limits');
+  await expect(launch).toBeVisible();
+  await expect(risk).toBeVisible();
+  const surface = (await page.getByTestId('ledger-graph-surface').boundingBox())!;
+  expect(surface.width).toBeGreaterThan(500);
+  expect(surface.height).toBeGreaterThan(500);
+
+  await risk.click();
+  const inspector = page.getByTestId('ledger-inspector');
+  await expect(inspector).toContainText('Risk Limits');
+  await expect(inspector).toContainText('Keep exposure below 2%.');
+  await expect(inspector).toContainText('Launch Plan');
+  await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /delete|add note|create note/i })).toHaveCount(0);
+
+  await page.getByPlaceholder('Search notes').fill('release');
+  await expect(page.getByTestId('ledger-node-release-checklist')).toBeVisible();
+  await expect(launch).toBeHidden();
+  await page.getByRole('button', { name: 'Clear note search' }).click();
+  await expect(launch).toBeVisible();
+
+  await page.setViewportSize({ width: 1150, height: 820 });
+  await page.reload();
+  await expect(page.getByTestId('ledger-inspector')).toBeHidden();
+  await page.getByTestId('ledger-node-launch-plan').click();
+  await expect(page.getByTestId('ledger-inspector')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Close note inspector' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1150);
+});
+
 test('room v1: post → live run → expand → ask → hold release → reconnect shows the finalized message', async ({
   page,
 }) => {

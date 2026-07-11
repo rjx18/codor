@@ -14,7 +14,7 @@ import type {
 
 import { BlobStore } from './blobs.js';
 import { roleAllows } from './authorization.js';
-import type { LedgerManager } from './ledger/watch.js';
+import type { LedgerGraph, LedgerManager } from './ledger/watch.js';
 import type { LedgerNote, LedgerWrite } from './ledger/vault.js';
 import type { HumanPushKind, HumanPushNotifier } from './push/producer.js';
 import { redactValue } from './redact.js';
@@ -382,6 +382,11 @@ export class Daemon {
   ledgerSnapshot(room: string): Record<string, string> {
     if (!this.store.getRoom(room)) throw new Error(`no such room ${room}`);
     return this.ledger?.snapshot(room) ?? {};
+  }
+
+  ledgerGraph(room: string): LedgerGraph {
+    if (!this.store.getRoom(room)) throw new Error(`no such room ${room}`);
+    return this.ledger?.graph(room) ?? { nodes: [], edges: [] };
   }
 
   ownerOf(room: string): Member {

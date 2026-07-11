@@ -387,6 +387,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     void reply.send({ events: daemon.readRunBlob(room, Number(msgId)) });
   });
 
+  // harn:assume graph-derived-from-vault-links-readonly ref=ledger-graph-rest
+  app.get('/api/rooms/:room/ledger', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeRoom(principal, room, 'read', reply)) return;
+    return reply.send({ graph: daemon.project(room, daemon.ledgerGraph(room)) });
+  });
+  // harn:end graph-derived-from-vault-links-readonly
+
   app.get('/api/rooms/:room/ledger/:name', (req, reply) => {
     const principal = authed(req, reply);
     if (!principal) return;

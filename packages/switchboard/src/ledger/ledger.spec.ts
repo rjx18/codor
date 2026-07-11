@@ -10,7 +10,7 @@ import { Daemon } from '../daemon.js';
 import { FakeAdapter } from '../fake-adapter.js';
 import { HyperswarmTransport } from '../transport/hyperswarm.js';
 import { envelopeUlid } from '../transport/peer.js';
-import { addRemoteLedgerNote, LedgerManager } from './watch.js';
+import { addRemoteLedgerNote, deriveLedgerGraph, LedgerManager } from './watch.js';
 import { LedgerVault } from './vault.js';
 
 const require = createRequire(import.meta.url);
@@ -33,6 +33,29 @@ async function waitFor(check: () => boolean, timeoutMs = 5_000): Promise<void> {
 }
 
 describe('ledger vault v1', () => {
+  // harn:assume graph-derived-from-vault-links-readonly ref=ledger-graph-regression
+  it('derives a deterministic read-only wikilink graph from a fixture vault', () => {
+    expect(deriveLedgerGraph({
+      'INDEX.md': '---\nname: index\n---\n# Room Ledger\n',
+      'constraints/_template.md': '---\nname: constraint-template\ntype: constraint\n---\n# Constraint\n',
+      'decisions/launch-plan.md': '---\nname: launch-plan\ntype: decision\n---\nShip with [[risk-limits]] and [[wire-contract]].\n',
+      'constraints/risk-limits.md': '---\nname: risk-limits\ntype: constraint\n---\nBacklink [[launch-plan]], duplicate [[launch-plan]], missing [[not-here]].\n',
+      'contracts/wire-contract.md': '---\nname: wire-contract\ntype: contract\n---\nFrames remain acknowledged.\n',
+    })).toEqual({
+      nodes: [
+        { id: 'launch-plan', name: 'launch-plan', type: 'decision', relative_path: 'decisions/launch-plan.md' },
+        { id: 'risk-limits', name: 'risk-limits', type: 'constraint', relative_path: 'constraints/risk-limits.md' },
+        { id: 'wire-contract', name: 'wire-contract', type: 'contract', relative_path: 'contracts/wire-contract.md' },
+      ],
+      edges: [
+        { source: 'launch-plan', target: 'risk-limits' },
+        { source: 'launch-plan', target: 'wire-contract' },
+        { source: 'risk-limits', target: 'launch-plan' },
+      ],
+    });
+  });
+  // harn:end graph-derived-from-vault-links-readonly
+
   it('bootstraps the Obsidian-compatible vault from a byte-exact golden', () => {
     const root = mkdtempSync(join(tmpdir(), 'wireroom-ledger-'));
     cleanup.push(() => rmSync(root, { recursive: true, force: true }));
@@ -71,6 +94,10 @@ describe('ledger vault v1', () => {
     );
     await waitFor(() => changes.some((change) =>
       change.name === 'risk-limits' && change.author === 'operator'));
+    expect(manager.graph('eng')).toMatchObject({
+      nodes: [{ id: 'risk-limits', type: 'constraint' }],
+      edges: [],
+    });
   });
 
   it('resolves [[refs]] at home into the snapshotted payload and advertises ledger syntax', async () => {

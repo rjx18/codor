@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { basename, join, relative, resolve, sep } from 'node:path';
 
 import { watch, type FSWatcher } from 'chokidar';
+import matter from 'gray-matter';
 import { z } from 'zod';
 
 import type { HyperswarmTransport } from '../transport/hyperswarm.js';
@@ -12,6 +13,7 @@ import {
   LedgerVault,
   LedgerWriteSchema,
   type LedgerNote,
+  type LedgerNoteType,
   type LedgerWrite,
 } from './vault.js';
 
@@ -19,6 +21,60 @@ export interface LedgerChange {
   room: string;
   name: string;
   author: string;
+}
+
+export interface LedgerGraphNode {
+  id: string;
+  name: string;
+  type?: LedgerNoteType;
+  relative_path: string;
+}
+
+export interface LedgerGraphEdge {
+  source: string;
+  target: string;
+}
+
+export interface LedgerGraph {
+  nodes: LedgerGraphNode[];
+  edges: LedgerGraphEdge[];
+}
+
+const LEDGER_LINK = /\[\[([a-z0-9][a-z0-9-]{0,62})\]\]/g;
+
+export function deriveLedgerGraph(snapshot: Record<string, string>): LedgerGraph {
+  const entries = Object.entries(snapshot).sort(([left], [right]) => left.localeCompare(right));
+  const sourceByName = new Map<string, { node: LedgerGraphNode; body: string }>();
+  for (const [relativePath, content] of entries) {
+    if (relativePath === 'INDEX.md' || relativePath.endsWith('/_template.md')) continue;
+    const parsed = matter(content);
+    const fallback = basename(relativePath, '.md').replace(/^_/, '');
+    const name = typeof parsed.data.name === 'string' ? parsed.data.name : fallback;
+    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || sourceByName.has(name)) continue;
+    const type = ['decision', 'constraint', 'contract'].includes(parsed.data.type)
+      ? parsed.data.type as LedgerNoteType
+      : undefined;
+    sourceByName.set(name, {
+      node: { id: name, name, ...(type && { type }), relative_path: relativePath },
+      body: parsed.content,
+    });
+  }
+  const names = new Set(sourceByName.keys());
+  const edgeKeys = new Set<string>();
+  for (const [source, entry] of sourceByName) {
+    for (const match of entry.body.matchAll(LEDGER_LINK)) {
+      const target = match[1]!;
+      if (names.has(target)) edgeKeys.add(`${source}\u0000${target}`);
+    }
+  }
+  return {
+    nodes: [...sourceByName.values()].map(({ node }) => node)
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    edges: [...edgeKeys].sort().map((key) => {
+      const [source, target] = key.split('\u0000');
+      return { source: source!, target: target! };
+    }),
+  };
 }
 
 export const LedgerAddRequestSchema = z.object({
@@ -46,6 +102,7 @@ export class LedgerManager {
   private readonly roomsRoot: string;
   private readonly watcher: FSWatcher;
   private readonly suppressed = new Set<string>();
+  private readonly graphs = new Map<string, LedgerGraph>();
   private onChange?: (change: LedgerChange) => void;
   private roomExists: (room: string) => boolean = () => false;
   private remoteWriteAuthorized: (peerId: string, room: string, author: string) => boolean =
@@ -87,6 +144,7 @@ export class LedgerManager {
   enable(room: string): LedgerVault {
     const vault = this.vault(room);
     vault.bootstrap();
+    this.rebuildGraph(room, vault);
     return vault;
   }
 
@@ -118,6 +176,23 @@ export class LedgerManager {
     return this.vault(room).snapshot();
   }
 
+  // harn:assume graph-derived-from-vault-links-readonly ref=ledger-graph-cache
+  graph(room: string): LedgerGraph {
+    const vault = this.vault(room);
+    if (!vault.isEnabled()) return { nodes: [], edges: [] };
+    if (!this.graphs.has(room)) this.rebuildGraph(room, vault);
+    const graph = this.graphs.get(room)!;
+    return {
+      nodes: graph.nodes.map((node) => ({ ...node })),
+      edges: graph.edges.map((edge) => ({ ...edge })),
+    };
+  }
+
+  private rebuildGraph(room: string, vault: LedgerVault): void {
+    this.graphs.set(room, deriveLedgerGraph(vault.snapshot()));
+  }
+  // harn:end graph-derived-from-vault-links-readonly
+
   pull(room: string, destination: string): string {
     return this.vault(room).pull(destination);
   }
@@ -144,6 +219,7 @@ export class LedgerManager {
     const note = vault.noteAt(path);
     const fallback = basename(path, '.md').replace(/^_/, '');
     const author = vault.consumeAuditAuthor(path) ?? 'operator';
+    this.rebuildGraph(room, vault);
     this.onChange?.({ room, name: note?.name ?? fallback, author });
   }
 

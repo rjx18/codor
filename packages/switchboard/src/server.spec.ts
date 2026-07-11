@@ -126,6 +126,7 @@ describe('REST', () => {
     expect((await fetch(`${base}/api/rooms/eng/sync?since_seq=0`)).status).toBe(401);
     expect((await fetch(`${base}/api/rooms/eng/messages`)).status).toBe(401);
     expect((await fetch(`${base}/api/rooms/eng/search?q=hello`)).status).toBe(401);
+    expect((await fetch(`${base}/api/rooms/eng/ledger`)).status).toBe(401);
     expect((await fetch(`${base}/api/rooms/eng/ledger/risk-limits`)).status).toBe(401);
     expect((await fetch(`${base}/api/rooms`, {
       headers: { authorization: 'Bearer wrong-token' },
@@ -148,6 +149,34 @@ describe('REST', () => {
     expect(body.note.name).toBe('risk-limits');
     expect(body.note.body).toContain('[redacted]');
     expect(body.note.body).not.toContain('sk-proj-');
+  });
+
+  it('serves the room-scoped ledger graph to observer readers without a mutation route', async () => {
+    daemon.addLedgerNote('eng', {
+      name: 'launch-plan',
+      type: 'decision',
+      author: 'richard',
+      body: 'Honor [[risk-limits]].',
+    });
+    daemon.addLedgerNote('eng', {
+      name: 'risk-limits',
+      type: 'constraint',
+      author: 'richard',
+      body: 'Stay bounded.',
+    });
+    const res = await fetch(`${base}/api/rooms/eng/ledger`, {
+      headers: { authorization: `Bearer ${OBSERVER_TOKEN}` },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      graph: { nodes: { id: string }[]; edges: { source: string; target: string }[] };
+    };
+    expect(body.graph.nodes.map((node) => node.id)).toContain('launch-plan');
+    expect(body.graph.edges).toContainEqual({ source: 'launch-plan', target: 'risk-limits' });
+    expect((await fetch(`${base}/api/rooms/eng/ledger`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    })).status).toBe(404);
   });
 
   it('serves delta-sync from the change log cursor', async () => {

@@ -5,14 +5,14 @@ assumptions:
   create:
     - id: graph-derived-from-vault-links-readonly
       title: Ledger graph is a read-only projection of watched vault wikilinks
-      statement: The home switchboard must derive deterministic note nodes and
-        untyped edges from existing vault [[wikilinks]] when the vault is enabled
-        or watched files change, expose only that room-scoped projection to an
+      statement: The home switchboard must derive deterministic note nodes and untyped
+        edges from existing vault [[wikilinks]] when the vault is enabled or
+        watched files change, expose only that room-scoped projection to an
         authorized reader, and let the web graph select and read notes without
         any graph mutation path.
       reason: The roadmap promises a useful local graph view, but treating the
-        visualization as a second editable model would diverge from the vault and
-        violate the ledger's home-only source of truth.
+        visualization as a second editable model would diverge from the vault
+        and violate the ledger's home-only source of truth.
       depends_on:
         - ledger-writes-audited-in-room
         - roles-gate-human-acts-not-agents
@@ -20,22 +20,28 @@ assumptions:
   reviewed:
     - id: ledger-writes-audited-in-room
       outcome: unchanged
-      reason: Graph rebuilds accompany the existing audit path without changing notices.
+      reason: Graph rebuilds accompany the existing audit path without changing
+        notices.
     - id: roles-gate-human-acts-not-agents
       outcome: unchanged
-      reason: The endpoint is observer-readable and exposes no graph mutation capability.
+      reason: The endpoint is observer-readable and exposes no graph mutation
+        capability.
     - id: pwa-cold-launch-restores-local-auth
       outcome: unchanged
-      reason: The new tokenless ledger route consumes the same paired local bearer bootstrap.
+      reason: The new tokenless ledger route consumes the same paired local bearer
+        bootstrap.
     - id: spend-meter-always-on
       outcome: unchanged
-      reason: The room header adds graph navigation without removing or weakening its meter.
+      reason: The room header adds graph navigation without removing or weakening its
+        meter.
     - id: web-glass-theme-accessible-modes
       outcome: unchanged
-      reason: Graph canvas, nodes, controls, and inspector consume the existing semantic modes.
+      reason: Graph canvas, nodes, controls, and inspector consume the existing
+        semantic modes.
     - id: restrained-design-system-guides-responsive-surfaces
       outcome: unchanged
-      reason: The tracked v4 ImageGen graph mock and restrained graph contract are authoritative.
+      reason: The tracked v4 ImageGen graph mock and restrained graph contract are
+        authoritative.
 anchors:
   graph-derived-from-vault-links-readonly:
     ledger-graph-cache:
@@ -46,10 +52,12 @@ anchors:
       reason: Expose the authorized room-scoped projection without a write route.
     ledger-graph-web:
       action: change
-      reason: Render bounded D3 force layout, filters, pan/zoom, legend, and note inspector.
+      reason: Render bounded D3 force layout, filters, pan/zoom, legend, and note
+        inspector.
     ledger-graph-regression:
       action: change
-      reason: Prove golden graph derivation and browser click-through to the note viewer.
+      reason: Prove golden graph derivation and browser click-through to the note
+        viewer.
   ledger-writes-audited-in-room:
     ledger-change-audit:
       action: change
@@ -83,3 +91,5 @@ files:
   - packages/web/tests/harness.mjs
   - tmp/build/design/v4/desktop-ledger-graph.png
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T06:36:29.607Z
