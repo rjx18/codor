@@ -8,8 +8,8 @@ import {
   MemberCard,
   MessageRow,
   extensionRunSummaries,
-  impliedRecipient,
   ledgerTextSegments,
+  mentionMatchAtCaret,
   RunMessageView,
   RunStallBadge,
   SPAWN_PRESETS,
@@ -117,55 +117,25 @@ describe('spawn presets', () => {
 });
 // harn:end web-spawn-dialog-exposes-canonical-agent-controls
 
-describe('impliedRecipient (invariant 3: visible before send)', () => {
-  const runMessages = { 7: finalizedRun };
-
-  it('explicit mentions win', () => {
-    expect(impliedRecipient('@alpha and @richard look', members, runMessages)).toEqual({
-      kind: 'mentions',
-      label: '→ @alpha @richard',
+// harn:assume literal-draft-recipient-visible-before-send ref=composer-recipient-unit-regression
+describe('mentionMatchAtCaret', () => {
+  it('orders agents before humans and filters by the caret prefix', () => {
+    expect(mentionMatchAtCaret('@', 1, [richard, alpha])?.candidates.map((member) => member.handle))
+      .toEqual(['alpha', 'richard']);
+    expect(mentionMatchAtCaret('ask @r', 6, [richard, alpha])).toMatchObject({
+      start: 4,
+      end: 6,
+      query: 'r',
+      candidates: [expect.objectContaining({ handle: 'richard' })],
     });
   });
 
-  it('uses the router grammar for fenced-code escaping', () => {
-    expect(impliedRecipient('```\n@richard\n```\ncontinue', members, runMessages)).toEqual({
-      kind: 'default',
-      label: '→ @alpha (untagged default)',
-    });
-  });
-
-  it('untagged drafts show the latest FINALIZED agent as the default', () => {
-    expect(impliedRecipient('looks good, continue', members, runMessages)).toEqual({
-      kind: 'default',
-      label: '→ @alpha (untagged default)',
-    });
-  });
-
-  it('a running placeholder does not count as a default target', () => {
-    const running = {
-      7: { ...finalizedRun, run: { ...finalizedRun.run!, status: 'running' as const } },
-    };
-    expect(impliedRecipient('anyone?', members, running).kind).toBe('commentary');
-  });
-
-  it('no finalized agent ever → room commentary', () => {
-    expect(impliedRecipient('morning', members, {})).toEqual({
-      kind: 'commentary',
-      label: 'room commentary — delivered to nobody',
-    });
-  });
-
-  it('uses the retained full-history recipient when its run is outside the visible page', () => {
-    expect(impliedRecipient('continue', members, {}, alpha.id)).toEqual({
-      kind: 'default',
-      label: '→ @alpha (untagged default)',
-    });
-  });
-
-  it('unknown handles do not select recipients', () => {
-    expect(impliedRecipient('@nosuch hello', members, {}).kind).toBe('commentary');
+  it('uses the shared parser to reject code mentions and removed candidates', () => {
+    expect(mentionMatchAtCaret('`@a`', 3, [alpha])).toBeUndefined();
+    expect(mentionMatchAtCaret('@', 1, [{ ...alpha, removed_ts: TS }])).toBeUndefined();
   });
 });
+// harn:end literal-draft-recipient-visible-before-send
 
 describe('RunMessageView', () => {
   it('renders the live header while running', () => {

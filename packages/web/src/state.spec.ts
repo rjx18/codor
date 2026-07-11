@@ -287,4 +287,35 @@ describe('selectors', () => {
     expect(latestFinalizedAgentAuthor(messages, members)!.handle).toBe('alpha');
     expect(sortedMessages(messages).map((m) => m.id)).toEqual([1, 2]);
   });
+
+  // harn:assume literal-draft-recipient-visible-before-send ref=non-ack-default-regression
+  it('keeps acknowledgement runs out of cached and visible-history defaults', () => {
+    const { applyFrame } = useRoomStore.getState();
+    const beta = { ...alpha, id: ULID_C, handle: 'beta', display_name: 'Beta' };
+    applyFrame({ type: 'member', seq: 1, member: alpha });
+    applyFrame({ type: 'member', seq: 2, member: beta });
+    const substantive = message({
+      id: 3,
+      seq: 2,
+      kind: 'run',
+      author: alpha.id,
+      body: 'done',
+      run: { status: 'completed', started_ts: TS, tool_calls: 0, events_ref: 'runs/3.jsonl' },
+    });
+    const ack = message({
+      id: 4,
+      seq: 3,
+      kind: 'run',
+      author: beta.id,
+      body: '<ACK_OK>',
+      ack: true,
+      run: { status: 'completed', started_ts: TS, tool_calls: 0, events_ref: 'runs/4.jsonl' },
+    });
+    applyFrame({ type: 'message', seq: 2, message: substantive });
+    applyFrame({ type: 'message', seq: 3, message: ack });
+
+    expect(useRoomStore.getState().latestFinalizedAgentId).toBe(alpha.id);
+    expect(latestFinalizedAgentAuthor({ 4: ack }, { [beta.id]: beta })).toBeUndefined();
+  });
+  // harn:end literal-draft-recipient-visible-before-send
 });

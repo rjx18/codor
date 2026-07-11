@@ -1,0 +1,96 @@
+id: codor-p4e-composer
+title: P4e literal-recipient composer and mention popup
+assumptions:
+  retire:
+    - id: implied-recipient-visible-before-send
+      reason: The separate resolved-recipient line is replaced by a literal editable
+        mention in the draft.
+  create:
+    - id: literal-draft-recipient-visible-before-send
+      title: The composer makes default recipients literal before send
+      statement: The composer must materialize an available latest finalized non-ack
+        agent default as one editable literal @handle mention when the first
+        character of an empty draft is not @, never reinsert it within that
+        draft after deletion, and use the shared body parser for a
+        keyboard-and-touch member mention popup that excludes non-addressable
+        and removed members, because the human must see and control the exact
+        recipient in message text before sending.
+      reason: Phase 4e replaces the standing destination preview with S13 draft
+        semantics.
+      depends_on:
+        - body-parser-shared-across-router-and-web
+        - substantive-routing-excludes-acknowledgements
+        - removed-members-remain-attribution-tombstones
+  reviewed:
+    - id: body-parser-shared-across-router-and-web
+      outcome: unchanged
+      reason: The protocol parser now gates popup recognition in code and
+        addressability contexts.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: The client default cache skips ack runs just as the router already does.
+    - id: removed-members-remain-attribution-tombstones
+      outcome: unchanged
+      reason: Popup candidates and auto-defaults exclude live tombstone frames.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: Message upserts retain the cursor contract while refining the non-ack
+        default cache.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: The popup and mention affordance use the existing semantic theme and
+        focus states.
+anchors:
+  implied-recipient-visible-before-send:
+    composer-implied-recipient:
+      action: remove
+      reason: Remove the separate recipient-preview contract and its source marker.
+  literal-draft-recipient-visible-before-send:
+    composer-literal-recipient:
+      action: change
+      reason: Add insert-once auto-mention and parser-backed popup behavior.
+    composer-recipient-unit-regression:
+      action: change
+      reason: Prove candidate ordering, filtering, parser contexts, and insertion
+        ranges.
+    composer-popup-style:
+      action: change
+      reason: Style the popup and mention affordance as compact accessible composer
+        controls.
+    composer-browser-regression:
+      action: change
+      reason: Prove insert-once, reset, filtering, keyboard selection, escape, and
+        no-default behavior.
+    literal-draft-recipient-invariant:
+      action: change
+      reason: Make PROTOCOL invariant 3 effective in both canonical and website copies.
+    non-ack-default-cache:
+      action: change
+      reason: Prevent finalized acknowledgement runs from becoming the web
+        auto-mention default.
+    non-ack-default-regression:
+      action: change
+      reason: Lock ack exclusion in both frame caching and visible-history fallback
+        selection.
+  client-syncs-by-seq:
+    store-upsert-in-place:
+      action: change
+      reason: Refine finalized-agent caching to exclude durable acknowledgement frames.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Add accessible semantic popup and affordance styles within the theme
+        boundary.
+files:
+  - docs/PROTOCOL.md
+  - website/docs/PROTOCOL.md
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/state.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/styles.css
+  - packages/web/tests/composer.e2e.spec.ts
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/m3-acceptance.e2e.spec.ts
+applied:
+  applied_at: 2026-07-11T17:48:39.450Z

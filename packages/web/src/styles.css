@@ -1285,20 +1285,6 @@ button:disabled {
   gap: 9px;
 }
 
-.wr-recipient {
-  margin: 0;
-  overflow: hidden;
-  color: var(--wr-muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wr-recipient::before {
-  color: var(--wr-faint);
-  content: 'To ';
-}
-
 .wr-input,
 .wr-code-field {
   border: 1px solid var(--wr-line-strong);
@@ -4013,6 +3999,87 @@ button:disabled {
   border-color: var(--wr-line);
   background: transparent;
 }
+
+/* harn:assume literal-draft-recipient-visible-before-send ref=composer-popup-style */
+.wr-composer-field {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+}
+
+.wr-composer-field .wr-composer-input {
+  width: 100%;
+}
+
+.wr-mention-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--wr-line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--wr-muted);
+}
+
+.wr-mention-button:hover,
+.wr-mention-button:focus-visible {
+  border-color: var(--wr-line-strong);
+  color: var(--wr-text);
+}
+
+.wr-mention-popup {
+  position: absolute;
+  z-index: 4;
+  right: 0;
+  bottom: calc(100% + 8px);
+  left: 0;
+  max-height: 240px;
+  padding: 5px;
+  overflow-y: auto;
+  border: 1px solid var(--wr-line-strong);
+  border-radius: 6px;
+  background: var(--wr-surface-raised);
+  box-shadow: var(--wr-shadow-strong);
+}
+
+.wr-mention-popup button {
+  display: grid;
+  width: 100%;
+  min-height: 44px;
+  grid-template-columns: minmax(90px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--wr-text);
+  text-align: left;
+}
+
+.wr-mention-popup button[aria-selected='true'],
+.wr-mention-popup button:hover {
+  background: var(--wr-surface-selected);
+}
+
+.wr-mention-popup button strong {
+  font-size: 12px;
+}
+
+.wr-mention-popup button span,
+.wr-mention-popup > p {
+  margin: 0;
+  overflow: hidden;
+  color: var(--wr-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wr-mention-popup > p {
+  padding: 10px;
+}
+/* harn:end literal-draft-recipient-visible-before-send */
 
 .wr-send-button {
   border-color: var(--wr-line-strong);

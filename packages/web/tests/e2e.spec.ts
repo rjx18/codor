@@ -139,10 +139,10 @@ test('room v1: post → live run → expand → ask → hold release → reconne
   await expect(page.getByTestId('member-alpha')).toBeVisible();
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
 
-  // invariant 3: the composer shows where the draft goes BEFORE send
-  await expect(page.getByTestId('implied-recipient')).toHaveAttribute('data-kind', 'commentary');
+  // invariant 3: the destination is literal in the draft, never a separate status line
+  await expect(page.getByTestId('implied-recipient')).toHaveCount(0);
   await page.getByTestId('composer-input').fill('@alpha pick the codeword');
-  await expect(page.getByTestId('implied-recipient')).toHaveText('→ @alpha');
+  await expect(page.getByTestId('composer-input')).toHaveValue('@alpha pick the codeword');
 
   // 1. post → the run message appears LIVE (status running)
   await control('/enqueue', {

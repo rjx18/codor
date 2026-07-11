@@ -12,6 +12,7 @@ import {
 } from '@wireroom/protocol';
 import {
   Activity,
+  AtSign,
   Bot,
   BrainCircuit,
   Cable,
@@ -53,7 +54,6 @@ import {
   type RunRow,
 } from './run-presenter.js';
 import {
-  latestFinalizedAgentAuthor,
   me,
   type MemberStateObservation,
   type RunEventBuffer,
@@ -1279,36 +1279,43 @@ export function HoldBanner(props: {
   );
 }
 
-// harn:assume implied-recipient-visible-before-send ref=composer-implied-recipient
-/**
- * PROTOCOL invariant 3: the human always sees where the draft will go BEFORE
- * sending — explicit mentions when present, else the latest FINALIZED agent
- * author (the untagged default), else room commentary (delivered to nobody).
- */
-export function impliedRecipient(
+// harn:assume literal-draft-recipient-visible-before-send ref=composer-literal-recipient
+export interface MentionMatch {
+  start: number;
+  end: number;
+  query: string;
+  candidates: Member[];
+}
+
+export function mentionMatchAtCaret(
   draft: string,
-  members: Record<string, Member>,
-  messages: Record<number, Message>,
-  defaultRecipientId?: string,
-): { kind: 'mentions' | 'default' | 'commentary'; label: string } {
-  const roster = Object.values(members);
-  const byId = new Map(roster.map((member) => [member.id, member]));
-  const handles: string[] = [];
-  for (const span of parseBody(draft, roster).mentions) {
-    const member = byId.get(span.member_id);
-    if (member && !handles.includes(member.handle)) {
-      handles.push(member.handle);
-    }
-  }
-  if (handles.length > 0) {
-    return { kind: 'mentions', label: `→ ${handles.map((h) => `@${h}`).join(' ')}` };
-  }
-  const retained = defaultRecipientId === undefined ? undefined : members[defaultRecipientId];
-  const fallback = retained?.kind === 'agent'
-    ? retained
-    : latestFinalizedAgentAuthor(messages, members);
-  if (fallback) return { kind: 'default', label: `→ @${fallback.handle} (untagged default)` };
-  return { kind: 'commentary', label: 'room commentary — delivered to nobody' };
+  caret: number,
+  members: Member[],
+): MentionMatch | undefined {
+  const roster = members
+    .filter((member) =>
+      member.removed_ts === undefined && (member.kind === 'agent' || member.kind === 'human'))
+    .sort((left, right) => {
+      if (left.kind !== right.kind) return left.kind === 'agent' ? -1 : 1;
+      return left.handle.localeCompare(right.handle);
+    });
+  if (roster.length === 0) return undefined;
+  const match = /(^|[^\w`@])@([a-z0-9-]*)$/.exec(draft.slice(0, caret));
+  if (!match) return undefined;
+  const query = match[2]!;
+  const start = caret - query.length - 1;
+  const probe = roster[0]!;
+  const probeBody = `${draft.slice(0, start)}@${probe.handle}${draft.slice(caret)}`;
+  const probeEnd = start + probe.handle.length + 1;
+  if (!parseBody(probeBody, roster).mentions.some(
+    (mention) => mention.member_id === probe.id && mention.start === start && mention.end === probeEnd,
+  )) return undefined;
+  return {
+    start,
+    end: caret,
+    query,
+    candidates: roster.filter((member) => member.handle.startsWith(query)),
+  };
 }
 
 export function Composer(props: {
@@ -1318,39 +1325,174 @@ export function Composer(props: {
   connection: Connection;
 }) {
   const [draft, setDraft] = useState('');
-  const implied = useMemo(
-    () => impliedRecipient(draft, props.members, props.messages, props.defaultRecipientId),
-    [draft, props.members, props.messages, props.defaultRecipientId],
-  );
+  const [mention, setMention] = useState<MentionMatch>();
+  const [activeMention, setActiveMention] = useState(0);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const draftStarted = useRef(false);
+  const dismissedMention = useRef<string>();
+  const roster = useMemo(() => Object.values(props.members), [props.members]);
+  const defaultRecipient = props.defaultRecipientId === undefined
+    ? undefined
+    : props.members[props.defaultRecipientId];
+  const autoMention = defaultRecipient?.kind === 'agent' && defaultRecipient.removed_ts === undefined
+    ? defaultRecipient
+    : undefined;
+
+  const refreshMention = (value: string, caret: number): void => {
+    const key = `${String(caret)}\u0000${value}`;
+    setMention(dismissedMention.current === key
+      ? undefined
+      : mentionMatchAtCaret(value, caret, roster));
+    setActiveMention(0);
+  };
+
+  const focusAt = (caret: number): void => {
+    requestAnimationFrame(() => {
+      input.current?.focus();
+      input.current?.setSelectionRange(caret, caret);
+    });
+  };
+
+  const insertMention = (member: Member): void => {
+    if (!mention) return;
+    const inserted = `@${member.handle} `;
+    const next = `${draft.slice(0, mention.start)}${inserted}${draft.slice(mention.end)}`;
+    const caret = mention.start + inserted.length;
+    draftStarted.current = next !== '';
+    dismissedMention.current = undefined;
+    setDraft(next);
+    setMention(undefined);
+    focusAt(caret);
+  };
+
+  const insertMentionAffordance = (): void => {
+    const start = input.current?.selectionStart ?? draft.length;
+    const end = input.current?.selectionEnd ?? start;
+    const before = draft.slice(0, start);
+    const inserted = before !== '' && /[\w`@]$/.test(before) ? ' @' : '@';
+    const next = `${before}${inserted}${draft.slice(end)}`;
+    const caret = start + inserted.length;
+    draftStarted.current = true;
+    dismissedMention.current = undefined;
+    setDraft(next);
+    refreshMention(next, caret);
+    focusAt(caret);
+  };
+
   const send = (): void => {
     if (draft.trim() === '') return;
     props.connection.post(draft);
     setDraft('');
+    setMention(undefined);
+    draftStarted.current = false;
+    dismissedMention.current = undefined;
   };
   return (
     <div className="wr-composer">
       <div className="wr-composer-heading">
         <span>Message the room</span>
-        <p data-testid="implied-recipient" data-kind={implied.kind} className="wr-recipient">
-          {implied.label}
-        </p>
       </div>
       <div className="wr-composer-row">
-        <textarea
-          data-testid="composer-input"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          rows={2}
-          aria-label="Message the room"
-          placeholder="Message the room"
-          className="wr-input wr-composer-input min-h-12 min-w-0 flex-1 resize-none px-3 py-2 text-base sm:text-sm"
-        />
+        <button
+          type="button"
+          data-testid="composer-mention"
+          aria-label="Mention a member"
+          title="Mention"
+          onClick={insertMentionAffordance}
+          className="wr-mention-button h-12 w-12 shrink-0"
+        >
+          <AtSign aria-hidden="true" size={19} />
+        </button>
+        <div className="wr-composer-field">
+          {mention && (
+            <div
+              id="composer-mentions"
+              data-testid="mention-popup"
+              role="listbox"
+              aria-label="Channel members"
+              className="wr-mention-popup"
+            >
+              {mention.candidates.length === 0 ? (
+                <p>No matching members</p>
+              ) : mention.candidates.map((member, index) => (
+                <button
+                  key={member.id}
+                  id={`mention-${member.id}`}
+                  type="button"
+                  role="option"
+                  data-testid={`mention-option-${member.handle}`}
+                  aria-selected={index === activeMention}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => insertMention(member)}
+                >
+                  <strong>@{member.handle}</strong>
+                  <span>{member.purpose ?? member.display_name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <textarea
+            ref={input}
+            data-testid="composer-input"
+            value={draft}
+            onChange={(event) => {
+              const typed = event.target.value;
+              dismissedMention.current = undefined;
+              let next = typed;
+              let caret = event.target.selectionStart;
+              if (!draftStarted.current && typed !== '') {
+                draftStarted.current = true;
+                if (!typed.startsWith('@') && autoMention) {
+                  const prefix = `@${autoMention.handle} `;
+                  next = `${prefix}${typed}`;
+                  caret += prefix.length;
+                }
+              } else if (typed === '') {
+                draftStarted.current = false;
+              }
+              setDraft(next);
+              refreshMention(next, caret);
+              if (next !== typed) focusAt(caret);
+            }}
+            onSelect={(event) => refreshMention(draft, event.currentTarget.selectionStart)}
+            onKeyDown={(event) => {
+              if (mention) {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  dismissedMention.current = `${String(event.currentTarget.selectionStart)}\u0000${draft}`;
+                  setMention(undefined);
+                  return;
+                }
+                if (mention.candidates.length > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+                  event.preventDefault();
+                  setActiveMention((current) => {
+                    const direction = event.key === 'ArrowDown' ? 1 : -1;
+                    return (current + direction + mention.candidates.length) % mention.candidates.length;
+                  });
+                  return;
+                }
+                if (mention.candidates[activeMention] && event.key === 'Enter') {
+                  event.preventDefault();
+                  insertMention(mention.candidates[activeMention]);
+                  return;
+                }
+              }
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                send();
+              }
+            }}
+            rows={2}
+            aria-label="Message the room"
+            aria-expanded={mention !== undefined}
+            aria-controls={mention ? 'composer-mentions' : undefined}
+            aria-activedescendant={mention?.candidates[activeMention]
+              ? `mention-${mention.candidates[activeMention].id}`
+              : undefined}
+            placeholder="Message the room"
+            className="wr-input wr-composer-input min-h-12 min-w-0 resize-none px-3 py-2 text-base sm:text-sm"
+          />
+        </div>
         <button
           type="button"
           data-testid="composer-send"
@@ -1366,7 +1508,7 @@ export function Composer(props: {
     </div>
   );
 }
-// harn:end implied-recipient-visible-before-send
+// harn:end literal-draft-recipient-visible-before-send
 
 export function MessageRow(props: {
   message: Message;

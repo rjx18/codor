@@ -390,12 +390,12 @@ read and extend), rebuilt local-first and graph-shaped:
    say it, or reference it with `#N`.
 2. `Message.id` is dense and monotonic per room; `#N` is permanent (edits are new messages;
    there is no message deletion inside a room, only room deletion).
-3. Every non-commentary message resolves to ≥1 recipient at post time; the composer surfaces
-   the implied default so the human always sees where it will go before sending.
-   **Phase 4e amendment (draft; not yet effective):** the composer will materialize that implied
-   default as a literal, editable `@handle` mention in the draft and remove the separate
-   recipient line. The current surfaced-default contract above remains effective until Phase
-   4e updates the composer and its Harn anchor in the same commit.
+<!-- harn:assume literal-draft-recipient-visible-before-send ref=literal-draft-recipient-invariant -->
+3. Every non-commentary message resolves to ≥1 recipient at post time. When an available
+   latest finalized non-ack agent is the default, the composer materializes that destination
+   as one literal, editable `@handle` mention on the first non-`@` input into an empty draft.
+   It inserts at most once per draft, so deleting the mention never silently restores it.
+<!-- harn:end literal-draft-recipient-visible-before-send -->
 4. The switchboard never fabricates member speech. Everything attributed to a member came out of
    its session or its human's keyboard/microphone.
 5. All state needed to rebuild a room (messages, members, session_refs, blobs) lives on the

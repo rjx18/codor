@@ -98,7 +98,7 @@ test('M3 acceptance: the installed mobile PWA runs the room flow and opens seale
       }],
     });
     await page.getByTestId('composer-input').fill('@alpha choose the mobile codeword');
-    await expect(page.getByTestId('implied-recipient')).toHaveText('→ @alpha');
+    await expect(page.getByTestId('implied-recipient')).toHaveCount(0);
     await page.getByTestId('composer-send').click();
     const firstRun = page.locator('[data-run-status="running"]').first();
     await expect(firstRun).toBeVisible();

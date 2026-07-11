@@ -122,11 +122,14 @@ export const useRoomStore = create<RoomState>((set) => ({
             };
           }
         case 'message': {
+          // harn:assume literal-draft-recipient-visible-before-send ref=non-ack-default-cache
           const finalizedAgent =
             frame.message.kind === 'run' &&
             frame.message.run !== undefined &&
             frame.message.run.status !== 'running' &&
+            frame.message.ack !== true &&
             state.members[frame.message.author]?.kind === 'agent';
+          // harn:end literal-draft-recipient-visible-before-send
           return {
             seq: bump,
             messages: { ...state.messages, [frame.message.id]: frame.message },
@@ -209,7 +212,12 @@ export const latestFinalizedAgentAuthor = (
   const ordered = sortedMessages(messages);
   for (let i = ordered.length - 1; i >= 0; i--) {
     const message = ordered[i]!;
-    if (message.kind === 'run' && message.run !== undefined && message.run.status !== 'running') {
+    if (
+      message.kind === 'run' &&
+      message.run !== undefined &&
+      message.run.status !== 'running' &&
+      message.ack !== true
+    ) {
       const author = members[message.author];
       if (author?.kind === 'agent') return author;
     }
