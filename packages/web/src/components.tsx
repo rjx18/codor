@@ -100,9 +100,12 @@ export function Header(props: {
   onOpenContext?: () => void;
   onToggleSearch?: () => void;
 }) {
-  const tokens = props.meter
-    ? props.meter.input_tokens + props.meter.output_tokens
-    : 0;
+  const meter = {
+    turns: props.meter?.turns ?? 0,
+    costUsd: props.meter?.cost_usd ?? 0,
+    tokens: (props.meter?.input_tokens ?? 0) + (props.meter?.output_tokens ?? 0),
+    uncostedTokens: props.meter?.uncosted_tokens ?? 0,
+  };
   return (
     <header className="wr-room-header">
       <div className="wr-header-identity">
@@ -132,31 +135,29 @@ export function Header(props: {
           </span>
         </div>
       </div>
-      {props.meter && (
-        <div
-          data-testid="meter"
-          className="wr-meter"
-          tabIndex={0}
-          aria-label="Room usage today"
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-              event.preventDefault();
-              event.currentTarget.scrollBy({
-                left: event.key === 'ArrowLeft' ? -120 : 120,
-                behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-              });
-            }
-          }}
-          title={`${String(props.meter.turns)} turns, ${String(tokens)} tokens, $${props.meter.cost_usd.toFixed(2)} today`}
-        >
-          <span><Gauge aria-hidden="true" size={14} /> {props.meter.turns} turns</span>
-          <span><Activity aria-hidden="true" size={14} /> {tokens.toLocaleString()} tokens</span>
-          <span><CircleDollarSign aria-hidden="true" size={14} /> ${props.meter.cost_usd.toFixed(2)} today</span>
-          {(props.meter.uncosted_tokens ?? 0) > 0 && (
-            <em>{props.meter.uncosted_tokens ?? 0} tokens uncosted</em>
-          )}
-        </div>
-      )}
+      <div
+        data-testid="meter"
+        className="wr-meter"
+        tabIndex={0}
+        aria-label="Room usage today"
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            event.preventDefault();
+            event.currentTarget.scrollBy({
+              left: event.key === 'ArrowLeft' ? -120 : 120,
+              behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+            });
+          }
+        }}
+        title={`${String(meter.turns)} turns, ${String(meter.tokens)} tokens, $${meter.costUsd.toFixed(2)} today`}
+      >
+        <span><Gauge aria-hidden="true" size={14} /> {meter.turns} turns</span>
+        <span><Activity aria-hidden="true" size={14} /> {meter.tokens.toLocaleString()} tokens</span>
+        <span><CircleDollarSign aria-hidden="true" size={14} /> ${meter.costUsd.toFixed(2)} today</span>
+        {meter.uncostedTokens > 0 && (
+          <em>{meter.uncostedTokens} tokens uncosted</em>
+        )}
+      </div>
       <div className="wr-header-actions">
         {props.onToggleSearch && (
           <button

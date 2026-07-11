@@ -283,6 +283,7 @@ test('desktop room keeps rooms, conversation, and context in stable non-overlapp
   await expect(context).toBeVisible();
   await expect(page.getByTestId('open-room-drawer')).toBeHidden();
   await expect(page.getByTestId('composer-input')).toBeVisible();
+  await expect(page.getByTestId('meter')).toBeVisible();
 
   const roomBox = (await rooms.boundingBox())!;
   const conversationBox = (await conversation.boundingBox())!;
@@ -398,6 +399,26 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
   expect(narrowSend.x + narrowSend.width).toBeLessThanOrEqual(320);
   expect(narrowSend.y + narrowSend.height).toBeLessThanOrEqual(700);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+  const narrowMaterial = await page.evaluate(() => {
+    const canvas = getComputedStyle(document.querySelector<HTMLElement>('.wr-canvas')!);
+    const header = getComputedStyle(document.querySelector<HTMLElement>('.wr-room-header')!);
+    const main = getComputedStyle(document.querySelector<HTMLElement>('.wr-room-main')!);
+    const composer = getComputedStyle(document.querySelector<HTMLElement>('.wr-composer')!);
+    const send = getComputedStyle(document.querySelector<HTMLElement>('.wr-send-button')!);
+    return {
+      canvasImage: canvas.backgroundImage,
+      headerBackground: header.backgroundColor,
+      mainBackground: main.backgroundColor,
+      headerMaterial: header.backdropFilter || header.getPropertyValue('-webkit-backdrop-filter'),
+      composerMaterial: composer.backdropFilter || composer.getPropertyValue('-webkit-backdrop-filter'),
+      sendShadow: send.boxShadow,
+    };
+  });
+  expect(narrowMaterial.canvasImage).toBe('none');
+  expect(narrowMaterial.headerBackground).toBe(narrowMaterial.mainBackground);
+  expect(narrowMaterial.headerMaterial).toBe('none');
+  expect(narrowMaterial.composerMaterial).toContain('blur');
+  expect(narrowMaterial.sendShadow).toBe('none');
 });
 // harn:end web-room-visual-hierarchy-matches-restrained-reference
 
@@ -542,6 +563,26 @@ test('restrained shell keeps accessible light tokens and limits glass to functio
     getComputedStyle(document.documentElement).getPropertyValue('--wr-text').trim(),
   );
   expect(darkText).not.toBe(light.text);
+
+  await page.setViewportSize({ width: 1150, height: 820 });
+  await page.reload();
+  await expect(page.getByTestId('composer-input')).toBeVisible();
+  const intermediate = await page.evaluate(() => {
+    const canvas = getComputedStyle(document.querySelector<HTMLElement>('.wr-canvas')!);
+    const header = getComputedStyle(document.querySelector<HTMLElement>('.wr-room-header')!);
+    const rail = getComputedStyle(document.querySelector<HTMLElement>('.wr-room-rail')!);
+    const composer = getComputedStyle(document.querySelector<HTMLElement>('.wr-composer')!);
+    return {
+      canvasImage: canvas.backgroundImage,
+      headerMaterial: header.backdropFilter || header.getPropertyValue('-webkit-backdrop-filter'),
+      railMaterial: rail.backdropFilter || rail.getPropertyValue('-webkit-backdrop-filter'),
+      composerMaterial: composer.backdropFilter || composer.getPropertyValue('-webkit-backdrop-filter'),
+    };
+  });
+  expect(intermediate.canvasImage).toBe('none');
+  expect(intermediate.headerMaterial).toBe('none');
+  expect(intermediate.railMaterial).toBe('none');
+  expect(intermediate.composerMaterial).toContain('blur');
 
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
   expect(await page.locator('.wr-room-link').first().evaluate((element) =>

@@ -217,6 +217,23 @@ describe('MessageRow', () => {
 });
 
 describe('Header', () => {
+  it('shows an honest zero-state meter before the first usage frame', () => {
+    const html = renderToStaticMarkup(
+      <Header
+        roomName="Eng"
+        roomId="eng"
+        token="t"
+        connected={true}
+        meter={undefined}
+        unread={0}
+      />,
+    );
+    expect(html).toContain('data-testid="meter"');
+    expect(html).toContain('0 turns');
+    expect(html).toContain('0 tokens');
+    expect(html).toContain('$0.00');
+  });
+
   it('shows the meter and the unread inbox badge', () => {
     const html = renderToStaticMarkup(
       <Header
