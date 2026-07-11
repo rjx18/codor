@@ -1,0 +1,10 @@
+id: restrained-settings-recovered-review-record
+title: Record the corrected Settings review timeout
+assumptions:
+  retire: []
+  create: []
+  reviewed: []
+anchors: {}
+files:
+  - tmp/build/PROGRESS.md
+  - MANUAL-VERIFY.md
