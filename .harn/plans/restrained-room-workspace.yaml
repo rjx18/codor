@@ -1,0 +1,112 @@
+id: restrained-room-workspace
+title: Implement the restrained room and run workspace
+assumptions:
+  retire:
+    - id: web-room-visual-hierarchy-matches-glass-reference
+      reason: The operator rejected the v2 control-room hierarchy as neon,
+        science-fiction, and over-designed in favor of the approved v4 restrained
+        references.
+  create:
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      title: The room surface matches the restrained editorial references
+      statement: The web room must prioritize conversation through full-height matte
+        panes, text-first room rows, unframed messages and evidence, a plain context
+        inspector, sparse functional glass, compact system typography, and scarce
+        semantic color from wide desktop through the installed mobile PWA, because
+        the approved v4 references define a calm operational tool rather than a
+        neon control room or generic chat layout.
+      reason: The operator approved the ImageGen v4 desktop room, run detail, light
+        room, iPhone room, and drawer direction for implementation.
+      depends_on:
+        - restrained-design-system-guides-responsive-surfaces
+        - web-shell-responsive-three-pane
+        - web-glass-theme-accessible-modes
+  reviewed:
+    - id: restrained-design-system-guides-responsive-surfaces
+      outcome: unchanged
+      reason: Room, run, light, drawer, and mobile styling implement the new contract.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: Pane visibility and focus-managed collapse behavior stay intact while
+        dimensions and material treatment change.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Dark, light, focus, reduced motion, and opaque fallbacks remain semantic
+        while the palette and blur usage become restrained.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: The meter becomes visually quieter but remains visible at every width.
+    - id: run-context-selects-and-follows-live-evidence
+      outcome: unchanged
+      reason: The inspector becomes row-based without changing selection or refresh.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: Text-first rail styling keeps the owner-only create action functional.
+    - id: extensions-not-addressable-v1
+      outcome: unchanged
+      reason: Event styling changes without making extension rows addressable.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Visual simplification does not restore controls hidden by local roles.
+anchors:
+  web-room-visual-hierarchy-matches-glass-reference:
+    glass-room-visual-hierarchy:
+      action: remove
+      reason: Replace the rejected v2 visual contract marker.
+    glass-room-visual-regression:
+      action: remove
+      reason: Replace neon/material assertions with restrained computed-style checks.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: Bind the room render tree to the approved v4 hierarchy.
+    restrained-room-visual-regression:
+      action: change
+      reason: Prove flat panes, sparse glass, compact type, and semantic color in browser.
+  web-shell-responsive-three-pane:
+    responsive-room-shell:
+      action: change
+      reason: Reframe the existing responsive panes with approved proportions and rail rows.
+    responsive-shell-regression:
+      action: change
+      reason: Verify the revised pane geometry and mobile drawer still fit.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Replace cyan and gradient tokens with the v4 dark and light neutral system.
+    glass-theme-regression:
+      action: change
+      reason: Assert accessible restrained tokens and limited functional blur.
+  spend-meter-always-on:
+    meter-settings-surface:
+      action: change
+      reason: Keep the meter visible while reducing it to a compact row treatment.
+  run-context-selects-and-follows-live-evidence:
+    selected-live-run-context:
+      action: change
+      reason: Render evidence as compact inspector rows without changing live behavior.
+    selected-live-run-context-regression:
+      action: change
+      reason: Keep browser coverage aligned with the revised inspector surface.
+  web-room-rail-creates-owner-room:
+    room-rail-create-action:
+      action: change
+      reason: Replace decorative room glyphs with text-first semantic rows.
+    room-rail-create-regression:
+      action: change
+      reason: Preserve create-room coverage after the rail hierarchy changes.
+  extensions-not-addressable-v1:
+    extension-run-rendering:
+      action: change
+      reason: Remove terminal and neon decoration from structured event rows.
+  roles-gate-human-acts-not-agents:
+    role-aware-web-controls:
+      action: change
+      reason: Keep role-hidden controls intact while replacing the surrounding hierarchy marker.
+files:
+  - packages/web/src/App.tsx
+  - packages/web/src/shell.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+  - tmp/build/PROGRESS.md
