@@ -1,0 +1,45 @@
+id: codor-p7-release
+title: P7 record clean-slate deployment and release verification
+assumptions:
+  create:
+    - id: release-candidate-requires-clean-codor-deployment
+      title: Release candidate requires a clean Codor deployment record
+      statement: The release checklist must record a clean local clone installed
+        through the codor command and service, private HTTPS pairing, the
+        bounded live channel smoke, deterministic full gates, and the final
+        repository review before release, because Phase 7 is the end-to-end
+        proof of the renamed product rather than another fixture-only milestone.
+      reason: Phase 7 records the operator-owned deployment and verification facts
+        without storing tokens, pairing URLs, identities, or key material.
+      depends_on:
+        - fresh-clone-install-proven-by-script
+        - codor-runtime-identity-is-a-clean-break
+        - human-facing-surfaces-call-rooms-channels
+  reviewed:
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: Phase 7 repeats the new clone, frozen install, build, setup, and boot
+        flow on the live local deployment.
+    - id: cli-setup-wizard-preserves-service-environment
+      outcome: unchanged
+      reason: The live setup uses the generated absolute Node and harness PATH.
+    - id: terminal-pairing-qr-matches-plain-url
+      outcome: unchanged
+      reason: Terminal output is checked for a rendered QR while secret material is
+        kept out of logs and repository records.
+    - id: codor-runtime-identity-is-a-clean-break
+      outcome: unchanged
+      reason: The final deployment uses only Codor names and paths.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The walkthrough and release checklist use channel terminology while
+        protocol identifiers remain room.
+anchors:
+  release-candidate-requires-clean-codor-deployment:
+    final-release-verification-record:
+      action: change
+      reason: Record the completed clean deployment, smoke, gates, and review state.
+files:
+  - MANUAL-VERIFY.md
+applied:
+  applied_at: 2026-07-11T21:41:34.731Z

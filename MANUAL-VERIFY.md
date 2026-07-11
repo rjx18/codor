@@ -8,15 +8,15 @@ quota, or subscription failure.
 1. Create the final GitHub repository privately, add it as this checkout's `origin`, and verify the
    complete history contains no credentials, pairing URLs, DHT line secrets, bridge tokens, VAPID
    private keys, browser subscriptions, or local data directories. Do not make it public yet.
-2. Confirm the completed full-repository Codex review and its
-   `final-repository-review-fixes` Harn fold remain in the candidate history. Run the review again
-   if any later code commit lands; no unreviewed code may precede the 0.1.0 tag.
+2. Confirm the completed full-repository Codex review record, the mandatory reviewer audit of
+   `1a442f2..HEAD`, and every accepted Harn fold remain in the candidate history. Run the full review
+   again if any later commit lands; no unreviewed change may precede the 0.1.0 tag.
 3. Inspect current first-party output, harden the acceptance fixtures without weakening their
    routing contracts, and run the M0 and M1 live acceptances once on the pinned cheap models. Both
    exact chains must pass before tagging 0.1.0; another extra or missing route blocks publication.
-4. After all folds, run `pnpm test:all`, `pnpm audit:license`, `pnpm audit:release`, and
-   `scripts/fresh-install-test.sh` on the exact candidate commit. Every deterministic gate and the
-   clean-clone proof must pass.
+4. After all folds, run `corepack pnpm -r build`, `pnpm test:all`, `pnpm audit:license`,
+   `pnpm audit:release`, `scripts/fresh-install-test.sh`, `harn check`, and the release rename greps
+   on the exact candidate commit. Every deterministic gate and the clean-clone proof must pass.
 5. Push the reviewed `main` commit, enable branch protection and secret scanning, make the repository
    public, then create the signed `v0.1.0` tag and GitHub release from `CHANGELOG.md`. Do not publish
    any workspace to npm; the distribution is the source checkout and every package remains `private`.
@@ -25,8 +25,9 @@ quota, or subscription failure.
    Deploy only `website/.vitepress/dist/`, then verify Source, GitHub, and edit links point to the
    final repository and every documentation route loads over HTTPS.
 7. On a clean Linux or macOS host, follow `docs/SELF-HOST.md` without using this development
-   worktree. Confirm the user-systemd unit uses the host's absolute Node path, survives logout or
-   reboot when linger is enabled, stops cleanly, and restores from one encrypted stopped backup.
+   worktree. Run `codor setup` and confirm `codor.service` uses the host's absolute Node path,
+   survives logout or reboot when linger is enabled, stops cleanly, and restores from one encrypted
+   stopped backup.
 8. Configure Tailscale Serve on a disposable tailnet host and pair one remote browser through its
    HTTPS origin. Use the app connector only if a team already operates the required public domain,
    stable Linux connector, policy tags, route approval, and origin restrictions.
@@ -39,6 +40,44 @@ quota, or subscription failure.
 11. Keep Stripe and paid hosted organization services disabled. They are post-launch work in
    `docs/BUSINESS.md`; 0.1.0 must not collect payment or imply that hosted mailbox, directory,
    presence, or native iPhone/Watch products already exist.
+
+<!-- harn:assume release-candidate-requires-clean-codor-deployment ref=final-release-verification-record -->
+## Codor release-candidate verification
+
+Status on 2026-07-12: **the clean deployment and bounded live smoke passed; the mandatory
+`1a442f2..HEAD` repository review is pending**. A clean local clone at the Phase 6 candidate was
+installed with a frozen lockfile, built, linked as `codor`, and configured only through `codor
+setup`. The user service is enabled and active, Tailscale Serve is published, the terminal QR
+rendered, and the generated configuration, environment, and data paths have private modes. One
+browser paired through the tailnet HTTPS origin; Settings showed it as the current browser with an
+available unpair control. No token, pairing URL, device identity, session reference, or key material
+is retained in this record.
+
+The browser created channel `smoke` through the folder picker using `/home/richard/codor`, selected
+a color, and observed the default `@codor` member. Before live inference, both smoke members were
+configured with the `claude-code` `haiku` model. Exactly two tiny paid turns were sent, once each,
+with no retry. The `@codor` turn used `reply with one short sentence`: the run began expanded with a
+running shimmer, its elapsed value ticked, its journal recorded two normalized prose rows before
+completion, the final one-sentence response collapsed, the spend meter changed, and the Inspector
+run facts loaded. The completed run replayed both journal rows, typing an untagged next draft
+materialized literal `@codor`, and the parser-backed `@` member picker was visible. Deterministic
+FakeAdapter browser coverage remains the proof for Bash output, Edit diff, image, approval, and
+responsive Inspector variants without another paid turn.
+
+The `tester` preset retained its documented purpose, workspace-write policy, channel cwd, and
+explicit cheap model. Its first native run journal contained one roster block naming the human,
+switchboard, `@codor`, and `@tester`. The content-free notice returned exact `<ACK_OK>`; the web UI
+showed the muted acknowledgement marker and the database recorded zero onward deliveries.
+`@codor` remained marked for a roster refresh after the membership transition. `codor attach
+tester -r smoke` acquired a child-recorded lease, changed custody to mirrored, opened the resumable
+interactive session without another prompt, and emitted the release message. Exiting the terminal
+removed the lease, restored owned/idle custody, and emitted the re-adoption message. Both agent
+members were then killed and removed through the UI; the `smoke` channel itself remains, as required.
+
+The deterministic release matrix and fresh-clone proof must pass on the exact candidate commit
+before this record is sent for the mandatory full repository review. Reviewer findings, accepted
+folds, and the final disposition will be recorded here before the development-checkout rename.
+<!-- harn:end release-candidate-requires-clean-codor-deployment -->
 
 ## Launch-sweep live acceptance record
 
