@@ -396,6 +396,7 @@ export function App(props: {
           currentHeld={held.length}
           connected={state.connected}
           token={accessToken()}
+          adapters={adapters}
           owner={owner ? { handle: owner.handle, display_name: owner.display_name } : undefined}
           canCreateRoom={canManageRooms}
         />
@@ -403,6 +404,7 @@ export function App(props: {
           <Header
             roomName={state.room?.name ?? ROOM}
             roomId={ROOM}
+            roomColor={state.room?.config.color}
             token={accessToken()}
             connected={state.connected}
             meter={state.meter}
@@ -668,6 +670,7 @@ export function App(props: {
               currentHeld={held.length}
               connected={state.connected}
               token={accessToken()}
+              adapters={adapters}
               owner={owner ? { handle: owner.handle, display_name: owner.display_name } : undefined}
               canCreateRoom={canManageRooms}
               onNavigate={() => setDrawerOpen(false)}

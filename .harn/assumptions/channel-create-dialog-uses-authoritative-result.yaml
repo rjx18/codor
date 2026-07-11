@@ -1,0 +1,15 @@
+id: channel-create-dialog-uses-authoritative-result
+hash: a-77d1cef13fe4
+title: Channel creation previews locally and trusts the server result
+state: active
+statement: The owner channel dialog must mirror id derivation only as a preview,
+  submit name, accent color, validated project folder, and optional starting
+  adapter to the server, navigate using the authoritative returned id, and
+  render the persisted color in the rail and header, because collision suffixes
+  and spawn outcomes belong to the switchboard while operators need immediate
+  feedback and a usable seeded channel.
+depends_on:
+  - channel-creation-derived-and-seeded
+  - local-directory-listing-home-contained
+  - web-room-rail-creates-owner-room
+created_by: codor-p4c-channel-create

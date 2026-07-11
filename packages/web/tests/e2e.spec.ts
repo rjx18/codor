@@ -598,8 +598,8 @@ test('desktop room rail creates and enters an owner-seeded room without a bearer
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await page.getByTestId('create-room').click();
   await expect(page.getByTestId('create-room-dialog')).toBeVisible();
-  await page.getByTestId('create-room-id').fill('glass-review-room');
   await page.getByTestId('create-room-name').fill('Glass review room');
+  await expect(page.getByTestId('create-room-id')).toHaveText('id: glass-review-room');
   await page.getByTestId('create-room-submit').click();
   await expect(page).toHaveURL(/\?room=glass-review-room$/);
   await expect(page).not.toHaveURL(/token=/);

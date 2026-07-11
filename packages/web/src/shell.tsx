@@ -1,9 +1,11 @@
-import type { Member, Message, Room, WireEvent } from '@wireroom/protocol';
+import { deriveRoomId, type Member, type Message, type Room, type WireEvent } from '@wireroom/protocol';
 import {
   Activity,
+  ArrowUp,
   ChevronRight,
   Clock3,
   ExternalLink,
+  Folder,
   Plus,
   Settings,
   Users,
@@ -11,7 +13,14 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
-import { createRoom, fetchRunEvents, type AdapterRegistration, type MemberDetail } from './api.js';
+import {
+  createRoom,
+  fetchLocalDirectories,
+  fetchRunEvents,
+  type AdapterRegistration,
+  type LocalDirectoryListing,
+  type MemberDetail,
+} from './api.js';
 import { MemberRail } from './components.js';
 import { formatRunDuration, mergeRunEvents, presentRunEvents, type RunRow } from './run-presenter.js';
 import type { MemberStateObservation, RunEventBuffer } from './state.js';
@@ -20,6 +29,108 @@ import type { Connection } from './ws.js';
 function roomHref(room: string): string {
   return `/?${new URLSearchParams({ room }).toString()}`;
 }
+
+const CHANNEL_ACCENTS = [
+  ['#80c56d', 'Green'],
+  ['#67b7c7', 'Cyan'],
+  ['#8c86d7', 'Violet'],
+  ['#d8b34d', 'Amber'],
+  ['#d86a64', 'Coral'],
+  ['#5f8fd3', 'Blue'],
+] as const;
+
+// harn:assume channel-create-dialog-uses-authoritative-result ref=channel-create-dialog
+function FolderPicker(props: {
+  token: string;
+  onSelect(path: string): void;
+  onClose(): void;
+}) {
+  const [listing, setListing] = useState<LocalDirectoryListing>();
+  const [root, setRoot] = useState<string>();
+  const [hidden, setHidden] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+
+  const load = (path: string | undefined, showHidden = hidden): void => {
+    setBusy(true);
+    setError(false);
+    void fetchLocalDirectories(path, showHidden, { token: props.token })
+      .then((next) => {
+        setListing(next);
+        setRoot((current) => current ?? next.path);
+      })
+      .catch(() => setError(true))
+      .finally(() => setBusy(false));
+  };
+
+  useEffect(() => load(undefined), []);
+
+  const crumbs = listing && root
+    ? [
+        { name: 'Home', path: root },
+        ...listing.path.slice(root.length).split('/').filter(Boolean).map((name, index, parts) => ({
+          name,
+          path: `${root}/${parts.slice(0, index + 1).join('/')}`,
+        })),
+      ]
+    : [];
+
+  return (
+    <div className="wr-folder-picker" data-testid="folder-picker">
+      <div className="wr-folder-toolbar">
+        <div className="wr-folder-breadcrumb" aria-label="Project folder breadcrumb">
+          {crumbs.map((crumb, index) => (
+            <span key={crumb.path}>
+              {index > 0 && <ChevronRight aria-hidden="true" size={13} />}
+              <button type="button" onClick={() => load(crumb.path)}>{crumb.name}</button>
+            </span>
+          ))}
+        </div>
+        <label className="wr-folder-hidden">
+          <input
+            type="checkbox"
+            checked={hidden}
+            onChange={(event) => {
+              setHidden(event.target.checked);
+              load(listing?.path, event.target.checked);
+            }}
+          />
+          Hidden
+        </label>
+      </div>
+      {listing?.parent && (
+        <button type="button" className="wr-folder-row" onClick={() => load(listing.parent!)}>
+          <ArrowUp aria-hidden="true" size={16} /> Parent
+        </button>
+      )}
+      <div className="wr-folder-list" data-testid="folder-list">
+        {listing?.dirs.map((dir) => (
+          <button key={dir.path} type="button" className="wr-folder-row" onClick={() => load(dir.path)}>
+            <Folder aria-hidden="true" size={16} />
+            <span>{dir.name}</span>
+            <ChevronRight aria-hidden="true" size={14} />
+          </button>
+        ))}
+        {busy && <p role="status">Loading folders</p>}
+        {error && <p role="alert">Folder list unavailable</p>}
+        {!busy && !error && listing?.dirs.length === 0 && <p>No child folders</p>}
+      </div>
+      <div className="wr-dialog-actions">
+        <button type="button" className="wr-secondary-button min-h-11 px-4" onClick={props.onClose}>Cancel</button>
+        <button
+          type="button"
+          data-testid="folder-use"
+          className="wr-primary-button min-h-11 px-4"
+          disabled={!listing}
+          onClick={() => listing && props.onSelect(listing.path)}
+        >
+          Use this folder
+        </button>
+      </div>
+    </div>
+  );
+}
+// harn:end channel-create-dialog-uses-authoritative-result
 
 // harn:assume web-room-rail-creates-owner-room ref=room-rail-create-action
 export function RoomList(props: {
@@ -30,12 +141,17 @@ export function RoomList(props: {
   connected: boolean;
   token?: string;
   owner?: { handle: string; display_name: string };
+  adapters?: AdapterRegistration[];
   onNavigate?: () => void;
   canCreateRoom?: boolean;
 }) {
   const [creating, setCreating] = useState(false);
-  const [roomId, setRoomId] = useState('');
   const [roomName, setRoomName] = useState('');
+  const [color, setColor] = useState<(typeof CHANNEL_ACCENTS)[number][0]>(CHANNEL_ACCENTS[0][0]);
+  const [cwd, setCwd] = useState('');
+  const [pickingFolder, setPickingFolder] = useState(false);
+  const [startingHarness, setStartingHarness] = useState('');
+  const [startingHandle, setStartingHandle] = useState('codor');
   const [createError, setCreateError] = useState<string>();
   const [createBusy, setCreateBusy] = useState(false);
   const firstCreateField = useRef<HTMLInputElement>(null);
@@ -107,7 +223,12 @@ export function RoomList(props: {
                 className="wr-room-link"
                 onClick={props.onNavigate}
               >
-                <span className={`wr-room-dot ${selected && props.connected ? 'is-live' : ''}`} aria-hidden="true" />
+                <span
+                  data-testid={`room-color-${room.id}`}
+                  className={`wr-room-dot ${selected && props.connected ? 'is-live' : ''}`}
+                  style={room.config.color ? { backgroundColor: room.config.color } : undefined}
+                  aria-hidden="true"
+                />
                 <span className="wr-room-copy">
                   <strong title={room.name}>{room.name}</strong>
                   <small>
@@ -147,46 +268,41 @@ export function RoomList(props: {
             aria-modal="true"
             aria-label="Create room"
             data-testid="create-room-dialog"
-            className="wr-focused-glass relative z-10 w-full max-w-md p-5"
+            className="wr-channel-dialog wr-focused-glass relative z-10 w-full max-w-xl p-5"
             onSubmit={(event) => {
               event.preventDefault();
               setCreateError(undefined);
               setCreateBusy(true);
               void createRoom({
-                id: roomId,
                 name: roomName,
                 owner: props.owner!,
+                color,
+                ...(cwd.trim() !== '' && { cwd: cwd.trim() }),
+                ...(startingHarness !== '' && {
+                  starting_agent: {
+                    harness: startingHarness,
+                    handle: startingHandle.trim() || 'codor',
+                  },
+                }),
               }, { token: props.token! }).then(
                 (room) => window.location.assign(roomHref(room.id)),
-                () => setCreateError('Room could not be created. Check the id and try again.'),
+                () => setCreateError('Channel could not be created. Check the folder and try again.'),
               ).finally(() => setCreateBusy(false));
             }}
           >
             <div className="wr-dialog-heading">
               <div>
-                <h2>Create room</h2>
-                <p>A private room on this switchboard.</p>
+                <h2>Create channel</h2>
+                <p>A private channel on this switchboard.</p>
               </div>
               <button type="button" aria-label="Close create room" className="wr-icon-button" onClick={() => setCreating(false)}>
                 <X aria-hidden="true" size={18} />
               </button>
             </div>
             <label className="wr-field-label">
-              Room id
-              <input
-                ref={firstCreateField}
-                data-testid="create-room-id"
-                value={roomId}
-                onChange={(event) => setRoomId(event.target.value)}
-                pattern="[a-z0-9][a-z0-9-]{0,62}"
-                placeholder="release-train"
-                required
-                className="wr-input min-h-11 px-3"
-              />
-            </label>
-            <label className="wr-field-label">
               Name
               <input
+                ref={firstCreateField}
                 data-testid="create-room-name"
                 value={roomName}
                 onChange={(event) => setRoomName(event.target.value)}
@@ -194,14 +310,88 @@ export function RoomList(props: {
                 required
                 className="wr-input min-h-11 px-3"
               />
+              <small data-testid="create-room-id">id: {deriveRoomId(roomName)}</small>
             </label>
+            <fieldset className="wr-channel-colors">
+              <legend>Color</legend>
+              <div>
+                {CHANNEL_ACCENTS.map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    data-testid={`channel-color-${label.toLowerCase()}`}
+                    aria-label={`${label} channel color`}
+                    aria-pressed={color === value}
+                    title={label}
+                    style={{ backgroundColor: value }}
+                    onClick={() => setColor(value)}
+                  />
+                ))}
+              </div>
+            </fieldset>
+            <label className="wr-field-label">
+              Project folder
+              <span className="wr-folder-field">
+                <input
+                  data-testid="create-room-cwd"
+                  value={cwd}
+                  onChange={(event) => setCwd(event.target.value)}
+                  placeholder="~/git/demo"
+                  className="wr-input min-h-11 px-3"
+                />
+                <button
+                  type="button"
+                  data-testid="browse-folders"
+                  className="wr-secondary-button min-h-11 px-3"
+                  onClick={() => setPickingFolder(true)}
+                >
+                  <Folder aria-hidden="true" size={16} /> Browse
+                </button>
+              </span>
+            </label>
+            <div className="wr-starting-agent">
+              <label className="wr-field-label">
+                Starting agent
+                <select
+                  data-testid="create-room-harness"
+                  value={startingHarness}
+                  onChange={(event) => setStartingHarness(event.target.value)}
+                  className="wr-input min-h-11 px-3"
+                >
+                  <option value="">No starting agent</option>
+                  {(props.adapters ?? []).map((adapter) => (
+                    <option key={adapter.id} value={adapter.id}>{adapter.id}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="wr-field-label">
+                Name
+                <input
+                  data-testid="create-room-agent-name"
+                  value={startingHandle}
+                  onChange={(event) => setStartingHandle(event.target.value)}
+                  disabled={startingHarness === ''}
+                  className="wr-input min-h-11 px-3 disabled:opacity-50"
+                />
+              </label>
+            </div>
             {createError && <p role="alert" className="wr-form-error">{createError}</p>}
             <div className="wr-dialog-actions">
               <button type="button" className="wr-secondary-button min-h-11 px-4" onClick={() => setCreating(false)}>Cancel</button>
               <button type="submit" data-testid="create-room-submit" disabled={createBusy} className="wr-primary-button min-h-11 px-4">
-                {createBusy ? 'Creating' : 'Create room'}
+                {createBusy ? 'Creating' : 'Create channel'}
               </button>
             </div>
+            {pickingFolder && (
+              <FolderPicker
+                token={props.token}
+                onClose={() => setPickingFolder(false)}
+                onSelect={(path) => {
+                  setCwd(path);
+                  setPickingFolder(false);
+                }}
+              />
+            )}
           </form>
         </div>
       )}
@@ -219,6 +409,7 @@ export function RoomRail(props: {
   connected: boolean;
   token: string;
   owner: { handle: string; display_name: string } | undefined;
+  adapters?: AdapterRegistration[];
   canCreateRoom?: boolean;
 }) {
   return (

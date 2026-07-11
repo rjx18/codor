@@ -1,4 +1,11 @@
-import type { AdapterCapabilities, Member, Message, Room, WireEvent } from '@wireroom/protocol';
+import type {
+  AdapterCapabilities,
+  CreateRoomRequest,
+  Member,
+  Message,
+  Room,
+  WireEvent,
+} from '@wireroom/protocol';
 
 export interface ApiOptions {
   token: string;
@@ -25,6 +32,12 @@ export interface MemberDetail {
 export interface MessageHistoryPage {
   messages: Message[];
   has_more: boolean;
+}
+
+export interface LocalDirectoryListing {
+  path: string;
+  parent: string | null;
+  dirs: { name: string; path: string }[];
 }
 
 export interface LedgerNote {
@@ -104,14 +117,28 @@ export async function fetchRooms(options: ApiOptions): Promise<Room[]> {
 }
 
 // harn:assume web-room-rail-creates-owner-room ref=authenticated-room-create-client
+// harn:assume channel-create-dialog-uses-authoritative-result ref=authoritative-channel-client
 export async function createRoom(
-  input: { id: string; name: string; owner: { handle: string; display_name: string } },
+  input: CreateRoomRequest,
   options: ApiOptions,
 ): Promise<Room> {
   const created = await sendJson<{ room: Room }>('/api/rooms', 'POST', input, options);
   return created.room;
 }
+// harn:end channel-create-dialog-uses-authoritative-result
 // harn:end web-room-rail-creates-owner-room
+
+export async function fetchLocalDirectories(
+  path: string | undefined,
+  hidden: boolean,
+  options: ApiOptions,
+): Promise<LocalDirectoryListing> {
+  const query = new URLSearchParams();
+  if (path !== undefined) query.set('path', path);
+  if (hidden) query.set('hidden', '1');
+  const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+  return fetchJson<LocalDirectoryListing>(`/api/local/dirs${suffix}`, options);
+}
 
 export async function fetchDevices(options: ApiOptions): Promise<DeviceSummary[]> {
   return (await fetchJson<{ devices: DeviceSummary[] }>('/api/devices', options)).devices;

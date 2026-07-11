@@ -117,6 +117,7 @@ export function BridgedRoomBanner() {
 export function Header(props: {
   roomName: string;
   roomId: string;
+  roomColor?: string;
   token: string;
   connected: boolean;
   meter: RoomMeter | undefined;
@@ -149,6 +150,16 @@ export function Header(props: {
           </button>
         )}
         <span className="wr-room-glyph wr-header-glyph" aria-hidden="true">#</span>
+        {/* harn:assume channel-create-dialog-uses-authoritative-result ref=channel-color-identity */}
+        {props.roomColor && (
+          <span
+            data-testid="header-room-color"
+            className="wr-header-color"
+            style={{ backgroundColor: props.roomColor }}
+            aria-hidden="true"
+          />
+        )}
+        {/* harn:end channel-create-dialog-uses-authoritative-result */}
         <div className="wr-room-title">
           <h1 title={props.roomName}>{props.roomName}</h1>
           <span>

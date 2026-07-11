@@ -1,0 +1,116 @@
+id: codor-p4c-channel-create
+title: P4c authoritative channel creation dialog
+assumptions:
+  create:
+    - id: channel-create-dialog-uses-authoritative-result
+      title: Channel creation previews locally and trusts the server result
+      statement: The owner channel dialog must mirror id derivation only as a preview,
+        submit name, accent color, validated project folder, and optional
+        starting adapter to the server, navigate using the authoritative
+        returned id, and render the persisted color in the rail and header,
+        because collision suffixes and spawn outcomes belong to the switchboard
+        while operators need immediate feedback and a usable seeded channel.
+      reason: Phase 4c consumes the Phase 3 channel-create and directory-listing
+        contracts in the primary room switcher.
+      depends_on:
+        - channel-creation-derived-and-seeded
+        - local-directory-listing-home-contained
+        - web-room-rail-creates-owner-room
+  reviewed:
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: The web client submits the existing additive request and trusts the
+        returned collision-safe id and seeded room.
+    - id: local-directory-listing-home-contained
+      outcome: unchanged
+      reason: The picker navigates only the authenticated contained directory response
+        and never reads files.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: The owner-only create action retains authenticated error handling and
+        tokenless navigation while gaining the specified fields.
+    - id: channel-create-request-contract
+      outcome: unchanged
+      reason: The client consumes the existing optional id, color, cwd, and
+        starting-agent request shape.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: The modal is reachable from both room rails without changing shell
+        topology or mobile drawer behavior.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: The dialog remains compact and operational, and color is a small
+        identity chip rather than decoration.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Swatches, picker focus, and chips use visible semantic states in both
+        themes.
+    - id: release-gate-runs-unit-and-browser
+      outcome: unchanged
+      reason: Authoritative create and picker coverage remains inside Playwright's
+        release gate.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: The active color chip shares Header structure but does not alter the
+        always-visible meter or its zero state.
+anchors:
+  channel-create-dialog-uses-authoritative-result:
+    authoritative-channel-client:
+      action: change
+      reason: Submit the additive request and return the authoritative created room.
+    channel-create-dialog:
+      action: change
+      reason: Add derived preview, six swatches, contained folder picker, and optional
+        starting adapter controls.
+    channel-color-identity:
+      action: change
+      reason: Render the persisted accent chip in room rows and the active header.
+    channel-create-style:
+      action: change
+      reason: Give the dialog, swatches, breadcrumbs, and directory list stable
+        responsive dimensions and focus states.
+    channel-create-browser-regression:
+      action: change
+      reason: Prove starting-agent creation, root containment, collision suffixing,
+        and color chips end to end.
+  web-room-rail-creates-owner-room:
+    authenticated-room-create-client:
+      action: change
+      reason: Widen the existing typed client input to the already-defined protocol
+        request.
+    room-rail-create-action:
+      action: change
+      reason: Replace manual id entry with the specified authoritative creation
+        workflow.
+    room-rail-create-regression:
+      action: change
+      reason: Update the baseline owner-create flow to the name-derived contract.
+  web-shell-responsive-three-pane:
+    responsive-room-shell:
+      action: change
+      reason: Pass adapter registrations and room color through both desktop and
+        drawer room lists.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: Surface active channel identity as a restrained header chip.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Style accent and folder controls with accessible theme tokens and focus.
+  spend-meter-always-on:
+    meter-settings-surface:
+      action: change
+      reason: Add the active channel chip beside identity while preserving the meter
+        surface unchanged.
+files:
+  - packages/web/src/App.tsx
+  - packages/web/src/api.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/shell.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/channel-create.e2e.spec.ts
+  - packages/web/tests/e2e.spec.ts
+applied:
+  applied_at: 2026-07-11T16:29:56.907Z
