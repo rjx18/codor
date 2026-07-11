@@ -1,0 +1,44 @@
+id: restrained-responsive-review-fixes
+title: Fold the restrained responsive review findings
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: Render an honest zero-state meter before the first usage frame.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Purge dormant cyan glow and verify restrained materials at every responsive tier.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: Restore the desktop meter invariant without test-order coupling.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: Extend material assertions to the narrow installed-PWA layout.
+anchors:
+  spend-meter-always-on:
+    meter-settings-surface:
+      action: change
+      reason: Keep the header meter visible with zero values before hydration or first spend.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Remove the remaining dormant cyan glow and wiring declarations.
+    glass-theme-regression:
+      action: change
+      reason: Assert matte panes and functional-only blur at the intermediate breakpoint.
+  web-shell-responsive-three-pane:
+    responsive-shell-regression:
+      action: change
+      reason: Restore an isolated desktop assertion for the always-visible zero-state meter.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-regression:
+      action: change
+      reason: Assert restrained material treatment at 320px as well as fit.
+files:
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+  - tmp/build/PROGRESS.md
