@@ -28,6 +28,7 @@ test('history pages, room search, and #N permalinks share stable message ids', a
   await page.getByTestId('load-history').click();
   await expect(page.getByTestId(`msg-${seeded.first}`)).toBeVisible();
 
+  await page.getByTestId('toggle-message-search').click();
   await page.locator('#room-search').fill('archive-entry-0001');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
   const result = page.getByTestId('search-results').getByRole('link', {
@@ -48,12 +49,15 @@ test('ledger changes appear in the room and [[refs]] open a read-only note viewe
   await control('/ledger-direct', { name: 'risk-limits', noteBody: 'Keep exposure below 1%.' });
   const notice = page.getByText('@operator updated [[risk-limits]]');
   await expect(notice).toBeVisible();
-  await notice.getByTestId('ledger-ref-risk-limits').click();
+  const ledgerReference = notice.getByTestId('ledger-ref-risk-limits');
+  await ledgerReference.click();
   const dialog = page.getByTestId('ledger-note-dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('Keep exposure below 1%.');
-  await dialog.getByRole('button', { name: 'Close ledger note' }).click();
+  await expect(dialog.getByRole('button', { name: 'Close ledger note' })).toBeFocused();
+  await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
+  await expect(ledgerReference).toBeFocused();
 });
 
 test('room v1: post → live run → expand → ask → hold release → reconnect shows the finalized message', async ({
@@ -141,6 +145,7 @@ test('member rail: spawn → run → rename → kill → queued badge → revive
   await page.getByTestId('spawn-cwd').fill('/work/review');
   await page.getByTestId('spawn-submit').click();
   await expect(page.getByTestId('member-beta')).toBeVisible();
+  await page.getByTestId('member-beta-toggle').click();
 
   await control('/enqueue', { turns: [{ kind: 'complete', final_text: '@richard beta ready' }] });
   await page.getByTestId('composer-input').fill('@beta initialize');
@@ -286,6 +291,89 @@ test('desktop room keeps rooms, conversation, and context in stable non-overlapp
 });
 // harn:end web-shell-responsive-three-pane
 
+// harn:assume web-room-visual-hierarchy-matches-glass-reference ref=glass-room-visual-regression
+test('glass room keeps a strong working hierarchy and a pinned latest turn across reflow', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  const run = page.locator('.wr-run-card').first();
+  const message = page.locator('.wr-message').first();
+  await expect(run).toBeVisible();
+  await expect(message).toBeVisible();
+  const hierarchy = await page.evaluate(() => {
+    const header = getComputedStyle(document.querySelector<HTMLElement>('.wr-room-header')!);
+    const main = getComputedStyle(document.querySelector<HTMLElement>('.wr-room-main')!);
+    const run = getComputedStyle(document.querySelector<HTMLElement>('.wr-run-card')!);
+    const message = getComputedStyle(document.querySelector<HTMLElement>('.wr-message')!);
+    return {
+      headerBackground: header.backgroundColor,
+      mainBackground: main.backgroundColor,
+      runBorder: parseFloat(run.borderLeftWidth),
+      messageDisplay: message.display,
+      messageSize: parseFloat(message.fontSize),
+    };
+  });
+  expect(hierarchy.headerBackground).not.toBe(hierarchy.mainBackground);
+  expect(hierarchy.runBorder).toBeGreaterThanOrEqual(1);
+  expect(hierarchy.messageDisplay).toBe('grid');
+  expect(hierarchy.messageSize).toBeGreaterThanOrEqual(14);
+
+  const spawn = page.getByTestId('spawn-agent');
+  const spawnBox = (await spawn.boundingBox())!;
+  expect(spawnBox.width).toBeGreaterThanOrEqual(44);
+  expect(spawnBox.height).toBeGreaterThanOrEqual(44);
+  await spawn.click();
+  await expect(page.getByTestId('spawn-handle')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(spawn).toBeFocused();
+  await expect(page.getByTestId('member-alpha-toggle')).toHaveAttribute('aria-expanded', 'true');
+  await page.getByTestId('member-alpha-toggle').click();
+  await expect(page.getByTestId('member-alpha-toggle')).toHaveAttribute('aria-expanded', 'false');
+
+  const searchToggle = page.getByTestId('toggle-message-search');
+  await expect(page.getByTestId('message-search')).toHaveCount(0);
+  await searchToggle.click();
+  await expect(page.locator('#room-search')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('message-search')).toHaveCount(0);
+  await expect(searchToggle).toBeFocused();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await control('/enqueue', { turns: [{ kind: 'complete', final_text: 'visual reflow hold released' }] });
+  await control('/hold', { body: '@alpha preserve the latest-turn viewport', reason: 'visual reflow regression' });
+  await expect(page.getByTestId('hold-banner')).toBeVisible();
+  await expect.poll(() => page.getByTestId('timeline').evaluate((timeline) => {
+    const last = timeline.lastElementChild;
+    if (!last) return false;
+    return last.getBoundingClientRect().bottom <= timeline.getBoundingClientRect().bottom + 1 &&
+      Math.abs(timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop) <= 1;
+  })).toBe(true);
+  await page.locator('[data-testid^="release-"]').last().click();
+  await expect(page.getByText('visual reflow hold released')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+});
+// harn:end web-room-visual-hierarchy-matches-glass-reference
+
+// harn:assume web-first-run-color-mode-is-dark ref=dark-first-theme-regression
+test('a new light-host browser opens dark before an explicit system choice', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/settings?room=eng&token=e2e-token');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
+  expect(await page.evaluate(() => localStorage.getItem('wireroom-theme'))).toBeNull();
+
+  await page.getByTestId('theme-system').click();
+  await expect(page.locator('html')).not.toHaveAttribute('data-theme');
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toContain('light');
+  expect(await page.evaluate(() => localStorage.getItem('wireroom-theme'))).toBe('system');
+  await page.reload();
+  await expect(page.locator('html')).not.toHaveAttribute('data-theme');
+});
+// harn:end web-first-run-color-mode-is-dark
+
 // harn:assume run-context-selects-and-follows-live-evidence ref=selected-live-run-context-regression
 test('intermediate context sheet follows a selected run through live completion', async ({ page }) => {
   await page.setViewportSize({ width: 1150, height: 800 });
@@ -349,6 +437,7 @@ test('desktop room rail creates and enters an owner-seeded room without a bearer
 test('glass shell responds to light preference without losing contrast or material fallback', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ colorScheme: 'light' });
+  await page.addInitScript(() => localStorage.setItem('wireroom-theme', 'system'));
   await page.goto('/?room=eng&token=e2e-token');
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
 
@@ -389,6 +478,7 @@ test('glass shell responds to light preference without losing contrast or materi
     const style = getComputedStyle(element);
     return element.matches(':focus-visible') && style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 2;
   })).toBe(true);
+  await page.getByTestId('toggle-message-search').click();
   await page.locator('#room-search').focus();
   expect(await page.locator('#room-search').evaluate((element) => {
     const style = getComputedStyle(element);
@@ -490,7 +580,7 @@ test('glass settings keep desktop structure, mobile fit, and honest relay bounda
 // harn:end web-settings-controls-preserve-product-truth
 
 // harn:assume web-theme-choice-stays-local ref=theme-choice-regression
-test('theme choice applies immediately, survives a tokenless launch, and resets to system', async ({ page }) => {
+test('theme choice applies immediately, survives a tokenless launch, and returns to system', async ({ page }) => {
   await page.goto('/settings?room=eng&token=e2e-token');
   const mutatingApiRequests: string[] = [];
   page.on('request', (request) => {
@@ -519,7 +609,7 @@ test('theme choice applies immediately, survives a tokenless launch, and resets 
   await page.goto('/settings?room=eng');
   await page.getByTestId('theme-system').click();
   await expect(page.locator('html')).not.toHaveAttribute('data-theme');
-  expect(await page.evaluate(() => localStorage.getItem('wireroom-theme'))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem('wireroom-theme'))).toBe('system');
   expect(mutatingApiRequests).toEqual([]);
 });
 // harn:end web-theme-choice-stays-local

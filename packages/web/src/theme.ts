@@ -7,12 +7,13 @@ function isThemeChoice(value: string | null): value is ThemeChoice {
 }
 
 // harn:assume web-theme-choice-stays-local ref=local-theme-preference
+// harn:assume web-first-run-color-mode-is-dark ref=dark-first-theme-choice
 export function readThemeChoice(): ThemeChoice {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    return isThemeChoice(stored) ? stored : 'system';
+    return isThemeChoice(stored) ? stored : 'dark';
   } catch {
-    return 'system';
+    return 'dark';
   }
 }
 
@@ -23,11 +24,11 @@ export function applyThemeChoice(choice: ThemeChoice = readThemeChoice()): void 
 
 export function storeThemeChoice(choice: ThemeChoice): void {
   try {
-    if (choice === 'system') localStorage.removeItem(THEME_STORAGE_KEY);
-    else localStorage.setItem(THEME_STORAGE_KEY, choice);
+    localStorage.setItem(THEME_STORAGE_KEY, choice);
   } catch {
     // The visual choice still applies for this tab when storage is unavailable.
   }
   applyThemeChoice(choice);
 }
+// harn:end web-first-run-color-mode-is-dark
 // harn:end web-theme-choice-stays-local

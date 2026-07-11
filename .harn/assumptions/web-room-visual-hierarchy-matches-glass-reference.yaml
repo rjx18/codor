@@ -1,0 +1,16 @@
+id: web-room-visual-hierarchy-matches-glass-reference
+hash: a-27f2d90fe80b
+title: The room surface carries the ImageGen control-room hierarchy
+state: active
+statement: The web room must visually prioritize the conversation over its
+  navigation and context rails, distinguish human prompts, agent runs,
+  approvals, holds, and the focused composer through semantic structure and
+  restrained glass depth, and retain that hierarchy from wide desktop to the
+  installed mobile PWA, because the v2 ImageGen references describe a premium
+  working control room rather than a flat generic chat layout.
+depends_on:
+  - glass-design-system-guides-responsive-surfaces
+  - design-references-preserve-wireroom-semantics
+  - web-shell-responsive-three-pane
+  - web-glass-theme-accessible-modes
+created_by: glass-web-polish-pass

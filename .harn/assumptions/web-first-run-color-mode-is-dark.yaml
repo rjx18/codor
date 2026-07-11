@@ -1,0 +1,12 @@
+id: web-first-run-color-mode-is-dark
+hash: a-31727a3c5e90
+title: A new browser opens Wireroom in its signature dark mode
+state: active
+statement: A browser with no stored theme choice must paint the dark glass
+  palette before React renders, while an explicit system or light choice must
+  remain local, immediate, persistent, and available in Settings, because
+  dark-mode-first is part of Wireroom's intended product identity without
+  removing user control.
+depends_on:
+  - web-theme-choice-stays-local
+created_by: glass-web-polish-pass

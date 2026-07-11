@@ -10,6 +10,7 @@ import {
   extensionRunSummaries,
   impliedRecipient,
   ledgerTextSegments,
+  runEventPresentation,
   RunMessageView,
   RunStallBadge,
 } from './components.js';
@@ -139,7 +140,7 @@ describe('RunMessageView', () => {
     );
     expect(html).toContain('shipped it');
     expect(html).toContain('completed');
-    expect(html).toContain('120 tk');
+    expect(html).toContain('120 tokens');
     expect(html).toContain('$0.19');
     expect(html).toContain('#7');
     expect(html).toContain('id="7"');
@@ -338,5 +339,23 @@ describe('extension run summaries', () => {
         ended: true,
       },
     ]);
+  });
+});
+
+describe('run event presentation', () => {
+  it('turns normalized event payloads into bounded evidence rows', () => {
+    expect(runEventPresentation({
+      type: 'run.item',
+      item_type: 'file_change',
+      payload: { path: 'src/router.ts', change: 'added authorization guard' },
+    })).toEqual({
+      label: 'File changed',
+      detail: '{"path":"src/router.ts","change":"added authorization guard"}',
+      tone: 'change',
+    });
+    expect(runEventPresentation({
+      type: 'approval.raised',
+      card: { interaction_id: 'approval-1', kind: 'approval', prompt: 'Apply migration?' },
+    })).toEqual({ label: 'Approval raised', detail: 'Apply migration?', tone: 'attention' });
   });
 });

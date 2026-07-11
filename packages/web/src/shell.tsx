@@ -1,7 +1,6 @@
 import type { Member, Message, Room, WireEvent } from '@wireroom/protocol';
 import {
   Activity,
-  Cable,
   ChevronRight,
   Clock3,
   ExternalLink,
@@ -9,6 +8,7 @@ import {
   Plus,
   Settings,
   Users,
+  Workflow,
   X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -39,18 +39,39 @@ export function RoomList(props: {
   const [createError, setCreateError] = useState<string>();
   const [createBusy, setCreateBusy] = useState(false);
   const firstCreateField = useRef<HTMLInputElement>(null);
+  const createTrigger = useRef<HTMLButtonElement>(null);
+  const createDialog = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     if (!creating) return;
     requestAnimationFrame(() => firstCreateField.current?.focus());
     const close = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      event.stopPropagation();
-      setCreating(false);
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setCreating(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = [...(createDialog.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? [])];
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', close, true);
-    return () => document.removeEventListener('keydown', close, true);
+    return () => {
+      document.removeEventListener('keydown', close, true);
+      createTrigger.current?.focus();
+    };
   }, [creating]);
 
   return (
@@ -59,6 +80,7 @@ export function RoomList(props: {
         <span>Rooms</span>
         {props.token && props.owner ? (
           <button
+            ref={createTrigger}
             type="button"
             data-testid="create-room"
             aria-label="Create room"
@@ -122,6 +144,7 @@ export function RoomList(props: {
             onClick={() => setCreating(false)}
           />
           <form
+            ref={createDialog}
             role="dialog"
             aria-modal="true"
             aria-label="Create room"
@@ -202,8 +225,11 @@ export function RoomRail(props: {
   return (
     <aside data-testid="room-rail" className="wr-room-rail">
       <div className="wr-brand">
-        <span className="wr-brand-mark" aria-hidden="true"><Cable size={21} /></span>
-        <strong>Wireroom</strong>
+        <span className="wr-brand-mark" aria-hidden="true"><Workflow size={22} /></span>
+        <span className="wr-brand-copy">
+          <strong>Wireroom</strong>
+          <small>Local control plane</small>
+        </span>
       </div>
       <RoomList {...props} />
       <div className="wr-rail-footer">

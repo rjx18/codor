@@ -59,6 +59,7 @@ export function App(props: { token?: string } = {}) {
   const [searchResults, setSearchResults] = useState<Message[]>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
   const [historyError, setHistoryError] = useState(false);
@@ -237,6 +238,24 @@ export function App(props: { token?: string } = {}) {
   }, [messages]);
 
   useEffect(() => {
+    const node = timeline.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      if (!stickToBottom.current || restoreScroll.current) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        node.scrollTop = node.scrollHeight;
+      });
+    });
+    observer.observe(node);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
     if (state.seq === 0) return;
     if (!historyReady.current) {
       historyReady.current = true;
@@ -319,6 +338,21 @@ export function App(props: { token?: string } = {}) {
     };
   }, [contextOpen, drawerOpen]);
 
+  useEffect(() => {
+    if (!searchOpen) return;
+    const close = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      setSearchOpen(false);
+      setSearchQuery('');
+      setSearchResults([]);
+      setSearched(false);
+      requestAnimationFrame(() => document.getElementById('room-search-toggle')?.focus());
+    };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [searchOpen]);
+
+  // harn:assume web-room-visual-hierarchy-matches-glass-reference ref=glass-room-visual-hierarchy
   return (
     <div className="wr-canvas">
       <div className="wr-wiring" aria-hidden="true" />
@@ -340,6 +374,16 @@ export function App(props: { token?: string } = {}) {
             connected={state.connected}
             meter={state.meter}
             unread={unreadCount(state)}
+            memberCount={Object.values(state.members).filter((member) => member.kind !== 'system').length}
+            searchOpen={searchOpen}
+            onToggleSearch={() => {
+              setSearchOpen((open) => !open);
+              if (searchOpen) {
+                setSearchQuery('');
+                setSearchResults([]);
+                setSearched(false);
+              }
+            }}
             onOpenNavigation={() => setDrawerOpen(true)}
             onOpenContext={() => {
               setContextView('members');
@@ -352,57 +396,61 @@ export function App(props: { token?: string } = {}) {
             </div>
           )}
           <HoldBanner held={held} handleOf={handles} connection={connection} />
-          <form
-            data-testid="message-search"
-            className="wr-search"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const query = searchQuery.trim();
-              if (query === '') return;
-              setSearching(true);
-              setSearched(true);
-              void searchMessages(ROOM, query, { token: TOKEN })
-                .then(setSearchResults)
-                .catch(() => setSearchResults([]))
-                .finally(() => setSearching(false));
-            }}
-          >
-            <Search aria-hidden="true" size={17} />
-            <label htmlFor="room-search" className="sr-only">Search messages</label>
-            <input
-              id="room-search"
-              type="search"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search messages"
-              className="wr-search-input"
-            />
-            <button
-              type="submit"
-              aria-label="Search"
-              title="Search"
-              disabled={searching || searchQuery.trim() === ''}
-              className="wr-icon-button"
+          {searchOpen && (
+            <form
+              id="room-message-search"
+              data-testid="message-search"
+              className="wr-search"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const query = searchQuery.trim();
+                if (query === '') return;
+                setSearching(true);
+                setSearched(true);
+                void searchMessages(ROOM, query, { token: TOKEN })
+                  .then(setSearchResults)
+                  .catch(() => setSearchResults([]))
+                  .finally(() => setSearching(false));
+              }}
             >
-              <Search aria-hidden="true" size={16} />
-              <span className="sr-only">{searching ? 'Searching' : 'Search'}</span>
-            </button>
-            {searched && (
+              <Search aria-hidden="true" size={17} />
+              <label htmlFor="room-search" className="sr-only">Search messages</label>
+              <input
+                id="room-search"
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search room history"
+                className="wr-search-input"
+                autoFocus
+              />
+              <button
+                type="submit"
+                aria-label="Search"
+                title="Search"
+                disabled={searching || searchQuery.trim() === ''}
+                className="wr-icon-button"
+              >
+                <Search aria-hidden="true" size={16} />
+                <span className="sr-only">{searching ? 'Searching' : 'Search'}</span>
+              </button>
               <button
                 type="button"
-                aria-label="Clear search"
-                title="Clear search"
+                aria-label="Close message search"
+                title="Close search"
                 onClick={() => {
+                  setSearchOpen(false);
                   setSearchQuery('');
                   setSearchResults([]);
                   setSearched(false);
+                  requestAnimationFrame(() => document.getElementById('room-search-toggle')?.focus());
                 }}
                 className="wr-icon-button"
               >
                 <X aria-hidden="true" size={16} />
               </button>
-            )}
-          </form>
+            </form>
+          )}
           {searched && (
             <div data-testid="search-results" className="wr-search-results">
               <p>{searchResults.length} matches</p>
@@ -429,10 +477,29 @@ export function App(props: { token?: string } = {}) {
           <div
             ref={timeline}
             data-testid="timeline"
+            aria-label="Room conversation"
+            tabIndex={0}
             onScroll={(event) => {
               const node = event.currentTarget;
-              stickToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+              if (node.scrollHeight - node.scrollTop - node.clientHeight < 80) {
+                stickToBottom.current = true;
+              }
               if (node.scrollTop < 80) void loadOlder();
+            }}
+            onWheel={(event) => {
+              if (event.deltaY < 0) stickToBottom.current = false;
+            }}
+            onTouchMove={() => {
+              stickToBottom.current = false;
+            }}
+            onPointerDown={(event) => {
+              const bounds = event.currentTarget.getBoundingClientRect();
+              if (event.clientX >= bounds.right - 18) stickToBottom.current = false;
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Home') {
+                stickToBottom.current = false;
+              }
             }}
             className="wr-timeline"
           >
@@ -605,5 +672,6 @@ export function App(props: { token?: string } = {}) {
       )}
     </div>
   );
+  // harn:end web-room-visual-hierarchy-matches-glass-reference
 }
 // harn:end permalink-ids-stable
