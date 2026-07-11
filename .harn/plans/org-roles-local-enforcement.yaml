@@ -79,6 +79,10 @@ assumptions:
     - id: web-glass-theme-accessible-modes
       outcome: unchanged
       reason: The observer status bar uses the existing semantic glass tokens in both modes.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The home residency launcher and resident outpost both consume the same validated
+        adapter registry while the home gains its deferred transport wiring.
 anchors:
   roles-gate-human-acts-not-agents:
     role-matrix-source:
@@ -143,6 +147,10 @@ anchors:
     glass-theme-regression:
       action: change
       reason: Wait for the authoritative owner role before exercising mobile Settings scroll.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Compose optional home transport and residency from the already-loaded registry.
   web-room-rail-creates-owner-room:
     room-rail-create-action:
       action: change
@@ -187,4 +195,7 @@ files:
   - packages/web/src/styles.css
   - packages/web/tests/e2e.spec.ts
   - packages/web/tests/harness.mjs
+  - packages/cli/src/up.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
   - tmp/build/PROGRESS.md
