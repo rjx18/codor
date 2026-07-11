@@ -5,10 +5,11 @@ assumptions:
   create:
     - id: web-settings-desktop-focuses-one-category
       title: Desktop settings present one focused category at a time
-      statement: The desktop settings workspace must show the selected category as
-        the primary content panel while the mobile settings surface keeps every
-        category in a linear scroll, because desktop operators need a calm focused
-        tool and the installed PWA needs predictable native-style navigation.
+      statement: The desktop settings workspace must show the selected category as the
+        primary content panel while the mobile settings surface keeps every
+        category in a linear scroll, because desktop operators need a calm
+        focused tool and the installed PWA needs predictable native-style
+        navigation.
       reason: Operator feedback found the first implementation visually rendered a
         long form behind a decorative category rail rather than implementing the
         desktop-settings ImageGen composition.
@@ -18,10 +19,10 @@ assumptions:
     - id: pairing-discloses-browser-and-relay-boundaries
       title: Pairing keeps browser authority and relay visibility explicit
       statement: The pairing workspace must keep the real QR-only single-use offer,
-        local browser authority, relay-visible delivery metadata, and relay-hidden
-        plaintext boundaries visible in one responsive flow, because enrollment
-        must feel polished without being mistaken for an account login or a broader
-        privacy guarantee.
+        local browser authority, relay-visible delivery metadata, and
+        relay-hidden plaintext boundaries visible in one responsive flow,
+        because enrollment must feel polished without being mistaken for an
+        account login or a broader privacy guarantee.
       reason: The first pairing pass was honest but visually generic and omitted the
         relay-visible side of the disclosure from the main enrollment workspace.
       depends_on:
@@ -54,9 +55,9 @@ assumptions:
     - id: sw-injectmanifest-owned-worker
       outcome: unchanged
       reason: PWA launch colors are aligned to the existing canvas without changing
-        worker ownership, registration, or shell-only precaching; the browser gate
-        also addresses seeded history by its returned stable id so the full serial
-        suite cannot confuse repeated archive labels.
+        worker ownership, registration, or shell-only precaching; the browser
+        gate also addresses seeded history by its returned stable id so the full
+        serial suite cannot confuse repeated archive labels.
     - id: web-room-visual-hierarchy-matches-glass-reference
       outcome: unchanged
       reason: The compact member inspector keeps the existing hierarchy while a
@@ -127,3 +128,5 @@ files:
   - packages/web/tests/pwa.e2e.spec.ts
   - MANUAL-VERIFY.md
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T01:14:25.467Z

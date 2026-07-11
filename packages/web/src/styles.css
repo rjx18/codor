@@ -1957,7 +1957,9 @@ button:disabled {
 
 .wr-settings-content {
   min-width: 0;
-  background: color-mix(in srgb, var(--wr-canvas) 88%, transparent);
+  background:
+    linear-gradient(125deg, color-mix(in srgb, var(--wr-cyan) 4%, transparent), transparent 38%),
+    color-mix(in srgb, var(--wr-canvas) 88%, transparent);
 }
 
 .wr-settings-header {
@@ -1981,7 +1983,7 @@ button:disabled {
 
 .wr-settings-header h1 {
   margin: 0;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 650;
 }
 
@@ -1996,7 +1998,7 @@ button:disabled {
 
 .wr-settings-body {
   width: 100%;
-  max-width: 920px;
+  max-width: 1040px;
   margin: 0 auto;
   padding: 12px max(14px, env(safe-area-inset-right)) max(48px, calc(24px + env(safe-area-inset-bottom))) max(14px, env(safe-area-inset-left));
 }
@@ -2018,6 +2020,7 @@ button:disabled {
 .wr-settings-section {
   scroll-margin-top: 76px;
   border-bottom: 1px solid var(--wr-line);
+  animation: wr-plane-enter 220ms ease both;
 }
 
 .wr-section-heading {
@@ -2037,7 +2040,7 @@ button:disabled {
 .wr-hosted-roadmap h3 {
   margin: 0;
   color: var(--wr-text);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 650;
 }
 
@@ -2087,7 +2090,7 @@ button:disabled {
 .wr-setting-copy strong {
   overflow: hidden;
   color: var(--wr-text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2101,7 +2104,7 @@ button:disabled {
 
 .wr-setting-copy em {
   color: var(--wr-amber);
-  font-size: 10px;
+  font-size: 11px;
   font-style: normal;
 }
 
@@ -2134,9 +2137,40 @@ button:disabled {
 }
 
 .wr-checkbox {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  appearance: none;
+  border: 0;
+  border-radius: 22px;
+  background:
+    linear-gradient(var(--wr-glass-soft), var(--wr-glass-soft)) center / 42px 24px no-repeat;
+  cursor: pointer;
+}
+
+.wr-checkbox::after {
+  position: absolute;
+  top: 12px;
+  left: 2px;
   width: 20px;
   height: 20px;
-  accent-color: var(--wr-cyan);
+  border: 1px solid var(--wr-line-strong);
+  border-radius: 50%;
+  background: var(--wr-text);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
+  content: '';
+  transition: transform 180ms ease, background-color 180ms ease;
+}
+
+.wr-checkbox:checked {
+  background:
+    linear-gradient(var(--wr-cyan), var(--wr-cyan)) center / 42px 24px no-repeat;
+}
+
+.wr-checkbox:checked::after {
+  background: var(--wr-canvas);
+  transform: translateX(20px);
 }
 
 .wr-number-control {
@@ -2150,6 +2184,10 @@ button:disabled {
   height: 44px;
   padding: 0 8px;
   text-align: center;
+}
+
+.wr-number-control .wr-input:disabled {
+  opacity: 0.36;
 }
 
 .wr-number-control span {
@@ -2406,7 +2444,7 @@ button:disabled {
 
 .wr-pairing-shell {
   width: calc(100% - 28px);
-  max-width: 980px;
+  max-width: 1160px;
   margin: 28px auto 0;
   border: 1px solid var(--wr-line-strong);
   border-radius: 12px;
@@ -2462,7 +2500,7 @@ button:disabled {
 
 .wr-pairing-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 0.8fr) minmax(320px, 1.2fr);
+  grid-template-columns: minmax(280px, 0.72fr) minmax(420px, 1.28fr);
 }
 
 .wr-qr-pane,
@@ -2590,12 +2628,29 @@ button:disabled {
 
 .wr-pairing-disclosure {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   border-top: 1px solid var(--wr-line);
 }
 
 .wr-pairing-disclosure section {
-  padding: 16px 22px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 9px;
+  padding: 18px 20px;
+}
+
+.wr-pairing-disclosure section > svg {
+  margin-top: 1px;
+  color: var(--wr-cyan);
+}
+
+.wr-pairing-disclosure section:nth-child(2) > svg {
+  color: var(--wr-amber);
+}
+
+.wr-pairing-disclosure section:nth-child(3) > svg {
+  color: var(--wr-coral);
 }
 
 .wr-pairing-disclosure section + section {
@@ -2932,8 +2987,19 @@ button:disabled {
     padding: 18px;
   }
 
+  .wr-qr-pane img,
+  .wr-qr-placeholder {
+    width: min(100%, 220px);
+  }
+
   .wr-qr-pane {
+    grid-row: 2;
     border-right: 0;
+    border-bottom: 1px solid var(--wr-line);
+  }
+
+  .wr-pairing-action {
+    grid-row: 1;
     border-bottom: 1px solid var(--wr-line);
   }
 }
@@ -3031,6 +3097,15 @@ button:disabled {
   .wr-settings-content {
     min-height: 0;
     overflow-y: auto;
+  }
+
+  .wr-settings-section[data-active='false'] {
+    display: none;
+  }
+
+  .wr-settings-section[data-active='true'] {
+    min-height: calc(100dvh - 96px);
+    border-bottom: 0;
   }
 
   .wr-settings-header {

@@ -1,0 +1,12 @@
+id: web-settings-desktop-focuses-one-category
+hash: a-40c3790a997f
+title: Desktop settings present one focused category at a time
+state: active
+statement: The desktop settings workspace must show the selected category as the
+  primary content panel while the mobile settings surface keeps every category
+  in a linear scroll, because desktop operators need a calm focused tool and the
+  installed PWA needs predictable native-style navigation.
+depends_on:
+  - glass-design-system-guides-responsive-surfaces
+  - web-settings-controls-preserve-product-truth
+created_by: glass-settings-pairing-polish-pass

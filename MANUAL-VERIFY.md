@@ -3,6 +3,17 @@
 Live probes are intentionally single-shot and tiny. Do not retry an auth,
 quota, or subscription failure.
 
+## Claude review fallback record
+
+The mandatory Claude Fable 5 review of `e5c0751..ccb41e6` did not produce
+findings: the first full `claude -p` invocation remained silent for ten minutes
+and was interrupted, a tiny `Reply exactly OK` probe succeeded, and the single
+allowed full-review retry was interrupted by the operator before completion.
+No Claude process remains. Per the build fallback rule this review is recorded
+as **skipped with reason**, not passed. The implementation still completed its
+independent Playwright visual/behavior gates and recursive tests; a later full
+repository review must cover this range again if Claude is available.
+
 ## Gemini CLI
 
 Status on 2026-07-10: **not run**. The `gemini` executable is not installed and

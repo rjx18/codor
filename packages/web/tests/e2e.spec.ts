@@ -220,6 +220,7 @@ test('room settings persist opt-in brakes and meter labels uncosted tokens', asy
   await page.goto('/?room=eng&token=e2e-token');
   await page.getByTestId('room-settings').click();
   await expect(page.getByTestId('settings-page')).toBeVisible();
+  await page.getByRole('link', { name: 'Brakes', exact: true }).click();
   await page.getByTestId('turn-brake-enabled').check();
   await page.getByTestId('turn-brake-value').fill('0');
   await page.getByTestId('room-settings-save').click();
@@ -231,9 +232,11 @@ test('room settings persist opt-in brakes and meter labels uncosted tokens', asy
 
   await page.getByRole('link', { name: 'Back to room' }).click();
   await page.getByTestId('room-settings').click();
+  await page.getByRole('link', { name: 'Brakes', exact: true }).click();
   await expect(page.getByTestId('turn-brake-enabled')).toBeChecked();
   await expect(page.getByTestId('turn-brake-value')).toHaveValue('3');
   await expect(page.getByTestId('stall-minutes')).toHaveValue('12');
+  await page.getByRole('link', { name: 'Relay', exact: true }).click();
   await page.getByTestId('open-relay-pairing').click();
   const relay = page.getByTestId('relay-pairing');
   await expect(relay).toBeVisible();
@@ -296,6 +299,12 @@ test('glass room keeps a strong working hierarchy and a pinned latest turn acros
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?room=eng&token=e2e-token');
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  await control('/enqueue', {
+    turns: [{ kind: 'complete', final_text: '@richard visual hierarchy ready' }],
+  });
+  await page.getByTestId('composer-input').fill('@alpha verify the glass hierarchy');
+  await page.getByTestId('composer-send').click();
 
   const run = page.locator('.wr-run-card').first();
   const message = page.locator('.wr-message').first();
@@ -545,11 +554,23 @@ test('glass settings keep desktop structure, mobile fit, and honest relay bounda
   expect(roomBox.x + roomBox.width).toBeLessThanOrEqual(categoryBox.x + 0.5);
   expect(categoryBox.x + categoryBox.width).toBeLessThanOrEqual(contentBox.x + 0.5);
 
+  // harn:assume web-settings-desktop-focuses-one-category ref=focused-settings-regression
+  await expect(page.getByTestId('settings-section-appearance')).toBeVisible();
+  await expect(page.getByTestId('settings-section-brakes')).toBeHidden();
+  await page.getByRole('link', { name: 'Brakes', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Brakes', exact: true })).toBeVisible();
+  await expect(page.getByTestId('settings-section-brakes')).toBeVisible();
+  await expect(page.getByTestId('settings-section-appearance')).toBeHidden();
   await expect(page.getByTestId('turn-brake-enabled')).not.toBeChecked();
   await expect(page.getByTestId('spend-brake-enabled')).not.toBeChecked();
+  const turnToggle = (await page.getByTestId('turn-brake-enabled').boundingBox())!;
+  expect(turnToggle.width).toBeGreaterThanOrEqual(44);
+  expect(turnToggle.height).toBeGreaterThanOrEqual(44);
   await expect(page.getByRole('spinbutton', { name: 'Turn brake value' })).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'Spend brake value' })).toBeVisible();
   await expect(page.getByText('Always on · flags inactivity · never kills a run.')).toBeVisible();
+  const relayCategory = page.getByRole('link', { name: 'Relay', exact: true });
+  await relayCategory.click();
   await page.getByTestId('open-relay-pairing').click();
   const relay = page.getByTestId('relay-pairing');
   await expect(relay.getByText('Relay can see')).toBeVisible();
@@ -559,14 +580,14 @@ test('glass settings keep desktop structure, mobile fit, and honest relay bounda
   await expect(relay).toContainText('Opaque switchboard public key');
   await expect(relay).toContainText('Decrypted room keys or any private key');
   await expect(relay).toContainText('Hosted roadmap · deferred from the v1 push relay.');
-  const relayCategory = page.getByRole('link', { name: 'Relay', exact: true });
-  await relayCategory.click();
   await expect(relayCategory).toHaveAttribute('aria-current', 'location');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
   await expect(page.getByTestId('room-rail')).toBeHidden();
   await expect(page.getByTestId('settings-nav')).toBeHidden();
+  await expect(page.getByTestId('settings-section-appearance')).toBeVisible();
+  await expect(page.getByTestId('settings-section-privacy')).toBeVisible();
   await expect(page.getByTestId('theme-system')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await page.locator('#privacy').scrollIntoViewIfNeeded();
@@ -576,6 +597,7 @@ test('glass settings keep desktop structure, mobile fit, and honest relay bounda
   await page.reload();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(844);
   await expect(page.getByTestId('theme-system')).toBeVisible();
+  // harn:end web-settings-desktop-focuses-one-category
 });
 // harn:end web-settings-controls-preserve-product-truth
 

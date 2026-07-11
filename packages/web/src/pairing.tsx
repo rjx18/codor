@@ -1,9 +1,12 @@
 import {
-  Cable,
   Check,
+  Database,
+  Eye,
+  EyeOff,
   KeyRound,
   LockKeyhole,
   ShieldCheck,
+  Workflow,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
@@ -93,11 +96,12 @@ export function PairingPage(): JSX.Element {
   }, [currentUrl]);
 
   // harn:assume pairing-offer-token-remains-qr-only ref=glass-pairing-surface
+  // harn:assume pairing-discloses-browser-and-relay-boundaries ref=pairing-boundary-workspace
   return (
     <main data-testid="pairing-page" className="wr-pairing-page">
       <div className="wr-wiring" aria-hidden="true" />
       <header className="wr-pairing-brand">
-        <span className="wr-brand-mark" aria-hidden="true"><Cable size={22} /></span>
+        <span className="wr-brand-mark" aria-hidden="true"><Workflow size={22} /></span>
         <strong>Wireroom</strong>
         <span>Local device enrollment</span>
       </header>
@@ -169,11 +173,22 @@ export function PairingPage(): JSX.Element {
         )}
 
         <div className="wr-pairing-disclosure">
-          <section><h2>This browser stores</h2><p>Its private device keys, decrypted room keys, and same-origin switchboard access in this origin's IndexedDB.</p></section>
-          <section><h2>The push relay never learns</h2><p>Sender, room or member names, plaintext message or run evidence, decrypted room keys, or private device keys.</p></section>
+          <section>
+            <Database aria-hidden="true" size={19} />
+            <div><h2>This browser stores</h2><p>Private device keys, decrypted room keys, and same-origin switchboard access in this origin's IndexedDB.</p></div>
+          </section>
+          <section>
+            <Eye aria-hidden="true" size={19} />
+            <div><h2>Relay can see</h2><p>Padded ciphertext size, Web Push endpoint and delivery keys, opaque signing identity, timing, TTL, and source IP.</p></div>
+          </section>
+          <section>
+            <EyeOff aria-hidden="true" size={19} />
+            <div><h2>Relay never sees</h2><p>Sender, room or member names, plaintext content or run evidence, decrypted room keys, or private device keys.</p></div>
+          </section>
         </div>
       </section>
     </main>
   );
+  // harn:end pairing-discloses-browser-and-relay-boundaries
   // harn:end pairing-offer-token-remains-qr-only
 }

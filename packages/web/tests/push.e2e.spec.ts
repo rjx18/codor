@@ -51,7 +51,7 @@ test('producer → fake relay → CDP push decrypts in the worker, renders, and 
   await page.getByRole('button', { name: 'Pair this browser' }).click();
   await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
   const deviceId = await page.evaluate(() => window.__wireroomCrypto.identity().then((identity) => identity.device_id));
-  await page.goto('/settings?room=eng&token=e2e-token');
+  await page.goto('/settings?room=eng&token=e2e-token#devices');
   await expect(page.getByTestId(`device-${deviceId}`)).toBeVisible();
   await page.evaluate(async () => {
     Object.defineProperties(Notification, {
@@ -79,6 +79,7 @@ test('producer → fake relay → CDP push decrypts in the worker, renders, and 
       },
     });
   });
+  await page.getByRole('link', { name: 'Notifications', exact: true }).click();
   await page.getByTestId('enable-notifications').click();
   await expect(page.getByText('Notifications enabled.')).toBeVisible();
 

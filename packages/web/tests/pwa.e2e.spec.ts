@@ -53,9 +53,15 @@ test('manifest is installable and the owned worker caches only the offline shell
   context,
   page,
 }) => {
-  await control('/seed-history');
   await page.goto('/?room=eng&token=e2e-token');
-  await expect(page.getByText('archive-entry-0075').last()).toBeVisible();
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await expect(page.getByRole('heading', { name: 'Engineering' })).toBeVisible();
+  await control('/enqueue', {
+    turns: [{ kind: 'complete', final_text: 'pwa-dynamic-payload' }],
+  });
+  await page.getByTestId('composer-input').fill('@alpha create a dynamic cache sentinel');
+  await page.getByTestId('composer-send').click();
+  await expect(page.getByText('pwa-dynamic-payload')).toBeVisible();
 
   const manifest = await page.evaluate(async () => {
     const response = await fetch('/manifest.webmanifest');
@@ -73,7 +79,7 @@ test('manifest is installable and the owned worker caches only the offline shell
   await page.evaluate(async () => navigator.serviceWorker.ready);
   await page.reload();
   await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
-  await expect(page.getByText('archive-entry-0075').last()).toBeVisible();
+  await expect(page.getByText('pwa-dynamic-payload')).toBeVisible();
 
   const cached = await page.evaluate(async () => {
     const entries: { url: string; body: string }[] = [];
@@ -88,11 +94,11 @@ test('manifest is installable and the owned worker caches only the offline shell
   });
   expect(cached.length).toBeGreaterThan(0);
   expect(cached.some((entry) => /\/api\/|\/ws(?:\?|$)/.test(entry.url))).toBe(false);
-  expect(JSON.stringify(cached)).not.toContain('archive-entry-0075');
+  expect(JSON.stringify(cached)).not.toContain('pwa-dynamic-payload');
 
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByTestId('room-view')).toBeVisible();
   await expect(page.getByTestId('offline-banner')).toBeVisible();
-  await expect(page.getByText('archive-entry-0075')).toHaveCount(0);
+  await expect(page.getByText('pwa-dynamic-payload')).toHaveCount(0);
 });

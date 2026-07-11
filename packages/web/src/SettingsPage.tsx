@@ -139,6 +139,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
   const currentDevice = devices.find((device) => device.device_id === currentDeviceId);
   const roomHref = `/?${new URLSearchParams({ room }).toString()}`;
   const owner = me(state.members);
+  const activeSectionLabel = settingsSections.find(([id]) => id === activeSection)?.[1] ?? 'Settings';
 
   if (unpaired) {
     return (
@@ -195,15 +196,16 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
               <ChevronLeft aria-hidden="true" size={21} />
             </a>
             <div>
-              <h1>Settings</h1>
-              <p>{state.room?.name ?? room}</p>
+              <h1>{activeSectionLabel}</h1>
+              <p>{state.room?.name ?? room} · local settings</p>
             </div>
           </header>
 
           <div className="wr-settings-body">
             {notice && <p role="status" className="wr-settings-notice">{notice}</p>}
 
-            <section id="appearance" className="wr-settings-section">
+            {/* harn:assume web-settings-desktop-focuses-one-category ref=focused-settings-category */}
+            <section id="appearance" data-testid="settings-section-appearance" data-active={activeSection === 'appearance'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <Palette aria-hidden="true" size={18} />
                 <div><h2>Appearance</h2><p>Local to this browser.</p></div>
@@ -247,7 +249,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
               {/* harn:end web-theme-choice-stays-local */}
             </section>
 
-            <section id="notifications" className="wr-settings-section">
+            <section id="notifications" data-testid="settings-section-notifications" data-active={activeSection === 'notifications'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <Bell aria-hidden="true" size={18} />
                 <div><h2>Notifications</h2><p>Sealed previews for this paired browser.</p></div>
@@ -284,7 +286,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
               </div>
             </section>
 
-            <section id="brakes" className="wr-settings-section">
+            <section id="brakes" data-testid="settings-section-brakes" data-active={activeSection === 'brakes'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <Gauge aria-hidden="true" size={18} />
                 <div><h2>Room brakes</h2><p>Opt-in holds for this room. Both are off by default.</p></div>
@@ -363,7 +365,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
               </form>
             </section>
 
-            <section id="relay" className="wr-settings-section">
+            <section id="relay" data-testid="settings-section-relay" data-active={activeSection === 'relay'} className="wr-settings-section">
               <button
                 type="button"
                 data-testid="open-relay-pairing"
@@ -379,7 +381,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
             </section>
 
             {/* harn:assume unpair-purges-all-browser-state ref=settings-unpair-action */}
-            <section id="devices" className="wr-settings-section">
+            <section id="devices" data-testid="settings-section-devices" data-active={activeSection === 'devices'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <Laptop aria-hidden="true" size={18} />
                 <div><h2>Paired devices</h2><p>Device authority and sealed push state.</p></div>
@@ -455,7 +457,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
             </section>
             {/* harn:end unpair-purges-all-browser-state */}
 
-            <section id="privacy" className="wr-settings-section">
+            <section id="privacy" data-testid="settings-section-privacy" data-active={activeSection === 'privacy'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <ShieldCheck aria-hidden="true" size={18} />
                 <div><h2>Privacy</h2><p>Local plaintext, content-blind relay.</p></div>
@@ -468,6 +470,7 @@ export function SettingsPage(props: { token?: string } = {}): JSX.Element {
                 <span className="wr-status-copy"><i className="wr-presence is-live" /> Local only</span>
               </div>
             </section>
+            {/* harn:end web-settings-desktop-focuses-one-category */}
           </div>
         </div>
       </div>

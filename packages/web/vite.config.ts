@@ -26,8 +26,8 @@ export default defineConfig({
         scope: '/',
         display: 'standalone',
         orientation: 'any',
-        background_color: '#09090b',
-        theme_color: '#09090b',
+        background_color: '#070b0d',
+        theme_color: '#070b0d',
         categories: ['productivity', 'utilities'],
         icons: [
           { src: '/wireroom-192.png', sizes: '192x192', type: 'image/png' },

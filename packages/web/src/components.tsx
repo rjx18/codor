@@ -611,10 +611,17 @@ export function MemberRail(props: {
   const variant = props.variant ?? 'rail';
   const firstAgentId = props.members.find((member) => member.kind === 'agent')?.id;
   const [selectedMemberId, setSelectedMemberId] = useState<string | undefined>(firstAgentId);
+  const initializedSelection = useRef(firstAgentId !== undefined);
 
   useEffect(() => {
-    if (selectedMemberId && props.members.some((member) => member.id === selectedMemberId)) return;
-    setSelectedMemberId(firstAgentId);
+    if (!initializedSelection.current && firstAgentId) {
+      initializedSelection.current = true;
+      setSelectedMemberId(firstAgentId);
+      return;
+    }
+    if (selectedMemberId && !props.members.some((member) => member.id === selectedMemberId)) {
+      setSelectedMemberId(undefined);
+    }
   }, [firstAgentId, props.members, selectedMemberId]);
 
   return (

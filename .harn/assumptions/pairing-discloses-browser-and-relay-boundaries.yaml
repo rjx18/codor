@@ -1,0 +1,13 @@
+id: pairing-discloses-browser-and-relay-boundaries
+hash: a-a887ac6b262c
+title: Pairing keeps browser authority and relay visibility explicit
+state: active
+statement: The pairing workspace must keep the real QR-only single-use offer,
+  local browser authority, relay-visible delivery metadata, and relay-hidden
+  plaintext boundaries visible in one responsive flow, because enrollment must
+  feel polished without being mistaken for an account login or a broader privacy
+  guarantee.
+depends_on:
+  - pairing-offer-token-remains-qr-only
+  - design-references-preserve-wireroom-semantics
+created_by: glass-settings-pairing-polish-pass

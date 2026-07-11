@@ -20,6 +20,7 @@ async function control<T>(path: string): Promise<T> {
 }
 
 // harn:assume pairing-offer-token-remains-qr-only ref=pairing-token-visibility-regression
+// harn:assume pairing-discloses-browser-and-relay-boundaries ref=pairing-boundary-regression
 test('pairing page renders a QR without visible authority and enrolls the browser dual identity', async ({ page }) => {
   const offer = await control<{ url: string }>('/pair-offer');
   const offerUrl = new URL(offer.url);
@@ -31,7 +32,14 @@ test('pairing page renders a QR without visible authority and enrolls the browse
   await expect(page.locator('body')).not.toContainText(pairingToken);
   await expect(page.locator('body')).not.toContainText(accessToken);
   await expect(page.getByText('This is not an account login.')).toBeVisible();
-  await expect(page.getByText('The push relay never learns')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Relay can see' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Relay never sees' })).toBeVisible();
+  await expect(page.getByText(/Padded ciphertext size/)).toBeVisible();
+  await expect(page.getByText(/Sender, room or member names/)).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('button', { name: 'Pair this browser' })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole('button', { name: 'Pair this browser' }).click();
   await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
   const leakedAuthority = await page.evaluate(({ pairing, access }) => {
@@ -72,6 +80,7 @@ test('pairing page renders a QR without visible authority and enrolls the browse
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await expect(page).not.toHaveURL(/(?:\?|&)token=/);
 });
+// harn:end pairing-discloses-browser-and-relay-boundaries
 // harn:end pairing-offer-token-remains-qr-only
 
 test('sodium-native and real Chromium page/SW sealed boxes interoperate across restart', async () => {
@@ -150,7 +159,7 @@ test('settings unpair revokes the device and purges IndexedDB, caches, local sto
   }, before.device_id);
   expect(registered).toBe(201);
 
-  await page.goto(`${BASE}/settings?room=eng&token=e2e-token`);
+  await page.goto(`${BASE}/settings?room=eng&token=e2e-token#devices`);
   await expect(page.getByTestId(`device-${before.device_id}`)).toBeVisible();
   await page.evaluate(async () => {
     localStorage.setItem('wireroom-cache', 'sensitive');
@@ -197,7 +206,7 @@ test('unpair still purges local browser state when remote revocation is unavaila
   await page.getByRole('button', { name: 'Pair this browser' }).click();
   await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
   const identity = await page.evaluate(() => window.__wireroomCrypto.identity());
-  await page.goto(`${BASE}/settings?room=eng&token=e2e-token`);
+  await page.goto(`${BASE}/settings?room=eng&token=e2e-token#devices`);
   await expect(page.getByTestId(`device-${identity.device_id}`)).toBeVisible();
   await page.evaluate(async () => {
     localStorage.setItem('wireroom-cache', 'sensitive');
@@ -229,7 +238,7 @@ test('unpair reports a blocked local purge instead of rejecting silently', async
   await page.getByRole('button', { name: 'Pair this browser' }).click();
   await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
   const identity = await page.evaluate(() => window.__wireroomCrypto.identity());
-  await page.goto(`${BASE}/settings?room=eng&token=e2e-token`);
+  await page.goto(`${BASE}/settings?room=eng&token=e2e-token#devices`);
   await expect(page.getByTestId(`device-${identity.device_id}`)).toBeVisible();
   await page.evaluate(() => {
     Object.defineProperty(IDBFactory.prototype, 'deleteDatabase', {
