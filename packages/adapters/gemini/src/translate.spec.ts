@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import type { WireEvent } from '@wireroom/protocol';
+import { parseRunItemPayload, type WireEvent } from '@wireroom/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { createTurnTranslator } from './translate.js';
@@ -11,6 +11,11 @@ function replay(name: string): { events: WireEvent[]; sessionId: string | undefi
     .split('\n')
     .flatMap((line) => translator.push(line));
   events.push(...translator.end());
+  for (const event of events) {
+    if (event.type === 'run.item') {
+      expect(parseRunItemPayload(event.item_type, event.payload).success).toBe(true);
+    }
+  }
   return { events, sessionId: translator.sessionId() };
 }
 
@@ -22,9 +27,10 @@ describe('Gemini stream-json translation', () => {
       type: 'run.item',
       item_type: 'tool_call',
       payload: {
-        tool_name: 'read_file',
-        tool_id: 'read-1',
-        parameters: { file_path: 'README.md' },
+        call_id: 'read-1',
+        tool: 'read_file',
+        title: 'read_file',
+        input: { file_path: 'README.md' },
       },
     });
     expect(replayed.events.at(-1)).toEqual({

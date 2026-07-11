@@ -15,6 +15,18 @@ function numberField(data: Record<string, unknown>, key: string): number | undef
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+const MAX_OUTPUT = 256 * 1024;
+
+function outputText(value: unknown): string | undefined {
+  const text = typeof value === 'string' ? value : value === undefined ? undefined : JSON.stringify(value);
+  if (text === undefined || Buffer.byteLength(text) <= MAX_OUTPUT) return text;
+  const marker = '\n[output truncated at 256 KiB]';
+  const markerBytes = Buffer.byteLength(marker);
+  let prefix = Buffer.from(text).subarray(0, MAX_OUTPUT - markerBytes).toString('utf8');
+  while (Buffer.byteLength(prefix) + markerBytes > MAX_OUTPUT) prefix = prefix.slice(0, -1);
+  return `${prefix}${marker}`;
+}
+
 export interface TurnTranslator {
   push(line: string): WireEvent[];
   end(outcome: {
@@ -45,6 +57,7 @@ export function createTurnTranslator(sessionId: string): TurnTranslator {
       }
       const data = event.data ?? {};
 
+      // harn:assume first-party-run-items-normalized ref=copilot-normalized-run-items
       switch (event.type) {
         case 'assistant.message_delta': {
           if (stringField(data, 'parentToolCallId') !== undefined) return [];
@@ -54,7 +67,7 @@ export function createTurnTranslator(sessionId: string): TurnTranslator {
           const text = `${streamedMessages.get(messageId) ?? ''}${delta}`;
           streamedMessages.set(messageId, text);
           finalText = text;
-          return [{ type: 'run.item', item_type: 'text_delta', payload: delta }];
+          return [{ type: 'run.item', item_type: 'text_delta', payload: { text: delta } }];
         }
         case 'assistant.message': {
           if (stringField(data, 'parentToolCallId') !== undefined) return [];
@@ -64,7 +77,7 @@ export function createTurnTranslator(sessionId: string): TurnTranslator {
           if (messageId !== undefined && streamedMessages.has(messageId)) return [];
           return content === ''
             ? []
-            : [{ type: 'run.item', item_type: 'text_delta', payload: content }];
+            : [{ type: 'run.item', item_type: 'text_delta', payload: { text: content } }];
         }
         case 'assistant.reasoning':
           if (stringField(data, 'parentToolCallId') !== undefined) return [];
@@ -72,7 +85,7 @@ export function createTurnTranslator(sessionId: string): TurnTranslator {
             {
               type: 'run.item',
               item_type: 'reasoning_summary',
-              payload: stringField(data, 'content') ?? '',
+              payload: { text: stringField(data, 'content') ?? '' },
             },
           ];
         case 'tool.execution_start':
@@ -81,9 +94,10 @@ export function createTurnTranslator(sessionId: string): TurnTranslator {
               type: 'run.item',
               item_type: 'tool_call',
               payload: {
-                tool_call_id: stringField(data, 'toolCallId'),
-                tool_name: stringField(data, 'toolName'),
-                arguments: data.arguments ?? {},
+                call_id: stringField(data, 'toolCallId') ?? 'copilot-tool',
+                tool: stringField(data, 'toolName') ?? 'tool',
+                title: stringField(data, 'toolName') ?? 'Tool call',
+                input: data.arguments ?? {},
               },
             },
           ];
@@ -93,10 +107,10 @@ export function createTurnTranslator(sessionId: string): TurnTranslator {
               type: 'run.item',
               item_type: 'tool_result',
               payload: {
-                tool_call_id: stringField(data, 'toolCallId'),
-                success: data.success,
-                result: data.result,
-                error: data.error,
+                call_id: stringField(data, 'toolCallId') ?? 'copilot-tool',
+                status: data.success === false ? 'error' : 'ok',
+                output_text: outputText(data.success === false ? data.error : data.result),
+                raw: data,
               },
             },
           ];
@@ -112,9 +126,10 @@ export function createTurnTranslator(sessionId: string): TurnTranslator {
               type: 'run.item',
               item_type: 'tool_result',
               payload: {
-                kind: 'error',
-                error_type: stringField(data, 'errorType'),
-                message: streamError,
+                call_id: 'copilot-error',
+                status: 'error',
+                output_text: outputText(streamError),
+                raw: data,
               },
             },
           ];
@@ -152,6 +167,7 @@ export function createTurnTranslator(sessionId: string): TurnTranslator {
         default:
           return [];
       }
+      // harn:end first-party-run-items-normalized
     },
 
     end(outcome): WireEvent[] {

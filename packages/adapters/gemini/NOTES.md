@@ -60,8 +60,13 @@ group is signalled on interrupt and cleanup. A child exit is not treated as
 stdout EOF.
 
 Wireroom policy mapping is `read-only` to `plan`, `workspace-write` to
-`auto_edit`, and `danger-full-access` to `yolo`; native Gemini approval-mode
-values pass through.
+`auto_edit`, and `full-access` to `yolo`. These canonical mappings were
+rechecked on 2026-07-11 against the first-party CLI argument source and
+[approval modes](https://geminicli.com/docs/cli/configuration/#approval-mode).
+Unknown native or legacy values do not pass through. Gemini exposes no
+documented low/medium/high thinking control in this interface, so the adapter
+declares `thinking:false` and rejects a requested level before spawning. The
+verification used documentation only and made no model call.
 
 ## Resume and discovery
 
@@ -100,6 +105,7 @@ adapter never invents `cost_usd`.
 | ask | false | no response channel in headless stream-json |
 | approvals | spawn-time | `--approval-mode`; no runtime response channel |
 | extensions | false | stream-json has no documented subagent lifecycle events |
+| thinking | false | no documented low/medium/high headless control |
 
 The checked-in JSONL files are explicitly **SYNTHETIC**, built from Google's
 documented event interfaces. The `gemini` binary is absent and no authenticated

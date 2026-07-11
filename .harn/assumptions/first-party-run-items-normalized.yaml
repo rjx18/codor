@@ -1,0 +1,19 @@
+id: first-party-run-items-normalized
+hash: a-5f28e42816de
+title: First-party adapters emit bounded normalized run-item evidence
+state: active
+statement: Every first-party translator must emit S1 payloads accepted by
+  parseRunItemPayload, pair native tool calls and results with stable call ids,
+  cap inline output at 256 KiB and base64 images at 2 MiB while retaining raw
+  journal evidence, and map available text, reasoning, tool, file-change, image,
+  error, and usage evidence without changing the open WireEvent transport,
+  because the live stream and inspector require one predictable cross-harness
+  shape without making third-party failures fatal.
+depends_on:
+  - normalized-run-item-payload-contract
+  - codex-event-contract-pinned
+  - claude-control-protocol-pinned
+  - opencode-capability-truth
+  - gemini-capability-truth
+  - copilot-capability-truth
+created_by: codor-p2-adapters

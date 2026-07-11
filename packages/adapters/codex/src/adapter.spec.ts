@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { WireEvent } from '@wireroom/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { CodexAdapter } from './adapter.js';
+import { CodexAdapter, codexArgs } from './adapter.js';
 
 const dirs: string[] = [];
 
@@ -31,6 +31,27 @@ afterEach(() => {
 });
 
 describe('codex subprocess lifecycle', () => {
+  it('maps every canonical policy and thinking level to documented argv', () => {
+    const base = { harness: 'codex', cwd: '/work' };
+    expect(codexArgs({ ...base, policy: 'read-only' }, 'go')).toEqual(
+      expect.arrayContaining(['--sandbox', 'read-only']),
+    );
+    expect(codexArgs({ ...base, policy: 'workspace-write' }, 'go')).toEqual(
+      expect.arrayContaining(['--sandbox', 'workspace-write']),
+    );
+    expect(codexArgs({ ...base, policy: 'full-access' }, 'go')).toEqual(
+      expect.arrayContaining(['--sandbox', 'danger-full-access']),
+    );
+    for (const thinking of ['low', 'medium', 'high'] as const) {
+      expect(codexArgs({ ...base, thinking }, 'go')).toEqual(
+        expect.arrayContaining(['-c', `model_reasoning_effort=${thinking}`]),
+      );
+    }
+    expect(() => codexArgs({ ...base, policy: 'danger-full-access' }, 'go')).toThrow(
+      'valid policies: read-only, workspace-write, full-access',
+    );
+  });
+
   it('turns a missing CLI into a failed run instead of an unhandled child error', async () => {
     const events = await collect(new CodexAdapter('/definitely/missing/wireroom-codex'));
     expect(events.at(-1)).toMatchObject({ type: 'run.completed', status: 'failed' });

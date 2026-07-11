@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { WireEvent } from '@wireroom/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { GeminiAdapter, geminiApprovalMode } from './adapter.js';
+import { GeminiAdapter, geminiApprovalMode, geminiArgs } from './adapter.js';
 
 const dirs: string[] = [];
 
@@ -34,8 +34,20 @@ describe('Gemini subprocess and capability conformance', () => {
   it('maps Wireroom policy chips onto Gemini approval modes', () => {
     expect(geminiApprovalMode('read-only')).toBe('plan');
     expect(geminiApprovalMode('workspace-write')).toBe('auto_edit');
-    expect(geminiApprovalMode('danger-full-access')).toBe('yolo');
-    expect(geminiApprovalMode('plan')).toBe('plan');
+    expect(geminiApprovalMode('full-access')).toBe('yolo');
+    expect(() => geminiApprovalMode('plan')).toThrow('valid policies');
+    for (const [policy, mode] of [
+      ['read-only', 'plan'],
+      ['workspace-write', 'auto_edit'],
+      ['full-access', 'yolo'],
+    ] as const) {
+      expect(geminiArgs({ harness: 'gemini', cwd: '/work', policy }, 'go'))
+        .toEqual(expect.arrayContaining(['--approval-mode', mode]));
+    }
+    for (const thinking of ['low', 'medium', 'high'] as const) {
+      expect(() => geminiArgs({ harness: 'gemini', cwd: '/work', thinking }, 'go'))
+        .toThrow('does not support thinking');
+    }
   });
 
   it('passes headless, model, policy, resume, prompt, and cwd without stdin', async () => {

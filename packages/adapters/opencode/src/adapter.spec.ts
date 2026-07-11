@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { WireEvent } from '@wireroom/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { OpenCodeAdapter, openCodeAutoApprove } from './adapter.js';
+import { OpenCodeAdapter, openCodeArgs, openCodeAutoApprove } from './adapter.js';
 
 const dirs: string[] = [];
 
@@ -34,8 +34,20 @@ describe('OpenCode subprocess and capability conformance', () => {
   it('enables CLI-owned auto approval only for explicit full-access policies', () => {
     expect(openCodeAutoApprove('read-only')).toBe(false);
     expect(openCodeAutoApprove('workspace-write')).toBe(false);
-    expect(openCodeAutoApprove('danger-full-access')).toBe(true);
-    expect(openCodeAutoApprove('auto')).toBe(true);
+    expect(openCodeAutoApprove('full-access')).toBe(true);
+    expect(() => openCodeAutoApprove('auto')).toThrow('valid policies');
+  });
+
+  it('maps canonical policies and thinking levels to documented argv', () => {
+    const base = { harness: 'opencode', cwd: '/work' };
+    expect(openCodeArgs({ ...base, policy: 'read-only' }, 'go')).not.toContain('--auto');
+    expect(openCodeArgs({ ...base, policy: 'workspace-write' }, 'go')).not.toContain('--auto');
+    expect(openCodeArgs({ ...base, policy: 'full-access' }, 'go')).toContain('--auto');
+    for (const thinking of ['low', 'medium', 'high'] as const) {
+      expect(openCodeArgs({ ...base, thinking }, 'go')).toEqual(
+        expect.arrayContaining(['--variant', thinking]),
+      );
+    }
   });
 
   it('passes JSON, model, auto, resume, payload, and cwd without stdin', async () => {
@@ -52,7 +64,7 @@ console.log(JSON.stringify({type:'step_finish',sessionID:'ses_existing',part:{ty
     const session = adapter.attach('ses_existing');
     session.cwd = cwd;
     session.model = 'opencode/deepseek-v4-flash-free';
-    session.policy = 'danger-full-access';
+    session.policy = 'full-access';
     const events: WireEvent[] = [];
     for await (const event of adapter.deliver(session, 'PONG')) events.push(event);
     const done = events.at(-1) as Extract<WireEvent, { type: 'run.completed' }>;

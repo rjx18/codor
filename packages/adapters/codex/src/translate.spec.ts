@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import type { WireEvent } from '@wireroom/protocol';
+import { parseRunItemPayload, type WireEvent } from '@wireroom/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { createTurnTranslator } from './translate.js';
@@ -10,6 +10,11 @@ function replay(lines: string[]): { events: WireEvent[]; threadId: string | unde
   const events: WireEvent[] = [];
   for (const line of lines) events.push(...translator.push(line));
   events.push(...translator.end());
+  for (const event of events) {
+    if (event.type === 'run.item') {
+      expect(parseRunItemPayload(event.item_type, event.payload).success).toBe(true);
+    }
+  }
   return { events, threadId: translator.threadId() };
 }
 
@@ -31,7 +36,7 @@ describe('success fixture replay', () => {
 
   it('produces the golden event sequence', () => {
     expect(events).toEqual([
-      { type: 'run.item', item_type: 'text_delta', payload: 'PONG' },
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'PONG' } },
       {
         type: 'run.completed',
         status: 'completed',
@@ -54,24 +59,36 @@ describe('multi-message fixture replay (command-success)', () => {
       {
         type: 'run.item',
         item_type: 'text_delta',
-        payload: 'I’ll count the entries from the requested command.',
+        payload: { text: 'I’ll count the entries from the requested command.' },
       },
       {
         type: 'run.item',
         item_type: 'tool_call',
-        payload: { command: '/bin/bash -lc ls', status: 'in_progress' },
+        payload: {
+          call_id: 'item_1',
+          tool: 'Bash',
+          title: '/bin/bash -lc ls',
+          input: { command: '/bin/bash -lc ls' },
+        },
       },
       {
         type: 'run.item',
         item_type: 'tool_result',
         payload: {
-          command: '/bin/bash -lc ls',
-          exit_code: 0,
-          aggregated_output: 'README.md\n',
-          status: 'completed',
+          call_id: 'item_1',
+          status: 'ok',
+          output_text: 'README.md\n',
+          raw: {
+            id: 'item_1',
+            type: 'command_execution',
+            command: '/bin/bash -lc ls',
+            aggregated_output: 'README.md\n',
+            exit_code: 0,
+            status: 'completed',
+          },
         },
       },
-      { type: 'run.item', item_type: 'text_delta', payload: '1' },
+      { type: 'run.item', item_type: 'text_delta', payload: { text: '1' } },
       {
         type: 'run.completed',
         status: 'completed',
@@ -100,7 +117,12 @@ describe('failed fixture replay (failure-bogus-model)', () => {
     expect(events[0]).toEqual({
       type: 'run.item',
       item_type: 'tool_result',
-      payload: { kind: 'error', message: expect.stringContaining('Model metadata') },
+      payload: {
+        call_id: 'item_0',
+        status: 'error',
+        output_text: expect.stringContaining('Model metadata'),
+        raw: expect.objectContaining({ id: 'item_0', type: 'error' }),
+      },
     });
   });
 });
@@ -118,7 +140,12 @@ describe('interrupt fixture replay (SIGINT truncation)', () => {
     expect(events).toContainEqual({
       type: 'run.item',
       item_type: 'tool_call',
-      payload: { command: "/bin/bash -lc 'sleep 60'", status: 'in_progress' },
+      payload: {
+        call_id: 'item_1',
+        tool: 'Bash',
+        title: "/bin/bash -lc 'sleep 60'",
+        input: { command: "/bin/bash -lc 'sleep 60'" },
+      },
     });
   });
 });

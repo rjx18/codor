@@ -13,6 +13,7 @@ describe('@wireroom/adapter-copilot barrel', () => {
       ask: false,
       approvals: 'spawn-time',
       extensions: true,
+      thinking: false,
     });
   });
 });

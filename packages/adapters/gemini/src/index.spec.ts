@@ -13,6 +13,7 @@ describe('@wireroom/adapter-gemini barrel', () => {
       ask: false,
       approvals: 'spawn-time',
       extensions: false,
+      thinking: false,
     });
   });
 });

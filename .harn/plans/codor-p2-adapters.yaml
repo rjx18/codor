@@ -1,0 +1,243 @@
+id: codor-p2-adapters
+title: P2 normalize first-party adapters and enforce spawn controls
+assumptions:
+  retire:
+    - id: canonical-spawn-control-vocabulary
+      reason: Phase 1 explicitly allowed adapter capability declarations to omit
+        thinking temporarily; Phase 2 makes the field required and enforces
+        every canonical policy and thinking request before a child process can
+        spawn, so the optional transitional statement is no longer true.
+  create:
+    - id: canonical-spawn-controls-enforced
+      title: Every adapter declares and enforces canonical policy and thinking
+        controls
+      statement: AdapterCapabilities must require a thinking boolean, every
+        first-party adapter and the FakeAdapter must declare it, registered
+        adapter spawns must reject policy values outside read-only,
+        workspace-write, and full-access and reject thinking for unsupported
+        harnesses before any child process starts, and supported adapters must
+        map low, medium, and high to documented native CLI arguments, because UI
+        controls must never be silently dropped or passed through as
+        harness-specific strings.
+      reason: S2 and S3 replace the observed full-access mismatch and optional
+        capability transition with one validated adapter-neutral contract.
+      depends_on:
+        - adapter-registry-sole-harness-source
+    - id: first-party-run-items-normalized
+      title: First-party adapters emit bounded normalized run-item evidence
+      statement: Every first-party translator must emit S1 payloads accepted by
+        parseRunItemPayload, pair native tool calls and results with stable call
+        ids, cap inline output at 256 KiB and base64 images at 2 MiB while
+        retaining raw journal evidence, and map available text, reasoning, tool,
+        file-change, image, error, and usage evidence without changing the open
+        WireEvent transport, because the live stream and inspector require one
+        predictable cross-harness shape without making third-party failures
+        fatal.
+      reason: S1 moves normalization to all five first-party adapter edges and adds
+        Claude edit-diff and image extraction required by the later web phases.
+      depends_on:
+        - normalized-run-item-payload-contract
+        - codex-event-contract-pinned
+        - claude-control-protocol-pinned
+        - opencode-capability-truth
+        - gemini-capability-truth
+        - copilot-capability-truth
+  reviewed:
+    - id: normalized-run-item-payload-contract
+      outcome: unchanged
+      reason: WireEvent payload remains unknown while first-party translator tests now
+        enforce the standalone schemas through the shared parser.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The same registry still owns built-ins and hot-swapped adapters and now
+        wraps their spawn boundary with canonical validation.
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: Required capability declarations and validated built-ins keep the
+        registry-owned clean-clone startup contract intact.
+    - id: adapters-cli-only-no-sdk
+      outcome: unchanged
+      reason: Policy and thinking mappings add only documented argv to the existing
+        supervised plain CLI subprocess drivers.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: Argument construction and normalized translation leave spawn, error,
+        stderr, close, EOF, process-group, and shutdown supervision intact.
+    - id: codex-event-contract-pinned
+      outcome: unchanged
+      reason: Codex normalization is derived from the existing recorded captures; no
+        fixture bytes are edited or synthesized over them.
+    - id: claude-control-protocol-pinned
+      outcome: unchanged
+      reason: Claude normalization consumes existing recorded content blocks and
+        inline synthetic unit cases without modifying the raw fixture contract.
+    - id: ask-normalization-blocks-run
+      outcome: unchanged
+      reason: Normalized assistant and tool-result blocks do not change control
+        request cards or their blocking response path.
+    - id: codex-usage-tokens-only
+      outcome: unchanged
+      reason: Codex still forwards reported token counts and never fabricates a dollar
+        cost while its run items gain the S1 shape.
+    - id: opencode-capability-truth
+      outcome: unchanged
+      reason: OpenCode retains its documented run, resume, discovery, attach,
+        spawn-time approval, and event behavior while additionally exposing the
+        now-documented model variant control.
+    - id: gemini-capability-truth
+      outcome: unchanged
+      reason: Gemini keeps the same direct CLI and capability truth while mapping
+        canonical policies to documented approval modes and declaring thinking
+        false.
+    - id: copilot-capability-truth
+      outcome: unchanged
+      reason: Copilot keeps its documented programmatic lifecycle and capability truth
+        while mapping full access to the current allow-all flag and declaring
+        thinking false.
+anchors:
+  canonical-spawn-control-vocabulary:
+    canonical-policy-and-thinking-types:
+      action: remove
+      reason: Replace the transitional optional-capability anchor with the required
+        and enforced Phase 2 contract.
+  canonical-spawn-controls-enforced:
+    canonical-policy-thinking-enforcement:
+      action: change
+      reason: Make thinking required on capabilities and available on live Session
+        state while retaining the canonical enums.
+    claude-spawn-control-mapping:
+      action: change
+      reason: Map policies to permission modes and thinking to --effort with strict
+        rejection and argv coverage.
+    codex-spawn-control-mapping:
+      action: change
+      reason: Map policies to sandbox values and thinking to model_reasoning_effort
+        with strict rejection and argv coverage.
+    opencode-spawn-control-mapping:
+      action: change
+      reason: Map full access to --auto and thinking to --variant while rejecting
+        unknown canonical values.
+    gemini-spawn-control-mapping:
+      action: change
+      reason: Map canonical policy to plan, auto_edit, and yolo approval modes and
+        reject unsupported thinking.
+    copilot-spawn-control-mapping:
+      action: change
+      reason: Map full access to --allow-all and reject unsupported thinking.
+    registry-spawn-control-validation:
+      action: change
+      reason: Wrap every built-in and configured adapter spawn with canonical policy,
+        thinking-level, and capability validation before delegation.
+    fake-thinking-capability:
+      action: change
+      reason: Give FakeAdapter an explicit false default during the required-field
+        flip.
+  first-party-run-items-normalized:
+    claude-normalized-run-items:
+      action: change
+      reason: Normalize text, thinking, tool calls/results, edit diffs, images, output
+        limits, and raw evidence from Claude content blocks.
+    codex-normalized-run-items:
+      action: change
+      reason: Normalize agent messages, command pairs, and errors from fixture-pinned
+        Codex items.
+    opencode-normalized-run-items:
+      action: change
+      reason: Normalize text, reasoning, completed tool pairs, and errors from the
+        OpenCode run stream.
+    gemini-normalized-run-items:
+      action: change
+      reason: Normalize documented message, tool, result, and error events without
+        changing token-only usage.
+    copilot-normalized-run-items:
+      action: change
+      reason: Normalize documented assistant, reasoning, tool, and session-error
+        envelopes while preserving extension and token semantics.
+  adapter-registry-sole-harness-source:
+    configured-adapter-registry:
+      action: change
+      reason: Validate required capabilities and wrap all registry adapters at the
+        single composition boundary.
+  adapters-cli-only-no-sdk:
+    cli-subprocess-driver:
+      action: change
+      reason: Add Codex canonical argv construction without changing the plain CLI
+        process contract.
+    opencode-cli-subprocess-driver:
+      action: change
+      reason: Add OpenCode canonical argv construction without changing the direct run
+        interface.
+    gemini-cli-subprocess-driver:
+      action: change
+      reason: Add Gemini canonical argv construction without changing the direct
+        headless interface.
+    copilot-cli-subprocess-driver:
+      action: change
+      reason: Add Copilot canonical argv construction without changing programmatic
+        JSONL mode.
+  adapter-process-lifecycle-supervised:
+    cli-process-supervision:
+      action: change
+      reason: Claude and Codex build validated argv inside their existing supervised
+        deliver boundaries.
+    opencode-cli-process-supervision:
+      action: change
+      reason: OpenCode builds validated argv inside its existing supervised boundary.
+    gemini-cli-process-supervision:
+      action: change
+      reason: Gemini builds validated argv inside its existing supervised boundary.
+    copilot-cli-process-supervision:
+      action: change
+      reason: Copilot builds validated argv inside its existing supervised boundary.
+  opencode-capability-truth:
+    opencode-event-translation:
+      action: change
+      reason: Preserve the pinned event vocabulary while converting payloads to S1.
+  gemini-capability-truth:
+    gemini-documented-event-translation:
+      action: change
+      reason: Preserve the documented stream vocabulary while converting payloads to
+        S1.
+  copilot-capability-truth:
+    copilot-event-translation:
+      action: change
+      reason: Preserve documented events and extensions while converting run items to
+        S1.
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/claude-code/src/adapter.spec.ts
+  - packages/adapters/claude-code/src/index.spec.ts
+  - packages/adapters/claude-code/src/translate.ts
+  - packages/adapters/claude-code/src/translate.spec.ts
+  - packages/adapters/claude-code/NOTES.md
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/adapter.spec.ts
+  - packages/adapters/codex/src/index.spec.ts
+  - packages/adapters/codex/src/translate.ts
+  - packages/adapters/codex/src/translate.spec.ts
+  - packages/adapters/codex/NOTES.md
+  - packages/adapters/opencode/src/adapter.ts
+  - packages/adapters/opencode/src/adapter.spec.ts
+  - packages/adapters/opencode/src/index.spec.ts
+  - packages/adapters/opencode/src/translate.ts
+  - packages/adapters/opencode/src/translate.spec.ts
+  - packages/adapters/opencode/NOTES.md
+  - packages/adapters/gemini/src/adapter.ts
+  - packages/adapters/gemini/src/adapter.spec.ts
+  - packages/adapters/gemini/src/index.spec.ts
+  - packages/adapters/gemini/src/translate.ts
+  - packages/adapters/gemini/src/translate.spec.ts
+  - packages/adapters/gemini/NOTES.md
+  - packages/adapters/copilot/src/adapter.ts
+  - packages/adapters/copilot/src/adapter.spec.ts
+  - packages/adapters/copilot/src/index.spec.ts
+  - packages/adapters/copilot/src/translate.ts
+  - packages/adapters/copilot/src/translate.spec.ts
+  - packages/adapters/copilot/NOTES.md
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/switchboard/test-fixtures/third-party-adapter.mjs
+applied:
+  applied_at: 2026-07-11T14:14:17.322Z

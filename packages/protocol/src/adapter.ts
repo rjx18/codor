@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { WireEvent } from './events.js';
 
-// harn:assume canonical-spawn-control-vocabulary ref=canonical-policy-and-thinking-types
+// harn:assume canonical-spawn-controls-enforced ref=canonical-policy-thinking-enforcement
 export const PolicySchema = z.enum(['read-only', 'workspace-write', 'full-access']);
 export type Policy = z.infer<typeof PolicySchema>;
 
@@ -24,6 +24,7 @@ export interface Session {
   cwd: string;
   model?: string;
   policy?: string;
+  thinking?: ThinkingLevel;
 }
 
 export interface SpawnOpts {
@@ -40,9 +41,9 @@ export interface AdapterCapabilities {
   ask: boolean; // raises ask.raised cards
   approvals: 'runtime' | 'spawn-time';
   extensions: boolean; // reports subagents (extension.*)
-  thinking?: boolean; // undefined is conservatively treated as unsupported
+  thinking: boolean;
 }
-// harn:end canonical-spawn-control-vocabulary
+// harn:end canonical-spawn-controls-enforced
 
 /** Durable lifecycle facts reported while a turn is still in progress. */
 export interface AdapterTurnHooks {

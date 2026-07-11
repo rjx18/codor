@@ -12,18 +12,30 @@ import type {
   SpawnOpts,
   WireEvent,
 } from '@wireroom/protocol';
+import { PolicySchema } from '@wireroom/protocol';
 
 import { createTurnTranslator } from './translate.js';
 
-const APPROVAL_MODES = new Set(['default', 'auto_edit', 'yolo', 'plan']);
-
 export function geminiApprovalMode(policy: string | undefined): string | undefined {
-  if (policy === undefined || policy === '') return undefined;
-  if (APPROVAL_MODES.has(policy)) return policy;
-  if (policy === 'read-only') return 'plan';
-  if (policy === 'workspace-write') return 'auto_edit';
-  if (policy === 'danger-full-access') return 'yolo';
-  return policy;
+  if (policy === undefined) return undefined;
+  if (!PolicySchema.safeParse(policy).success) {
+    throw new Error(`unknown policy '${policy}'; valid policies: ${PolicySchema.options.join(', ')}`);
+  }
+  return { 'read-only': 'plan', 'workspace-write': 'auto_edit', 'full-access': 'yolo' }[policy];
+}
+
+// harn:assume canonical-spawn-controls-enforced ref=gemini-spawn-control-mapping
+export function geminiArgs(session: Session, payload: string): string[] {
+  if (session.thinking !== undefined) {
+    throw new Error("adapter 'gemini' does not support thinking levels");
+  }
+  const args = ['--output-format', 'stream-json'];
+  if (session.model !== undefined) args.push('--model', session.model);
+  const approvalMode = geminiApprovalMode(session.policy);
+  if (approvalMode !== undefined) args.push('--approval-mode', approvalMode);
+  if (session.session_ref !== undefined) args.push('--resume', session.session_ref);
+  args.push('--prompt', payload);
+  return args;
 }
 
 function sessionIdFromFile(path: string): string | undefined {
@@ -62,6 +74,7 @@ export class GeminiAdapter implements HarnessAdapter {
     ask: false,
     approvals: 'spawn-time',
     extensions: false,
+    thinking: false,
   } as const;
 
   private readonly children = new WeakMap<Session, ChildProcess>();
@@ -72,6 +85,10 @@ export class GeminiAdapter implements HarnessAdapter {
   ) {}
 
   spawn(opts: SpawnOpts): Session {
+    geminiApprovalMode(opts.policy);
+    if (opts.thinking !== undefined) {
+      throw new Error("adapter 'gemini' does not support thinking levels");
+    }
     return {
       harness: this.id,
       cwd: opts.cwd,
@@ -79,6 +96,7 @@ export class GeminiAdapter implements HarnessAdapter {
       policy: opts.policy,
     };
   }
+  // harn:end canonical-spawn-controls-enforced
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };
@@ -91,12 +109,7 @@ export class GeminiAdapter implements HarnessAdapter {
     payload: string,
     hooks: AdapterTurnHooks = {},
   ): AsyncIterable<WireEvent> {
-    const args = ['--output-format', 'stream-json'];
-    if (session.model !== undefined) args.push('--model', session.model);
-    const approvalMode = geminiApprovalMode(session.policy);
-    if (approvalMode !== undefined) args.push('--approval-mode', approvalMode);
-    if (session.session_ref !== undefined) args.push('--resume', session.session_ref);
-    args.push('--prompt', payload);
+    const args = geminiArgs(session, payload);
 
     const child = spawn(this.command, args, {
       cwd: session.cwd,

@@ -12,6 +12,7 @@ import type {
   SpawnOpts,
   WireEvent,
 } from '@wireroom/protocol';
+import { PolicySchema, ThinkingLevelSchema } from '@wireroom/protocol';
 
 import { createTurnTranslator } from './translate.js';
 
@@ -19,6 +20,26 @@ const ROLLOUT_RE = /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}
 
 function codexHome(): string {
   return process.env.CODEX_HOME ?? join(homedir(), '.codex');
+}
+
+function invalidPolicy(policy: string): Error {
+  return new Error(`unknown policy '${policy}'; valid policies: ${PolicySchema.options.join(', ')}`);
+}
+
+// harn:assume canonical-spawn-controls-enforced ref=codex-spawn-control-mapping
+export function codexArgs(session: Session, payload: string): string[] {
+  const policy = session.policy ?? 'read-only';
+  if (!PolicySchema.safeParse(policy).success) throw invalidPolicy(policy);
+  const sandbox = policy === 'full-access' ? 'danger-full-access' : policy;
+  const args = ['exec', '--json', '--skip-git-repo-check', '-C', session.cwd, '--sandbox', sandbox];
+  if (session.model !== undefined) args.push('-m', session.model);
+  if (session.thinking !== undefined) {
+    ThinkingLevelSchema.parse(session.thinking);
+    args.push('-c', `model_reasoning_effort=${session.thinking}`);
+  }
+  if (session.session_ref !== undefined) args.push('resume', session.session_ref);
+  args.push(payload);
+  return args;
 }
 
 /**
@@ -35,6 +56,7 @@ export class CodexAdapter implements HarnessAdapter {
     ask: false,
     approvals: 'spawn-time',
     extensions: false,
+    thinking: true,
   } as const;
 
   private readonly children = new WeakMap<Session, ChildProcess>();
@@ -42,13 +64,19 @@ export class CodexAdapter implements HarnessAdapter {
   constructor(private readonly command = 'codex') {}
 
   spawn(opts: SpawnOpts): Session {
+    if (opts.policy !== undefined && !PolicySchema.safeParse(opts.policy).success) {
+      throw invalidPolicy(opts.policy);
+    }
+    if (opts.thinking !== undefined) ThinkingLevelSchema.parse(opts.thinking);
     return {
       harness: this.id,
       cwd: opts.cwd,
       model: opts.model,
       policy: opts.policy,
+      thinking: opts.thinking,
     };
   }
+  // harn:end canonical-spawn-controls-enforced
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };
@@ -69,11 +97,7 @@ export class CodexAdapter implements HarnessAdapter {
     payload: string,
     hooks: AdapterTurnHooks = {},
   ): AsyncIterable<WireEvent> {
-    const args = ['exec', '--json', '--skip-git-repo-check', '-C', session.cwd];
-    args.push('--sandbox', session.policy ?? 'read-only');
-    if (session.model !== undefined) args.push('-m', session.model);
-    if (session.session_ref !== undefined) args.push('resume', session.session_ref);
-    args.push(payload);
+    const args = codexArgs(session, payload);
 
     const child = spawn(this.command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],

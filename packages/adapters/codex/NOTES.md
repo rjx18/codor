@@ -9,9 +9,23 @@ must be re-probed against the CLI — never hand-edited into the fixtures.
 
 ```sh
 codex exec --json [--sandbox <read-only|workspace-write|danger-full-access>] \
-  [--ignore-user-config] --skip-git-repo-check -C <cwd> "<prompt>"            # new thread
+  [-c model_reasoning_effort=<low|medium|high>] [--ignore-user-config] \
+  --skip-git-repo-check -C <cwd> "<prompt>"                                  # new thread
 codex exec --json … resume <thread_id> "<prompt>"                             # resume
 ```
+
+### Canonical spawn controls (rechecked 2026-07-11)
+
+Codex CLI 0.144.1 `exec --help`, the first-party
+[CLI reference](https://developers.openai.com/codex/cli/reference/), and
+[configuration reference](https://developers.openai.com/codex/config-reference/)
+document the sandbox vocabulary and `model_reasoning_effort`. Wireroom maps
+`read-only` and `workspace-write` directly, maps `full-access` to
+`danger-full-access`, and passes thinking `low`, `medium`, or `high` as
+`-c model_reasoning_effort=<level>`. The adapter declares `thinking:true`;
+provider/model support for a requested effort is not guaranteed, and a CLI
+error becomes an ordinary failed turn. Phase 2 used only help/config probes,
+with no model call.
 
 - Flags precede the `resume` subcommand (`codex exec --json … resume <id> "<prompt>"`).
 - Prompt as argv; if stdin is a pipe it is ALSO read and appended as a `<stdin>` block —
@@ -132,7 +146,7 @@ silently resumed alongside a possibly orphaned native engine.
 ## Capabilities (for P0.6)
 
 `{resume: true, discover: true, interactiveAttach: true, ask: false, approvals: 'spawn-time',
-extensions: false}` — no ask/approval control protocol exists in `exec` mode (sandbox policy
+extensions: false, thinking: true}` — no ask/approval control protocol exists in `exec` mode (sandbox policy
 is fixed at spawn); no subagent events observed or documented.
 
 ## Probe log (spend discipline)

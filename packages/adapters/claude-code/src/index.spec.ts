@@ -13,6 +13,7 @@ describe('@wireroom/adapter-claude-code barrel', () => {
       ask: true,
       approvals: 'runtime',
       extensions: true,
+      thinking: true,
     });
   });
 });

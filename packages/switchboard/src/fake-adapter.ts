@@ -64,6 +64,9 @@ export class FakeAdapter implements HarnessAdapter {
       ask: true,
       approvals: 'runtime',
       extensions: false,
+      // harn:assume canonical-spawn-controls-enforced ref=fake-thinking-capability
+      thinking: false,
+      // harn:end canonical-spawn-controls-enforced
       ...capabilities,
     };
   }

@@ -28,6 +28,17 @@ export interface TurnTranslator {
   sessionId(): string | undefined;
 }
 
+const MAX_OUTPUT = 256 * 1024;
+
+function boundedOutput(value: string | undefined): string | undefined {
+  if (value === undefined || Buffer.byteLength(value) <= MAX_OUTPUT) return value;
+  const marker = '\n[output truncated at 256 KiB]';
+  const markerBytes = Buffer.byteLength(marker);
+  let prefix = Buffer.from(value).subarray(0, MAX_OUTPUT - markerBytes).toString('utf8');
+  while (Buffer.byteLength(prefix) + markerBytes > MAX_OUTPUT) prefix = prefix.slice(0, -1);
+  return `${prefix}${marker}`;
+}
+
 // harn:assume gemini-capability-truth ref=gemini-documented-event-translation
 /** Translate the first-party stream-json event vocabulary into WireEvents. */
 export function createTurnTranslator(): TurnTranslator {
@@ -48,6 +59,7 @@ export function createTurnTranslator(): TurnTranslator {
         return [];
       }
 
+      // harn:assume first-party-run-items-normalized ref=gemini-normalized-run-items
       switch (event.type) {
         case 'init':
           sessionId = event.session_id;
@@ -55,16 +67,17 @@ export function createTurnTranslator(): TurnTranslator {
         case 'message':
           if (event.role !== 'assistant') return [];
           finalText += event.content ?? '';
-          return [{ type: 'run.item', item_type: 'text_delta', payload: event.content ?? '' }];
+          return [{ type: 'run.item', item_type: 'text_delta', payload: { text: event.content ?? '' } }];
         case 'tool_use':
           return [
             {
               type: 'run.item',
               item_type: 'tool_call',
               payload: {
-                tool_name: event.tool_name,
-                tool_id: event.tool_id,
-                parameters: event.parameters ?? {},
+                call_id: event.tool_id ?? 'gemini-tool',
+                tool: event.tool_name ?? 'tool',
+                title: event.tool_name ?? 'Tool call',
+                input: event.parameters ?? {},
               },
             },
           ];
@@ -74,10 +87,10 @@ export function createTurnTranslator(): TurnTranslator {
               type: 'run.item',
               item_type: 'tool_result',
               payload: {
-                tool_id: event.tool_id,
-                status: event.status,
-                output: event.output,
-                error: event.error,
+                call_id: event.tool_id ?? 'gemini-tool',
+                status: event.status === 'success' ? 'ok' : 'error',
+                output_text: boundedOutput(event.output ?? event.error?.message),
+                raw: event,
               },
             },
           ];
@@ -87,7 +100,12 @@ export function createTurnTranslator(): TurnTranslator {
             {
               type: 'run.item',
               item_type: 'tool_result',
-              payload: { kind: 'error', severity: event.severity, message: event.message },
+              payload: {
+                call_id: 'gemini-error',
+                status: 'error',
+                output_text: boundedOutput(event.message),
+                raw: event,
+              },
             },
           ];
         case 'result': {
@@ -112,6 +130,7 @@ export function createTurnTranslator(): TurnTranslator {
         default:
           return [];
       }
+      // harn:end first-party-run-items-normalized
     },
 
     end(fallback = { status: 'interrupted' as const }): WireEvent[] {

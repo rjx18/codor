@@ -1,0 +1,14 @@
+id: canonical-spawn-controls-enforced
+hash: a-01eb79e72f62
+title: Every adapter declares and enforces canonical policy and thinking controls
+state: active
+statement: AdapterCapabilities must require a thinking boolean, every
+  first-party adapter and the FakeAdapter must declare it, registered adapter
+  spawns must reject policy values outside read-only, workspace-write, and
+  full-access and reject thinking for unsupported harnesses before any child
+  process starts, and supported adapters must map low, medium, and high to
+  documented native CLI arguments, because UI controls must never be silently
+  dropped or passed through as harness-specific strings.
+depends_on:
+  - adapter-registry-sole-harness-source
+created_by: codor-p2-adapters

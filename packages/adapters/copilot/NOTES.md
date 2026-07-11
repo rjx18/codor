@@ -49,7 +49,7 @@ session; later uses resume it:
 
 ```text
 copilot --output-format=json --stream=on --no-ask-user --no-color \
-  [--model MODEL] [--allow-all-tools] --session-id UUID --prompt PAYLOAD
+  [--model MODEL] [--allow-all] --session-id UUID --prompt PAYLOAD
 ```
 
 The process starts in the member's persisted cwd, stdin is closed, stdout is
@@ -57,11 +57,18 @@ read through EOF, stderr is bounded for failure detail, and the detached process
 group is signalled on interrupt and cleanup. Clean exit completes the turn;
 nonzero exit/spawn failure fails it; signal termination interrupts it.
 
-`--allow-all-tools` is passed only for explicit `allow-all`, `yolo`, or
-`danger-full-access` policy chips. Other policies leave Copilot's configured
+`--allow-all` is passed only for canonical `full-access`. Other policies leave Copilot's configured
 permissions in force. `--no-ask-user` prevents a noninteractive turn from
 blocking on a question. Wireroom therefore declares spawn-time approvals and no
 runtime ask response channel.
+
+The mapping was rechecked on 2026-07-11 against GitHub's first-party
+[CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference),
+which documents the `--allow-all` shortcut as well as narrower tool flags.
+Copilot exposes no documented low/medium/high thinking control in prompt-mode
+JSONL, so the adapter declares `thinking:false` and rejects a requested level
+before spawning. The local executable is absent; this documentation check made
+no model call.
 
 ## Resume, discovery, and attach
 
@@ -108,6 +115,7 @@ tokens remain visibly uncosted in Wireroom's meter.
 | ask | false | `--no-ask-user`; no JSONL response channel |
 | approvals | spawn-time | allow/deny CLI flags; no Wireroom runtime response |
 | extensions | true | documented subagent lifecycle; synthetic replay test |
+| thinking | false | no documented low/medium/high prompt-mode control |
 
 All checked-in JSONL is explicitly **SYNTHETIC**, assembled from the first-party
 event envelope and field tables. The deferred authenticated checks are recorded

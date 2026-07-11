@@ -41,18 +41,28 @@ First-party OpenCode sources:
 The installed CLI is OpenCode `1.17.14`; `--help`, JSON session listing, and the
 configured model catalog were checked without model spend.
 
+Phase 2 rechecked the installed `run --help` plus the first-party
+[permissions](https://opencode.ai/docs/permissions/) and
+[models](https://opencode.ai/docs/models/) references on 2026-07-11.
+Wireroom emits no policy flag for `read-only` or `workspace-write`, and maps
+`full-access` to `--auto`. Thinking `low`, `medium`, and `high` maps directly
+to `run --variant <level>`, so the adapter declares `thinking:true`.
+Variant availability is provider/model-dependent; the docs and no-spend help
+probe did not establish unsupported-model behavior, so a native rejection is
+reported as an ordinary failed turn.
+
 ## Invocation
 
 New turn:
 
 ```text
-opencode run --format json [--model PROVIDER/MODEL] [--auto] PAYLOAD
+opencode run --format json [--model PROVIDER/MODEL] [--auto] [--variant LEVEL] PAYLOAD
 ```
 
 Continued turn:
 
 ```text
-opencode run --format json [--model PROVIDER/MODEL] [--auto] --session SESSION_ID PAYLOAD
+opencode run --format json [--model PROVIDER/MODEL] [--auto] [--variant LEVEL] --session SESSION_ID PAYLOAD
 ```
 
 The process starts in the member's persisted cwd, stdin is closed, stdout is
@@ -61,8 +71,8 @@ group is signalled on interrupt and cleanup. OpenCode emits no result record:
 clean EOF after exit zero completes the turn; nonzero exit, spawn failure, or an
 error record plus nonzero exit fails it.
 
-OpenCode has no read-only run flag. Wireroom passes `--auto` only for explicit
-`auto`, `yolo`, or `danger-full-access` policies. Other policy chips leave
+OpenCode has no read-only run flag. Wireroom passes `--auto` only for canonical
+`full-access`. Other policy chips leave
 OpenCode's configured rules in force and its headless runner rejects any newly
 raised permission. This is spawn-time policy, not a runtime Wireroom approval.
 
@@ -110,6 +120,7 @@ unchanged and never derives prices from tokens.
 | ask | false | `run` exposes no question response channel |
 | approvals | spawn-time | `--auto` or CLI-owned rejection; no Wireroom runtime response |
 | extensions | false | completed task tools do not provide authoritative child lifecycle |
+| thinking | true | documented `run --variant`; argv tests cover low/medium/high |
 
 `fixtures/live-pong-1.17.14.jsonl` is the one real authenticated capture required
 by P1.7b, using the configured free model and the tiny prompt `Reply PONG only.`.

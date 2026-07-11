@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { WireEvent } from '@wireroom/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { ClaudeCodeAdapter } from './adapter.js';
+import { ClaudeCodeAdapter, claudeArgs } from './adapter.js';
 
 const dirs: string[] = [];
 
@@ -44,6 +44,21 @@ afterEach(() => {
 });
 
 describe('claude subprocess and interaction lifecycle', () => {
+  it('maps every canonical policy and thinking level to documented argv', () => {
+    const base = { harness: 'claude-code', cwd: '/work' };
+    expect(claudeArgs({ ...base, policy: 'read-only' }, '/settings')).toContain('plan');
+    expect(claudeArgs({ ...base, policy: 'workspace-write' }, '/settings')).toContain('acceptEdits');
+    expect(claudeArgs({ ...base, policy: 'full-access' }, '/settings')).toContain('bypassPermissions');
+    for (const thinking of ['low', 'medium', 'high'] as const) {
+      expect(claudeArgs({ ...base, thinking }, '/settings')).toEqual(
+        expect.arrayContaining(['--effort', thinking]),
+      );
+    }
+    expect(() => claudeArgs({ ...base, policy: 'yolo' }, '/settings')).toThrow(
+      'valid policies: read-only, workspace-write, full-access',
+    );
+  });
+
   it('turns a missing CLI into a failed run instead of an unhandled child error', async () => {
     const settingsBefore = hookSettings();
     const adapter = new ClaudeCodeAdapter('/definitely/missing/wireroom-claude');

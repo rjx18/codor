@@ -36,6 +36,17 @@ function diagnostic(error: unknown): string | undefined {
   return undefined;
 }
 
+const MAX_OUTPUT = 256 * 1024;
+
+function boundedOutput(value: string | undefined): string | undefined {
+  if (value === undefined || Buffer.byteLength(value) <= MAX_OUTPUT) return value;
+  const marker = '\n[output truncated at 256 KiB]';
+  const markerBytes = Buffer.byteLength(marker);
+  let prefix = Buffer.from(value).subarray(0, MAX_OUTPUT - markerBytes).toString('utf8');
+  while (Buffer.byteLength(prefix) + markerBytes > MAX_OUTPUT) prefix = prefix.slice(0, -1);
+  return `${prefix}${marker}`;
+}
+
 export interface TurnTranslator {
   push(line: string): WireEvent[];
   end(outcome: {
@@ -73,37 +84,39 @@ export function createTurnTranslator(): TurnTranslator {
       }
 
       const part = event.part;
+      // harn:assume first-party-run-items-normalized ref=opencode-normalized-run-items
       switch (event.type) {
         case 'step_start':
           return [];
         case 'text':
           if (part?.type !== 'text') return [];
           finalText += part.text ?? '';
-          return [{ type: 'run.item', item_type: 'text_delta', payload: part.text ?? '' }];
+          return [{ type: 'run.item', item_type: 'text_delta', payload: { text: part.text ?? '' } }];
         case 'reasoning':
           if (part?.type !== 'reasoning') return [];
-          return [{ type: 'run.item', item_type: 'reasoning_summary', payload: part.text ?? '' }];
+          return [{ type: 'run.item', item_type: 'reasoning_summary', payload: { text: part.text ?? '' } }];
         case 'tool_use': {
           if (part?.type !== 'tool') return [];
+          const callId = part.callID ?? 'opencode-tool';
+          const tool = part.tool ?? 'tool';
           const call = {
             type: 'run.item' as const,
             item_type: 'tool_call' as const,
             payload: {
-              tool: part.tool,
-              call_id: part.callID,
+              tool,
+              call_id: callId,
               input: part.state?.input ?? {},
-              title: part.state?.title,
+              title: part.state?.title ?? tool,
             },
           };
           const result = {
             type: 'run.item' as const,
             item_type: 'tool_result' as const,
             payload: {
-              tool: part.tool,
-              call_id: part.callID,
-              status: part.state?.status,
-              output: part.state?.output,
-              error: part.state?.error,
+              call_id: callId,
+              status: part.state?.status === 'completed' ? 'ok' : 'error',
+              output_text: boundedOutput(part.state?.output ?? part.state?.error),
+              raw: part.state,
             },
           };
           return [call, result];
@@ -121,13 +134,19 @@ export function createTurnTranslator(): TurnTranslator {
             {
               type: 'run.item',
               item_type: 'tool_result',
-              payload: { kind: 'error', message: streamError, error: event.error },
+              payload: {
+                call_id: 'opencode-error',
+                status: 'error',
+                output_text: boundedOutput(streamError),
+                raw: event.error,
+              },
             },
           ];
         }
         default:
           return [];
       }
+      // harn:end first-party-run-items-normalized
     },
 
     end(outcome): WireEvent[] {

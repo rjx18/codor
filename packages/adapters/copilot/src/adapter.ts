@@ -13,14 +13,30 @@ import type {
   SpawnOpts,
   WireEvent,
 } from '@wireroom/protocol';
+import { PolicySchema } from '@wireroom/protocol';
 
 import { createTurnTranslator } from './translate.js';
 
-const ALLOW_ALL_POLICIES = new Set(['allow-all', 'yolo', 'danger-full-access']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function copilotAllowAll(policy: string | undefined): boolean {
-  return policy !== undefined && ALLOW_ALL_POLICIES.has(policy);
+  if (policy === undefined) return false;
+  if (!PolicySchema.safeParse(policy).success) {
+    throw new Error(`unknown policy '${policy}'; valid policies: ${PolicySchema.options.join(', ')}`);
+  }
+  return policy === 'full-access';
+}
+
+// harn:assume canonical-spawn-controls-enforced ref=copilot-spawn-control-mapping
+export function copilotArgs(session: Session, payload: string): string[] {
+  if (session.thinking !== undefined) {
+    throw new Error("adapter 'copilot' does not support thinking levels");
+  }
+  const args = ['--output-format=json', '--stream=on', '--no-ask-user', '--no-color'];
+  if (session.model !== undefined) args.push('--model', session.model);
+  if (copilotAllowAll(session.policy)) args.push('--allow-all');
+  args.push('--session-id', session.session_ref!, '--prompt', payload);
+  return args;
 }
 
 /** Direct `copilot --prompt` CLI driver. See NOTES.md for behavioral sources. */
@@ -33,6 +49,7 @@ export class CopilotAdapter implements HarnessAdapter {
     ask: false,
     approvals: 'spawn-time',
     extensions: true,
+    thinking: false,
   } as const;
 
   private readonly children = new WeakMap<Session, ChildProcess>();
@@ -43,6 +60,10 @@ export class CopilotAdapter implements HarnessAdapter {
   ) {}
 
   spawn(opts: SpawnOpts): Session {
+    copilotAllowAll(opts.policy);
+    if (opts.thinking !== undefined) {
+      throw new Error("adapter 'copilot' does not support thinking levels");
+    }
     return {
       harness: this.id,
       session_ref: randomUUID(),
@@ -51,6 +72,7 @@ export class CopilotAdapter implements HarnessAdapter {
       policy: opts.policy,
     };
   }
+  // harn:end canonical-spawn-controls-enforced
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };
@@ -64,15 +86,7 @@ export class CopilotAdapter implements HarnessAdapter {
     hooks: AdapterTurnHooks = {},
   ): AsyncIterable<WireEvent> {
     session.session_ref ??= randomUUID();
-    const args = [
-      '--output-format=json',
-      '--stream=on',
-      '--no-ask-user',
-      '--no-color',
-    ];
-    if (session.model !== undefined) args.push('--model', session.model);
-    if (copilotAllowAll(session.policy)) args.push('--allow-all-tools');
-    args.push('--session-id', session.session_ref, '--prompt', payload);
+    const args = copilotArgs(session, payload);
 
     const child = spawn(this.command, args, {
       cwd: session.cwd,

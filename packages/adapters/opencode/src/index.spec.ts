@@ -13,6 +13,7 @@ describe('@wireroom/adapter-opencode barrel', () => {
       ask: false,
       approvals: 'spawn-time',
       extensions: false,
+      thinking: true,
     });
   });
 });

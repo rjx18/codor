@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import type { WireEvent } from '@wireroom/protocol';
+import { parseRunItemPayload, type WireEvent } from '@wireroom/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { createTurnTranslator } from './translate.js';
@@ -14,6 +14,11 @@ function replay(): { events: WireEvent[]; sessionId: string | undefined } {
     .split('\n')
     .flatMap((line) => translator.push(line));
   events.push(...translator.end({ status: 'completed' }));
+  for (const event of events) {
+    if (event.type === 'run.item') {
+      expect(parseRunItemPayload(event.item_type, event.payload).success).toBe(true);
+    }
+  }
   return { events, sessionId: translator.sessionId() };
 }
 
@@ -22,7 +27,7 @@ describe('OpenCode raw run translation', () => {
     const replayed = replay();
     expect(replayed.sessionId).toBe('ses_0b418b8aeffelyQqZS0JoBHFvF');
     expect(replayed.events).toEqual([
-      { type: 'run.item', item_type: 'text_delta', payload: 'PONG' },
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'PONG' } },
       {
         type: 'run.completed',
         status: 'completed',
@@ -34,7 +39,7 @@ describe('OpenCode raw run translation', () => {
 
   it('maps a completed tool part to call and result items', () => {
     const translator = createTurnTranslator();
-    expect(translator.push(JSON.stringify({
+    const events = translator.push(JSON.stringify({
       type: 'tool_use',
       sessionID: 'ses_test',
       part: {
@@ -48,28 +53,39 @@ describe('OpenCode raw run translation', () => {
           title: 'Read README.md',
         },
       },
-    }))).toEqual([
+    }));
+    expect(events).toEqual([
       {
         type: 'run.item',
         item_type: 'tool_call',
         payload: {
-          tool: 'read',
           call_id: 'call-1',
-          input: { filePath: 'README.md' },
+          tool: 'read',
           title: 'Read README.md',
+          input: { filePath: 'README.md' },
         },
       },
       {
         type: 'run.item',
         item_type: 'tool_result',
         payload: {
-          tool: 'read',
           call_id: 'call-1',
-          status: 'completed',
-          output: 'Wireroom',
+          status: 'ok',
+          output_text: 'Wireroom',
+          raw: {
+            status: 'completed',
+            input: { filePath: 'README.md' },
+            output: 'Wireroom',
+            title: 'Read README.md',
+          },
         },
       },
     ]);
+    for (const event of events) {
+      if (event.type === 'run.item') {
+        expect(parseRunItemPayload(event.item_type, event.payload).success).toBe(true);
+      }
+    }
   });
 
   it('retains nested provider errors and classifies process failure at EOF', () => {

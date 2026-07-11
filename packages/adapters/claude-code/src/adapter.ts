@@ -13,6 +13,7 @@ import type {
   SpawnOpts,
   WireEvent,
 } from '@wireroom/protocol';
+import { PolicySchema, ThinkingLevelSchema } from '@wireroom/protocol';
 
 import {
   type ControlRequest,
@@ -22,6 +23,45 @@ import {
 } from './translate.js';
 
 const SESSION_FILE_RE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/;
+
+function invalidPolicy(policy: string): Error {
+  return new Error(`unknown policy '${policy}'; valid policies: ${PolicySchema.options.join(', ')}`);
+}
+
+// harn:assume canonical-spawn-controls-enforced ref=claude-spawn-control-mapping
+export function claudePermissionMode(policy: string | undefined): string | undefined {
+  if (policy === undefined) return undefined;
+  if (!PolicySchema.safeParse(policy).success) throw invalidPolicy(policy);
+  return {
+    'read-only': 'plan',
+    'workspace-write': 'acceptEdits',
+    'full-access': 'bypassPermissions',
+  }[policy];
+}
+
+export function claudeArgs(session: Session, settingsPath: string): string[] {
+  const args = [
+    '-p',
+    '--output-format',
+    'stream-json',
+    '--input-format',
+    'stream-json',
+    '--verbose',
+    '--permission-prompt-tool',
+    'stdio',
+    '--settings',
+    settingsPath,
+  ];
+  if (session.model !== undefined) args.push('--model', session.model);
+  const permissionMode = claudePermissionMode(session.policy);
+  if (permissionMode !== undefined) args.push('--permission-mode', permissionMode);
+  if (session.thinking !== undefined) {
+    ThinkingLevelSchema.parse(session.thinking);
+    args.push('--effort', session.thinking);
+  }
+  if (session.session_ref !== undefined) args.push('--resume', session.session_ref);
+  return args;
+}
 
 interface TurnState {
   child: ChildProcess;
@@ -54,6 +94,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     ask: true,
     approvals: 'runtime',
     extensions: true,
+    thinking: true,
   } as const;
 
   private readonly turns = new WeakMap<Session, TurnState>();
@@ -61,8 +102,17 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   constructor(private readonly command = 'claude') {}
 
   spawn(opts: SpawnOpts): Session {
-    return { harness: this.id, cwd: opts.cwd, model: opts.model, policy: opts.policy };
+    claudePermissionMode(opts.policy);
+    if (opts.thinking !== undefined) ThinkingLevelSchema.parse(opts.thinking);
+    return {
+      harness: this.id,
+      cwd: opts.cwd,
+      model: opts.model,
+      policy: opts.policy,
+      thinking: opts.thinking,
+    };
   }
+  // harn:end canonical-spawn-controls-enforced
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };
@@ -139,21 +189,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
       if (event) push([event]);
     });
 
-    const args = [
-      '-p',
-      '--output-format',
-      'stream-json',
-      '--input-format',
-      'stream-json',
-      '--verbose',
-      '--permission-prompt-tool',
-      'stdio',
-      '--settings',
-      settingsPath,
-    ];
-    if (session.model !== undefined) args.push('--model', session.model);
-    if (session.policy !== undefined) args.push('--permission-mode', session.policy);
-    if (session.session_ref !== undefined) args.push('--resume', session.session_ref);
+    const args = claudeArgs(session, settingsPath);
 
     const child = spawn(this.command, args, {
       cwd: session.cwd,

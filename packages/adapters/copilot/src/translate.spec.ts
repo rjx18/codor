@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import type { WireEvent } from '@wireroom/protocol';
+import { parseRunItemPayload, type WireEvent } from '@wireroom/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { createTurnTranslator } from './translate.js';
@@ -13,6 +13,11 @@ function replay(name: string, status: 'completed' | 'failed'): WireEvent[] {
     .split('\n')
     .flatMap((line) => translator.push(line));
   events.push(...translator.end({ status }));
+  for (const event of events) {
+    if (event.type === 'run.item') {
+      expect(parseRunItemPayload(event.item_type, event.payload).success).toBe(true);
+    }
+  }
   return events;
 }
 
@@ -21,8 +26,8 @@ describe('Copilot JSONL event translation', () => {
     const events = replay('synthetic-success.jsonl', 'completed');
     expect(events.filter((event) => event.type === 'run.item' && event.item_type === 'text_delta'))
       .toEqual([
-        { type: 'run.item', item_type: 'text_delta', payload: 'PO' },
-        { type: 'run.item', item_type: 'text_delta', payload: 'NG' },
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 'PO' } },
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 'NG' } },
       ]);
     expect(events.at(-1)).toEqual({
       type: 'run.completed',
@@ -49,9 +54,10 @@ describe('Copilot JSONL event translation', () => {
       type: 'run.item',
       item_type: 'tool_call',
       payload: {
-        tool_call_id: 'tool-call-1',
-        tool_name: 'grep',
-        arguments: { query: 'Wireroom' },
+        call_id: 'tool-call-1',
+        tool: 'grep',
+        title: 'grep',
+        input: { query: 'Wireroom' },
       },
     });
   });

@@ -31,6 +31,17 @@ interface CodexEvent {
   item?: CodexItem;
 }
 
+const MAX_OUTPUT = 256 * 1024;
+
+function boundedOutput(value: string | undefined): string | undefined {
+  if (value === undefined || Buffer.byteLength(value) <= MAX_OUTPUT) return value;
+  const marker = '\n[output truncated at 256 KiB]';
+  const markerBytes = Buffer.byteLength(marker);
+  let prefix = Buffer.from(value).subarray(0, MAX_OUTPUT - markerBytes).toString('utf8');
+  while (Buffer.byteLength(prefix) + markerBytes > MAX_OUTPUT) prefix = prefix.slice(0, -1);
+  return `${prefix}${marker}`;
+}
+
 export interface TurnTranslator {
   /** Feed one stdout line; returns the WireEvents it produced (often none). */
   push(line: string): WireEvent[];
@@ -68,6 +79,7 @@ export function createTurnTranslator(): TurnTranslator {
       } catch {
         return []; // malformed line — skip, never fatal
       }
+      // harn:assume first-party-run-items-normalized ref=codex-normalized-run-items
       switch (event.type) {
         case 'thread.started':
           threadId = event.thread_id;
@@ -82,7 +94,7 @@ export function createTurnTranslator(): TurnTranslator {
             if (event.type !== 'item.completed') return [];
             lastAgentText = item.text ?? '';
             return [
-              { type: 'run.item', item_type: 'text_delta', payload: item.text ?? '' },
+              { type: 'run.item', item_type: 'text_delta', payload: { text: item.text ?? '' } },
             ];
           }
           if (item.type === 'command_execution') {
@@ -91,16 +103,21 @@ export function createTurnTranslator(): TurnTranslator {
                 ? {
                     type: 'run.item',
                     item_type: 'tool_call',
-                    payload: { command: item.command, status: item.status },
+                    payload: {
+                      call_id: item.id,
+                      tool: 'Bash',
+                      title: item.command ?? 'Shell command',
+                      input: { command: item.command },
+                    },
                   }
                 : {
                     type: 'run.item',
                     item_type: 'tool_result',
                     payload: {
-                      command: item.command,
-                      exit_code: item.exit_code,
-                      aggregated_output: item.aggregated_output,
-                      status: item.status,
+                      call_id: item.id,
+                      status: item.exit_code === 0 && item.status !== 'failed' ? 'ok' : 'error',
+                      output_text: boundedOutput(item.aggregated_output),
+                      raw: item,
                     },
                   },
             ];
@@ -110,7 +127,12 @@ export function createTurnTranslator(): TurnTranslator {
               {
                 type: 'run.item',
                 item_type: 'tool_result',
-                payload: { kind: 'error', message: item.message },
+                payload: {
+                  call_id: item.id || 'codex-error',
+                  status: 'error',
+                  output_text: boundedOutput(item.message),
+                  raw: item,
+                },
               },
             ];
           }
@@ -151,6 +173,7 @@ export function createTurnTranslator(): TurnTranslator {
         default:
           return []; // unknown event types tolerated
       }
+      // harn:end first-party-run-items-normalized
     },
 
     end(fallback = { status: 'interrupted' as const }): WireEvent[] {

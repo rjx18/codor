@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import { type WireEvent, WireEventSchema } from '@wireroom/protocol';
+import { parseRunItemPayload, type WireEvent, WireEventSchema } from '@wireroom/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { composeControlResponse } from './adapter.js';
@@ -8,6 +8,7 @@ import {
   cardFromControlRequest,
   type ControlRequest,
   createTurnTranslator,
+  diffFromToolUse,
   wireEventFromHook,
 } from './translate.js';
 
@@ -22,7 +23,13 @@ function replay(lines: string[]) {
   const events: WireEvent[] = [];
   for (const line of lines) events.push(...translator.push(line));
   const tail = translator.end();
-  return { translator, events, all: [...events, ...tail] };
+  const all = [...events, ...tail];
+  for (const event of all) {
+    if (event.type === 'run.item') {
+      expect(parseRunItemPayload(event.item_type, event.payload).success).toBe(true);
+    }
+  }
+  return { translator, events, all };
 }
 
 const completed = (events: WireEvent[]) =>
@@ -55,7 +62,7 @@ describe('pong fixture replay', () => {
 
   it('normalizes assistant text and the result with cost_usd', () => {
     expect(all.filter((e) => e.type === 'run.item' && e.item_type === 'text_delta')).toEqual([
-      { type: 'run.item', item_type: 'text_delta', payload: 'PONG' },
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'PONG' } },
     ]);
     const done = completed(all);
     expect(done.status).toBe('completed');
@@ -255,5 +262,104 @@ describe('robustness', () => {
       '{"type":"result","subtype":"error","is_error":true,"result":"boom","usage":{"input_tokens":1,"output_tokens":0}}',
     ]);
     expect(completed(all).status).toBe('failed');
+  });
+});
+
+describe('S1 content normalization (synthetic inline records)', () => {
+  it('maps thinking blocks instead of dropping them', () => {
+    const { events } = replay([
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'thinking', thinking: 'Check the constraints.' }] },
+      }),
+    ]);
+    expect(events).toEqual([{
+      type: 'run.item',
+      item_type: 'reasoning_summary',
+      payload: { text: 'Check the constraints.' },
+    }]);
+  });
+
+  it('pairs Edit results and synthesizes a unified file-change diff', () => {
+    const expected = [
+      '--- a/src/app.ts',
+      '+++ b/src/app.ts',
+      '@@ -1,1 +1,1 @@',
+      '-old()',
+      '+new()',
+      '',
+    ].join('\n');
+    expect(diffFromToolUse('Edit', {
+      file_path: 'src/app.ts', old_string: 'old()', new_string: 'new()',
+    })).toEqual({ path: 'src/app.ts', change: 'modified', unified: expected });
+    const { events } = replay([
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{
+          type: 'tool_use', id: 'edit-1', name: 'Edit',
+          input: { file_path: 'src/app.ts', old_string: 'old()', new_string: 'new()' },
+        }] },
+      }),
+      JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'edit-1', content: 'Updated.' }] },
+      }),
+    ]);
+    expect(events.at(-2)).toMatchObject({
+      type: 'run.item', item_type: 'tool_result',
+      payload: { call_id: 'edit-1', status: 'ok', diff: { path: 'src/app.ts', unified: expected } },
+    });
+    expect(events.at(-1)).toEqual({
+      type: 'run.item', item_type: 'file_change',
+      payload: {
+        path: 'src/app.ts', change: 'modified',
+        diff: { path: 'src/app.ts', unified: expected },
+      },
+    });
+  });
+
+  it('extracts bounded base64 images from tool results', () => {
+    const data = Buffer.from('image bytes').toString('base64');
+    const { events } = replay([JSON.stringify({
+      type: 'user',
+      message: { content: [{
+        type: 'tool_result', tool_use_id: 'read-1', content: [{
+          type: 'image', source: { type: 'base64', media_type: 'image/png', data },
+        }],
+      }] },
+    })]);
+    expect(events[0]).toMatchObject({
+      type: 'run.item', item_type: 'tool_result',
+      payload: { call_id: 'read-1', status: 'ok', image: { media_type: 'image/png', data_b64: data } },
+    });
+  });
+
+  it('truncates oversized output but preserves the original raw block', () => {
+    const original = 'x'.repeat(256 * 1024 + 100);
+    const { events } = replay([JSON.stringify({
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'bash-1', content: original }] },
+    })]);
+    const payload = events[0]!.payload as { output_text: string; raw: { content: string } };
+    expect(payload.output_text).toContain('[output truncated at 256 KiB]');
+    expect(Buffer.byteLength(payload.output_text)).toBeLessThanOrEqual(256 * 1024);
+    expect(payload.raw.content).toBe(original);
+  });
+
+  it('replaces images over 2 MiB with a marker', () => {
+    const data = Buffer.alloc(2 * 1024 * 1024 + 1).toString('base64');
+    const { events } = replay([JSON.stringify({
+      type: 'user',
+      message: { content: [{
+        type: 'tool_result', tool_use_id: 'read-2', content: [{
+          type: 'image', source: { type: 'base64', media_type: 'image/png', data },
+        }],
+      }] },
+    })]);
+    expect(events[0]!.payload).toMatchObject({
+      call_id: 'read-2',
+      output_text: '[image image/png, 2097153 bytes, too large to inline]',
+    });
+    expect(events[0]!.payload).not.toHaveProperty('image');
   });
 });

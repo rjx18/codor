@@ -10,9 +10,16 @@ export function createAdapter({ id }) {
       ask: false,
       approvals: 'spawn-time',
       extensions: false,
+      thinking: false,
     },
     spawn(options) {
-      return { harness: id, cwd: options.cwd, model: options.model, policy: options.policy };
+      return {
+        harness: id,
+        cwd: options.cwd,
+        model: options.model,
+        policy: options.policy,
+        thinking: options.thinking,
+      };
     },
     attach(sessionRef) {
       return { harness: id, session_ref: sessionRef, cwd: process.cwd() };

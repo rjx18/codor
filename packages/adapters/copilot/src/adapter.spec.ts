@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { WireEvent } from '@wireroom/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { CopilotAdapter, copilotAllowAll } from './adapter.js';
+import { CopilotAdapter, copilotAllowAll, copilotArgs } from './adapter.js';
 
 const dirs: string[] = [];
 
@@ -34,8 +34,24 @@ describe('Copilot subprocess and capability conformance', () => {
   it('enables allow-all only for explicit full-access policies', () => {
     expect(copilotAllowAll('read-only')).toBe(false);
     expect(copilotAllowAll('workspace-write')).toBe(false);
-    expect(copilotAllowAll('danger-full-access')).toBe(true);
-    expect(copilotAllowAll('allow-all')).toBe(true);
+    expect(copilotAllowAll('full-access')).toBe(true);
+    expect(() => copilotAllowAll('allow-all')).toThrow('valid policies');
+    for (const policy of ['read-only', 'workspace-write'] as const) {
+      expect(copilotArgs({
+        harness: 'copilot', cwd: '/work', session_ref: '33333333-3333-4333-8333-333333333333',
+        policy,
+      }, 'go')).not.toContain('--allow-all');
+    }
+    expect(copilotArgs({
+      harness: 'copilot', cwd: '/work', session_ref: '33333333-3333-4333-8333-333333333333',
+      policy: 'full-access',
+    }, 'go')).toContain('--allow-all');
+    for (const thinking of ['low', 'medium', 'high'] as const) {
+      expect(() => copilotArgs({
+        harness: 'copilot', cwd: '/work', session_ref: '33333333-3333-4333-8333-333333333333',
+        thinking,
+      }, 'go')).toThrow('does not support thinking');
+    }
   });
 
   it('passes JSONL, no-ask, model, policy, exact session, prompt, cwd, and no stdin', async () => {
@@ -52,7 +68,7 @@ console.log(JSON.stringify({type:'session.idle',data:{}}));
     const session = adapter.attach('33333333-3333-4333-8333-333333333333');
     session.cwd = cwd;
     session.model = 'gpt-5.4-mini';
-    session.policy = 'danger-full-access';
+    session.policy = 'full-access';
     const lifecycle: string[] = [];
     const events: WireEvent[] = [];
     for await (const event of adapter.deliver(session, 'PONG', {
@@ -67,7 +83,7 @@ console.log(JSON.stringify({type:'session.idle',data:{}}));
         '--no-ask-user',
         '--no-color',
         '--model', 'gpt-5.4-mini',
-        '--allow-all-tools',
+        '--allow-all',
         '--session-id', '33333333-3333-4333-8333-333333333333',
         '--prompt', 'PONG',
       ],

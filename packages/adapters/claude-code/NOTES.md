@@ -10,8 +10,22 @@ re-probed — never hand-edited into the fixtures.
 
 ```sh
 claude -p --output-format stream-json --input-format stream-json --verbose \
-  --permission-prompt-tool stdio [--resume <session_id>] [--settings <abs-path.json>]
+  --permission-prompt-tool stdio [--permission-mode <mode>] [--effort <level>] \
+  [--resume <session_id>] [--settings <abs-path.json>]
 ```
+
+### Canonical spawn controls (rechecked 2026-07-11)
+
+Claude Code 2.1.207 `--help` and the first-party
+[CLI reference](https://code.claude.com/docs/en/cli-usage) document both
+`--permission-mode` and `--effort`. Wireroom maps `read-only` to `plan`,
+`workspace-write` to `acceptEdits`, and `full-access` to
+`bypassPermissions`. It maps thinking `low`, `medium`, and `high` directly
+to `--effort low|medium|high`; the adapter therefore declares
+`thinking:true`. Whether a particular provider/model honors an effort level
+is model-dependent. No model call was made for this Phase 2 verification, so
+unsupported-model behavior remains unverified and any CLI rejection is
+surfaced as a normal failed turn.
 
 - `--verbose` is REQUIRED for stream-json output in print mode.
 - **`--permission-prompt-tool stdio` is the control-protocol enabler, not a fallback.**
@@ -137,7 +151,7 @@ documented interaction re-correlation path applies after that process is known d
 ## Capabilities (for P0.7)
 
 `{resume: true, discover: true, interactiveAttach: true, ask: true, approvals: 'runtime',
-extensions: true}`.
+extensions: true, thinking: true}`.
 
 ## Probe log (spend discipline)
 

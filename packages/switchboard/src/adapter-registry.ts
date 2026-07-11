@@ -6,7 +6,13 @@ import { CodexAdapter } from '@wireroom/adapter-codex';
 import { CopilotAdapter } from '@wireroom/adapter-copilot';
 import { GeminiAdapter } from '@wireroom/adapter-gemini';
 import { OpenCodeAdapter } from '@wireroom/adapter-opencode';
-import type { AdapterCapabilities, HarnessAdapter } from '@wireroom/protocol';
+import {
+  type AdapterCapabilities,
+  type HarnessAdapter,
+  PolicySchema,
+  type SpawnOpts,
+  ThinkingLevelSchema,
+} from '@wireroom/protocol';
 
 export type AdapterModuleConfig = Record<string, string>;
 
@@ -56,8 +62,43 @@ function validCapabilities(value: unknown): value is AdapterCapabilities {
     typeof capabilities.interactiveAttach === 'boolean' &&
     typeof capabilities.ask === 'boolean' &&
     (capabilities.approvals === 'runtime' || capabilities.approvals === 'spawn-time') &&
-    typeof capabilities.extensions === 'boolean';
+    typeof capabilities.extensions === 'boolean' &&
+    typeof capabilities.thinking === 'boolean';
 }
+
+const validPolicies = PolicySchema.options.join(', ');
+const validThinking = ThinkingLevelSchema.options.join(', ');
+
+export function validateSpawnOptions(adapter: HarnessAdapter, opts: SpawnOpts): void {
+  if (opts.policy !== undefined && !PolicySchema.safeParse(opts.policy).success) {
+    throw new Error(`unknown policy '${opts.policy}'; valid policies: ${validPolicies}`);
+  }
+  if (opts.thinking !== undefined && !ThinkingLevelSchema.safeParse(opts.thinking).success) {
+    throw new Error(`unknown thinking level '${String(opts.thinking)}'; valid levels: ${validThinking}`);
+  }
+  if (opts.thinking !== undefined && !adapter.capabilities.thinking) {
+    throw new Error(`adapter '${adapter.id}' does not support thinking levels`);
+  }
+}
+
+// harn:assume canonical-spawn-controls-enforced ref=registry-spawn-control-validation
+function withSpawnValidation(adapter: HarnessAdapter): HarnessAdapter {
+  return {
+    id: adapter.id,
+    capabilities: adapter.capabilities,
+    spawn: (opts) => {
+      validateSpawnOptions(adapter, opts);
+      return adapter.spawn(opts);
+    },
+    attach: (sessionRef) => adapter.attach(sessionRef),
+    deliver: (session, payload, hooks) => adapter.deliver(session, payload, hooks),
+    respondInteraction: (session, interactionId, answer) =>
+      adapter.respondInteraction(session, interactionId, answer),
+    interrupt: (session) => adapter.interrupt(session),
+    discoverSessions: () => adapter.discoverSessions(),
+  };
+}
+// harn:end canonical-spawn-controls-enforced
 
 function validateAdapter(value: unknown, configuredId: string, specifier: string): HarnessAdapter {
   if (typeof value !== 'object' || value === null) {
@@ -84,7 +125,7 @@ export async function loadAdapterRegistry(
   options: AdapterRegistryOptions = {},
 ): Promise<HarnessAdapter[]> {
   const registry = new Map<string, HarnessAdapter>(
-    Object.entries(builtinFactories).map(([id, factory]) => [id, factory()]),
+    Object.entries(builtinFactories).map(([id, factory]) => [id, withSpawnValidation(factory())]),
   );
   const baseDir = resolve(options.baseDir ?? process.cwd());
 
@@ -120,7 +161,7 @@ export async function loadAdapterRegistry(
         { cause: error },
       );
     }
-    registry.set(id, validateAdapter(candidate, id, configuredModule));
+    registry.set(id, withSpawnValidation(validateAdapter(candidate, id, configuredModule)));
   }
 
   return [...registry.values()];

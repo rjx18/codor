@@ -9,15 +9,36 @@ import type {
   SpawnOpts,
   WireEvent,
 } from '@wireroom/protocol';
+import { PolicySchema, ThinkingLevelSchema } from '@wireroom/protocol';
 
 import { createTurnTranslator } from './translate.js';
 
-const AUTO_POLICIES = new Set(['auto', 'yolo', 'danger-full-access']);
 const DISCOVER_QUERY =
   'SELECT id FROM session WHERE parent_id IS NULL ORDER BY time_updated DESC';
 
+function invalidPolicy(policy: string): Error {
+  return new Error(`unknown policy '${policy}'; valid policies: ${PolicySchema.options.join(', ')}`);
+}
+
 export function openCodeAutoApprove(policy: string | undefined): boolean {
-  return policy !== undefined && AUTO_POLICIES.has(policy);
+  if (policy === undefined) return false;
+  if (!PolicySchema.safeParse(policy).success) throw invalidPolicy(policy);
+  return policy === 'full-access';
+}
+
+// harn:assume canonical-spawn-controls-enforced ref=opencode-spawn-control-mapping
+export function openCodeArgs(session: Session, payload: string): string[] {
+  const autoApprove = openCodeAutoApprove(session.policy);
+  const args = ['run', '--format', 'json'];
+  if (session.model !== undefined) args.push('--model', session.model);
+  if (autoApprove) args.push('--auto');
+  if (session.thinking !== undefined) {
+    ThinkingLevelSchema.parse(session.thinking);
+    args.push('--variant', session.thinking);
+  }
+  if (session.session_ref !== undefined) args.push('--session', session.session_ref);
+  args.push(payload);
+  return args;
 }
 
 /** Direct `opencode run` CLI driver. See NOTES.md for the behavioral sources. */
@@ -30,6 +51,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
     ask: false,
     approvals: 'spawn-time',
     extensions: false,
+    thinking: true,
   } as const;
 
   private readonly children = new WeakMap<Session, ChildProcess>();
@@ -37,13 +59,19 @@ export class OpenCodeAdapter implements HarnessAdapter {
   constructor(private readonly command = 'opencode') {}
 
   spawn(opts: SpawnOpts): Session {
+    if (opts.policy !== undefined && !PolicySchema.safeParse(opts.policy).success) {
+      throw invalidPolicy(opts.policy);
+    }
+    if (opts.thinking !== undefined) ThinkingLevelSchema.parse(opts.thinking);
     return {
       harness: this.id,
       cwd: opts.cwd,
       model: opts.model,
       policy: opts.policy,
+      thinking: opts.thinking,
     };
   }
+  // harn:end canonical-spawn-controls-enforced
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };
@@ -56,11 +84,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
     payload: string,
     hooks: AdapterTurnHooks = {},
   ): AsyncIterable<WireEvent> {
-    const args = ['run', '--format', 'json'];
-    if (session.model !== undefined) args.push('--model', session.model);
-    if (openCodeAutoApprove(session.policy)) args.push('--auto');
-    if (session.session_ref !== undefined) args.push('--session', session.session_ref);
-    args.push(payload);
+    const args = openCodeArgs(session, payload);
 
     const child = spawn(this.command, args, {
       cwd: session.cwd,
