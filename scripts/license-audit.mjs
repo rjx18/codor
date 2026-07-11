@@ -19,6 +19,13 @@ for (const entry of await readdir(new URL('../packages/', import.meta.url), { wi
 
 for (const path of manifests.sort()) {
   const manifest = JSON.parse(await readFile(new URL(path, root), 'utf8'));
+  // harn:assume release-audits-enforce-codor-clean-break ref=manifest-scope-audit
+  if (path === 'package.json') {
+    assert.equal(manifest.name, 'codor', `${path} must use the codor package name`);
+  } else {
+    assert.match(manifest.name, /^@codor\//, `${path} must use the @codor package scope`);
+  }
+  // harn:end release-audits-enforce-codor-clean-break
   assert.equal(manifest.license, 'MIT', `${path} must declare license MIT`);
 }
 

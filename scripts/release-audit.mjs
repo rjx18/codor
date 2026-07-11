@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 
 const root = new URL('../', import.meta.url);
@@ -25,4 +26,51 @@ assert.match(manual, /historical M0 transcript was an\nignored run artifact unti
 assert.match(manual, /successful completion recorded in\n`1a8ae03`/);
 assert.match(manual, /prior tracked M1 pass is in `79eac33`/);
 
-process.stdout.write('release audit passed: pre-tag gates, relay disclosure, and acceptance provenance\n');
+// harn:assume release-audits-enforce-codor-clean-break ref=rename-release-audit
+const tracked = execFileSync('git', ['ls-files', '-z'], {
+  cwd: root,
+  encoding: 'utf8',
+}).split('\0').filter(Boolean);
+const legacyName = ['wire', 'room'].join('');
+const immutableRecordedFixtures = new Set([
+  'packages/adapters/claude-code/fixtures/permission-deny.jsonl',
+  'packages/adapters/claude-code/fixtures/permission-deny.stdin.jsonl',
+]);
+
+for (const path of tracked) {
+  if (
+    path === 'CHANGELOG.md' ||
+    path.startsWith('.harn/') ||
+    path.startsWith('tmp/') ||
+    immutableRecordedFixtures.has(path)
+  ) continue;
+  const bytes = await readFile(new URL(`../${path}`, import.meta.url));
+  if (bytes.includes(0)) continue;
+  let body = bytes.toString('utf8');
+  if (path === 'MANUAL-VERIFY.md') {
+    body = body
+      .split('\n')
+      .filter((line) => !(line.includes(`/home/richard/git/${legacyName}`) && line.includes('mode, ran from')))
+      .join('\n');
+  }
+  assert.doesNotMatch(body, new RegExp(legacyName, 'i'), `${path} contains legacy product branding`);
+}
+
+const visibleRoomPatterns = [
+  /\b(?:aria-label|title|placeholder)=["'][^"']*\brooms?\b/i,
+  /<[A-Za-z][^>\n]*>[ \t]*[A-Za-z][^<{\n]*\brooms?\b/i,
+  /\b(?:throw new Error|setNotice)\(\s*["'`][^"'`]*\brooms?\b/i,
+  /\breturn\s+["'`](?![^"'`]*(?:\?|room:|\/api\/))[^"'`]*\brooms?\b/i,
+];
+for (const path of tracked.filter((candidate) =>
+  candidate.startsWith('packages/web/src/') &&
+  /\.(?:ts|tsx)$/.test(candidate) &&
+  !/\.spec\.(?:ts|tsx)$/.test(candidate))) {
+  const body = await readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+  for (const pattern of visibleRoomPatterns) {
+    assert.doesNotMatch(body, pattern, `${path} contains operator-visible room wording`);
+  }
+}
+// harn:end release-audits-enforce-codor-clean-break
+
+process.stdout.write('release audit passed: pre-tag gates, rename, relay disclosure, and acceptance provenance\n');

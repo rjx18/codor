@@ -1,0 +1,57 @@
+id: codor-p6d-changelog-audits
+title: P6d record the rename and enforce release audits
+assumptions:
+  create:
+    - id: release-audits-enforce-codor-clean-break
+      title: Release audits enforce the Codor clean break
+      statement: Deterministic release audits must reject non-Codor workspace package
+        names, legacy product branding outside explicitly historical Harn,
+        changelog, temporary, recorded-fixture, and manual-verification records,
+        and operator-visible web room wording, because the release candidate
+        must prove D2 and D3 rather than relying on a manual rename sweep.
+      reason: Phase 6d turns the final rename grep gates into repeatable release
+        checks while preserving immutable recorded fixtures and historical
+        records.
+      depends_on:
+        - codor-runtime-identity-is-a-clean-break
+        - human-facing-surfaces-call-rooms-channels
+        - workspace-packages-use-codor-scope
+  reviewed:
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: The clean-clone proof adopts Codor environment, temp path, and public
+        channel options without changing install, boot, API, or teardown
+        behavior.
+    - id: codor-runtime-identity-is-a-clean-break
+      outcome: unchanged
+      reason: Fresh-install and release audits now enforce the renamed runtime.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The release audit checks operator-visible web strings while retaining
+        room protocol identifiers.
+    - id: workspace-packages-use-codor-scope
+      outcome: unchanged
+      reason: The license audit now also rejects manifest names outside codor scope.
+anchors:
+  release-audits-enforce-codor-clean-break:
+    manifest-scope-audit:
+      action: change
+      reason: Assert every workspace manifest uses codor or @codor scope.
+    rename-release-audit:
+      action: change
+      reason: Reject legacy branding and operator-visible room copy with explicit
+        historical and recorded-fixture exclusions.
+  fresh-clone-install-proven-by-script:
+    fresh-install-script:
+      action: change
+      reason: Rename source overrides, temp path, token variable, and channel flags.
+    fresh-install-regression:
+      action: change
+      reason: Exercise post and tail through the renamed clean-clone daemon.
+files:
+  - CHANGELOG.md
+  - scripts/fresh-install-test.sh
+  - scripts/license-audit.mjs
+  - scripts/release-audit.mjs
+applied:
+  applied_at: 2026-07-11T20:18:57.736Z

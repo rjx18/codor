@@ -2,14 +2,14 @@
 set -Eeuo pipefail
 
 # harn:assume fresh-clone-install-proven-by-script ref=fresh-install-script
-SOURCE_ROOT="${WIREROOM_FRESH_SOURCE:-$(git rev-parse --show-toplevel)}"
-SOURCE_REF="${WIREROOM_FRESH_REF:-$(git -C "$SOURCE_ROOT" branch --show-current)}"
+SOURCE_ROOT="${CODOR_FRESH_SOURCE:-$(git rev-parse --show-toplevel)}"
+SOURCE_REF="${CODOR_FRESH_REF:-$(git -C "$SOURCE_ROOT" branch --show-current)}"
 if [[ -z "$SOURCE_REF" ]]; then
-  printf 'WIREROOM_FRESH_REF is required when the source checkout has detached HEAD\n' >&2
+  printf 'CODOR_FRESH_REF is required when the source checkout has detached HEAD\n' >&2
   exit 2
 fi
 
-TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/wireroom-fresh-install.XXXXXX")"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/codor-fresh-install.XXXXXX")"
 CLONE_ROOT="$TEST_ROOT/repo"
 DATA_DIR="$TEST_ROOT/data"
 DAEMON_PID=''
@@ -41,11 +41,11 @@ TOKEN="$(openssl rand -hex 32)"
 PORT="$(node -e "const s=require('node:net').createServer();s.listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")"
 SMOKE="fresh-install-$(date +%s)-$$"
 
-WIREROOM_TOKEN="$TOKEN" node packages/cli/dist/index.js \
+CODOR_TOKEN="$TOKEN" node packages/cli/dist/index.js \
   --data-dir "$DATA_DIR" \
   up --host 127.0.0.1 --port "$PORT" \
   --static-root "$CLONE_ROOT/packages/web/dist" \
-  --room fresh --room-name Fresh --owner fresh-operator \
+  --channel fresh --channel-name Fresh --owner fresh-operator \
   >"$TEST_ROOT/daemon.log" 2>&1 &
 DAEMON_PID=$!
 

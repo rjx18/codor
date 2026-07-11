@@ -1,0 +1,14 @@
+id: release-audits-enforce-codor-clean-break
+hash: a-f1df3777e3db
+title: Release audits enforce the Codor clean break
+state: active
+statement: Deterministic release audits must reject non-Codor workspace package
+  names, legacy product branding outside explicitly historical Harn, changelog,
+  temporary, recorded-fixture, and manual-verification records, and
+  operator-visible web room wording, because the release candidate must prove D2
+  and D3 rather than relying on a manual rename sweep.
+depends_on:
+  - codor-runtime-identity-is-a-clean-break
+  - human-facing-surfaces-call-rooms-channels
+  - workspace-packages-use-codor-scope
+created_by: codor-p6d-changelog-audits
