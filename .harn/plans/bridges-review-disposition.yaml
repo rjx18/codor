@@ -6,7 +6,8 @@ assumptions:
   reviewed:
     - id: bridge-runtime-persists-delivery-progress
       outcome: unchanged
-      reason: The applied fix commit is complete and this follow-up records its hash and reviewer disposition only.
+      reason: The applied fix commit is complete and this follow-up records its hash
+        and reviewer disposition only.
 anchors:
   bridge-runtime-persists-delivery-progress:
     bridge-durable-progress:
@@ -20,3 +21,5 @@ anchors:
       reason: No regression changes while recording review evidence.
 files:
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T08:01:07.150Z
