@@ -8,3 +8,5 @@ anchors: {}
 files:
   - MANUAL-VERIFY.md
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T04:07:21.563Z

@@ -38,6 +38,15 @@ full retry followed to avoid another silent retry loop. No Claude process
 remains. A later repository review should check `tmp.plan`, the v4 mockup
 inventory, the sparse-glass design contract, and its protocol/privacy fidelity.
 
+The restrained room review of `cc5f4b5..e2f78b5` is also **skipped with
+reason**, not passed. The full read-only invocation emitted no findings and
+reached the enforced 300-second timeout with exit code 124. The one permitted
+tiny probe returned `OK` with exit code 0; no full retry followed. No Claude
+process remains. A later repository review should cover role-aware mobile
+navigation, run-event presentation, responsive pane behavior, theme/fallback
+CSS, and the retained service-worker and browser-crypto boundaries in this
+range.
+
 ## Gemini CLI
 
 Status on 2026-07-10: **not run**. The `gemini` executable is not installed and
