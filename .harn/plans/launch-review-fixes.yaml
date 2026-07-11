@@ -1,0 +1,18 @@
+id: launch-review-fixes
+title: Fold launch-sweep review findings
+assumptions:
+  reviewed:
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: Release-order and audit fixes do not change the clean-clone proof contract.
+    - id: workspace-gates-cover-all-buildable-projects
+      outcome: unchanged
+      reason: The root release audits extend the final gate without changing workspace coverage.
+anchors: {}
+files:
+  - README.md
+  - MANUAL-VERIFY.md
+  - package.json
+  - scripts/license-audit.mjs
+  - scripts/release-audit.mjs
+  - tmp/build/PROGRESS.md
