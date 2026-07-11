@@ -61,6 +61,24 @@ assumptions:
       outcome: unchanged
       reason: Read-only and lower-role variants preserve the established glass room
         hierarchy while omitting unauthorized commands.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Principal checks wrap history endpoints and self identity state without
+        changing stable message ids, pagination, or permalink resolution.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: Role-aware timeline commands remain memory-only and add no message or
+        authorization data to the service-worker cache.
+    - id: custody-uncertain-never-double-writes
+      outcome: unchanged
+      reason: The attach command remains truthful and is now shown only to an admin or owner.
+    - id: run-context-selects-and-follows-live-evidence
+      outcome: unchanged
+      reason: Capability props pass through the context rail without altering selected-run
+        evidence fetching or live follow behavior.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: The observer status bar uses the existing semantic glass tokens in both modes.
 anchors:
   roles-gate-human-acts-not-agents:
     role-matrix-source:
@@ -80,6 +98,9 @@ anchors:
     device-revoke-rest:
       action: change
       reason: Require owner authority before subscription removal, revoke, and rekey.
+    settings-unpair-action:
+      action: change
+      reason: Omit device revoke and unpair controls entirely for non-owner roles.
   unix-socket-same-protocol:
     unix-websocket-listener:
       action: change
@@ -96,6 +117,29 @@ anchors:
     store-upsert-in-place:
       action: change
       reason: Store the self identity frame outside the room change cursor.
+  permalink-ids-stable:
+    message-history-rest:
+      action: change
+      reason: Authorize history and search reads before preserving existing pagination.
+    paged-message-cache:
+      action: change
+      reason: Store self identity beside, not inside, the stable message cache.
+  sw-caches-shell-only-no-message-data:
+    page-memory-message-cache:
+      action: change
+      reason: Hide answer controls by target while keeping the timeline memory-only.
+  custody-uncertain-never-double-writes:
+    attach-custody-web-hint:
+      action: change
+      reason: Restrict the attach command affordance to agent managers.
+  run-context-selects-and-follows-live-evidence:
+    selected-live-run-context:
+      action: change
+      reason: Pass agent-management capability through the unchanged run context rail.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Style the read-only role status with existing semantic mode tokens.
   web-room-rail-creates-owner-room:
     room-rail-create-action:
       action: change
