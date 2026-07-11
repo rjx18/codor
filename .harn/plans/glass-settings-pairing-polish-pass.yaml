@@ -54,7 +54,9 @@ assumptions:
     - id: sw-injectmanifest-owned-worker
       outcome: unchanged
       reason: PWA launch colors are aligned to the existing canvas without changing
-        worker ownership, registration, or shell-only precaching.
+        worker ownership, registration, or shell-only precaching; the browser gate
+        also addresses seeded history by its returned stable id so the full serial
+        suite cannot confuse repeated archive labels.
     - id: web-room-visual-hierarchy-matches-glass-reference
       outcome: unchanged
       reason: The compact member inspector keeps the existing hierarchy while a
@@ -122,5 +124,6 @@ files:
   - packages/web/tests/crypto.e2e.spec.ts
   - packages/web/tests/e2e.spec.ts
   - packages/web/tests/push.e2e.spec.ts
+  - packages/web/tests/pwa.e2e.spec.ts
   - MANUAL-VERIFY.md
   - tmp/build/PROGRESS.md
