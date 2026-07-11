@@ -1,4 +1,4 @@
-id: bridges-optin-banner-v3
+id: bridges-optin-banner
 title: Add opt-in Slack and Telegram room bridges with complete workspace scope
 assumptions:
   retire: []
