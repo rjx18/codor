@@ -17,7 +17,7 @@ Paseo behavior:
   identifies OpenCode as a direct provider rather than an ACP provider and calls
   out provider-owned message ids and dynamic session-scoped MCP configuration.
 
-Wireroom does not adopt Paseo's SDK/server design. Its architecture requires a
+Codor does not adopt Paseo's SDK/server design. Its architecture requires a
 plain CLI subprocess per turn, so this adapter implements the independently
 documented `opencode run` interface and honestly exposes the smaller capability
 surface available there.
@@ -44,7 +44,7 @@ configured model catalog were checked without model spend.
 Phase 2 rechecked the installed `run --help` plus the first-party
 [permissions](https://opencode.ai/docs/permissions/) and
 [models](https://opencode.ai/docs/models/) references on 2026-07-11.
-Wireroom emits no policy flag for `read-only` or `workspace-write`, and maps
+Codor emits no policy flag for `read-only` or `workspace-write`, and maps
 `full-access` to `--auto`. Thinking `low`, `medium`, and `high` maps directly
 to `run --variant <level>`, so the adapter declares `thinking:true`.
 Variant availability is provider/model-dependent; the docs and no-spend help
@@ -71,10 +71,10 @@ group is signalled on interrupt and cleanup. OpenCode emits no result record:
 clean EOF after exit zero completes the turn; nonzero exit, spawn failure, or an
 error record plus nonzero exit fails it.
 
-OpenCode has no read-only run flag. Wireroom passes `--auto` only for canonical
+OpenCode has no read-only run flag. Codor passes `--auto` only for canonical
 `full-access`. Other policy chips leave
 OpenCode's configured rules in force and its headless runner rejects any newly
-raised permission. This is spawn-time policy, not a runtime Wireroom approval.
+raised permission. This is spawn-time policy, not a runtime Codor approval.
 
 ## Resume, discovery, and attach
 
@@ -89,14 +89,14 @@ therefore uses the documented, non-model database command with a read-only query
 opencode db --format json "SELECT id FROM session WHERE parent_id IS NULL ORDER BY time_updated DESC"
 ```
 
-Only root session ids are returned; task child sessions are not persistent room
+Only root session ids are returned; task child sessions are not persistent channel
 members.
 
 Interactive attach is `opencode --session SESSION_ID` in the member cwd.
 
 ## Event normalization
 
-| OpenCode raw event | Wireroom event |
+| OpenCode raw event | Codor event |
 | --- | --- |
 | `step_start` | capture session id; no visible item |
 | completed/error `tool_use` | `run.item/tool_call` then `run.item/tool_result` |
@@ -118,7 +118,7 @@ unchanged and never derives prices from tokens.
 | discover | true | documented global JSON db command; parser test and live store check |
 | interactive attach | true | native TUI `--session`; CLI resolver test |
 | ask | false | `run` exposes no question response channel |
-| approvals | spawn-time | `--auto` or CLI-owned rejection; no Wireroom runtime response |
+| approvals | spawn-time | `--auto` or CLI-owned rejection; no Codor runtime response |
 | extensions | false | completed task tools do not provide authoritative child lifecycle |
 | thinking | true | documented `run --variant`; argv tests cover low/medium/high |
 

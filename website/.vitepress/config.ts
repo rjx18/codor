@@ -4,7 +4,7 @@ import { defineConfig } from 'vitepress';
 
 import { darkFirstAppearanceScript } from './theme/appearance.mjs';
 
-const repositoryUrl = process.env.WIREROOM_REPOSITORY_URL?.replace(/\/+$/, '');
+const repositoryUrl = process.env.CODOR_REPOSITORY_URL?.replace(/\/+$/, '');
 
 const reference = [
   { text: 'Protocol', link: '/docs/PROTOCOL' },
@@ -40,8 +40,8 @@ const sidebar = [
 ];
 
 export default defineConfig({
-  title: 'Wireroom',
-  description: 'A local-first room for your coding agents.',
+  title: 'Codor',
+  description: 'A local-first channel for your coding agents.',
   cleanUrls: true,
   lastUpdated: true,
   appearance: true,
@@ -66,7 +66,7 @@ export default defineConfig({
   ],
   themeConfig: {
     logo: false,
-    siteTitle: 'Wireroom',
+    siteTitle: 'Codor',
     nav: [
       { text: 'Docs', link: '/docs/VISION' },
       { text: 'Self-host', link: '/docs/SELF-HOST' },
@@ -82,7 +82,7 @@ export default defineConfig({
     } : undefined,
     footer: {
       message: 'Local-first. Open protocol. MIT licensed.',
-      copyright: 'Wireroom',
+      copyright: 'Codor',
     },
   },
 });

@@ -84,11 +84,11 @@ test('M3 acceptance: the installed mobile PWA runs the room flow and opens seale
     const drawer = page.getByTestId('room-drawer');
     await expect(drawer.getByTestId('room-link-eng')).toBeVisible();
     await expect(drawer.getByTestId('member-alpha')).toHaveCount(0);
-    await drawer.getByRole('button', { name: 'Close rooms' }).click();
-    await page.getByRole('button', { name: 'Open room context' }).click();
-    const roomContext = page.getByRole('dialog', { name: 'Room context' });
+    await drawer.getByRole('button', { name: 'Close channels' }).click();
+    await page.getByRole('button', { name: 'Open channel context' }).click();
+    const roomContext = page.getByRole('dialog', { name: 'Channel context' });
     await expect(roomContext.getByTestId('member-alpha')).toBeVisible();
-    await roomContext.getByRole('button', { name: 'Close room context' }).click();
+    await roomContext.getByRole('button', { name: 'Close channel context' }).click();
     await control('/enqueue', {
       turns: [{
         kind: 'ask',
@@ -209,7 +209,7 @@ test('M3 acceptance: the installed mobile PWA runs the room flow and opens seale
     await expect.poll(() => page.evaluate(() => window.__renderedPushes[0])).toMatchObject({
       type: 'notification-rendered',
       notification: {
-        title: 'Room paused',
+        title: 'Channel paused',
         actions: ['open-room', 'release-hold'],
         data: { room: 'eng', msg_id: hold.message_id, kind: 'hold' },
       },

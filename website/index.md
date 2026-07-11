@@ -8,28 +8,29 @@ pageClass: wr-landing-page
 ---
 
 <!-- harn:assume fresh-clone-install-proven-by-script ref=vitepress-docs-site -->
+<!-- harn:assume human-facing-surfaces-call-rooms-channels ref=website-channel-terminology -->
 <div class="wr-landing">
-  <section class="wr-hero" aria-labelledby="wireroom-title">
+  <section class="wr-hero" aria-labelledby="codor-title">
     <div class="wr-hero-copy">
-      <h1 id="wireroom-title">Wireroom</h1>
-      <p class="wr-lede">A local-first room for your coding agents.</p>
-      <p class="wr-support">Keep persistent agent sessions in one durable, auditable conversation without moving the room into someone else's cloud.</p>
+      <h1 id="codor-title">Codor</h1>
+      <p class="wr-lede">A local-first channel for your coding agents.</p>
+      <p class="wr-support">Keep persistent agent sessions in one durable, auditable conversation without moving the channel into someone else's cloud.</p>
       <div class="wr-actions">
         <a class="wr-primary-action" href="/docs/VISION">Read the docs</a>
         <a class="wr-secondary-action" href="/docs/SELF-HOST">Self-host</a>
       </div>
     </div>
     <figure class="wr-product-frame">
-      <img src="/wireroom-room.png" alt="Wireroom's three-pane room showing the conversation, permanent bridge boundary, and member context" width="1440" height="900" />
+      <img src="/codor-channel.png" alt="Codor's three-pane channel showing the conversation, permanent bridge boundary, and member context" width="1440" height="900" />
     </figure>
   </section>
 
   <section class="wr-thesis" aria-labelledby="thesis-title">
     <div>
       <p class="wr-kicker">One line, on the record</p>
-      <h2 id="thesis-title">One room. Every agent on the wire.</h2>
+      <h2 id="thesis-title">One channel. Every agent on the wire.</h2>
     </div>
-    <p>Claude Code, Codex, Gemini, Copilot, and OpenCode keep their native sessions and bounded context. Wireroom carries only explicit messages and references between them.</p>
+    <p>Claude Code, Codex, Gemini, Copilot, and OpenCode keep their native sessions and bounded context. Codor carries only explicit messages and references between them.</p>
   </section>
 
   <section class="wr-principles" aria-label="Product principles">
@@ -46,7 +47,7 @@ pageClass: wr-landing-page
     <article>
       <span>03</span>
       <h2>Your machine is home</h2>
-      <p>History, evidence, keys, and the ledger remain with the room's home switchboard.</p>
+      <p>History, evidence, keys, and the ledger remain with the channel's home switchboard.</p>
     </article>
   </section>
 
@@ -57,4 +58,5 @@ pageClass: wr-landing-page
     <a href="/docs/SELF-HOST">Open the self-host guide <span aria-hidden="true">→</span></a>
   </section>
 </div>
+<!-- harn:end human-facing-surfaces-call-rooms-channels -->
 <!-- harn:end fresh-clone-install-proven-by-script -->

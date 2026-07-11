@@ -42,8 +42,8 @@ interface GlobalOptions {
   token?: string;
 }
 
-interface RoomOptions {
-  room: string;
+interface ChannelOptions {
+  channel: string;
 }
 
 // harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition
@@ -96,10 +96,11 @@ export function createProgram(context: CliContext = {}): Command {
   const out = context.stdout ?? ((line: string) => process.stdout.write(`${line}\n`));
   const err = context.stderr ?? ((line: string) => process.stderr.write(`${line}\n`));
   const program = new Command();
+  // harn:assume human-facing-surfaces-call-rooms-channels ref=cli-channel-terminology
   // harn:assume codor-runtime-identity-is-a-clean-break ref=cli-runtime-identity
   program
     .name('codor')
-    .description('Operate local-first multi-agent rooms')
+    .description('Operate local-first multi-agent channels')
     .option('--data-dir <path>', 'switchboard data directory', env.CODOR_DATA_DIR ?? join(homedir(), '.codor'))
     .option('--url <url>', 'remote switchboard URL')
     .option('--token <token>', 'remote bearer token', env.CODOR_TOKEN);
@@ -134,8 +135,8 @@ export function createProgram(context: CliContext = {}): Command {
     .option('--host <host>', 'HTTP bind host', '127.0.0.1')
     .option('--port <port>', 'HTTP bind port', (value) => Number(value), 8137)
     .option('--static-root <path>', 'built web client directory')
-    .option('--room <id>', 'initial room id', 'default')
-    .option('--room-name <name>', 'initial room name', 'Default')
+    .option('--channel <id>', 'initial channel id', 'default')
+    .option('--channel-name <name>', 'initial channel name', 'Default')
     .option('--owner <handle>', 'initial owner handle')
     .option('--relay-url <url>', 'optional sealed push relay URL', env.CODOR_RELAY_URL)
     .option('--push-vapid-public-key <key>', 'Web Push VAPID public key', env.CODOR_VAPID_PUBLIC_KEY)
@@ -152,8 +153,8 @@ export function createProgram(context: CliContext = {}): Command {
       host: string;
       port: number;
       staticRoot?: string;
-      room: string;
-      roomName: string;
+      channel: string;
+      channelName: string;
       owner?: string;
       relayUrl?: string;
       pushVapidPublicKey?: string;
@@ -168,8 +169,8 @@ export function createProgram(context: CliContext = {}): Command {
         host: options.host,
         port: options.port,
         staticRoot: options.staticRoot,
-        room: options.room,
-        roomName: options.roomName,
+        room: options.channel,
+        roomName: options.channelName,
         owner: options.owner,
         relayUrl: options.relayUrl,
         pushVapidPublicKey: options.pushVapidPublicKey,
@@ -182,7 +183,7 @@ export function createProgram(context: CliContext = {}): Command {
       await waitForShutdown(running.close);
     });
 
-  program.command('rooms').description('list rooms').action(async () => {
+  program.command('channels').description('list channels').action(async () => {
     await withClient(async (client) => {
       client.send({ type: 'list_rooms' });
       for (;;) {
@@ -197,7 +198,7 @@ export function createProgram(context: CliContext = {}): Command {
 
   program
     .command('serve')
-    .description('host resident members for a remote room home')
+    .description('host resident members for a remote channel home')
     .requiredOption('--join <line>', 'line name and secret as name:secret')
     .option('--adapter <name=module>', 'trusted adapter module (repeatable)', collectAdapter, [])
     .action(async (options: { join: string; adapter: string[] }) => {
@@ -231,16 +232,16 @@ export function createProgram(context: CliContext = {}): Command {
 
   program
     .command('spawn')
-    .requiredOption('-r, --room <room>', 'room id')
+    .requiredOption('-r, --channel <channel>', 'channel id')
     .requiredOption('--harness <harness>', 'registered adapter id')
     .requiredOption('--as <handle>', 'member handle')
     .requiredOption('--cwd <path>', 'working directory')
     .option('--policy <policy>', 'sandbox or permission policy')
     .option('--model <model>', 'model override')
-    .action(async (options: RoomOptions & { harness: string; as: string; cwd: string; policy?: string; model?: string }) => {
+    .action(async (options: ChannelOptions & { harness: string; as: string; cwd: string; policy?: string; model?: string }) => {
       await withClient(async (client) => {
         const existing = new Set<string>();
-        client.send({ type: 'subscribe', room: options.room, since_seq: 0 });
+        client.send({ type: 'subscribe', room: options.channel, since_seq: 0 });
         for (;;) {
           const frame = await client.next();
           if (frame.type === 'member') existing.add(frame.member.id);
@@ -249,7 +250,7 @@ export function createProgram(context: CliContext = {}): Command {
         }
         client.send({
           type: 'act',
-          room: options.room,
+          room: options.channel,
           act: {
             act: 'spawn',
             harness: options.harness,
@@ -272,19 +273,19 @@ export function createProgram(context: CliContext = {}): Command {
 
   program
     .command('post')
-    .requiredOption('-r, --room <room>', 'room id')
+    .requiredOption('-r, --channel <channel>', 'channel id')
     .argument('<message>')
-    .action(async (message: string, options: RoomOptions) => {
+    .action(async (message: string, options: ChannelOptions) => {
       await withClient(async (client) => {
         let lastMessageId = 0;
-        client.send({ type: 'subscribe', room: options.room, since_seq: 0 });
+        client.send({ type: 'subscribe', room: options.channel, since_seq: 0 });
         for (;;) {
           const frame = await client.next();
           if (frame.type === 'message') lastMessageId = Math.max(lastMessageId, frame.message.id);
           if (frame.type === 'error') throw new Error(frame.message);
           if (frame.type === 'sync_complete') break;
         }
-        client.send({ type: 'post', room: options.room, body: message });
+        client.send({ type: 'post', room: options.channel, body: message });
         for (;;) {
           const frame = await client.next();
           if (frame.type === 'error') throw new Error(frame.message);
@@ -298,9 +299,9 @@ export function createProgram(context: CliContext = {}): Command {
 
   program
     .command('tail')
-    .requiredOption('-r, --room <room>', 'room id')
+    .requiredOption('-r, --channel <channel>', 'channel id')
     .option('--once', 'print current history and exit')
-    .action(async (options: RoomOptions & { once?: boolean }) => {
+    .action(async (options: ChannelOptions & { once?: boolean }) => {
       await withClient(async (client) => {
         const members = new Map<string, Member>();
         const print = (frame: ServerFrame): void => {
@@ -315,7 +316,7 @@ export function createProgram(context: CliContext = {}): Command {
             if (frame.message.body) out(frame.message.body);
           }
         };
-        client.send({ type: 'subscribe', room: options.room, since_seq: 0 });
+        client.send({ type: 'subscribe', room: options.channel, since_seq: 0 });
         for (;;) {
           const frame = await client.next(24 * 60 * 60 * 1_000);
           if (frame.type === 'error') throw new Error(frame.message);
@@ -327,11 +328,11 @@ export function createProgram(context: CliContext = {}): Command {
 
   program
     .command('members')
-    .requiredOption('-r, --room <room>', 'room id')
-    .action(async (options: RoomOptions) => {
+    .requiredOption('-r, --channel <channel>', 'channel id')
+    .action(async (options: ChannelOptions) => {
       await withClient(async (client) => {
         const members: Member[] = [];
-        client.send({ type: 'subscribe', room: options.room, since_seq: 0 });
+        client.send({ type: 'subscribe', room: options.channel, since_seq: 0 });
         for (;;) {
           const frame = await client.next();
           if (frame.type === 'member') members.push(frame.member);
@@ -347,13 +348,13 @@ export function createProgram(context: CliContext = {}): Command {
 
   program
     .command('join')
-    .argument('<room>')
-    .requiredOption('--as <handle>', 'room member handle')
+    .argument('<channel>')
+    .requiredOption('--as <handle>', 'channel member handle')
     .option('--harness <harness>', 'claude-code or codex')
     .option('--session <id>', 'native session id')
     .option('--cwd <path>', 'session working directory')
     .option('--policy <policy>', 'session policy label')
-    .action(async (room: string, options: {
+    .action(async (channel: string, options: {
       as: string;
       harness?: string;
       session?: string;
@@ -368,7 +369,7 @@ export function createProgram(context: CliContext = {}): Command {
       });
       await withClient(async (client) => {
         const existing = new Set<string>();
-        client.send({ type: 'subscribe', room, since_seq: 0 });
+        client.send({ type: 'subscribe', room: channel, since_seq: 0 });
         for (;;) {
           const frame = await client.next();
           if (frame.type === 'member') existing.add(frame.member.id);
@@ -377,7 +378,7 @@ export function createProgram(context: CliContext = {}): Command {
         }
         client.send({
           type: 'act',
-          room,
+          room: channel,
           act: {
             act: 'join',
             harness: detected.harness,
@@ -406,11 +407,11 @@ export function createProgram(context: CliContext = {}): Command {
   program
     .command('adopt')
     .argument('<member>')
-    .requiredOption('-r, --room <room>', 'room id')
-    .action(async (memberRef: string, options: RoomOptions) => {
+    .requiredOption('-r, --channel <channel>', 'channel id')
+    .action(async (memberRef: string, options: ChannelOptions) => {
       await withClient(async (client) => {
         let member: Member | undefined;
-        client.send({ type: 'subscribe', room: options.room, since_seq: 0 });
+        client.send({ type: 'subscribe', room: options.channel, since_seq: 0 });
         for (;;) {
           const frame = await client.next();
           if (
@@ -423,7 +424,7 @@ export function createProgram(context: CliContext = {}): Command {
           if (frame.type === 'sync_complete') break;
         }
         if (!member) throw new Error(`no such member ${memberRef}`);
-        client.send({ type: 'act', room: options.room, act: { act: 'adopt', member_id: member.id } });
+        client.send({ type: 'act', room: options.channel, act: { act: 'adopt', member_id: member.id } });
         for (;;) {
           const frame = await client.next();
           if (frame.type === 'error') throw new Error(frame.message);
@@ -461,11 +462,11 @@ export function createProgram(context: CliContext = {}): Command {
   program
     .command('attach')
     .argument('<member>')
-    .option('-r, --room <room>', 'room id; omitted searches all rooms')
-    .action(async (memberRef: string, options: { room?: string }) => {
+    .option('-r, --channel <channel>', 'channel id; omitted searches all channels')
+    .action(async (memberRef: string, options: { channel?: string }) => {
       await withClient(async (client) => {
         const wanted = memberRef.replace(/^@/, '');
-        let rooms = options.room ? [options.room] : undefined;
+        let rooms = options.channel ? [options.channel] : undefined;
         if (!rooms) {
           client.send({ type: 'list_rooms' });
           for (;;) {
@@ -500,7 +501,7 @@ export function createProgram(context: CliContext = {}): Command {
             .map(({ room, member }) => `${room} (${member.state ?? member.kind})`)
             .sort()
             .join(', ');
-          throw new Error(`member ${memberRef} is ambiguous: ${candidates}; pass --room <channel-id>`);
+          throw new Error(`member ${memberRef} is ambiguous: ${candidates}; pass --channel <channel-id>`);
         }
         const match = matches[0]!;
         client.send({
@@ -542,12 +543,12 @@ export function createProgram(context: CliContext = {}): Command {
     .command('revive')
     .description('revive a dead agent from its persisted native session')
     .argument('<member>')
-    .requiredOption('-r, --room <room>', 'channel id')
-    .action(async (memberRef: string, options: RoomOptions) => {
+    .requiredOption('-r, --channel <channel>', 'channel id')
+    .action(async (memberRef: string, options: ChannelOptions) => {
       await withClient(async (client) => {
         const wanted = memberRef.replace(/^@/, '');
         let member: Member | undefined;
-        client.send({ type: 'subscribe', room: options.room, since_seq: 0 });
+        client.send({ type: 'subscribe', room: options.channel, since_seq: 0 });
         for (;;) {
           const frame = await client.next();
           if (
@@ -561,7 +562,7 @@ export function createProgram(context: CliContext = {}): Command {
           if (frame.type === 'sync_complete') break;
         }
         if (!member) throw new Error(`no such member ${memberRef}`);
-        client.send({ type: 'act', room: options.room, act: { act: 'revive', member_id: member.id } });
+        client.send({ type: 'act', room: options.channel, act: { act: 'revive', member_id: member.id } });
         for (;;) {
           const frame = await client.next();
           if (frame.type === 'error') throw new Error(frame.message);
@@ -601,7 +602,7 @@ export function createProgram(context: CliContext = {}): Command {
 
   program
     .command('revoke')
-    .description('revoke a device or switchboard and rotate room keys')
+    .description('revoke a device or switchboard and rotate channel keys')
     .argument('<peer>', 'device id or label')
     .action((peer: string) => {
       withCrypto((crypto) => {
@@ -609,12 +610,12 @@ export function createProgram(context: CliContext = {}): Command {
         out(`revoked ${revoked.device_id}`);
       });
     });
-  const ledger = program.command('ledger').description('manage room shared-memory notes');
+  const ledger = program.command('ledger').description('manage channel shared-memory notes');
   ledger
     .command('init')
-    .requiredOption('-r, --room <room>', 'room id')
-    .action((options: RoomOptions) => {
-      const vault = new LedgerVault(program.opts<GlobalOptions>().dataDir, options.room);
+    .requiredOption('-r, --channel <channel>', 'channel id')
+    .action((options: ChannelOptions) => {
+      const vault = new LedgerVault(program.opts<GlobalOptions>().dataDir, options.channel);
       vault.bootstrap();
       out(vault.root);
     });
@@ -622,12 +623,12 @@ export function createProgram(context: CliContext = {}): Command {
     .command('add')
     .argument('<name>', 'lowercase note slug')
     .argument('<body>', 'markdown note body')
-    .requiredOption('-r, --room <room>', 'room id')
+    .requiredOption('-r, --channel <channel>', 'channel id')
     .requiredOption('--type <type>', 'decision, constraint, or contract')
-    .requiredOption('--as <handle>', 'room member attribution')
+    .requiredOption('--as <handle>', 'channel member attribution')
     .option('--join <line>', 'route the write to the home using name:secret')
     .option('--home <peer>', 'home switchboard device id')
-    .action(async (name: string, body: string, options: RoomOptions & {
+    .action(async (name: string, body: string, options: ChannelOptions & {
       type: string;
       as: string;
       join?: string;
@@ -649,7 +650,7 @@ export function createProgram(context: CliContext = {}): Command {
         try {
           await transport.start();
           await transport.waitForPeer(options.home);
-          const note = await addRemoteLedgerNote(transport, options.home, options.room, write);
+          const note = await addRemoteLedgerNote(transport, options.home, options.channel, write);
           out(`${note.relative_path}\t[[${note.name}]]`);
         } finally {
           await transport.close();
@@ -657,26 +658,27 @@ export function createProgram(context: CliContext = {}): Command {
         }
         return;
       }
-      const note = new LedgerVault(program.opts<GlobalOptions>().dataDir, options.room).add(write);
+      const note = new LedgerVault(program.opts<GlobalOptions>().dataDir, options.channel).add(write);
       out(`${note.relative_path}\t[[${note.name}]]`);
     });
   ledger
     .command('show')
     .argument('<name>', 'note slug')
-    .requiredOption('-r, --room <room>', 'room id')
-    .action((name: string, options: RoomOptions) => {
-      const note = new LedgerVault(program.opts<GlobalOptions>().dataDir, options.room).note(name);
+    .requiredOption('-r, --channel <channel>', 'channel id')
+    .action((name: string, options: ChannelOptions) => {
+      const note = new LedgerVault(program.opts<GlobalOptions>().dataDir, options.channel).note(name);
       if (!note) throw new Error(`no such ledger note ${name}`);
       out(note.content.trimEnd());
     });
   ledger
     .command('pull')
-    .requiredOption('-r, --room <room>', 'room id')
+    .requiredOption('-r, --channel <channel>', 'channel id')
     .option('-d, --destination <path>', 'snapshot parent directory', process.cwd())
-    .action((options: RoomOptions & { destination: string }) => {
-      out(new LedgerVault(program.opts<GlobalOptions>().dataDir, options.room).pull(options.destination));
+    .action((options: ChannelOptions & { destination: string }) => {
+      out(new LedgerVault(program.opts<GlobalOptions>().dataDir, options.channel).pull(options.destination));
     });
 
+  // harn:end human-facing-surfaces-call-rooms-channels
   return program;
 }
 

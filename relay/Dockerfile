@@ -7,11 +7,11 @@ RUN corepack enable
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY relay/package.json relay/package.json
-RUN pnpm install --frozen-lockfile --filter @wireroom/relay... --prod=false
+RUN pnpm install --frozen-lockfile --filter @codor/relay... --prod=false
 
 COPY relay/tsconfig.json relay/tsconfig.json
 COPY relay/src relay/src
-RUN pnpm --filter @wireroom/relay build
+RUN pnpm --filter @codor/relay build
 
 USER node
 EXPOSE 8787

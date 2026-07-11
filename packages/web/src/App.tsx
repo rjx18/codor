@@ -385,6 +385,7 @@ export function App(props: {
     return () => window.removeEventListener('keydown', close);
   }, [searchOpen]);
 
+  // harn:assume human-facing-surfaces-call-rooms-channels ref=web-channel-terminology
   // harn:assume web-room-visual-hierarchy-matches-restrained-reference ref=restrained-room-visual-hierarchy
   return (
     <div className="wr-canvas">
@@ -430,7 +431,7 @@ export function App(props: {
           {state.room?.config.bridged && <BridgedRoomBanner />}
           {!state.connected && (
             <div role="status" data-testid="offline-banner" className="wr-offline-banner">
-              Offline · room history stays on your switchboard
+              Offline · channel history stays on your switchboard
             </div>
           )}
           <HoldBanner
@@ -464,7 +465,7 @@ export function App(props: {
                 type="search"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search room history"
+                placeholder="Search channel history"
                 className="wr-search-input"
                 autoFocus
               />
@@ -521,7 +522,7 @@ export function App(props: {
           <div
             ref={timeline}
             data-testid="timeline"
-            aria-label="Room conversation"
+            aria-label="Channel conversation"
             tabIndex={0}
             onScroll={(event) => {
               const node = event.currentTarget;
@@ -614,7 +615,7 @@ export function App(props: {
             />
           ) : (
             <div data-testid="read-only-room" className="wr-read-only-room">
-              Observer access · room commands are read-only
+              Observer access · channel commands are read-only
             </div>
           )}
         </main>
@@ -641,23 +642,23 @@ export function App(props: {
         <div className="wr-drawer-layer">
           <button
             type="button"
-            aria-label="Close rooms"
+            aria-label="Close channels"
             className="wr-layer-scrim"
             onClick={() => setDrawerOpen(false)}
           />
           <aside
             role="dialog"
             aria-modal="true"
-            aria-label="Rooms"
+            aria-label="Channels"
             data-testid="room-drawer"
             className="wr-mobile-drawer"
           >
             <div className="wr-drawer-header">
-              <strong>Rooms</strong>
+              <strong>Channels</strong>
               <button
                 ref={drawerCloseRef}
                 type="button"
-                aria-label="Close rooms"
+                aria-label="Close channels"
                 title="Close"
                 onClick={() => setDrawerOpen(false)}
                 className="wr-icon-button"
@@ -700,17 +701,17 @@ export function App(props: {
         <div className="wr-context-layer">
           <button
             type="button"
-            aria-label="Close room context"
+            aria-label="Close channel context"
             className="wr-layer-scrim"
             onClick={() => setContextOpen(false)}
           />
-          <section role="dialog" aria-modal="true" aria-label="Room context" className="wr-context-sheet">
+          <section role="dialog" aria-modal="true" aria-label="Channel context" className="wr-context-sheet">
             <div className="wr-drawer-header">
-              <strong>Room context</strong>
+              <strong>Channel context</strong>
               <button
                 ref={contextCloseRef}
                 type="button"
-                aria-label="Close room context"
+                aria-label="Close channel context"
                 title="Close"
                 onClick={() => setContextOpen(false)}
                 className="wr-icon-button"
@@ -742,6 +743,7 @@ export function App(props: {
     </div>
   );
   // harn:end web-room-visual-hierarchy-matches-restrained-reference
+  // harn:end human-facing-surfaces-call-rooms-channels
   // harn:end roles-gate-human-acts-not-agents
 }
 // harn:end permalink-ids-stable

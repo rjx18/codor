@@ -75,7 +75,7 @@ test('selected output, diff, and image evidence use the sheet and rail at one br
   await expect(rows).toHaveCount(3);
 
   await rows.nth(0).click();
-  const sheet = page.getByRole('dialog', { name: 'Room context' });
+  const sheet = page.getByRole('dialog', { name: 'Channel context' });
   await expect(sheet).toBeVisible();
   await expect(page.getByTestId('context-rail')).toBeHidden();
   const outputPanel = sheet.getByTestId('inspector-output');
@@ -85,7 +85,7 @@ test('selected output, diff, and image evidence use the sheet and rail at one br
     scrollHeight: element.scrollHeight,
   }));
   expect(outputSize.clientHeight).toBeLessThan(outputSize.scrollHeight);
-  await sheet.getByRole('button', { name: 'Close room context' }).click();
+  await sheet.getByRole('button', { name: 'Close channel context' }).click();
 
   await rows.nth(1).click();
   await expect(sheet).toBeVisible();
@@ -93,7 +93,7 @@ test('selected output, diff, and image evidence use the sheet and rail at one br
   await expect(diff).toContainText('packages/web/src/App.tsx');
   await expect(diff.locator('.wr-diff-line-add')).toContainText('+const selectedRow = true;');
   await expect(diff.locator('.wr-diff-line-remove')).toContainText('-const oldLabel = true;');
-  await sheet.getByRole('button', { name: 'Close room context' }).click();
+  await sheet.getByRole('button', { name: 'Close channel context' }).click();
 
   await page.setViewportSize({ width: 1440, height: 900 });
   const rail = page.getByTestId('context-rail');

@@ -175,7 +175,7 @@ export function SettingsPage(props: {
         <section className="wr-focused-glass wr-state-sheet">
           <ShieldCheck aria-hidden="true" size={30} />
           <h1>Browser unpaired</h1>
-          <p>{localPurgeWarning ?? 'Local keys, caches, room state, and the push subscription were removed.'}</p>
+          <p>{localPurgeWarning ?? 'Local keys, caches, channel state, and the push subscription were removed.'}</p>
           {unpairWarning && <p role="alert" className="wr-warning-copy">{unpairWarning}</p>}
           <a href="/pair" className="wr-primary-button min-h-11 px-4">Pair again</a>
         </section>
@@ -212,14 +212,14 @@ export function SettingsPage(props: {
               </a>
             ))}
           </nav>
-          <a href={roomHref} aria-label="Return to room from settings navigation" className="wr-settings-back">
-            <ChevronLeft aria-hidden="true" size={17} /> Back to room
+          <a href={roomHref} aria-label="Return to channel from settings navigation" className="wr-settings-back">
+            <ChevronLeft aria-hidden="true" size={17} /> Back to channel
           </a>
         </aside>
 
         <div className="wr-settings-content">
           <header className="wr-settings-header">
-            <a href={roomHref} aria-label="Back to room" className="wr-icon-button">
+            <a href={roomHref} aria-label="Back to channel" className="wr-icon-button">
               <ChevronLeft aria-hidden="true" size={21} />
             </a>
             <div>
@@ -317,7 +317,7 @@ export function SettingsPage(props: {
             {canAdmin && <section id="brakes" data-testid="settings-section-brakes" data-active={visibleActiveSection === 'brakes'} className="wr-settings-section">
               <div className="wr-section-heading">
                 <Gauge aria-hidden="true" size={18} />
-                <div><h2>Room brakes</h2><p>Opt-in holds for this room. Both are off by default.</p></div>
+                <div><h2>Channel brakes</h2><p>Opt-in holds for this channel. Both are off by default.</p></div>
               </div>
               <form
                 noValidate
@@ -341,7 +341,7 @@ export function SettingsPage(props: {
                     spend_brake_usd: spendEnabled ? spend : null,
                     stall_minutes: stall,
                   });
-                  setNotice('Room brake update requested.');
+                  setNotice('Channel brake update requested.');
                 }}
               >
                 <BrakeRow
@@ -494,7 +494,7 @@ export function SettingsPage(props: {
               <div className="wr-setting-row">
                 <div className="wr-setting-copy">
                   <strong>Local switchboard</strong>
-                  <span>Room history, run evidence, keys, and ledger stay on your machine.</span>
+                  <span>Channel history, run evidence, keys, and ledger stay on your machine.</span>
                 </div>
                 <span className="wr-status-copy"><i className="wr-presence is-live" /> Local only</span>
               </div>
@@ -575,15 +575,15 @@ function RelayPairing() {
         <section>
           <h3>Relay never sees</h3>
           <ul>
-            <li>Sender, room, or member names</li>
+            <li>Sender, channel, or member names</li>
             <li>Message or run content</li>
-            <li>Decrypted room keys or any private key</li>
+            <li>Decrypted channel keys or any private key</li>
           </ul>
         </section>
       </div>
       <div className="wr-hosted-roadmap">
         <h3>Optional hosted Relay</h3>
-        <p>Separate roadmap capabilities, still content-blind unless a room explicitly enables a hosted bridge.</p>
+        <p>Separate roadmap capabilities, still content-blind unless a channel explicitly enables a hosted bridge.</p>
         <ul>
           {relayCapabilities.map(([name, detail], index) => (
             <li key={name}>

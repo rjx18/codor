@@ -16,7 +16,7 @@ Paseo behavior:
   owns process initialization, new/load session, prompt streaming, cancellation,
   permission responses, model/mode discovery, and token mapping for that path.
 
-Wireroom deliberately does not use Paseo's ACP design. Its architecture requires
+Codor deliberately does not use Paseo's ACP design. Its architecture requires
 a normal CLI process per turn, so this adapter implements Copilot's independently
 documented programmatic JSONL mode and exposes only what that mode can prove.
 
@@ -59,7 +59,7 @@ nonzero exit/spawn failure fails it; signal termination interrupts it.
 
 `--allow-all` is passed only for canonical `full-access`. Other policies leave Copilot's configured
 permissions in force. `--no-ask-user` prevents a noninteractive turn from
-blocking on a question. Wireroom therefore declares spawn-time approvals and no
+blocking on a question. Codor therefore declares spawn-time approvals and no
 runtime ask response channel.
 
 The mapping was rechecked on 2026-07-11 against GitHub's first-party
@@ -87,7 +87,7 @@ local store documented by GitHub. Interactive attach is
 Every synthesized record uses GitHub's documented envelope:
 `{id,timestamp,parentId,ephemeral?,type,data}`.
 
-| Copilot event | Wireroom event |
+| Copilot event | Codor event |
 | --- | --- |
 | parent `assistant.message_delta` | `run.item/text_delta`; accumulate text |
 | parent `assistant.message` | final text; emit only if no deltas for that message |
@@ -103,7 +103,7 @@ Every synthesized record uses GitHub's documented envelope:
 
 Copilot documents `assistant.usage.cost` as a **model multiplier for billing**,
 not a reported USD amount. The adapter never maps it to `cost_usd`; Copilot
-tokens remain visibly uncosted in Wireroom's meter.
+tokens remain visibly uncosted in Codor's meter.
 
 ## Capability truth
 
@@ -113,7 +113,7 @@ tokens remain visibly uncosted in Wireroom's meter.
 | discover | true | documented session-state layout; directory fixture test |
 | interactive attach | true | documented `--resume`; CLI resolver test |
 | ask | false | `--no-ask-user`; no JSONL response channel |
-| approvals | spawn-time | allow/deny CLI flags; no Wireroom runtime response |
+| approvals | spawn-time | allow/deny CLI flags; no Codor runtime response |
 | extensions | true | documented subagent lifecycle; synthetic replay test |
 | thinking | false | no documented low/medium/high prompt-mode control |
 

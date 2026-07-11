@@ -8,10 +8,10 @@ milestone starts — this file stays the map, not the turf.
 
 ## M0 — Dial tone
 
-*A room exists; one human and one owned agent talk in it over the tailnet.*
+*A channel exists; one human and one owned agent talk in it over the tailnet.*
 
 - `packages/protocol`: schemas for Member/Message/WireEvent/deliveries (PROTOCOL.md → zod).
-- `packages/switchboard`: SQLite store, run-blob journal, WS/REST API, single-room MVP of the
+- `packages/switchboard`: SQLite store, run-blob journal, WS/REST API, single-channel MVP of the
   router (mention→recipients, whole-message payloads, refs, defaults — full PROTOCOL §3
   semantics from day one; they're the product).
 - `packages/adapters/codex`: spawn + resume + deliver via `codex exec --json`; run message
@@ -19,7 +19,7 @@ milestone starts — this file stays the map, not the turf.
 - `packages/adapters/claude-code`: CLI driver — `claude -p --resume` with stream-json in/out
   (events, ask-user, and permission prompts over the control protocol → ask/approval cards).
   No SDK dependency, by design.
-- `packages/web`: room timeline, collapsible runs, composer with @/# autocomplete + implied
+- `packages/web`: channel timeline, collapsible runs, composer with @/# autocomplete + implied
   recipient, member rail, ask/approval cards.
 - **License + reuse audit** (the M0 gate for the build map): verify walkie's license
   (claude-watch verified MIT → fork cleared; paseo verified AGPL-3.0 → pattern-only, no code
@@ -28,7 +28,7 @@ milestone starts — this file stays the map, not the turf.
 - Tailnet deploy recipe (`tailscale serve`) + pairing token for the web client.
 
 **Acceptance:** from a browser on another machine (over tailnet), spawn a Codex session and a
-Claude session into a room, send `@claude plan X`, watch the run stream collapse into one
+Claude session into a channel, send `@claude plan X`, watch the run stream collapse into one
 message, have Claude's final `@codex implement` hand off automatically, and read Codex's
 result — no terminal involvement after setup.
 
@@ -36,41 +36,41 @@ result — no terminal involvement after setup.
 
 *Many sessions, custody in both directions, extensions. The manual review loop is dead.*
 
-- Multi-agent rooms: rename, per-member policy chips, queue/batch semantics, member revive.
+- Multi-agent channels: rename, per-member policy chips, queue/batch semantics, member revive.
 - **All-harnesses support**: Gemini CLI, OpenCode, and Copilot CLI adapters alongside
   claude/codex (via ACP where the M0 spike cleared it, else direct CLI drivers written against
   paseo's adapters as behavioral reference). Harnesses not installed on the box are
   integration-tested against recorded streams; live smoke runs cover whatever is installed.
-- `/wireroom` skill (Claude Code) + `wireroom join` CLI (Codex): mirrored members, hook-based
+- `/codor` skill (Claude Code) + `codor join` CLI (Codex): mirrored members, hook-based
   mirroring, adopt-on-TUI-exit custody transfer.
-- `wireroom attach <member>`: jump into any member's session from a terminal via native resume;
+- `codor attach <member>`: jump into any member's session from a terminal via native resume;
   re-adopt on exit (the reverse custody direction).
 - Extensions: subagent capture via Task-call events + hooks; collapsed rendering under parent.
 - Always-on spend meter; opt-in turn/spend brakes (off by default — agents run to completion);
   stall flagging.
-- History paging, room search, message permalinks (#N anchors).
+- History paging, channel search, message permalinks (#N anchors).
 
 **Acceptance:** replay a real historical workflow — plan → `@codex` review (persistent session)
-→ fold findings → `@codex` re-review → converge — entirely in one room with no brakes tripping,
-including one `/wireroom join` of a pre-existing live TUI session, one `wireroom attach` into a
-room-owned member and back, and one subagent appearing as an extension. Separately, a room with
+→ fold findings → `@codex` re-review → converge — entirely in one channel with no brakes tripping,
+including one `/codor join` of a pre-existing live TUI session, one `codor attach` into a
+channel-owned member and back, and one subagent appearing as an extension. Separately, a channel with
 the opt-in turn brake enabled holds and releases correctly.
 
 ## M2 — Long lines
 
-*Rooms escape the single machine without touching a cloud.*
+*Channels escape the single machine without touching a cloud.*
 
 - Hyperswarm transport (`line:secret` → DHT topic; walkie's model): switchboard↔switchboard
-  peering; a room hosted on the desk reachable from a laptop on hotel wifi.
-- Multi-box rooms (ARCHITECTURE §multi-box): remote member residency — deliveries routed to the
+  peering; a channel hosted on the desk reachable from a laptop on hotel wifi.
+- Multi-box channels (ARCHITECTURE §multi-box): remote member residency — deliveries routed to the
   member's switchboard, events streamed back to the home, unreachable-peer queueing.
-- Room keys + sealed-box distribution + revocation (PRIVACY §keys) — encryption layered on
+- Channel keys + sealed-box distribution + revocation (PRIVACY §keys) — encryption layered on
   regardless of transport.
 - Ledger v1 (PROTOCOL §6): vault bootstrap, `[[name]]` refs resolved into deliveries,
-  `wireroom ledger` CLI, change notices in the room.
+  `codor ledger` CLI, change notices in the channel.
 - Optional SQLCipher at rest; multi-device web pairing polish.
 
-**Acceptance:** two machines with no shared tailnet hold a conversation in one room over the
+**Acceptance:** two machines with no shared tailnet hold a conversation in one channel over the
 DHT; a packet capture shows nothing readable; revoking a device locks it out of new messages.
 
 ## M3 — The pocket web (PWA + push relay)
@@ -95,10 +95,10 @@ native app installed on anything.
 private apps repo (closed-source, paid one-time — BUSINESS.md); this repo gains only protocol
 and doc updates.*
 
-- SwiftUI iPhone app: QR pairing, rooms, ask/approval sheets, dictation composer; APNs through
+- SwiftUI iPhone app: QR pairing, channels, ask/approval sheets, dictation composer; APNs through
   the same relay, NSE decrypt, keys in Keychain.
 - watchOS app (started from the claude-watch fork): inbox (addressed messages, asks, approvals,
-  brake holds), room glance, dictation replies with recipient picker; WatchConnectivity via the
+  brake holds), channel glance, dictation replies with recipient picker; WatchConnectivity via the
   phone; haptics vocabulary (done / question / hold).
 
 **Acceptance:** phone app drives the M1 flow end-to-end; then phone in pocket, watch only:
@@ -112,11 +112,11 @@ while no plaintext leaves the tailnet except sealed push payloads.
 - Adapter SDK: `HarnessAdapter` documented + reference third-party adapters (ACP-based if the
   M0 spike held; else OpenCode / Gemini / Copilot CLI direct, with paseo's adapter set as the
   behavioral reference — reimplemented, never copied, per its AGPL).
-- Multi-human rooms as a **Relay (paid) feature** per the API-key/DB test: org enrollment
+- Multi-human channels as a **Relay (paid) feature** per the API-key/DB test: org enrollment
   (invite QR, device-key directory), role enforcement (owner/admin/member/observer), presence,
   per-human notification routing. The role schema stays in the open protocol.
 - Ledger graph view in the web UI; optional Graphiti indexer for temporal queries.
-- Bridges: Slack + Telegram as opt-in room mirrors (ARCHITECTURE §bridges) — hosted via the
+- Bridges: Slack + Telegram as opt-in channel mirrors (ARCHITECTURE §bridges) — hosted via the
   Relay plan (they need platform app credentials), with the bridged banner and role-gated
   enablement.
 - Self-host guide, threat-model doc review (external eyes invited), docs site, demo video of
@@ -131,4 +131,4 @@ both stock adapters, and a third-party harness lands via the SDK without patchin
 - MLS group crypto (sealed-box fan-out is right at ≤5 devices).
 - Addressable extensions, `@all`, threading beyond `reply_to`, message editing.
 - Native Android/WearOS (the M3 PWA already covers Android phones; native is someone else's M4).
-- Any hosted "Wireroom cloud". The moment content touches our servers, PRIVACY.md has failed.
+- Any hosted "Codor cloud". The moment content touches our servers, PRIVACY.md has failed.

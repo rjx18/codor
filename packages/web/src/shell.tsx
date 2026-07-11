@@ -192,16 +192,16 @@ export function RoomList(props: {
   }, [creating]);
 
   return (
-    <nav aria-label="Rooms" className="wr-room-list">
+    <nav aria-label="Channels" className="wr-room-list">
       <div className="wr-rail-label">
-        <span>Rooms</span>
+        <span>Channels</span>
         {props.token && props.owner && (props.canCreateRoom ?? true) ? (
           <button
             ref={createTrigger}
             type="button"
             data-testid="create-room"
-            aria-label="Create room"
-            title="Create room"
+            aria-label="Create channel"
+            title="Create channel"
             className="wr-rail-action"
             onClick={() => {
               setCreateError(undefined);
@@ -234,7 +234,7 @@ export function RoomList(props: {
                 <span className="wr-room-copy">
                   <strong title={room.name}>{room.name}</strong>
                   <small>
-                    {selected ? (props.connected ? 'Live on this switchboard' : 'Offline') : 'Room'}
+                    {selected ? (props.connected ? 'Live on this switchboard' : 'Offline') : 'Channel'}
                   </small>
                 </span>
                 <span className="wr-room-marks">
@@ -260,7 +260,7 @@ export function RoomList(props: {
         <div className="wr-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
           <button
             type="button"
-            aria-label="Close create room"
+            aria-label="Close create channel"
             className="wr-layer-scrim"
             onClick={() => setCreating(false)}
           />
@@ -268,7 +268,7 @@ export function RoomList(props: {
             ref={createDialog}
             role="dialog"
             aria-modal="true"
-            aria-label="Create room"
+            aria-label="Create channel"
             data-testid="create-room-dialog"
             className="wr-channel-dialog wr-focused-glass relative z-10 w-full max-w-xl p-5"
             onSubmit={(event) => {
@@ -297,7 +297,7 @@ export function RoomList(props: {
                 <h2>Create channel</h2>
                 <p>A private channel on this switchboard.</p>
               </div>
-              <button type="button" aria-label="Close create room" className="wr-icon-button" onClick={() => setCreating(false)}>
+              <button type="button" aria-label="Close create channel" className="wr-icon-button" onClick={() => setCreating(false)}>
                 <X aria-hidden="true" size={18} />
               </button>
             </div>
@@ -430,7 +430,7 @@ export function RoomRail(props: {
         </span>
         <a
           href={`/settings?${new URLSearchParams({ room: props.currentRoom }).toString()}`}
-          aria-label="Open settings from room rail"
+          aria-label="Open settings from channel rail"
           title="Settings"
           className="wr-icon-button"
         >
@@ -593,7 +593,7 @@ export function ContextRail(props: {
   };
   return (
     <aside data-testid={props.testId ?? 'context-rail'} className={`wr-context-rail ${props.className ?? ''}`}>
-      <div className="wr-context-tabs" role="tablist" aria-label="Room context">
+      <div className="wr-context-tabs" role="tablist" aria-label="Channel context">
         <button
           id={membersTabId}
           type="button"

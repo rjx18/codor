@@ -21,7 +21,7 @@ quota, or subscription failure.
    public, then create the signed `v0.1.0` tag and GitHub release from `CHANGELOG.md`. Do not publish
    any workspace to npm; the distribution is the source checkout and every package remains `private`.
 6. Build the public documentation with the real remote URL:
-   `WIREROOM_REPOSITORY_URL=https://github.com/<owner>/<repo> pnpm --filter @wireroom/website build`.
+   `CODOR_REPOSITORY_URL=https://github.com/<owner>/<repo> pnpm --filter @codor/website build`.
    Deploy only `website/.vitepress/dist/`, then verify Source, GitHub, and edit links point to the
    final repository and every documentation route loads over HTTPS.
 7. On a clean Linux or macOS host, follow `docs/SELF-HOST.md` without using this development
@@ -45,7 +45,7 @@ quota, or subscription failure.
 Status on 2026-07-11: **both one-shot live re-runs completed but did not satisfy their exact chain
 assertions; neither was retried**. M0 settled with two Claude runs where the fixture requires one.
 M1 settled with three runs where the plan-review-fold-re-review fixture requires four, and stopped
-before its live extension step. Both temporary rooms were removed by the fixture before failed
+before its live extension step. Both temporary channels were removed by the fixture before failed
 message bodies could be retained, so no root cause is claimed. The historical M0 transcript was an
 ignored run artifact until `27d7944`, with its contemporaneous successful completion recorded in
 `1a8ae03`; the prior tracked M1 pass is in `79eac33`. Neither is represented as a fresh pass. The
@@ -64,7 +64,7 @@ Status on 2026-07-11: **completed and folded**. At the operator's explicit direc
 Codex session performed the full-repository audit itself without a subagent or another paid model
 call, starting from launch candidate `ba71d0a`. The review accepted one BLOCKER and five MAJOR
 findings: pairing disclosed the global operator bearer so revocation did not end plaintext API
-access; attach follow-up actions could mutate a lease from another room; an enrolled peer could
+access; attach follow-up actions could mutate a lease from another channel; an enrolled peer could
 spoof a pending remote session reference; normal shutdown could await a remote stream before
 closing the component able to fail it; mirrored native turns did not commit dedupe and fanout
 atomically; and default-recipient routing silently ignored finalized agents more than 500 messages
@@ -75,7 +75,7 @@ All accepted findings and regressions are in Harn plan `final-repository-review-
 applied commit is recorded by `harn log`. No finding was rejected as a false positive. Reviewed
 non-findings remain intentional and documented: the local operator bearer is an administrative
 credential, per-human push targeting is deferred, remote ledger attribution follows the explicit
-room-host policy, and the mode-0600 Unix socket trusts the local OS account boundary. The earlier
+channel-host policy, and the mode-0600 Unix socket trusts the local OS account boundary. The earlier
 quota-exhausted Codex CLI attempt remains historical evidence only and is superseded by this
 completed in-session review.
 
@@ -110,7 +110,7 @@ The restrained design-foundation range `f63a00b..d4ec5c8` was later recovered
 with the corrected headless read-only invocation. All five findings were folded
 in fix commit `208af1b`; no operator review action remains for this range.
 
-The restrained room range `cc5f4b5..e2f78b5` was later recovered with the
+The restrained channel range `cc5f4b5..e2f78b5` was later recovered with the
 corrected invocation. All seven findings were folded in fix commit `019c859`,
 including the reduced-transparency blocker; no operator review action remains
 for this range.
@@ -184,17 +184,17 @@ two physical machines over the internet.
    store.
 2. Choose one high-entropy `name:secret` line out of band. On the home, launch the exported
    `HyperswarmTransport`, `ResidencyCoordinator`, `LedgerManager`, and `Daemon` with that line,
-   a home room, and a remote FakeAdapter member whose `host` is the outpost `device_id`. On the
+   a home channel, and a remote FakeAdapter member whose `host` is the outpost `device_id`. On the
    outpost, launch `HyperswarmTransport` plus a resident `ResidencyCoordinator` configured with
    `FakeAdapter`; use the construction in `m2-acceptance.spec.ts` as the operator wrapper. Do
    not set a bootstrap override; both sides must use the real DHT.
 3. Post one unique plaintext marker from the home to the remote member and verify the outpost
    FakeAdapter returns its deterministic body, the home finalizes exactly one run with dense
-   room ids, and no room database or ledger vault appears on the outpost.
+   channel ids, and no channel database or ledger vault appears on the outpost.
 4. Capture the connection on either host with the operator's packet tool and search raw packet
    bytes for the marker and ledger body. Both searches must return zero matches; record only
    the result, never the line secret or private keys.
-5. Run `wireroom revoke <outpost-device-id>` against the home data directory. Verify the live
+5. Run `codor revoke <outpost-device-id>` against the home data directory. Verify the live
    connection drops, the resident member becomes `unreachable`, reconnect authentication is
    rejected, and a newly posted delivery remains queued at the home.
 
@@ -209,13 +209,13 @@ Chromium standalone app window and CDP push delivery; this step verifies the phy
 Screen install, APNs-backed Web Push, cold delivery, and notification navigation.
 
 1. Use an iPhone on iOS 16.4 or later. Serve the switchboard web app from a stable HTTPS URL the
-   phone can reach, with `WIREROOM_RELAY_URL` set to the public relay from the next section and
-   `WIREROOM_VAPID_PUBLIC_KEY` set to that relay deployment's public VAPID key. Never place the
+   phone can reach, with `CODOR_RELAY_URL` set to the public relay from the next section and
+   `CODOR_VAPID_PUBLIC_KEY` set to that relay deployment's public VAPID key. Never place the
    VAPID private key on the switchboard or phone.
 2. Open a fresh single-use browser pairing URL on the iPhone and pair it. In the browser Share
-   sheet choose **Add to Home Screen**, then launch Wireroom from its Home Screen icon. Confirm it
-   opens without browser chrome, the room stream and bottom composer fit without horizontal
-   scrolling, the rooms/members drawer opens, and the app survives a cold relaunch.
+   sheet choose **Add to Home Screen**, then launch Codor from its Home Screen icon. Confirm it
+   opens without browser chrome, the channel stream and bottom composer fit without horizontal
+   scrolling, the channels/members drawer opens, and the app survives a cold relaunch.
 3. From the Home Screen app, open Settings and tap **Enable** under notifications. Accept the iOS
    prompt. The prompt must follow that tap; do not treat a permission request on page load as a
    pass. Confirm the paired device row changes to `Push on`.
@@ -224,14 +224,14 @@ Screen install, APNs-backed Web Push, cold delivery, and notification navigation
    concise redacted notification arrives on the Lock Screen and Notification Center. A handle may
    legitimately appear in a hold or message preview; confirm instead that configured secret
    markers and any content the redactor should remove are absent.
-5. Tap the notification and confirm the Home Screen app opens the correct room/message fragment.
+5. Tap the notification and confirm the Home Screen app opens the correct channel/message fragment.
    Record whether this iOS version exposes the custom `Release hold` action; WebKit versions may
    present only the main notification tap. If the custom action is present, trigger it and confirm
    the held delivery releases exactly once.
 6. In Settings, unpair this browser. Confirm the push subscription disappears server-side and the
    phone no longer receives a notification for another targeted event. Reopening the icon must
-   require pairing again and must not show prior room content offline.
-7. With two browsers paired, revoke a third disposable device so every room key rotates. Fully
+   require pairing again and must not show prior channel content offline.
+7. With two browsers paired, revoke a third disposable device so every channel key rotates. Fully
    close one surviving browser, trigger one targeted event, and confirm its next push still opens;
    the revoked device must receive or decrypt nothing. This checks the device-sealed key refresh
    on a real push provider rather than only the automated worker simulation.
@@ -268,22 +268,22 @@ built against injected mock gateways; no Slack app token, Telegram bot token, or
 channel was available or requested on this machine.
 
 1. Create a disposable Slack channel and a Socket Mode Slack app with message read/write scopes.
-   Run `wireroom-bridge-slack` with `WIREROOM_URL`, an admin-or-owner `WIREROOM_TOKEN`,
-   `WIREROOM_ROOM`, `SLACK_CHANNEL_ID`, `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and
-   `SLACK_APP_TOKEN`. Keep the default private state file under `~/.wireroom/bridges/`, or set
-   `WIREROOM_BRIDGE_STATE` to a persistent owner-only path. Confirm the room immediately shows the
+   Run `codor-bridge-slack` with `CODOR_URL`, an admin-or-owner `CODOR_TOKEN`,
+   `CODOR_ROOM`, `SLACK_CHANNEL_ID`, `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and
+   `SLACK_APP_TOKEN`. Keep the default private state file under `~/.codor/bridges/`, or set
+   `CODOR_BRIDGE_STATE` to a persistent owner-only path. Confirm the channel immediately shows the
    permanent bridged privacy band.
 2. Post one Slack message containing a unique marker, one `@agent` mention, one `#N` reference,
-   and one `[[ledger-note]]` reference. Confirm exactly one Wireroom message appears as
+   and one `[[ledger-note]]` reference. Confirm exactly one Codor message appears as
    `via slack: <display name>` and routes only to the valid agent. Force Slack to retry the same
-   event and confirm no second room message or agent turn appears.
-3. Post one local Wireroom message and confirm exactly one Slack copy appears. Confirm the inbound
+   event and confirm no second channel message or agent turn appears.
+3. Post one local Codor message and confirm exactly one Slack copy appears. Confirm the inbound
    message from step 2 is not echoed back. Stop the bridge, post a second local marker, restart with
    the same state file, and confirm the downtime marker appears once. Do not record tokens, signing
    secrets, state-file contents, channel contents, or bearer headers.
 4. Create a disposable Telegram group, add a bot with permission to read and send messages, and
-   run `wireroom-bridge-telegram` with `WIREROOM_URL`, an admin-or-owner `WIREROOM_TOKEN`,
-   `WIREROOM_ROOM`, `TELEGRAM_CHAT_ID`, and `TELEGRAM_BOT_TOKEN`. Repeat the inbound retry,
+   run `codor-bridge-telegram` with `CODOR_URL`, an admin-or-owner `CODOR_TOKEN`,
+   `CODOR_ROOM`, `TELEGRAM_CHAT_ID`, and `TELEGRAM_BOT_TOKEN`. Repeat the inbound retry,
    sender attribution, reference preservation, outbound mirror, and own-origin echo checks.
 5. Attempt bridge enable and ingress with observer and member credentials and confirm both receive
    403. Attempt to mention the bridge handle and use the bridge member id to answer an ask; neither

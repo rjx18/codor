@@ -1,0 +1,432 @@
+id: codor-p6c-docs-terminology
+title: P6c rename documentation and human-facing room terminology
+assumptions:
+  create:
+    - id: human-facing-surfaces-call-rooms-channels
+      title: Human-facing surfaces call protocol rooms channels
+      statement: Operator-visible web copy, CLI commands, long options, help,
+        generated reports, documentation, website content, and agent delivery
+        conventions must call the product concept a channel, while wire frames,
+        REST paths, database fields, and implementation types retain room and
+        the protocol guide states the equivalence exactly once, because D3
+        separates product language from the stable protocol contract.
+      reason: Phase 6c applies the binding channel terminology decision without
+        renaming protocol identifiers.
+      depends_on:
+        - codor-runtime-identity-is-a-clean-break
+  reviewed:
+    - id: codor-runtime-identity-is-a-clean-break
+      outcome: unchanged
+      reason: Public documentation, website, skill, and packaging references adopt
+        Codor without adding aliases or fallbacks.
+    - id: codor-delivery-header-identifies-channel
+      outcome: unchanged
+      reason: Agent-facing conventions adopt channel language while the exact Codor
+        payload header remains unchanged.
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: Install documentation and website metadata adopt the Phase 6 runtime
+        names without changing the proven flow.
+    - id: global-cli-install-is-idempotent
+      outcome: unchanged
+      reason: Installation docs name the codor command while installer behavior is
+        unchanged.
+    - id: cli-setup-wizard-preserves-service-environment
+      outcome: unchanged
+      reason: The service template uses channel-named public options without changing
+        setup environment construction.
+    - id: cli-member-recovery-is-actionable
+      outcome: unchanged
+      reason: Recovery help names channels and --channel while preserving candidate
+        and dead-member behavior.
+    - id: terminal-pairing-qr-matches-plain-url
+      outcome: unchanged
+      reason: Pairing documentation changes terminology only.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Adapter docs and CLI help change product language without changing
+        registry ownership.
+    - id: tailnet-auto-pairing-explicit-trust
+      outcome: unchanged
+      reason: Self-host guidance changes names without weakening explicit trust.
+    - id: ledger-home-only-refs-travel
+      outcome: unchanged
+      reason: Generated ledger headings and errors call the user concept a channel
+        while storage paths and authority remain room-based protocol internals.
+    - id: pairing-discloses-browser-and-relay-boundaries
+      outcome: unchanged
+      reason: Pairing copy changes nouns without changing the disclosed boundaries.
+    - id: web-settings-controls-preserve-product-truth
+      outcome: unchanged
+      reason: Settings copy adopts channel terminology with the same controls.
+    - id: web-settings-pairing-match-restrained-reference
+      outcome: unchanged
+      reason: Pairing and settings wording changes without layout changes.
+    - id: web-theme-choice-stays-local
+      outcome: unchanged
+      reason: Settings terminology changes without affecting local theme state.
+    - id: unpair-purges-all-browser-state
+      outcome: unchanged
+      reason: Purge notices call state channel state without changing deletion.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: Rails, drawers, and context labels change terminology without changing
+        responsive structure.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: Visible labels change while hierarchy and layout remain unchanged.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: The creation dialog says channel while still calling the room REST API.
+    - id: channel-create-dialog-uses-authoritative-result
+      outcome: unchanged
+      reason: Visible creation terminology changes without deriving the returned id.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: Spawn help calls the destination a channel without changing controls.
+    - id: custody-uncertain-never-double-writes
+      outcome: unchanged
+      reason: Attach help changes public option spelling only.
+    - id: bridged-room-wears-banner
+      outcome: unchanged
+      reason: The bridge banner says channel without changing its visibility.
+    - id: push-decrypts-on-device-only
+      outcome: unchanged
+      reason: Notification copy changes terminology without changing envelope fields.
+    - id: unpaired-browser-always-has-enrollment-path
+      outcome: unchanged
+      reason: Enrollment copy changes terminology without changing available paths.
+    - id: pairing-offer-token-remains-qr-only
+      outcome: unchanged
+      reason: Pairing copy changes without exposing pairing tokens.
+    - id: graph-derived-from-vault-links-readonly
+      outcome: unchanged
+      reason: Ledger navigation labels change without changing graph behavior.
+    - id: normalized-run-evidence-inspector
+      outcome: unchanged
+      reason: Context-sheet accessible names change without changing evidence
+        selection or rendering.
+    - id: roster-briefing-refreshes-on-membership
+      outcome: unchanged
+      reason: The adjacent agent conventions copy changes terminology without changing
+        roster refresh or payload contents.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: Timeline copy changes without changing page-memory or service-worker
+        cache ownership.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: The meter accessible name changes terminology while remaining visible.
+    - id: literal-draft-recipient-visible-before-send
+      outcome: unchanged
+      reason: Composer labels change terminology without changing recipient state.
+    - id: run-context-selects-and-follows-live-evidence
+      outcome: unchanged
+      reason: Context-sheet names change without changing live evidence selection.
+    - id: single-crypto-suite-libsodium
+      outcome: unchanged
+      reason: Browser validation errors call the user concept a channel without
+        changing key formats or algorithms.
+    - id: sw-injectmanifest-owned-worker
+      outcome: unchanged
+      reason: Notification action labels change without changing worker ownership.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Timeline labels and generated acceptance reports change terminology
+        without changing identifiers.
+anchors:
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-terminology:
+      action: change
+      reason: Expose channels and --channel while mapping to room wire fields.
+    cli-channel-regression:
+      action: change
+      reason: Prove the old public command and long option are absent.
+    web-channel-terminology:
+      action: change
+      reason: Render channel throughout operator-visible web surfaces.
+    web-channel-regression:
+      action: change
+      reason: Prove the browser exposes channel language.
+    protocol-channel-equivalence:
+      action: change
+      reason: State the required channel and protocol room equivalence exactly once.
+    public-docs-channel-terminology:
+      action: change
+      reason: Document Codor channels and renamed commands.
+    website-channel-terminology:
+      action: change
+      reason: Present Codor channel language on the public site.
+  codor-runtime-identity-is-a-clean-break:
+    cli-runtime-identity:
+      action: change
+      reason: Rename the public command surface and long options without aliases.
+    runtime-identity-regression:
+      action: change
+      reason: Extend the clean-break regression to public channel terminology.
+    systemd-runtime-identity:
+      action: change
+      reason: Use the renamed public channel options in the service command.
+  codor-delivery-header-identifies-channel:
+    delivery-header-template:
+      action: change
+      reason: Change the conventions trailer from room to channel.
+  fresh-clone-install-proven-by-script:
+    selfhost-guide:
+      action: change
+      reason: Rewrite the install guide for Codor paths, service, and commands.
+    vitepress-docs-site:
+      action: change
+      reason: Rename website product content and image references.
+    systemd-service:
+      action: change
+      reason: Use --channel and --channel-name in the installed service.
+  global-cli-install-is-idempotent:
+    cli-install-docs:
+      action: change
+      reason: Document the installed codor command.
+  cli-setup-wizard-preserves-service-environment:
+    setup-regression:
+      action: change
+      reason: Update the embedded service snapshot for channel options.
+  cli-member-recovery-is-actionable:
+    cli-revive-and-attach-surface:
+      action: change
+      reason: Rename recovery help and the disambiguation long option.
+    cli-recovery-regression:
+      action: change
+      reason: Prove channel candidate guidance.
+  adapter-registry-sole-harness-source:
+    adapter-registration-contract:
+      action: change
+      reason: Rewrite adapter examples for Codor packages and commands.
+    acp-final-verdict:
+      action: change
+      reason: Rename architecture documentation without changing the adapter verdict.
+    registry-cli-composition:
+      action: change
+      reason: Rename CLI descriptions while retaining registry-driven choices.
+  tailnet-auto-pairing-explicit-trust:
+    trusted-tailnet-research-evidence:
+      action: change
+      reason: Rename self-host examples without changing the trust boundary.
+  ledger-home-only-refs-travel:
+    home-ledger-vault:
+      action: change
+      reason: Generate channel-facing ledger copy at the same room protocol path.
+    ledger-aware-payload:
+      action: change
+      reason: Rename the agent-facing conventions trailer to channel.
+  pairing-discloses-browser-and-relay-boundaries:
+    pairing-boundary-workspace:
+      action: change
+      reason: Replace room nouns in disclosures with channel.
+    pairing-boundary-regression:
+      action: change
+      reason: Update disclosure assertions.
+  web-settings-controls-preserve-product-truth:
+    glass-settings-surface:
+      action: change
+      reason: Rename room labels and notices to channel.
+    glass-settings-regression:
+      action: change
+      reason: Update browser-visible settings expectations.
+  web-settings-pairing-match-restrained-reference:
+    restrained-settings-pairing-surface:
+      action: change
+      reason: Rename visible settings and pairing copy.
+    restrained-settings-pairing-regression:
+      action: change
+      reason: Update visible-copy expectations.
+  web-theme-choice-stays-local:
+    settings-theme-control:
+      action: change
+      reason: Account for terminology changes in the surrounding settings surface.
+  unpair-purges-all-browser-state:
+    settings-unpair-action:
+      action: change
+      reason: Rename the successful purge notice.
+  web-shell-responsive-three-pane:
+    responsive-room-shell:
+      action: change
+      reason: Rename rail and context labels while retaining the shell.
+    responsive-shell-regression:
+      action: change
+      reason: Update accessible-name expectations.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: Rename visible hierarchy labels only.
+    restrained-room-visual-regression:
+      action: change
+      reason: Update visible label assertions.
+  web-room-rail-creates-owner-room:
+    room-rail-create-action:
+      action: change
+      reason: Present channel creation while retaining room API calls.
+    room-rail-create-regression:
+      action: change
+      reason: Update dialog accessible names and labels.
+  channel-create-dialog-uses-authoritative-result:
+    channel-create-dialog:
+      action: change
+      reason: Rename the visible creation surface.
+    channel-create-browser-regression:
+      action: change
+      reason: Update browser interaction labels.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    spawn-dialog-controls:
+      action: change
+      reason: Call the spawn destination a channel.
+    spawn-dialog-browser-regression:
+      action: change
+      reason: Update visible spawn copy expectations.
+    spawn-dialog-unit-regression:
+      action: change
+      reason: Update rendered copy assertions.
+  custody-uncertain-never-double-writes:
+    attach-custody-web-hint:
+      action: change
+      reason: Copy the channel-named CLI option.
+  bridged-room-wears-banner:
+    bridged-room-banner:
+      action: change
+      reason: Rename the banner and privacy notice to channel.
+    bridged-room-regression:
+      action: change
+      reason: Update browser-visible bridge copy.
+  push-decrypts-on-device-only:
+    browser-push-envelope-open:
+      action: change
+      reason: Rename user-facing notification copy only.
+    sw-push-notification-handler:
+      action: change
+      reason: Rename notification actions while retaining protocol payloads.
+  unpaired-browser-always-has-enrollment-path:
+    unpaired-pairing-workspace:
+      action: change
+      reason: Rename channel copy in the pairing workspace.
+  pairing-offer-token-remains-qr-only:
+    glass-pairing-surface:
+      action: change
+      reason: Rename pairing copy without changing token handling.
+    pairing-token-visibility-regression:
+      action: change
+      reason: Update visible text assertions.
+  graph-derived-from-vault-links-readonly:
+    ledger-graph-web:
+      action: change
+      reason: Rename navigation and fallback labels to channel.
+    ledger-graph-regression:
+      action: change
+      reason: Update channel-facing graph navigation assertions.
+  normalized-run-evidence-inspector:
+    inspector-browser-regression:
+      action: change
+      reason: Update channel context accessible-name assertions.
+  roster-briefing-refreshes-on-membership:
+    roster-payload-block:
+      action: change
+      reason: Account for adjacent channel conventions copy.
+  sw-caches-shell-only-no-message-data:
+    page-memory-message-cache:
+      action: change
+      reason: Rename the conversation accessible label only.
+  spend-meter-always-on:
+    meter-settings-surface:
+      action: change
+      reason: Rename the meter accessible label to channel.
+  literal-draft-recipient-visible-before-send:
+    composer-literal-recipient:
+      action: change
+      reason: Rename composer prompt copy to channel.
+  run-context-selects-and-follows-live-evidence:
+    selected-live-run-context:
+      action: change
+      reason: Rename the context surface accessible labels.
+    selected-live-run-context-regression:
+      action: change
+      reason: Update the matching browser assertions.
+  single-crypto-suite-libsodium:
+    browser-libsodium-suite:
+      action: change
+      reason: Rename browser key validation errors to channel.
+  sw-injectmanifest-owned-worker:
+    owned-worker-lifecycle:
+      action: change
+      reason: Rename visible notification action labels.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: Rename timeline labels without changing links.
+    m1-live-acceptance:
+      action: change
+      reason: Rewrite generated operator reports with channel terminology.
+files:
+  - .gitignore
+  - README.md
+  - MANUAL-VERIFY.md
+  - tmp.plan
+  - docs/ADAPTERS.md
+  - docs/ARCHITECTURE.md
+  - docs/BUSINESS.md
+  - docs/JOIN.md
+  - docs/PRIVACY.md
+  - docs/PROTOCOL.md
+  - docs/ROADMAP.md
+  - docs/ROLES.md
+  - docs/SELF-HOST.md
+  - docs/SETUP.md
+  - docs/VISION.md
+  - packages/adapters/claude-code/NOTES.md
+  - packages/adapters/codex/NOTES.md
+  - packages/adapters/copilot/NOTES.md
+  - packages/adapters/gemini/NOTES.md
+  - packages/adapters/opencode/NOTES.md
+  - packages/cli/src/index.spec.ts
+  - packages/cli/src/m1-acceptance.spec.ts
+  - packages/cli/src/program.ts
+  - packages/switchboard/src/ledger/ledger.spec.ts
+  - packages/switchboard/src/ledger/vault.ts
+  - packages/switchboard/src/router.spec.ts
+  - packages/switchboard/src/router.ts
+  - packages/web/src/App.tsx
+  - packages/web/src/LedgerGraph.tsx
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/crypto.ts
+  - packages/web/src/pairing.tsx
+  - packages/web/src/push.spec.ts
+  - packages/web/src/push.ts
+  - packages/web/src/shell.tsx
+  - packages/web/src/sw.ts
+  - packages/web/tests/channel-create.e2e.spec.ts
+  - packages/web/tests/crypto.e2e.spec.ts
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/inspector.e2e.spec.ts
+  - packages/web/tests/m3-acceptance.e2e.spec.ts
+  - packages/web/tests/push.e2e.spec.ts
+  - packages/web/tests/pwa.e2e.spec.ts
+  - packaging/systemd/codor.service
+  - relay/Dockerfile
+  - relay/README.md
+  - skills/wireroom/AGENTS.snippet.md
+  - skills/wireroom/SKILL.md
+  - skills/wireroom/claude-hooks.json
+  - skills/wireroom/codex-config.toml
+  - skills/wireroom/scripts/claude-hook.sh
+  - skills/wireroom/scripts/codex-notify.sh
+  - skills/codor/AGENTS.snippet.md
+  - skills/codor/SKILL.md
+  - skills/codor/claude-hooks.json
+  - skills/codor/codex-config.toml
+  - skills/codor/scripts/claude-hook.sh
+  - skills/codor/scripts/codex-notify.sh
+  - website/.vitepress/config.ts
+  - website/index.md
+  - website/scripts/verify-site.mjs
+  - website/public/wireroom-room.png
+  - website/public/codor-channel.png
+applied:
+  applied_at: 2026-07-11T20:13:51.702Z

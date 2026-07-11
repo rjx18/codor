@@ -6,7 +6,7 @@ website/.vitepress/cache/
 .pnpm-store/
 
 # local state
-.wireroom/
+.codor/
 *.sqlite
 *.sqlite-*
 

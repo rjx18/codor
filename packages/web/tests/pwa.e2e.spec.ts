@@ -43,16 +43,16 @@ test('mobile room keeps the stream primary with a thumb-safe drawer and composer
   await expect(drawer.getByTestId('room-link-eng')).toHaveAttribute('aria-current', 'page');
   await expect(drawer.getByTestId('member-alpha')).toHaveCount(0);
   await expect(drawer.getByText('Local switchboard · Connected')).toBeVisible();
-  await expect(drawer.getByRole('button', { name: 'Close rooms' })).toBeFocused();
+  await expect(drawer.getByRole('button', { name: 'Close channels' })).toBeFocused();
   const drawerBox = (await drawer.boundingBox())!;
   expect(drawerBox.width).toBeLessThan(viewport.width);
-  await drawer.getByRole('button', { name: 'Close rooms' }).click();
+  await drawer.getByRole('button', { name: 'Close channels' }).click();
   await expect(drawer).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Open room context' }).click();
-  const context = page.getByRole('dialog', { name: 'Room context' });
+  await page.getByRole('button', { name: 'Open channel context' }).click();
+  const context = page.getByRole('dialog', { name: 'Channel context' });
   await expect(context.getByTestId('member-alpha')).toBeVisible();
-  await context.getByRole('button', { name: 'Close room context' }).click();
+  await context.getByRole('button', { name: 'Close channel context' }).click();
   await expect(context).toHaveCount(0);
 });
 

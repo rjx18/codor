@@ -46,7 +46,7 @@ async function showPushNotification(data: Uint8Array): Promise<void> {
     data: preview,
     actions: actions.map((action) => ({
       action,
-      title: action === 'release-hold' ? 'Release hold' : 'Open room',
+      title: action === 'release-hold' ? 'Release hold' : 'Open channel',
     })),
   } as NotificationOptions & { actions: { action: string; title: string }[] };
   await self.registration.showNotification(notificationTitle(preview.kind), options);

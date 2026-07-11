@@ -5,4 +5,4 @@ if [ "$#" -ne 1 ]; then
   exit 0
 fi
 
-exec wireroom mirror-hook codex "$1"
+exec codor mirror-hook codex "$1"

@@ -1,15 +1,17 @@
-# Wireroom
+# Codor
 
 ![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-3c873a)
 ![pnpm 10.9](https://img.shields.io/badge/pnpm-10.9-f69220)
 ![License: MIT](https://img.shields.io/badge/license-MIT-222222)
 
-**One channel. Every agent on the wire.** Wireroom is a local-first conversation for persistent
+<!-- harn:assume human-facing-surfaces-call-rooms-channels ref=public-docs-channel-terminology -->
+**One channel. Every agent on the wire.** Codor is a local-first conversation for persistent
 coding-agent sessions. Claude Code, Codex, Gemini, Copilot, OpenCode, and third-party adapters keep
-their native sessions and bounded context; Wireroom carries only explicit messages and references
+their native sessions and bounded context; Codor carries only explicit messages and references
 between them.
 
-![Wireroom channel with conversation, bridge disclosure, and member context](website/public/wireroom-room.png)
+![Codor channel with conversation, bridge disclosure, and member context](website/public/codor-channel.png)
+<!-- harn:end human-facing-surfaces-call-rooms-channels -->
 
 The complete solo product is self-hosted and MIT licensed: switchboard, CLI, adapter SDK, web PWA,
 ledger, private multi-machine transport, sealed push relay, and opt-in Slack and Telegram bridges.
@@ -20,19 +22,19 @@ The channel database, run evidence, keys, and ledger stay on the channel's home 
 Prerequisites: Node.js 22 or newer, Corepack, Git, `curl`, and OpenSSL.
 
 ```sh
-git clone <repository-url> wireroom
-cd wireroom
+git clone <repository-url> codor
+cd codor
 corepack enable
 corepack pnpm install --frozen-lockfile
 corepack pnpm -r build
 scripts/install-cli.sh
-wireroom setup
+codor setup
 ```
 
-`wireroom setup` confirms each host change, creates private configuration, installs and starts the
+`codor setup` confirms each host change, creates private configuration, installs and starts the
 user service with the current Node and harness CLI paths, optionally publishes Tailscale Serve,
 and prints the first single-use pairing URL and terminal QR. Preview every action without changing
-the host with `wireroom setup --dry-run`.
+the host with `codor setup --dry-run`.
 
 The [self-host guide](docs/SELF-HOST.md) covers the wizard, a manual appendix, private HTTPS through
 Tailscale Serve, DHT home/outpost lines, relay and bridge boundaries, backup/restore, and upgrades.
@@ -60,29 +62,29 @@ scripts/fresh-install-test.sh
 ## CLI
 
 <!-- harn:assume global-cli-install-is-idempotent ref=cli-install-docs -->
-`scripts/install-cli.sh` idempotently links the built command into `~/.local/bin/wireroom`.
-Alternatively, use `corepack pnpm --filter @wireroom/cli link --global`. Representative commands:
+`scripts/install-cli.sh` idempotently links the built command into `~/.local/bin/codor`.
+Alternatively, use `corepack pnpm --filter @codor/cli link --global`. Representative commands:
 
 ```sh
 # Inspect and post through the private local socket
-wireroom rooms
-wireroom post -r desk '@reviewer check #12'
-wireroom tail -r desk --once
-wireroom revive -r desk reviewer
+codor channels
+codor post -r desk '@reviewer check #12'
+codor tail -r desk --once
+codor revive -r desk reviewer
 
 # Host or join a private multi-machine line
-wireroom up --join 'project:<high-entropy-secret>'
-wireroom --data-dir "$HOME/.wireroom-outpost" serve \
+codor up --join 'project:<high-entropy-secret>'
+codor --data-dir "$HOME/.codor-outpost" serve \
   --join 'project:<same-high-entropy-secret>'
 ```
 
-Run `wireroom --help` for the complete surface. Adapter authors start with
+Run `codor --help` for the complete surface. Adapter authors start with
 [docs/ADAPTERS.md](docs/ADAPTERS.md); third-party harnesses register by module without editing core.
 <!-- harn:end global-cli-install-is-idempotent -->
 
 ## Privacy boundary
 
-Wireroom is local-first, not magically risk-free. A browser bearer is a credential. DHT line
+Codor is local-first, not magically risk-free. A browser bearer is a credential. DHT line
 secrets are discovery capabilities. Harness subprocesses retain the filesystem and network access
 granted by their policy. The optional push relay receives padded sealed payloads plus delivery
 metadata; Slack and Telegram receive readable bridged-channel content under their own terms. Read the
@@ -105,7 +107,7 @@ is required for the complete local product.
 | [Roadmap](docs/ROADMAP.md) | Completed milestones and future native/hosted work |
 | [Business](docs/BUSINESS.md) | Open solo product and paid operational convenience |
 
-The VitePress site lives in `website/`. Set `WIREROOM_REPOSITORY_URL` to the final public repository
+The VitePress site lives in `website/`. Set `CODOR_REPOSITORY_URL` to the final public repository
 URL when building a published site; Source, social, and edit controls stay absent otherwise rather
 than pointing at a speculative remote.
 

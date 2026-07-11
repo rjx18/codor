@@ -74,11 +74,12 @@ const cli = (...args: string[]) =>
   });
 
 describe('@codor/cli', () => {
+  // harn:assume human-facing-surfaces-call-rooms-channels ref=cli-channel-regression
   it('registers the complete M1 command surface', () => {
     expect(packageName()).toBe('@codor/cli');
     expect(createProgram().commands.map((command) => command.name())).toEqual([
       'up',
-      'rooms',
+      'channels',
       'serve',
       'setup',
       'spawn',
@@ -95,7 +96,13 @@ describe('@codor/cli', () => {
       'revoke',
       'ledger',
     ]);
+    const program = createProgram();
+    expect(program.commands.find((command) => command.name() === 'spawn')?.options.map((option) => option.long))
+      .toContain('--channel');
+    expect(program.commands.flatMap((command) => command.options.map((option) => option.long)))
+      .not.toContain('--room');
   });
+  // harn:end human-facing-surfaces-call-rooms-channels
 
   // harn:assume codor-runtime-identity-is-a-clean-break ref=runtime-identity-regression
   it('uses Codor runtime identity for the command, service, install target, and default paths', () => {
@@ -112,7 +119,8 @@ describe('@codor/cli', () => {
       join(repoRoot, 'packaging', 'systemd', 'codor.service'),
       join(repoRoot, 'scripts', 'install-cli.sh'),
     ]) {
-      expect(readFileSync(file, 'utf8')).not.toMatch(/wireroom/i);
+      const legacyName = ['wire', 'room'].join('');
+      expect(readFileSync(file, 'utf8').toLowerCase()).not.toContain(legacyName);
     }
   });
   // harn:end codor-runtime-identity-is-a-clean-break
@@ -151,21 +159,21 @@ describe('@codor/cli', () => {
   });
 
   it('initializes, adds, shows, and pulls ledger notes', async () => {
-    await cli('ledger', 'init', '--room', 'eng');
+    await cli('ledger', 'init', '--channel', 'eng');
     expect(output[0]).toBe(join(dir, 'rooms', 'eng', 'ledger'));
     output = [];
     await cli(
       'ledger', 'add', 'risk-limits', 'Keep exposure below 2%.',
-      '--room', 'eng', '--type', 'constraint', '--as', 'alpha',
+      '--channel', 'eng', '--type', 'constraint', '--as', 'alpha',
     );
     expect(output).toEqual(['constraints/risk-limits.md\t[[risk-limits]]']);
     output = [];
-    await cli('ledger', 'show', 'risk-limits', '--room', 'eng');
+    await cli('ledger', 'show', 'risk-limits', '--channel', 'eng');
     expect(output[0]).toContain('name: risk-limits');
     expect(output[0]).toContain('Keep exposure below 2%.');
     const destination = join(dir, 'snapshot');
     output = [];
-    await cli('ledger', 'pull', '--room', 'eng', '--destination', destination);
+    await cli('ledger', 'pull', '--channel', 'eng', '--destination', destination);
     expect(output).toEqual([join(destination, 'ledger')]);
     expect(readFileSync(join(destination, 'ledger', 'constraints', 'risk-limits.md'), 'utf8'))
       .toContain('Keep exposure below 2%.');
@@ -226,7 +234,7 @@ describe('@codor/cli', () => {
       UMask=0077
       # harn:assume codor-runtime-identity-is-a-clean-break ref=systemd-runtime-identity
       # harn:assume fresh-clone-install-proven-by-script ref=systemd-service
-      ExecStart=/home/setup-test/.nvm/versions/node/v22.8.0/bin/node %h/codor/packages/cli/dist/index.js --data-dir %h/.codor up --static-root %h/codor/packages/web/dist --room desk --room-name Desk
+      ExecStart=/home/setup-test/.nvm/versions/node/v22.8.0/bin/node %h/codor/packages/cli/dist/index.js --data-dir %h/.codor up --static-root %h/codor/packages/web/dist --channel desk --channel-name Desk
       # harn:end fresh-clone-install-proven-by-script
       # harn:end codor-runtime-identity-is-a-clean-break
       Restart=on-failure
@@ -350,7 +358,7 @@ describe('@codor/cli', () => {
   });
 
   it('spawns, posts, and tails through the unix WebSocket protocol', async () => {
-    await cli('rooms');
+    await cli('channels');
     expect(output).toContain('eng\tEngineering');
 
     output = [];
@@ -398,7 +406,7 @@ describe('@codor/cli', () => {
         `http://127.0.0.1:${server.port}`,
         '--token',
         'cli-token',
-        'rooms',
+        'channels',
       ],
       { stdout: (line) => output.push(line) },
     );
@@ -512,7 +520,7 @@ describe('@codor/cli', () => {
     const deadCandidate = daemon.spawnMember('ops', { harness: 'fake', handle: 'shared', cwd: dir });
     daemon.killMember('ops', deadCandidate.id);
     await expect(cli('attach', '@shared')).rejects.toThrow(
-      'member @shared is ambiguous: eng (idle), ops (dead); pass --room <channel-id>',
+      'member @shared is ambiguous: eng (idle), ops (dead); pass --channel <channel-id>',
     );
   });
   // harn:end cli-member-recovery-is-actionable

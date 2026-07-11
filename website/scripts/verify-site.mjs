@@ -37,8 +37,8 @@ const selfHost = await readFile(
   'utf8',
 );
 assert.match(selfHost, /docs\/PRIVACY\.md/);
-assert.match(selfHost, /Bridged rooms: the one deliberate exception/);
-assert.doesNotMatch(selfHost, /github\.com\/wireroom\/wireroom/);
+assert.match(selfHost, /Bridged channels: the one deliberate exception/);
+assert.ok(!selfHost.includes(['github.com/', 'wire', 'room/', 'wire', 'room'].join('')));
 
 const userUnit = await readFile(
   new URL('../../packaging/systemd/codor.service', import.meta.url),

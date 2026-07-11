@@ -13,7 +13,7 @@ Paseo is AGPL-3.0 and was read only as a behavioral reference:
 - [Paseo custom providers](https://github.com/getpaseo/paseo/blob/main/docs/custom-providers.md)
   describes the generic ACP path: spawn the configured process, initialize,
   create a session, send prompts, and stream responses, tools, and permission
-  requests. This confirms the external behavior but is not Wireroom's transport.
+  requests. This confirms the external behavior but is not Codor's transport.
 
 First-party Gemini CLI references:
 
@@ -34,9 +34,9 @@ First-party Gemini CLI references:
   specifies JSONL session metadata (`sessionId`, `kind`) and main-session file
   placement.
 - [Plan mode](https://geminicli.com/docs/cli/plan-mode/) defines the read-only
-  approval mode used for Wireroom's `read-only` policy chip.
+  approval mode used for Codor's `read-only` policy chip.
 
-Paseo uses Gemini's generic ACP endpoint. Wireroom deliberately does not: the
+Paseo uses Gemini's generic ACP endpoint. Codor deliberately does not: the
 repository architecture requires one plain headless CLI process per turn, so
 this adapter uses the independently documented `stream-json` interface.
 
@@ -59,7 +59,7 @@ read through EOF, stderr is bounded for failure detail, and the detached process
 group is signalled on interrupt and cleanup. A child exit is not treated as
 stdout EOF.
 
-Wireroom policy mapping is `read-only` to `plan`, `workspace-write` to
+Codor policy mapping is `read-only` to `plan`, `workspace-write` to
 `auto_edit`, and `full-access` to `yolo`. These canonical mappings were
 rechecked on 2026-07-11 against the first-party CLI argument source and
 [approval modes](https://geminicli.com/docs/cli/configuration/#approval-mode).
@@ -80,7 +80,7 @@ Interactive attach is `gemini --resume UUID` in the member's working directory.
 
 ## Event normalization
 
-| Gemini stream event | Wireroom event |
+| Gemini stream event | Codor event |
 | --- | --- |
 | `init` | capture `session_id`; no visible item |
 | assistant `message` | `run.item/text_delta`; concatenate final text |

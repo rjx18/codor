@@ -7,8 +7,8 @@ setup wizard documented in the [self-host guide](/docs/SELF-HOST):
 corepack pnpm install --frozen-lockfile
 corepack pnpm -r build
 scripts/install-cli.sh
-wireroom setup
+codor setup
 ```
 
-Use `wireroom setup --dry-run` to inspect the generated user unit, explicit harness-aware `PATH=`,
+Use `codor setup --dry-run` to inspect the generated user unit, explicit harness-aware `PATH=`,
 and every proposed host action without changing files or services.

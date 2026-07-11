@@ -158,7 +158,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
                 <p>A fresh signing and encryption identity stays in this origin's IndexedDB. Private keys never enter the QR or switchboard.</p>
                 <ul>
                   <li><Check aria-hidden="true" size={15} /> Dual signing and encryption keys</li>
-                  <li><Check aria-hidden="true" size={15} /> Room keys stored locally for this device</li>
+                  <li><Check aria-hidden="true" size={15} /> Channel keys stored locally for this device</li>
                   <li><Check aria-hidden="true" size={15} /> Revoke and purge from Settings</li>
                 </ul>
                 <button
@@ -183,7 +183,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
                   <KeyRound aria-hidden="true" size={18} />
                   {state === 'pairing' ? 'Pairing' : state === 'paired' ? 'Paired' : 'Pair this browser'}
                 </button>
-                {state === 'paired' && <p role="status" className="wr-pair-success"><Check aria-hidden="true" size={15} /> Browser paired. You can open your rooms.</p>}
+                {state === 'paired' && <p role="status" className="wr-pair-success"><Check aria-hidden="true" size={15} /> Browser paired. You can open your channels.</p>}
                 {state === 'failed' && <p role="alert" className="wr-form-error">{failure}</p>}
               </div>
             </div>
@@ -241,7 +241,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
         <div className="wr-pairing-disclosure">
           <section>
             <Database aria-hidden="true" size={19} />
-            <div><h2>This browser stores</h2><p>Private device keys, decrypted room keys, and same-origin switchboard access in this origin's IndexedDB.</p></div>
+            <div><h2>This browser stores</h2><p>Private device keys, decrypted channel keys, and same-origin switchboard access in this origin's IndexedDB.</p></div>
           </section>
           <section>
             <Eye aria-hidden="true" size={19} />
@@ -249,7 +249,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
           </section>
           <section>
             <EyeOff aria-hidden="true" size={19} />
-            <div><h2>Relay never sees</h2><p>Sender, room or member names, plaintext content or run evidence, decrypted room keys, or private device keys.</p></div>
+            <div><h2>Relay never sees</h2><p>Sender, channel or member names, plaintext content or run evidence, decrypted channel keys, or private device keys.</p></div>
           </section>
         </div>
       </section>

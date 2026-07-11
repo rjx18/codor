@@ -1,2 +1,2 @@
 # Replace this path with the absolute installed skill path. Codex appends one JSON argument.
-notify = ["sh", "/absolute/path/to/skills/wireroom/scripts/codex-notify.sh"]
+notify = ["sh", "/absolute/path/to/skills/codor/scripts/codex-notify.sh"]

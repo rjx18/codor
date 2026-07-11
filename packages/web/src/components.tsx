@@ -107,11 +107,11 @@ export function ledgerTextSegments(body: string): LedgerTextSegment[] {
 // harn:assume bridged-room-wears-banner ref=bridged-room-banner
 export function BridgedRoomBanner() {
   return (
-    <aside data-testid="bridged-room-banner" className="wr-bridge-banner" aria-label="Bridged room privacy notice">
+    <aside data-testid="bridged-room-banner" className="wr-bridge-banner" aria-label="Bridged channel privacy notice">
       <Cable aria-hidden="true" size={15} />
       <p>
-        <strong>Bridged room</strong>
-        <span>Messages are mirrored externally. Slack or Telegram stores this room's content under its own privacy terms.</span>
+        <strong>Bridged channel</strong>
+        <span>Messages are mirrored externally. Slack or Telegram stores this channel's content under its own privacy terms.</span>
       </p>
     </aside>
   );
@@ -146,8 +146,8 @@ export function Header(props: {
           <button
             type="button"
             data-testid="open-room-drawer"
-            aria-label="Open rooms and members"
-            title="Rooms and members"
+            aria-label="Open channels and members"
+            title="Channels and members"
             onClick={props.onOpenNavigation}
             className="wr-icon-button wr-mobile-trigger"
           >
@@ -182,7 +182,7 @@ export function Header(props: {
         data-testid="meter"
         className="wr-meter"
         tabIndex={0}
-        aria-label="Room usage today"
+        aria-label="Channel usage today"
         onKeyDown={(event) => {
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
             event.preventDefault();
@@ -221,7 +221,7 @@ export function Header(props: {
         {props.onOpenContext && (
           <button
             type="button"
-            aria-label="Open room context"
+            aria-label="Open channel context"
             title="Members and run context"
             onClick={props.onOpenContext}
             className="wr-icon-button wr-context-trigger"
@@ -450,7 +450,7 @@ export function SpawnAgentDialog(props: {
             <div className="wr-dialog-heading">
               <div>
                 <h2>Spawn agent</h2>
-                <p>Start a harness-backed member in this room.</p>
+                <p>Start a harness-backed member in this channel.</p>
               </div>
               <button type="button" aria-label="Close spawn agent" className="wr-icon-button" onClick={() => setOpen(false)}>
                 <X aria-hidden="true" size={18} />
@@ -1431,7 +1431,7 @@ export function Composer(props: {
   return (
     <div className="wr-composer">
       <div className="wr-composer-heading">
-        <span>Message the room</span>
+        <span>Message the channel</span>
       </div>
       <div className="wr-composer-row">
         <button
@@ -1524,13 +1524,13 @@ export function Composer(props: {
               }
             }}
             rows={2}
-            aria-label="Message the room"
+            aria-label="Message the channel"
             aria-expanded={mention !== undefined}
             aria-controls={mention ? 'composer-mentions' : undefined}
             aria-activedescendant={mention?.candidates[activeMention]
               ? `mention-${mention.candidates[activeMention].id}`
               : undefined}
-            placeholder="Message the room"
+            placeholder="Message the channel"
             className="wr-input wr-composer-input min-h-12 min-w-0 resize-none px-3 py-2 text-base sm:text-sm"
           />
         </div>

@@ -1,0 +1,13 @@
+id: human-facing-surfaces-call-rooms-channels
+hash: a-5bdeec5ea0c4
+title: Human-facing surfaces call protocol rooms channels
+state: active
+statement: Operator-visible web copy, CLI commands, long options, help,
+  generated reports, documentation, website content, and agent delivery
+  conventions must call the product concept a channel, while wire frames, REST
+  paths, database fields, and implementation types retain room and the protocol
+  guide states the equivalence exactly once, because D3 separates product
+  language from the stable protocol contract.
+depends_on:
+  - codor-runtime-identity-is-a-clean-break
+created_by: codor-p6c-docs-terminology

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$WIREROOM_SKILL_DIR/scripts/claude-hook.sh\"",
+            "command": "\"$CODOR_SKILL_DIR/scripts/claude-hook.sh\"",
             "timeout": 10
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$WIREROOM_SKILL_DIR/scripts/claude-hook.sh\"",
+            "command": "\"$CODOR_SKILL_DIR/scripts/claude-hook.sh\"",
             "timeout": 10
           }
         ]

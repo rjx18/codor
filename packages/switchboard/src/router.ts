@@ -174,7 +174,7 @@ export interface PayloadContext {
   refs: ResolvedRef[];
   ledgerRefs?: { name: string; body: string }[];
   /**
-   * Conventions trailer, included on a member's FIRST delivery in a room and
+   * Conventions trailer, included on a member's FIRST delivery in a channel and
    * again after it misaddressed. `others` = the other parties it can tag;
    * `untaggedGoesTo` = its default reply target (the message author).
    */
@@ -221,7 +221,7 @@ export function composePayload(ctx: PayloadContext, you: string): string {
   if (ctx.conventions) {
     const tags = ctx.conventions.others.map((h) => `@${h}`).join(' / ');
     payload +=
-      `\n[conventions: your reply posts to the room. Tag ${tags} to address ` +
+      `\n[conventions: your reply posts to the channel. Tag ${tags} to address ` +
       `them; an untagged reply goes to @${ctx.conventions.untaggedGoesTo}. ` +
       `Reference messages as #N.${ctx.conventions.ledger ? ' Cite ledger notes as [[name]].' : ''} ` +
       `If a message needs no substantive reply, respond with exactly <ACK_OK>.]\n`;

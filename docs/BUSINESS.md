@@ -3,7 +3,7 @@
 Open source that pays for itself by selling **convenience and capacity — never content, never
 lock-in**. The prior art is proven: Tailscale sells a coordination plane that never sees your
 packets; Obsidian sells Sync for a free local app; Bitwarden sells hosting for an open server.
-Wireroom sells the blind plumbing around a private product.
+Codor sells the blind plumbing around a private product.
 
 ## The rule that makes it work
 
@@ -14,7 +14,7 @@ because our server can read something, the feature is wrong.
 **The free/paid boundary is architectural, not artificial — the API-key/DB test:**
 
 - Runs purely on your box with no third-party credentials → **free, open source**. That's the
-  full solo product: rooms, all harness adapters, routing, custody, extensions, the ledger,
+  full solo product: channels, all harness adapters, routing, custody, extensions, the ledger,
   web/PWA over tailnet or P2P, E2EE.
 - Needs platform API keys (APNs, a Slack app, a Telegram bot, SSO) or hosted state (mailbox,
   org directory, stable public endpoints) → **paid**: push, rendezvous relay, browser
@@ -22,15 +22,15 @@ because our server can read something, the feature is wrong.
 
 Nothing local is ever crippled to force the upgrade; the paid features are the ones that
 *inherently* require someone to run a server — and that someone is us. The local web UI's
-settings page shows exactly this list with a "connect to Wireroom Relay" pairing flow, which is
+settings page shows exactly this list with a "connect to Codor Relay" pairing flow, which is
 the entire upsell.
 
 ## Division of labor: cloud vs. box
 
-| | Wireroom Relay (ours, paid) | Switchboard (yours, free) |
+| | Codor Relay (ours, paid) | Switchboard (yours, free) |
 | --- | --- | --- |
 | **Does** | envelope routing (sealed deliveries between boxes/devices), push sending, rendezvous/NAT traversal, offline mailbox, browser gateway, hosted platform integrations | execution (harness sessions), the *semantic* router (mentions, refs, deliveries), storage (messages, run blobs), the ledger vault, keys |
-| **Holds** | platform credentials that are ours to hold: APNs/FCM keys, Slack/Telegram app secrets, TURN certs, billing identity | everything with content: history, transcripts, ledger, room keys — and your harness auth (Claude/Codex credentials never leave the box; we never proxy model traffic) |
+| **Holds** | platform credentials that are ours to hold: APNs/FCM keys, Slack/Telegram app secrets, TURN certs, billing identity | everything with content: history, transcripts, ledger, channel keys — and your harness auth (Claude/Codex credentials never leave the box; we never proxy model traffic) |
 | **Sees** | ciphertext + the metadata table below | plaintext (it's your machine) |
 
 The one subtlety that makes the privacy promise hold: **routing means two different things.**
@@ -39,7 +39,7 @@ happens at the sending switchboard, which legitimately has it. What the cloud ro
 *output* of that: sealed envelopes addressed to opaque device/box ids. The relay is a mail
 sorter that cannot open the mail.
 
-## The hosted service: Wireroom Relay
+## The hosted service: Codor Relay
 
 One subscription, five capabilities — the first four content-blind, all of them open-source
 code operated by us:
@@ -54,16 +54,16 @@ code operated by us:
 3. **Encrypted mailbox.** Store-and-forward of sealed payloads with TTL, so an offline device
    catches up without the home switchboard retransmitting. (Deferred from the free v1 core —
    returns here, ciphertext-only.)
-4. **Browser gateway.** Reach your room from any browser at a stable URL: the gateway relays an
+4. **Browser gateway.** Reach your channel from any browser at a stable URL: the gateway relays an
    E2E-encrypted WebSocket between browser and home switchboard, and decryption happens
    in-page — keys arrive via pairing/URL fragment and never touch the server. Partyline's
    "permanent web home," minus the readable copy. (On your own tailnet you don't need this:
    `tailscale serve` / an app connector reaches the switchboard directly.)
 5. **Hosted integrations.** Bridges need public endpoints and platform app credentials — a
    Slack app, a Telegram bot, OAuth flows. We run them so users don't have to. The honest
-   asterisk: a bridge handles bridged-room content in plaintext by definition (that's what
-   bridging *is* — PRIVACY §bridged rooms), so a hosted bridge extends the same disclosed,
-   per-room, owner-opted exception to our infrastructure. Self-hosting the bridge with your own
+   asterisk: a bridge handles bridged-channel content in plaintext by definition (that's what
+   bridging *is* — PRIVACY §bridged channels), so a hosted bridge extends the same disclosed,
+   per-channel, owner-opted exception to our infrastructure. Self-hosting the bridge with your own
    bot tokens remains fully supported for those who want the integration without us in it.
 
 ### What the relay sees (and is paid to see)
@@ -72,7 +72,7 @@ code operated by us:
 | --- | --- |
 | device push tokens | message bodies |
 | connection timing and volume | member names / handles |
-| opaque room + org ids | run events, code, diffs |
+| opaque channel + org ids | run events, code, diffs |
 | device/org public keys | ledger notes |
 
 This table is the sales page, verbatim. The relay code stays open source so the claim is
@@ -107,7 +107,7 @@ self-hosted-relay licensing with support.
 Paseo runs the same access triad — hosted E2EE relay ("Paseo can't read your traffic") /
 direct LAN / bring-your-own tunnel (Tailscale, Cloudflare) — which validates the topology.
 The difference is the business: paseo is sponsorware (GitHub Sponsors) with everything open
-(AGPL); Wireroom keeps the self-hostable stack open (MIT) and charges for the two things with
+(AGPL); Codor keeps the self-hostable stack open (MIT) and charges for the two things with
 real marginal cost and real convenience value — the closed native apps (one-time) and the
 relay ($5/mo) — so the project doesn't depend on donations.
 
@@ -141,14 +141,14 @@ do. Stack, pinned:
 - **Storage:** the Supabase Postgres holds control-plane metadata: accounts (email, OAuth
   ids), orgs (id, display name, member emails for invites), roles, device *public* keys, push
   tokens, plan/quota counters, bridge configs (bot tokens encrypted at rest); Supabase Storage
-  holds the mailbox's sealed blobs with TTL cleanup. No message content, no room names, no
+  holds the mailbox's sealed blobs with TTL cleanup. No message content, no channel names, no
   ledger data — the data plane never writes here.
 - **Billing:** **Stripe** (Checkout + Customer Portal + webhooks). Stripe holds the payment
   identity; our Postgres holds the mapping from account → org → device keys → quotas.
 - **Web:** the commercial site (marketing + account/billing dashboard) is a **Next.js** app —
   the one place Next earns its keep (SEO, server-side Stripe/auth flows). The *product* web
   app stays a Vite SPA served by your own switchboard; it never talks to the control plane
-  except the optional "connect to Wireroom Relay" pairing.
+  except the optional "connect to Codor Relay" pairing.
 
 The privacy framing stays intact: the product requires no account ever; the paid relay adds a
 billing account (an email) that maps to keys and quotas — never to content.

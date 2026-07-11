@@ -235,12 +235,12 @@ export function LedgerGraphPage(props: { token: string }) {
       />
       <main className={`wr-ledger-main ${bridged ? 'is-bridged' : ''}`}>
         <header className="wr-ledger-header">
-          <a href={`/?${new URLSearchParams({ room }).toString()}`} className="wr-icon-button" aria-label="Back to room" title="Back to room">
+          <a href={`/?${new URLSearchParams({ room }).toString()}`} className="wr-icon-button" aria-label="Back to channel" title="Back to channel">
             <ArrowLeft aria-hidden="true" size={18} />
           </a>
           <div className="wr-ledger-title">
             <strong>Ledger</strong>
-            <span>{roomName || 'Room'} <LockKeyhole aria-hidden="true" size={13} /> Encrypted</span>
+            <span>{roomName || 'Channel'} <LockKeyhole aria-hidden="true" size={13} /> Encrypted</span>
           </div>
           <label className="wr-ledger-search">
             <Search aria-hidden="true" size={16} />

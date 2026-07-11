@@ -1,6 +1,6 @@
 # Harness adapters
 
-Wireroom adapters translate one harness's ordinary CLI stream into the open protocol. They do
+Codor adapters translate one harness's ordinary CLI stream into the open protocol. They do
 not call a model SDK, provider HTTP API, or private switchboard API. A registered adapter gets
 the same routing, persistence, run journal, interaction, and crash handling as every built-in.
 
@@ -12,7 +12,7 @@ the same routing, persistence, run journal, interaction, and crash handling as e
 
 <!-- harn:assume adapter-registry-sole-harness-source ref=adapter-registration-contract -->
 
-Implement the `HarnessAdapter` exported by `@wireroom/protocol`:
+Implement the `HarnessAdapter` exported by `@codor/protocol`:
 
 ```ts
 interface HarnessAdapter {
@@ -53,7 +53,7 @@ A configured ESM module exports one factory. The configuration key is the adapte
 match the returned `adapter.id`:
 
 ```ts
-import type { HarnessAdapter } from '@wireroom/protocol';
+import type { HarnessAdapter } from '@codor/protocol';
 
 export function createAdapter({ id }: { id: string }): HarnessAdapter {
   return new MyHarnessAdapter(id);
@@ -63,11 +63,11 @@ export function createAdapter({ id }: { id: string }): HarnessAdapter {
 Register a local file or installed package when starting programmatically:
 
 ```ts
-await startWireroom({
-  token: process.env.WIREROOM_TOKEN!,
+await startCodor({
+  token: process.env.CODOR_TOKEN!,
   adapters: {
     'my-harness': './adapters/my-harness.mjs',
-    acp: '@example/wireroom-acp-adapter',
+    acp: '@example/codor-acp-adapter',
   },
 });
 ```
@@ -75,9 +75,9 @@ await startWireroom({
 Or repeat the CLI option:
 
 ```sh
-wireroom up \
+codor up \
   --adapter my-harness=./adapters/my-harness.mjs \
-  --adapter acp=@example/wireroom-acp-adapter
+  --adapter acp=@example/codor-acp-adapter
 ```
 
 Filesystem paths use Node's explicit forms: start them with `./` or `../` to resolve from the
@@ -86,7 +86,7 @@ are Node package specifiers, including package subpaths. The registry imports an
 every configured factory before opening switchboard databases, crypto stores, transports, or
 listeners. A configured id equal to a built-in id deliberately replaces that built-in for this process.
 Every start builds fresh adapter instances. Registration and replacement take effect on restart;
-Wireroom never swaps a live session between adapter objects.
+Codor never swaps a live session between adapter objects.
 
 ## Behavioral specification
 
@@ -103,7 +103,7 @@ package) beside its implementation. Record:
 - the final capability object, with evidence for each true value.
 
 Paseo and similar projects may inform behavioral research, but their AGPL code and assets do not
-enter Wireroom. Prefer first-party CLI documentation and direct probes.
+enter Codor. Prefer first-party CLI documentation and direct probes.
 
 ## Fixture recording
 
@@ -116,7 +116,7 @@ record the new capture. Mark synthetic crash or malformed-input fixtures explici
 Live probes stay opt-in behind the repository's credential guards. Deterministic tests replay
 fixtures and must cover success, resume, missing executable, malformed lines, nonzero exit,
 truncated EOF, interruption, and every advertised interaction capability. The hot-swap acceptance
-also loads an external test module and completes a normal routed room turn, while a source guard
+also loads an external test module and completes a normal routed channel turn, while a source guard
 keeps all built-in package imports in the sole registry.
 
 <!-- harn:end adapter-registry-sole-harness-source -->

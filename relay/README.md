@@ -1,4 +1,4 @@
-# Wireroom Web Push relay
+# Codor Web Push relay
 
 This service is a stateless, content-blind Web Push forwarder. Every request carries its full
 `PushSubscription`; there is no subscription database, queue, mailbox, retry store, or message
@@ -44,9 +44,9 @@ callers evade the open-mode per-address limit. Without it, the direct socket add
 }
 ```
 
-It also requires `x-wireroom-sender`, `x-wireroom-timestamp` (Unix milliseconds), and
-`x-wireroom-signature` headers. Sender and signature are URL-safe base64 Ed25519 values. The
-signature input is the UTF-8 domain `wireroom-relay-notify-v1` plus a NUL byte, followed by the
+It also requires `x-codor-sender`, `x-codor-timestamp` (Unix milliseconds), and
+`x-codor-signature` headers. Sender and signature are URL-safe base64 Ed25519 values. The
+signature input is the UTF-8 domain `codor-relay-notify-v1` plus a NUL byte, followed by the
 compact JSON object exported by `canonicalNotifyBytes`: sender, timestamp, canonical
 subscription (with `expirationTime` normalized to `null`), sealed string, and TTL. Timestamps
 have a five-minute acceptance window.
@@ -58,15 +58,15 @@ unauthorized, stale, or oversized requests before contacting the push service.
 ## Run and self-host
 
 ```bash
-pnpm --filter @wireroom/relay build
+pnpm --filter @codor/relay build
 node relay/dist/index.js
 ```
 
 Build the container from the repository root so the pinned workspace lockfile is available:
 
 ```bash
-docker build -f relay/Dockerfile -t wireroom-relay .
-docker run --rm -p 8787:8787 --env-file /path/outside/the/repo/relay.env wireroom-relay
+docker build -f relay/Dockerfile -t codor-relay .
+docker run --rm -p 8787:8787 --env-file /path/outside/the/repo/relay.env codor-relay
 ```
 
 Terminate TLS at your reverse proxy and expose only `/health` and `/notify`. Restarting the

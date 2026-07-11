@@ -18,7 +18,7 @@ claude -p --output-format stream-json --input-format stream-json --verbose \
 
 Claude Code 2.1.207 `--help` and the first-party
 [CLI reference](https://code.claude.com/docs/en/cli-usage) document both
-`--permission-mode` and `--effort`. Wireroom maps `read-only` to `plan`,
+`--permission-mode` and `--effort`. Codor maps `read-only` to `plan`,
 `workspace-write` to `acceptEdits`, and `full-access` to
 `bypassPermissions`. It maps thinking `low`, `medium`, and `high` directly
 to `--effort low|medium|high`; the adapter therefore declares
@@ -87,7 +87,7 @@ Client → CLI, on stdin:
 {"type":"control_response","response":{"subtype":"success","request_id":"<same uuid>","response":{
   "behavior":"allow","updatedInput":{…original input…, "answers":{"<question text>":"<label>"}}}}}
 {"type":"control_response","response":{"subtype":"success","request_id":"…","response":{
-  "behavior":"deny","message":"denied by wireroom probe"}}}
+  "behavior":"deny","message":"denied by codor probe"}}}
 ```
 
 - **AskUserQuestion answers ride `updatedInput.answers`**: a map keyed by the QUESTION TEXT,

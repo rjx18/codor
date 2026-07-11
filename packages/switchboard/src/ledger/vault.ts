@@ -77,7 +77,7 @@ export class LedgerVault {
     }
     mkdirSync(this.auditRoot, { recursive: true, mode: 0o700 });
     this.writeIfMissing('INDEX.md', matter.stringify(
-      '# Room Ledger\n\n## Decisions\n\n## Constraints\n\n## Contracts\n',
+      '# Channel Ledger\n\n## Decisions\n\n## Constraints\n\n## Contracts\n',
       { name: 'index' },
     ));
     this.writeIfMissing(
@@ -99,7 +99,7 @@ export class LedgerVault {
     const valid = validLedgerWrite(write);
     const name = safeNoteName(valid.name);
     const path = resolve(this.root, noteTypeDirectory(valid.type), `${name}.md`);
-    if (!this.contains(path)) throw new Error('ledger write path must remain inside the room vault');
+    if (!this.contains(path)) throw new Error('ledger write path must remain inside the channel vault');
     const content = matter.stringify(
       valid.body.endsWith('\n') ? valid.body : `${valid.body}\n`,
       { name, type: valid.type },

@@ -332,10 +332,10 @@ export async function persistBrowserRoomKey(
 ): Promise<void> {
   await sodium.ready;
   if (room === '' || !Number.isSafeInteger(generation) || generation < 1) {
-    throw new Error('room key metadata is invalid');
+    throw new Error('channel key metadata is invalid');
   }
   if (key.length !== sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES) {
-    throw new Error('room key length is invalid');
+    throw new Error('channel key length is invalid');
   }
   const current = await storedBrowserRoomKey(room);
   if (current && current.generation > generation) return;

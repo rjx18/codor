@@ -43,7 +43,7 @@ function encodeBase64Url(value: Uint8Array): string {
 function validatedPreview(input: unknown): BrowserPushPreview {
   if (typeof input !== 'object' || input === null) throw new Error('push preview is not an object');
   const value = input as Partial<BrowserPushPreview>;
-  if (typeof value.room !== 'string' || value.room === '') throw new Error('push room is invalid');
+  if (typeof value.room !== 'string' || value.room === '') throw new Error('push channel is invalid');
   if (!Number.isSafeInteger(value.msg_id) || value.msg_id! < 1) throw new Error('push msg_id is invalid');
   if (!['inbox', 'ask', 'approval', 'hold', 'stall'].includes(value.kind ?? '')) {
     throw new Error('push kind is invalid');
@@ -141,7 +141,7 @@ export async function openPushFromStoredRooms(input: Uint8Array): Promise<Browse
       // A push carries no cleartext room id, so try the small paired-room key set.
     }
   }
-  throw new Error('push was not addressed to any paired room');
+  throw new Error('push was not addressed to any paired channel');
 }
 // harn:end push-decrypts-on-device-only
 
@@ -149,9 +149,9 @@ export function notificationTitle(kind: BrowserPushKind): string {
   switch (kind) {
     case 'ask': return 'Question needs you';
     case 'approval': return 'Approval requested';
-    case 'hold': return 'Room paused';
+    case 'hold': return 'Channel paused';
     case 'stall': return 'Run stalled';
-    default: return 'New room message';
+    default: return 'New channel message';
   }
 }
 

@@ -402,9 +402,9 @@ test('room settings persist opt-in brakes and meter labels uncosted tokens', asy
   await page.getByTestId('turn-brake-value').fill('3');
   await page.getByTestId('stall-minutes').fill('12');
   await page.getByTestId('room-settings-save').click();
-  await expect(page.getByText('Room brake update requested.')).toBeVisible();
+  await expect(page.getByText('Channel brake update requested.')).toBeVisible();
 
-  await page.getByRole('link', { name: 'Back to room' }).click();
+  await page.getByRole('link', { name: 'Back to channel' }).click();
   await page.getByTestId('room-settings').click();
   await page.getByRole('link', { name: 'Brakes', exact: true }).click();
   await expect(page.getByTestId('turn-brake-enabled')).toBeChecked();
@@ -426,7 +426,7 @@ test('room settings persist opt-in brakes and meter labels uncosted tokens', asy
   await expect(relay).toContainText('Relay never sees');
   await expect(relay).toContainText('$5/month hosted');
   expect(await page.evaluate(() => localStorage.getItem('codor-relay-pairing'))).toBeNull();
-  await page.getByRole('link', { name: 'Back to room' }).click();
+  await page.getByRole('link', { name: 'Back to channel' }).click();
 
   await control('/enqueue', {
     turns: [
@@ -443,8 +443,9 @@ test('room settings persist opt-in brakes and meter labels uncosted tokens', asy
   await expect(page.getByTestId('meter')).toContainText('tokens uncosted');
 });
 
+// harn:assume human-facing-surfaces-call-rooms-channels ref=web-channel-regression
 // harn:assume web-shell-responsive-three-pane ref=responsive-shell-regression
-test('desktop room keeps rooms, conversation, and context in stable non-overlapping panes', async ({ page }) => {
+test('desktop channel keeps channels, conversation, and context in stable non-overlapping panes', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?room=eng&token=e2e-token');
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
@@ -453,6 +454,8 @@ test('desktop room keeps rooms, conversation, and context in stable non-overlapp
   const conversation = page.getByTestId('room-view');
   const context = page.getByTestId('context-rail');
   await expect(rooms).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Channels' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Rooms' })).toHaveCount(0);
   await expect(conversation).toBeVisible();
   await expect(context).toBeVisible();
   await expect(page.getByTestId('open-room-drawer')).toBeHidden();
@@ -474,20 +477,21 @@ test('desktop room keeps rooms, conversation, and context in stable non-overlapp
   await page.reload();
   await expect(page.getByTestId('room-rail')).toBeVisible();
   await expect(page.getByTestId('context-rail')).toBeHidden();
-  await expect(page.getByRole('button', { name: 'Open room context' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open channel context' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1150);
 
   await page.setViewportSize({ width: 1320, height: 820 });
   await page.reload();
   await expect(page.getByTestId('context-rail')).toBeHidden();
-  await expect(page.getByRole('button', { name: 'Open room context' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open channel context' })).toBeVisible();
 
   await page.setViewportSize({ width: 1360, height: 820 });
   await page.reload();
   await expect(page.getByTestId('context-rail')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Open room context' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Open channel context' })).toBeHidden();
 });
 // harn:end web-shell-responsive-three-pane
+// harn:end human-facing-surfaces-call-rooms-channels
 
 // harn:assume web-room-visual-hierarchy-matches-restrained-reference ref=restrained-room-visual-regression
 test('restrained room keeps matte panes, sparse glass, and a pinned latest turn across reflow', async ({ page }) => {
@@ -598,7 +602,7 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
   expect(drawerMaterial.background).toBe('rgba(24, 25, 29, 0.88)');
   expect(drawerMaterial.material).toContain('blur(12px)');
   expect(drawerMaterial.footerSize).toBeGreaterThanOrEqual(12);
-  await page.getByTestId('room-drawer').getByRole('button', { name: 'Close rooms' }).click();
+  await page.getByTestId('room-drawer').getByRole('button', { name: 'Close channels' }).click();
 
   await page.setViewportSize({ width: 320, height: 700 });
   await page.reload();
@@ -667,9 +671,9 @@ test('intermediate context sheet follows a selected run through live completion'
   const inspect = page.getByTestId(`run-${runId}-inspect`);
   await inspect.click();
 
-  const sheet = page.getByRole('dialog', { name: 'Room context' });
+  const sheet = page.getByRole('dialog', { name: 'Channel context' });
   await expect(sheet).toBeVisible();
-  await expect(sheet.getByRole('button', { name: 'Close room context' })).toBeFocused();
+  await expect(sheet.getByRole('button', { name: 'Close channel context' })).toBeFocused();
   await expect(sheet.getByRole('tab', { name: 'Run' })).toHaveAttribute('aria-selected', 'true');
   const before = Number(await sheet.getByTestId('context-evidence-count').textContent());
 
@@ -912,7 +916,7 @@ test('restrained settings keep row-based desktop focus, mobile fit, and honest r
   await expect(relay).toContainText('Stores nothing · no mailbox · no retries');
   await expect(relay).toContainText('Web Push endpoint + delivery keys');
   await expect(relay).toContainText('Opaque switchboard public key');
-  await expect(relay).toContainText('Decrypted room keys or any private key');
+  await expect(relay).toContainText('Decrypted channel keys or any private key');
   await expect(relay).toContainText('Hosted roadmap · deferred from the v1 push relay.');
   await expect(relayCategory).toHaveAttribute('aria-current', 'location');
 
@@ -1014,8 +1018,8 @@ test('bridged rooms permanently disclose the external boundary and attribute rel
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   const banner = page.getByTestId('bridged-room-banner');
   await expect(banner).toBeVisible();
-  await expect(banner).toContainText('Bridged room');
-  await expect(banner).toContainText('stores this room\'s content under its own privacy terms');
+  await expect(banner).toContainText('Bridged channel');
+  await expect(banner).toContainText('stores this channel\'s content under its own privacy terms');
   await expect(page.getByTestId(`msg-${String(seeded.message_id)}`)).toContainText('via slack: Sarah Chen');
 
   await page.goto('/settings?room=eng&token=e2e-token');

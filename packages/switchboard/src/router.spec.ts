@@ -422,7 +422,7 @@ describe('delivery payload template (byte-exact goldens)', () => {
         '---\nname: risk-limits\n---\nKeep exposure below 2%.\n\n' +
         '--- end ledger note ---\n' +
         '\n' +
-        '[conventions: your reply posts to the room. Tag @claude / @richard to address ' +
+        '[conventions: your reply posts to the channel. Tag @claude / @richard to address ' +
         'them; an untagged reply goes to @richard. Reference messages as #N. ' +
         'Cite ledger notes as [[name]]. If a message needs no substantive reply, ' +
         'respond with exactly <ACK_OK>.]\n',

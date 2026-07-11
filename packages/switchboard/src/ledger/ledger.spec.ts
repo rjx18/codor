@@ -36,7 +36,7 @@ describe('ledger vault v1', () => {
   // harn:assume graph-derived-from-vault-links-readonly ref=ledger-graph-regression
   it('derives a deterministic read-only wikilink graph from a fixture vault', () => {
     expect(deriveLedgerGraph({
-      'INDEX.md': '---\nname: index\n---\n# Room Ledger\n',
+      'INDEX.md': '---\nname: index\n---\n# Channel Ledger\n',
       'constraints/_template.md': '---\nname: constraint-template\ntype: constraint\n---\n# Constraint\n',
       'decisions/broken.md': '---\nname: [unterminated\ntype: decision\n---\nBroken.\n',
       'decisions/launch-plan.md': '---\nname: launch-plan\ntype: decision\n---\nShip with [[risk-limits]] and [[wire-contract]].\n',
@@ -63,7 +63,7 @@ describe('ledger vault v1', () => {
     const vault = new LedgerVault(root, 'eng');
     vault.bootstrap();
     expect(vault.snapshot()).toEqual({
-      'INDEX.md': '---\nname: index\n---\n# Room Ledger\n\n## Decisions\n\n## Constraints\n\n## Contracts\n',
+      'INDEX.md': '---\nname: index\n---\n# Channel Ledger\n\n## Decisions\n\n## Constraints\n\n## Contracts\n',
       'constraints/_template.md': '---\nname: constraint-template\ntype: constraint\n---\n# Constraint\n\n',
       'contracts/_template.md': '---\nname: contract-template\ntype: contract\n---\n# Contract\n\n',
       'decisions/_template.md': '---\nname: decision-template\ntype: decision\n---\n# Decision\n\n',

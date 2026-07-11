@@ -19,7 +19,7 @@ codex exec --json … resume <thread_id> "<prompt>"                             
 Codex CLI 0.144.1 `exec --help`, the first-party
 [CLI reference](https://developers.openai.com/codex/cli/reference/), and
 [configuration reference](https://developers.openai.com/codex/config-reference/)
-document the sandbox vocabulary and `model_reasoning_effort`. Wireroom maps
+document the sandbox vocabulary and `model_reasoning_effort`. Codor maps
 `read-only` and `workspace-write` directly, maps `full-access` to
 `danger-full-access`, and passes thinking `low`, `medium`, or `high` as
 `-c model_reasoning_effort=<level>`. The adapter declares `thinking:true`;

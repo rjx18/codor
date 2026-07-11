@@ -146,7 +146,7 @@ test('producer → fake relay → CDP push decrypts in the worker, renders, and 
   expect(renderedPush).toMatchObject({
     type: 'notification-rendered',
     notification: {
-      title: 'Room paused',
+      title: 'Channel paused',
       actions: ['open-room', 'release-hold'],
       data: {
         room: 'eng',
