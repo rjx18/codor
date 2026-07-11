@@ -1,5 +1,5 @@
-id: bridges-optin-banner
-title: Add opt-in Slack and Telegram room bridges
+id: bridges-optin-banner-v2
+title: Add opt-in Slack and Telegram room bridges with complete web anchor scope
 assumptions:
   retire: []
   create:
@@ -43,6 +43,9 @@ assumptions:
     - id: graph-derived-from-vault-links-readonly
       outcome: unchanged
       reason: Ledger stays read-only while disclosing the bridged room boundary.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Banner colors use existing semantic tokens and retain light, dark, contrast, and reduced-transparency behavior.
 anchors:
   bridged-room-wears-banner:
     bridged-room-config:
@@ -70,6 +73,22 @@ anchors:
     bridge-platform-regression:
       action: change
       reason: Mock-test Slack and Telegram inbound, outbound, retry dedup, and echo suppression.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: Place the permanent bridge disclosure directly beneath the room header.
+  web-settings-pairing-match-restrained-reference:
+    restrained-settings-pairing-surface:
+      action: change
+      reason: Place the same disclosure at the top of bridged-room settings.
+  graph-derived-from-vault-links-readonly:
+    ledger-graph-web:
+      action: change
+      reason: Place the disclosure above the read-only graph without changing graph behavior.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Add responsive semantic banner styling for all supported appearance modes.
 files:
   - pnpm-workspace.yaml
   - pnpm-lock.yaml
