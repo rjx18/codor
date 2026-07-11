@@ -16,7 +16,7 @@ assumptions:
       depends_on:
         - ledger-writes-audited-in-room
         - roles-gate-human-acts-not-agents
-        - glass-design-system-guides-responsive-surfaces
+        - restrained-design-system-guides-responsive-surfaces
   reviewed:
     - id: ledger-writes-audited-in-room
       outcome: unchanged
@@ -33,9 +33,9 @@ assumptions:
     - id: web-glass-theme-accessible-modes
       outcome: unchanged
       reason: Graph canvas, nodes, controls, and inspector consume the existing semantic modes.
-    - id: glass-design-system-guides-responsive-surfaces
+    - id: restrained-design-system-guides-responsive-surfaces
       outcome: unchanged
-      reason: The existing ImageGen graph mock and design-system graph contract remain authoritative.
+      reason: The tracked v4 ImageGen graph mock and restrained graph contract are authoritative.
 anchors:
   graph-derived-from-vault-links-readonly:
     ledger-graph-cache:
@@ -81,4 +81,5 @@ files:
   - packages/web/src/styles.css
   - packages/web/tests/e2e.spec.ts
   - packages/web/tests/harness.mjs
+  - tmp/build/design/v4/desktop-ledger-graph.png
   - tmp/build/PROGRESS.md
