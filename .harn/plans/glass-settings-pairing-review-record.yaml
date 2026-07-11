@@ -1,0 +1,10 @@
+id: glass-settings-pairing-review-record
+title: Record the unavailable corrective settings review
+assumptions:
+  retire: []
+  create: []
+  reviewed: []
+anchors: {}
+files:
+  - MANUAL-VERIFY.md
+  - tmp/build/PROGRESS.md
