@@ -30,6 +30,14 @@ process remains. A later repository review must cover the role matrix,
 principal binding, peer ledger authorization, completion-ack lifecycle, and
 home launcher in that range.
 
+The restrained design-foundation review of `f63a00b..d4ec5c8` is also
+**skipped with reason**, not passed. The full read-only invocation terminated
+without emitting findings; the orchestration session did not retain its final
+exit code. The one permitted tiny probe returned `OK` with exit code 0, and no
+full retry followed to avoid another silent retry loop. No Claude process
+remains. A later repository review should check `tmp.plan`, the v4 mockup
+inventory, the sparse-glass design contract, and its protocol/privacy fidelity.
+
 ## Gemini CLI
 
 Status on 2026-07-10: **not run**. The `gemini` executable is not installed and
