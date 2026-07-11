@@ -140,6 +140,9 @@ anchors:
     semantic-glass-theme:
       action: change
       reason: Style the read-only role status with existing semantic mode tokens.
+    glass-theme-regression:
+      action: change
+      reason: Wait for the authoritative owner role before exercising mobile Settings scroll.
   web-room-rail-creates-owner-room:
     room-rail-create-action:
       action: change
