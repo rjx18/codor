@@ -22,7 +22,7 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   await page.getByTestId('folder-use').click();
   await expect(page.getByTestId('create-room-cwd')).not.toHaveValue('');
 
-  await page.getByTestId('create-room-harness').selectOption('fake');
+  await expect(page.getByTestId('create-room-harness')).toHaveValue('fake');
   await expect(page.getByTestId('create-room-agent-name')).toHaveValue('codor');
   await page.getByTestId('create-room-submit').click();
 
@@ -46,5 +46,26 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   expect(await page.getByTestId('header-room-color').evaluate(
     (element) => getComputedStyle(element).backgroundColor,
   )).toBe('rgb(103, 183, 199)');
+});
+
+test('channel creation stays available when no starting adapters are installed', async ({ page }) => {
+  await page.route('**/api/adapters', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ adapters: [] }),
+    });
+  });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  await page.getByTestId('create-room').click();
+  await page.getByTestId('create-room-name').fill('Adapterless Channel');
+  await expect(page.getByTestId('create-room-harness')).toHaveValue('');
+  await expect(page.getByTestId('create-room-agent-name')).toBeDisabled();
+  await page.getByTestId('create-room-submit').click();
+
+  await expect(page).toHaveURL(/\?room=adapterless-channel$/);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await expect(page.getByTestId('member-codor')).toHaveCount(0);
 });
 // harn:end channel-create-dialog-uses-authoritative-result

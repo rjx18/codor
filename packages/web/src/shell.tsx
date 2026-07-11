@@ -150,13 +150,14 @@ export function RoomList(props: {
   const [color, setColor] = useState<(typeof CHANNEL_ACCENTS)[number][0]>(CHANNEL_ACCENTS[0][0]);
   const [cwd, setCwd] = useState('');
   const [pickingFolder, setPickingFolder] = useState(false);
-  const [startingHarness, setStartingHarness] = useState('');
+  const [startingHarness, setStartingHarness] = useState<string>();
   const [startingHandle, setStartingHandle] = useState('codor');
   const [createError, setCreateError] = useState<string>();
   const [createBusy, setCreateBusy] = useState(false);
   const firstCreateField = useRef<HTMLInputElement>(null);
   const createTrigger = useRef<HTMLButtonElement>(null);
   const createDialog = useRef<HTMLFormElement>(null);
+  const selectedStartingHarness = startingHarness ?? props.adapters?.[0]?.id ?? '';
 
   useEffect(() => {
     if (!creating) return;
@@ -204,6 +205,7 @@ export function RoomList(props: {
             className="wr-rail-action"
             onClick={() => {
               setCreateError(undefined);
+              setStartingHarness(undefined);
               setCreating(true);
             }}
           >
@@ -278,9 +280,9 @@ export function RoomList(props: {
                 owner: props.owner!,
                 color,
                 ...(cwd.trim() !== '' && { cwd: cwd.trim() }),
-                ...(startingHarness !== '' && {
+                ...(selectedStartingHarness !== '' && {
                   starting_agent: {
-                    harness: startingHarness,
+                    harness: selectedStartingHarness,
                     handle: startingHandle.trim() || 'codor',
                   },
                 }),
@@ -354,7 +356,7 @@ export function RoomList(props: {
                 Starting agent
                 <select
                   data-testid="create-room-harness"
-                  value={startingHarness}
+                  value={selectedStartingHarness}
                   onChange={(event) => setStartingHarness(event.target.value)}
                   className="wr-input min-h-11 px-3"
                 >
@@ -370,7 +372,7 @@ export function RoomList(props: {
                   data-testid="create-room-agent-name"
                   value={startingHandle}
                   onChange={(event) => setStartingHandle(event.target.value)}
-                  disabled={startingHarness === ''}
+                  disabled={selectedStartingHarness === ''}
                   className="wr-input min-h-11 px-3 disabled:opacity-50"
                 />
               </label>

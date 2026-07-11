@@ -1,0 +1,29 @@
+id: codor-p4c-channel-create-review-fix
+title: P4c default starting agent review fix
+assumptions:
+  reviewed:
+    - id: channel-create-dialog-uses-authoritative-result
+      outcome: unchanged
+      reason: The create dialog still treats starting agents as optional, while
+        defaulting an available adapter so the ordinary flow seeds a usable
+        channel.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: The owner create action keeps authenticated creation and navigation
+        behavior while correcting the starting-adapter default.
+anchors:
+  channel-create-dialog-uses-authoritative-result:
+    channel-create-browser-regression:
+      action: change
+      reason: Cover both the default available-adapter spawn and the empty-adapter
+        fallback.
+  web-room-rail-creates-owner-room:
+    room-rail-create-action:
+      action: change
+      reason: Initialize each create flow from the first available adapter while
+        preserving the explicit no-agent opt-out and empty-adapter submission.
+files:
+  - packages/web/src/shell.tsx
+  - packages/web/tests/channel-create.e2e.spec.ts
+applied:
+  applied_at: 2026-07-11T16:51:47.321Z
