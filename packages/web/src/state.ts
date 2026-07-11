@@ -8,7 +8,7 @@ import type {
   ServerFrame,
   WireEvent,
   Role,
-} from '@wireroom/protocol';
+} from '@codor/protocol';
 import { create } from 'zustand';
 
 export interface MemberStateObservation {

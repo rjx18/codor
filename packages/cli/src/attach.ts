@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 
-import type { AttachLease, Member } from '@wireroom/protocol';
+import type { AttachLease, Member } from '@codor/protocol';
 
 import type { ProtocolClient } from './connection.js';
 

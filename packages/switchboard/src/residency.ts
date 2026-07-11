@@ -7,7 +7,7 @@ import type {
   Member,
   Session,
   WireEvent,
-} from '@wireroom/protocol';
+} from '@codor/protocol';
 
 import { BlobStore } from './blobs.js';
 import type { HyperswarmTransport, RunEventPayload } from './transport/hyperswarm.js';

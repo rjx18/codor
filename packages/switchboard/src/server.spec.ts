@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { Member, ServerFrame } from '@wireroom/protocol';
+import type { Member, ServerFrame } from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 

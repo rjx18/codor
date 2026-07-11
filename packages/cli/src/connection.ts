@@ -5,7 +5,7 @@ import {
   ServerFrameSchema,
   type ClientFrame,
   type ServerFrame,
-} from '@wireroom/protocol';
+} from '@codor/protocol';
 import WebSocket from 'ws';
 
 export interface ProtocolClientOptions {

@@ -1,4 +1,4 @@
-import { deriveRoomId, type Member, type Message, type Room, type WireEvent } from '@wireroom/protocol';
+import { deriveRoomId, type Member, type Message, type Room, type WireEvent } from '@codor/protocol';
 import {
   Activity,
   ArrowUp,

@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
-import type { WireEvent } from '@wireroom/protocol';
+import type { WireEvent } from '@codor/protocol';
 
 /**
  * Run event journal: JSONL blobs on disk, one per run message

@@ -10,7 +10,7 @@ import {
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 
 import matter from 'gray-matter';
-import { RoomIdSchema } from '@wireroom/protocol';
+import { RoomIdSchema } from '@codor/protocol';
 import { z } from 'zod';
 
 export const LedgerNoteTypeSchema = z.enum(['decision', 'constraint', 'contract']);

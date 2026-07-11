@@ -12,7 +12,7 @@ import {
   type BridgeOrigin,
   type Member,
   type ServerFrame,
-} from '@wireroom/protocol';
+} from '@codor/protocol';
 
 import { assertHumanCapability, roleAllows, type HumanCapability } from './authorization.js';
 import { constantTimeEqual, hashTranscript } from './crypto/challenge.js';

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { GeminiAdapter } from './index.js';
 
-describe('@wireroom/adapter-gemini barrel', () => {
+describe('@codor/adapter-gemini barrel', () => {
   it('exposes only demonstrated capabilities', () => {
     const adapter = new GeminiAdapter();
     expect(adapter.id).toBe('gemini');

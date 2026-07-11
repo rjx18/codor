@@ -24,7 +24,7 @@ import {
   RoomMeterSchema,
   RoomSchema,
   type RunSummary,
-} from '@wireroom/protocol';
+} from '@codor/protocol';
 
 import { redactText } from './redact.js';
 

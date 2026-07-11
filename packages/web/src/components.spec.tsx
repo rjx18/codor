@@ -1,4 +1,4 @@
-import type { Member, Message, WireEvent } from '@wireroom/protocol';
+import type { Member, Message, WireEvent } from '@codor/protocol';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 

@@ -1,4 +1,4 @@
-import type { Act, ServerFrame } from '@wireroom/protocol';
+import type { Act, ServerFrame } from '@codor/protocol';
 
 import { setActiveBrowserAccessToken } from './crypto.js';
 import { useRoomStore } from './state.js';

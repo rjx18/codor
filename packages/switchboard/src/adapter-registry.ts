@@ -1,18 +1,18 @@
 import { isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { ClaudeCodeAdapter } from '@wireroom/adapter-claude-code';
-import { CodexAdapter } from '@wireroom/adapter-codex';
-import { CopilotAdapter } from '@wireroom/adapter-copilot';
-import { GeminiAdapter } from '@wireroom/adapter-gemini';
-import { OpenCodeAdapter } from '@wireroom/adapter-opencode';
+import { ClaudeCodeAdapter } from '@codor/adapter-claude-code';
+import { CodexAdapter } from '@codor/adapter-codex';
+import { CopilotAdapter } from '@codor/adapter-copilot';
+import { GeminiAdapter } from '@codor/adapter-gemini';
+import { OpenCodeAdapter } from '@codor/adapter-opencode';
 import {
   type AdapterCapabilities,
   type HarnessAdapter,
   PolicySchema,
   type SpawnOpts,
   ThinkingLevelSchema,
-} from '@wireroom/protocol';
+} from '@codor/protocol';
 
 export type AdapterModuleConfig = Record<string, string>;
 

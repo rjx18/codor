@@ -3,9 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ClaudeCodeAdapter } from '@wireroom/adapter-claude-code';
-import { CodexAdapter } from '@wireroom/adapter-codex';
-import { Daemon, FakeAdapter, startServer } from '@wireroom/switchboard';
+import { ClaudeCodeAdapter } from '@codor/adapter-claude-code';
+import { CodexAdapter } from '@codor/adapter-codex';
+import { Daemon, FakeAdapter, startServer } from '@codor/switchboard';
 import { describe, expect, it } from 'vitest';
 
 import { runCli } from './index.js';

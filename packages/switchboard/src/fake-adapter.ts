@@ -7,7 +7,7 @@ import type {
   SessionRef,
   SpawnOpts,
   WireEvent,
-} from '@wireroom/protocol';
+} from '@codor/protocol';
 
 /**
  * Scriptable in-memory adapter for integration tests. Each deliver() call

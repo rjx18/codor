@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-import type { BridgeOrigin, Member, Message } from '@wireroom/protocol';
+import type { BridgeOrigin, Member, Message } from '@codor/protocol';
 
 export type BridgePlatform = 'slack' | 'telegram';
 

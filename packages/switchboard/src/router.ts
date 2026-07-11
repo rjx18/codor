@@ -5,10 +5,10 @@ import {
   parseBody,
   type ParsedBody,
   type RoomConfig,
-} from '@wireroom/protocol';
+} from '@codor/protocol';
 
-export { isAddressable, parseBody } from '@wireroom/protocol';
-export type { ParsedBody } from '@wireroom/protocol';
+export { isAddressable, parseBody } from '@codor/protocol';
+export type { ParsedBody } from '@codor/protocol';
 
 /**
  * The pure router — PROTOCOL §3 as functions over (message, room state).

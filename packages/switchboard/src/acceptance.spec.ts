@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ClaudeCodeAdapter } from '@wireroom/adapter-claude-code';
-import { CodexAdapter } from '@wireroom/adapter-codex';
+import { ClaudeCodeAdapter } from '@codor/adapter-claude-code';
+import { CodexAdapter } from '@codor/adapter-codex';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { Daemon } from './daemon.js';

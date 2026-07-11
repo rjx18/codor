@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { WireEvent } from '@wireroom/protocol';
+import type { WireEvent } from '@codor/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { ClaudeCodeAdapter, claudeArgs } from './adapter.js';

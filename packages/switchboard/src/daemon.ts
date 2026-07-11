@@ -14,8 +14,8 @@ import type {
   Session,
   WireEvent,
   CreateRoomRequest,
-} from '@wireroom/protocol';
-import { deriveRoomId } from '@wireroom/protocol';
+} from '@codor/protocol';
+import { deriveRoomId } from '@codor/protocol';
 
 import { BlobStore } from './blobs.js';
 import { validateSpawnOptions } from './adapter-registry.js';

@@ -12,8 +12,8 @@ import type {
   SessionRef,
   SpawnOpts,
   WireEvent,
-} from '@wireroom/protocol';
-import { PolicySchema, ThinkingLevelSchema } from '@wireroom/protocol';
+} from '@codor/protocol';
+import { PolicySchema, ThinkingLevelSchema } from '@codor/protocol';
 
 import {
   type ControlRequest,

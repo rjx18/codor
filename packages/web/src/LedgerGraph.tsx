@@ -1,4 +1,4 @@
-import type { Room } from '@wireroom/protocol';
+import type { Room } from '@codor/protocol';
 import {
   forceCenter,
   forceCollide,

@@ -1,5 +1,5 @@
 {
-  "name": "@wireroom/cli",
+  "name": "@codor/cli",
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
@@ -20,8 +20,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@wireroom/protocol": "workspace:*",
-    "@wireroom/switchboard": "workspace:*",
+    "@codor/protocol": "workspace:*",
+    "@codor/switchboard": "workspace:*",
     "commander": "^15.0.0",
     "qrcode": "1.5.4",
     "ws": "^8.21.0"
@@ -29,7 +29,7 @@
   "devDependencies": {
     "@types/qrcode": "1.5.6",
     "@types/ws": "^8.18.1",
-    "@wireroom/adapter-claude-code": "workspace:*",
-    "@wireroom/adapter-codex": "workspace:*"
+    "@codor/adapter-claude-code": "workspace:*",
+    "@codor/adapter-codex": "workspace:*"
   }
 }

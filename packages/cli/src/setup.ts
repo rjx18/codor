@@ -12,7 +12,7 @@ import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
-import { CryptoVault, pairingUrl } from '@wireroom/switchboard';
+import { CryptoVault, pairingUrl } from '@codor/switchboard';
 
 import { renderTerminalQr } from './terminal-qr.js';
 

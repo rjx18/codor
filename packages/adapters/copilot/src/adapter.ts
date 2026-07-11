@@ -12,8 +12,8 @@ import type {
   SessionRef,
   SpawnOpts,
   WireEvent,
-} from '@wireroom/protocol';
-import { PolicySchema } from '@wireroom/protocol';
+} from '@codor/protocol';
+import { PolicySchema } from '@codor/protocol';
 
 import { createTurnTranslator } from './translate.js';
 

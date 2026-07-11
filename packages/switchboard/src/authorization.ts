@@ -1,4 +1,4 @@
-import type { Act, Member, Role } from '@wireroom/protocol';
+import type { Act, Member, Role } from '@codor/protocol';
 
 export type HumanCapability =
   | 'read'

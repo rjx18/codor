@@ -1,5 +1,5 @@
 {
-  "name": "@wireroom/bridge-slack",
+  "name": "@codor/bridge-slack",
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@slack/bolt": "^4.7.3",
-    "@wireroom/bridge-core": "workspace:*",
-    "@wireroom/protocol": "workspace:*"
+    "@codor/bridge-core": "workspace:*",
+    "@codor/protocol": "workspace:*"
   }
 }

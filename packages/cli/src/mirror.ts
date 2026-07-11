@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 
-import type { MirrorSessionEndFrame, MirrorTurnFrame } from '@wireroom/protocol';
+import type { MirrorSessionEndFrame, MirrorTurnFrame } from '@codor/protocol';
 
 import { findCodexSessionFile } from './detect.js';
 

@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import type { AttachLease, Member, Message, ServerFrame } from '@wireroom/protocol';
+import type { AttachLease, Member, Message, ServerFrame } from '@codor/protocol';
 import { Command } from 'commander';
 import {
   addRemoteLedgerNote,
@@ -10,7 +10,7 @@ import {
   LedgerVault,
   pairingUrl,
   type LedgerNoteType,
-} from '@wireroom/switchboard';
+} from '@codor/switchboard';
 
 import {
   nativeResumeCommand,

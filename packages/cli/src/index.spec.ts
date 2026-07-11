@@ -11,7 +11,7 @@ import {
   FakeAdapter,
   startServer,
   type RunningServer,
-} from '@wireroom/switchboard';
+} from '@codor/switchboard';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -73,9 +73,9 @@ const cli = (...args: string[]) =>
     stderr: (line) => output.push(line),
   });
 
-describe('@wireroom/cli', () => {
+describe('@codor/cli', () => {
   it('registers the complete M1 command surface', () => {
-    expect(packageName()).toBe('@wireroom/cli');
+    expect(packageName()).toBe('@codor/cli');
     expect(createProgram().commands.map((command) => command.name())).toEqual([
       'up',
       'rooms',

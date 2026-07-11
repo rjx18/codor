@@ -1,4 +1,4 @@
-import type { Message } from '@wireroom/protocol';
+import type { Message } from '@codor/protocol';
 import { describe, expect, it } from 'vitest';
 
 import {

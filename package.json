@@ -11,7 +11,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "test:all": "pnpm -r build && pnpm -r test && pnpm --filter @wireroom/web e2e",
+    "test:all": "pnpm -r build && pnpm -r test && pnpm --filter @codor/web e2e",
     "lint": "pnpm -r --if-present lint",
     "audit:license": "node scripts/license-audit.mjs",
     "audit:release": "node scripts/release-audit.mjs",

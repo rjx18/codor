@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import * as protocol from './index.js';
 
-describe('@wireroom/protocol barrel', () => {
+describe('@codor/protocol barrel', () => {
   it('exports every schema surface consumers build on', () => {
     for (const name of [
       'MemberSchema',
@@ -62,6 +62,33 @@ describe('@wireroom/protocol barrel', () => {
   });
 });
 
+// harn:assume workspace-packages-use-codor-scope ref=codor-package-scope-regression
+it('uses the codor scope for every scoped workspace package', () => {
+  const manifests = [
+    'packages/adapters/claude-code/package.json',
+    'packages/adapters/codex/package.json',
+    'packages/adapters/copilot/package.json',
+    'packages/adapters/gemini/package.json',
+    'packages/adapters/opencode/package.json',
+    'packages/bridges/core/package.json',
+    'packages/bridges/slack/package.json',
+    'packages/bridges/telegram/package.json',
+    'packages/cli/package.json',
+    'packages/protocol/package.json',
+    'packages/switchboard/package.json',
+    'packages/web/package.json',
+    'relay/package.json',
+    'website/package.json',
+  ];
+  for (const manifest of manifests) {
+    const parsed = JSON.parse(
+      readFileSync(new URL(`../../../${manifest}`, import.meta.url), 'utf8'),
+    ) as { name: string };
+    expect(parsed.name, manifest).toMatch(/^@codor\//);
+  }
+});
+// harn:end workspace-packages-use-codor-scope
+
 // harn:assume release-gate-runs-unit-and-browser ref=root-release-test-script
 it('keeps the fast test loop separate from the full browser release gate', () => {
   const rootPackage = JSON.parse(
@@ -69,7 +96,7 @@ it('keeps the fast test loop separate from the full browser release gate', () =>
   ) as { scripts: Record<string, string> };
   expect(rootPackage.scripts.test).toBe('pnpm -r test');
   expect(rootPackage.scripts['test:all']).toBe(
-    'pnpm -r build && pnpm -r test && pnpm --filter @wireroom/web e2e',
+    'pnpm -r build && pnpm -r test && pnpm --filter @codor/web e2e',
   );
 });
 // harn:end release-gate-runs-unit-and-browser

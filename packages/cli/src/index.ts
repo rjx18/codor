@@ -19,7 +19,7 @@ export { startWireroom } from './up.js';
 export type { RunningWireroom, UpOptions } from './up.js';
 
 export function packageName(): string {
-  return '@wireroom/cli';
+  return '@codor/cli';
 }
 
 // harn:assume global-cli-install-is-idempotent ref=per-user-cli-install-script

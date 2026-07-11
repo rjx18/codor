@@ -1,4 +1,4 @@
-import type { WireEvent } from '@wireroom/protocol';
+import type { WireEvent } from '@codor/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { formatRunDuration, mergeRunEvents, presentRunEvents } from './run-presenter.js';

@@ -9,7 +9,7 @@ import {
   type RoomMeter,
   type ThinkingLevel,
   type WireEvent,
-} from '@wireroom/protocol';
+} from '@codor/protocol';
 import {
   Activity,
   AtSign,

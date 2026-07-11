@@ -1,5 +1,5 @@
 {
-  "name": "@wireroom/adapter-copilot",
+  "name": "@codor/adapter-copilot",
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
@@ -17,6 +17,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@wireroom/protocol": "workspace:*"
+    "@codor/protocol": "workspace:*"
   }
 }

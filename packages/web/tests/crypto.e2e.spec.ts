@@ -8,7 +8,7 @@ import {
   openSealedBox,
   sealBox,
   type DeviceIdentity,
-} from '@wireroom/switchboard';
+} from '@codor/switchboard';
 
 const CONTROL = 'http://127.0.0.1:8138';
 const BASE = 'http://127.0.0.1:8137';

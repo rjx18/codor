@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { CopilotAdapter } from './index.js';
 
-describe('@wireroom/adapter-copilot barrel', () => {
+describe('@codor/adapter-copilot barrel', () => {
   it('exposes only documented and fixture-demonstrated capabilities', () => {
     const adapter = new CopilotAdapter();
     expect(adapter.id).toBe('copilot');

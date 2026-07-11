@@ -3,7 +3,7 @@ import {
   type RunItemDiff,
   type RunItemType,
   type WireEvent,
-} from '@wireroom/protocol';
+} from '@codor/protocol';
 
 export type RunRowIcon =
   | 'terminal'

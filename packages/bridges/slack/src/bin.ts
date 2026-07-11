@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { BridgeRuntime, HttpBridgeApi, JsonBridgeStateStore } from '@wireroom/bridge-core';
+import { BridgeRuntime, HttpBridgeApi, JsonBridgeStateStore } from '@codor/bridge-core';
 
 import { BoltSlackGateway, SlackTransport } from './index.js';
 

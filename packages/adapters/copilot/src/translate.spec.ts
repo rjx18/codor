@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import { parseRunItemPayload, type WireEvent } from '@wireroom/protocol';
+import { parseRunItemPayload, type WireEvent } from '@codor/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { createTurnTranslator } from './translate.js';

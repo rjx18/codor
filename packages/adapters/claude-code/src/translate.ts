@@ -1,4 +1,4 @@
-import type { AskCard, WireEvent } from '@wireroom/protocol';
+import type { AskCard, WireEvent } from '@codor/protocol';
 
 /**
  * Pure translator: `claude -p` stream-json stdout lines → WireEvents.

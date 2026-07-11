@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { OpenCodeAdapter } from './index.js';
 
-describe('@wireroom/adapter-opencode barrel', () => {
+describe('@codor/adapter-opencode barrel', () => {
   it('exposes only demonstrated capabilities', () => {
     const adapter = new OpenCodeAdapter();
     expect(adapter.id).toBe('opencode');

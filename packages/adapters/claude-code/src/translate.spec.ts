@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import { parseRunItemPayload, type WireEvent, WireEventSchema } from '@wireroom/protocol';
+import { parseRunItemPayload, type WireEvent, WireEventSchema } from '@codor/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { composeControlResponse } from './adapter.js';

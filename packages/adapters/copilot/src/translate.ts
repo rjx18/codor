@@ -1,4 +1,4 @@
-import type { WireEvent } from '@wireroom/protocol';
+import type { WireEvent } from '@codor/protocol';
 
 interface CopilotEvent {
   type?: string;

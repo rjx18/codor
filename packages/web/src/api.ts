@@ -5,7 +5,7 @@ import type {
   Message,
   Room,
   WireEvent,
-} from '@wireroom/protocol';
+} from '@codor/protocol';
 
 export interface ApiOptions {
   token: string;

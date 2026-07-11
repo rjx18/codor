@@ -17,8 +17,8 @@ import {
   PushProducer,
   PushSubscriptionStore,
   startServer,
-} from '@wireroom/switchboard';
-import { createRelayServer } from '@wireroom/relay';
+} from '@codor/switchboard';
+import { createRelayServer } from '@codor/relay';
 
 const API_PORT = 8137;
 const CONTROL_PORT = 8138;

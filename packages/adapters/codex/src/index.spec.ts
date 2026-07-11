@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { CodexAdapter } from './index.js';
 
-describe('@wireroom/adapter-codex barrel', () => {
+describe('@codor/adapter-codex barrel', () => {
   it('exposes the adapter with its honest capabilities', () => {
     const adapter = new CodexAdapter();
     expect(adapter.id).toBe('codex');

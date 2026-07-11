@@ -1,4 +1,4 @@
-import type { Message, Room } from '@wireroom/protocol';
+import type { Message, Room } from '@codor/protocol';
 import { Search, Settings, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 

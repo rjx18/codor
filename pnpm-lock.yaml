@@ -20,58 +20,58 @@ importers:
 
   packages/adapters/claude-code:
     dependencies:
-      '@wireroom/protocol':
+      '@codor/protocol':
         specifier: workspace:*
         version: link:../../protocol
 
   packages/adapters/codex:
     dependencies:
-      '@wireroom/protocol':
+      '@codor/protocol':
         specifier: workspace:*
         version: link:../../protocol
 
   packages/adapters/copilot:
     dependencies:
-      '@wireroom/protocol':
+      '@codor/protocol':
         specifier: workspace:*
         version: link:../../protocol
 
   packages/adapters/gemini:
     dependencies:
-      '@wireroom/protocol':
+      '@codor/protocol':
         specifier: workspace:*
         version: link:../../protocol
 
   packages/adapters/opencode:
     dependencies:
-      '@wireroom/protocol':
+      '@codor/protocol':
         specifier: workspace:*
         version: link:../../protocol
 
   packages/bridges/core:
     dependencies:
-      '@wireroom/protocol':
+      '@codor/protocol':
         specifier: workspace:*
         version: link:../../protocol
 
   packages/bridges/slack:
     dependencies:
+      '@codor/bridge-core':
+        specifier: workspace:*
+        version: link:../core
+      '@codor/protocol':
+        specifier: workspace:*
+        version: link:../../protocol
       '@slack/bolt':
         specifier: ^4.7.3
         version: 4.7.3(@types/express@5.0.6)
-      '@wireroom/bridge-core':
-        specifier: workspace:*
-        version: link:../core
-      '@wireroom/protocol':
-        specifier: workspace:*
-        version: link:../../protocol
 
   packages/bridges/telegram:
     dependencies:
-      '@wireroom/bridge-core':
+      '@codor/bridge-core':
         specifier: workspace:*
         version: link:../core
-      '@wireroom/protocol':
+      '@codor/protocol':
         specifier: workspace:*
         version: link:../../protocol
       grammy:
@@ -80,10 +80,10 @@ importers:
 
   packages/cli:
     dependencies:
-      '@wireroom/protocol':
+      '@codor/protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@wireroom/switchboard':
+      '@codor/switchboard':
         specifier: workspace:*
         version: link:../switchboard
       commander:
@@ -96,18 +96,18 @@ importers:
         specifier: ^8.21.0
         version: 8.21.0
     devDependencies:
+      '@codor/adapter-claude-code':
+        specifier: workspace:*
+        version: link:../adapters/claude-code
+      '@codor/adapter-codex':
+        specifier: workspace:*
+        version: link:../adapters/codex
       '@types/qrcode':
         specifier: 1.5.6
         version: 1.5.6
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
-      '@wireroom/adapter-claude-code':
-        specifier: workspace:*
-        version: link:../adapters/claude-code
-      '@wireroom/adapter-codex':
-        specifier: workspace:*
-        version: link:../adapters/codex
 
   packages/protocol:
     dependencies:
@@ -117,27 +117,27 @@ importers:
 
   packages/switchboard:
     dependencies:
+      '@codor/adapter-claude-code':
+        specifier: workspace:*
+        version: link:../adapters/claude-code
+      '@codor/adapter-codex':
+        specifier: workspace:*
+        version: link:../adapters/codex
+      '@codor/adapter-copilot':
+        specifier: workspace:*
+        version: link:../adapters/copilot
+      '@codor/adapter-gemini':
+        specifier: workspace:*
+        version: link:../adapters/gemini
+      '@codor/adapter-opencode':
+        specifier: workspace:*
+        version: link:../adapters/opencode
+      '@codor/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@fastify/static':
         specifier: ^9.3.0
         version: 9.3.0
-      '@wireroom/adapter-claude-code':
-        specifier: workspace:*
-        version: link:../adapters/claude-code
-      '@wireroom/adapter-codex':
-        specifier: workspace:*
-        version: link:../adapters/codex
-      '@wireroom/adapter-copilot':
-        specifier: workspace:*
-        version: link:../adapters/copilot
-      '@wireroom/adapter-gemini':
-        specifier: workspace:*
-        version: link:../adapters/gemini
-      '@wireroom/adapter-opencode':
-        specifier: workspace:*
-        version: link:../adapters/opencode
-      '@wireroom/protocol':
-        specifier: workspace:*
-        version: link:../protocol
       better-sqlite3:
         specifier: ^12.11.1
         version: 12.11.1
@@ -178,7 +178,7 @@ importers:
 
   packages/web:
     dependencies:
-      '@wireroom/protocol':
+      '@codor/protocol':
         specifier: workspace:*
         version: link:../protocol
       d3-force:
@@ -209,6 +209,12 @@ importers:
         specifier: ^5.0.14
         version: 5.0.14(@types/react@18.3.31)(react@18.3.1)
     devDependencies:
+      '@codor/relay':
+        specifier: workspace:*
+        version: link:../../relay
+      '@codor/switchboard':
+        specifier: workspace:*
+        version: link:../switchboard
       '@playwright/test':
         specifier: ^1.61.1
         version: 1.61.1
@@ -230,12 +236,6 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^4.3.4
         version: 4.7.0(vite@6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.0))
-      '@wireroom/relay':
-        specifier: workspace:*
-        version: link:../../relay
-      '@wireroom/switchboard':
-        specifier: workspace:*
-        version: link:../switchboard
       tailwindcss:
         specifier: ^4.3.2
         version: 4.3.2

@@ -15,7 +15,7 @@ import {
   type AdapterModuleConfig,
   type LineConfig,
   type RunningServer,
-} from '@wireroom/switchboard';
+} from '@codor/switchboard';
 
 // harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition
 export interface UpOptions {

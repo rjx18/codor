@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { ServerFrame } from '@wireroom/protocol';
-import { createTurnTranslator, wireEventFromHook } from '@wireroom/adapter-claude-code';
+import type { ServerFrame } from '@codor/protocol';
+import { createTurnTranslator, wireEventFromHook } from '@codor/adapter-claude-code';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Daemon } from './daemon.js';

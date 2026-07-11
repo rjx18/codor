@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CryptoVault, buildPushPreview, sealPushPreview } from '@wireroom/switchboard';
+import { CryptoVault, buildPushPreview, sealPushPreview } from '@codor/switchboard';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { enablePushNotifications } from './notifications.js';

@@ -1,6 +1,6 @@
 import { Bot } from 'grammy';
-import type { BridgeTransport, ExternalBridgeMessage } from '@wireroom/bridge-core';
-import type { Message } from '@wireroom/protocol';
+import type { BridgeTransport, ExternalBridgeMessage } from '@codor/bridge-core';
+import type { Message } from '@codor/protocol';
 
 export interface TelegramInboundEvent {
   chatId: string;

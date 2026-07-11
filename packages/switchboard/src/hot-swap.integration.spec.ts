@@ -140,7 +140,7 @@ function productionSourceFiles(directory: string): string[] {
 // harn:assume adapter-registry-sole-harness-source ref=hardcoded-list-guard
 it('keeps every built-in adapter package import inside the sole registry', () => {
   const productionRoots = [join(repoRoot, 'packages'), join(repoRoot, 'relay')];
-  const importPattern = /(['"])@wireroom\/adapter-[^'"]+\1/g;
+  const importPattern = /(['"])@codor\/adapter-[^'"]+\1/g;
   const hits = productionRoots.flatMap(productionSourceFiles).flatMap((file) => {
     const matches = readFileSync(file, 'utf8').match(importPattern) ?? [];
     return matches.map((match) => ({ file: relative(repoRoot, file), match }));
