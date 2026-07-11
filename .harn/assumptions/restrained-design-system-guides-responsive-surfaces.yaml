@@ -1,0 +1,12 @@
+id: restrained-design-system-guides-responsive-surfaces
+hash: a-ee9297396cd2
+title: The restrained design system guides responsive product surfaces
+state: active
+statement: The Wireroom web app and forward-looking native concepts must derive
+  their visual hierarchy, semantic color, sparse glass material, typography,
+  spacing, responsive layout, accessibility, and motion choices from the v4
+  restrained design system and its desktop-first mockups, because product
+  surfaces must stay calm and operational without weakening privacy or
+  interaction contracts.
+depends_on: []
+created_by: restrained-design-foundation
