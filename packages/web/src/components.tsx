@@ -731,7 +731,13 @@ function RunRowIcon(props: { icon: RunRow['icon'] }) {
   return <Activity aria-hidden="true" size={15} />;
 }
 
-function RunEvidenceRow(props: { row: RunRow; running: boolean }) {
+// harn:assume normalized-run-evidence-inspector ref=normalized-row-selection
+function RunEvidenceRow(props: {
+  row: RunRow;
+  running: boolean;
+  selected: boolean;
+  onSelect?: (row: RunRow) => void;
+}) {
   if (props.row.kind === 'prose') {
     return (
       <li className="wr-run-prose" data-run-row data-row-kind="prose">
@@ -746,20 +752,29 @@ function RunEvidenceRow(props: { row: RunRow; running: boolean }) {
       data-row-status={props.row.status}
       className={props.running && props.row.status === 'running' ? 'is-active' : undefined}
     >
-      <span className="wr-event-icon"><RunRowIcon icon={props.row.icon} /></span>
-      <span className="wr-run-row-copy">
-        <strong>{props.row.title}</strong>
-        {props.row.detail && <code>{props.row.detail}</code>}
-      </span>
-      <span className="wr-run-row-result">
-        {props.row.status === 'ok' && <CircleCheck aria-label="completed" size={15} />}
-        {props.row.status === 'error' && <CircleX aria-label="failed" size={15} />}
-        {props.row.status === 'running' && <span aria-label="running">running</span>}
-        {props.row.duration_ms !== undefined && formatRunDuration(props.row.duration_ms)}
-      </span>
+      <button
+        type="button"
+        data-testid={`run-row-${String(props.row.eventIndex)}`}
+        aria-pressed={props.selected}
+        className="wr-run-row-button"
+        onClick={() => props.onSelect?.(props.row)}
+      >
+        <span className="wr-event-icon"><RunRowIcon icon={props.row.icon} /></span>
+        <span className="wr-run-row-copy">
+          <strong>{props.row.title}</strong>
+          {props.row.detail && <code>{props.row.detail}</code>}
+        </span>
+        <span className="wr-run-row-result">
+          {props.row.status === 'ok' && <CircleCheck aria-label="completed" size={15} />}
+          {props.row.status === 'error' && <CircleX aria-label="failed" size={15} />}
+          {props.row.status === 'running' && <span aria-label="running">running</span>}
+          {props.row.duration_ms !== undefined && formatRunDuration(props.row.duration_ms)}
+        </span>
+      </button>
     </li>
   );
 }
+// harn:end normalized-run-evidence-inspector
 
 // harn:assume extensions-not-addressable-v1 ref=extension-run-rendering
 export function extensionRunSummaries(events: WireEvent[]): ExtensionRunSummary[] {
@@ -796,6 +811,8 @@ export function RunMessageView(props: {
   room: string;
   token: string;
   onInspect?: () => void;
+  selectedEventIndex?: number;
+  onInspectRow?: (row: RunRow) => void;
 }) {
   const run = props.message.run!;
   const running = run.status === 'running';
@@ -931,7 +948,15 @@ export function RunMessageView(props: {
             </div>
           )}
           <ol className="wr-run-event-list">
-            {rows.map((row) => <RunEvidenceRow key={row.id} row={row} running={running} />)}
+            {rows.map((row) => (
+              <RunEvidenceRow
+                key={row.id}
+                row={row}
+                running={running}
+                selected={props.selectedEventIndex === row.eventIndex}
+                onSelect={props.onInspectRow}
+              />
+            ))}
             {journalFailed && rows.length === 0 && <li role="status">Evidence unavailable</li>}
           </ol>
         </div>

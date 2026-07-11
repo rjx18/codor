@@ -35,6 +35,7 @@ import {
 import { connect, type Connection } from './ws.js';
 import { ContextRail, RoomList, RoomRail } from './shell.js';
 import { currentBrowserAccessToken } from './crypto.js';
+import type { RunRow } from './run-presenter.js';
 function pageParams(): { room: string; token: string } {
   const params = new URLSearchParams(window.location.search);
   return { room: params.get('room') ?? 'default', token: params.get('token') ?? '' };
@@ -79,6 +80,7 @@ export function App(props: {
   const [contextOpen, setContextOpen] = useState(false);
   const [contextView, setContextView] = useState<'members' | 'run'>('members');
   const [selectedRunId, setSelectedRunId] = useState<number>();
+  const [selectedRunEventIndex, setSelectedRunEventIndex] = useState<number>();
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const contextCloseRef = useRef<HTMLButtonElement>(null);
 
@@ -309,8 +311,19 @@ export function App(props: {
   );
   const selectedRun = messages.find((message) => message.id === selectedRunId) ?? latestRun;
   const selectedRunLiveEvents = selectedRun
-    ? state.runEvents[selectedRun.id]?.events ?? []
-    : [];
+    ? state.runEvents[selectedRun.id] ?? { events: [], dropped_count: 0 }
+    : { events: [], dropped_count: 0 };
+  const selectedEventIndex = selectedRun?.id === selectedRunId
+    ? selectedRunEventIndex
+    : undefined;
+  // harn:assume normalized-run-evidence-inspector ref=inspector-selection-state
+  const inspectRun = (messageId: number, eventIndex?: number): void => {
+    setSelectedRunId(messageId);
+    setSelectedRunEventIndex(eventIndex);
+    setContextView('run');
+    if (!window.matchMedia('(min-width: 1360px)').matches) setContextOpen(true);
+  };
+  // harn:end normalized-run-evidence-inspector
   const owner = Object.values(state.members).find(
     (member) => member.kind === 'human' && member.role === 'owner',
   );
@@ -555,11 +568,9 @@ export function App(props: {
                       liveEvents={state.runEvents[message.id] ?? { events: [], dropped_count: 0 }}
                       room={ROOM}
                       token={accessToken()}
-                      onInspect={() => {
-                        setSelectedRunId(message.id);
-                        setContextView('run');
-                        if (!window.matchMedia('(min-width: 1280px)').matches) setContextOpen(true);
-                      }}
+                      selectedEventIndex={selectedRunId === message.id ? selectedRunEventIndex : undefined}
+                      onInspect={() => inspectRun(message.id)}
+                      onInspectRow={(row: RunRow) => inspectRun(message.id, row.eventIndex)}
                     />
                   </div>
                 );
@@ -612,6 +623,7 @@ export function App(props: {
           selectedRun={selectedRun}
           selectedRunAuthor={selectedRun ? handles(selectedRun.author) : ''}
           selectedRunLiveEvents={selectedRunLiveEvents}
+          selectedEventIndex={selectedEventIndex}
           view={contextView}
           onView={setContextView}
           room={ROOM}
@@ -710,6 +722,7 @@ export function App(props: {
               selectedRun={selectedRun}
               selectedRunAuthor={selectedRun ? handles(selectedRun.author) : ''}
               selectedRunLiveEvents={selectedRunLiveEvents}
+              selectedEventIndex={selectedEventIndex}
               view={contextView}
               onView={setContextView}
               room={ROOM}

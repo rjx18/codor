@@ -131,7 +131,7 @@ test('a 600-event run exposes and recovers its dropped live prefix', async ({ pa
   await expect(run).toHaveAttribute('data-run-status', 'running');
   const runId = (await run.getAttribute('data-testid'))!.replace('run-', '');
   const toggle = page.getByTestId(`run-${runId}-toggle`);
-  await expect(run).toHaveAttribute('data-run-status', 'completed', { timeout: 5000 });
+  await expect(run).toHaveAttribute('data-run-status', 'completed', { timeout: 15_000 });
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');

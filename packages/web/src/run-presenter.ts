@@ -34,6 +34,7 @@ export interface RunRow {
   text?: string;
   status: RunRowStatus;
   duration_ms?: number;
+  output_text?: string;
   diff?: RunItemDiff;
   image?: { media_type: string; data_b64: string };
   event: WireEvent;
@@ -131,6 +132,7 @@ export function presentRunEvents(items: readonly IndexedRunEvent[]): RunRow[] {
           ...fallbackRow(item),
           status: parsed.data.status,
           duration_ms: parsed.data.duration_ms,
+          output_text: parsed.data.output_text,
           diff: parsed.data.diff,
           image: parsed.data.image,
         });
@@ -142,6 +144,7 @@ export function presentRunEvents(items: readonly IndexedRunEvent[]): RunRow[] {
         resultEventIndex: item.index,
         status: parsed.data.status,
         duration_ms: parsed.data.duration_ms,
+        output_text: parsed.data.output_text,
         diff: parsed.data.diff,
         image: parsed.data.image,
         detail: [row.detail, diffSummary(parsed.data.diff)].filter(Boolean).join(' · '),

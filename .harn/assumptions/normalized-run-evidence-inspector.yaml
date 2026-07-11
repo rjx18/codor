@@ -1,0 +1,16 @@
+id: normalized-run-evidence-inspector
+hash: a-daa222dc58c6
+title: Run evidence rows select a typed responsive inspector
+state: active
+statement: Selecting a normalized tool row must bind that row and its permanent
+  run to the context inspector, render bounded output, unified diff, or image
+  evidence with run facts as the no-selection state, keep long evidence
+  scrolling inside the panel, and use the context sheet below 1360 pixels and
+  the persistent rail at or above it, because operators must be able to examine
+  the actual result without losing the conversation or encountering a breakpoint
+  dead zone.
+depends_on:
+  - normalized-run-items-presented-live
+  - run-context-selects-and-follows-live-evidence
+  - web-shell-responsive-three-pane
+created_by: codor-p4b-inspector

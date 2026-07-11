@@ -1,0 +1,148 @@
+id: codor-p4b-inspector
+title: P4b selected run evidence inspector
+assumptions:
+  create:
+    - id: normalized-run-evidence-inspector
+      title: Run evidence rows select a typed responsive inspector
+      statement: Selecting a normalized tool row must bind that row and its permanent
+        run to the context inspector, render bounded output, unified diff, or
+        image evidence with run facts as the no-selection state, keep long
+        evidence scrolling inside the panel, and use the context sheet below
+        1360 pixels and the persistent rail at or above it, because operators
+        must be able to examine the actual result without losing the
+        conversation or encountering a breakpoint dead zone.
+      reason: Phase 4b consumes Phase 4a's row model as an interactive evidence
+        surface.
+      depends_on:
+        - normalized-run-items-presented-live
+        - run-context-selects-and-follows-live-evidence
+        - web-shell-responsive-three-pane
+  reviewed:
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: Row order, pairing, live merge, timer isolation, and bounded-cache
+        behavior stay intact while rows become selectable.
+    - id: run-context-selects-and-follows-live-evidence
+      outcome: unchanged
+      reason: The selected permanent run and its journal/live refresh remain the
+        inspector's evidence source.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: The established 1360-pixel rail breakpoint becomes the single source for
+        inspect behavior rather than changing pane topology.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Row selection remains subordinate to the same permanent run message and
+        fragment target.
+    - id: normalized-run-item-payload-contract
+      outcome: unchanged
+      reason: Output, diff, and image renderers consume the safe-parsed S1 payload
+        without tightening transport validation.
+    - id: run-item-raw-journal-only
+      outcome: unchanged
+      reason: The inspector receives only projected live payloads or the redacted
+        journal response and never renders raw evidence.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: The inspector stays a plain operational panel rather than a nested
+        decorative card.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Diff, output, and selection states use semantic tokens with visible
+        focus in both themes.
+    - id: release-gate-runs-unit-and-browser
+      outcome: unchanged
+      reason: Renderer and responsive Playwright checks remain in the existing release
+        gate.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: Inspector selection is ephemeral React state and adds no browser
+        persistence or runtime cache.
+    - id: live-run-event-cache-bounded
+      outcome: unchanged
+      reason: Inspector journal merging consumes the same capped live tail and full
+        redacted recovery path without changing its limit.
+    - id: extensions-not-addressable-v1
+      outcome: unchanged
+      reason: Extension summaries remain nested and non-addressable while tool rows
+        gain selection controls.
+anchors:
+  normalized-run-evidence-inspector:
+    normalized-row-selection:
+      action: change
+      reason: Make tool rows keyboard-accessible selection controls with stable
+        event-index identity.
+    inspector-selection-state:
+      action: change
+      reason: Bind a selected run and row index in App and open the sheet only below
+        the actual 1360-pixel rail breakpoint.
+    typed-evidence-renderers:
+      action: change
+      reason: Replace the recent-event list with output, unified diff, image, and
+        no-selection fact renderers.
+    inspector-contained-scroll:
+      action: change
+      reason: Give the panel stable full-height min-height-zero containment and
+        internal vertical scrolling.
+    inspector-browser-regression:
+      action: change
+      reason: Prove long output scroll, diff colors, image rendering, 1300-pixel sheet
+        behavior, and 1440-pixel rail behavior.
+  normalized-run-items-presented-live:
+    normalized-run-presenter:
+      action: change
+      reason: Retain safe-parsed output text on paired result rows for the inspector.
+    live-run-message-surface:
+      action: change
+      reason: Wire row selection without changing live ordering or collapse behavior.
+  live-run-event-cache-bounded:
+    full-journal-recovery:
+      action: change
+      reason: Reuse index-aware journal and capped-tail merging inside the selected
+        inspector.
+    bounded-run-stream-regression:
+      action: change
+      reason: Allow the 600-row browser regression enough time for selectable row DOM
+        under the full serial suite without changing its assertions.
+  extensions-not-addressable-v1:
+    extension-run-rendering:
+      action: change
+      reason: Preserve nested extension presentation while tool rows become selectable.
+  sw-caches-shell-only-no-message-data:
+    page-memory-message-cache:
+      action: change
+      reason: Keep selected run and row identity in ephemeral page memory only.
+  run-context-selects-and-follows-live-evidence:
+    selected-live-run-context:
+      action: change
+      reason: Recompute the selected typed row from merged journal/live evidence and
+        refresh it through completion.
+  web-shell-responsive-three-pane:
+    responsive-room-shell:
+      action: change
+      reason: Use full-height overflow containment in the rail and sheet panels.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: Store row selection beside the existing permanent selected-run id.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: Keep typed evidence subordinate to the conversation in the plain context
+        panel.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Add accessible semantic output, diff, image, and selected-row styles.
+files:
+  - packages/web/src/App.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/run-presenter.ts
+  - packages/web/src/run-presenter.spec.ts
+  - packages/web/src/shell.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/inspector.e2e.spec.ts
+  - packages/web/tests/run-stream.e2e.spec.ts
+applied:
+  applied_at: 2026-07-11T16:10:05.819Z

@@ -32,7 +32,7 @@ describe('run presenter', () => {
     expect(rows[0]).toMatchObject({ kind: 'prose', text: 'Checking the suite.' });
     expect(rows[1]).toMatchObject({
       icon: 'terminal', title: 'Bash', detail: 'pnpm test --filter web', status: 'ok', duration_ms: 2100,
-      eventIndex: 2, resultEventIndex: 3,
+      output_text: 'passed', eventIndex: 2, resultEventIndex: 3,
     });
     expect(rows[2]).toMatchObject({
       icon: 'edit', title: 'Edit', detail: 'src/App.tsx · +2 -1', status: 'ok',

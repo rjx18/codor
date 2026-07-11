@@ -13,8 +13,8 @@ import { useEffect, useRef, useState } from 'react';
 
 import { createRoom, fetchRunEvents, type AdapterRegistration, type MemberDetail } from './api.js';
 import { MemberRail } from './components.js';
-import { presentRunEvents } from './run-presenter.js';
-import type { MemberStateObservation } from './state.js';
+import { formatRunDuration, mergeRunEvents, presentRunEvents, type RunRow } from './run-presenter.js';
+import type { MemberStateObservation, RunEventBuffer } from './state.js';
 import type { Connection } from './ws.js';
 
 function roomHref(room: string): string {
@@ -248,31 +248,52 @@ export function RoomRail(props: {
   );
 }
 
-function contextEventPresentation(event: WireEvent): { label: string; detail?: string } | undefined {
-  if (event.type === 'run.item') {
-    const row = presentRunEvents([{ index: 0, event }])[0];
-    return row ? { label: row.title, detail: row.detail ?? row.text } : undefined;
-  }
-  if (event.type === 'extension.started') {
-    return { label: 'Extension started', detail: event.description };
-  }
-  if (event.type === 'extension.ended') {
-    return { label: 'Extension finished', detail: event.summary };
-  }
-  if (event.type === 'run.completed') {
-    return { label: `Run ${event.status}`, detail: event.final_text };
-  }
-  if (event.type === 'ask.raised' || event.type === 'approval.raised') {
-    return {
-      label: event.type === 'ask.raised' ? 'Question raised' : 'Approval raised',
-      detail: event.card.prompt,
-    };
-  }
-  if (event.type === 'member.state') {
-    return { label: 'Member state changed', detail: event.state.replaceAll('_', ' ') };
-  }
-  return undefined;
+// harn:assume normalized-run-evidence-inspector ref=typed-evidence-renderers
+function DiffEvidence(props: { row: RunRow }) {
+  const diff = props.row.diff!;
+  return (
+    <div className="wr-inspector-diff" data-testid="inspector-diff">
+      <div className="wr-inspector-evidence-heading">
+        <strong>{diff.path}</strong>
+        {props.row.detail && <span>{props.row.detail.split(' · ').at(-1)}</span>}
+      </div>
+      <pre>
+        {diff.unified.split('\n').map((line, index) => {
+          const tone = line.startsWith('+++') || line.startsWith('---')
+            ? 'header'
+            : line.startsWith('+')
+              ? 'add'
+              : line.startsWith('-')
+                ? 'remove'
+                : line.startsWith('@@')
+                  ? 'hunk'
+                  : 'context';
+          return <span key={index} className={`wr-diff-line-${tone}`}>{line || ' '}{'\n'}</span>;
+        })}
+      </pre>
+    </div>
+  );
 }
+
+function SelectedEvidence(props: { row: RunRow }) {
+  if (props.row.diff) return <DiffEvidence row={props.row} />;
+  if (props.row.image) {
+    return (
+      <div className="wr-inspector-image" data-testid="inspector-image">
+        <img
+          src={`data:${props.row.image.media_type};base64,${props.row.image.data_b64}`}
+          alt={`${props.row.title} result`}
+        />
+      </div>
+    );
+  }
+  return (
+    <pre className="wr-inspector-output" data-testid="inspector-output">
+      {props.row.output_text ?? props.row.detail ?? 'No textual output reported.'}
+    </pre>
+  );
+}
+// harn:end normalized-run-evidence-inspector
 
 // harn:assume run-context-selects-and-follows-live-evidence ref=selected-live-run-context
 function RunContext(props: {
@@ -280,7 +301,8 @@ function RunContext(props: {
   authorHandle: string;
   room: string;
   token: string;
-  liveEvents: WireEvent[];
+  liveEvents: RunEventBuffer;
+  selectedEventIndex?: number;
 }) {
   const [events, setEvents] = useState<WireEvent[]>();
   const [failed, setFailed] = useState(false);
@@ -305,58 +327,42 @@ function RunContext(props: {
   const tokenTotal = run.usage
     ? run.usage.input_tokens + run.usage.output_tokens
     : undefined;
-  const evidence = props.liveEvents.length >= (events?.length ?? 0)
-    ? props.liveEvents
-    : events ?? [];
-  const visibleEvidence = evidence.flatMap((event) => {
-    const presentation = contextEventPresentation(event);
-    return presentation ? [{ event, presentation }] : [];
-  });
+  const evidence = mergeRunEvents(events, props.liveEvents);
+  const selectedRow = presentRunEvents(evidence)
+    .find((row) => row.eventIndex === props.selectedEventIndex);
 
   return (
-    <section className="wr-run-context" aria-label={`Run ${String(props.message.id)} context`}>
+    <section className="wr-run-context h-full min-h-0 overflow-y-auto" aria-label={`Run ${String(props.message.id)} context`}>
       <div className="wr-context-heading">
         <span className="wr-run-symbol" aria-hidden="true"><Activity size={17} /></span>
         <div>
-          <strong>#{props.message.id} @{props.authorHandle}</strong>
-          <small>{run.status}</small>
+          <strong>{selectedRow ? selectedRow.title : `#${String(props.message.id)} @${props.authorHandle}`}</strong>
+          <small>
+            {selectedRow
+              ? [selectedRow.detail, selectedRow.status, selectedRow.duration_ms === undefined
+                  ? undefined
+                  : formatRunDuration(selectedRow.duration_ms)].filter(Boolean).join(' · ')
+              : run.status}
+          </small>
         </div>
         <a href={`#${String(props.message.id)}`} className="wr-icon-button" aria-label={`Open run ${String(props.message.id)} in conversation`}>
           <ExternalLink aria-hidden="true" size={16} />
         </a>
       </div>
-      <dl className="wr-context-facts">
-        <dt>Status</dt><dd>{run.status}</dd>
-        <dt>Started</dt><dd><Clock3 aria-hidden="true" size={13} /> {new Date(run.started_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</dd>
-        <dt>Tokens</dt><dd>{tokenTotal === undefined ? '-' : tokenTotal.toLocaleString()}</dd>
-        <dt>Spend</dt><dd>{run.usage?.cost_usd === undefined ? 'not reported' : `$${run.usage.cost_usd.toFixed(2)}`}</dd>
-        <dt>Tools</dt><dd>{run.tool_calls}</dd>
-      </dl>
-      <div className="wr-context-events">
-        <div className="wr-rail-label">
-          <span>Recent evidence</span>
-          <span data-testid="context-evidence-count">{visibleEvidence.length}</span>
-        </div>
-        {failed && evidence.length === 0 ? (
-          <p role="status">Evidence unavailable</p>
-        ) : events === undefined && props.liveEvents.length === 0 ? (
-          <p role="status">Loading evidence</p>
-        ) : visibleEvidence.length === 0 ? (
-          <p>No journaled events</p>
-        ) : (
-          <ol>
-            {visibleEvidence.slice(-6).reverse().map(({ event, presentation }, index) => (
-              <li key={`${event.type}-${String(index)}`}>
-                <span aria-hidden="true" />
-                <div>
-                  <strong>{presentation.label}</strong>
-                  {presentation.detail && <small>{presentation.detail}</small>}
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
-      </div>
+      <span className="sr-only" data-testid="context-evidence-count">{evidence.length}</span>
+      {selectedRow ? (
+        <div className="wr-inspector-evidence"><SelectedEvidence row={selectedRow} /></div>
+      ) : (
+        <dl className="wr-context-facts" data-testid="inspector-run-facts">
+          <dt>Status</dt><dd>{run.status}</dd>
+          <dt>Started</dt><dd><Clock3 aria-hidden="true" size={13} /> {new Date(run.started_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</dd>
+          <dt>Tokens</dt><dd>{tokenTotal === undefined ? '-' : tokenTotal.toLocaleString()}</dd>
+          <dt>Spend</dt><dd>{run.usage?.cost_usd === undefined ? 'not reported' : `$${run.usage.cost_usd.toFixed(2)}`}</dd>
+          <dt>Tools</dt><dd>{run.tool_calls}</dd>
+        </dl>
+      )}
+      {failed && evidence.length === 0 && <p role="status">Evidence unavailable</p>}
+      {events === undefined && props.liveEvents.events.length === 0 && <p role="status">Loading evidence</p>}
     </section>
   );
 }
@@ -369,7 +375,8 @@ export function ContextRail(props: {
   connection: Connection;
   selectedRun: Message | undefined;
   selectedRunAuthor: string;
-  selectedRunLiveEvents: WireEvent[];
+  selectedRunLiveEvents: RunEventBuffer;
+  selectedEventIndex?: number;
   view: 'members' | 'run';
   onView(view: 'members' | 'run'): void;
   room: string;
@@ -438,13 +445,14 @@ export function ContextRail(props: {
           />
         </div>
       ) : (
-        <div id={runPanelId} role="tabpanel" aria-labelledby={runTabId} className="min-h-0 flex-1">
+        <div id={runPanelId} role="tabpanel" aria-labelledby={runTabId} className="h-full min-h-0 flex-1 overflow-hidden">
           <RunContext
             message={props.selectedRun}
             authorHandle={props.selectedRunAuthor}
             room={props.room}
             token={props.token}
             liveEvents={props.selectedRunLiveEvents}
+            selectedEventIndex={props.selectedEventIndex}
           />
         </div>
       )}
