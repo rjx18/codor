@@ -4,13 +4,16 @@ assumptions:
   reviewed:
     - id: workspace-gates-cover-all-buildable-projects
       outcome: unchanged
-      reason: The final recursive and browser gates still cover every buildable workspace according to its project type.
+      reason: The final recursive and browser gates still cover every buildable
+        workspace according to its project type.
     - id: fresh-clone-install-proven-by-script
       outcome: unchanged
-      reason: Launch readiness re-runs the committed clean-clone install, build, boot, CLI, API, and teardown proof.
+      reason: Launch readiness re-runs the committed clean-clone install, build, boot,
+        CLI, API, and teardown proof.
     - id: adapter-registry-sole-harness-source
       outcome: unchanged
-      reason: Release copy describes the open adapter boundary without introducing another harness registry.
+      reason: Release copy describes the open adapter boundary without introducing
+        another harness registry.
 anchors: {}
 files:
   - README.md
@@ -35,3 +38,5 @@ files:
   - tmp/build/ACCEPT-M0.md
   - tmp/build/ACCEPT-M1.md
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T09:21:36.447Z

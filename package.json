@@ -1,6 +1,7 @@
 {
   "name": "wireroom",
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.9.0",
@@ -11,7 +12,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "test:all": "pnpm -r build && pnpm -r test && pnpm --filter @wireroom/web e2e",
-    "lint": "pnpm -r --if-present lint"
+    "lint": "pnpm -r --if-present lint",
+    "audit:license": "node scripts/license-audit.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.8.0",

@@ -3,6 +3,63 @@
 Live probes are intentionally single-shot and tiny. Do not retry an auth,
 quota, or subscription failure.
 
+## Final operator release checklist
+
+1. Create the public GitHub repository under the final owner/name, add it as this checkout's
+   `origin`, and verify the complete history contains no credentials, pairing URLs, DHT line
+   secrets, bridge tokens, VAPID private keys, browser subscriptions, or local data directories.
+2. Push the reviewed `main` commit, enable branch protection and secret scanning, then create the
+   signed `v0.1.0` tag and GitHub release from `CHANGELOG.md`. Do not publish any workspace to npm;
+   the 0.1.0 distribution is the source checkout and every package remains `private` deliberately.
+3. Build the public documentation with the real remote URL:
+   `WIREROOM_REPOSITORY_URL=https://github.com/<owner>/<repo> pnpm --filter @wireroom/website build`.
+   Deploy only `website/.vitepress/dist/`, then verify Source, GitHub, and edit links point to the
+   final repository and every documentation route loads over HTTPS.
+4. On a clean Linux or macOS host, follow `docs/SELF-HOST.md` without using this development
+   worktree. Confirm the user-systemd unit uses the host's absolute Node path, survives logout or
+   reboot when linger is enabled, stops cleanly, and restores from one encrypted stopped backup.
+5. Configure Tailscale Serve on a disposable tailnet host and pair one remote browser through its
+   HTTPS origin. Use the app connector only if a team already operates the required public domain,
+   stable Linux connector, policy tags, route approval, and origin restrictions.
+6. Complete the physical cross-machine DHT, public Web Push relay, real iPhone Home Screen PWA,
+   and live Slack/Telegram sections below. Revoke every disposable peer, bridge token, and push
+   credential after recording versions and pass/fail results without secret values.
+7. Run the Gemini and GitHub Copilot one-shot adapter probes only with operator-owned authenticated
+   subscriptions. Stop on the first auth, quota, or subscription failure; never retry to manufacture
+   a green result.
+8. Keep Stripe and paid hosted organization services disabled. They are post-launch work in
+   `docs/BUSINESS.md`; 0.1.0 must not collect payment or imply that hosted mailbox, directory,
+   presence, or native iPhone/Watch products already exist.
+
+## Launch-sweep live acceptance record
+
+Status on 2026-07-11: **both one-shot live re-runs completed but did not satisfy their exact chain
+assertions; neither was retried**. M0 settled with two Claude runs where the fixture requires one.
+M1 settled with three runs where the plan-review-fold-re-review fixture requires four, and stopped
+before its live extension step. Both temporary rooms were removed by the fixture before failed
+message bodies could be retained, so no root cause is claimed. The historical M0 transcript and
+prior M1 pass remain in `tmp/build/ACCEPT-M0.md` and Git commit `79eac33`; they are not represented
+as fresh passes. The zero-spend M1 remainder passed against the current Codex session: mirrored
+join, attach lease/re-adoption, and exact turn-brake hold/release all completed. Deterministic
+recursive and Playwright gates remain separate and must be green before publication.
+
+Operator action: after inspecting the current first-party model outputs, harden the acceptance
+prompts or assertions without weakening the routing contract, then run each live fixture once on
+the pinned cheap models. Treat another extra/missing route as a failed release check, not a reason
+to loop paid prompts.
+
+## Final Codex review fallback record
+
+The required independent full-repository Codex review was attempted once in a read-only sandbox
+against the complete launch candidate. Codex CLI session
+`019f5075-57b5-79e3-ae2a-5d229869c9a9` exited 1 before repository analysis because the workspace
+owner's spend cap was exhausted; an unrelated unavailable Supabase MCP also reported missing auth.
+No retry or probe was made because the quota error was explicit. This review is **skipped with
+reason**, not passed, and the local dependency, license, secret-pattern, build, recursive, browser,
+and clean-clone gates are not represented as a substitute reviewer verdict. Operator action: run
+one read-only full-repository Codex review after the workspace cap is restored and fold any real
+finding before tagging 0.1.0.
+
 ## Claude review fallback record
 
 The mandatory Claude Fable 5 review of `e5c0751..ccb41e6` did not produce
