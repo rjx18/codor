@@ -1,0 +1,10 @@
+id: org-roles-review-record
+title: Record the unavailable local roles review
+assumptions:
+  retire: []
+  create: []
+  reviewed: []
+anchors: {}
+files:
+  - MANUAL-VERIFY.md
+  - tmp/build/PROGRESS.md
