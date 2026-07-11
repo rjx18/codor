@@ -1,0 +1,115 @@
+id: glass-settings-pairing-polish-pass
+title: Finish the ImageGen-led settings and pairing workspaces
+assumptions:
+  retire: []
+  create:
+    - id: web-settings-desktop-focuses-one-category
+      title: Desktop settings present one focused category at a time
+      statement: The desktop settings workspace must show the selected category as
+        the primary content panel while the mobile settings surface keeps every
+        category in a linear scroll, because desktop operators need a calm focused
+        tool and the installed PWA needs predictable native-style navigation.
+      reason: Operator feedback found the first implementation visually rendered a
+        long form behind a decorative category rail rather than implementing the
+        desktop-settings ImageGen composition.
+      depends_on:
+        - glass-design-system-guides-responsive-surfaces
+        - web-settings-controls-preserve-product-truth
+    - id: pairing-discloses-browser-and-relay-boundaries
+      title: Pairing keeps browser authority and relay visibility explicit
+      statement: The pairing workspace must keep the real QR-only single-use offer,
+        local browser authority, relay-visible delivery metadata, and relay-hidden
+        plaintext boundaries visible in one responsive flow, because enrollment
+        must feel polished without being mistaken for an account login or a broader
+        privacy guarantee.
+      reason: The first pairing pass was honest but visually generic and omitted the
+        relay-visible side of the disclosure from the main enrollment workspace.
+      depends_on:
+        - pairing-offer-token-remains-qr-only
+        - design-references-preserve-wireroom-semantics
+  reviewed:
+    - id: glass-design-system-guides-responsive-surfaces
+      outcome: unchanged
+      reason: The existing desktop and iPhone settings and pairing mockups remain the
+        visual source of truth.
+    - id: web-settings-controls-preserve-product-truth
+      outcome: unchanged
+      reason: Active-category composition and polished switches retain the exact
+        brake, relay, device, notification, and privacy behavior.
+    - id: pairing-offer-token-remains-qr-only
+      outcome: unchanged
+      reason: The real offer remains inside the generated QR and is never rendered as
+        visible authority.
+    - id: web-theme-choice-stays-local
+      outcome: unchanged
+      reason: System, dark, and light choices remain local and immediate.
+    - id: unpair-purges-all-browser-state
+      outcome: unchanged
+      reason: Device controls are recomposed without changing remote revoke or local
+        purge behavior.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Settings and pairing continue to consume semantic light and dark glass
+        tokens, focus treatment, and reduced-motion fallbacks.
+    - id: sw-injectmanifest-owned-worker
+      outcome: unchanged
+      reason: PWA launch colors are aligned to the existing canvas without changing
+        worker ownership, registration, or shell-only precaching.
+anchors:
+  web-settings-desktop-focuses-one-category:
+    focused-settings-category:
+      action: change
+      reason: Bind the desktop content area and heading to the selected category while
+        preserving the mobile linear document.
+    focused-settings-regression:
+      action: change
+      reason: Prove one desktop category, mobile linear reachability, switch geometry,
+        and category navigation in Playwright.
+  pairing-discloses-browser-and-relay-boundaries:
+    pairing-boundary-workspace:
+      action: change
+      reason: Recompose real QR enrollment and add the complete relay-visible and
+        relay-hidden disclosure without exposing the offer.
+    pairing-boundary-regression:
+      action: change
+      reason: Prove the responsive disclosure, first-viewport action, and hidden
+        authority in Chromium.
+  web-settings-controls-preserve-product-truth:
+    glass-settings-surface:
+      action: change
+      reason: Apply the active category composition and polished typed controls.
+    glass-settings-regression:
+      action: change
+      reason: Extend the existing product-truth and layout gate.
+  pairing-offer-token-remains-qr-only:
+    glass-pairing-surface:
+      action: change
+      reason: Recompose the enrollment surface around the unchanged QR-only offer.
+  web-theme-choice-stays-local:
+    settings-theme-control:
+      action: change
+      reason: Keep the segmented theme control in the focused Appearance category.
+  unpair-purges-all-browser-state:
+    settings-unpair-action:
+      action: change
+      reason: Keep device revocation reachable in the focused Devices category and
+        mobile linear flow.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Finish settings, switches, pairing depth, and responsive light-mode
+        equivalents with semantic tokens.
+  sw-injectmanifest-owned-worker:
+    vite-pwa-owned-worker:
+      action: change
+      reason: Align manifest background and theme colors to the dark-first canvas.
+files:
+  - packages/web/index.html
+  - packages/web/vite.config.ts
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/pairing.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/crypto.e2e.spec.ts
+  - packages/web/tests/e2e.spec.ts
+  - MANUAL-VERIFY.md
+  - tmp/build/PROGRESS.md
