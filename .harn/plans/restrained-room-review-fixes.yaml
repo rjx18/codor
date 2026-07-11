@@ -1,0 +1,51 @@
+id: restrained-room-review-fixes
+title: Fold the restrained room review findings
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: restrained-design-system-guides-responsive-surfaces
+      outcome: unchanged
+      reason: Correct the light faint token while retaining the approved v4 visual contract.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Restore opaque fallbacks and verify light contrast and reduced transparency.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Keep every permalink target visibly identifiable with semantic styling.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: Align the intermediate-to-wide transition with the specified 1360px breakpoint.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: Match the approved metadata gutter, material levels, and typography floor.
+anchors:
+  restrained-design-system-guides-responsive-surfaces:
+    restrained-responsive-contract:
+      action: change
+      reason: Correct the light faint token so the design-system table satisfies its AA rule.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Restore final-cascade opaque fallbacks and accessible light tokens.
+    glass-theme-regression:
+      action: change
+      reason: Cover reduced transparency and faint-text contrast in Chromium.
+  permalink-ids-stable:
+    message-permalink-rendering:
+      action: change
+      reason: Replace mixed Tailwind target colors with one semantic target treatment.
+  web-shell-responsive-three-pane:
+    responsive-shell-regression:
+      action: change
+      reason: Cover the two-pane context-sheet band through 1359px.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-regression:
+      action: change
+      reason: Verify desktop metadata composition and normalized material and type tokens.
+files:
+  - tmp/build/design/v4/DESIGN-SYSTEM.md
+  - packages/web/src/components.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+  - tmp/build/PROGRESS.md
