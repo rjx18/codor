@@ -22,6 +22,14 @@ model route were available, but no second full review was attempted to avoid a
 retry loop and unnecessary quota use. No Claude process remains. A later full
 repository review must cover this range as well.
 
+The P5.2 local-roles review of `dbfee64..7414d1e` is also **skipped
+with reason**, not passed. Its full read-only invocation emitted no findings and
+reached the enforced 300-second timeout with exit code 124. The one permitted
+tiny probe returned `OK` with exit code 0; no full retry followed. No Claude
+process remains. A later repository review must cover the role matrix,
+principal binding, peer ledger authorization, completion-ack lifecycle, and
+home launcher in that range.
+
 ## Gemini CLI
 
 Status on 2026-07-10: **not run**. The `gemini` executable is not installed and
