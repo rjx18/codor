@@ -1,0 +1,45 @@
+id: restrained-responsive-polish
+title: Finish restrained responsive visual verification
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: restrained-design-system-guides-responsive-surfaces
+      outcome: unchanged
+      reason: Final CSS cleanup and cross-viewport verification enforce the approved contract.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Dormant gradients and glow are removed without weakening semantic modes or fallbacks.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: Wide, intermediate, and mobile pane behavior remains intact through final QA.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: The room remains matte, row-based, and sparse at every checked width.
+    - id: web-settings-pairing-match-restrained-reference
+      outcome: unchanged
+      reason: Settings and pairing retain their approved desktop and mobile compositions.
+anchors:
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Remove dormant gradient and glow declarations from the production stylesheet.
+    glass-theme-regression:
+      action: change
+      reason: Verify intermediate and narrow layouts retain the restrained computed treatment.
+  web-shell-responsive-three-pane:
+    responsive-shell-regression:
+      action: change
+      reason: Cover final 1150px and 320px no-overflow geometry.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-regression:
+      action: change
+      reason: Keep final visual assertions aligned with dormant-style cleanup.
+  web-settings-pairing-match-restrained-reference:
+    restrained-settings-pairing-regression:
+      action: change
+      reason: Keep row and mobile assertions aligned with final CSS cleanup.
+files:
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+  - tmp/build/PROGRESS.md
