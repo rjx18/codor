@@ -155,8 +155,8 @@ test('room v1: post → live run → expand → ask → hold release → reconne
   await page.evaluate((id) => { window.location.hash = id; }, runId);
   expect(await run.evaluate((element) => getComputedStyle(element).boxShadow)).toContain('inset');
 
-  // 2. expand the live run → journaled events from the redacted blob endpoint
-  await page.getByTestId(`run-${runId}-toggle`).click();
+  // 2. live runs default expanded with journaled events from the redacted blob endpoint
+  await expect(page.getByTestId(`run-${runId}-toggle`)).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByTestId(`run-${runId}-events`)).toBeVisible();
 
   // 3. the ask card raised by the blocked run → answer ALPHA from the room

@@ -1,0 +1,16 @@
+id: normalized-run-items-presented-live
+hash: a-68e3de125915
+title: Normalized run items render as one live operational timeline
+state: active
+statement: The web run view must safe-parse normalized S1 run items into ordered
+  prose and tool rows, pair tool results back to their calls for status and
+  duration, render running turns expanded with an isolated elapsed timer,
+  collapse completed turns to final text and tool/spend facts, and merge
+  journaled and live evidence by event index without duplicating rows, because
+  operators need useful work evidence while the turn is happening rather than an
+  opaque running placeholder.
+depends_on:
+  - normalized-run-item-payload-contract
+  - run-context-selects-and-follows-live-evidence
+  - run-blobs-off-db
+created_by: codor-p4a-run-stream

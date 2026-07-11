@@ -10,7 +10,6 @@ import {
   extensionRunSummaries,
   impliedRecipient,
   ledgerTextSegments,
-  runEventPresentation,
   RunMessageView,
   RunStallBadge,
 } from './components.js';
@@ -134,9 +133,26 @@ describe('RunMessageView', () => {
       },
     };
     const html = renderToStaticMarkup(
-      <RunMessageView message={running} authorHandle="alpha" liveEventCount={3} room="eng" token="t" />,
+      <RunMessageView
+        message={running}
+        authorHandle="alpha"
+        liveEvents={{
+          dropped_count: 0,
+          events: [
+            {
+              type: 'run.item', item_type: 'tool_call',
+              payload: { call_id: 'bash-1', tool: 'Bash', title: 'pnpm test' },
+            },
+          ],
+        }}
+        room="eng"
+        token="t"
+      />,
     );
-    expect(html).toContain('running · 3 events');
+    expect(html).toContain('running · ');
+    expect(html).toContain(' · Bash');
+    expect(html).toContain('pnpm test');
+    expect(html).not.toContain('Run started');
     expect(html).toContain('data-run-status="running"');
     expect(renderToStaticMarkup(<RunStallBadge message={running} />)).toContain(
       'data-testid="run-7-stalled"',
@@ -145,11 +161,17 @@ describe('RunMessageView', () => {
 
   it('renders the finalized body, status, tokens, and cost in place', () => {
     const html = renderToStaticMarkup(
-      <RunMessageView message={finalizedRun} authorHandle="alpha" liveEventCount={0} room="eng" token="t" />,
+      <RunMessageView
+        message={finalizedRun}
+        authorHandle="alpha"
+        liveEvents={{ events: [], dropped_count: 0 }}
+        room="eng"
+        token="t"
+      />,
     );
     expect(html).toContain('shipped it');
     expect(html).toContain('completed');
-    expect(html).toContain('120 tokens');
+    expect(html).toContain('2 tools');
     expect(html).toContain('$0.19');
     expect(html).toContain('#7');
     expect(html).toContain('id="7"');
@@ -365,23 +387,5 @@ describe('extension run summaries', () => {
         ended: true,
       },
     ]);
-  });
-});
-
-describe('run event presentation', () => {
-  it('turns normalized event payloads into bounded evidence rows', () => {
-    expect(runEventPresentation({
-      type: 'run.item',
-      item_type: 'file_change',
-      payload: { path: 'src/router.ts', change: 'added authorization guard' },
-    })).toEqual({
-      label: 'File changed',
-      detail: '{"path":"src/router.ts","change":"added authorization guard"}',
-      tone: 'change',
-    });
-    expect(runEventPresentation({
-      type: 'approval.raised',
-      card: { interaction_id: 'approval-1', kind: 'approval', prompt: 'Apply migration?' },
-    })).toEqual({ label: 'Approval raised', detail: 'Apply migration?', tone: 'attention' });
   });
 });

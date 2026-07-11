@@ -1,0 +1,182 @@
+id: codor-p4a-run-stream
+title: P4a live normalized run stream and bounded event cache
+assumptions:
+  create:
+    - id: normalized-run-items-presented-live
+      title: Normalized run items render as one live operational timeline
+      statement: The web run view must safe-parse normalized S1 run items into ordered
+        prose and tool rows, pair tool results back to their calls for status
+        and duration, render running turns expanded with an isolated elapsed
+        timer, collapse completed turns to final text and tool/spend facts, and
+        merge journaled and live evidence by event index without duplicating
+        rows, because operators need useful work evidence while the turn is
+        happening rather than an opaque running placeholder.
+      reason: Phase 4a consumes the additive normalized adapter contract in the
+        primary conversation surface.
+      depends_on:
+        - normalized-run-item-payload-contract
+        - run-context-selects-and-follows-live-evidence
+        - run-blobs-off-db
+    - id: live-run-event-cache-bounded
+      title: Browser run-event memory stays bounded with journal recovery
+      statement: The web room store must retain at most the newest 500 live events per
+        run with a cumulative dropped count, while the run view exposes an
+        earlier-events affordance that reloads the authoritative redacted
+        journal, because long harness turns must not grow browser memory without
+        bound or hide recoverable evidence.
+      reason: S12 adds a bounded ephemeral cache while preserving the durable blob as
+        the complete source.
+      depends_on:
+        - client-syncs-by-seq
+        - run-blobs-off-db
+        - run-item-raw-journal-only
+  reviewed:
+    - id: normalized-run-item-payload-contract
+      outcome: unchanged
+      reason: The presenter consumes the shared permissive safe-parse helper and does
+        not tighten the wire schema.
+    - id: first-party-run-items-normalized
+      outcome: unchanged
+      reason: Adapter output and fixture provenance remain unchanged; this phase only
+        presents their normalized events.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: Entity and sequence cursor semantics remain intact while the separate
+        ephemeral run-event cache gains a cap.
+    - id: run-context-selects-and-follows-live-evidence
+      outcome: unchanged
+      reason: The current inspector continues following the selected run through the
+        new bounded buffer until its owning Phase 4b rewrite.
+    - id: extensions-not-addressable-v1
+      outcome: unchanged
+      reason: Extension summaries remain nested under their parent run and remain
+        non-addressable through the run-view rewrite.
+    - id: run-blobs-off-db
+      outcome: unchanged
+      reason: Full evidence remains in the existing journal endpoint and no event
+        payload enters SQLite.
+    - id: run-item-raw-journal-only
+      outcome: unchanged
+      reason: The presenter only receives the already projected live frames or
+        redacted journal response.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Rewritten run views retain their permanent message id, fragment target,
+        and one-message finalization behavior.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: Timeline rows remain compact, unframed, text-first operational evidence
+        in both themes and responsive layouts.
+    - id: release-gate-runs-unit-and-browser
+      outcome: unchanged
+      reason: The new Vitest and Playwright coverage remains inside the existing root
+        release gate.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: The bounded run-event buffer strengthens the existing page-memory-only
+        rule and adds no persistence or runtime cache.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: Run evidence changes within the existing responsive panes without
+        changing shell topology.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: New run-row styles use the established semantic tokens and are exercised
+        in both explicit themes.
+anchors:
+  normalized-run-items-presented-live:
+    normalized-run-presenter:
+      action: change
+      reason: Add the safe-parsing, call/result pairing, explicit icon, status,
+        duration, prose, and generic-degradation row model.
+    live-run-message-surface:
+      action: change
+      reason: Render running evidence, isolated elapsed time, collapse/final summary,
+        and index-merged journal evidence.
+    live-run-stream-regression:
+      action: change
+      reason: Prove live order, timer ticks, mid-run expansion, final collapse,
+        normalized labels, and absence of legacy run-start text.
+    run-stream-responsive-style:
+      action: change
+      reason: Style stable compact rows and headers across required widths and both
+        themes without nested cards.
+    delayed-fake-run-fixture:
+      action: change
+      reason: Let recorded FakeAdapter sequences remain running long enough for
+        deterministic live timer and row assertions without model calls.
+  live-run-event-cache-bounded:
+    bounded-live-event-buffer:
+      action: change
+      reason: Retain only 500 events per run and accumulate the dropped count.
+    full-journal-recovery:
+      action: change
+      reason: Surface the dropped count and reload the complete redacted journal on
+        demand.
+    bounded-run-stream-regression:
+      action: change
+      reason: Prove a 600-event script is capped in memory and recoverable from the
+        journal.
+  client-syncs-by-seq:
+    store-upsert-in-place:
+      action: change
+      reason: Preserve message upserts while changing the adjacent run-event cache
+        value to a bounded buffer.
+  run-context-selects-and-follows-live-evidence:
+    selected-live-run-context:
+      action: change
+      reason: Feed the existing selected-run inspector from the bounded buffer and
+        replace its generic event-label fallback with explicit presentation.
+  extensions-not-addressable-v1:
+    extension-run-rendering:
+      action: change
+      reason: Preserve nested extension summaries inside the rewritten run-message
+        evidence surface.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: Pass bounded live evidence into the same permanent message render path.
+    message-permalink-rendering:
+      action: change
+      reason: Preserve the fragment and permalink controls while replacing the run
+        card contents.
+    paged-message-cache:
+      action: change
+      reason: Keep permanent message paging intact while the adjacent ephemeral
+        run-event value becomes a bounded buffer.
+  sw-caches-shell-only-no-message-data:
+    page-memory-message-cache:
+      action: change
+      reason: Bound the existing in-memory run evidence without adding browser
+        persistence.
+  web-shell-responsive-three-pane:
+    responsive-room-shell:
+      action: change
+      reason: Pass bounded evidence through the existing responsive shell without
+        altering pane behavior.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Style live rows exclusively with existing accessible semantic theme
+        tokens.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: Keep the conversation primary while adding compact live operational
+        evidence.
+files:
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/web/src/App.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/run-presenter.ts
+  - packages/web/src/run-presenter.spec.ts
+  - packages/web/src/shell.tsx
+  - packages/web/src/state.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/run-stream.e2e.spec.ts
+applied:
+  applied_at: 2026-07-11T15:37:51.127Z

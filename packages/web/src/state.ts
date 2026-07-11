@@ -16,6 +16,11 @@ export interface MemberStateObservation {
   ts: string;
 }
 
+export interface RunEventBuffer {
+  events: WireEvent[];
+  dropped_count: number;
+}
+
 export interface RoomState {
   connected: boolean;
   selfMemberId: string | undefined;
@@ -26,7 +31,7 @@ export interface RoomState {
   messages: Record<number, Message>;
   inbox: Record<string, Delivery>;
   meter: RoomMeter | undefined;
-  runEvents: Record<number, WireEvent[]>;
+  runEvents: Record<number, RunEventBuffer>;
   /** Full-hydration routing hint retained when visible history is paged down. */
   latestFinalizedAgentId: string | undefined;
   errors: string[];
@@ -37,6 +42,22 @@ export interface RoomState {
 }
 
 export const HISTORY_PAGE_SIZE = 50;
+export const RUN_EVENT_LIMIT = 500;
+
+// harn:assume live-run-event-cache-bounded ref=bounded-live-event-buffer
+export function appendRunEvent(
+  buffer: RunEventBuffer | undefined,
+  event: WireEvent,
+): RunEventBuffer {
+  const current = buffer ?? { events: [], dropped_count: 0 };
+  const events = [...current.events, event];
+  const overflow = Math.max(0, events.length - RUN_EVENT_LIMIT);
+  return {
+    events: overflow === 0 ? events : events.slice(overflow),
+    dropped_count: current.dropped_count + overflow,
+  };
+}
+// harn:end live-run-event-cache-bounded
 
 const ROLE_RANK: Record<Role, number> = { observer: 0, member: 1, admin: 2, owner: 3 };
 
@@ -120,7 +141,7 @@ export const useRoomStore = create<RoomState>((set) => ({
           return {
             runEvents: {
               ...state.runEvents,
-              [frame.message_id]: [...(state.runEvents[frame.message_id] ?? []), frame.event],
+              [frame.message_id]: appendRunEvent(state.runEvents[frame.message_id], frame.event),
             },
           };
         case 'error':

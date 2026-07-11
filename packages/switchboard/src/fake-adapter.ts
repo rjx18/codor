@@ -20,6 +20,8 @@ export type FakeTurn =
       final_text: string;
       usage?: { input_tokens: number; output_tokens: number; cost_usd?: number };
       items?: WireEvent[];
+      item_delay_ms?: number;
+      delay_ms?: number;
       status?: 'completed' | 'failed';
     }
   | {
@@ -169,7 +171,17 @@ export class FakeAdapter implements HarnessAdapter {
         };
         return;
       }
-      for (const item of turn.items ?? []) yield item;
+      // harn:assume normalized-run-items-presented-live ref=delayed-fake-run-fixture
+      for (const item of turn.items ?? []) {
+        yield item;
+        if (turn.item_delay_ms !== undefined) {
+          await new Promise((resolve) => setTimeout(resolve, turn.item_delay_ms));
+        }
+      }
+      if (turn.delay_ms !== undefined) {
+        await new Promise((resolve) => setTimeout(resolve, turn.delay_ms));
+      }
+      // harn:end normalized-run-items-presented-live
       yield {
         type: 'run.completed',
         status: turn.status ?? 'completed',

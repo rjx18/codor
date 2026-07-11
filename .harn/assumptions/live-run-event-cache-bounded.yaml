@@ -1,0 +1,14 @@
+id: live-run-event-cache-bounded
+hash: a-5cd34bb67afe
+title: Browser run-event memory stays bounded with journal recovery
+state: active
+statement: The web room store must retain at most the newest 500 live events per
+  run with a cumulative dropped count, while the run view exposes an
+  earlier-events affordance that reloads the authoritative redacted journal,
+  because long harness turns must not grow browser memory without bound or hide
+  recoverable evidence.
+depends_on:
+  - client-syncs-by-seq
+  - run-blobs-off-db
+  - run-item-raw-journal-only
+created_by: codor-p4a-run-stream

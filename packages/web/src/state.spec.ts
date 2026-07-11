@@ -158,9 +158,30 @@ describe('frame application (in-place, seq-cursored)', () => {
       event: { type: 'run.item', item_type: 'text_delta', payload: 'hi' },
     });
     const state = useRoomStore.getState();
-    expect(state.runEvents[1]).toHaveLength(1);
+    expect(state.runEvents[1]).toEqual({
+      events: [{ type: 'run.item', item_type: 'text_delta', payload: 'hi' }],
+      dropped_count: 0,
+    });
     expect(state.seq).toBe(2); // ephemeral frames never move the cursor
   });
+
+  // harn:assume live-run-event-cache-bounded ref=bounded-run-stream-regression
+  it('retains only the latest 500 live events and counts every dropped event', () => {
+    const { applyFrame } = useRoomStore.getState();
+    for (let index = 0; index < 600; index++) {
+      applyFrame({
+        type: 'run_event',
+        room: 'eng',
+        message_id: 4,
+        event: { type: 'run.item', item_type: 'text_delta', payload: { text: String(index) } },
+      });
+    }
+    const buffer = useRoomStore.getState().runEvents[4]!;
+    expect(buffer.events).toHaveLength(500);
+    expect(buffer.dropped_count).toBe(100);
+    expect(buffer.events[0]).toMatchObject({ payload: { text: '100' } });
+  });
+  // harn:end live-run-event-cache-bounded
 
   it('records distinct observed member state transitions without duplicating refreshes', () => {
     const { applyFrame } = useRoomStore.getState();

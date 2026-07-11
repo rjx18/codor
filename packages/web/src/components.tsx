@@ -9,6 +9,7 @@ import {
 import {
   Activity,
   Bot,
+  BrainCircuit,
   Cable,
   ChevronDown,
   ChevronRight,
@@ -16,7 +17,6 @@ import {
   CircleHelp,
   CircleDollarSign,
   CircleX,
-  Clock3,
   FileCode2,
   FileText,
   Gauge,
@@ -33,8 +33,8 @@ import {
   Send,
   Settings,
   ShieldAlert,
+  Terminal,
   UserRound,
-  Wrench,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -42,7 +42,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchLedgerNote, fetchRunEvents } from './api.js';
 import type { AdapterRegistration, LedgerNote, MemberDetail } from './api.js';
 import { currentBrowserAccessToken } from './crypto.js';
-import { latestFinalizedAgentAuthor, me, type MemberStateObservation } from './state.js';
+import {
+  formatRunDuration,
+  mergeRunEvents,
+  presentRunEvents,
+  type RunRow,
+} from './run-presenter.js';
+import {
+  latestFinalizedAgentAuthor,
+  me,
+  type MemberStateObservation,
+  type RunEventBuffer,
+} from './state.js';
 import type { Connection } from './ws.js';
 
 const stateDot: Record<string, string> = {
@@ -692,53 +703,62 @@ export interface ExtensionRunSummary {
   ended: boolean;
 }
 
-export function runEventPresentation(event: WireEvent): { label: string; detail?: string; tone: string } {
-  const compact = (value: unknown): string => {
-    const rendered = typeof value === 'string' ? value : JSON.stringify(value);
-    return rendered.length > 220 ? `${rendered.slice(0, 217)}...` : rendered;
-  };
-  if (event.type === 'run.item') {
-    const labels: Record<typeof event.item_type, string> = {
-      tool_call: 'Tool call',
-      tool_result: 'Tool result',
-      reasoning_summary: 'Reasoning summary',
-      text_delta: 'Response draft',
-      commit: 'Commit recorded',
-      file_change: 'File changed',
-    };
-    return {
-      label: labels[event.item_type],
-      detail: compact(event.payload),
-      tone: event.item_type === 'commit' || event.item_type === 'file_change' ? 'change' : 'work',
-    };
-  }
-  if (event.type === 'run.started') {
-    return { label: 'Run started', detail: `Triggered by #${String(event.trigger_msg)}`, tone: 'work' };
-  }
-  if (event.type === 'run.completed') {
-    return { label: `Run ${event.status}`, detail: event.final_text, tone: event.status === 'completed' ? 'success' : 'danger' };
-  }
-  if (event.type === 'ask.raised' || event.type === 'approval.raised') {
-    return { label: event.type === 'ask.raised' ? 'Question raised' : 'Approval raised', detail: event.card.prompt, tone: 'attention' };
-  }
-  if (event.type === 'member.state') {
-    return { label: 'Member state changed', detail: event.state.replaceAll('_', ' '), tone: 'work' };
-  }
-  return {
-    label: event.type === 'extension.started' ? 'Extension started' : 'Extension finished',
-    detail: event.type === 'extension.started' ? event.description : event.summary,
-    tone: 'extension',
-  };
+function RunElapsedTime(props: { startedTs: string; endedTs?: string; running: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!props.running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [props.running]);
+
+  const end = props.endedTs ? Date.parse(props.endedTs) : now;
+  return (
+    <span data-testid="run-elapsed">
+      {formatRunDuration(end - Date.parse(props.startedTs))}
+    </span>
+  );
 }
 
-function RunEventIcon(props: { event: WireEvent }) {
-  if (props.event.type !== 'run.item') return <Activity aria-hidden="true" size={15} />;
-  if (props.event.item_type === 'tool_call' || props.event.item_type === 'tool_result') {
-    return <Wrench aria-hidden="true" size={15} />;
+function RunRowIcon(props: { icon: RunRow['icon'] }) {
+  if (props.icon === 'terminal') return <Terminal aria-hidden="true" size={15} />;
+  if (props.icon === 'edit') return <FileCode2 aria-hidden="true" size={15} />;
+  if (props.icon === 'search') return <Search aria-hidden="true" size={15} />;
+  if (props.icon === 'web') return <Network aria-hidden="true" size={15} />;
+  if (props.icon === 'commit') return <GitCommitHorizontal aria-hidden="true" size={15} />;
+  if (props.icon === 'reasoning') return <BrainCircuit aria-hidden="true" size={15} />;
+  if (props.icon === 'text') return <FileText aria-hidden="true" size={15} />;
+  return <Activity aria-hidden="true" size={15} />;
+}
+
+function RunEvidenceRow(props: { row: RunRow; running: boolean }) {
+  if (props.row.kind === 'prose') {
+    return (
+      <li className="wr-run-prose" data-run-row data-row-kind="prose">
+        <p>{props.row.text}</p>
+      </li>
+    );
   }
-  if (props.event.item_type === 'commit') return <GitCommitHorizontal aria-hidden="true" size={15} />;
-  if (props.event.item_type === 'file_change') return <FileCode2 aria-hidden="true" size={15} />;
-  return <FileText aria-hidden="true" size={15} />;
+  return (
+    <li
+      data-run-row
+      data-row-kind="tool"
+      data-row-status={props.row.status}
+      className={props.running && props.row.status === 'running' ? 'is-active' : undefined}
+    >
+      <span className="wr-event-icon"><RunRowIcon icon={props.row.icon} /></span>
+      <span className="wr-run-row-copy">
+        <strong>{props.row.title}</strong>
+        {props.row.detail && <code>{props.row.detail}</code>}
+      </span>
+      <span className="wr-run-row-result">
+        {props.row.status === 'ok' && <CircleCheck aria-label="completed" size={15} />}
+        {props.row.status === 'error' && <CircleX aria-label="failed" size={15} />}
+        {props.row.status === 'running' && <span aria-label="running">running</span>}
+        {props.row.duration_ms !== undefined && formatRunDuration(props.row.duration_ms)}
+      </span>
+    </li>
+  );
 }
 
 // harn:assume extensions-not-addressable-v1 ref=extension-run-rendering
@@ -772,28 +792,55 @@ export function extensionRunSummaries(events: WireEvent[]): ExtensionRunSummary[
 export function RunMessageView(props: {
   message: Message;
   authorHandle: string;
-  liveEventCount: number;
+  liveEvents: RunEventBuffer;
   room: string;
   token: string;
   onInspect?: () => void;
 }) {
   const run = props.message.run!;
-  const [expanded, setExpanded] = useState(false);
-  const [events, setEvents] = useState<WireEvent[] | undefined>(undefined);
   const running = run.status === 'running';
-  const extensions = extensionRunSummaries(events ?? []);
-  const tokenTotal = run.usage
-    ? run.usage.input_tokens + run.usage.output_tokens
-    : undefined;
+  const [expanded, setExpanded] = useState(running);
+  const [journal, setJournal] = useState<WireEvent[] | undefined>(undefined);
+  const [journalFailed, setJournalFailed] = useState(false);
+  const wasRunning = useRef(running);
+  const evidence = useMemo(
+    () => mergeRunEvents(journal, props.liveEvents),
+    [journal, props.liveEvents],
+  );
+  const rows = useMemo(() => presentRunEvents(evidence), [evidence]);
+  const extensions = extensionRunSummaries(evidence.map((item) => item.event));
+  const activeTool = [...rows].reverse().find((row) => row.kind === 'tool' && row.status === 'running');
+  const missingEarlier = props.liveEvents.dropped_count > 0 &&
+    (journal?.length ?? 0) < props.liveEvents.dropped_count + props.liveEvents.events.length;
+
+  const loadJournal = (): void => {
+    setJournalFailed(false);
+    void fetchRunEvents(props.room, props.message.id, { token: props.token })
+      .then(setJournal)
+      .catch(() => setJournalFailed(true));
+  };
 
   useEffect(() => {
-    if (expanded && events === undefined) {
-      fetchRunEvents(props.room, props.message.id, { token: props.token })
-        .then(setEvents)
-        .catch(() => setEvents([]));
-    }
-  }, [expanded, events, props.room, props.message.id, props.token]);
+    if (wasRunning.current && !running) setExpanded(false);
+    wasRunning.current = running;
+  }, [running]);
 
+  useEffect(() => {
+    setJournal(undefined);
+    setJournalFailed(false);
+  }, [props.message.id]);
+
+  useEffect(() => {
+    if (
+      expanded &&
+      props.liveEvents.dropped_count === 0 &&
+      journal === undefined &&
+      !journalFailed
+    ) loadJournal();
+  }, [expanded, journal, journalFailed, props.liveEvents.dropped_count, props.message.id, props.room, props.token]);
+
+  // harn:assume normalized-run-items-presented-live ref=live-run-message-surface
+  // harn:assume live-run-event-cache-bounded ref=full-journal-recovery
   return (
     <div
       id={String(props.message.id)}
@@ -816,20 +863,15 @@ export function RunMessageView(props: {
           {expanded ? <ChevronDown aria-hidden="true" size={16} /> : <ChevronRight aria-hidden="true" size={16} />}
           <span className="wr-run-identity">
             <strong>@{props.authorHandle}</strong>
-            <small>
-              <Clock3 aria-hidden="true" size={12} />
-              {new Date(run.started_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </small>
           </span>
-          {running ? (
-            <span data-testid={`run-${props.message.id}-live`} className="wr-run-status is-running">
-              running · {props.liveEventCount} events
-            </span>
-          ) : (
-            <span className={`wr-run-status is-${run.status}`}>
-              {run.status}
-            </span>
-          )}
+          <span className={`wr-run-status is-${run.status}`} data-testid={`run-${props.message.id}-status`}>
+            {running && 'running · '}
+            {!running && run.status !== 'completed' && `${run.status} · `}
+            <RunElapsedTime startedTs={run.started_ts} endedTs={run.ended_ts} running={running} />
+            {running && activeTool && ` · ${activeTool.title}`}
+            {!running && ` · ${String(run.tool_calls)} ${run.tool_calls === 1 ? 'tool' : 'tools'}`}
+            {!running && ` · ${run.usage?.cost_usd === undefined ? 'cost not reported' : `$${run.usage.cost_usd.toFixed(2)}`}`}
+          </span>
         </button>
         {props.onInspect && (
           <button
@@ -850,15 +892,23 @@ export function RunMessageView(props: {
           {props.message.body}
         </p>
       )}
-      {!running && run.usage && (
-        <div className="wr-run-summary" aria-label="Run usage">
-          <span>{tokenTotal?.toLocaleString()} tokens</span>
-          <span>{run.tool_calls} tool calls</span>
-          <span>{run.usage.cost_usd === undefined ? 'cost not reported' : `$${run.usage.cost_usd.toFixed(2)}`}</span>
-        </div>
-      )}
       {expanded && (
-        <div id={`run-${String(props.message.id)}-events`} data-testid={`run-${props.message.id}-events`} className="wr-run-events">
+        <div
+          id={`run-${String(props.message.id)}-events`}
+          data-testid={`run-${props.message.id}-events`}
+          data-event-count={evidence.length}
+          className="wr-run-events"
+        >
+          {missingEarlier && (
+            <button
+              type="button"
+              data-testid={`run-${props.message.id}-earlier`}
+              className="wr-run-earlier"
+              onClick={loadJournal}
+            >
+              … {props.liveEvents.dropped_count} earlier events
+            </button>
+          )}
           {extensions.length > 0 && (
             <div data-testid={`run-${props.message.id}-extensions`} className="wr-run-extensions">
               {extensions.map((extension) => (
@@ -881,26 +931,15 @@ export function RunMessageView(props: {
             </div>
           )}
           <ol className="wr-run-event-list">
-            {(events ?? [])
-              .filter((event) => event.type !== 'extension.started' && event.type !== 'extension.ended')
-              .map((event, i) => {
-                const presentation = runEventPresentation(event);
-                return (
-                  <li key={i} data-tone={presentation.tone}>
-                    <span className="wr-event-icon"><RunEventIcon event={event} /></span>
-                    <span>
-                      <strong>{presentation.label}</strong>
-                      {presentation.detail && <code>{presentation.detail}</code>}
-                    </span>
-                  </li>
-                );
-              })}
-            {events !== undefined && events.length === 0 && <li>(no journaled events)</li>}
+            {rows.map((row) => <RunEvidenceRow key={row.id} row={row} running={running} />)}
+            {journalFailed && rows.length === 0 && <li role="status">Evidence unavailable</li>}
           </ol>
         </div>
       )}
     </div>
   );
+  // harn:end live-run-event-cache-bounded
+  // harn:end normalized-run-items-presented-live
 }
 // harn:end extensions-not-addressable-v1
 

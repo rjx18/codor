@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { createRoom, fetchRunEvents, type AdapterRegistration, type MemberDetail } from './api.js';
 import { MemberRail } from './components.js';
+import { presentRunEvents } from './run-presenter.js';
 import type { MemberStateObservation } from './state.js';
 import type { Connection } from './ws.js';
 
@@ -247,26 +248,28 @@ export function RoomRail(props: {
   );
 }
 
-function eventLabel(event: WireEvent): string {
-  if (event.type === 'run.item') return event.item_type.replaceAll('_', ' ');
-  if (event.type === 'extension.started') return 'extension started';
-  if (event.type === 'extension.ended') return 'extension finished';
-  return event.type.replaceAll('.', ' ');
-}
-
-function eventDetail(event: WireEvent): string | undefined {
-  if (event.type === 'extension.started') return event.description;
-  if (event.type === 'extension.ended') return event.summary;
-  if (event.type === 'run.completed') return event.final_text;
-  if (event.type !== 'run.item') return undefined;
-  const payload = event.payload;
-  if (typeof payload !== 'object' || payload === null) {
-    return typeof payload === 'string' || typeof payload === 'number' ? String(payload) : undefined;
+function contextEventPresentation(event: WireEvent): { label: string; detail?: string } | undefined {
+  if (event.type === 'run.item') {
+    const row = presentRunEvents([{ index: 0, event }])[0];
+    return row ? { label: row.title, detail: row.detail ?? row.text } : undefined;
   }
-  const values = payload as Record<string, unknown>;
-  for (const key of ['tool', 'command', 'path', 'change', 'summary', 'result']) {
-    const value = values[key];
-    if (typeof value === 'string' && value.trim() !== '') return value.slice(0, 96);
+  if (event.type === 'extension.started') {
+    return { label: 'Extension started', detail: event.description };
+  }
+  if (event.type === 'extension.ended') {
+    return { label: 'Extension finished', detail: event.summary };
+  }
+  if (event.type === 'run.completed') {
+    return { label: `Run ${event.status}`, detail: event.final_text };
+  }
+  if (event.type === 'ask.raised' || event.type === 'approval.raised') {
+    return {
+      label: event.type === 'ask.raised' ? 'Question raised' : 'Approval raised',
+      detail: event.card.prompt,
+    };
+  }
+  if (event.type === 'member.state') {
+    return { label: 'Member state changed', detail: event.state.replaceAll('_', ' ') };
   }
   return undefined;
 }
@@ -305,6 +308,10 @@ function RunContext(props: {
   const evidence = props.liveEvents.length >= (events?.length ?? 0)
     ? props.liveEvents
     : events ?? [];
+  const visibleEvidence = evidence.flatMap((event) => {
+    const presentation = contextEventPresentation(event);
+    return presentation ? [{ event, presentation }] : [];
+  });
 
   return (
     <section className="wr-run-context" aria-label={`Run ${String(props.message.id)} context`}>
@@ -328,22 +335,22 @@ function RunContext(props: {
       <div className="wr-context-events">
         <div className="wr-rail-label">
           <span>Recent evidence</span>
-          <span data-testid="context-evidence-count">{evidence.length}</span>
+          <span data-testid="context-evidence-count">{visibleEvidence.length}</span>
         </div>
         {failed && evidence.length === 0 ? (
           <p role="status">Evidence unavailable</p>
         ) : events === undefined && props.liveEvents.length === 0 ? (
           <p role="status">Loading evidence</p>
-        ) : evidence.length === 0 ? (
+        ) : visibleEvidence.length === 0 ? (
           <p>No journaled events</p>
         ) : (
           <ol>
-            {evidence.slice(-6).reverse().map((event, index) => (
+            {visibleEvidence.slice(-6).reverse().map(({ event, presentation }, index) => (
               <li key={`${event.type}-${String(index)}`}>
                 <span aria-hidden="true" />
                 <div>
-                  <strong>{eventLabel(event)}</strong>
-                  {eventDetail(event) && <small>{eventDetail(event)}</small>}
+                  <strong>{presentation.label}</strong>
+                  {presentation.detail && <small>{presentation.detail}</small>}
                 </div>
               </li>
             ))}

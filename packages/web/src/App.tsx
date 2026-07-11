@@ -308,7 +308,9 @@ export function App(props: {
     [messages],
   );
   const selectedRun = messages.find((message) => message.id === selectedRunId) ?? latestRun;
-  const selectedRunLiveEvents = selectedRun ? state.runEvents[selectedRun.id] ?? [] : [];
+  const selectedRunLiveEvents = selectedRun
+    ? state.runEvents[selectedRun.id]?.events ?? []
+    : [];
   const owner = Object.values(state.members).find(
     (member) => member.kind === 'human' && member.role === 'owner',
   );
@@ -550,7 +552,7 @@ export function App(props: {
                     <RunMessageView
                       message={message}
                       authorHandle={handles(message.author)}
-                      liveEventCount={state.runEvents[message.id]?.length ?? 0}
+                      liveEvents={state.runEvents[message.id] ?? { events: [], dropped_count: 0 }}
                       room={ROOM}
                       token={accessToken()}
                       onInspect={() => {
