@@ -1,0 +1,22 @@
+id: bridges-review-disposition
+title: Record the P5.3 adversarial review disposition
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: bridge-runtime-persists-delivery-progress
+      outcome: unchanged
+      reason: The applied fix commit is complete and this follow-up records its hash and reviewer disposition only.
+anchors:
+  bridge-runtime-persists-delivery-progress:
+    bridge-durable-progress:
+      action: keep
+      reason: No runtime code changes while recording review evidence.
+    bridge-outbound-ready-window:
+      action: keep
+      reason: No server code changes while recording review evidence.
+    bridge-durable-regression:
+      action: keep
+      reason: No regression changes while recording review evidence.
+files:
+  - tmp/build/PROGRESS.md
