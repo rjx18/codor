@@ -1,0 +1,27 @@
+id: codor-p6e-gate-fixes
+title: P6e align pairing browser regression with channel terminology
+assumptions:
+  reviewed:
+    - id: pairing-discloses-browser-and-relay-boundaries
+      outcome: unchanged
+      reason: The browser assertion adopts channel wording while checking the same
+        relay privacy disclosure.
+    - id: pairing-offer-token-remains-qr-only
+      outcome: unchanged
+      reason: The enclosing test continues to prove pairing authority stays hidden.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The regression now expects the channel wording implemented in P6c.
+anchors:
+  pairing-discloses-browser-and-relay-boundaries:
+    pairing-boundary-regression:
+      action: change
+      reason: Replace the stale room copy expectation with channel.
+  pairing-offer-token-remains-qr-only:
+    pairing-token-visibility-regression:
+      action: change
+      reason: Account for the adjacent assertion edit in the enclosing pairing test.
+files:
+  - packages/web/tests/crypto.e2e.spec.ts
+applied:
+  applied_at: 2026-07-11T20:28:48.221Z

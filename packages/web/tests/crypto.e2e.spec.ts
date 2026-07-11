@@ -35,7 +35,7 @@ test('pairing page renders a QR without visible authority and enrolls the browse
   await expect(page.getByRole('heading', { name: 'Relay can see' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Relay never sees' })).toBeVisible();
   await expect(page.getByText(/Padded ciphertext size/)).toBeVisible();
-  await expect(page.getByText(/Sender, room or member names/)).toBeVisible();
+  await expect(page.getByText(/Sender, channel or member names/)).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 900 });
   const pairingStyle = await page.evaluate(() => {
     const shell = getComputedStyle(document.querySelector<HTMLElement>('.wr-pairing-shell')!);
