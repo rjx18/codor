@@ -1,0 +1,37 @@
+id: launch-sweep
+title: Prepare the first open-source release and prove the final tree
+assumptions:
+  reviewed:
+    - id: workspace-gates-cover-all-buildable-projects
+      outcome: unchanged
+      reason: The final recursive and browser gates still cover every buildable workspace according to its project type.
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: Launch readiness re-runs the committed clean-clone install, build, boot, CLI, API, and teardown proof.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Release copy describes the open adapter boundary without introducing another harness registry.
+anchors: {}
+files:
+  - README.md
+  - CHANGELOG.md
+  - MANUAL-VERIFY.md
+  - package.json
+  - packages/cli/package.json
+  - packages/protocol/package.json
+  - packages/switchboard/package.json
+  - packages/web/package.json
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/codex/package.json
+  - packages/adapters/copilot/package.json
+  - packages/adapters/gemini/package.json
+  - packages/adapters/opencode/package.json
+  - packages/bridges/core/package.json
+  - packages/bridges/slack/package.json
+  - packages/bridges/telegram/package.json
+  - relay/package.json
+  - website/package.json
+  - scripts/license-audit.mjs
+  - tmp/build/ACCEPT-M0.md
+  - tmp/build/ACCEPT-M1.md
+  - tmp/build/PROGRESS.md
