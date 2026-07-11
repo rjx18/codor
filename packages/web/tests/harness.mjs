@@ -28,7 +28,7 @@ const ADMIN_TOKEN = 'e2e-admin-token';
 const MEMBER_TOKEN = 'e2e-member-token';
 const OBSERVER_TOKEN = 'e2e-observer-token';
 
-const dir = mkdtempSync(join(tmpdir(), 'wireroom-e2e-'));
+const dir = mkdtempSync(join(tmpdir(), 'codor-e2e-'));
 const fake = new FakeAdapter('fake', { extensions: true });
 const ledger = new LedgerManager({ dataDir: dir });
 const crypto = new CryptoVault(dir);
@@ -154,7 +154,7 @@ createServer(async (req, res) => {
       }));
       return;
     } else if (url.pathname === '/rotate-room-key') {
-      const removable = new CryptoVault(mkdtempSync(join(tmpdir(), 'wireroom-revoked-device-')));
+      const removable = new CryptoVault(mkdtempSync(join(tmpdir(), 'codor-revoked-device-')));
       const peer = crypto.keys.enrollPeer({
         ...removable.keys.publicIdentity(),
         kind: 'device',
@@ -253,5 +253,5 @@ createServer(async (req, res) => {
     res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: String(error) }));
   }
 }).listen(CONTROL_PORT, '127.0.0.1', () => {
-  console.log(`wireroom e2e harness up: api :${API_PORT}, control :${CONTROL_PORT}`);
+  console.log(`codor e2e harness up: api :${API_PORT}, control :${CONTROL_PORT}`);
 });

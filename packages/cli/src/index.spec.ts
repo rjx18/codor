@@ -22,7 +22,7 @@ import {
   parseMirrorHook,
   renderTerminalQr,
   runCli,
-  startWireroom,
+  startCodor,
 } from './index.js';
 import { parseLine, startOutpost } from './up.js';
 import { parseAdapterModules } from './program.js';
@@ -36,7 +36,7 @@ let server: RunningServer;
 let output: string[];
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'wireroom-cli-'));
+  dir = mkdtempSync(join(tmpdir(), 'codor-cli-'));
   fake = new FakeAdapter();
   codexFake = new FakeAdapter('codex', { interactiveAttach: true });
   daemon = new Daemon({
@@ -54,7 +54,7 @@ beforeEach(async () => {
   server = await startServer({
     daemon,
     token: 'cli-token',
-    socketPath: join(dir, 'wireroom.sock'),
+    socketPath: join(dir, 'codor.sock'),
     crypto,
   });
   output = [];
@@ -68,7 +68,7 @@ afterEach(async () => {
 });
 
 const cli = (...args: string[]) =>
-  runCli(['node', 'wireroom', '--data-dir', dir, ...args], {
+  runCli(['node', 'codor', '--data-dir', dir, ...args], {
     stdout: (line) => output.push(line),
     stderr: (line) => output.push(line),
   });
@@ -96,6 +96,26 @@ describe('@codor/cli', () => {
       'ledger',
     ]);
   });
+
+  // harn:assume codor-runtime-identity-is-a-clean-break ref=runtime-identity-regression
+  it('uses Codor runtime identity for the command, service, install target, and default paths', () => {
+    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const cliPackage = JSON.parse(readFileSync(join(repoRoot, 'packages', 'cli', 'package.json'), 'utf8')) as {
+      bin: Record<string, string>;
+    };
+    const program = createProgram({ env: { CODOR_TOKEN: 'configured' } });
+    expect(program.name()).toBe('codor');
+    expect(program.opts()).toMatchObject({ token: 'configured' });
+    expect(program.opts().dataDir).toMatch(/\.codor$/);
+    expect(cliPackage.bin).toEqual({ codor: './dist/index.js' });
+    for (const file of [
+      join(repoRoot, 'packaging', 'systemd', 'codor.service'),
+      join(repoRoot, 'scripts', 'install-cli.sh'),
+    ]) {
+      expect(readFileSync(file, 'utf8')).not.toMatch(/wireroom/i);
+    }
+  });
+  // harn:end codor-runtime-identity-is-a-clean-break
 
   it('parses outpost lines without truncating secrets that contain colons', () => {
     expect(parseLine('studio:correct:horse')).toEqual({
@@ -154,7 +174,7 @@ describe('@codor/cli', () => {
   // harn:assume terminal-pairing-qr-matches-plain-url ref=pairing-qr-regression
   it('renders a pairing QR from the exact plain URL and supports explicit plain-only output', async () => {
     let qrPayload: string | undefined;
-    await runCli(['node', 'wireroom', '--data-dir', dir, 'pair'], {
+    await runCli(['node', 'codor', '--data-dir', dir, 'pair'], {
       stdout: (line) => output.push(line),
       renderQr: (payload) => {
         qrPayload = payload;
@@ -183,7 +203,7 @@ describe('@codor/cli', () => {
       ['opencode', `${home}/.opencode/bin/opencode`],
       ['tailscale', '/usr/bin/tailscale'],
     ]);
-    await runCli(['node', 'wireroom', 'setup', '--dry-run'], {
+    await runCli(['node', 'codor', 'setup', '--dry-run'], {
       env: { HOME: home, USER: 'setup-test', PATH: '/usr/local/bin:/usr/bin' },
       stdout: (line) => output.push(line),
       setup: {
@@ -194,19 +214,21 @@ describe('@codor/cli', () => {
       },
     });
     expect(output.join('\n').replaceAll(repoRoot, '<repo>/')).toMatchInlineSnapshot(`
-      "[dry-run] create /home/setup-test/.config/wireroom and /home/setup-test/.wireroom mode 700; create /home/setup-test/.config/wireroom/token mode 600 if absent
-      [dry-run] install <repo>/packaging/systemd/wireroom.service -> /home/setup-test/.config/systemd/user/wireroom.service mode 600
+      "[dry-run] create /home/setup-test/.config/codor and /home/setup-test/.codor mode 700; create /home/setup-test/.config/codor/token mode 600 if absent
+      [dry-run] install <repo>/packaging/systemd/codor.service -> /home/setup-test/.config/systemd/user/codor.service mode 600
       [dry-run] unit content:
       [Unit]
-      Description=Wireroom local-first agent switchboard
+      Description=Codor local-first agent switchboard
       [Service]
       Type=simple
-      WorkingDirectory=%h/wireroom
-      EnvironmentFile=%h/.config/wireroom/env
+      WorkingDirectory=%h/codor
+      EnvironmentFile=%h/.config/codor/env
       UMask=0077
+      # harn:assume codor-runtime-identity-is-a-clean-break ref=systemd-runtime-identity
       # harn:assume fresh-clone-install-proven-by-script ref=systemd-service
-      ExecStart=/home/setup-test/.nvm/versions/node/v22.8.0/bin/node %h/wireroom/packages/cli/dist/index.js --data-dir %h/.wireroom up --static-root %h/wireroom/packages/web/dist --room desk --room-name Desk
+      ExecStart=/home/setup-test/.nvm/versions/node/v22.8.0/bin/node %h/codor/packages/cli/dist/index.js --data-dir %h/.codor up --static-root %h/codor/packages/web/dist --room desk --room-name Desk
       # harn:end fresh-clone-install-proven-by-script
+      # harn:end codor-runtime-identity-is-a-clean-break
       Restart=on-failure
       RestartSec=5s
       TimeoutStopSec=30s
@@ -214,16 +236,16 @@ describe('@codor/cli', () => {
 
       [Install]
       WantedBy=default.target
-      [dry-run] write /home/setup-test/.config/wireroom/env mode 600
-      WIREROOM_TOKEN=<redacted generated-or-existing token>
+      [dry-run] write /home/setup-test/.config/codor/env mode 600
+      CODOR_TOKEN=<redacted generated-or-existing token>
       PATH=/home/setup-test/.local/bin:/home/setup-test/.nvm/versions/node/v22.8.0/bin:/home/setup-test/.opencode/bin:/usr/local/bin:/usr/bin
       [dry-run] systemctl --user daemon-reload
-      [dry-run] systemctl --user enable --now wireroom.service
+      [dry-run] systemctl --user enable --now codor.service
       [dry-run] tailscale serve --bg http://127.0.0.1:8137
       [dry-run] tailscale serve status
       [dry-run] generate a ten-minute pairing link and exact-payload terminal QR"
     `);
-    expect(existsSync(join(home, '.config', 'wireroom'))).toBe(false);
+    expect(existsSync(join(home, '.config', 'codor'))).toBe(false);
   });
 
   it('writes private setup files, runs confirmed host steps, and pairs against the Serve origin', async () => {
@@ -231,7 +253,7 @@ describe('@codor/cli', () => {
     const home = join(dir, 'setup-home');
     const commands: string[] = [];
     let qrPayload: string | undefined;
-    await runCli(['node', 'wireroom', 'setup'], {
+    await runCli(['node', 'codor', 'setup'], {
       env: { HOME: home, USER: 'setup-test', PATH: '/usr/bin' },
       stdout: (line) => output.push(line),
       setup: {
@@ -260,12 +282,12 @@ describe('@codor/cli', () => {
       },
     });
 
-    const configDir = join(home, '.config', 'wireroom');
+    const configDir = join(home, '.config', 'codor');
     const tokenPath = join(configDir, 'token');
     const envPath = join(configDir, 'env');
-    const unitPath = join(home, '.config', 'systemd', 'user', 'wireroom.service');
+    const unitPath = join(home, '.config', 'systemd', 'user', 'codor.service');
     expect(statSync(configDir).mode & 0o777).toBe(0o700);
-    expect(statSync(join(home, '.wireroom')).mode & 0o777).toBe(0o700);
+    expect(statSync(join(home, '.codor')).mode & 0o777).toBe(0o700);
     expect(statSync(tokenPath).mode & 0o777).toBe(0o600);
     expect(statSync(envPath).mode & 0o777).toBe(0o600);
     expect(readFileSync(unitPath, 'utf8')).toContain('ExecStart=/opt/node/bin/node ');
@@ -274,7 +296,7 @@ describe('@codor/cli', () => {
     );
     expect(commands).toEqual([
       'systemctl --user daemon-reload',
-      'systemctl --user enable --now wireroom.service',
+      'systemctl --user enable --now codor.service',
       'loginctl show-user setup-test -p Linger --value',
       'tailscale serve --bg http://127.0.0.1:8137',
       'tailscale serve status',
@@ -293,7 +315,7 @@ describe('@codor/cli', () => {
       display_name: 'Gemini',
       harness: 'gemini',
       session_ref: '11111111-1111-4111-8111-111111111111',
-    }, { WIREROOM_GEMINI_COMMAND: '/opt/gemini' })).toEqual({
+    }, { CODOR_GEMINI_COMMAND: '/opt/gemini' })).toEqual({
       command: '/opt/gemini',
       args: ['--resume', '11111111-1111-4111-8111-111111111111'],
     });
@@ -307,7 +329,7 @@ describe('@codor/cli', () => {
       display_name: 'OpenCode',
       harness: 'opencode',
       session_ref: 'ses_0b418b8aeffelyQqZS0JoBHFvF',
-    }, { WIREROOM_OPENCODE_COMMAND: '/opt/opencode' })).toEqual({
+    }, { CODOR_OPENCODE_COMMAND: '/opt/opencode' })).toEqual({
       command: '/opt/opencode',
       args: ['--session', 'ses_0b418b8aeffelyQqZS0JoBHFvF'],
     });
@@ -321,7 +343,7 @@ describe('@codor/cli', () => {
       display_name: 'Copilot',
       harness: 'copilot',
       session_ref: '33333333-3333-4333-8333-333333333333',
-    }, { WIREROOM_COPILOT_COMMAND: '/opt/copilot' })).toEqual({
+    }, { CODOR_COPILOT_COMMAND: '/opt/copilot' })).toEqual({
       command: '/opt/copilot',
       args: ['--resume', '33333333-3333-4333-8333-333333333333'],
     });
@@ -371,7 +393,7 @@ describe('@codor/cli', () => {
     await runCli(
       [
         'node',
-        'wireroom',
+        'codor',
         '--url',
         `http://127.0.0.1:${server.port}`,
         '--token',
@@ -426,7 +448,7 @@ describe('@codor/cli', () => {
     daemon.postHumanMessage('eng', '@coder initialize');
     await daemon.settle();
 
-    const attached = runCli(['node', 'wireroom', '--data-dir', dir, 'attach', '@coder'], {
+    const attached = runCli(['node', 'codor', '--data-dir', dir, 'attach', '@coder'], {
       stdout: (line) => output.push(line),
       stderr: (line) => output.push(line),
       interactiveCommand: () => ({
@@ -503,12 +525,12 @@ describe('@codor/cli', () => {
     const env = { ...process.env, HOME: home };
     execFileSync(script, { env, stdio: 'pipe' });
     execFileSync(script, { env, stdio: 'pipe' });
-    expect(readlinkSync(join(home, '.local', 'bin', 'wireroom'))).toBe(
+    expect(readlinkSync(join(home, '.local', 'bin', 'codor'))).toBe(
       join(repoRoot, 'packages', 'cli', 'dist', 'index.js'),
     );
-    const installed = join(home, '.local', 'bin', 'wireroom');
+    const installed = join(home, '.local', 'bin', 'codor');
     expect(statSync(installed).mode & 0o111).not.toBe(0);
-    expect(execFileSync(installed, ['--help'], { env, encoding: 'utf8' })).toContain('Usage: wireroom');
+    expect(execFileSync(installed, ['--help'], { env, encoding: 'utf8' })).toContain('Usage: codor');
   });
   // harn:end global-cli-install-is-idempotent
 
@@ -565,7 +587,7 @@ describe('@codor/cli', () => {
   });
 
   it('boots a default room plus the data-directory socket', async () => {
-    const running = await startWireroom({
+    const running = await startCodor({
       dataDir: join(dir, 'up-data'),
       token: 'up-token',
       port: 0,
@@ -579,7 +601,7 @@ describe('@codor/cli', () => {
     expect(running.daemon.registeredAdapters().map((adapter) => adapter.id)).toEqual(
       [...BUILTIN_ADAPTER_IDS].sort(),
     );
-    expect(running.server.socketPath).toBe(join(dir, 'up-data', 'wireroom.sock'));
+    expect(running.server.socketPath).toBe(join(dir, 'up-data', 'codor.sock'));
     expect(running.transport).toBeDefined();
     expect(running.residency?.registeredAdapters().map((adapter) => adapter.id)).toEqual(
       [...BUILTIN_ADAPTER_IDS].sort(),
@@ -622,7 +644,7 @@ describe('@codor/cli', () => {
     expect(Object.hasOwn(parseAdapterModules(['__proto__=safe.mjs']), '__proto__')).toBe(true);
 
     const fixture = fileURLToPath(new URL('../../switchboard/test-fixtures/third-party-adapter.mjs', import.meta.url));
-    const running = await startWireroom({
+    const running = await startCodor({
       dataDir: join(dir, 'configured-up-data'),
       token: 'configured-up-token',
       port: 0,
@@ -637,7 +659,7 @@ describe('@codor/cli', () => {
     }
 
     const unopenedDataDir = join(dir, 'failed-config-data');
-    await expect(startWireroom({
+    await expect(startCodor({
       dataDir: unopenedDataDir,
       token: 'configured-up-token',
       port: 0,

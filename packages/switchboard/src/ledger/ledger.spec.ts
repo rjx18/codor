@@ -58,7 +58,7 @@ describe('ledger vault v1', () => {
   // harn:end graph-derived-from-vault-links-readonly
 
   it('bootstraps the Obsidian-compatible vault from a byte-exact golden', () => {
-    const root = mkdtempSync(join(tmpdir(), 'wireroom-ledger-'));
+    const root = mkdtempSync(join(tmpdir(), 'codor-ledger-'));
     cleanup.push(() => rmSync(root, { recursive: true, force: true }));
     const vault = new LedgerVault(root, 'eng');
     vault.bootstrap();
@@ -71,7 +71,7 @@ describe('ledger vault v1', () => {
   });
 
   it('attributes managed writes to a member and direct edits to operator', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'wireroom-ledger-watch-'));
+    const root = mkdtempSync(join(tmpdir(), 'codor-ledger-watch-'));
     cleanup.push(() => rmSync(root, { recursive: true, force: true }));
     const changes: { name: string; author: string }[] = [];
     const manager = new LedgerManager({
@@ -118,7 +118,7 @@ describe('ledger vault v1', () => {
   });
 
   it('resolves [[refs]] at home into the snapshotted payload and advertises ledger syntax', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'wireroom-ledger-payload-'));
+    const root = mkdtempSync(join(tmpdir(), 'codor-ledger-payload-'));
     cleanup.push(() => rmSync(root, { recursive: true, force: true }));
     const fake = new FakeAdapter();
     const ledger = new LedgerManager({ dataDir: root });
@@ -156,7 +156,7 @@ describe('ledger vault v1', () => {
   });
 
   it('contains and validates transported writes while preserving valid local and remote adds', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'wireroom-ledger-remote-'));
+    const root = mkdtempSync(join(tmpdir(), 'codor-ledger-remote-'));
     cleanup.push(() => rmSync(root, { recursive: true, force: true }));
     const testnet = await createTestnet(3);
     cleanup.push(() => testnet.destroy());

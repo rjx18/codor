@@ -30,9 +30,9 @@ function signed(body: NotifyRequest, identity: ReturnType<typeof signer>, timest
   return {
     payload: body,
     headers: {
-      'x-wireroom-sender': identity.sender,
-      'x-wireroom-timestamp': auth.timestamp,
-      'x-wireroom-signature': signature.toString('base64url'),
+      'x-codor-sender': identity.sender,
+      'x-codor-timestamp': auth.timestamp,
+      'x-codor-signature': signature.toString('base64url'),
     },
   };
 }

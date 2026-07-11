@@ -10,7 +10,7 @@ import { GeminiAdapter, geminiApprovalMode, geminiArgs } from './adapter.js';
 const dirs: string[] = [];
 
 function executable(source: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'wireroom-gemini-adapter-'));
+  const dir = mkdtempSync(join(tmpdir(), 'codor-gemini-adapter-'));
   dirs.push(dir);
   const path = join(dir, 'fake-gemini');
   writeFileSync(path, `#!/usr/bin/env node\n${source}`);
@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe('Gemini subprocess and capability conformance', () => {
-  it('maps Wireroom policy chips onto Gemini approval modes', () => {
+  it('maps Codor policy chips onto Gemini approval modes', () => {
     expect(geminiApprovalMode('read-only')).toBe('plan');
     expect(geminiApprovalMode('workspace-write')).toBe('auto_edit');
     expect(geminiApprovalMode('full-access')).toBe('yolo');
@@ -59,7 +59,7 @@ console.log(JSON.stringify({type:'message',timestamp:new Date().toISOString(),ro
 console.log(JSON.stringify({type:'result',timestamp:new Date().toISOString(),status:'success',stats:{input_tokens:1,output_tokens:1}}));
 `);
     const adapter = new GeminiAdapter(command);
-    const cwd = mkdtempSync(join(tmpdir(), 'wireroom-gemini-cwd-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'codor-gemini-cwd-'));
     dirs.push(cwd);
     const session = adapter.attach('22222222-2222-4222-8222-222222222222');
     session.cwd = cwd;
@@ -85,7 +85,7 @@ console.log(JSON.stringify({type:'result',timestamp:new Date().toISOString(),sta
   });
 
   it('turns missing commands and nonzero exits into failed runs', async () => {
-    expect((await collect(new GeminiAdapter('/definitely/missing/wireroom-gemini'))).at(-1))
+    expect((await collect(new GeminiAdapter('/definitely/missing/codor-gemini'))).at(-1))
       .toMatchObject({ type: 'run.completed', status: 'failed' });
     const command = executable("process.stderr.write('native failure\\n'); process.exit(7);\n");
     expect((await collect(new GeminiAdapter(command))).at(-1)).toMatchObject({
@@ -96,7 +96,7 @@ console.log(JSON.stringify({type:'result',timestamp:new Date().toISOString(),sta
   });
 
   it('discovers main session UUIDs from project-scoped JSONL metadata', () => {
-    const home = mkdtempSync(join(tmpdir(), 'wireroom-gemini-home-'));
+    const home = mkdtempSync(join(tmpdir(), 'codor-gemini-home-'));
     dirs.push(home);
     const chats = join(home, 'tmp', 'project-a', 'chats');
     mkdirSync(join(chats, 'parent-session'), { recursive: true });

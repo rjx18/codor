@@ -1,0 +1,19 @@
+[Unit]
+Description=Codor local-first agent switchboard
+[Service]
+Type=simple
+WorkingDirectory=%h/codor
+EnvironmentFile=%h/.config/codor/env
+UMask=0077
+# harn:assume codor-runtime-identity-is-a-clean-break ref=systemd-runtime-identity
+# harn:assume fresh-clone-install-proven-by-script ref=systemd-service
+ExecStart=/usr/bin/node %h/codor/packages/cli/dist/index.js --data-dir %h/.codor up --static-root %h/codor/packages/web/dist --room desk --room-name Desk
+# harn:end fresh-clone-install-proven-by-script
+# harn:end codor-runtime-identity-is-a-clean-break
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillMode=mixed
+
+[Install]
+WantedBy=default.target

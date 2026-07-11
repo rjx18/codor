@@ -6,7 +6,7 @@ import { OpenCodeAdapter } from './adapter.js';
  * The P1.7b live PONG was run exactly once and captured under fixtures/. This
  * opt-in check is for a future operator re-probe only; normal builds never spend.
  */
-const LIVE = process.env.WIREROOM_OPENCODE_LIVE_SMOKE === '1';
+const LIVE = process.env.CODOR_OPENCODE_LIVE_SMOKE === '1';
 
 describe.skipIf(!LIVE)('OpenCode live smoke (explicit re-probe only)', () => {
   it('returns PONG on the pinned free model', { timeout: 180_000 }, async () => {

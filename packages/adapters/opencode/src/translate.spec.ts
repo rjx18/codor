@@ -49,7 +49,7 @@ describe('OpenCode raw run translation', () => {
         state: {
           status: 'completed',
           input: { filePath: 'README.md' },
-          output: 'Wireroom',
+          output: 'Codor',
           title: 'Read README.md',
         },
       },
@@ -71,11 +71,11 @@ describe('OpenCode raw run translation', () => {
         payload: {
           call_id: 'call-1',
           status: 'ok',
-          output_text: 'Wireroom',
+          output_text: 'Codor',
           raw: {
             status: 'completed',
             input: { filePath: 'README.md' },
-            output: 'Wireroom',
+            output: 'Codor',
             title: 'Read README.md',
           },
         },

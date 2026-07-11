@@ -40,9 +40,9 @@ async function showPushNotification(data: Uint8Array): Promise<void> {
     : ['open-room'];
   const options = {
     body: preview.preview,
-    icon: '/wireroom-192.png',
-    badge: '/wireroom-192.png',
-    tag: `wireroom:${preview.room}:${String(preview.msg_id)}`,
+    icon: '/codor-192.png',
+    badge: '/codor-192.png',
+    tag: `codor:${preview.room}:${String(preview.msg_id)}`,
     data: preview,
     actions: actions.map((action) => ({
       action,
@@ -67,11 +67,11 @@ async function broadcastWorkerMessage(message: unknown): Promise<void> {
 }
 
 async function showPushFailure(error: unknown): Promise<void> {
-  await self.registration.showNotification('Wireroom needs attention', {
-    body: 'Open Wireroom to refresh this notification.',
-    icon: '/wireroom-192.png',
-    badge: '/wireroom-192.png',
-    tag: 'wireroom:push-unavailable',
+  await self.registration.showNotification('Codor needs attention', {
+    body: 'Open Codor to refresh this notification.',
+    icon: '/codor-192.png',
+    badge: '/codor-192.png',
+    tag: 'codor:push-unavailable',
     data: { unavailable: true },
   });
   await broadcastWorkerMessage({

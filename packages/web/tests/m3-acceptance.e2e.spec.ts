@@ -49,14 +49,14 @@ async function evaluateOnTarget(cdp: CDPSession, targetId: string, expression: s
 declare global {
   interface Window {
     __renderedPushes: unknown[];
-    __wireroom: { disconnect(): void; reconnect(): void };
+    __codor: { disconnect(): void; reconnect(): void };
   }
 }
 
 test('M3 acceptance: the installed mobile PWA runs the room flow and opens sealed push', async () => {
   test.setTimeout(60_000);
   test.skip(!process.env.DISPLAY, 'the real Chromium app window requires Xvfb; pnpm e2e provides it');
-  const profile = mkdtempSync(join(tmpdir(), 'wireroom-m3-pwa-'));
+  const profile = mkdtempSync(join(tmpdir(), 'codor-m3-pwa-'));
   const offer = await control<{ url: string }>('/pair-offer');
   const iphone = devices['iPhone 14'];
   const context = await chromium.launchPersistentContext(profile, {
@@ -76,7 +76,7 @@ test('M3 acceptance: the installed mobile PWA runs the room flow and opens seale
     await page.getByRole('button', { name: 'Pair this browser' }).click();
     await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
     const deviceId = await page.evaluate(() =>
-      window.__wireroomCrypto.identity().then((identity) => identity.device_id));
+      window.__codorCrypto.identity().then((identity) => identity.device_id));
 
     await page.goto(`${BASE}/?room=eng&token=e2e-token`);
     await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
@@ -121,10 +121,10 @@ test('M3 acceptance: the installed mobile PWA runs the room flow and opens seale
     const reconnectRun = page.locator('[data-run-status="running"]').first();
     await expect(reconnectRun).toBeVisible();
     const reconnectRunId = (await reconnectRun.getAttribute('data-testid'))!.replace('run-', '');
-    await page.evaluate(() => window.__wireroom.disconnect());
+    await page.evaluate(() => window.__codor.disconnect());
     await expect(page.getByTestId('connection')).toHaveAttribute('title', 'disconnected');
     await control('/answer', { label: 'YES' });
-    await page.evaluate(() => window.__wireroom.reconnect());
+    await page.evaluate(() => window.__codor.reconnect());
     await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
     await expect(page.getByTestId(`run-${reconnectRunId}-body`)).toHaveText('reconnected YES');
 
@@ -204,7 +204,7 @@ test('M3 acceptance: the installed mobile PWA runs the room flow and opens seale
     await cdp.send('ServiceWorker.deliverPushMessage', {
       origin: BASE,
       registrationId,
-      data: `wireroom-b64:${captured.sealed}`,
+      data: `codor-b64:${captured.sealed}`,
     });
     await expect.poll(() => page.evaluate(() => window.__renderedPushes[0])).toMatchObject({
       type: 'notification-rendered',

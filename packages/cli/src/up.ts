@@ -36,7 +36,7 @@ export interface UpOptions {
   bootstrap?: { host: string; port: number }[];
 }
 
-export interface RunningWireroom {
+export interface RunningCodor {
   daemon: Daemon;
   crypto: CryptoVault;
   server: RunningServer;
@@ -82,13 +82,13 @@ function ownerHandle(value: string | undefined): string {
   return 'user';
 }
 
-export async function startWireroom(options: UpOptions): Promise<RunningWireroom> {
-  if (!options.token.trim()) throw new Error('--token or WIREROOM_TOKEN is required');
+export async function startCodor(options: UpOptions): Promise<RunningCodor> {
+  if (!options.token.trim()) throw new Error('--token or CODOR_TOKEN is required');
   const adapters = await loadAdapterRegistry({
     adapters: options.adapters,
     baseDir: options.adapterBaseDir,
   });
-  const dataDir = resolve(options.dataDir ?? join(homedir(), '.wireroom'));
+  const dataDir = resolve(options.dataDir ?? join(homedir(), '.codor'));
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const crypto = new CryptoVault(dataDir);
   const transport = options.line ? new HyperswarmTransport({
@@ -118,7 +118,7 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
     residency,
     ledger,
     pushProducer,
-    onBackgroundError: (error) => console.error(`[wireroom] background task failed: ${error.message}`),
+    onBackgroundError: (error) => console.error(`[codor] background task failed: ${error.message}`),
   });
   if (daemon.store.listRooms().length === 0) {
     const room = options.room ?? 'default';
@@ -139,7 +139,7 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
       token: options.token,
       host: options.host ?? '127.0.0.1',
       port: options.port ?? 8137,
-      socketPath: join(dataDir, 'wireroom.sock'),
+      socketPath: join(dataDir, 'codor.sock'),
       staticRoot: options.staticRoot ?? (existsSync(defaultStatic) ? defaultStatic : undefined),
       crypto,
       pushSubscriptions,
@@ -178,7 +178,7 @@ export async function startOutpost(options: OutpostOptions): Promise<RunningOutp
     adapters: options.adapters,
     baseDir: options.adapterBaseDir,
   });
-  const dataDir = resolve(options.dataDir ?? join(homedir(), '.wireroom'));
+  const dataDir = resolve(options.dataDir ?? join(homedir(), '.codor'));
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const crypto = new CryptoVault(dataDir);
   const transport = new HyperswarmTransport({

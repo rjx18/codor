@@ -10,8 +10,8 @@ import { describe, expect, it } from 'vitest';
 
 import { runCli } from './index.js';
 
-const LIVE = process.env.WIREROOM_M1_ACCEPT === '1';
-const REMAINDER = process.env.WIREROOM_M1_REMAINDER === '1';
+const LIVE = process.env.CODOR_M1_ACCEPT === '1';
+const REMAINDER = process.env.CODOR_M1_REMAINDER === '1';
 const REPO_ROOT = join(import.meta.dirname, '..', '..', '..');
 
 async function settleWithin(daemon: Daemon, timeoutMs: number): Promise<boolean> {
@@ -22,13 +22,13 @@ async function settleWithin(daemon: Daemon, timeoutMs: number): Promise<boolean>
 }
 
 // harn:assume permalink-ids-stable ref=m1-live-acceptance
-describe.skipIf(!LIVE)('M1 live acceptance (WIREROOM_M1_ACCEPT=1)', () => {
+describe.skipIf(!LIVE)('M1 live acceptance (CODOR_M1_ACCEPT=1)', () => {
   it('replays review, join, attach, extension, and brake flows once', { timeout: 900_000 }, async () => {
-    const joinSession = process.env.WIREROOM_JOIN_SESSION;
-    const joinCwd = process.env.WIREROOM_JOIN_CWD ?? REPO_ROOT;
-    expect(joinSession, 'WIREROOM_JOIN_SESSION must identify the live TUI being joined').toBeTruthy();
+    const joinSession = process.env.CODOR_JOIN_SESSION;
+    const joinCwd = process.env.CODOR_JOIN_CWD ?? REPO_ROOT;
+    expect(joinSession, 'CODOR_JOIN_SESSION must identify the live TUI being joined').toBeTruthy();
 
-    const dir = mkdtempSync(join(tmpdir(), 'wireroom-m1-accept-'));
+    const dir = mkdtempSync(join(tmpdir(), 'codor-m1-accept-'));
     const workspace = join(dir, 'fixture-repo');
     mkdirSync(workspace);
     execFileSync('git', ['init', '-q', workspace]);
@@ -36,21 +36,21 @@ describe.skipIf(!LIVE)('M1 live acceptance (WIREROOM_M1_ACCEPT=1)', () => {
     execFileSync('git', ['-C', workspace, 'add', '-A']);
     execFileSync('git', [
       '-C', workspace,
-      '-c', 'user.email=accept@wireroom',
+      '-c', 'user.email=accept@codor',
       '-c', 'user.name=accept',
       'commit', '-qm', 'fixture',
     ]);
 
     const fake = new FakeAdapter('fake');
     const daemon = new Daemon({
-      dbPath: join(dir, 'wireroom.sqlite'),
+      dbPath: join(dir, 'codor.sqlite'),
       blobRoot: join(dir, 'blobs'),
       adapters: [new ClaudeCodeAdapter(), new CodexAdapter(), fake],
     });
     const server = await startServer({
       daemon,
       token: 'm1-accept-token',
-      socketPath: join(dir, 'wireroom.sock'),
+      socketPath: join(dir, 'codor.sock'),
     });
     const cliOutput: string[] = [];
     let unsubscribe = () => undefined;
@@ -139,7 +139,7 @@ describe.skipIf(!LIVE)('M1 live acceptance (WIREROOM_M1_ACCEPT=1)', () => {
 
       await runCli(
         [
-          'node', 'wireroom', '--data-dir', dir, 'join', room.id,
+          'node', 'codor', '--data-dir', dir, 'join', room.id,
           '--as', 'implementer', '--harness', 'codex', '--session', joinSession!, '--cwd', joinCwd,
         ],
         { stdout: (line) => cliOutput.push(line), stderr: (line) => cliOutput.push(line) },
@@ -152,7 +152,7 @@ describe.skipIf(!LIVE)('M1 live acceptance (WIREROOM_M1_ACCEPT=1)', () => {
       });
 
       await runCli(
-        ['node', 'wireroom', '--data-dir', dir, 'attach', `@${codex.handle}`],
+        ['node', 'codor', '--data-dir', dir, 'attach', `@${codex.handle}`],
         {
           stdout: (line) => cliOutput.push(line),
           stderr: (line) => cliOutput.push(line),
@@ -220,22 +220,22 @@ describe.skipIf(!LIVE)('M1 live acceptance (WIREROOM_M1_ACCEPT=1)', () => {
 
 describe.skipIf(!REMAINDER)('M1 zero-spend acceptance remainder', () => {
   it('verifies join, attach custody, and separate brake hold/release', { timeout: 60_000 }, async () => {
-    const joinSession = process.env.WIREROOM_JOIN_SESSION;
-    const joinCwd = process.env.WIREROOM_JOIN_CWD ?? REPO_ROOT;
-    expect(joinSession, 'WIREROOM_JOIN_SESSION must identify the live TUI being joined').toBeTruthy();
-    const dir = mkdtempSync(join(tmpdir(), 'wireroom-m1-remainder-'));
+    const joinSession = process.env.CODOR_JOIN_SESSION;
+    const joinCwd = process.env.CODOR_JOIN_CWD ?? REPO_ROOT;
+    expect(joinSession, 'CODOR_JOIN_SESSION must identify the live TUI being joined').toBeTruthy();
+    const dir = mkdtempSync(join(tmpdir(), 'codor-m1-remainder-'));
     const workspace = join(dir, 'fixture-repo');
     mkdirSync(workspace);
     const codexFake = new FakeAdapter('codex', { interactiveAttach: true });
     const daemon = new Daemon({
-      dbPath: join(dir, 'wireroom.sqlite'),
+      dbPath: join(dir, 'codor.sqlite'),
       blobRoot: join(dir, 'blobs'),
       adapters: [codexFake],
     });
     const server = await startServer({
       daemon,
       token: 'm1-remainder-token',
-      socketPath: join(dir, 'wireroom.sock'),
+      socketPath: join(dir, 'codor.sock'),
     });
     const cliOutput: string[] = [];
     try {
@@ -247,7 +247,7 @@ describe.skipIf(!REMAINDER)('M1 zero-spend acceptance remainder', () => {
       expect(reviewRoom.config).toMatchObject({ turn_brake: null, spend_brake_usd: null });
       await runCli(
         [
-          'node', 'wireroom', '--data-dir', dir, 'join', reviewRoom.id,
+          'node', 'codor', '--data-dir', dir, 'join', reviewRoom.id,
           '--as', 'implementer', '--harness', 'codex', '--session', joinSession!, '--cwd', joinCwd,
         ],
         { stdout: (line) => cliOutput.push(line), stderr: (line) => cliOutput.push(line) },
@@ -264,7 +264,7 @@ describe.skipIf(!REMAINDER)('M1 zero-spend acceptance remainder', () => {
       daemon.postHumanMessage(reviewRoom.id, '@coder initialize');
       await daemon.settle();
       await runCli(
-        ['node', 'wireroom', '--data-dir', dir, 'attach', '@coder'],
+        ['node', 'codor', '--data-dir', dir, 'attach', '@coder'],
         {
           stdout: (line) => cliOutput.push(line),
           stderr: (line) => cliOutput.push(line),
@@ -342,8 +342,8 @@ function writeBlockedTranscript(input: {
     '## Gate status',
     '',
     '- BLOCKED: live review loop and live extension.',
-    '- PASS: real pre-existing Codex session joined through `wireroom join` as mirrored.',
-    '- PASS: `wireroom attach` custody lease, child report, exit, and re-adoption round trip.',
+    '- PASS: real pre-existing Codex session joined through `codor join` as mirrored.',
+    '- PASS: `codor attach` custody lease, child report, exit, and re-adoption round trip.',
     '- PASS: separate turn-brake room held and released the same delivery.',
     '- PASS: history paging, search, and #N permalinks (Playwright; recorded in test summary).',
     '',
@@ -368,9 +368,9 @@ function writeBlockedTranscript(input: {
     'The fullscreen slash-command interaction is operator-owned and was not scripted by Vitest.',
     'Manual TUI steps:',
     '1. Open the existing Claude or Codex TUI session in its terminal.',
-    `2. Invoke \`/wireroom\`, choose \`join\`, room \`${input.reviewRoom}\`, handle \`implementer\`.`,
+    `2. Invoke \`/codor\`, choose \`join\`, room \`${input.reviewRoom}\`, handle \`implementer\`.`,
     '3. Confirm the member appears with mirrored custody.',
-    `4. On native TUI exit, run \`wireroom adopt -r ${input.reviewRoom} implementer\` only when transferring custody.`,
+    `4. On native TUI exit, run \`codor adopt -r ${input.reviewRoom} implementer\` only when transferring custody.`,
     '',
     '## Attach round trip',
     '',
@@ -449,15 +449,15 @@ function writeTranscript(input: {
     'The fullscreen slash-command interaction itself is operator-owned and was not scripted by Vitest.',
     'Manual TUI steps recorded for the walkthrough:',
     '1. Open the existing Claude or Codex TUI session in its terminal.',
-    '2. Invoke `/wireroom`, choose `join`, room `m1-review`, and handle `implementer`.',
+    '2. Invoke `/codor`, choose `join`, room `m1-review`, and handle `implementer`.',
     '3. Confirm the room member appears with mirrored custody.',
-    '4. End the native TUI and run `wireroom adopt -r m1-review implementer` only when transferring custody.',
+    '4. End the native TUI and run `codor adopt -r m1-review implementer` only when transferring custody.',
     '',
     '## Attach round trip',
     '',
     ...input.cliOutput.map((line) => `- ${line}`),
     '',
-    'The actual `wireroom attach` lease, child report, exit, and re-adoption handshake ran against the',
+    'The actual `codor attach` lease, child report, exit, and re-adoption handshake ran against the',
     'live Codex room member. The automated acceptance used a short deterministic interactive child instead',
     'of attempting to drive the fullscreen native TUI from a non-interactive test runner.',
     '',

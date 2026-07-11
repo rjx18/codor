@@ -17,10 +17,10 @@ export interface ProtocolClientOptions {
 
 function transportUrl(options: ProtocolClientOptions): string {
   if (options.remoteUrl === undefined) {
-    const socketPath = join(options.dataDir, 'wireroom.sock');
+    const socketPath = join(options.dataDir, 'codor.sock');
     return `ws+unix://${socketPath}:/ws`;
   }
-  if (!options.token) throw new Error('--token or WIREROOM_TOKEN is required with --url');
+  if (!options.token) throw new Error('--token or CODOR_TOKEN is required with --url');
   const url = new URL(options.remoteUrl);
   if (url.protocol === 'http:') url.protocol = 'ws:';
   else if (url.protocol === 'https:') url.protocol = 'wss:';

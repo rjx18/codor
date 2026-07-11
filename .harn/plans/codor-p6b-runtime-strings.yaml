@@ -1,0 +1,409 @@
+id: codor-p6b-runtime-strings
+title: P6b rename runtime identity, storage, transport, and service strings
+assumptions:
+  retire:
+    - id: dht-topic-from-line-secret
+      reason: The clean break changes the exact discovery domain from wireroom to
+        codor.
+  create:
+    - id: dht-topic-from-codor-line-secret
+      title: Codor line discovery topics derive only from the shared name and secret
+      statement: Every configured line must join the 32-byte libsodium BLAKE2b hash of
+        the exact UTF-8 string codor:name:secret as both a Hyperswarm client and
+        server, while neither the line name nor secret appears on the DHT,
+        because only holders of the shared Codor line configuration may discover
+        one another.
+      reason: Phase 6b applies the D2 clean break to the discovery domain.
+      depends_on:
+        - single-crypto-suite-libsodium
+    - id: codor-runtime-identity-is-a-clean-break
+      title: Runtime identity uses codor names without legacy aliases
+      statement: The CLI and bridge bins, CODOR environment variables, default
+        configuration and data paths, Unix socket, service unit, setup wizard,
+        browser storage and globals, PWA assets, relay headers, cryptographic
+        domain separators, ledger audit directory, and internal diagnostics must
+        use codor naming without wireroom aliases or fallbacks, because D2
+        requires a coherent clean-break runtime rather than dual identities.
+      reason: Phase 6b performs the machine-facing portion of the product rename.
+      depends_on:
+        - workspace-packages-use-codor-scope
+    - id: codor-delivery-header-identifies-channel
+      title: Agent payload headers identify Codor channels
+      statement: Every composed agent delivery must begin with the exact Codor header
+        prefix using channel, message id, author identity, recipient list, and
+        current member identity, because the clean-break prompt contract must
+        identify the renamed product while the wire protocol continues to call
+        the same database object a room.
+      reason: Phase 6b replaces the old product and room wording in agent payloads.
+      depends_on:
+        - whole-message-delivery
+  reviewed:
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: The service template moves and adopts Codor paths; the fresh-clone
+        script is updated separately in Phase 6d.
+    - id: cli-setup-wizard-preserves-service-environment
+      outcome: unchanged
+      reason: Setup keeps the same confirmations, modes, absolute Node, and PATH
+        computation while every installed artifact adopts Codor naming.
+    - id: global-cli-install-is-idempotent
+      outcome: unchanged
+      reason: The installer remains build-guarded and idempotent at the codor target.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: Only the socket filename and environment error text change; frames do
+        not.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: Command override variables change prefix without affecting custody.
+    - id: relay-opaque-forwarder-no-crypto
+      outcome: unchanged
+      reason: Relay header names change together on producer and relay boundaries.
+    - id: relay-stateless-subscription-in-request
+      outcome: unchanged
+      reason: Renamed authentication headers retain the same stateless request body.
+    - id: notify-signed-by-allowlisted-switchboard
+      outcome: unchanged
+      reason: The signature domain changes cleanly on both signer and verifier.
+    - id: push-previews-redacted-pad-then-sealed
+      outcome: unchanged
+      reason: Push domain and header names change without changing redaction or
+        sealing.
+    - id: push-decrypts-on-device-only
+      outcome: unchanged
+      reason: Browser and Node associated-data domains change together.
+    - id: push-room-key-rotation-reaches-surviving-devices
+      outcome: unchanged
+      reason: Renamed domains do not change key rotation or device wrapping.
+    - id: paired-browser-challenge-session
+      outcome: unchanged
+      reason: Browser and server challenge/session domains change together.
+    - id: unpair-purges-all-browser-state
+      outcome: unchanged
+      reason: Purge targets the renamed Codor browser databases, caches, and keys.
+    - id: single-crypto-suite-libsodium
+      outcome: unchanged
+      reason: Domain labels change while libsodium algorithms and formats stay fixed.
+    - id: sw-injectmanifest-owned-worker
+      outcome: unchanged
+      reason: Manifest and icon names change without changing worker ownership.
+    - id: ledger-home-only-refs-travel
+      outcome: unchanged
+      reason: The private audit directory changes name without changing ledger
+        authority.
+    - id: custody-uncertain-never-double-writes
+      outcome: unchanged
+      reason: The web attach command hint changes binary name only.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: Hook paths, errors, and temporary names change product identity only.
+    - id: bridge-runtime-persists-delivery-progress
+      outcome: unchanged
+      reason: Bridge state tests change the private directory prefix only.
+    - id: terminal-pairing-qr-matches-plain-url
+      outcome: unchanged
+      reason: QR payload equality remains exact under renamed data paths.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Function and test names change product identity without changing
+        registry ownership.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Credential-gated acceptance text and environment names change only.
+    - id: m0-live-acceptance-chain
+      outcome: unchanged
+      reason: Credential-gated live acceptance names change without running paid turns.
+    - id: push-configuration-and-failures-are-visible
+      outcome: unchanged
+      reason: Diagnostic and header names change while failures remain visible.
+    - id: web-settings-pairing-match-restrained-reference
+      outcome: unchanged
+      reason: Settings product labels change without layout or interaction changes.
+    - id: web-settings-controls-preserve-product-truth
+      outcome: unchanged
+      reason: Runtime environment labels change with the same operational truth.
+    - id: pairing-discloses-browser-and-relay-boundaries
+      outcome: unchanged
+      reason: Pairing branding changes while disclosures remain exact.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: Shell branding changes without responsive structure changes.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: The test-only connection global changes name without sync semantics.
+    - id: web-first-run-color-mode-is-dark
+      outcome: unchanged
+      reason: Browser storage keys change prefix while dark-first behavior remains.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Theme regression storage names change without token behavior.
+    - id: web-theme-choice-stays-local
+      outcome: unchanged
+      reason: The local theme key changes product prefix without changing choices.
+anchors:
+  dht-topic-from-line-secret:
+    line-topic-derivation:
+      action: remove
+      reason: Remove the old exact discovery-domain contract.
+  dht-topic-from-codor-line-secret:
+    line-topic-derivation:
+      action: change
+      reason: Pin and test the new exact codor:name:secret discovery domain.
+  codor-runtime-identity-is-a-clean-break:
+    cli-runtime-identity:
+      action: change
+      reason: Rename bin, env, paths, socket, setup, install, and runtime diagnostics.
+    runtime-identity-regression:
+      action: change
+      reason: Lock the renamed command, service, paths, environment, and storage names.
+    systemd-runtime-identity:
+      action: change
+      reason: Move and rewrite the user service template.
+    browser-runtime-identity:
+      action: change
+      reason: Rename PWA assets, storage, globals, crypto domains, and notifications.
+    relay-runtime-identity:
+      action: change
+      reason: Rename relay headers and signature domains end to end.
+    ledger-runtime-identity:
+      action: change
+      reason: Rename the private ledger audit directory.
+    adapter-runtime-identity:
+      action: change
+      reason: Rename command overrides, hook files, diagnostics, and temporary paths.
+    bridge-runtime-identity:
+      action: change
+      reason: Rename bridge bins, environment variables, and default state paths.
+  codor-delivery-header-identifies-channel:
+    delivery-header-template:
+      action: change
+      reason: Emit and test the exact codor channel header prefix.
+  fresh-clone-install-proven-by-script:
+    systemd-service:
+      action: change
+      reason: Move the template and replace every runtime path with Codor naming.
+  cli-setup-wizard-preserves-service-environment:
+    setup-runtime:
+      action: change
+      reason: Install Codor paths, service, token variable, and output.
+    setup-regression:
+      action: change
+      reason: Update dry-run and real setup snapshots atomically.
+  global-cli-install-is-idempotent:
+    per-user-cli-install-script:
+      action: change
+      reason: Install the codor command and keep symlink dispatch working.
+    cli-install-regression:
+      action: change
+      reason: Prove the renamed installed command executes.
+  unix-socket-same-protocol:
+    cli-protocol-transport:
+      action: change
+      reason: Use codor.sock and CODOR_TOKEN diagnostics.
+  attach-custody-lease-tracks-child-pid:
+    interactive-child-supervision:
+      action: change
+      reason: Rename every harness command override variable.
+  relay-opaque-forwarder-no-crypto:
+    relay-opaque-push-boundary:
+      action: change
+      reason: Consume the renamed authenticated relay headers.
+  relay-stateless-subscription-in-request:
+    notify-subscription-request:
+      action: change
+      reason: Preserve the request boundary under renamed headers.
+  notify-signed-by-allowlisted-switchboard:
+    relay-sender-signature-gate:
+      action: change
+      reason: Verify the renamed signature domain.
+  push-previews-redacted-pad-then-sealed:
+    producer-pad-seal-sign:
+      action: change
+      reason: Sign and send with renamed domains and headers.
+  push-decrypts-on-device-only:
+    browser-push-envelope-open:
+      action: change
+      reason: Open envelopes with the matching Codor associated-data domain.
+  push-room-key-rotation-reaches-surviving-devices:
+    device-key-wrapped-push:
+      action: change
+      reason: Preserve wrapping under the renamed domain.
+  paired-browser-challenge-session:
+    browser-session-signin:
+      action: change
+      reason: Sign the renamed browser session domain.
+    browser-device-session-rest:
+      action: change
+      reason: Verify the matching server session domain.
+  unpair-purges-all-browser-state:
+    browser-unpair-purge:
+      action: change
+      reason: Purge every renamed Codor browser store and cache.
+    settings-unpair-action:
+      action: change
+      reason: Rename visible purge diagnostics with unchanged behavior.
+  single-crypto-suite-libsodium:
+    browser-libsodium-suite:
+      action: change
+      reason: Rename browser crypto identifiers without changing the suite.
+  sw-injectmanifest-owned-worker:
+    vite-pwa-owned-worker:
+      action: change
+      reason: Build the same owned worker with Codor manifest assets.
+  ledger-home-only-refs-travel:
+    home-ledger-vault:
+      action: change
+      reason: Rename the local-only audit directory.
+  custody-uncertain-never-double-writes:
+    attach-custody-web-hint:
+      action: change
+      reason: Display and copy the codor attach command.
+  adapter-process-lifecycle-supervised:
+    cli-process-supervision:
+      action: change
+      reason: Rename temporary hook and operator-denial diagnostics.
+  bridge-runtime-persists-delivery-progress:
+    bridge-durable-regression:
+      action: change
+      reason: Rename the bridge state test directory.
+  terminal-pairing-qr-matches-plain-url:
+    pairing-qr-regression:
+      action: change
+      reason: Update paired data paths under the exact same QR contract.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Rename CLI composition function and test identities.
+    third-party-hot-swap-acceptance:
+      action: change
+      reason: Rename the hot-swap temporary root only.
+  permalink-ids-stable:
+    m1-live-acceptance:
+      action: change
+      reason: Rename the gated acceptance command and environment surface.
+  m0-live-acceptance-chain:
+    acceptance-live-chain:
+      action: change
+      reason: Rename the gated acceptance environment and diagnostics.
+  push-configuration-and-failures-are-visible:
+    push-delivery-diagnostics:
+      action: change
+      reason: Rename headers while preserving diagnostic behavior.
+  web-settings-pairing-match-restrained-reference:
+    restrained-settings-pairing-surface:
+      action: change
+      reason: Rename product labels in the restrained settings surface.
+  web-settings-controls-preserve-product-truth:
+    glass-settings-surface:
+      action: change
+      reason: Rename environment labels without changing configuration truth.
+  pairing-discloses-browser-and-relay-boundaries:
+    pairing-boundary-workspace:
+      action: change
+      reason: Rename the product brand while preserving all disclosures.
+  web-shell-responsive-three-pane:
+    responsive-room-shell:
+      action: change
+      reason: Rename shell branding without changing responsive layout.
+  client-syncs-by-seq:
+    ws-resubscribe-cursor:
+      action: change
+      reason: Rename the e2e connection global without changing cursor sync.
+  web-first-run-color-mode-is-dark:
+    dark-first-theme-regression:
+      action: change
+      reason: Rename local storage keys in the dark-first regression.
+  web-glass-theme-accessible-modes:
+    glass-theme-regression:
+      action: change
+      reason: Rename theme storage under unchanged accessible modes.
+  web-theme-choice-stays-local:
+    theme-choice-regression:
+      action: change
+      reason: Rename the local theme key in the persistence regression.
+files:
+  - package.json
+  - packages/cli/package.json
+  - packages/cli/src/attach.ts
+  - packages/cli/src/connection.ts
+  - packages/cli/src/index.spec.ts
+  - packages/cli/src/index.ts
+  - packages/cli/src/m1-acceptance.spec.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/setup.ts
+  - packages/cli/src/up.ts
+  - packages/bridges/slack/package.json
+  - packages/bridges/core/src/index.spec.ts
+  - packages/bridges/slack/src/bin.ts
+  - packages/bridges/telegram/package.json
+  - packages/bridges/telegram/src/bin.ts
+  - packages/adapters/claude-code/src/adapter.spec.ts
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/claude-code/src/live.spec.ts
+  - packages/adapters/codex/src/adapter.spec.ts
+  - packages/adapters/codex/src/live.spec.ts
+  - packages/adapters/copilot/src/adapter.spec.ts
+  - packages/adapters/copilot/fixtures/synthetic-success.jsonl
+  - packages/adapters/copilot/src/translate.spec.ts
+  - packages/adapters/gemini/src/adapter.spec.ts
+  - packages/adapters/gemini/fixtures/synthetic-success.jsonl
+  - packages/adapters/opencode/src/adapter.spec.ts
+  - packages/adapters/opencode/src/live.spec.ts
+  - packages/adapters/opencode/src/translate.spec.ts
+  - packages/protocol/src/events.ts
+  - packages/switchboard/src/acceptance.spec.ts
+  - packages/switchboard/src/crypto/challenge.ts
+  - packages/switchboard/src/crypto/crypto.spec.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/hot-swap.integration.spec.ts
+  - packages/switchboard/src/ledger/ledger.spec.ts
+  - packages/switchboard/src/ledger/vault.ts
+  - packages/switchboard/src/local-dirs.spec.ts
+  - packages/switchboard/src/m2-acceptance.spec.ts
+  - packages/switchboard/src/push/producer.ts
+  - packages/switchboard/src/push/push.spec.ts
+  - packages/switchboard/src/residency.spec.ts
+  - packages/switchboard/src/router.spec.ts
+  - packages/switchboard/src/router.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/store-order.spec.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/transport/hyperswarm.ts
+  - packages/switchboard/src/transport/transport.spec.ts
+  - packages/switchboard/src/working-directory.spec.ts
+  - packages/web/index.html
+  - packages/web/playwright.config.ts
+  - packages/web/vite.config.ts
+  - packages/web/public/wireroom-icon.svg
+  - packages/web/public/wireroom-192.png
+  - packages/web/public/wireroom-512.png
+  - packages/web/public/codor-icon.svg
+  - packages/web/public/codor-192.png
+  - packages/web/public/codor-512.png
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/crypto.ts
+  - packages/web/src/pairing.tsx
+  - packages/web/src/push.spec.ts
+  - packages/web/src/push.ts
+  - packages/web/src/shell.tsx
+  - packages/web/src/sw.ts
+  - packages/web/src/theme.ts
+  - packages/web/src/ws.ts
+  - packages/web/tests/crypto.e2e.spec.ts
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/m3-acceptance.e2e.spec.ts
+  - packages/web/tests/push.e2e.spec.ts
+  - packages/web/tests/pwa.e2e.spec.ts
+  - relay/src/seal.ts
+  - relay/src/server.spec.ts
+  - relay/src/server.ts
+  - scripts/install-cli.sh
+  - website/scripts/verify-site.mjs
+  - packaging/systemd/wireroom.service
+  - packaging/systemd/codor.service
+applied:
+  applied_at: 2026-07-11T19:53:11.829Z

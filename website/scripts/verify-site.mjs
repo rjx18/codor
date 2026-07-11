@@ -41,7 +41,7 @@ assert.match(selfHost, /Bridged rooms: the one deliberate exception/);
 assert.doesNotMatch(selfHost, /github\.com\/wireroom\/wireroom/);
 
 const userUnit = await readFile(
-  new URL('../../packaging/systemd/wireroom.service', import.meta.url),
+  new URL('../../packaging/systemd/codor.service', import.meta.url),
   'utf8',
 );
 assert.doesNotMatch(userUnit, /network-online\.target/);

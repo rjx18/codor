@@ -10,7 +10,7 @@ import { CopilotAdapter, copilotAllowAll, copilotArgs } from './adapter.js';
 const dirs: string[] = [];
 
 function executable(source: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'wireroom-copilot-adapter-'));
+  const dir = mkdtempSync(join(tmpdir(), 'codor-copilot-adapter-'));
   dirs.push(dir);
   const path = join(dir, 'fake-copilot');
   writeFileSync(path, `#!/usr/bin/env node\n${source}`);
@@ -63,7 +63,7 @@ console.log(JSON.stringify({type:'assistant.usage',data:{model:'gpt-5.4-mini',in
 console.log(JSON.stringify({type:'session.idle',data:{}}));
 `);
     const adapter = new CopilotAdapter(command);
-    const cwd = mkdtempSync(join(tmpdir(), 'wireroom-copilot-cwd-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'codor-copilot-cwd-'));
     dirs.push(cwd);
     const session = adapter.attach('33333333-3333-4333-8333-333333333333');
     session.cwd = cwd;
@@ -103,7 +103,7 @@ console.log(JSON.stringify({type:'session.idle',data:{}}));
   });
 
   it('turns missing commands and nonzero exits into failed runs', async () => {
-    expect((await collect(new CopilotAdapter('/definitely/missing/wireroom-copilot'))).at(-1))
+    expect((await collect(new CopilotAdapter('/definitely/missing/codor-copilot'))).at(-1))
       .toMatchObject({ type: 'run.completed', status: 'failed' });
     const command = executable("process.stderr.write('native failure\\n'); process.exit(7);\n");
     expect((await collect(new CopilotAdapter(command))).at(-1)).toMatchObject({
@@ -114,7 +114,7 @@ console.log(JSON.stringify({type:'session.idle',data:{}}));
   });
 
   it('discovers only UUID-named local session directories', () => {
-    const home = mkdtempSync(join(tmpdir(), 'wireroom-copilot-home-'));
+    const home = mkdtempSync(join(tmpdir(), 'codor-copilot-home-'));
     dirs.push(home);
     const state = join(home, 'session-state');
     mkdirSync(join(state, '44444444-4444-4444-8444-444444444444'), { recursive: true });

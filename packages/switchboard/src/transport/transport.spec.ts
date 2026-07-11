@@ -33,7 +33,7 @@ const vaults: CryptoVault[] = [];
 const testnets: { destroy(): Promise<void> }[] = [];
 
 function makeVault(label: string): CryptoVault {
-  const root = mkdtempSync(join(tmpdir(), `wireroom-transport-${label}-`));
+  const root = mkdtempSync(join(tmpdir(), `codor-transport-${label}-`));
   roots.push(root);
   const created = new CryptoVault(root);
   vaults.push(created);
@@ -68,7 +68,7 @@ afterEach(async () => {
 describe('length-prefixed envelopes', () => {
   it('derives the exact private line topic and emits valid ULIDs', () => {
     expect(lineTopic({ name: 'studio', secret: 'correct horse' }).toString('hex')).toBe(
-      '2052062da0d3cdd21178a36245808899b29a77e2a0d451b94ddff85696d81b73',
+      '6f3a9865ec800ccac73e3065f36002f4b095ad40f7ee8c8b95658715827aaf64',
     );
     expect(envelopeUlid()).toMatch(/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
     expect(() => lineTopic({ name: 'studio', secret: '' })).toThrow('line secret');

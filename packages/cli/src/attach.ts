@@ -25,31 +25,31 @@ export const nativeResumeCommand: InteractiveCommandResolver = (member, env) => 
   if (!member.session_ref) throw new Error(`member @${member.handle} has no resumable session`);
   if (member.harness === 'claude-code') {
     return {
-      command: env.WIREROOM_CLAUDE_COMMAND ?? 'claude',
+      command: env.CODOR_CLAUDE_COMMAND ?? 'claude',
       args: ['--resume', member.session_ref],
     };
   }
   if (member.harness === 'codex') {
     return {
-      command: env.WIREROOM_CODEX_COMMAND ?? 'codex',
+      command: env.CODOR_CODEX_COMMAND ?? 'codex',
       args: ['resume', member.session_ref],
     };
   }
   if (member.harness === 'gemini') {
     return {
-      command: env.WIREROOM_GEMINI_COMMAND ?? 'gemini',
+      command: env.CODOR_GEMINI_COMMAND ?? 'gemini',
       args: ['--resume', member.session_ref],
     };
   }
   if (member.harness === 'opencode') {
     return {
-      command: env.WIREROOM_OPENCODE_COMMAND ?? 'opencode',
+      command: env.CODOR_OPENCODE_COMMAND ?? 'opencode',
       args: ['--session', member.session_ref],
     };
   }
   if (member.harness === 'copilot') {
     return {
-      command: env.WIREROOM_COPILOT_COMMAND ?? 'copilot',
+      command: env.CODOR_COPILOT_COMMAND ?? 'copilot',
       args: ['--resume', member.session_ref],
     };
   }

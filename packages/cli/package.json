@@ -7,7 +7,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "wireroom": "./dist/index.js"
+    "codor": "./dist/index.js"
   },
   "exports": {
     ".": {

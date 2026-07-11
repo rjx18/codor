@@ -374,7 +374,7 @@ describe('MemberCard', () => {
     expect(html).toContain('idle &gt; running &gt; paused');
     expect(html).toContain('Unpause');
     expect(html).toContain('data-testid="attach-command-alpha"');
-    expect(html).toContain('wireroom attach @alpha');
+    expect(html).toContain('codor attach @alpha');
   });
 
   it('labels mirrored custody and exposes explicit adoption instead of drive controls', () => {

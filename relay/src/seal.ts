@@ -46,7 +46,9 @@ export class InvalidNotifyRequestError extends Error {}
 export class NotifyPayloadTooLargeError extends Error {}
 export class UnauthorizedNotifyError extends Error {}
 
-const SIGNATURE_DOMAIN = Buffer.from('wireroom-relay-notify-v1\0', 'utf8');
+// harn:assume codor-runtime-identity-is-a-clean-break ref=relay-runtime-identity
+const SIGNATURE_DOMAIN = Buffer.from('codor-relay-notify-v1\0', 'utf8');
+// harn:end codor-runtime-identity-is-a-clean-break
 
 function decodeBase64(value: string): Buffer {
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {

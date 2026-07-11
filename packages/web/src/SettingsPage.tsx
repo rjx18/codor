@@ -402,7 +402,7 @@ export function SettingsPage(props: {
                 className="wr-section-toggle"
               >
                 <RadioTower aria-hidden="true" size={20} />
-                <span><strong>Wireroom Relay</strong><small>{pushConfig.enabled ? 'Self-hosted push configured' : 'Not connected'}</small></span>
+                <span><strong>Codor Relay</strong><small>{pushConfig.enabled ? 'Self-hosted push configured' : 'Not connected'}</small></span>
                 <ChevronRight aria-hidden="true" size={18} />
               </button>
               {relayOpen && <RelayPairing />}
@@ -436,7 +436,7 @@ export function SettingsPage(props: {
                       </div>
                       {confirming && (
                         <div className="wr-confirm-row">
-                          <span>{current ? 'Remove this browser and all local Wireroom data?' : 'Revoke this device?'}</span>
+                          <span>{current ? 'Remove this browser and all local Codor data?' : 'Revoke this device?'}</span>
                           <button type="button" onClick={() => setConfirmDevice(undefined)} className="wr-secondary-button min-h-11 px-3">Cancel</button>
                           <button
                             type="button"
@@ -456,7 +456,7 @@ export function SettingsPage(props: {
                                     try {
                                       await unpairBrowser();
                                     } catch {
-                                      setLocalPurgeWarning('Local cleanup could not be confirmed. Close other Wireroom tabs before pairing again.');
+                                      setLocalPurgeWarning('Local cleanup could not be confirmed. Close other Codor tabs before pairing again.');
                                     } finally {
                                       setDevices([]);
                                       setUnpaired(true);
@@ -593,7 +593,7 @@ function RelayPairing() {
           ))}
         </ul>
         <p><strong>$5/month hosted</strong> · self-host the same open-source data plane.</p>
-        <code><KeyRound aria-hidden="true" size={14} /> WIREROOM_RELAY_URL · WIREROOM_VAPID_PUBLIC_KEY</code>
+        <code><KeyRound aria-hidden="true" size={14} /> CODOR_RELAY_URL · CODOR_VAPID_PUBLIC_KEY</code>
       </div>
     </div>
   );

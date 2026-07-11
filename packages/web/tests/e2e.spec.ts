@@ -16,7 +16,7 @@ async function control<T = { ok: boolean }>(path: string, body: unknown = {}): P
 
 declare global {
   interface Window {
-    __wireroom: { disconnect(): void; reconnect(): void };
+    __codor: { disconnect(): void; reconnect(): void };
   }
 }
 
@@ -193,12 +193,12 @@ test('room v1: post → live run → expand → ask → hold release → reconne
   await expect(run2).toBeVisible();
   const run2Id = (await run2.getAttribute('data-testid'))!.replace('run-', '');
 
-  await page.evaluate(() => window.__wireroom.disconnect());
+  await page.evaluate(() => window.__codor.disconnect());
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'disconnected');
 
   await control('/answer', { label: 'YES' }); // finalizes server-side, invisibly
 
-  await page.evaluate(() => window.__wireroom.reconnect());
+  await page.evaluate(() => window.__codor.reconnect());
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
 
   // the seq test: the in-place finalization arrived through since_seq hydration
@@ -425,7 +425,7 @@ test('room settings persist opt-in brakes and meter labels uncosted tokens', asy
   }
   await expect(relay).toContainText('Relay never sees');
   await expect(relay).toContainText('$5/month hosted');
-  expect(await page.evaluate(() => localStorage.getItem('wireroom-relay-pairing'))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem('codor-relay-pairing'))).toBeNull();
   await page.getByRole('link', { name: 'Back to room' }).click();
 
   await control('/enqueue', {
@@ -636,12 +636,12 @@ test('a new light-host browser opens dark before an explicit system choice', asy
   await page.goto('/settings?room=eng&token=e2e-token');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(page.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
-  expect(await page.evaluate(() => localStorage.getItem('wireroom-theme'))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem('codor-theme'))).toBeNull();
 
   await page.getByTestId('theme-system').click();
   await expect(page.locator('html')).not.toHaveAttribute('data-theme');
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toContain('light');
-  expect(await page.evaluate(() => localStorage.getItem('wireroom-theme'))).toBe('system');
+  expect(await page.evaluate(() => localStorage.getItem('codor-theme'))).toBe('system');
   await page.reload();
   await expect(page.locator('html')).not.toHaveAttribute('data-theme');
 });
@@ -710,7 +710,7 @@ test('desktop room rail creates and enters an owner-seeded room without a bearer
 test('restrained shell keeps accessible light tokens and limits glass to functional surfaces', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ colorScheme: 'light' });
-  await page.addInitScript(() => localStorage.setItem('wireroom-theme', 'system'));
+  await page.addInitScript(() => localStorage.setItem('codor-theme', 'system'));
   await page.goto('/?room=eng&token=e2e-token');
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await expect(page.getByTestId('composer-input')).toBeVisible();
@@ -960,7 +960,7 @@ test('theme choice applies immediately, survives a tokenless launch, and returns
   await expect(page.getByTestId('theme-system')).toBeFocused();
   await page.getByTestId('theme-light').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  expect(await page.evaluate(() => localStorage.getItem('wireroom-theme'))).toBe('light');
+  expect(await page.evaluate(() => localStorage.getItem('codor-theme'))).toBe('light');
 
   await page.goto('/?room=eng');
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
@@ -970,7 +970,7 @@ test('theme choice applies immediately, survives a tokenless launch, and returns
   await page.goto('/settings?room=eng');
   await page.getByTestId('theme-system').click();
   await expect(page.locator('html')).not.toHaveAttribute('data-theme');
-  expect(await page.evaluate(() => localStorage.getItem('wireroom-theme'))).toBe('system');
+  expect(await page.evaluate(() => localStorage.getItem('codor-theme'))).toBe('system');
   expect(mutatingApiRequests).toEqual([]);
 });
 // harn:end web-theme-choice-stays-local

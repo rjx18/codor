@@ -27,7 +27,7 @@ export interface AuthenticatedConnection {
 const CHALLENGE_TTL_MS = 30_000;
 const MAX_PENDING_PER_PEER = 8;
 const MAX_PENDING_TOTAL = 1_024;
-const CHALLENGE_DOMAIN = Buffer.from('wireroom-auth-v1\0', 'utf8');
+const CHALLENGE_DOMAIN = Buffer.from('codor-auth-v1\0', 'utf8');
 
 function random(bytes: number): Buffer {
   const value = Buffer.alloc(bytes);

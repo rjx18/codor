@@ -167,7 +167,7 @@ describe('BridgeRuntime', () => {
 
 describe('bridge state and HTTP boundary', () => {
   it('roundtrips private JSON state with a 0600 file', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'wireroom-bridge-state-'));
+    const dir = await mkdtemp(join(tmpdir(), 'codor-bridge-state-'));
     try {
       const path = join(dir, 'nested', 'state.json');
       const store = new JsonBridgeStateStore(path);

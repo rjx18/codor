@@ -23,7 +23,7 @@ import { detectSession } from './detect.js';
 import { parseMirrorHook } from './mirror.js';
 import { runSetup, type SetupOverrides } from './setup.js';
 import { renderTerminalQr } from './terminal-qr.js';
-import { parseLine, startOutpost, startWireroom, waitForShutdown } from './up.js';
+import { parseLine, startOutpost, startCodor, waitForShutdown } from './up.js';
 
 export interface CliContext {
   stdout?(line: string): void;
@@ -96,12 +96,14 @@ export function createProgram(context: CliContext = {}): Command {
   const out = context.stdout ?? ((line: string) => process.stdout.write(`${line}\n`));
   const err = context.stderr ?? ((line: string) => process.stderr.write(`${line}\n`));
   const program = new Command();
+  // harn:assume codor-runtime-identity-is-a-clean-break ref=cli-runtime-identity
   program
-    .name('wireroom')
+    .name('codor')
     .description('Operate local-first multi-agent rooms')
-    .option('--data-dir <path>', 'switchboard data directory', env.WIREROOM_DATA_DIR ?? join(homedir(), '.wireroom'))
+    .option('--data-dir <path>', 'switchboard data directory', env.CODOR_DATA_DIR ?? join(homedir(), '.codor'))
     .option('--url <url>', 'remote switchboard URL')
-    .option('--token <token>', 'remote bearer token', env.WIREROOM_TOKEN);
+    .option('--token <token>', 'remote bearer token', env.CODOR_TOKEN);
+  // harn:end codor-runtime-identity-is-a-clean-break
 
   const connectionOptions = (): ProtocolClientOptions => {
     const options = program.opts<GlobalOptions>();
@@ -135,8 +137,8 @@ export function createProgram(context: CliContext = {}): Command {
     .option('--room <id>', 'initial room id', 'default')
     .option('--room-name <name>', 'initial room name', 'Default')
     .option('--owner <handle>', 'initial owner handle')
-    .option('--relay-url <url>', 'optional sealed push relay URL', env.WIREROOM_RELAY_URL)
-    .option('--push-vapid-public-key <key>', 'Web Push VAPID public key', env.WIREROOM_VAPID_PUBLIC_KEY)
+    .option('--relay-url <url>', 'optional sealed push relay URL', env.CODOR_RELAY_URL)
+    .option('--push-vapid-public-key <key>', 'Web Push VAPID public key', env.CODOR_VAPID_PUBLIC_KEY)
     .option('--join <line>', 'join a private home/outpost line as name:secret')
     // harn:assume tailnet-auto-pairing-explicit-trust ref=trusted-tailnet-up-option
     .option(
@@ -160,7 +162,7 @@ export function createProgram(context: CliContext = {}): Command {
       adapter: string[];
     }) => {
       const globals = program.opts<GlobalOptions>();
-      const running = await startWireroom({
+      const running = await startCodor({
         dataDir: globals.dataDir,
         token: globals.token ?? '',
         host: options.host,
@@ -175,7 +177,7 @@ export function createProgram(context: CliContext = {}): Command {
         trustTailscaleServe: options.trustTailscaleServe,
         adapters: parseAdapterModules(options.adapter),
       });
-      out(`wireroom http://localhost:${running.server.port}`);
+      out(`codor http://localhost:${running.server.port}`);
       out(`socket ${running.server.socketPath}`);
       await waitForShutdown(running.close);
     });
@@ -204,7 +206,7 @@ export function createProgram(context: CliContext = {}): Command {
         line: parseLine(options.join),
         adapters: parseAdapterModules(options.adapter),
       });
-      out(`wireroom outpost ${running.crypto.keys.identity.device_id}`);
+      out(`codor outpost ${running.crypto.keys.identity.device_id}`);
       await waitForShutdown(running.close);
     });
   // harn:end adapter-registry-sole-harness-source

@@ -95,7 +95,7 @@ async function setup(options: {
   outpostBoundary?: (transport: HyperswarmTransport) => ResidencyCoordinatorOptions['boundaryHook'];
   maxPendingCompletionAcks?: number;
 } = {}): Promise<Fixture> {
-  const root = mkdtempSync(join(tmpdir(), 'wireroom-residency-'));
+  const root = mkdtempSync(join(tmpdir(), 'codor-residency-'));
   const testnet = await createTestnet(3);
   const homeVault = new CryptoVault(join(root, 'home-crypto'));
   const outpostVault = new CryptoVault(join(root, 'outpost-crypto'));
@@ -193,7 +193,7 @@ afterEach(async () => {
 
 describe('multi-box member residency over hyperdht/testnet', () => {
   it('accepts a resident session reference only from the pending attempt host and room', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'wireroom-resident-session-auth-'));
+    const root = mkdtempSync(join(tmpdir(), 'codor-resident-session-auth-'));
     const transport = new StubTransport();
     const coordinator = new ResidencyCoordinator({
       transport: transport as unknown as HyperswarmTransport,

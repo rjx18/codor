@@ -27,7 +27,7 @@ describe('delivery FIFO', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-10T10:00:00.000Z'));
     uuids.values = ['z-last-sort', 'm-middle-sort', 'a-first-sort'];
-    dir = mkdtempSync(join(tmpdir(), 'wireroom-store-order-'));
+    dir = mkdtempSync(join(tmpdir(), 'codor-store-order-'));
     store = new Store(join(dir, 'db.sqlite'));
     const { owner } = store.createRoom({
       id: 'eng',

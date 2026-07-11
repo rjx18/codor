@@ -18,8 +18,8 @@ export interface BrowserPushPreview {
 
 export type NotificationAction = '' | 'open-room' | 'release-hold';
 
-const ASSOCIATED_DATA = new TextEncoder().encode('wireroom-push-v1\0');
-const CDP_BASE64_PREFIX = 'wireroom-b64:';
+const ASSOCIATED_DATA = new TextEncoder().encode('codor-push-v1\0');
+const CDP_BASE64_PREFIX = 'codor-b64:';
 const DEVICE_ENVELOPE_MAGIC = new TextEncoder().encode('WRPUSH1\0');
 const SEALED_ROOM_KEY_BYTES = 80;
 

@@ -10,7 +10,7 @@ import { OpenCodeAdapter, openCodeArgs, openCodeAutoApprove } from './adapter.js
 const dirs: string[] = [];
 
 function executable(source: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'wireroom-opencode-adapter-'));
+  const dir = mkdtempSync(join(tmpdir(), 'codor-opencode-adapter-'));
   dirs.push(dir);
   const path = join(dir, 'fake-opencode');
   writeFileSync(path, `#!/usr/bin/env node\n${source}`);
@@ -59,7 +59,7 @@ console.log(JSON.stringify({type:'text',sessionID:'ses_existing',part:{type:'tex
 console.log(JSON.stringify({type:'step_finish',sessionID:'ses_existing',part:{type:'step-finish',tokens:{input:1,output:2},cost:0.01}}));
 `);
     const adapter = new OpenCodeAdapter(command);
-    const cwd = mkdtempSync(join(tmpdir(), 'wireroom-opencode-cwd-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'codor-opencode-cwd-'));
     dirs.push(cwd);
     const session = adapter.attach('ses_existing');
     session.cwd = cwd;
@@ -84,7 +84,7 @@ console.log(JSON.stringify({type:'step_finish',sessionID:'ses_existing',part:{ty
   });
 
   it('turns missing commands and nonzero exits into failed runs', async () => {
-    expect((await collect(new OpenCodeAdapter('/definitely/missing/wireroom-opencode'))).at(-1))
+    expect((await collect(new OpenCodeAdapter('/definitely/missing/codor-opencode'))).at(-1))
       .toMatchObject({ type: 'run.completed', status: 'failed' });
     const command = executable("process.stderr.write('native failure\\n'); process.exit(7);\n");
     expect((await collect(new OpenCodeAdapter(command))).at(-1)).toMatchObject({

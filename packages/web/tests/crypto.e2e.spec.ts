@@ -99,32 +99,32 @@ test('pairing page renders a QR without visible authority and enrolls the browse
 // harn:end pairing-offer-token-remains-qr-only
 
 test('sodium-native and real Chromium page/SW sealed boxes interoperate across restart', async () => {
-  const profile = mkdtempSync(join(tmpdir(), 'wireroom-chromium-crypto-'));
+  const profile = mkdtempSync(join(tmpdir(), 'codor-chromium-crypto-'));
   const nodeIdentity: DeviceIdentity = generateIdentity();
   const marker = Array.from(new TextEncoder().encode('cross-runtime-secret-marker'));
   let context = await chromium.launchPersistentContext(profile, { headless: true });
   try {
     let page = await context.newPage();
     await page.goto(`${BASE}/pair`);
-    const browserIdentity = await page.evaluate(() => window.__wireroomCrypto.identity());
+    const browserIdentity = await page.evaluate(() => window.__codorCrypto.identity());
 
     const nodeToBrowser = sealBox(Uint8Array.from(marker), browserIdentity.encryption_public_key);
     expect(await page.evaluate(
-      (ciphertext) => window.__wireroomCrypto.open(ciphertext),
+      (ciphertext) => window.__codorCrypto.open(ciphertext),
       nodeToBrowser,
     )).toEqual(marker);
     expect(await page.evaluate(
-      (ciphertext) => window.__wireroomCrypto.worker({ op: 'open', ciphertext }),
+      (ciphertext) => window.__codorCrypto.worker({ op: 'open', ciphertext }),
       nodeToBrowser,
     )).toEqual(marker);
 
     const pageToNode = await page.evaluate(
-      ({ message, publicKey }) => window.__wireroomCrypto.seal(message, publicKey),
+      ({ message, publicKey }) => window.__codorCrypto.seal(message, publicKey),
       { message: marker, publicKey: nodeIdentity.encryption_public_key },
     );
     expect(Array.from(openSealedBox(pageToNode, nodeIdentity))).toEqual(marker);
     const workerToNode = await page.evaluate(
-      ({ message, publicKey }) => window.__wireroomCrypto.worker({
+      ({ message, publicKey }) => window.__codorCrypto.worker({
         op: 'seal',
         message,
         public_key: publicKey,
@@ -137,13 +137,13 @@ test('sodium-native and real Chromium page/SW sealed boxes interoperate across r
     context = await chromium.launchPersistentContext(profile, { headless: true });
     page = await context.newPage();
     await page.goto(`${BASE}/pair`);
-    expect(await page.evaluate(() => window.__wireroomCrypto.identity())).toEqual(browserIdentity);
+    expect(await page.evaluate(() => window.__codorCrypto.identity())).toEqual(browserIdentity);
     expect(await page.evaluate(
-      (ciphertext) => window.__wireroomCrypto.open(ciphertext),
+      (ciphertext) => window.__codorCrypto.open(ciphertext),
       nodeToBrowser,
     )).toEqual(marker);
     expect(await page.evaluate(
-      (ciphertext) => window.__wireroomCrypto.worker({ op: 'open', ciphertext }),
+      (ciphertext) => window.__codorCrypto.worker({ op: 'open', ciphertext }),
       nodeToBrowser,
     )).toEqual(marker);
   } finally {
@@ -157,7 +157,7 @@ test('settings unpair revokes the device and purges IndexedDB, caches, local sto
   await page.goto(offer.url);
   await page.getByRole('button', { name: 'Pair this browser' }).click();
   await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
-  const before = await page.evaluate(() => window.__wireroomCrypto.identity());
+  const before = await page.evaluate(() => window.__codorCrypto.identity());
   const registered = await page.evaluate(async (deviceId) => {
     const response = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/push-subscription`, {
       method: 'POST',
@@ -177,8 +177,8 @@ test('settings unpair revokes the device and purges IndexedDB, caches, local sto
   await page.goto(`${BASE}/settings?room=eng&token=e2e-token#devices`);
   await expect(page.getByTestId(`device-${before.device_id}`)).toBeVisible();
   await page.evaluate(async () => {
-    localStorage.setItem('wireroom-cache', 'sensitive');
-    const cache = await caches.open('wireroom-test-cache');
+    localStorage.setItem('codor-cache', 'sensitive');
+    const cache = await caches.open('codor-test-cache');
     await cache.put('/cached-secret', new Response('sensitive'));
     const registration = await navigator.serviceWorker.ready;
     const prototype = Object.getPrototypeOf(registration.pushManager) as object;
@@ -209,7 +209,7 @@ test('settings unpair revokes the device and purges IndexedDB, caches, local sto
   expect(purged.local).toBe(0);
   expect(purged.caches).toEqual([]);
   expect(purged.registrations).toBe(0);
-  expect(purged.databases.filter((name) => name?.startsWith('wireroom-'))).toEqual([]);
+  expect(purged.databases.filter((name) => name?.startsWith('codor-'))).toEqual([]);
   expect(purged.unsubscribed).toBeGreaterThan(0);
   expect((await control<{ peers: { device_id: string }[] }>('/peers')).peers)
     .not.toContainEqual(expect.objectContaining({ device_id: before.device_id }));
@@ -220,12 +220,12 @@ test('unpair still purges local browser state when remote revocation is unavaila
   await page.goto(offer.url);
   await page.getByRole('button', { name: 'Pair this browser' }).click();
   await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
-  const identity = await page.evaluate(() => window.__wireroomCrypto.identity());
+  const identity = await page.evaluate(() => window.__codorCrypto.identity());
   await page.goto(`${BASE}/settings?room=eng&token=e2e-token#devices`);
   await expect(page.getByTestId(`device-${identity.device_id}`)).toBeVisible();
   await page.evaluate(async () => {
-    localStorage.setItem('wireroom-cache', 'sensitive');
-    const cache = await caches.open('wireroom-test-cache');
+    localStorage.setItem('codor-cache', 'sensitive');
+    const cache = await caches.open('codor-test-cache');
     await cache.put('/cached-secret', new Response('sensitive'));
     const registration = await navigator.serviceWorker.ready;
     const prototype = Object.getPrototypeOf(registration.pushManager) as object;
@@ -252,7 +252,7 @@ test('unpair reports a blocked local purge instead of rejecting silently', async
   await page.goto(offer.url);
   await page.getByRole('button', { name: 'Pair this browser' }).click();
   await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
-  const identity = await page.evaluate(() => window.__wireroomCrypto.identity());
+  const identity = await page.evaluate(() => window.__codorCrypto.identity());
   await page.goto(`${BASE}/settings?room=eng&token=e2e-token#devices`);
   await expect(page.getByTestId(`device-${identity.device_id}`)).toBeVisible();
   await page.evaluate(() => {
@@ -266,7 +266,7 @@ test('unpair reports a blocked local purge instead of rejecting silently', async
   await page.getByTestId('confirm-unpair-browser').click();
 
   await expect(page.getByTestId('browser-unpaired')).toBeVisible();
-  await expect(page.getByText('Local cleanup could not be confirmed. Close other Wireroom tabs before pairing again.')).toBeVisible();
+  await expect(page.getByText('Local cleanup could not be confirmed. Close other Codor tabs before pairing again.')).toBeVisible();
   expect((await control<{ peers: { device_id: string }[] }>('/peers')).peers)
     .not.toContainEqual(expect.objectContaining({ device_id: identity.device_id }));
 });

@@ -1,0 +1,13 @@
+id: codor-runtime-identity-is-a-clean-break
+hash: a-7ce57ee7876c
+title: Runtime identity uses codor names without legacy aliases
+state: active
+statement: The CLI and bridge bins, CODOR environment variables, default
+  configuration and data paths, Unix socket, service unit, setup wizard, browser
+  storage and globals, PWA assets, relay headers, cryptographic domain
+  separators, ledger audit directory, and internal diagnostics must use codor
+  naming without wireroom aliases or fallbacks, because D2 requires a coherent
+  clean-break runtime rather than dual identities.
+depends_on:
+  - workspace-packages-use-codor-scope
+created_by: codor-p6b-runtime-strings

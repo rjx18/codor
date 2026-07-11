@@ -38,7 +38,7 @@ const testCwd = (name = 'work') => {
 };
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'wireroom-server-'));
+  dir = mkdtempSync(join(tmpdir(), 'codor-server-'));
   fake = new FakeAdapter('fake', { interactiveAttach: true });
   daemon = new Daemon({
     dbPath: join(dir, 'db.sqlite'),
@@ -650,7 +650,7 @@ describe('WebSocket', () => {
     mkdirSync(publicParent, { mode: 0o755 });
     chmodSync(publicParent, 0o755);
     await expect(
-      startServer({ daemon, token: TOKEN, socketPath: join(publicParent, 'wireroom.sock') }),
+      startServer({ daemon, token: TOKEN, socketPath: join(publicParent, 'codor.sock') }),
     ).rejects.toThrow('unix socket parent must be a private directory');
     expect(statSync(publicParent).mode & 0o777).toBe(0o755);
   });
@@ -719,7 +719,7 @@ describe('WebSocket', () => {
   });
 
   it('serves the identical room and sync frames over a mode-0600 unix socket', async () => {
-    const socketPath = join(dir, 'wireroom.sock');
+    const socketPath = join(dir, 'codor.sock');
     const ipc = await startServer({ daemon, token: TOKEN, socketPath });
     expect(statSync(socketPath).mode & 0o777).toBe(0o600);
 
@@ -1004,7 +1004,7 @@ describe('Phase 3 REST boundaries', () => {
     mkdirSync(join(dir, '.hidden'));
     const file = join(dir, 'file.txt');
     writeFileSync(file, 'file');
-    const outside = mkdtempSync(join(tmpdir(), 'wireroom-server-outside-'));
+    const outside = mkdtempSync(join(tmpdir(), 'codor-server-outside-'));
     symlinkSync(outside, join(dir, 'escape'));
     try {
       const listed = await fetch(`${base}/api/local/dirs`, {

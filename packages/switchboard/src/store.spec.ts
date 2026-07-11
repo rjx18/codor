@@ -14,7 +14,7 @@ const openRoom = (s: Store) =>
   s.createRoom({ id: 'eng', name: 'Engineering', owner: { handle: 'richard', display_name: 'Richard' } });
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'wireroom-store-'));
+  dir = mkdtempSync(join(tmpdir(), 'codor-store-'));
   store = new Store(join(dir, 'test.sqlite'));
 });
 

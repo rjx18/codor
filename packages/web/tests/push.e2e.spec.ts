@@ -50,7 +50,7 @@ test('producer → fake relay → CDP push decrypts in the worker, renders, and 
   await page.goto(offer.url);
   await page.getByRole('button', { name: 'Pair this browser' }).click();
   await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
-  const deviceId = await page.evaluate(() => window.__wireroomCrypto.identity().then((identity) => identity.device_id));
+  const deviceId = await page.evaluate(() => window.__codorCrypto.identity().then((identity) => identity.device_id));
   await page.goto('/settings?room=eng&token=e2e-token#devices');
   await expect(page.getByTestId(`device-${deviceId}`)).toBeVisible();
   await page.evaluate(async () => {
@@ -131,7 +131,7 @@ test('producer → fake relay → CDP push decrypts in the worker, renders, and 
   await cdp.send('ServiceWorker.deliverPushMessage', {
     origin: BASE,
     registrationId: resolvedRegistrationId,
-    data: `wireroom-b64:${captured.sealed}`,
+    data: `codor-b64:${captured.sealed}`,
   });
 
   await expect.poll(() => page.evaluate(() => window.__renderedPushes[0])).not.toBeUndefined();
@@ -156,10 +156,10 @@ test('producer → fake relay → CDP push decrypts in the worker, renders, and 
       },
     },
   });
-  expect(JSON.stringify(renderedPush)).not.toContain('wireroom-b64:');
+  expect(JSON.stringify(renderedPush)).not.toContain('codor-b64:');
   await expect.poll(() => page.evaluate(async () => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('wireroom-crypto-v1', 1);
+      const request = indexedDB.open('codor-crypto-v1', 1);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });

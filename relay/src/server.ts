@@ -104,9 +104,9 @@ export function createRelayServer(options: RelayServerOptions): FastifyInstance 
       }
       const { body, sealed } = parseNotifyRequest(request.body);
       const auth: NotifyAuth = {
-        sender: requiredHeader(request.headers['x-wireroom-sender'], 'x-wireroom-sender'),
-        timestamp: requiredHeader(request.headers['x-wireroom-timestamp'], 'x-wireroom-timestamp'),
-        signature: requiredHeader(request.headers['x-wireroom-signature'], 'x-wireroom-signature'),
+        sender: requiredHeader(request.headers['x-codor-sender'], 'x-codor-sender'),
+        timestamp: requiredHeader(request.headers['x-codor-timestamp'], 'x-codor-timestamp'),
+        signature: requiredHeader(request.headers['x-codor-signature'], 'x-codor-signature'),
       };
       verifyNotifySignature(body, auth, options, now());
       if (options.openMode && !rateLimit.take(`sender:${auth.sender}`)) {

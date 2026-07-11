@@ -61,8 +61,8 @@ interface RelayNotifyBody {
   ttl: number;
 }
 
-const PUSH_ASSOCIATED_DATA = Buffer.from('wireroom-push-v1\0', 'utf8');
-const SIGNATURE_DOMAIN = Buffer.from('wireroom-relay-notify-v1\0', 'utf8');
+const PUSH_ASSOCIATED_DATA = Buffer.from('codor-push-v1\0', 'utf8');
+const SIGNATURE_DOMAIN = Buffer.from('codor-relay-notify-v1\0', 'utf8');
 
 function codePointSlice(value: string, maximum: number): string {
   return [...value].slice(0, maximum).join('');
@@ -233,9 +233,9 @@ export class PushProducer implements HumanPushNotifier {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-wireroom-sender': sender,
-          'x-wireroom-timestamp': timestamp,
-          'x-wireroom-signature': signature.toString('base64url'),
+          'x-codor-sender': sender,
+          'x-codor-timestamp': timestamp,
+          'x-codor-signature': signature.toString('base64url'),
         },
         body: JSON.stringify(body),
       });

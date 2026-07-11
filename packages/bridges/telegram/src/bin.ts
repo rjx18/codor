@@ -17,17 +17,17 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 const chatId = env('TELEGRAM_CHAT_ID');
-const room = env('WIREROOM_ROOM');
-const statePath = process.env.WIREROOM_BRIDGE_STATE?.trim() || join(
+const room = env('CODOR_ROOM');
+const statePath = process.env.CODOR_BRIDGE_STATE?.trim() || join(
   homedir(),
-  '.wireroom',
+  '.codor',
   'bridges',
   `${room.replace(/[^a-zA-Z0-9._-]/g, '_')}-telegram.json`,
 );
 const runtime = new BridgeRuntime({
   api: new HttpBridgeApi({
-    baseUrl: env('WIREROOM_URL'),
-    token: env('WIREROOM_TOKEN'),
+    baseUrl: env('CODOR_URL'),
+    token: env('CODOR_TOKEN'),
   }),
   transport: new TelegramTransport({
     chatId,

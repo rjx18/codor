@@ -43,7 +43,7 @@ describe('push subscription lifecycle', () => {
         }),
       },
     });
-    vi.stubGlobal('window', { location: { origin: 'https://wireroom.example.test' } });
+    vi.stubGlobal('window', { location: { origin: 'https://codor.example.test' } });
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', {
       status: 201,
       headers: { 'content-type': 'application/json' },
@@ -61,7 +61,7 @@ describe('push subscription lifecycle', () => {
 
 describe('service-worker push envelope opener', () => {
   it('opens the sodium-native producer envelope with libsodium-wrappers', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'wireroom-web-push-'));
+    const dir = mkdtempSync(join(tmpdir(), 'codor-web-push-'));
     dirs.push(dir);
     const crypto = new CryptoVault(dir);
     crypto.roomKeys.ensureRoom('eng');
@@ -82,8 +82,8 @@ describe('service-worker push envelope opener', () => {
   });
 
   it('rejects tampering, malformed lengths, and the wrong room key', async () => {
-    const firstDir = mkdtempSync(join(tmpdir(), 'wireroom-web-push-a-'));
-    const secondDir = mkdtempSync(join(tmpdir(), 'wireroom-web-push-b-'));
+    const firstDir = mkdtempSync(join(tmpdir(), 'codor-web-push-a-'));
+    const secondDir = mkdtempSync(join(tmpdir(), 'codor-web-push-b-'));
     dirs.push(firstDir, secondDir);
     const first = new CryptoVault(firstDir);
     const second = new CryptoVault(secondDir);

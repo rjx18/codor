@@ -17,7 +17,7 @@ import { Daemon } from './daemon.js';
  *   claude's FINALIZED run message tags @codex →
  *   codex (workspace-write, temp git repo) creates the file.
  *
- * Gated behind WIREROOM_M0_ACCEPT=1 — this bills live turns.
+ * Gated behind CODOR_M0_ACCEPT=1 — this bills live turns.
  * The transcript is written to tmp/build/ACCEPT-M0.md in the repo root.
  *
  * Lessons already folded from the first live run: the human post must not
@@ -25,19 +25,19 @@ import { Daemon } from './daemon.js';
  * inline code escapes them), and runaway chains are paused, not
  * interrupted (an interrupted turn used to finalize empty and re-route).
  */
-const LIVE = process.env.WIREROOM_M0_ACCEPT === '1';
+const LIVE = process.env.CODOR_M0_ACCEPT === '1';
 const REPO_ROOT = join(import.meta.dirname, '..', '..', '..');
 
 // harn:assume m0-live-acceptance-chain ref=acceptance-live-chain
-describe.skipIf(!LIVE)('M0 live acceptance (WIREROOM_M0_ACCEPT=1)', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'wireroom-m0-accept-'));
+describe.skipIf(!LIVE)('M0 live acceptance (CODOR_M0_ACCEPT=1)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'codor-m0-accept-'));
   const workspace = join(dir, 'fixture-repo');
   mkdirSync(workspace);
   execFileSync('git', ['init', '-q', workspace]);
   writeFileSync(join(workspace, 'README.md'), '# acceptance fixture\n');
   execFileSync('git', ['-C', workspace, 'add', '-A']);
   execFileSync('git', [
-    '-C', workspace, '-c', 'user.email=accept@wireroom', '-c', 'user.name=accept',
+    '-C', workspace, '-c', 'user.email=accept@codor', '-c', 'user.name=accept',
     'commit', '-qm', 'fixture',
   ]);
 
@@ -88,7 +88,7 @@ describe.skipIf(!LIVE)('M0 live acceptance (WIREROOM_M0_ACCEPT=1)', () => {
     // ESCAPES the handles (PROTOCOL §3 rule 6) so only @claude fans out.
     const post = daemon.postHumanMessage(
       'accept',
-      '@claude Plan a file hello.md containing exactly one haiku about a wireroom ' +
+      '@claude Plan a file hello.md containing exactly one haiku about a codor ' +
         'connecting agents. Do not use any tools and do not create anything yourself — ' +
         'reply with only the plan text (filename + the exact haiku). End your reply with ' +
         'one line that tags the codex agent — write `@codex` WITHOUT the backticks — ' +

@@ -153,7 +153,9 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     };
     const settingsPath = join(
       tmpdir(),
-      `wireroom-claude-hooks-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}.json`,
+      // harn:assume codor-runtime-identity-is-a-clean-break ref=adapter-runtime-identity
+      `codor-claude-hooks-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}.json`,
+      // harn:end codor-runtime-identity-is-a-clean-break
     );
     writeFileSync(settingsPath, JSON.stringify(settings));
     return { server, settingsPath };
@@ -450,7 +452,7 @@ export function composeControlResponse(
   } else {
     const choice = typeof answer === 'string' ? answer : 'deny';
     if (choice === 'deny') {
-      body = { behavior: 'deny', message: 'denied by wireroom operator' };
+      body = { behavior: 'deny', message: 'denied by codor operator' };
     } else if (choice === 'allow always') {
       const addRules = (request.request.permission_suggestions ?? []).filter(
         (s) => typeof s === 'object' && s !== null && (s as { type?: string }).type === 'addRules',

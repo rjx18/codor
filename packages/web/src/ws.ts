@@ -25,7 +25,7 @@ export interface ConnectOptions {
  * server hydrates exactly what changed since, incl. in-place run
  * finalizations that message-id paging could never see. Reconnects are
  * automatic with backoff; `disconnect()` parks the connection (used by the
- * e2e disconnect-during-run test via window.__wireroom).
+ * e2e disconnect-during-run test via window.__codor).
  */
 let singleton: Connection | undefined;
 
@@ -102,7 +102,7 @@ export function connect(options: ConnectOptions): Connection {
     },
   };
   // e2e hook: lets tests sever and re-establish the socket deterministically
-  (window as unknown as { __wireroom?: Connection }).__wireroom = connection;
+  (window as unknown as { __codor?: Connection }).__codor = connection;
   singleton = connection;
   return connection;
 }

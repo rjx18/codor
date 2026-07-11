@@ -40,9 +40,11 @@ interface BrowserAuthChallenge {
   expires_at: string;
 }
 
-export const BROWSER_CRYPTO_DATABASE = 'wireroom-crypto-v1';
+// harn:assume codor-runtime-identity-is-a-clean-break ref=browser-runtime-identity
+export const BROWSER_CRYPTO_DATABASE = 'codor-crypto-v1';
 const STORE = 'state';
-const AUTH_CHALLENGE_DOMAIN = new TextEncoder().encode('wireroom-auth-v1\0');
+const AUTH_CHALLENGE_DOMAIN = new TextEncoder().encode('codor-auth-v1\0');
+// harn:end codor-runtime-identity-is-a-clean-break
 let activeAccessToken: string | undefined;
 const trustedPairingAttempts = new Map<string, Promise<boolean>>();
 
@@ -254,7 +256,7 @@ export async function openBrowserDeviceSession(origin = window.location.origin):
   const challenge = offered.challenge;
   const expectedTranscript = encode(sodium.crypto_generichash(
     sodium.crypto_generichash_BYTES,
-    new TextEncoder().encode(`wireroom-browser-session-v1\0${switchboard.device_id}`),
+    new TextEncoder().encode(`codor-browser-session-v1\0${switchboard.device_id}`),
     null,
   ));
   if (
@@ -370,7 +372,7 @@ export async function unpairBrowser(): Promise<void> {
     : [{ name: BROWSER_CRYPTO_DATABASE }];
   await Promise.all(databases
     .map((database) => database.name)
-    .filter((name): name is string => typeof name === 'string' && name.startsWith('wireroom-'))
+    .filter((name): name is string => typeof name === 'string' && name.startsWith('codor-'))
     .map((name) => new Promise<void>((resolve, reject) => {
       const request = indexedDB.deleteDatabase(name);
       request.onsuccess = () => resolve();

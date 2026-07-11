@@ -96,7 +96,7 @@ export function parseRunItemPayload<Type extends RunItemType>(
 }
 // harn:end normalized-run-item-payload-contract
 
-/** Opaque id reported by a harness before it is mapped to a Wireroom member. */
+/** Opaque id reported by a harness before it is mapped to a Codor member. */
 export const HarnessNativeIdSchema = z.string().min(1);
 
 export const WireEventSchema = z.discriminatedUnion('type', [

@@ -45,7 +45,7 @@ async function waitFor(check: () => boolean, timeoutMs = 15_000): Promise<void> 
 }
 
 async function setup(mode: 'testnet' | 'real-dht'): Promise<AcceptanceFixture> {
-  const root = mkdtempSync(join(tmpdir(), `wireroom-m2-${mode}-`));
+  const root = mkdtempSync(join(tmpdir(), `codor-m2-${mode}-`));
   const testnet = mode === 'testnet' ? await createTestnet(3) : undefined;
   const homeCrypto = new CryptoVault(join(root, 'home-crypto'));
   const outpostCrypto = new CryptoVault(join(root, 'outpost-crypto'));

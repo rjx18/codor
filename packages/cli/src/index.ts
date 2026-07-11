@@ -15,8 +15,8 @@ export type { CliContext } from './program.js';
 export { runSetup } from './setup.js';
 export type { SetupOptions, SetupOverrides } from './setup.js';
 export { renderTerminalQr } from './terminal-qr.js';
-export { startWireroom } from './up.js';
-export type { RunningWireroom, UpOptions } from './up.js';
+export { startCodor } from './up.js';
+export type { RunningCodor, UpOptions } from './up.js';
 
 export function packageName(): string {
   return '@codor/cli';

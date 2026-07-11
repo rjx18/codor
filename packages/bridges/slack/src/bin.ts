@@ -17,17 +17,19 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 const channel = env('SLACK_CHANNEL_ID');
-const room = env('WIREROOM_ROOM');
-const statePath = process.env.WIREROOM_BRIDGE_STATE?.trim() || join(
+// harn:assume codor-runtime-identity-is-a-clean-break ref=bridge-runtime-identity
+const room = env('CODOR_ROOM');
+const statePath = process.env.CODOR_BRIDGE_STATE?.trim() || join(
   homedir(),
-  '.wireroom',
+  '.codor',
   'bridges',
   `${room.replace(/[^a-zA-Z0-9._-]/g, '_')}-slack.json`,
 );
+// harn:end codor-runtime-identity-is-a-clean-break
 const runtime = new BridgeRuntime({
   api: new HttpBridgeApi({
-    baseUrl: env('WIREROOM_URL'),
-    token: env('WIREROOM_TOKEN'),
+    baseUrl: env('CODOR_URL'),
+    token: env('CODOR_TOKEN'),
   }),
   transport: new SlackTransport({
     channel,

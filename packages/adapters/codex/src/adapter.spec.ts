@@ -10,7 +10,7 @@ import { CodexAdapter, codexArgs } from './adapter.js';
 const dirs: string[] = [];
 
 function executable(source: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'wireroom-codex-adapter-'));
+  const dir = mkdtempSync(join(tmpdir(), 'codor-codex-adapter-'));
   dirs.push(dir);
   const path = join(dir, 'fake-codex');
   writeFileSync(path, `#!/usr/bin/env node\n${source}`);
@@ -53,7 +53,7 @@ describe('codex subprocess lifecycle', () => {
   });
 
   it('turns a missing CLI into a failed run instead of an unhandled child error', async () => {
-    const events = await collect(new CodexAdapter('/definitely/missing/wireroom-codex'));
+    const events = await collect(new CodexAdapter('/definitely/missing/codor-codex'));
     expect(events.at(-1)).toMatchObject({ type: 'run.completed', status: 'failed' });
   });
 

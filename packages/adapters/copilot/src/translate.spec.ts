@@ -57,7 +57,7 @@ describe('Copilot JSONL event translation', () => {
         call_id: 'tool-call-1',
         tool: 'grep',
         title: 'grep',
-        input: { query: 'Wireroom' },
+        input: { query: 'Codor' },
       },
     });
   });

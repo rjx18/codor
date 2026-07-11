@@ -9,12 +9,12 @@ import { ClaudeCodeAdapter } from './adapter.js';
 
 /**
  * Live smoke: one tiny PONG turn + one real AskUserQuestion answered through
- * respondInteraction on stdin. Spend-gated behind WIREROOM_LIVE_SMOKE=1.
+ * respondInteraction on stdin. Spend-gated behind CODOR_LIVE_SMOKE=1.
  */
-const LIVE = process.env.WIREROOM_LIVE_SMOKE === '1';
+const LIVE = process.env.CODOR_LIVE_SMOKE === '1';
 
-describe.skipIf(!LIVE)('claude live smoke (WIREROOM_LIVE_SMOKE=1)', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'wireroom-claude-smoke-'));
+describe.skipIf(!LIVE)('claude live smoke (CODOR_LIVE_SMOKE=1)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'codor-claude-smoke-'));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
   const adapter = new ClaudeCodeAdapter();

@@ -1,6 +1,6 @@
 export type ThemeChoice = 'system' | 'dark' | 'light';
 
-export const THEME_STORAGE_KEY = 'wireroom-theme';
+export const THEME_STORAGE_KEY = 'codor-theme';
 
 function isThemeChoice(value: string | null): value is ThemeChoice {
   return value === 'system' || value === 'dark' || value === 'light';

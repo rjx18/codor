@@ -77,13 +77,13 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const exec = overrides.exec ?? defaultExec;
   const which = overrides.which ?? defaultWhich;
   const renderQr = overrides.renderQr ?? renderTerminalQr;
-  const configDir = join(home, '.config', 'wireroom');
-  const dataDir = join(home, '.wireroom');
+  const configDir = join(home, '.config', 'codor');
+  const dataDir = join(home, '.codor');
   const tokenPath = join(configDir, 'token');
   const envPath = join(configDir, 'env');
   const userUnitDir = join(home, '.config', 'systemd', 'user');
-  const userUnitPath = join(userUnitDir, 'wireroom.service');
-  const templatePath = join(repoRoot, 'packaging', 'systemd', 'wireroom.service');
+  const userUnitPath = join(userUnitDir, 'codor.service');
+  const templatePath = join(repoRoot, 'packaging', 'systemd', 'codor.service');
   const unitContent = replaceNodePath(readFileSync(templatePath, 'utf8'), nodePath);
   const harnessPaths = HARNESSES.map((harness) => which(harness)).filter(
     (path): path is string => path !== undefined,
@@ -101,10 +101,10 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     options.out('[dry-run] unit content:');
     for (const line of unitContent.trimEnd().split('\n')) options.out(line);
     options.out(`[dry-run] write ${envPath} mode 600`);
-    options.out('WIREROOM_TOKEN=<redacted generated-or-existing token>');
+    options.out('CODOR_TOKEN=<redacted generated-or-existing token>');
     options.out(`PATH=${servicePath}`);
     options.out('[dry-run] systemctl --user daemon-reload');
-    options.out('[dry-run] systemctl --user enable --now wireroom.service');
+    options.out('[dry-run] systemctl --user enable --now codor.service');
     if (which('tailscale')) {
       options.out('[dry-run] tailscale serve --bg http://127.0.0.1:8137');
       options.out('[dry-run] tailscale serve status');
@@ -134,18 +134,18 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     writeFileSync(userUnitPath, unitContent, { encoding: 'utf8', mode: 0o600 });
     chmodSync(userUnitPath, 0o600);
     const token = readFileSync(tokenPath, 'utf8').trim();
-    writeFileSync(envPath, `WIREROOM_TOKEN=${token}\nPATH=${servicePath}\n`, {
+    writeFileSync(envPath, `CODOR_TOKEN=${token}\nPATH=${servicePath}\n`, {
       encoding: 'utf8',
       mode: 0o600,
     });
     chmodSync(envPath, 0o600);
-    options.out(`Installed wireroom.service with Node ${nodePath}.`);
+    options.out(`Installed codor.service with Node ${nodePath}.`);
   }
 
-  if (await confirm('Reload systemd and enable wireroom.service now?')) {
+  if (await confirm('Reload systemd and enable codor.service now?')) {
     exec('systemctl', ['--user', 'daemon-reload']);
-    exec('systemctl', ['--user', 'enable', '--now', 'wireroom.service']);
-    options.out('wireroom.service is enabled and running.');
+    exec('systemctl', ['--user', 'enable', '--now', 'codor.service']);
+    options.out('codor.service is enabled and running.');
     try {
       const linger = exec('loginctl', ['show-user', options.env.USER ?? '', '-p', 'Linger', '--value']);
       if (linger.trim() !== 'yes') options.out(`For boot-time startup, run: loginctl enable-linger ${options.env.USER ?? '$USER'}`);

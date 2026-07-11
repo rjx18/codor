@@ -65,12 +65,12 @@ function nonempty(value: string, label: string): string {
   return value;
 }
 
-// harn:assume dht-topic-from-line-secret ref=line-topic-derivation
+  // harn:assume dht-topic-from-codor-line-secret ref=line-topic-derivation
 export function lineTopic(line: LineConfig): Buffer {
   const name = nonempty(line.name, 'line name');
   const secret = nonempty(line.secret, 'line secret');
   const topic = Buffer.alloc(32);
-  sodium.crypto_generichash(topic, Buffer.from(`wireroom:${name}:${secret}`, 'utf8'));
+  sodium.crypto_generichash(topic, Buffer.from(`codor:${name}:${secret}`, 'utf8'));
   return topic;
 }
 
@@ -248,4 +248,4 @@ export class HyperswarmTransport {
     }
   }
 }
-// harn:end dht-topic-from-line-secret
+  // harn:end dht-topic-from-codor-line-secret

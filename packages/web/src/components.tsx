@@ -689,13 +689,13 @@ export function MemberCard(props: {
             data-testid={`attach-command-${props.member.handle}`}
             className="wr-code-field min-w-0 flex-1 truncate"
           >
-            wireroom attach @{props.member.handle}
+            codor attach @{props.member.handle}
           </code>
           <button
             type="button"
             title="Copy attach command"
             onClick={() =>
-              void navigator.clipboard?.writeText(`wireroom attach @${props.member.handle}`)
+              void navigator.clipboard?.writeText(`codor attach @${props.member.handle}`)
             }
             className="wr-secondary-button min-h-11 shrink-0 px-3"
           >

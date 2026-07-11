@@ -9,13 +9,13 @@ import { CodexAdapter } from './adapter.js';
 
 /**
  * Live smoke: two tiny real `codex exec` turns (PONG + resume), read-only
- * sandbox. Spend-gated behind WIREROOM_LIVE_SMOKE=1 so the suite doesn't
+ * sandbox. Spend-gated behind CODOR_LIVE_SMOKE=1 so the suite doesn't
  * re-bill on every phase's `pnpm -r test`; run explicitly per phase spec.
  */
-const LIVE = process.env.WIREROOM_LIVE_SMOKE === '1';
+const LIVE = process.env.CODOR_LIVE_SMOKE === '1';
 
-describe.skipIf(!LIVE)('codex live smoke (WIREROOM_LIVE_SMOKE=1)', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'wireroom-codex-smoke-'));
+describe.skipIf(!LIVE)('codex live smoke (CODOR_LIVE_SMOKE=1)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'codor-codex-smoke-'));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
   const adapter = new CodexAdapter();

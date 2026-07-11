@@ -25,7 +25,7 @@ import {
 } from './producer.js';
 import { PushSubscriptionStore } from './subscriptions.js';
 
-const PUSH_ASSOCIATED_DATA = Buffer.from('wireroom-push-v1\0', 'utf8');
+const PUSH_ASSOCIATED_DATA = Buffer.from('codor-push-v1\0', 'utf8');
 
 let dir: string;
 let crypto: CryptoVault;
@@ -39,7 +39,7 @@ const subscription = {
 };
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'wireroom-push-'));
+  dir = mkdtempSync(join(tmpdir(), 'codor-push-'));
   crypto = new CryptoVault(dir);
   crypto.roomKeys.ensureRoom('eng');
   device = new CryptoVault(join(dir, 'device'));
@@ -183,9 +183,9 @@ describe('PushProducer', () => {
       ttl: number;
     };
     verifyNotifySignature(body, {
-      sender: headers['x-wireroom-sender']!,
-      timestamp: headers['x-wireroom-timestamp']!,
-      signature: headers['x-wireroom-signature']!,
+      sender: headers['x-codor-sender']!,
+      timestamp: headers['x-codor-timestamp']!,
+      signature: headers['x-codor-signature']!,
     }, {
       allowedSenders: new Set([crypto.keys.identity.sign_public_key]),
       openMode: false,

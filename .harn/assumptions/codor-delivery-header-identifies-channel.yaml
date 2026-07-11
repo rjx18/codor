@@ -1,0 +1,12 @@
+id: codor-delivery-header-identifies-channel
+hash: a-62b824dece35
+title: Agent payload headers identify Codor channels
+state: active
+statement: Every composed agent delivery must begin with the exact Codor header
+  prefix using channel, message id, author identity, recipient list, and current
+  member identity, because the clean-break prompt contract must identify the
+  renamed product while the wire protocol continues to call the same database
+  object a room.
+depends_on:
+  - whole-message-delivery
+created_by: codor-p6b-runtime-strings

@@ -39,7 +39,7 @@ async function until<T>(fn: () => T | undefined, ms = 2000): Promise<T> {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'wireroom-daemon-'));
+  dir = mkdtempSync(join(tmpdir(), 'codor-daemon-'));
   fake = new FakeAdapter('fake', { interactiveAttach: true });
   claudeFake = new FakeAdapter('claude-code', { extensions: true });
   codexFake = new FakeAdapter('codex');
@@ -629,7 +629,7 @@ describe('reply-is-the-run-message chaining', () => {
     expect(daemon.unreadCount('eng', owner.id)).toBe(1);
   });
 
-  it('the finalized run payload delivered onward contains the wireroom header from the run message', async () => {
+  it('the finalized run payload delivered onward contains the codor header from the run message', async () => {
     spawnAgent('alpha');
     spawnAgent('beta');
     fake.enqueue(

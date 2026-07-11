@@ -62,7 +62,9 @@ export class LedgerVault {
   constructor(dataDir: string, readonly room: string) {
     RoomIdSchema.parse(room);
     this.root = join(resolve(dataDir), 'rooms', room, 'ledger');
-    this.auditRoot = join(this.root, '.wireroom-audit');
+    // harn:assume codor-runtime-identity-is-a-clean-break ref=ledger-runtime-identity
+    this.auditRoot = join(this.root, '.codor-audit');
+    // harn:end codor-runtime-identity-is-a-clean-break
   }
 
   isEnabled(): boolean {
@@ -167,7 +169,7 @@ export class LedgerVault {
     const files: string[] = [];
     const visit = (directory: string): void => {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
-        if (entry.name === '.wireroom-audit') continue;
+        if (entry.name === '.codor-audit') continue;
         const path = join(directory, entry.name);
         if (entry.isDirectory()) visit(path);
         else if (entry.isFile() && entry.name.endsWith('.md')) files.push(path);

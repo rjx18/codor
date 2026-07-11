@@ -79,7 +79,7 @@ test('manifest is installable and the owned worker caches only the offline shell
       icons: { src: string; sizes: string; purpose?: string }[];
     };
   });
-  expect(manifest).toMatchObject({ name: 'Wireroom', display: 'standalone', start_url: '/' });
+  expect(manifest).toMatchObject({ name: 'Codor', display: 'standalone', start_url: '/' });
   expect(manifest.icons.some((icon) => icon.sizes === '192x192')).toBe(true);
   expect(manifest.icons.some((icon) => icon.sizes === '512x512' && icon.purpose === 'maskable')).toBe(true);
 

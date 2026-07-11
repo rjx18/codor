@@ -5,10 +5,10 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 ENTRYPOINT="$ROOT/packages/cli/dist/index.js"
 BIN_DIR="${HOME:?HOME is required}/.local/bin"
-TARGET="$BIN_DIR/wireroom"
+TARGET="$BIN_DIR/codor"
 
 if [[ ! -f "$ENTRYPOINT" ]]; then
-  printf 'CLI build is missing: run corepack pnpm --filter @wireroom/cli build first\n' >&2
+  printf 'CLI build is missing: run corepack pnpm --filter @codor/cli build first\n' >&2
   exit 1
 fi
 

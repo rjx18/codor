@@ -8,7 +8,7 @@ import { listLocalDirectories, LocalDirectoryError } from './local-dirs.js';
 
 describe('home-contained local directory listing', () => {
   it('lists sorted directories, hides dotdirs by default, and stops at home', () => {
-    const home = mkdtempSync(join(tmpdir(), 'wireroom-dirs-home-'));
+    const home = mkdtempSync(join(tmpdir(), 'codor-dirs-home-'));
     mkdirSync(join(home, 'zeta'));
     mkdirSync(join(home, 'alpha'));
     mkdirSync(join(home, '.hidden'));
@@ -26,8 +26,8 @@ describe('home-contained local directory listing', () => {
   });
 
   it('rejects traversal, symlink escape, relative, missing, and file targets', () => {
-    const home = mkdtempSync(join(tmpdir(), 'wireroom-dirs-contained-'));
-    const outside = mkdtempSync(join(tmpdir(), 'wireroom-dirs-outside-'));
+    const home = mkdtempSync(join(tmpdir(), 'codor-dirs-contained-'));
+    const outside = mkdtempSync(join(tmpdir(), 'codor-dirs-outside-'));
     const file = join(home, 'file.txt');
     writeFileSync(file, 'file');
     symlinkSync(outside, join(home, 'escape'));

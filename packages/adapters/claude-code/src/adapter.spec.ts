@@ -11,11 +11,11 @@ const dirs: string[] = [];
 
 const hookSettings = (): string[] =>
   readdirSync(tmpdir())
-    .filter((name) => name.startsWith(`wireroom-claude-hooks-${process.pid}-`))
+    .filter((name) => name.startsWith(`codor-claude-hooks-${process.pid}-`))
     .sort();
 
 function executable(source: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'wireroom-claude-adapter-'));
+  const dir = mkdtempSync(join(tmpdir(), 'codor-claude-adapter-'));
   dirs.push(dir);
   const path = join(dir, 'fake-claude');
   writeFileSync(path, `#!/usr/bin/env node\n${source}`);
@@ -61,7 +61,7 @@ describe('claude subprocess and interaction lifecycle', () => {
 
   it('turns a missing CLI into a failed run instead of an unhandled child error', async () => {
     const settingsBefore = hookSettings();
-    const adapter = new ClaudeCodeAdapter('/definitely/missing/wireroom-claude');
+    const adapter = new ClaudeCodeAdapter('/definitely/missing/codor-claude');
     const events: WireEvent[] = [];
     for await (const event of adapter.deliver(adapter.spawn({ cwd: process.cwd() }), 'hello')) {
       events.push(event);

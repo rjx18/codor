@@ -418,7 +418,7 @@ export function RoomRail(props: {
     <aside data-testid="room-rail" className="wr-room-rail">
       <div className="wr-brand">
         <span className="wr-brand-copy">
-          <strong>Wireroom</strong>
+          <strong>Codor</strong>
         </span>
       </div>
       <RoomList {...props} />

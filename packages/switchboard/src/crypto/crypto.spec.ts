@@ -18,7 +18,7 @@ import { openSealedBox } from './roomkeys.js';
 const roots: string[] = [];
 
 function vault(label: string): CryptoVault {
-  const root = mkdtempSync(join(tmpdir(), `wireroom-${label}-`));
+  const root = mkdtempSync(join(tmpdir(), `codor-${label}-`));
   roots.push(root);
   return new CryptoVault(root);
 }

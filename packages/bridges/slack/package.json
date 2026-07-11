@@ -13,7 +13,7 @@
     }
   },
   "bin": {
-    "wireroom-bridge-slack": "./dist/bin.js"
+    "codor-bridge-slack": "./dist/bin.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

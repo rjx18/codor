@@ -42,7 +42,7 @@ describe('configured adapter hot-swap', () => {
       'fixture-harness',
     ]);
 
-    const directory = mkdtempSync(join(tmpdir(), 'wireroom-hot-swap-'));
+    const directory = mkdtempSync(join(tmpdir(), 'codor-hot-swap-'));
     temporaryDirectories.push(directory);
     const daemon = new Daemon({
       dbPath: join(directory, 'switchboard.sqlite'),

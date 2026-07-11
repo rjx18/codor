@@ -407,7 +407,7 @@ describe('delivery payload template (byte-exact goldens)', () => {
 
   it('matches the PROTOCOL §3 example shape exactly', () => {
     expect(composePayload(payloadCtx, 'codex')).toBe(
-      '[wireroom room=traderjoe-eng msg=#93107 from=@richard (human)\n' +
+      '[codor channel=traderjoe-eng msg=#93107 from=@richard (human)\n' +
         ' to=@codex @claude · you=@codex]\n' +
         '\n' +
         'Nice work overnight. @codex Start implementation of phase 3, see my comments\n' +
@@ -454,7 +454,7 @@ describe('delivery payload template (byte-exact goldens)', () => {
       conventions: undefined,
     };
     expect(composePayload(lean, 'codex')).toBe(
-      '[wireroom room=traderjoe-eng msg=#93110 from=@richard (human)\n' +
+      '[codor channel=traderjoe-eng msg=#93110 from=@richard (human)\n' +
         ' to=@codex · you=@codex]\n' +
         '\n' +
         'ship it\n',

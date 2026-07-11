@@ -127,7 +127,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const app = Fastify();
   const browserAuthTranscript = options.crypto
     ? hashTranscript(Buffer.from(
-        `wireroom-browser-session-v1\0${options.crypto.keys.identity.device_id}`,
+        `codor-browser-session-v1\0${options.crypto.keys.identity.device_id}`,
         'utf8',
       ))
     : undefined;

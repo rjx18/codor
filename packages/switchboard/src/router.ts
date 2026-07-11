@@ -191,11 +191,13 @@ const minuteUtc = (ts: string): string => `${ts.slice(0, 16)}Z`;
  */
 export function composePayload(ctx: PayloadContext, you: string): string {
   const to = ctx.toHandles.map((h) => `@${h}`).join(' ');
+  // harn:assume codor-delivery-header-identifies-channel ref=delivery-header-template
   let payload =
-    `[wireroom room=${ctx.room} msg=#${ctx.message.id} from=@${ctx.authorHandle} (${ctx.authorKind})\n` +
+    `[codor channel=${ctx.room} msg=#${ctx.message.id} from=@${ctx.authorHandle} (${ctx.authorKind})\n` +
     ` to=${to} · you=@${you}]\n` +
     `\n` +
     `${ctx.message.body}\n`;
+  // harn:end codor-delivery-header-identifies-channel
   for (const ref of ctx.refs) {
     payload +=
       `\n--- referenced #${ref.id} · @${ref.author_handle} · ${minuteUtc(ref.ts)} ---\n` +

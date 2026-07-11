@@ -30,7 +30,7 @@ interface CryptoTestApi {
 
 declare global {
   interface Window {
-    __wireroomCrypto: CryptoTestApi;
+    __codorCrypto: CryptoTestApi;
   }
 }
 
@@ -65,7 +65,7 @@ async function workerCall(request: Record<string, unknown>): Promise<unknown> {
   });
 }
 
-window.__wireroomCrypto = {
+window.__codorCrypto = {
   identity: ensureBrowserIdentity,
   open: async (ciphertext) => Array.from(await openForBrowser(ciphertext)),
   seal: (message, publicKey) => sealForBrowserPeer(Uint8Array.from(message), publicKey),
@@ -126,7 +126,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
   return (
     <main data-testid="pairing-page" className="wr-pairing-page">
       <header className="wr-pairing-brand">
-        <strong>Wireroom</strong>
+        <strong>Codor</strong>
         <span>Local device enrollment</span>
       </header>
 
