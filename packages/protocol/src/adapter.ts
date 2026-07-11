@@ -1,4 +1,13 @@
+import { z } from 'zod';
+
 import type { WireEvent } from './events.js';
+
+// harn:assume canonical-spawn-control-vocabulary ref=canonical-policy-and-thinking-types
+export const PolicySchema = z.enum(['read-only', 'workspace-write', 'full-access']);
+export type Policy = z.infer<typeof PolicySchema>;
+
+export const ThinkingLevelSchema = z.enum(['low', 'medium', 'high']);
+export type ThinkingLevel = z.infer<typeof ThinkingLevelSchema>;
 
 /** Harness-native session/rollout id — the resume token and identity anchor. */
 export type SessionRef = string;
@@ -21,6 +30,7 @@ export interface SpawnOpts {
   cwd: string;
   model?: string;
   policy?: string;
+  thinking?: ThinkingLevel;
 }
 
 export interface AdapterCapabilities {
@@ -30,7 +40,9 @@ export interface AdapterCapabilities {
   ask: boolean; // raises ask.raised cards
   approvals: 'runtime' | 'spawn-time';
   extensions: boolean; // reports subagents (extension.*)
+  thinking?: boolean; // undefined is conservatively treated as unsupported
 }
+// harn:end canonical-spawn-control-vocabulary
 
 /** Durable lifecycle facts reported while a turn is still in progress. */
 export interface AdapterTurnHooks {

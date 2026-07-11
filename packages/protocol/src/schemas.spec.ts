@@ -5,19 +5,31 @@ import {
   AssignableHandleSchema,
   ChangeLogEntrySchema,
   ClientFrameSchema,
+  CommitPayloadSchema,
+  CreateRoomRequestSchema,
   DeliverySchema,
+  deriveRoomId,
+  FileChangePayloadSchema,
   HandleSchema,
   MemberSchema,
   MentionSpanSchema,
   MessageSchema,
+  parseRunItemPayload,
   PendingInteractionSchema,
+  PolicySchema,
+  ReasoningSummaryPayloadSchema,
   RoomIdSchema,
   RoomConfigSchema,
   RoomMeterSchema,
   RoomSchema,
   ServerFrameSchema,
+  TextDeltaPayloadSchema,
+  ThinkingLevelSchema,
+  ToolCallPayloadSchema,
+  ToolResultPayloadSchema,
   WireEventSchema,
 } from './index.js';
+import type { RunItemType, SpawnOpts } from './index.js';
 
 const ULID_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
 const ULID_B = '01BX5ZZKBKACTAV9WEVGEMMVRZ';
@@ -47,6 +59,16 @@ describe('room ids', () => {
       expect(RoomIdSchema.safeParse(room).success).toBe(false);
     },
   );
+
+  it('derives pure lowercase ASCII slugs without applying collision suffixes', () => {
+    expect(deriveRoomId('Demo Site')).toBe('demo-site');
+    expect(deriveRoomId('  Crème brûlée  ')).toBe('cr-me-br-l-e');
+    expect(deriveRoomId('')).toBe('channel');
+    expect(deriveRoomId('🎉')).toBe('channel');
+    expect(deriveRoomId('x'.repeat(80))).toBe('x'.repeat(63));
+    expect(deriveRoomId(`${'x'.repeat(62)} ! y`)).toBe('x'.repeat(62));
+    expect(deriveRoomId('Same Name')).toBe(deriveRoomId('Same Name'));
+  });
 });
 
 describe('handles', () => {
@@ -86,9 +108,14 @@ describe('members', () => {
   };
 
   it('accepts an agent member and defaults the conventions flags off', () => {
-    const parsed = MemberSchema.parse(agent);
+    const parsed = MemberSchema.parse({ ...agent, purpose: 'Implements the feature' });
     expect(parsed.conventions_sent).toBe(false);
     expect(parsed.misaddressed).toBe(false);
+    expect(parsed.purpose).toBe('Implements the feature');
+  });
+
+  it('accepts a removal tombstone timestamp', () => {
+    expect(MemberSchema.parse({ ...agent, removed_ts: TS }).removed_ts).toBe(TS);
   });
 
   it('accepts the new states unreachable and custody_uncertain', () => {
@@ -134,7 +161,8 @@ describe('mention spans', () => {
 
 describe('messages', () => {
   it('accepts a chat message with mentions, refs, and seq', () => {
-    expect(MessageSchema.safeParse(chatMessage).success).toBe(true);
+    expect(MessageSchema.parse(chatMessage).ack ?? false).toBe(false);
+    expect(MessageSchema.parse({ ...chatMessage, ack: true }).ack).toBe(true);
   });
 
   it('accepts a finalized run message (tokens-only usage, no cost_usd)', () => {
@@ -285,6 +313,8 @@ describe('room config', () => {
     expect(config.stall_minutes).toBe(30);
     expect(config.redaction_enabled).toBe(true);
     expect(config.bridged).toBe(false);
+    expect(config.color).toBeUndefined();
+    expect(config.cwd).toBeUndefined();
   });
 
   it('supports opting in to brakes per room', () => {
@@ -292,6 +322,33 @@ describe('room config', () => {
     expect(config.turn_brake).toBe(8);
     expect(config.spend_brake_usd).toBe(25);
     expect(RoomConfigSchema.parse({ bridged: true }).bridged).toBe(true);
+    expect(RoomConfigSchema.parse({ color: '#d45d5d', cwd: '/work/demo' })).toMatchObject({
+      color: '#d45d5d',
+      cwd: '/work/demo',
+    });
+  });
+
+  it('accepts additive create requests with an optional id and starting agent', () => {
+    const base = {
+      name: 'Demo',
+      owner: { handle: 'richard', display_name: 'Richard' },
+      color: '#d45d5d',
+      cwd: '/work/demo',
+    };
+    expect(CreateRoomRequestSchema.parse(base).id).toBeUndefined();
+    expect(
+      CreateRoomRequestSchema.parse({
+        ...base,
+        id: 'demo',
+        starting_agent: { harness: 'claude-code', handle: 'codor', model: 'haiku' },
+      }).starting_agent,
+    ).toEqual({ harness: 'claude-code', handle: 'codor', model: 'haiku' });
+    expect(
+      CreateRoomRequestSchema.safeParse({
+        ...base,
+        starting_agent: { harness: 'claude-code', handle: 'switchboard' },
+      }).success,
+    ).toBe(false);
   });
 
   it('rooms default their whole config', () => {
@@ -319,6 +376,103 @@ describe('room config', () => {
       output_tokens: 200,
       uncosted_tokens: 75,
     }).uncosted_tokens).toBe(75);
+  });
+});
+
+describe('normalized run-item payloads', () => {
+  const cases: [
+    RunItemType,
+    { parse(value: unknown): unknown; safeParse(value: unknown): { success: boolean } },
+    unknown,
+    unknown,
+  ][] = [
+    [
+      'tool_call',
+      ToolCallPayloadSchema,
+      {
+        call_id: 'call-1',
+        tool: 'Bash',
+        title: 'pnpm test',
+        input: { command: 'pnpm test' },
+        vendor: 'extra',
+      },
+      { call_id: 'call-1', tool: 'Bash' },
+    ],
+    [
+      'tool_result',
+      ToolResultPayloadSchema,
+      {
+        call_id: 'call-1',
+        status: 'ok',
+        output_text: 'passed',
+        diff: { path: 'src/app.ts', unified: '@@ -1 +1 @@', lines: 2 },
+        image: { media_type: 'image/png', data_b64: 'aGVsbG8=', width: 1 },
+        duration_ms: 12.5,
+        raw: { native: true },
+        vendor: 'extra',
+      },
+      { call_id: 'call-1', status: 'pending' },
+    ],
+    [
+      'text_delta',
+      TextDeltaPayloadSchema,
+      { text: 'Working', vendor: 'extra' },
+      { text: 42 },
+    ],
+    [
+      'reasoning_summary',
+      ReasoningSummaryPayloadSchema,
+      { text: 'Check the failing test', vendor: 'extra' },
+      {},
+    ],
+    [
+      'file_change',
+      FileChangePayloadSchema,
+      {
+        path: 'src/app.ts',
+        change: 'modified',
+        diff: { path: 'src/app.ts', unified: '@@ -1 +1 @@', vendor: 'extra' },
+        vendor: 'extra',
+      },
+      { path: 'src/app.ts', change: 'renamed' },
+    ],
+    [
+      'commit',
+      CommitPayloadSchema,
+      { sha: 'abc123', message: 'Fix tests', vendor: 'extra' },
+      { sha: 123 },
+    ],
+  ];
+
+  it.each(cases)(
+    'round-trips permissive %s payloads and rejects invalid shapes',
+    (type, schema, valid, invalid) => {
+      expect(schema.parse(valid)).toEqual(valid);
+      expect(schema.safeParse(invalid).success).toBe(false);
+      expect(parseRunItemPayload(type, valid)).toMatchObject({ success: true, data: valid });
+      expect(parseRunItemPayload(type, invalid).success).toBe(false);
+    },
+  );
+});
+
+describe('spawn control vocabularies', () => {
+  it.each(['read-only', 'workspace-write', 'full-access'] as const)(
+    'accepts canonical policy %s',
+    (policy) => {
+      expect(PolicySchema.parse(policy)).toBe(policy);
+    },
+  );
+
+  it('rejects noncanonical policy values', () => {
+    expect(PolicySchema.safeParse('danger-full-access').success).toBe(false);
+  });
+
+  it('keeps SpawnOpts thinking optional and constrains declared levels', () => {
+    const withoutThinking: SpawnOpts = { cwd: '/work' };
+    const withThinking: SpawnOpts = { cwd: '/work', thinking: 'high' };
+    expect(withoutThinking.thinking).toBeUndefined();
+    expect(ThinkingLevelSchema.parse(withThinking.thinking)).toBe('high');
+    expect(ThinkingLevelSchema.safeParse('extreme').success).toBe(false);
   });
 });
 

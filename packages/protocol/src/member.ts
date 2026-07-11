@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { MemberIdSchema } from './ids.js';
+import { MemberIdSchema, TimestampSchema } from './ids.js';
 
 export const MemberKindSchema = z.enum(['human', 'agent', 'extension', 'system', 'bridge']);
 export type MemberKind = z.infer<typeof MemberKindSchema>;
@@ -48,6 +48,9 @@ export const MemberSchema = z
     kind: MemberKindSchema,
     handle: HandleSchema,
     display_name: z.string(),
+    // harn:assume member-purpose-protocol-metadata ref=member-purpose-field
+    purpose: z.string().optional(),
+    // harn:end member-purpose-protocol-metadata
     // agent + extension only:
     harness: z.string().min(1).optional(), // adapter id, open set
     session_ref: z.string().min(1).optional(), // harness-native resume token
@@ -62,6 +65,9 @@ export const MemberSchema = z
     // conventions trailer bookkeeping (persisted so restarts don't re-spam):
     conventions_sent: z.boolean().default(false),
     misaddressed: z.boolean().default(false),
+    // harn:assume member-removal-timestamp-protocol ref=member-removal-field
+    removed_ts: TimestampSchema.optional(),
+    // harn:end member-removal-timestamp-protocol
   })
   .superRefine((member, ctx) => {
     if (

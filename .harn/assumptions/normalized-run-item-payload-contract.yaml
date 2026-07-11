@@ -1,0 +1,12 @@
+id: normalized-run-item-payload-contract
+hash: a-0568cd69febf
+title: Run-item payloads have one permissive normalized parsing contract
+state: active
+statement: First-party run-item payloads must conform to the standalone per-item
+  normalized schemas and shared parseRunItemPayload helper, while WireEvent
+  transport payloads remain unknown and unvalidated, because first-party
+  adapters need an exact source contract but a malformed third-party payload
+  must degrade at the renderer rather than fail a live turn.
+depends_on:
+  - adapter-registry-sole-harness-source
+created_by: codor-p1-protocol

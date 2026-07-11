@@ -1,0 +1,9 @@
+id: acknowledgement-marker-protocol
+hash: a-dca8b048bf54
+title: Messages carry an explicit acknowledgement marker
+state: active
+statement: Message parsing must default ack to false and preserve an explicit
+  true marker, because exact ACK_OK turns need durable evidence that routing and
+  default-recipient consumers can distinguish from substantive replies.
+depends_on: []
+created_by: codor-p1-protocol

@@ -19,6 +19,83 @@ export const RunItemTypeSchema = z.enum([
 ]);
 export type RunItemType = z.infer<typeof RunItemTypeSchema>;
 
+// harn:assume normalized-run-item-payload-contract ref=standalone-run-item-payload-schemas
+export const RunItemDiffSchema = z.object({
+  path: z.string().min(1),
+  unified: z.string(),
+}).loose();
+export type RunItemDiff = z.infer<typeof RunItemDiffSchema>;
+
+export const RunItemImageSchema = z.object({
+  media_type: z.string().min(1),
+  data_b64: z.string(),
+}).loose();
+export type RunItemImage = z.infer<typeof RunItemImageSchema>;
+
+export const ToolCallPayloadSchema = z.object({
+  call_id: z.string().min(1),
+  tool: z.string().min(1),
+  title: z.string().min(1),
+  detail: z.string().optional(),
+  input: z.unknown().optional(),
+}).loose();
+export type ToolCallPayload = z.infer<typeof ToolCallPayloadSchema>;
+
+export const ToolResultPayloadSchema = z.object({
+  call_id: z.string().min(1),
+  status: z.enum(['ok', 'error']),
+  output_text: z.string().optional(),
+  diff: RunItemDiffSchema.optional(),
+  image: RunItemImageSchema.optional(),
+  duration_ms: z.number().nonnegative().optional(),
+  raw: z.unknown().optional(),
+}).loose();
+export type ToolResultPayload = z.infer<typeof ToolResultPayloadSchema>;
+
+export const TextDeltaPayloadSchema = z.object({ text: z.string() }).loose();
+export type TextDeltaPayload = z.infer<typeof TextDeltaPayloadSchema>;
+
+export const ReasoningSummaryPayloadSchema = z.object({ text: z.string() }).loose();
+export type ReasoningSummaryPayload = z.infer<typeof ReasoningSummaryPayloadSchema>;
+
+export const FileChangePayloadSchema = z.object({
+  path: z.string().min(1),
+  change: z.enum(['created', 'modified', 'deleted']),
+  diff: RunItemDiffSchema.optional(),
+}).loose();
+export type FileChangePayload = z.infer<typeof FileChangePayloadSchema>;
+
+export const CommitPayloadSchema = z.object({
+  sha: z.string().optional(),
+  message: z.string().optional(),
+}).loose();
+export type CommitPayload = z.infer<typeof CommitPayloadSchema>;
+
+export const RunItemPayloadSchemas = {
+  tool_call: ToolCallPayloadSchema,
+  tool_result: ToolResultPayloadSchema,
+  reasoning_summary: ReasoningSummaryPayloadSchema,
+  text_delta: TextDeltaPayloadSchema,
+  commit: CommitPayloadSchema,
+  file_change: FileChangePayloadSchema,
+} as const satisfies Record<RunItemType, z.ZodType>;
+
+export type RunItemPayloadByType = {
+  [Type in RunItemType]: z.infer<(typeof RunItemPayloadSchemas)[Type]>;
+};
+export type RunItemPayload = RunItemPayloadByType[RunItemType];
+
+export function parseRunItemPayload<Type extends RunItemType>(
+  itemType: Type,
+  payload: unknown,
+) {
+  const schema = RunItemPayloadSchemas[itemType] as unknown as z.ZodType<
+    RunItemPayloadByType[Type]
+  >;
+  return schema.safeParse(payload);
+}
+// harn:end normalized-run-item-payload-contract
+
 /** Opaque id reported by a harness before it is mapped to a Wireroom member. */
 export const HarnessNativeIdSchema = z.string().min(1);
 

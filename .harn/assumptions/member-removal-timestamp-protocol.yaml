@@ -1,0 +1,9 @@
+id: member-removal-timestamp-protocol
+hash: a-5ad7480c7804
+title: Member records may carry a removal tombstone timestamp
+state: active
+statement: Member records may persist an optional removed timestamp so later
+  dead-member removal can retain stable identity and historical attribution
+  instead of deleting the row.
+depends_on: []
+created_by: codor-p1-protocol

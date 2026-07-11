@@ -11,6 +11,19 @@ export const RoomIdSchema = z.string().regex(ROOM_ID_REGEX);
 export type RoomId = z.infer<typeof RoomIdSchema>;
 // harn:end blob-path-contained
 
+// harn:assume channel-create-request-contract ref=channel-id-slug-helper
+export function deriveRoomId(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-+/g, '-')
+    .slice(0, 63)
+    .replace(/-+$/g, '');
+  return slug || 'channel';
+}
+// harn:end channel-create-request-contract
+
 /** Per-room dense monotonic message id — what `#N` refs point at. */
 export const MessageIdSchema = z.number().int().positive();
 export type MessageId = z.infer<typeof MessageIdSchema>;

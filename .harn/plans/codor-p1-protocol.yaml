@@ -1,0 +1,170 @@
+id: codor-p1-protocol
+title: P1 protocol payload contracts and additive channel plumbing
+assumptions:
+  retire: []
+  create:
+    - id: normalized-run-item-payload-contract
+      title: Run-item payloads have one permissive normalized parsing contract
+      statement: First-party run-item payloads must conform to the standalone per-item
+        normalized schemas and shared parseRunItemPayload helper, while
+        WireEvent transport payloads remain unknown and unvalidated, because
+        first-party adapters need an exact source contract but a malformed
+        third-party payload must degrade at the renderer rather than fail a live
+        turn.
+      reason: S1 separates strict edge validation from the extensible transport so
+        adapters and the web presenter share one parsing path without weakening
+        hot-swapped adapter resilience.
+      depends_on:
+        - adapter-registry-sole-harness-source
+    - id: canonical-spawn-control-vocabulary
+      title: Spawn policy and thinking controls use canonical protocol vocabularies
+      statement: The protocol must export policy values read-only, workspace-write,
+        and full-access plus thinking levels low, medium, and high; SpawnOpts
+        may carry a thinking level and adapter capabilities may conservatively
+        omit thinking support until declarations become required, because every
+        harness mapping and UI control needs one stable vocabulary.
+      reason: S2 and S3 introduce adapter-neutral operator controls before Phase 2
+        maps them to each harness.
+      depends_on: []
+    - id: channel-create-request-contract
+      title: Channel creation has additive metadata and a derivable protocol room id
+      statement: The protocol room config may carry channel color and working
+        directory metadata, creation requests may omit the id and name an
+        optional starting agent, and deriveRoomId must deterministically produce
+        the S6 lowercase ASCII slug without collision handling, because the
+        server owns collision suffixes while clients need an identical preview.
+      reason: S6 and the Phase 3 create flow need one exported request and slug
+        contract while preserving the protocol-level room vocabulary.
+      depends_on:
+        - blob-path-contained
+        - reserved-handles-rejected
+        - brakes-default-off
+    - id: member-purpose-protocol-metadata
+      title: Member records may carry an operator-authored purpose
+      statement: Member records may persist an optional free-text purpose so roster
+        briefings and member surfaces can explain each participant's role
+        without deriving it from the handle or harness.
+      reason: S3 channel-aware briefings require purpose to cross the shared protocol
+        before switchboard and web behavior lands.
+      depends_on: []
+    - id: acknowledgement-marker-protocol
+      title: Messages carry an explicit acknowledgement marker
+      statement: Message parsing must default ack to false and preserve an explicit
+        true marker, because exact ACK_OK turns need durable evidence that
+        routing and default-recipient consumers can distinguish from substantive
+        replies.
+      reason: S5 requires a durable acknowledgement bit before Phase 3 implements
+        routing semantics and Phase 4 renders the marker.
+      depends_on: []
+    - id: member-removal-timestamp-protocol
+      title: Member records may carry a removal tombstone timestamp
+      statement: Member records may persist an optional removed timestamp so later
+        dead-member removal can retain stable identity and historical
+        attribution instead of deleting the row.
+      reason: The additive S11 entity field lands before Phase 3 adds the remove act,
+        authorization entry, and daemon transition together.
+      depends_on: []
+  reviewed:
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Keeping WireEvent payload transport open preserves third-party adapter
+        loading while standalone schemas define the first-party normalization
+        edge.
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: Additive protocol exports and documentation do not change the
+        registry-owned fresh-clone boot path.
+    - id: blob-path-contained
+      outcome: unchanged
+      reason: The pure slug helper produces protocol room-id candidates and does not
+        relax RoomIdSchema or blob containment.
+    - id: reserved-handles-rejected
+      outcome: unchanged
+      reason: Starting-agent handles continue through AssignableHandleSchema, so
+        reserved system names remain unavailable.
+    - id: owner-and-system-members-seeded
+      outcome: unchanged
+      reason: The additive creation request retains the required owner shape and does
+        not implement or change store seeding in this phase.
+    - id: rename-preserves-mention-resolution
+      outcome: unchanged
+      reason: Optional purpose and tombstone metadata leave stable member ids and
+        historical mention spans unchanged.
+    - id: brakes-default-off
+      outcome: unchanged
+      reason: Adding optional color and cwd fields leaves both brake defaults null and
+        the informational stall default at 30 minutes.
+    - id: brakes-opt-in-hold
+      outcome: unchanged
+      reason: Optional room metadata does not alter the existing pure brake evaluation
+        or its opt-in thresholds.
+    - id: agent-chains-uninterrupted-by-default
+      outcome: unchanged
+      reason: The additive room fields and protocol-only ACK marker do not yet change
+        daemon dispatch or default chain behavior.
+    - id: bridged-room-wears-banner
+      outcome: unchanged
+      reason: The bridged config flag and its external-boundary meaning remain intact
+        beside the new optional channel metadata.
+anchors:
+  normalized-run-item-payload-contract:
+    standalone-run-item-payload-schemas:
+      action: change
+      reason: Add permissive per-item schemas, exported types, and the shared safe
+        parser while retaining unknown WireEvent transport payloads.
+    normalized-run-item-documentation:
+      action: change
+      reason: Document every S1 payload and the strict-source, lenient-transport
+        enforcement model.
+  canonical-spawn-control-vocabulary:
+    canonical-policy-and-thinking-types:
+      action: change
+      reason: Export canonical policy and thinking schemas and add optional SpawnOpts
+        and capability fields.
+  channel-create-request-contract:
+    channel-room-metadata:
+      action: change
+      reason: Add optional color and cwd to RoomConfig.
+    channel-create-request-schema:
+      action: change
+      reason: Export the additive create request and starting-agent shapes.
+    channel-id-slug-helper:
+      action: change
+      reason: Add the pure S6 room-id derivation helper without collision policy.
+  member-purpose-protocol-metadata:
+    member-purpose-field:
+      action: change
+      reason: Add optional free-text purpose to MemberSchema.
+  acknowledgement-marker-protocol:
+    message-ack-field:
+      action: change
+      reason: Add the default-false durable message marker.
+    ack-protocol-documentation:
+      action: change
+      reason: Specify exact-match ACK_OK evidence, routing, default-recipient, and
+        presentation semantics.
+  member-removal-timestamp-protocol:
+    member-removal-field:
+      action: change
+      reason: Add the optional tombstone timestamp to MemberSchema.
+    member-removal-documentation:
+      action: change
+      reason: Document the S11 tombstone contract that Phase 3 implements with the
+        act, authorization, and daemon handler.
+  brakes-default-off:
+    room-config-brakes:
+      action: change
+      reason: Preserve every existing default while adding nested optional channel
+        metadata fields to RoomConfig.
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/events.ts
+  - packages/protocol/src/ids.ts
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/index.spec.ts
+  - packages/protocol/src/schemas.spec.ts
+  - docs/PROTOCOL.md
+applied:
+  applied_at: 2026-07-11T13:33:51.275Z

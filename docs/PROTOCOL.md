@@ -1,6 +1,7 @@
 # Protocol
 
-The room semantics. This is the spec other-harness adapters and all three surfaces implement
+A channel (protocol: room) is the human-facing workspace described by these room semantics.
+This is the spec other-harness adapters and all three surfaces implement
 against. Wire format is JSON; schemas live in `@wireroom/protocol` (zod) once implementation
 starts.
 
@@ -13,6 +14,7 @@ Member {
   handle: string        // unique per room, /^[a-z0-9][a-z0-9-]{1,30}$/, renameable
                         // reserved (never assignable): 'all', 'switchboard'
   display_name: string  // free text shown in UI
+  purpose?: string      // operator-authored role in this room
   // agent + extension only:
   harness?: 'claude-code' | 'codex' | string   // adapter id, open set
   session_ref?: string  // harness-native session/rollout id (resume token)
@@ -26,6 +28,7 @@ Member {
   parent?: MemberId     // extensions only: the member whose run spawned them
   // humans only — org access control (schema from day one, enforcement lands M5):
   role?: 'owner' | 'admin' | 'member' | 'observer'
+  removed_ts?: string   // tombstone timestamp; attribution remains intact
 }
 ```
 
@@ -33,6 +36,14 @@ Member {
   members (`coder`, `reviewer`, `red-team`), each with its own `session_ref` and context.
 - **Renames** change `handle`/`display_name`, never `id`. A rename posts a `system` message. Old
   messages keep resolving because mentions store `member_id`, not the handle text.
+<!-- harn:assume member-removal-timestamp-protocol ref=member-removal-documentation -->
+- **Removal tombstones dead members; it never deletes identity.** The `remove` act is valid only
+  for a `dead` member and records `removed_ts` while retaining the row for historical message
+  attribution. Removed members are absent from rosters, handle uniqueness, default recipients,
+  and member surfaces, so a replacement may reuse the freed handle without retargeting old
+  messages. A dead member with a resumable session is revived; one without a session is removed
+  and respawned.
+<!-- harn:end member-removal-timestamp-protocol -->
 - **Extensions** (subagents) are auto-added when observed, `handle` derived from their task id
   (`claude-ext-7adw`), auto-retired (`dead`) when the parent run ends. Not addressable in v1: the
   parser treats `@<extension>` as plain text. Post-MVP they may accept mentions while alive.
@@ -68,6 +79,7 @@ Message {
   run?: RunSummary      // kind='run' only
   ask?: AskCard         // kind='ask'|'approval' only
   origin?: BridgeOrigin // bridge-authored only; unique per (bridge member, platform, external_id)
+  ack?: boolean         // exact ACK_OK turn; defaults false
   ts: string            // ISO-8601, switchboard clock
   seq: number           // room change-sequence at last insert/update (see sync note below)
 }
@@ -103,6 +115,16 @@ blob; surfaces render a live header (elapsed, current tool, cost) and expand-on-
 completion the SAME message is finalized in place: `final_text` becomes its body, and its
 mentions/refs are parsed **from that finalized message** for onward routing. One turn, one
 message, one permanent `#N` — no duplicate "reply" message is ever created.
+
+<!-- harn:assume acknowledgement-marker-protocol ref=ack-protocol-documentation -->
+**`<ACK_OK>` ends acknowledgement cascades.** Every agent briefing instructs the member to
+respond with exactly `<ACK_OK>` when a message needs no substantive reply. A finalized
+`final_text` is an acknowledgement only when `trim()` equals that marker case-sensitively;
+containment does not count. The same run message keeps its verbatim body and is stored with
+`ack: true`, but mention parsing and onward routing are skipped and it cannot become the latest
+finalized default recipient. Surfaces render it as one muted `✓ @handle acknowledged` line;
+the run journal remains available from the permalink.
+<!-- harn:end acknowledgement-marker-protocol -->
 
 **Asks and approvals block the run, with a crash-safe state machine.**
 
@@ -272,6 +294,37 @@ extension.started  { parent, ext_member }                     // harness-native 
 extension.ended    { ext_member, summary? }                    // mapped to MemberIds by switchboard
 ```
 
+<!-- harn:assume normalized-run-item-payload-contract ref=normalized-run-item-documentation -->
+`run.item.payload` has a standalone normalized schema for each `item_type`:
+
+```ts
+tool_call         { call_id: string, tool: string, title: string,
+                    detail?: string, input?: unknown }
+tool_result       { call_id: string, status: 'ok' | 'error',
+                    output_text?: string,
+                    diff?: { path: string, unified: string },
+                    image?: { media_type: string, data_b64: string },
+                    duration_ms?: number, raw?: unknown }
+text_delta        { text: string }
+reasoning_summary { text: string }
+file_change       { path: string, change: 'created' | 'modified' | 'deleted',
+                    diff?: { path: string, unified: string } }
+commit            { sha?: string, message?: string }
+```
+
+The schemas allow unknown extra keys and preserve plain JSON so deep redaction still applies.
+`parseRunItemPayload(item_type, payload)` is the single safe-parse path used by first-party
+adapter tests and surfaces. `WireEventSchema` deliberately keeps the transport payload as
+`unknown`: a malformed third-party adapter item degrades to generic rendering instead of
+failing a live turn. First-party adapters must parse at their source boundary.
+
+`call_id` pairs a tool result with its call. `title` is the human-readable one-line command or
+path. File-editing adapters emit unified diffs when native evidence permits. Inline images are
+capped at 2 MiB and output text at 256 KiB by adapters; oversized content is replaced or
+truncated with an explicit marker. A tool result's untruncated `raw` value is journal-only and
+must be stripped from live `run_event` frames.
+<!-- harn:end normalized-run-item-payload-contract -->
+
 ## 5. Harness feature matrix
 
 What each adapter maps from; the normalization column is the contract surfaces rely on.
@@ -339,6 +392,10 @@ read and extend), rebuilt local-first and graph-shaped:
    there is no message deletion inside a room, only room deletion).
 3. Every non-commentary message resolves to ≥1 recipient at post time; the composer surfaces
    the implied default so the human always sees where it will go before sending.
+   **Phase 4e amendment (draft; not yet effective):** the composer will materialize that implied
+   default as a literal, editable `@handle` mention in the draft and remove the separate
+   recipient line. The current surfaced-default contract above remains effective until Phase
+   4e updates the composer and its Harn anchor in the same commit.
 4. The switchboard never fabricates member speech. Everything attributed to a member came out of
    its session or its human's keyboard/microphone.
 5. All state needed to rebuild a room (messages, members, session_refs, blobs) lives on the

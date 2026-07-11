@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { RoomIdSchema, TimestampSchema } from './ids.js';
+import { AssignableHandleSchema } from './member.js';
 
 // harn:assume brakes-default-off ref=room-config-brakes
 /**
@@ -14,6 +15,10 @@ export const RoomConfigSchema = z.object({
   spend_brake_usd: z.number().positive().nullable().default(null), // daily cost hold threshold
   stall_minutes: z.number().int().positive().default(30),
   redaction_enabled: z.boolean().default(true),
+  // harn:assume channel-create-request-contract ref=channel-room-metadata
+  color: z.string().min(1).optional(),
+  cwd: z.string().min(1).optional(),
+  // harn:end channel-create-request-contract
   // harn:assume bridged-room-wears-banner ref=bridged-room-config
   bridged: z.boolean().default(false),
   // harn:end bridged-room-wears-banner
@@ -28,6 +33,28 @@ export const RoomSchema = z.object({
   config: RoomConfigSchema.prefault({}),
 });
 export type Room = z.infer<typeof RoomSchema>;
+
+// harn:assume channel-create-request-contract ref=channel-create-request-schema
+export const StartingAgentSchema = z.object({
+  harness: z.string().min(1),
+  handle: AssignableHandleSchema,
+  model: z.string().optional(),
+});
+export type StartingAgent = z.infer<typeof StartingAgentSchema>;
+
+export const CreateRoomRequestSchema = z.object({
+  id: RoomIdSchema.optional(),
+  name: z.string().min(1),
+  owner: z.object({
+    handle: AssignableHandleSchema,
+    display_name: z.string(),
+  }),
+  color: z.string().min(1).optional(),
+  cwd: z.string().min(1).optional(),
+  starting_agent: StartingAgentSchema.optional(),
+});
+export type CreateRoomRequest = z.infer<typeof CreateRoomRequestSchema>;
+// harn:end channel-create-request-contract
 
 /** Daily per-room spend meter (always on, never blocking). */
 // harn:assume uncosted-usage-visible-not-guessed ref=room-meter-uncosted-schema

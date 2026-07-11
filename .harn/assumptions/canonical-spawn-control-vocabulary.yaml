@@ -1,0 +1,11 @@
+id: canonical-spawn-control-vocabulary
+hash: a-132cf2391502
+title: Spawn policy and thinking controls use canonical protocol vocabularies
+state: active
+statement: The protocol must export policy values read-only, workspace-write,
+  and full-access plus thinking levels low, medium, and high; SpawnOpts may
+  carry a thinking level and adapter capabilities may conservatively omit
+  thinking support until declarations become required, because every harness
+  mapping and UI control needs one stable vocabulary.
+depends_on: []
+created_by: codor-p1-protocol

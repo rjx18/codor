@@ -74,6 +74,9 @@ export const MessageSchema = z.object({
   run: RunSummarySchema.optional(), // kind='run' only
   ask: AskCardSchema.optional(), // kind='ask'|'approval' only
   origin: BridgeOriginSchema.optional(), // bridge-authored only
+  // harn:assume acknowledgement-marker-protocol ref=message-ack-field
+  ack: z.boolean().optional(), // absent is the additive false/default state
+  // harn:end acknowledgement-marker-protocol
   ts: TimestampSchema,
   seq: SeqSchema, // room change-sequence at last insert/update
 });

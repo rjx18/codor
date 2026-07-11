@@ -1,0 +1,14 @@
+id: channel-create-request-contract
+hash: a-81abd9dac805
+title: Channel creation has additive metadata and a derivable protocol room id
+state: active
+statement: The protocol room config may carry channel color and working
+  directory metadata, creation requests may omit the id and name an optional
+  starting agent, and deriveRoomId must deterministically produce the S6
+  lowercase ASCII slug without collision handling, because the server owns
+  collision suffixes while clients need an identical preview.
+depends_on:
+  - blob-path-contained
+  - reserved-handles-rejected
+  - brakes-default-off
+created_by: codor-p1-protocol

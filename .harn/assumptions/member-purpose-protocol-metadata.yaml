@@ -1,0 +1,9 @@
+id: member-purpose-protocol-metadata
+hash: a-910117882a4c
+title: Member records may carry an operator-authored purpose
+state: active
+statement: Member records may persist an optional free-text purpose so roster
+  briefings and member surfaces can explain each participant's role without
+  deriving it from the handle or harness.
+depends_on: []
+created_by: codor-p1-protocol
