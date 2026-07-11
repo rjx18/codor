@@ -41,12 +41,19 @@ test('mobile room keeps the stream primary with a thumb-safe drawer and composer
   const drawer = page.getByTestId('room-drawer');
   await expect(drawer).toBeVisible();
   await expect(drawer.getByTestId('room-link-eng')).toHaveAttribute('aria-current', 'page');
-  await expect(drawer.getByTestId('member-alpha')).toBeVisible();
-  await expect(drawer.getByRole('button', { name: 'Close rooms and members' })).toBeFocused();
+  await expect(drawer.getByTestId('member-alpha')).toHaveCount(0);
+  await expect(drawer.getByText('Local switchboard · Connected')).toBeVisible();
+  await expect(drawer.getByRole('button', { name: 'Close rooms' })).toBeFocused();
   const drawerBox = (await drawer.boundingBox())!;
   expect(drawerBox.width).toBeLessThan(viewport.width);
-  await drawer.getByRole('button', { name: 'Close rooms and members' }).click();
+  await drawer.getByRole('button', { name: 'Close rooms' }).click();
   await expect(drawer).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Open room context' }).click();
+  const context = page.getByRole('dialog', { name: 'Room context' });
+  await expect(context.getByTestId('member-alpha')).toBeVisible();
+  await context.getByRole('button', { name: 'Close room context' }).click();
+  await expect(context).toHaveCount(0);
 });
 
 test('manifest is installable and the owned worker caches only the offline shell', async ({

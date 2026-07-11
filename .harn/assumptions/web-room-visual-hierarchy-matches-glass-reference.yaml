@@ -1,7 +1,7 @@
 id: web-room-visual-hierarchy-matches-glass-reference
 hash: a-27f2d90fe80b
 title: The room surface carries the ImageGen control-room hierarchy
-state: active
+state: retired
 statement: The web room must visually prioritize the conversation over its
   navigation and context rails, distinguish human prompts, agent runs,
   approvals, holds, and the focused composer through semantic structure and
@@ -14,3 +14,4 @@ depends_on:
   - web-shell-responsive-three-pane
   - web-glass-theme-accessible-modes
 created_by: glass-web-polish-pass
+retired_by: restrained-room-workspace

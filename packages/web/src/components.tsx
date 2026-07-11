@@ -16,8 +16,8 @@ import {
   CircleDollarSign,
   CircleX,
   Clock3,
-  BrainCircuit,
   FileCode2,
+  FileText,
   Gauge,
   GitCommitHorizontal,
   Inbox,
@@ -31,8 +31,8 @@ import {
   Send,
   Settings,
   ShieldAlert,
-  Terminal,
   UserRound,
+  Wrench,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -708,11 +708,11 @@ export function runEventPresentation(event: WireEvent): { label: string; detail?
 function RunEventIcon(props: { event: WireEvent }) {
   if (props.event.type !== 'run.item') return <Activity aria-hidden="true" size={15} />;
   if (props.event.item_type === 'tool_call' || props.event.item_type === 'tool_result') {
-    return <Terminal aria-hidden="true" size={15} />;
+    return <Wrench aria-hidden="true" size={15} />;
   }
   if (props.event.item_type === 'commit') return <GitCommitHorizontal aria-hidden="true" size={15} />;
   if (props.event.item_type === 'file_change') return <FileCode2 aria-hidden="true" size={15} />;
-  return <BrainCircuit aria-hidden="true" size={15} />;
+  return <FileText aria-hidden="true" size={15} />;
 }
 
 // harn:assume extensions-not-addressable-v1 ref=extension-run-rendering
@@ -773,7 +773,7 @@ export function RunMessageView(props: {
       id={String(props.message.id)}
       data-testid={`run-${props.message.id}`}
       data-run-status={run.status}
-      className="wr-run-card scroll-mt-16 target:border-sky-600"
+      className="wr-run-card scroll-mt-16"
     >
       <div className="wr-run-heading">
         <span className="wr-actor-mark wr-actor-agent" aria-hidden="true">
@@ -834,22 +834,22 @@ export function RunMessageView(props: {
       {expanded && (
         <div id={`run-${String(props.message.id)}-events`} data-testid={`run-${props.message.id}-events`} className="wr-run-events">
           {extensions.length > 0 && (
-            <div data-testid={`run-${props.message.id}-extensions`} className="mb-2 space-y-2 border-l-2 border-sky-900 pl-3">
+            <div data-testid={`run-${props.message.id}-extensions`} className="wr-run-extensions">
               {extensions.map((extension) => (
                 <div
                   key={extension.id}
                   data-testid={`run-${props.message.id}-extension-${extension.id}`}
                 >
-                  <div className="flex items-center gap-2">
-                    <strong className="text-zinc-200">
+                  <div className="wr-extension-heading">
+                    <strong>
                       {extension.description ?? `extension ${extension.id.slice(-6)}`}
                     </strong>
-                    <span className={extension.ended ? 'text-zinc-500' : 'text-sky-400'}>
+                    <span data-state={extension.ended ? 'ended' : 'running'}>
                       {extension.ended ? 'finished' : 'running'}
                     </span>
                     {extension.agentType && <span>{extension.agentType}</span>}
                   </div>
-                  {extension.summary && <p className="mt-1 whitespace-pre-wrap text-zinc-300">{extension.summary}</p>}
+                  {extension.summary && <p>{extension.summary}</p>}
                 </div>
               ))}
             </div>
@@ -905,7 +905,7 @@ export function AskCardView(props: {
     <div
       id={String(props.message.id)}
       data-testid={`card-${props.message.id}`}
-      className="wr-ask-card scroll-mt-16 target:border-sky-600"
+      className="wr-ask-card scroll-mt-16"
     >
       <div className="wr-ask-heading">
         <span className="wr-ask-symbol" aria-hidden="true">

@@ -4,11 +4,9 @@ import {
   ChevronRight,
   Clock3,
   ExternalLink,
-  Hash,
   Plus,
   Settings,
   Users,
-  Workflow,
   X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -108,9 +106,7 @@ export function RoomList(props: {
                 className="wr-room-link"
                 onClick={props.onNavigate}
               >
-                <span className="wr-room-glyph" aria-hidden="true">
-                  <Hash size={18} strokeWidth={1.8} />
-                </span>
+                <span className={`wr-room-dot ${selected && props.connected ? 'is-live' : ''}`} aria-hidden="true" />
                 <span className="wr-room-copy">
                   <strong title={room.name}>{room.name}</strong>
                   <small>
@@ -227,18 +223,16 @@ export function RoomRail(props: {
   return (
     <aside data-testid="room-rail" className="wr-room-rail">
       <div className="wr-brand">
-        <span className="wr-brand-mark" aria-hidden="true"><Workflow size={22} /></span>
         <span className="wr-brand-copy">
           <strong>Wireroom</strong>
-          <small>Local control plane</small>
         </span>
       </div>
       <RoomList {...props} />
       <div className="wr-rail-footer">
         <span className={`wr-presence ${props.connected ? 'is-live' : ''}`} aria-hidden="true" />
         <span>
-          <strong>Local switchboard</strong>
-          <small>{props.connected ? 'Connected' : 'Reconnecting'}</small>
+          <strong>{props.owner?.display_name ?? 'Local switchboard'}</strong>
+          <small>{props.connected ? 'Local switchboard · Connected' : 'Local switchboard · Reconnecting'}</small>
         </span>
         <a
           href={`/settings?${new URLSearchParams({ room: props.currentRoom }).toString()}`}
@@ -258,6 +252,23 @@ function eventLabel(event: WireEvent): string {
   if (event.type === 'extension.started') return 'extension started';
   if (event.type === 'extension.ended') return 'extension finished';
   return event.type.replaceAll('.', ' ');
+}
+
+function eventDetail(event: WireEvent): string | undefined {
+  if (event.type === 'extension.started') return event.description;
+  if (event.type === 'extension.ended') return event.summary;
+  if (event.type === 'run.completed') return event.final_text;
+  if (event.type !== 'run.item') return undefined;
+  const payload = event.payload;
+  if (typeof payload !== 'object' || payload === null) {
+    return typeof payload === 'string' || typeof payload === 'number' ? String(payload) : undefined;
+  }
+  const values = payload as Record<string, unknown>;
+  for (const key of ['tool', 'command', 'path', 'change', 'summary', 'result']) {
+    const value = values[key];
+    if (typeof value === 'string' && value.trim() !== '') return value.slice(0, 96);
+  }
+  return undefined;
 }
 
 // harn:assume run-context-selects-and-follows-live-evidence ref=selected-live-run-context
@@ -332,7 +343,7 @@ function RunContext(props: {
                 <span aria-hidden="true" />
                 <div>
                   <strong>{eventLabel(event)}</strong>
-                  {event.type === 'run.item' && <small>{JSON.stringify(event.payload).slice(0, 96)}</small>}
+                  {eventDetail(event) && <small>{eventDetail(event)}</small>}
                 </div>
               </li>
             ))}

@@ -1,5 +1,5 @@
 import type { Message, Room } from '@wireroom/protocol';
-import { Search, X } from 'lucide-react';
+import { Search, Settings, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -8,7 +8,6 @@ import {
   Header,
   HoldBanner,
   MessageRow,
-  MemberRail,
   RunMessageView,
   RunStallBadge,
   handleLookup,
@@ -359,10 +358,9 @@ export function App(props: { token?: string } = {}) {
     return () => window.removeEventListener('keydown', close);
   }, [searchOpen]);
 
-  // harn:assume web-room-visual-hierarchy-matches-glass-reference ref=glass-room-visual-hierarchy
+  // harn:assume web-room-visual-hierarchy-matches-restrained-reference ref=restrained-room-visual-hierarchy
   return (
     <div className="wr-canvas">
-      <div className="wr-wiring" aria-hidden="true" />
       <div className="wr-app-grid">
         <RoomRail
           rooms={roomItems}
@@ -606,23 +604,23 @@ export function App(props: { token?: string } = {}) {
         <div className="wr-drawer-layer">
           <button
             type="button"
-            aria-label="Close rooms and members"
+            aria-label="Close rooms"
             className="wr-layer-scrim"
             onClick={() => setDrawerOpen(false)}
           />
           <aside
             role="dialog"
             aria-modal="true"
-            aria-label="Rooms and members"
+            aria-label="Rooms"
             data-testid="room-drawer"
             className="wr-mobile-drawer"
           >
             <div className="wr-drawer-header">
-              <strong>Wireroom</strong>
+              <strong>Rooms</strong>
               <button
                 ref={drawerCloseRef}
                 type="button"
-                aria-label="Close rooms and members"
+                aria-label="Close rooms"
                 title="Close"
                 onClick={() => setDrawerOpen(false)}
                 className="wr-icon-button"
@@ -641,16 +639,21 @@ export function App(props: { token?: string } = {}) {
               canCreateRoom={canManageRooms}
               onNavigate={() => setDrawerOpen(false)}
             />
-            <MemberRail
-              members={Object.values(state.members)}
-              details={memberDetails}
-              history={state.memberHistory}
-              adapters={adapters}
-              connection={connection}
-              variant="drawer"
-              className="min-h-0 flex-1 pb-[max(1rem,env(safe-area-inset-bottom))]"
-              canManageAgents={canManageAgents}
-            />
+            <div className="wr-drawer-footer">
+              <span className={`wr-presence ${state.connected ? 'is-live' : ''}`} aria-hidden="true" />
+              <span>
+                <strong>{owner?.display_name ?? 'Local switchboard'}</strong>
+                <small>{state.connected ? 'Local switchboard · Connected' : 'Local switchboard · Reconnecting'}</small>
+              </span>
+              <a
+                href={`/settings?${new URLSearchParams({ room: ROOM }).toString()}`}
+                aria-label="Open settings"
+                title="Settings"
+                className="wr-icon-button"
+              >
+                <Settings aria-hidden="true" size={18} />
+              </a>
+            </div>
           </aside>
         </div>
       )}
@@ -699,7 +702,7 @@ export function App(props: { token?: string } = {}) {
       )}
     </div>
   );
-  // harn:end web-room-visual-hierarchy-matches-glass-reference
+  // harn:end web-room-visual-hierarchy-matches-restrained-reference
   // harn:end roles-gate-human-acts-not-agents
 }
 // harn:end permalink-ids-stable

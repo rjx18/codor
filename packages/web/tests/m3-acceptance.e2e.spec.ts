@@ -82,8 +82,13 @@ test('M3 acceptance: the installed mobile PWA runs the room flow and opens seale
     await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
     await page.getByTestId('open-room-drawer').click();
     const drawer = page.getByTestId('room-drawer');
-    await expect(drawer.getByTestId('member-alpha')).toBeVisible();
-    await drawer.getByRole('button', { name: 'Close rooms and members' }).click();
+    await expect(drawer.getByTestId('room-link-eng')).toBeVisible();
+    await expect(drawer.getByTestId('member-alpha')).toHaveCount(0);
+    await drawer.getByRole('button', { name: 'Close rooms' }).click();
+    await page.getByRole('button', { name: 'Open room context' }).click();
+    const roomContext = page.getByRole('dialog', { name: 'Room context' });
+    await expect(roomContext.getByTestId('member-alpha')).toBeVisible();
+    await roomContext.getByRole('button', { name: 'Close room context' }).click();
     await control('/enqueue', {
       turns: [{
         kind: 'ask',

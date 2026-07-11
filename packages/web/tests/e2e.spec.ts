@@ -290,12 +290,16 @@ test('desktop room keeps rooms, conversation, and context in stable non-overlapp
   const contextBox = (await context.boundingBox())!;
   expect(roomBox.x + roomBox.width).toBeLessThanOrEqual(conversationBox.x + 0.5);
   expect(conversationBox.x + conversationBox.width).toBeLessThanOrEqual(contextBox.x + 0.5);
+  expect(roomBox.width / 1440).toBeGreaterThan(0.2);
+  expect(roomBox.width / 1440).toBeLessThan(0.24);
+  expect(contextBox.width / 1440).toBeGreaterThan(0.24);
+  expect(contextBox.width / 1440).toBeLessThan(0.28);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440);
 });
 // harn:end web-shell-responsive-three-pane
 
-// harn:assume web-room-visual-hierarchy-matches-glass-reference ref=glass-room-visual-regression
-test('glass room keeps a strong working hierarchy and a pinned latest turn across reflow', async ({ page }) => {
+// harn:assume web-room-visual-hierarchy-matches-restrained-reference ref=restrained-room-visual-regression
+test('restrained room keeps matte panes, sparse glass, and a pinned latest turn across reflow', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?room=eng&token=e2e-token');
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
@@ -311,22 +315,39 @@ test('glass room keeps a strong working hierarchy and a pinned latest turn acros
   await expect(run).toBeVisible();
   await expect(message).toBeVisible();
   const hierarchy = await page.evaluate(() => {
+    const canvas = getComputedStyle(document.querySelector<HTMLElement>('.wr-canvas')!);
     const header = getComputedStyle(document.querySelector<HTMLElement>('.wr-room-header')!);
     const main = getComputedStyle(document.querySelector<HTMLElement>('.wr-room-main')!);
+    const rail = getComputedStyle(document.querySelector<HTMLElement>('.wr-room-rail')!);
+    const composer = getComputedStyle(document.querySelector<HTMLElement>('.wr-composer')!);
     const run = getComputedStyle(document.querySelector<HTMLElement>('.wr-run-card')!);
     const message = getComputedStyle(document.querySelector<HTMLElement>('.wr-message')!);
     return {
+      canvasImage: canvas.backgroundImage,
       headerBackground: header.backgroundColor,
       mainBackground: main.backgroundColor,
-      runBorder: parseFloat(run.borderLeftWidth),
+      headerMaterial: header.backdropFilter || header.getPropertyValue('-webkit-backdrop-filter'),
+      railMaterial: rail.backdropFilter || rail.getPropertyValue('-webkit-backdrop-filter'),
+      composerMaterial: composer.backdropFilter || composer.getPropertyValue('-webkit-backdrop-filter'),
+      runBorder: parseFloat(run.borderTopWidth),
+      runRadius: parseFloat(run.borderTopLeftRadius),
+      runShadow: run.boxShadow,
       messageDisplay: message.display,
       messageSize: parseFloat(message.fontSize),
+      wiringCount: document.querySelectorAll('.wr-wiring').length,
     };
   });
-  expect(hierarchy.headerBackground).not.toBe(hierarchy.mainBackground);
+  expect(hierarchy.canvasImage).toBe('none');
+  expect(hierarchy.headerBackground).toBe(hierarchy.mainBackground);
+  expect(hierarchy.headerMaterial).toBe('none');
+  expect(hierarchy.railMaterial).toBe('none');
+  expect(hierarchy.composerMaterial).toContain('blur');
   expect(hierarchy.runBorder).toBeGreaterThanOrEqual(1);
+  expect(hierarchy.runRadius).toBe(0);
+  expect(hierarchy.runShadow).toBe('none');
   expect(hierarchy.messageDisplay).toBe('grid');
   expect(hierarchy.messageSize).toBeGreaterThanOrEqual(14);
+  expect(hierarchy.wiringCount).toBe(0);
 
   const spawn = page.getByTestId('spawn-agent');
   const spawnBox = (await spawn.boundingBox())!;
@@ -364,7 +385,7 @@ test('glass room keeps a strong working hierarchy and a pinned latest turn acros
   await expect(page.getByText('visual reflow hold released')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
-// harn:end web-room-visual-hierarchy-matches-glass-reference
+// harn:end web-room-visual-hierarchy-matches-restrained-reference
 
 // harn:assume web-first-run-color-mode-is-dark ref=dark-first-theme-regression
 test('a new light-host browser opens dark before an explicit system choice', async ({ page }) => {
@@ -443,21 +464,24 @@ test('desktop room rail creates and enters an owner-seeded room without a bearer
 // harn:end web-room-rail-creates-owner-room
 
 // harn:assume web-glass-theme-accessible-modes ref=glass-theme-regression
-test('glass shell responds to light preference without losing contrast or material fallback', async ({ page }) => {
+test('restrained shell keeps accessible light tokens and limits glass to functional surfaces', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ colorScheme: 'light' });
   await page.addInitScript(() => localStorage.setItem('wireroom-theme', 'system'));
   await page.goto('/?room=eng&token=e2e-token');
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await expect(page.getByTestId('composer-input')).toBeVisible();
 
   const light = await page.evaluate(() => {
     const root = getComputedStyle(document.documentElement);
     const header = getComputedStyle(document.querySelector<HTMLElement>('.wr-room-header')!);
+    const composer = getComputedStyle(document.querySelector<HTMLElement>('.wr-composer')!);
     return {
       colorScheme: root.colorScheme,
       canvas: root.getPropertyValue('--wr-canvas').trim(),
       text: root.getPropertyValue('--wr-text').trim(),
-      material: header.backdropFilter || header.getPropertyValue('-webkit-backdrop-filter'),
+      headerMaterial: header.backdropFilter || header.getPropertyValue('-webkit-backdrop-filter'),
+      composerMaterial: composer.backdropFilter || composer.getPropertyValue('-webkit-backdrop-filter'),
       contrast: (() => {
         const luminance = (hex: string): number => {
           const channels = hex.match(/[0-9a-f]{2}/gi)!.map((channel) => parseInt(channel, 16) / 255)
@@ -471,16 +495,18 @@ test('glass shell responds to light preference without losing contrast or materi
         };
         return {
           text: ratio(root.getPropertyValue('--wr-text').trim(), root.getPropertyValue('--wr-canvas').trim()),
-          accent: ratio(root.getPropertyValue('--wr-cyan').trim(), root.getPropertyValue('--wr-canvas').trim()),
+          active: ratio(root.getPropertyValue('--wr-emerald').trim(), root.getPropertyValue('--wr-canvas').trim()),
         };
       })(),
     };
   });
   expect(light.colorScheme).toContain('light');
-  expect(light.canvas).not.toBe(light.text);
-  expect(light.material).toContain('blur');
+  expect(light.canvas).toBe('#f5f5f2');
+  expect(light.text).toBe('#1b1c1f');
+  expect(light.headerMaterial).toBe('none');
+  expect(light.composerMaterial).toContain('blur');
   expect(light.contrast.text).toBeGreaterThanOrEqual(4.5);
-  expect(light.contrast.accent).toBeGreaterThanOrEqual(4.5);
+  expect(light.contrast.active).toBeGreaterThanOrEqual(4.5);
 
   await page.getByTestId('composer-input').focus();
   expect(await page.getByTestId('composer-input').evaluate((element) => {

@@ -116,3 +116,5 @@ files:
   - packages/web/tests/m3-acceptance.e2e.spec.ts
   - packages/web/tests/pwa.e2e.spec.ts
   - tmp/build/PROGRESS.md
+applied:
+  applied_at: 2026-07-11T03:56:45.127Z
