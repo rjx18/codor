@@ -1,0 +1,10 @@
+id: restrained-design-review-record
+title: Record the unavailable restrained design review
+assumptions:
+  retire: []
+  create: []
+  reviewed: []
+anchors: {}
+files:
+  - MANUAL-VERIFY.md
+  - tmp/build/PROGRESS.md
