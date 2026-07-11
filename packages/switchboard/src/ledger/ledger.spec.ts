@@ -134,7 +134,7 @@ describe('ledger vault v1', () => {
       name: 'Engineering',
       owner: { handle: 'richard', display_name: 'Richard' },
     });
-    daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/work' });
+    daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: root });
     daemon.addLedgerNote('eng', {
       name: 'risk-limits',
       type: 'constraint',

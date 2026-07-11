@@ -8,7 +8,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   ClientFrameSchema,
-  RoomIdSchema,
+  CreateRoomRequestSchema,
   type BridgeOrigin,
   type Member,
   type ServerFrame,
@@ -18,6 +18,7 @@ import { assertHumanCapability, roleAllows, type HumanCapability } from './autho
 import { constantTimeEqual, hashTranscript } from './crypto/challenge.js';
 import type { CryptoVault, PairingRequest } from './crypto/pairing.js';
 import type { Daemon } from './daemon.js';
+import { listLocalDirectories, LocalDirectoryError } from './local-dirs.js';
 import type { PushSubscriptionStore } from './push/subscriptions.js';
 
 export interface ServerOptions {
@@ -40,6 +41,10 @@ export interface ServerOptions {
   pushVapidPublicKey?: string;
   /** True only when the producer has a validated relay destination. */
   pushRelayEnabled?: boolean;
+  /** Trust Tailscale Serve's injected identity header for browser enrollment. */
+  trustTailscaleServe?: boolean;
+  /** Testable operator-home boundary; defaults to the process home. */
+  homeDir?: string;
 }
 
 export interface RunningServer {
@@ -250,8 +255,25 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const pairingToken = authorization?.startsWith('Pairing ')
       ? authorization.slice('Pairing '.length)
       : undefined;
-    if (!pairingToken) return reply.code(401).send({ error: 'pairing token required' });
     try {
+      // harn:assume tailnet-auto-pairing-explicit-trust ref=trusted-tailnet-pairing-rest
+      const tailnetLogin = req.headers['tailscale-user-login'];
+      if (!pairingToken) {
+        if (
+          options.trustTailscaleServe !== true ||
+          typeof tailnetLogin !== 'string' ||
+          tailnetLogin.trim() === ''
+        ) {
+          return reply.code(401).send({ error: 'pairing token required' });
+        }
+        return reply.header('cache-control', 'no-store').send(
+          options.crypto.pairing.completeTrusted(
+            req.body as PairingRequest,
+            tailnetLogin.trim(),
+          ),
+        );
+      }
+      // harn:end tailnet-auto-pairing-explicit-trust
       return reply.header('cache-control', 'no-store').send(
         options.crypto.pairing.complete(pairingToken, req.body as PairingRequest),
       );
@@ -353,15 +375,36 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     void reply.send({ adapters: daemon.registeredAdapters() });
   });
 
+  // harn:assume local-directory-listing-home-contained ref=local-dirs-rest-boundary
+  app.get('/api/local/dirs', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_agents', reply)) return;
+    const query = req.query as { path?: string; hidden?: string };
+    try {
+      return reply.send(listLocalDirectories(query.path, query.hidden === '1', options.homeDir));
+    } catch (error) {
+      if (error instanceof LocalDirectoryError) {
+        return reply.code(error.status).send({ error: error.message });
+      }
+      throw error;
+    }
+  });
+  // harn:end local-directory-listing-home-contained
+
+  // harn:assume channel-creation-derived-and-seeded ref=create-room-rest-contract
   app.post('/api/rooms', (req, reply) => {
     const principal = authed(req, reply);
     if (!principal || !authorizeGlobal(principal, 'manage_rooms', reply)) return;
-    const body = req.body as { id: string; name: string; owner: { handle: string; display_name: string } };
-    RoomIdSchema.parse(body.id);
-    const created = daemon.createRoom(body);
-    options.crypto?.roomKeys.ensureRoom(created.room.id);
-    void reply.send(created);
+    try {
+      const body = CreateRoomRequestSchema.parse(req.body);
+      const created = daemon.createRoom(body);
+      options.crypto?.roomKeys.ensureRoom(created.room.id);
+      return reply.send(created);
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
   });
+  // harn:end channel-creation-derived-and-seeded
 
   app.get('/api/rooms/:room/sync', (req, reply) => {
     const principal = authed(req, reply);
@@ -554,8 +597,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (!principal) return;
     const { room } = req.params as { room: string };
     if (!authorizeRoom(principal, room, 'spawn', reply)) return;
-    const body = req.body as { harness: string; handle: string; cwd: string; policy?: string; model?: string };
-    void reply.send(daemon.spawnMember(room, body));
+    const body = req.body as {
+      harness: string;
+      handle: string;
+      cwd: string;
+      policy?: string;
+      model?: string;
+      thinking?: 'low' | 'medium' | 'high';
+      purpose?: string;
+    };
+    try {
+      return reply.send(daemon.spawnMember(room, body));
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
   });
 
   app.get('/api/rooms/:room/members', (req, reply) => {
@@ -728,6 +783,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 session_ref: act.session_ref,
                 cwd: act.cwd,
                 policy: act.policy,
+                purpose: act.purpose,
               });
             } else if (act.act === 'adopt') daemon.adoptMember(frame.room, act.member_id);
             else if (act.act === 'attach_acquire') {
@@ -793,10 +849,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 cwd: act.cwd,
                 policy: act.policy,
                 model: act.model,
+                thinking: act.thinking,
+                purpose: act.purpose,
               });
             } else if (act.act === 'rename') daemon.renameMember(frame.room, act.member_id, act.handle, act.display_name);
             else if (act.act === 'revive') daemon.reviveMember(frame.room, act.member_id);
             else if (act.act === 'kill') daemon.killMember(frame.room, act.member_id);
+            else if (act.act === 'remove') daemon.removeMember(frame.room, act.member_id);
             else if (act.act === 'pause') daemon.pauseMember(frame.room, act.member_id);
             else if (act.act === 'unpause') daemon.unpauseMember(frame.room, act.member_id);
             else if (act.act === 'interrupt') daemon.interruptMember(frame.room, act.member_id);

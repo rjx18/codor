@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS members (
   kind TEXT NOT NULL,
   handle TEXT NOT NULL,
   display_name TEXT NOT NULL,
+  purpose TEXT,
   harness TEXT,
   session_ref TEXT,
   cwd TEXT,
@@ -59,7 +60,8 @@ CREATE TABLE IF NOT EXISTS members (
   role TEXT,
   conventions_sent INTEGER NOT NULL DEFAULT 0,
   misaddressed INTEGER NOT NULL DEFAULT 0,
-  UNIQUE (room, handle)
+  roster_stale INTEGER NOT NULL DEFAULT 1,
+  removed_ts TEXT
 );
 CREATE TABLE IF NOT EXISTS messages (
   room TEXT NOT NULL REFERENCES rooms(id),
@@ -74,6 +76,7 @@ CREATE TABLE IF NOT EXISTS messages (
   run TEXT,                    -- RunSummary JSON: events_ref pointer only, no events
   ask TEXT,                    -- AskCard JSON
   origin TEXT,                 -- BridgeOrigin JSON
+  ack INTEGER NOT NULL DEFAULT 0,
   ts TEXT NOT NULL,
   seq INTEGER NOT NULL,
   PRIMARY KEY (room, id)
@@ -169,6 +172,68 @@ function migrateMemberCustody(db: Database.Database): void {
   }
 }
 
+// harn:assume roster-briefing-refreshes-on-membership ref=active-roster-storage
+function migrateMemberLifecycle(db: Database.Database): void {
+  const columns = db.pragma('table_info(members)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'purpose')) {
+    db.exec('ALTER TABLE members ADD COLUMN purpose TEXT');
+  }
+  if (!columns.some((column) => column.name === 'roster_stale')) {
+    db.exec('ALTER TABLE members ADD COLUMN roster_stale INTEGER NOT NULL DEFAULT 1');
+  }
+  if (!columns.some((column) => column.name === 'removed_ts')) {
+    db.exec('ALTER TABLE members ADD COLUMN removed_ts TEXT');
+  }
+  const table = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'members'",
+  ).get() as { sql: string };
+  if (/UNIQUE\s*\(\s*room\s*,\s*handle\s*\)/i.test(table.sql)) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE members RENAME TO members_with_global_handle_unique;
+      CREATE TABLE members (
+        id TEXT PRIMARY KEY,
+        room TEXT NOT NULL REFERENCES rooms(id),
+        kind TEXT NOT NULL,
+        handle TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        purpose TEXT,
+        harness TEXT,
+        session_ref TEXT,
+        cwd TEXT,
+        policy TEXT,
+        host TEXT,
+        state TEXT,
+        custody TEXT,
+        parent TEXT,
+        role TEXT,
+        conventions_sent INTEGER NOT NULL DEFAULT 0,
+        misaddressed INTEGER NOT NULL DEFAULT 0,
+        roster_stale INTEGER NOT NULL DEFAULT 1,
+        removed_ts TEXT
+      );
+      INSERT INTO members SELECT id, room, kind, handle, display_name, purpose, harness,
+        session_ref, cwd, policy, host, state, custody, parent, role, conventions_sent,
+        misaddressed, roster_stale, removed_ts
+      FROM members_with_global_handle_unique;
+      DROP TABLE members_with_global_handle_unique;
+    `);
+    db.pragma('foreign_keys = ON');
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS member_active_handle_unique
+    ON members (room, handle) WHERE removed_ts IS NULL
+  `);
+}
+// harn:end roster-briefing-refreshes-on-membership
+
+function migrateMessageAck(db: Database.Database): void {
+  const columns = db.pragma('table_info(messages)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'ack')) {
+    db.exec('ALTER TABLE messages ADD COLUMN ack INTEGER NOT NULL DEFAULT 0');
+  }
+}
+
 function migrateDeliveryHopCount(db: Database.Database): void {
   const columns = db.pragma('table_info(deliveries)') as { name: string }[];
   if (!columns.some((column) => column.name === 'hop_count')) {
@@ -208,6 +273,7 @@ interface MemberRow {
   kind: string;
   handle: string;
   display_name: string;
+  purpose: string | null;
   harness: string | null;
   session_ref: string | null;
   cwd: string | null;
@@ -219,6 +285,8 @@ interface MemberRow {
   role: string | null;
   conventions_sent: number;
   misaddressed: number;
+  roster_stale: number;
+  removed_ts: string | null;
 }
 
 interface MessageRow {
@@ -234,6 +302,7 @@ interface MessageRow {
   run: string | null;
   ask: string | null;
   origin: string | null;
+  ack: number;
   ts: string;
   seq: number;
 }
@@ -304,6 +373,7 @@ function memberFromRow(row: MemberRow): Member {
     kind: row.kind,
     handle: row.handle,
     display_name: row.display_name,
+    purpose: row.purpose ?? undefined,
     harness: row.harness ?? undefined,
     session_ref: row.session_ref ?? undefined,
     cwd: row.cwd ?? undefined,
@@ -315,6 +385,8 @@ function memberFromRow(row: MemberRow): Member {
     role: row.role ?? undefined,
     conventions_sent: toBool(row.conventions_sent),
     misaddressed: toBool(row.misaddressed),
+    roster_stale: toBool(row.roster_stale),
+    removed_ts: row.removed_ts ?? undefined,
   });
 }
 
@@ -332,6 +404,7 @@ function messageFromRow(row: MessageRow): Message {
     run: row.run ? JSON.parse(row.run) : undefined,
     ask: row.ask ? JSON.parse(row.ask) : undefined,
     origin: row.origin ? JSON.parse(row.origin) : undefined,
+    ack: toBool(row.ack) ? true : undefined,
     ts: row.ts,
     seq: row.seq,
   });
@@ -386,6 +459,7 @@ export interface NewMember {
   kind: Member['kind'];
   handle: string;
   display_name: string;
+  purpose?: string;
   harness?: string;
   session_ref?: string;
   cwd?: string;
@@ -395,6 +469,8 @@ export interface NewMember {
   custody?: Member['custody'];
   parent?: string;
   role?: Member['role'];
+  roster_stale?: boolean;
+  removed_ts?: string;
 }
 
 export interface NewMessage {
@@ -408,6 +484,7 @@ export interface NewMessage {
   run?: RunSummary;
   ask?: Message['ask'];
   origin?: Message['origin'];
+  ack?: boolean;
 }
 
 export interface SyncResult {
@@ -465,6 +542,8 @@ export class Store {
     this.db.exec(SCHEMA);
     migrateDeliveryPayloadSnapshot(this.db);
     migrateMemberCustody(this.db);
+    migrateMemberLifecycle(this.db);
+    migrateMessageAck(this.db);
     migrateDeliveryHopCount(this.db);
     migrateMeterUncostedTokens(this.db);
     migrateBridgeOriginUniqueness(this.db);
@@ -559,9 +638,10 @@ export class Store {
     const validated = MemberSchema.parse({ id: this.newUlid(), ...member });
     this.db
       .prepare(
-        `INSERT INTO members (id, room, kind, handle, display_name, harness, session_ref,
-           cwd, policy, host, state, custody, parent, role, conventions_sent, misaddressed)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO members (id, room, kind, handle, display_name, purpose, harness, session_ref,
+           cwd, policy, host, state, custody, parent, role, conventions_sent, misaddressed,
+           roster_stale, removed_ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         validated.id,
@@ -569,6 +649,7 @@ export class Store {
         validated.kind,
         validated.handle,
         validated.display_name,
+        orNull(validated.purpose),
         orNull(validated.harness),
         orNull(validated.session_ref),
         orNull(validated.cwd),
@@ -580,6 +661,8 @@ export class Store {
         orNull(validated.role),
         fromBool(validated.conventions_sent),
         fromBool(validated.misaddressed),
+        fromBool(validated.roster_stale),
+        orNull(validated.removed_ts),
       );
     this.appendChange(room, 'member', validated.id);
     return validated;
@@ -600,14 +683,15 @@ export class Store {
       const merged = MemberSchema.parse({ ...existing, ...patch });
       this.db
         .prepare(
-          `UPDATE members SET handle = ?, display_name = ?, harness = ?, session_ref = ?,
+          `UPDATE members SET handle = ?, display_name = ?, purpose = ?, harness = ?, session_ref = ?,
              cwd = ?, policy = ?, host = ?, state = ?, custody = ?, parent = ?, role = ?,
-             conventions_sent = ?, misaddressed = ?
+             conventions_sent = ?, misaddressed = ?, roster_stale = ?, removed_ts = ?
            WHERE room = ? AND id = ?`,
         )
         .run(
           merged.handle,
           merged.display_name,
+          orNull(merged.purpose),
           orNull(merged.harness),
           orNull(merged.session_ref),
           orNull(merged.cwd),
@@ -619,6 +703,8 @@ export class Store {
           orNull(merged.role),
           fromBool(merged.conventions_sent),
           fromBool(merged.misaddressed),
+          fromBool(merged.roster_stale),
+          orNull(merged.removed_ts),
           room,
           memberId,
         );
@@ -636,7 +722,7 @@ export class Store {
 
   getMemberByHandle(room: string, handle: string): Member | undefined {
     const row = this.db
-      .prepare('SELECT * FROM members WHERE room = ? AND handle = ?')
+      .prepare('SELECT * FROM members WHERE room = ? AND handle = ? AND removed_ts IS NULL')
       .get(room, handle) as MemberRow | undefined;
     return row ? memberFromRow(row) : undefined;
   }
@@ -646,7 +732,9 @@ export class Store {
     sessionRef: string,
   ): { room: string; member: Member } | undefined {
     const row = this.db
-      .prepare('SELECT * FROM members WHERE harness = ? AND session_ref = ? ORDER BY room LIMIT 1')
+      .prepare(
+        'SELECT * FROM members WHERE harness = ? AND session_ref = ? AND removed_ts IS NULL ORDER BY room LIMIT 1',
+      )
       .get(harness, sessionRef) as MemberRow | undefined;
     return row ? { room: row.room, member: memberFromRow(row) } : undefined;
   }
@@ -662,11 +750,28 @@ export class Store {
     return row ? memberFromRow(row) : undefined;
   }
 
-  listMembers(room: string): Member[] {
+  listMembers(room: string, options: { includeRemoved?: boolean } = {}): Member[] {
     const rows = this.db
-      .prepare('SELECT * FROM members WHERE room = ? ORDER BY id')
-      .all(room) as MemberRow[];
+      .prepare(
+        `SELECT * FROM members WHERE room = ?
+         AND (? = 1 OR removed_ts IS NULL) ORDER BY id`,
+      )
+      .all(room, options.includeRemoved ? 1 : 0) as MemberRow[];
     return rows.map(memberFromRow);
+  }
+
+  markAgentRostersStale(room: string): void {
+    this.db.prepare(
+      `UPDATE members SET roster_stale = 1
+       WHERE room = ? AND kind = 'agent' AND removed_ts IS NULL`,
+    ).run(room);
+  }
+
+  clearAgentRosterStale(room: string, memberId: string): void {
+    this.db.prepare(
+      `UPDATE members SET roster_stale = 0
+       WHERE room = ? AND id = ? AND kind = 'agent' AND removed_ts IS NULL`,
+    ).run(room, memberId);
   }
 
   getMirroredMessageId(room: string, memberId: string, nativeTurnId: string): number | undefined {
@@ -841,14 +946,15 @@ export class Store {
         run: message.run,
         ask: message.ask,
         origin: message.origin,
+        ack: message.ack,
         ts: new Date().toISOString(),
         seq,
       });
       this.db
         .prepare(
           `INSERT INTO messages (room, id, author, kind, body, mentions, refs, ledger_refs,
-             reply_to, run, ask, origin, ts, seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             reply_to, run, ask, origin, ack, ts, seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           room,
@@ -863,6 +969,7 @@ export class Store {
           jsonOrNull(validated.run),
           jsonOrNull(validated.ask),
           jsonOrNull(validated.origin),
+          fromBool(validated.ack === true),
           validated.ts,
           validated.seq,
         );
@@ -910,6 +1017,7 @@ export class Store {
     return row.id;
   }
 
+  // harn:assume default-recipient-latest-substantive ref=substantive-default-recipient
   latestFinalizedAgentAuthor(room: string): string | undefined {
     const row = this.db.prepare(
       `SELECT messages.author
@@ -918,12 +1026,15 @@ export class Store {
        WHERE messages.room = ?
          AND messages.kind = 'run'
          AND members.kind = 'agent'
+         AND members.removed_ts IS NULL
+         AND messages.ack = 0
          AND json_extract(messages.run, '$.status') <> 'running'
        ORDER BY messages.id DESC
        LIMIT 1`,
     ).get(room) as { author: string } | undefined;
     return row?.author;
   }
+  // harn:end default-recipient-latest-substantive
 
   listMessagesAfter(room: string, after: number, limit = 100): Message[] {
     const rows = this.db.prepare(
@@ -939,7 +1050,7 @@ export class Store {
   updateMessage(
     room: string,
     id: number,
-    patch: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run' | 'ask'>>,
+    patch: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run' | 'ask' | 'ack'>>,
   ): Message {
     return this.db.transaction(() => {
       const existing = this.getMessage(room, id);
@@ -949,7 +1060,7 @@ export class Store {
       this.db
         .prepare(
           `UPDATE messages SET body = ?, mentions = ?, refs = ?, ledger_refs = ?,
-             run = ?, ask = ?, seq = ?
+             run = ?, ask = ?, ack = ?, seq = ?
            WHERE room = ? AND id = ?`,
         )
         .run(
@@ -959,6 +1070,7 @@ export class Store {
           JSON.stringify(merged.ledger_refs),
           jsonOrNull(merged.run),
           jsonOrNull(merged.ask),
+          fromBool(merged.ack === true),
           seq,
           room,
           id,
@@ -1241,7 +1353,7 @@ export class Store {
     room: string,
     opts: {
       runMsgId: number;
-      message: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run'>>;
+      message: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run' | 'ack'>>;
       inputDeliveryIds: string[];
       memberId: string;
       memberPatch: Partial<Omit<Member, 'id' | 'kind'>>;

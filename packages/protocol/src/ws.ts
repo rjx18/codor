@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { ThinkingLevelSchema } from './adapter.js';
 import { DeliverySchema } from './delivery.js';
 import { WireEventSchema } from './events.js';
 import { MemberIdSchema, MessageIdSchema, RoomIdSchema, SeqSchema } from './ids.js';
@@ -47,6 +48,7 @@ export const ActSchema = z.discriminatedUnion('act', [
     session_ref: z.string().min(1),
     cwd: z.string().min(1),
     policy: z.string().optional(),
+    purpose: z.string().optional(),
   }),
   z.object({ act: z.literal('adopt'), member_id: MemberIdSchema }),
   z.object({
@@ -75,6 +77,8 @@ export const ActSchema = z.discriminatedUnion('act', [
     cwd: z.string().min(1),
     model: z.string().optional(),
     policy: z.string().optional(),
+    thinking: ThinkingLevelSchema.optional(),
+    purpose: z.string().optional(),
   }),
   z.object({
     act: z.literal('rename'),
@@ -84,6 +88,9 @@ export const ActSchema = z.discriminatedUnion('act', [
   }),
   z.object({ act: z.literal('revive'), member_id: MemberIdSchema }),
   z.object({ act: z.literal('kill'), member_id: MemberIdSchema }),
+  // harn:assume removed-members-remain-attribution-tombstones ref=remove-act-contract
+  z.object({ act: z.literal('remove'), member_id: MemberIdSchema }),
+  // harn:end removed-members-remain-attribution-tombstones
   z.object({ act: z.literal('pause'), member_id: MemberIdSchema }),
   z.object({ act: z.literal('unpause'), member_id: MemberIdSchema }),
   z.object({ act: z.literal('interrupt'), member_id: MemberIdSchema }),

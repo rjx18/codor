@@ -134,6 +134,13 @@ export function createProgram(context: CliContext = {}): Command {
     .option('--relay-url <url>', 'optional sealed push relay URL', env.WIREROOM_RELAY_URL)
     .option('--push-vapid-public-key <key>', 'Web Push VAPID public key', env.WIREROOM_VAPID_PUBLIC_KEY)
     .option('--join <line>', 'join a private home/outpost line as name:secret')
+    // harn:assume tailnet-auto-pairing-explicit-trust ref=trusted-tailnet-up-option
+    .option(
+      '--trust-tailscale-serve',
+      'trust Tailscale Serve identity headers for browser enrollment',
+      env.CODOR_TRUST_TAILSCALE_SERVE === '1',
+    )
+    // harn:end tailnet-auto-pairing-explicit-trust
     .option('--adapter <name=module>', 'trusted adapter module (repeatable)', collectAdapter, [])
     .action(async (options: {
       host: string;
@@ -145,6 +152,7 @@ export function createProgram(context: CliContext = {}): Command {
       relayUrl?: string;
       pushVapidPublicKey?: string;
       join?: string;
+      trustTailscaleServe: boolean;
       adapter: string[];
     }) => {
       const globals = program.opts<GlobalOptions>();
@@ -160,6 +168,7 @@ export function createProgram(context: CliContext = {}): Command {
         relayUrl: options.relayUrl,
         pushVapidPublicKey: options.pushVapidPublicKey,
         line: options.join ? parseLine(options.join) : undefined,
+        trustTailscaleServe: options.trustTailscaleServe,
         adapters: parseAdapterModules(options.adapter),
       });
       out(`wireroom http://localhost:${running.server.port}`);

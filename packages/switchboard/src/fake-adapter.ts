@@ -36,6 +36,7 @@ export interface DeliverRecord {
   session_ref: string | undefined;
   cwd: string;
   policy: string | undefined;
+  thinking: Session['thinking'];
   attached: boolean;
 }
 
@@ -80,7 +81,13 @@ export class FakeAdapter implements HarnessAdapter {
   }
 
   spawn(opts: SpawnOpts): Session {
-    return { harness: this.id, cwd: opts.cwd, policy: opts.policy, model: opts.model };
+    return {
+      harness: this.id,
+      cwd: opts.cwd,
+      policy: opts.policy,
+      model: opts.model,
+      thinking: opts.thinking,
+    };
   }
 
   attach(session_ref: SessionRef): Session {
@@ -107,6 +114,7 @@ export class FakeAdapter implements HarnessAdapter {
       session_ref: session.session_ref,
       cwd: session.cwd,
       policy: session.policy,
+      thinking: session.thinking,
       attached: this.attachedRefs.has(session.session_ref),
     });
 

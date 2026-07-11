@@ -1,3 +1,5 @@
+import { homedir } from 'node:os';
+
 import type {
   AskCard,
   AttachLease,
@@ -11,7 +13,9 @@ import type {
   ServerFrame,
   Session,
   WireEvent,
+  CreateRoomRequest,
 } from '@wireroom/protocol';
+import { deriveRoomId } from '@wireroom/protocol';
 
 import { BlobStore } from './blobs.js';
 import { roleAllows } from './authorization.js';
@@ -33,6 +37,7 @@ import {
   type ResolvedRef,
 } from './router.js';
 import { Store, type FanoutDelivery } from './store.js';
+import { normalizeWorkingDirectory } from './working-directory.js';
 
 export interface DaemonOptions {
   dbPath: string;
@@ -47,6 +52,7 @@ export interface DaemonOptions {
   ledger?: LedgerManager;
   pushProducer?: HumanPushNotifier;
   onBackgroundError?: (error: Error) => void;
+  homeDir?: string;
 }
 
 export interface MemberDetails {
@@ -75,7 +81,7 @@ interface RetryTurnRefusal {
 }
 
 interface DeliveryPayloadSnapshot {
-  context: Omit<PayloadContext, 'conventions'>;
+  context: Omit<PayloadContext, 'conventions' | 'roster'>;
   you: string;
 }
 
@@ -147,6 +153,7 @@ export class Daemon {
   private readonly ledger?: LedgerManager;
   private readonly pushProducer?: HumanPushNotifier;
   private readonly onBackgroundError: (error: Error) => void;
+  private readonly homeDir: string;
   private readonly stopResidencyReachability?: () => void;
   private closing = false;
   private closed = false;
@@ -159,6 +166,7 @@ export class Daemon {
     this.ledger = options.ledger;
     this.pushProducer = options.pushProducer;
     this.onBackgroundError = options.onBackgroundError ?? (() => undefined);
+    this.homeDir = options.homeDir ?? homedir();
     this.ledger?.setRoomValidator((room) => this.store.getRoom(room) !== undefined);
     this.ledger?.setRemoteWriteAuthorizer((peerId, room, author) => {
       const members = this.store.listMembers(room);
@@ -287,9 +295,22 @@ export class Daemon {
   }
 
   projectFrame(room: string, frame: ServerFrame): ServerFrame {
+    // harn:assume run-item-raw-journal-only ref=live-run-item-raw-projection
+    let liveFrame = frame;
+    if (
+      frame.type === 'run_event' &&
+      frame.event.type === 'run.item' &&
+      typeof frame.event.payload === 'object' &&
+      frame.event.payload !== null &&
+      !Array.isArray(frame.event.payload)
+    ) {
+      const { raw: _raw, ...payload } = frame.event.payload as Record<string, unknown>;
+      liveFrame = { ...frame, event: { ...frame.event, payload } };
+    }
+    // harn:end run-item-raw-journal-only
     const config = this.store.getRoom(room)?.config;
-    if (config?.redaction_enabled === false) return frame;
-    return redactValue(frame);
+    if (config?.redaction_enabled === false) return liveFrame;
+    return redactValue(liveFrame);
   }
 
   /** Redacted view of arbitrary sync/REST payloads. */
@@ -353,9 +374,41 @@ export class Daemon {
 
   // ── room / member management ──────────────────────────────────────────
 
-  createRoom(opts: Parameters<Store['createRoom']>[0]): ReturnType<Store['createRoom']> {
-    return this.store.createRoom(opts);
+  // harn:assume channel-creation-derived-and-seeded ref=derived-channel-creation
+  createRoom(opts: CreateRoomRequest): ReturnType<Store['createRoom']> {
+    const baseId = opts.id ?? deriveRoomId(opts.name);
+    let id = baseId;
+    if (opts.id === undefined) {
+      for (let suffix = 2; this.store.getRoom(id); suffix++) id = `${baseId}-${String(suffix)}`;
+    }
+    const cwd = opts.cwd === undefined
+      ? undefined
+      : normalizeWorkingDirectory(opts.cwd, this.homeDir);
+    const created = this.store.createRoom({
+      id,
+      name: opts.name,
+      owner: opts.owner,
+      config: {
+        ...(opts.color !== undefined && { color: opts.color }),
+        ...(cwd !== undefined && { cwd }),
+      },
+    });
+    if (opts.starting_agent) {
+      try {
+        this.spawnMember(id, {
+          ...opts.starting_agent,
+          cwd: cwd ?? normalizeWorkingDirectory(process.cwd(), this.homeDir),
+        });
+      } catch (error) {
+        this.postSystemMessage(
+          id,
+          `could not spawn @${opts.starting_agent.handle}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return created;
   }
+  // harn:end channel-creation-derived-and-seeded
 
   configureRoom(room: string, patch: Parameters<Store['updateRoomConfig']>[1]) {
     const updated = this.store.updateRoomConfig(room, patch);
@@ -516,26 +569,55 @@ export class Daemon {
     });
   }
 
+  // harn:assume roster-briefing-refreshes-on-membership ref=roster-membership-transitions
+  private markRostersStale(room: string): void {
+    this.store.markAgentRostersStale(room);
+  }
+  // harn:end roster-briefing-refreshes-on-membership
+
+  // harn:assume working-directories-validated-before-spawn ref=daemon-cwd-enforcement
   spawnMember(
     room: string,
-    opts: { harness: string; handle: string; display_name?: string; cwd: string; policy?: string; model?: string },
+    opts: {
+      harness: string;
+      handle: string;
+      display_name?: string;
+      cwd: string;
+      policy?: string;
+      model?: string;
+      thinking?: Session['thinking'];
+      purpose?: string;
+    },
   ): Member {
+    const cwd = normalizeWorkingDirectory(opts.cwd, this.homeDir);
     const adapter = this.requireAdapter(opts.harness);
+    if (opts.thinking !== undefined && !adapter.capabilities.thinking) {
+      throw new Error(`adapter '${adapter.id}' does not support thinking levels`);
+    }
+    const session = adapter.spawn({
+      cwd,
+      policy: opts.policy,
+      model: opts.model,
+      thinking: opts.thinking,
+    });
     const member = this.store.addMember(room, {
       kind: 'agent',
       handle: opts.handle,
       display_name: opts.display_name ?? opts.handle,
+      purpose: opts.purpose,
       harness: opts.harness,
-      cwd: opts.cwd,
+      cwd,
       policy: opts.policy,
       host: this.hostId,
       state: 'idle',
       custody: 'owned',
     });
-    this.sessions.set(member.id, adapter.spawn({ cwd: opts.cwd, policy: opts.policy, model: opts.model }));
+    this.sessions.set(member.id, session);
+    this.markRostersStale(room);
     this.emitMember(room, member);
     return member;
   }
+  // harn:end working-directories-validated-before-spawn
 
   // harn:assume room-home-single-authority ref=remote-run-home-finalization
   spawnRemoteMember(
@@ -647,8 +729,10 @@ export class Daemon {
       session_ref: string;
       cwd: string;
       policy?: string;
+      purpose?: string;
     },
   ): Member {
+    const cwd = normalizeWorkingDirectory(opts.cwd, this.homeDir);
     const adapter = this.requireAdapter(opts.harness);
     if (!adapter.capabilities.resume) {
       throw new Error(`adapter '${adapter.id}' cannot back a persistent mirrored member`);
@@ -663,13 +747,15 @@ export class Daemon {
       kind: 'agent',
       handle: opts.handle,
       display_name: opts.handle,
+      purpose: opts.purpose,
       harness: opts.harness,
       session_ref: opts.session_ref,
-      cwd: opts.cwd,
+      cwd,
       policy: opts.policy,
       state: 'idle',
       custody: 'mirrored',
     });
+    this.markRostersStale(room);
     this.emitMember(room, member);
     this.postSystemMessage(room, `@${member.handle} joined from a live ${opts.harness} terminal`);
     return member;
@@ -696,6 +782,7 @@ export class Daemon {
       custody: 'owned',
       state: 'idle',
     });
+    this.markRostersStale(room);
     this.emitMember(room, member);
     this.postSystemMessage(room, systemMessage);
     this.track(this.maybeStartTurn(room, member.id));
@@ -892,7 +979,12 @@ export class Daemon {
     }
     const member = this.store.updateMember(room, memberId, { state: 'dead' });
     this.emitMember(room, member);
-    this.postSystemMessage(room, `@${member.handle} was killed and can be revived from its session`);
+    this.postSystemMessage(
+      room,
+      member.session_ref
+        ? `@${member.handle} was killed; revive to retry`
+        : `@${member.handle} was killed; remove it and spawn a replacement`,
+    );
     return member;
   }
 
@@ -936,6 +1028,7 @@ export class Daemon {
       handle,
       ...(displayName !== undefined && { display_name: displayName }),
     });
+    this.markRostersStale(room);
     this.emitMember(room, member);
     const body = `@${before.handle} is now @${handle}`;
     const secondStart = body.lastIndexOf('@');
@@ -948,6 +1041,22 @@ export class Daemon {
     return member;
   }
   // harn:end rename-preserves-mention-resolution
+
+  // harn:assume removed-members-remain-attribution-tombstones ref=member-removal-daemon
+  removeMember(room: string, memberId: string): Member {
+    const existing = this.store.getMember(room, memberId);
+    if (!existing || existing.kind !== 'agent') throw new Error(`no such agent member: ${memberId}`);
+    if (existing.state !== 'dead') throw new Error(`member @${existing.handle} must be dead before removal`);
+    const member = this.store.updateMember(room, memberId, {
+      removed_ts: new Date().toISOString(),
+    });
+    this.sessions.delete(memberId);
+    this.markRostersStale(room);
+    this.emitMember(room, member);
+    this.postSystemMessage(room, `@${member.handle} was removed; its history remains attributed`);
+    return member;
+  }
+  // harn:end removed-members-remain-attribution-tombstones
 
   private requireAdapter(id: string): HarnessAdapter {
     const adapter = this.adapters.get(id);
@@ -1516,8 +1625,16 @@ export class Daemon {
           ) as DeliveryPayloadSnapshot);
       const fresh = this.store.getMember(room, recipient.id)!;
       const needsConventions = !fresh.conventions_sent || fresh.misaddressed;
+      const needsRoster = fresh.roster_stale;
       const ctx: PayloadContext = {
         ...snapshot.context,
+        roster: needsRoster
+          ? this.store.listMembers(room).map((member) => ({
+              handle: member.handle,
+              kind: member.kind,
+              ...(member.purpose !== undefined && { purpose: member.purpose }),
+            }))
+          : undefined,
         conventions: needsConventions
           ? {
               others: [
@@ -1532,6 +1649,7 @@ export class Daemon {
           : undefined,
       };
       payloads.push(composePayload(ctx, snapshot.you));
+      if (needsRoster) this.store.clearAgentRosterStale(room, recipient.id);
       if (needsConventions) {
         this.emitMember(
           room,
@@ -1559,9 +1677,14 @@ export class Daemon {
   ): void {
     const runMsg = this.store.getMessage(room, runMsgId)!;
     const body = completion.final_text ?? '';
-    const parsed = parseBody(body, this.store.listMembers(room));
+    // harn:assume substantive-routing-excludes-acknowledgements ref=exact-ack-finalization
+    const ack = completion.status === 'completed' && body.trim() === '<ACK_OK>';
+    const parsed = ack
+      ? { mentions: [], refs: [], ledger_refs: [], unresolved: [] }
+      : parseBody(body, this.store.listMembers(room));
     const messagePatch = {
       body,
+      ...(ack && { ack: true as const }),
       mentions: parsed.mentions,
       refs: parsed.refs,
       ledger_refs: parsed.ledger_refs,
@@ -1575,6 +1698,7 @@ export class Daemon {
         final_text: completion.final_text,
       },
     } satisfies Parameters<Store['completeTurn']>[1]['message'];
+    // harn:end substantive-routing-excludes-acknowledgements
     const finalizedDraft: Message = { ...runMsg, ...messagePatch };
     const lastDelivery = batch.at(-1);
     const triggerAuthor = lastDelivery
@@ -1639,7 +1763,9 @@ export class Daemon {
     if (completion.status === 'failed') {
       this.postSystemMessage(
         room,
-        `@${completed.member.handle} died mid-run (turn #${runMsgId} failed) — revive to retry`,
+        completed.member.session_ref
+          ? `@${completed.member.handle} died mid-run (turn #${runMsgId} failed); revive to retry`
+          : `@${completed.member.handle} died mid-run (turn #${runMsgId} failed); remove it and spawn a replacement`,
       );
     }
   }

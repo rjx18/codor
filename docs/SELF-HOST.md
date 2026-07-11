@@ -95,6 +95,23 @@ Tailscale Funnel: Funnel is public internet exposure, while Serve is tailnet-onl
 Check the [current Tailscale Serve CLI reference](https://tailscale.com/docs/reference/tailscale-cli/serve)
 before automating the command because its syntax changed in Tailscale 1.52.
 
+<!-- harn:assume tailnet-auto-pairing-explicit-trust ref=trusted-tailnet-research-evidence -->
+Tailscale's [Serve identity-header documentation](https://tailscale.com/docs/features/tailscale-serve#identity-headers),
+last validated by Tailscale on 2026-01-20, states that tailnet Serve requests
+receive `Tailscale-User-Login` and that an incoming client copy is removed to
+prevent spoofing. A local probe on 2026-07-11 through Tailscale Serve 1.98.4
+confirmed both properties without exposing the login value: the backend saw a
+nonempty identity, and a deliberately supplied spoof value was overridden.
+
+Auto-pairing is opt-in with `wireroom up --trust-tailscale-serve` or
+`CODOR_TRUST_TAILSCALE_SERVE=1`; it is off by default. The switchboard cannot
+distinguish the Serve proxy from any other local process connecting to
+127.0.0.1:8137, so enabling the flag extends enrollment power to anything that
+can reach loopback and set a header — i.e. every local OS user, a wider grant
+than the existing token/0600-socket boundary. The flag therefore defaults off
+and is recommended only on single-user hosts.
+<!-- harn:end tailnet-auto-pairing-explicit-trust -->
+
 ### App connector for an existing domain
 
 A Tailscale app connector is an advanced team option when you already operate a custom domain and

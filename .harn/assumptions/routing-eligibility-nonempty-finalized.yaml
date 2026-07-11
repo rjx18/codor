@@ -1,7 +1,7 @@
 id: routing-eligibility-nonempty-finalized
 hash: a-851b10a40b26
 title: Routing excludes empty-bodied finalized runs
-state: active
+state: retired
 statement: The router must route only chat messages authored by human, agent, or
   bridge members and nonempty finalized run messages, and must never route
   system messages, ask or approval cards, audit replies, system-authored
@@ -10,3 +10,4 @@ statement: The router must route only chat messages authored by human, agent, or
   acknowledgement loop.
 depends_on: []
 created_by: m0fix-semantics-parity
+retired_by: codor-p3-switchboard

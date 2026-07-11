@@ -1,0 +1,13 @@
+id: channel-creation-derived-and-seeded
+hash: a-67d6b7f0dec4
+title: Server-derived channel creation preserves the seeded room on agent failure
+state: active
+statement: Channel creation must derive and collision-suffix an omitted id,
+  validate and persist color and cwd metadata, atomically seed owner and system
+  members, then attempt the optional starting agent while retaining the channel
+  and recording a system failure message if spawn fails, because creation
+  metadata and a usable channel must survive harness availability errors.
+depends_on:
+  - channel-create-request-contract
+  - owner-and-system-members-seeded
+created_by: codor-p3-switchboard

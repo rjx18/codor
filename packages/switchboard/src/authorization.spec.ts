@@ -26,6 +26,9 @@ const actSamples = {
   rename: { act: 'rename', member_id: '01J00000000000000000000000', handle: 'renamed' },
   revive: { act: 'revive', member_id: '01J00000000000000000000000' },
   kill: { act: 'kill', member_id: '01J00000000000000000000000' },
+  // harn:assume removed-members-remain-attribution-tombstones ref=member-removal-role-matrix
+  remove: { act: 'remove', member_id: '01J00000000000000000000000' },
+  // harn:end removed-members-remain-attribution-tombstones
   pause: { act: 'pause', member_id: '01J00000000000000000000000' },
   unpause: { act: 'unpause', member_id: '01J00000000000000000000000' },
   interrupt: { act: 'interrupt', member_id: '01J00000000000000000000000' },

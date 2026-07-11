@@ -1,0 +1,12 @@
+id: substantive-routing-excludes-acknowledgements
+hash: a-1f6a9a288484
+title: Only substantive finalized runs route onward
+state: active
+statement: The router must route eligible nonempty finalized run messages except
+  those durably marked ack, skip mention parsing and all fanout for exact
+  trimmed ACK_OK completions, and retain the verbatim acknowledgement body as
+  evidence, because acknowledgement turns must terminate agent reply chains
+  without erasing their journaled result.
+depends_on:
+  - acknowledgement-marker-protocol
+created_by: codor-p3-switchboard

@@ -105,6 +105,17 @@ export class PairingService {
     this.write(state);
     if (!match) throw new Error('invalid or already-used pairing token');
     if (this.now() > Date.parse(match.expires_at)) throw new Error('pairing token expired');
+    return this.enroll(request);
+  }
+
+  // harn:assume tailnet-auto-pairing-explicit-trust ref=trusted-device-enrollment
+  completeTrusted(request: PairingRequest, label: string): PairingResult {
+    if (request.kind !== 'device') throw new Error('trusted enrollment is only for browser devices');
+    return this.enroll({ ...request, label });
+  }
+  // harn:end tailnet-auto-pairing-explicit-trust
+
+  private enroll(request: PairingRequest): PairingResult {
     const peer = this.keys.enrollPeer(request);
     this.roomKeys.enrollPeer(peer);
     return {

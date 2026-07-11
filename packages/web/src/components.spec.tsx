@@ -28,6 +28,7 @@ const richard: Member = {
   role: 'owner',
   conventions_sent: false,
   misaddressed: false,
+  roster_stale: false,
 };
 const alpha: Member = {
   id: ULID_B,
@@ -36,6 +37,7 @@ const alpha: Member = {
   display_name: 'Alpha',
   conventions_sent: false,
   misaddressed: false,
+  roster_stale: false,
 };
 const members = { [ULID_A]: richard, [ULID_B]: alpha };
 

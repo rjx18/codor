@@ -1,5 +1,5 @@
 import { spawn as spawnProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -22,6 +22,7 @@ function newDaemon(): Daemon {
     dbPath: join(dir, 'switchboard.sqlite'),
     blobRoot: join(dir, 'blobs'),
     adapters: [fake, claudeFake, codexFake],
+    homeDir: dir,
   });
   d.onFrame((room, frame) => frames.push({ room, frame }));
   return d;
@@ -52,7 +53,13 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const spawnAgent = (handle: string, cwd = '/work') =>
+const testCwd = (name = 'work') => {
+  const path = join(dir, 'cwd', name);
+  mkdirSync(path, { recursive: true });
+  return path;
+};
+
+const spawnAgent = (handle: string, cwd = testCwd()) =>
   daemon.spawnMember('eng', { harness: 'fake', handle, cwd });
 
 const runMessages = () =>
@@ -111,7 +118,8 @@ describe('member management', () => {
   });
 
   it('kill leaves a revivable dead member and revive attaches the exact session ref', async () => {
-    const alpha = spawnAgent('alpha', '/persisted/work');
+    const persistedCwd = testCwd('persisted-work');
+    const alpha = spawnAgent('alpha', persistedCwd);
     fake.enqueue({ kind: 'complete', final_text: '@richard ready' });
     daemon.postHumanMessage('eng', '@alpha initialize');
     await daemon.settle();
@@ -128,7 +136,7 @@ describe('member management', () => {
     expect(fake.wasAttached(sessionRef)).toBe(true);
     expect(fake.deliveries.at(-1)).toMatchObject({
       session_ref: sessionRef,
-      cwd: '/persisted/work',
+      cwd: persistedCwd,
       attached: true,
     });
     expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('idle');
@@ -218,7 +226,7 @@ describe('mirrored join and adoption', () => {
       harness: 'fake',
       handle: 'planner',
       session_ref: 'native-planner-session',
-      cwd: '/work/planning',
+      cwd: testCwd('planning'),
     });
     const reviewer = spawnAgent('reviewer');
     daemon.postHumanMessage('eng', '@planner draft the plan');
@@ -292,13 +300,13 @@ describe('mirrored join and adoption', () => {
       harness: 'claude-code',
       handle: 'claude-live',
       session_ref: 'claude-session-1',
-      cwd: '/work',
+      cwd: testCwd(),
     });
     const codex = daemon.joinMember('eng', {
       harness: 'codex',
       handle: 'codex-live',
       session_ref: 'codex-session-1',
-      cwd: '/work',
+      cwd: testCwd(),
     });
 
     expect(daemon.mirrorSessionEnd('codex', 'codex-session-1')).toBe(false);
@@ -313,7 +321,7 @@ describe('mirrored join and adoption', () => {
       harness: 'fake',
       handle: 'planner',
       session_ref: 'native-planner-fault-session',
-      cwd: '/work/planning',
+      cwd: testCwd('planning'),
     });
     const owner = daemon.ownerOf('eng');
     const recordMirroredTurn = daemon.store.recordMirroredTurn.bind(daemon.store);
@@ -349,7 +357,7 @@ describe('mirrored join and adoption', () => {
 
 describe('interactive attach custody leases', () => {
   it('rejects awaiting input, then holds racing deliveries and drains after clean exit', async () => {
-    const alpha = spawnAgent('alpha', '/persisted/work');
+    const alpha = spawnAgent('alpha', testCwd('persisted-work'));
     fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
     daemon.postHumanMessage('eng', '@alpha initialize');
     await daemon.settle();
@@ -496,7 +504,7 @@ describe('ephemeral extensions', () => {
     const parent = daemon.spawnMember('eng', {
       harness: 'claude-code',
       handle: 'claude',
-      cwd: '/work',
+      cwd: testCwd(),
     });
     const [started, ended] = fixture('hooks-log.jsonl')
       .map((line) => wireEventFromHook(JSON.parse(line)))
@@ -566,7 +574,7 @@ describe('ephemeral extensions', () => {
     const parent = daemon.spawnMember('eng', {
       harness: 'claude-code',
       handle: 'claude',
-      cwd: '/work',
+      cwd: testCwd(),
     });
     claudeFake.enqueue({
       kind: 'complete',
@@ -1503,7 +1511,8 @@ describe('routing-time payload snapshots', () => {
 
 describe('revive uses the persisted cwd after restart', () => {
   it('a restarted daemon rebuilds the session from the member row (cwd + session_ref)', async () => {
-    const alpha = spawnAgent('alpha', '/persisted/workdir');
+    const persistedCwd = testCwd('persisted-workdir');
+    const alpha = spawnAgent('alpha', persistedCwd);
     fake.enqueue({ kind: 'complete', final_text: 'first turn' });
     daemon.postHumanMessage('eng', '@alpha hello');
     await daemon.settle();
@@ -1517,7 +1526,7 @@ describe('revive uses the persisted cwd after restart', () => {
     await daemon.settle();
 
     const second = fake.deliveries.at(-1)!;
-    expect(second.cwd).toBe('/persisted/workdir'); // persisted cwd reused
+    expect(second.cwd).toBe(persistedCwd); // persisted cwd reused
     expect(second.session_ref).toBe(ref); // resumed, not respawned
     expect(fake.wasAttached(ref!)).toBe(true);
   });
@@ -1530,7 +1539,7 @@ describe('redaction before fanout', () => {
     fake.enqueue({
       kind: 'complete',
       final_text: `@richard found creds ${secret} and ghp_abcdefghijklmnopqrstuv123456 in the repo`,
-      items: [{ type: 'run.item', item_type: 'text_delta', payload: `leaked sk-proj-abcdef1234567890abcdef` }],
+      items: [{ type: 'run.item', item_type: 'text_delta', payload: { text: 'leaked sk-proj-abcdef1234567890abcdef' } }],
     });
     daemon.postHumanMessage('eng', '@alpha scan for secrets');
     await daemon.settle();
@@ -1601,5 +1610,201 @@ describe('failed turns', () => {
         message.kind === 'system' && message.body.includes('died mid-run'),
       ),
     ).toBe(false);
+  });
+});
+
+describe('Phase 3 usability core', () => {
+  it('stops a two-agent reply chain at exact ACK_OK and retains the prior default', async () => {
+    const alpha = spawnAgent('alpha');
+    const beta = spawnAgent('beta');
+    fake.enqueue(
+      { kind: 'complete', final_text: '@beta finished; acknowledge if no action is needed' },
+      { kind: 'complete', final_text: '  <ACK_OK>\n' },
+    );
+    daemon.postHumanMessage('eng', '@alpha begin');
+    await daemon.settle();
+
+    const runs = runMessages();
+    expect(runs).toHaveLength(2);
+    expect(runs[1]).toMatchObject({ author: beta.id, body: '  <ACK_OK>\n', ack: true });
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id })).toHaveLength(1);
+    expect(daemon.store.latestFinalizedAgentAuthor('eng')).toBe(alpha.id);
+
+    fake.enqueue(
+      { kind: 'complete', final_text: '@beta contains <ACK_OK> but is substantive' },
+      { kind: 'complete', final_text: '@richard received substantive reply' },
+    );
+    daemon.postHumanMessage('eng', '@alpha continue');
+    await daemon.settle();
+    expect(runMessages().at(-2)!.ack).toBeUndefined();
+    expect(fake.deliveries.at(-1)!.payload).toContain('contains <ACK_OK> but is substantive');
+  });
+
+  it('delivers one roster block on first turn and once per membership transition', async () => {
+    const alpha = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'alpha', cwd: testCwd(), purpose: 'Implements changes',
+    });
+    const beta = spawnAgent('beta');
+    const deliver = async (label: string) => {
+      fake.enqueue({ kind: 'complete', final_text: `@richard ${label}` });
+      daemon.postHumanMessage('eng', `@alpha ${label}`);
+      await daemon.settle();
+      return fake.deliveries.at(-1)!.payload;
+    };
+    const rosterCount = (payload: string) => payload.match(/\[roster:/g)?.length ?? 0;
+
+    const first = await deliver('first');
+    expect(rosterCount(first)).toBe(1);
+    expect(first).toContain('@richard (human)');
+    expect(first).toContain('@switchboard (system)');
+    expect(first).toContain('@alpha (agent, Implements changes)');
+    expect(rosterCount(await deliver('unchanged'))).toBe(0);
+
+    daemon.renameMember('eng', beta.id, 'reviewer');
+    expect(await deliver('after rename')).toContain('@reviewer (agent)');
+    expect(rosterCount(await deliver('rename consumed'))).toBe(0);
+
+    const planner = daemon.joinMember('eng', {
+      harness: 'fake', handle: 'planner', session_ref: 'native-planner', cwd: testCwd('planner'),
+      purpose: 'Plans work',
+    });
+    expect(await deliver('after join')).toContain('@planner (agent, Plans work)');
+    daemon.adoptMember('eng', planner.id);
+    expect(rosterCount(await deliver('after adopt'))).toBe(1);
+
+    daemon.killMember('eng', beta.id);
+    daemon.removeMember('eng', beta.id);
+    const removed = await deliver('after remove');
+    expect(rosterCount(removed)).toBe(1);
+    expect(removed).not.toContain('@reviewer (agent)');
+    expect(daemon.store.getMember('eng', alpha.id)!.roster_stale).toBe(false);
+  });
+
+  it('derives collision-safe channel ids and retains a seeded channel on starting-agent failure', () => {
+    const project = testCwd('demo-project');
+    const first = daemon.createRoom({
+      name: 'Demo Site',
+      owner: { handle: 'owner-a', display_name: 'Owner A' },
+      color: '#d45d5d',
+      cwd: project,
+      starting_agent: { harness: 'fake', handle: 'codor' },
+    });
+    expect(first.room).toMatchObject({
+      id: 'demo-site', config: { color: '#d45d5d', cwd: project },
+    });
+    expect(daemon.store.getMemberByHandle('demo-site', 'codor')).toMatchObject({ cwd: project });
+    expect(daemon.createRoom({
+      name: 'Demo Site', owner: { handle: 'owner-b', display_name: 'Owner B' },
+    }).room.id).toBe('demo-site-2');
+
+    const failed = daemon.createRoom({
+      name: 'Still Useful',
+      owner: { handle: 'owner-c', display_name: 'Owner C' },
+      cwd: project,
+      starting_agent: { harness: 'missing', handle: 'codor' },
+    });
+    expect(failed.room.id).toBe('still-useful');
+    expect(daemon.store.listMembers('still-useful').map((member) => member.kind).sort())
+      .toEqual(['human', 'system']);
+    expect(daemon.store.listMessages('still-useful', { limit: 10 }).at(-1)?.body)
+      .toContain("no adapter registered for harness 'missing'");
+  });
+
+  it('normalizes cwd inputs before every local member or adapter mutation', () => {
+    const project = testCwd('project');
+    const file = join(dir, 'not-a-directory');
+    writeFileSync(file, 'file');
+    const spawn = vi.spyOn(fake, 'spawn');
+
+    expect(daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'home-path', cwd: '~/cwd/project',
+    }).cwd).toBe(project);
+    expect(daemon.joinMember('eng', {
+      harness: 'fake', handle: 'joined-path', session_ref: 'joined-cwd', cwd: '~/cwd/project',
+    }).cwd).toBe(project);
+    expect(daemon.createRoom({
+      name: 'Cwd Room', owner: { handle: 'cwd-owner', display_name: 'Cwd Owner' }, cwd: '~/cwd/project',
+    }).room.config.cwd).toBe(project);
+
+    const calls = spawn.mock.calls.length;
+    expect(() => daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'relative', cwd: 'relative',
+    })).toThrow('working directory relative must be absolute');
+    expect(() => daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'missing', cwd: join(dir, 'missing'),
+    })).toThrow(`working directory ${join(dir, 'missing')} does not exist`);
+    expect(() => daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'file', cwd: file,
+    })).toThrow(`${file} is not a directory`);
+    expect(() => daemon.joinMember('eng', {
+      harness: 'fake', handle: 'missing-join', session_ref: 'missing-join', cwd: join(dir, 'missing'),
+    })).toThrow(`working directory ${join(dir, 'missing')} does not exist`);
+    expect(() => daemon.createRoom({
+      name: 'Missing Cwd',
+      owner: { handle: 'missing-owner', display_name: 'Missing Owner' },
+      cwd: join(dir, 'missing'),
+    })).toThrow(`working directory ${join(dir, 'missing')} does not exist`);
+    expect(daemon.store.getRoom('missing-cwd')).toBeUndefined();
+    expect(spawn).toHaveBeenCalledTimes(calls);
+  });
+
+  it('tombstones only dead agents, preserves attribution, and frees the handle', () => {
+    const alpha = spawnAgent('alpha');
+    const historical = daemon.store.postMessage('eng', {
+      author: alpha.id, kind: 'chat', body: 'historical alpha message',
+    });
+    expect(() => daemon.removeMember('eng', alpha.id)).toThrow('must be dead before removal');
+    daemon.killMember('eng', alpha.id);
+    expect(daemon.store.listMessages('eng', { limit: 20 }).some((message) =>
+      message.kind === 'system' && message.body.includes('remove it and spawn a replacement')))
+      .toBe(true);
+    const removed = daemon.removeMember('eng', alpha.id);
+
+    expect(removed.removed_ts).toBeDefined();
+    expect(daemon.store.getMember('eng', alpha.id)?.removed_ts).toBe(removed.removed_ts);
+    expect(daemon.store.listMembers('eng').some((member) => member.id === alpha.id)).toBe(false);
+    expect(daemon.store.getMessage('eng', historical.id)?.author).toBe(alpha.id);
+    const replacement = spawnAgent('alpha');
+    expect(replacement.id).not.toBe(alpha.id);
+  });
+
+  it('keeps raw S1 evidence in the journal but strips it from live frames', async () => {
+    spawnAgent('alpha');
+    const diff = { path: 'src/app.ts', unified: '--- a/src/app.ts\n+++ b/src/app.ts\n' };
+    const image = { media_type: 'image/png', data_b64: 'aW1hZ2U=' };
+    fake.enqueue({
+      kind: 'complete',
+      final_text: '@richard evidence complete',
+      items: [{
+        type: 'run.item',
+        item_type: 'tool_result',
+        payload: {
+          call_id: 'edit-1', status: 'ok', output_text: 'done', diff, image,
+          raw: { provider_secret: 'native-only' },
+        },
+      }],
+    });
+    daemon.postHumanMessage('eng', '@alpha collect evidence');
+    await daemon.settle();
+
+    const live = frames.find(({ frame }) =>
+      frame.type === 'run_event' && frame.event.type === 'run.item' &&
+      frame.event.item_type === 'tool_result')!.frame;
+    expect((live as Extract<ServerFrame, { type: 'run_event' }>).event.payload)
+      .not.toHaveProperty('raw');
+    const run = runMessages()[0]!;
+    expect(daemon.blobs.read('eng', run.run!.events_ref)).toContainEqual(
+      expect.objectContaining({
+        type: 'run.item',
+        payload: expect.objectContaining({ raw: { provider_secret: 'native-only' }, diff, image }),
+      }),
+    );
+  });
+
+  it('exposes a thinking-false FakeAdapter variant for UI and core tests', () => {
+    expect(fake.capabilities.thinking).toBe(false);
+    expect(() => daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'thinker', cwd: testCwd(), thinking: 'high',
+    })).toThrow("adapter 'fake' does not support thinking levels");
   });
 });

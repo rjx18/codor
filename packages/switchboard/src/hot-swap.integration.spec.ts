@@ -59,7 +59,7 @@ describe('configured adapter hot-swap', () => {
       const member = daemon.spawnMember('sdk', {
         harness: 'fixture-harness',
         handle: 'outsider',
-        cwd: '/tmp/third-party-work',
+        cwd: directory,
       });
       daemon.postHumanMessage('sdk', '@outsider prove the adapter boundary');
       await daemon.settle();

@@ -1,0 +1,14 @@
+id: run-item-raw-journal-only
+hash: a-d7c8f121ae0a
+title: Adapter raw evidence never reaches live clients
+state: active
+statement: The daemon must append full adapter run items including raw evidence
+  to the durable run journal while removing the top-level raw payload member
+  from ephemeral run_event frames before redaction and fanout, because S1
+  preserves forensic evidence without sending unbounded or sensitive native
+  envelopes into browser caches.
+depends_on:
+  - first-party-run-items-normalized
+  - redaction-before-fanout
+  - run-blobs-off-db
+created_by: codor-p3-switchboard

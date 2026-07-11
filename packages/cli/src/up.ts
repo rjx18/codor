@@ -32,6 +32,7 @@ export interface UpOptions {
   adapters?: AdapterModuleConfig;
   adapterBaseDir?: string;
   line?: LineConfig;
+  trustTailscaleServe?: boolean;
   bootstrap?: { host: string; port: number }[];
 }
 
@@ -144,6 +145,7 @@ export async function startWireroom(options: UpOptions): Promise<RunningWireroom
       pushSubscriptions,
       pushVapidPublicKey: options.pushVapidPublicKey,
       pushRelayEnabled: pushProducer.enabled,
+      trustTailscaleServe: options.trustTailscaleServe,
     });
     return {
       daemon,

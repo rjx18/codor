@@ -1,0 +1,14 @@
+id: tailnet-auto-pairing-explicit-trust
+hash: a-4b116994301e
+title: Tailscale Serve identity enrollment is explicit and off by default
+state: active
+statement: Browser device enrollment may bypass a pairing token only when the
+  explicit trust-tailscale-serve option is enabled and a nonempty
+  Tailscale-User-Login header is present, must override the device label with
+  that login while using the normal key and room-key enrollment path, and must
+  remain disabled by default, because Serve strips spoofed identity headers but
+  loopback processes can still forge them.
+depends_on:
+  - paired-browser-challenge-session
+  - revocation-rotates-room-keys
+created_by: codor-p3-switchboard

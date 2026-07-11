@@ -1,0 +1,15 @@
+id: roster-briefing-refreshes-on-membership
+hash: a-18099f772e9c
+title: Agent roster briefings refresh exactly once after membership changes
+state: active
+statement: Every agent must receive a roster block on its first delivery and
+  exactly once after spawn, join, adopt, rename, or removal changes active
+  membership; the block lists every non-removed member with handle, kind, and
+  optional purpose and its persisted stale bit clears only when delivered,
+  because agents need current participant roles without paying the roster token
+  cost on every turn.
+depends_on:
+  - member-purpose-protocol-metadata
+  - member-removal-timestamp-protocol
+  - delivery-payload-snapshotted
+created_by: codor-p3-switchboard

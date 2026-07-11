@@ -260,7 +260,7 @@ describe('Daemon human push trigger allowlist', () => {
       onBackgroundError: report,
     });
     daemon.createRoom({ id: 'failure', name: 'Failure', owner: { handle: 'richard', display_name: 'Richard' } });
-    daemon.spawnMember('failure', { harness: 'fake', handle: 'alpha', cwd: '/work' });
+    daemon.spawnMember('failure', { harness: 'fake', handle: 'alpha', cwd: dir });
     fake.enqueue({ kind: 'complete', final_text: '@richard result' });
 
     daemon.postHumanMessage('failure', '@alpha report');
@@ -291,7 +291,7 @@ describe('Daemon human push trigger allowlist', () => {
     });
     daemon.createRoom({ id: 'push', name: 'Push', owner: { handle: 'richard', display_name: 'Richard' } });
     const owner = daemon.ownerOf('push');
-    const alpha = daemon.spawnMember('push', { harness: 'fake', handle: 'alpha', cwd: '/work' });
+    const alpha = daemon.spawnMember('push', { harness: 'fake', handle: 'alpha', cwd: dir });
 
     daemon.postSystemMessage('push', 'ordinary audit notice');
     fake.enqueue({ kind: 'complete', final_text: '@richard inbox result' });

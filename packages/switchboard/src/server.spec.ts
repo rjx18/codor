@@ -1,9 +1,9 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Member, ServerFrame } from '@wireroom/protocol';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 
 import { Daemon } from './daemon.js';
@@ -31,6 +31,12 @@ let admin: Member;
 let member: Member;
 let observer: Member;
 
+const testCwd = (name = 'work') => {
+  const path = join(dir, 'cwd', name);
+  mkdirSync(path, { recursive: true });
+  return path;
+};
+
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'wireroom-server-'));
   fake = new FakeAdapter('fake', { interactiveAttach: true });
@@ -39,6 +45,7 @@ beforeEach(async () => {
     blobRoot: join(dir, 'blobs'),
     adapters: [fake],
     ledger: new LedgerManager({ dataDir: dir }),
+    homeDir: dir,
   });
   daemon.createRoom({ id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' } });
   admin = daemon.store.addMember('eng', {
@@ -63,6 +70,7 @@ beforeEach(async () => {
     ],
     crypto,
     pushSubscriptions,
+    homeDir: dir,
   });
   base = `http://127.0.0.1:${server.port}`;
 });
@@ -540,7 +548,7 @@ describe('REST', () => {
       adapters: [{ id: 'fake', capabilities: { resume: true } }],
     });
 
-    const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/review' });
+    const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: testCwd('review') });
     fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
     daemon.postHumanMessage('eng', '@alpha initialize');
     await daemon.settle();
@@ -574,7 +582,7 @@ describe('REST', () => {
   });
 
   it('serves run blobs through the redacted endpoint', async () => {
-    daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/w' });
+    daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: testCwd() });
     fake.enqueue({
       kind: 'complete',
       final_text: 'clean',
@@ -604,7 +612,7 @@ describe('REST', () => {
         owner: { handle: 'attacker', display_name: 'Attacker' },
       }),
     });
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
     expect(daemon.store.listRooms().map((room) => room.id)).toEqual(['eng']);
 
     const blobs = new BlobStore(join(dir, 'contained-blobs'));
@@ -648,7 +656,7 @@ describe('WebSocket', () => {
   });
 
   it('derives post authors and act authority from each authenticated human', async () => {
-    const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/w' });
+    const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: testCwd() });
 
     const observerClient = await connectAs(OBSERVER_TOKEN);
     observerClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
@@ -748,7 +756,7 @@ describe('WebSocket', () => {
     ).toBe(true);
     expect(completedSync).toMatchObject({ type: 'sync_complete', seq: daemon.store.currentSeq('eng') });
 
-    daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/w' });
+    daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: testCwd() });
     fake.enqueue({ kind: 'complete', final_text: 'live and finalized' });
     client.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: '@alpha go' }));
 
@@ -773,7 +781,7 @@ describe('WebSocket', () => {
         harness: 'fake',
         handle: 'planner',
         session_ref: 'native-session-1',
-        cwd: '/work',
+        cwd: testCwd(),
       },
     }));
     await client.next(
@@ -804,7 +812,7 @@ describe('WebSocket', () => {
   });
 
   it('runs the attach lease acquire, child-report, and completion handshake', async () => {
-    const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/work' });
+    const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: testCwd() });
     fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
     daemon.postHumanMessage('eng', '@alpha initialize');
     await daemon.settle();
@@ -862,7 +870,7 @@ describe('WebSocket', () => {
     const agent = daemon.spawnMember('ops', {
       harness: 'fake',
       handle: 'ops-agent',
-      cwd: '/work/ops',
+      cwd: testCwd('ops'),
     });
     fake.enqueue({ kind: 'complete', final_text: '@ops-owner initialized' });
     daemon.postHumanMessage('ops', '@ops-agent initialize');
@@ -906,7 +914,7 @@ describe('WebSocket', () => {
   });
 
   it('acts flow through: mark_read clears the unread count', async () => {
-    daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/w' });
+    daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: testCwd() });
     fake.enqueue({ kind: 'complete', final_text: '@richard ping' });
     daemon.postHumanMessage('eng', '@alpha report');
     await daemon.settle();
@@ -959,5 +967,146 @@ describe('WebSocket', () => {
     expect(error.type).toBe('error');
     expect(client.ws.readyState).toBe(WebSocket.OPEN);
     client.ws.close();
+  });
+});
+
+describe('Phase 3 REST boundaries', () => {
+  it('creates derived-id channels with metadata, collision suffixes, and starting agents', async () => {
+    const cwd = testCwd('create-project');
+    const first = await fetch(`${base}/api/rooms`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Demo Site',
+        owner: { handle: 'demo-owner', display_name: 'Demo Owner' },
+        color: '#d45d5d',
+        cwd,
+        starting_agent: { harness: 'fake', handle: 'codor' },
+      }),
+    });
+    expect(first.status).toBe(200);
+    expect((await first.json() as { room: { id: string; config: { cwd: string; color: string } } }).room)
+      .toMatchObject({ id: 'demo-site', config: { cwd, color: '#d45d5d' } });
+    expect(daemon.store.getMemberByHandle('demo-site', 'codor')).toBeDefined();
+
+    const second = await fetch(`${base}/api/rooms`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Demo Site', owner: { handle: 'second-owner', display_name: 'Second Owner' },
+      }),
+    });
+    expect((await second.json() as { room: { id: string } }).room.id).toBe('demo-site-2');
+  });
+
+  it('lists only home-contained directories for admins with precise status codes', async () => {
+    mkdirSync(join(dir, 'alpha'));
+    mkdirSync(join(dir, '.hidden'));
+    const file = join(dir, 'file.txt');
+    writeFileSync(file, 'file');
+    const outside = mkdtempSync(join(tmpdir(), 'wireroom-server-outside-'));
+    symlinkSync(outside, join(dir, 'escape'));
+    try {
+      const listed = await fetch(`${base}/api/local/dirs`, {
+        headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+      });
+      expect(listed.status).toBe(200);
+      const listing = await listed.json() as {
+        path: string; parent: string | null; dirs: { name: string; path: string }[];
+      };
+      expect(listing.path).toBe(dir);
+      expect(listing.parent).toBeNull();
+      expect(listing.dirs.some((entry) => entry.name === 'alpha')).toBe(true);
+      expect(listing.dirs.some((entry) => entry.name === '.hidden')).toBe(false);
+
+      expect((await fetch(`${base}/api/local/dirs`, {
+        headers: { authorization: `Bearer ${MEMBER_TOKEN}` },
+      })).status).toBe(403);
+      for (const [path, status] of [
+        [outside, 403],
+        [join(dir, 'escape'), 403],
+        [file, 400],
+        [join(dir, 'missing'), 404],
+        ['relative', 400],
+      ] as const) {
+        const response = await fetch(`${base}/api/local/dirs?path=${encodeURIComponent(path)}`, {
+          headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+        });
+        expect(response.status, path).toBe(status);
+      }
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects bad member cwd before the adapter and stores expanded REST cwd', async () => {
+    const spawn = vi.spyOn(fake, 'spawn');
+    const missing = join(dir, 'missing-member-cwd');
+    const rejected = await fetch(`${base}/api/rooms/eng/members`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ harness: 'fake', handle: 'bad-cwd', cwd: missing }),
+    });
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toEqual({ error: `Error: working directory ${missing} does not exist` });
+    expect(spawn).not.toHaveBeenCalled();
+
+    mkdirSync(join(dir, 'cwd'));
+    const accepted = await fetch(`${base}/api/rooms/eng/members`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ harness: 'fake', handle: 'good-cwd', cwd: '~/cwd' }),
+    });
+    expect(accepted.status).toBe(200);
+    expect((await accepted.json() as Member).cwd).toBe(join(dir, 'cwd'));
+  });
+
+  it('keeps tailnet enrollment off by default and enrolls ordinary revocable devices when enabled', async () => {
+    const device = new CryptoVault(join(dir, 'tailnet-device'));
+    const request = { ...device.keys.publicIdentity(), kind: 'device', label: 'client label' };
+    const off = await fetch(`${base}/api/pairing/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'Tailscale-User-Login': 'operator@example.com',
+      },
+      body: JSON.stringify(request),
+    });
+    expect(off.status).toBe(401);
+
+    await server.close();
+    server = await startServer({
+      daemon,
+      token: TOKEN,
+      principals: [
+        { token: ADMIN_TOKEN, member_id: admin.id },
+        { token: MEMBER_TOKEN, member_id: member.id },
+        { token: OBSERVER_TOKEN, member_id: observer.id },
+      ],
+      crypto,
+      pushSubscriptions,
+      trustTailscaleServe: true,
+      homeDir: dir,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+    const on = await fetch(`${base}/api/pairing/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'Tailscale-User-Login': 'operator@example.com',
+      },
+      body: JSON.stringify(request),
+    });
+    expect(on.status).toBe(200);
+    expect(crypto.keys.getPeer(device.keys.identity.device_id)).toMatchObject({
+      kind: 'device', label: 'operator@example.com',
+    });
+
+    const revoked = await fetch(`${base}/api/devices/${encodeURIComponent(device.keys.identity.device_id)}`, {
+      method: 'DELETE', headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(revoked.status).toBe(200);
+    expect(crypto.keys.getPeer(device.keys.identity.device_id)).toBeUndefined();
+    device.close();
   });
 });

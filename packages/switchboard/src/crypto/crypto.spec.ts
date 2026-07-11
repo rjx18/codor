@@ -73,6 +73,28 @@ describe('device identity, pairing, challenge auth, and room keys', () => {
     outpost.close();
   });
 
+  it('trusted device enrollment reuses ordinary peer and room-key enrollment', () => {
+    const home = vault('trusted-home');
+    const device = vault('trusted-device');
+    home.roomKeys.ensureRoom('eng');
+    const result = home.pairing.completeTrusted({
+      ...device.keys.publicIdentity(),
+      kind: 'device',
+      label: 'client supplied',
+    }, 'operator@example.com');
+    expect(home.keys.getPeer(device.keys.identity.device_id)).toMatchObject({
+      kind: 'device',
+      label: 'operator@example.com',
+    });
+    expect(result.room_keys).toHaveLength(1);
+    expect(() => home.pairing.completeTrusted({
+      ...device.keys.publicIdentity(),
+      kind: 'switchboard',
+    }, 'operator@example.com')).toThrow('only for browser devices');
+    home.close();
+    device.close();
+  });
+
   it('accepts a transcript-bound Ed25519 signature and rejects forgery and replay', () => {
     const home = vault('auth-home');
     const peer = vault('auth-peer');

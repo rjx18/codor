@@ -65,6 +65,9 @@ export const MemberSchema = z
     // conventions trailer bookkeeping (persisted so restarts don't re-spam):
     conventions_sent: z.boolean().default(false),
     misaddressed: z.boolean().default(false),
+    // harn:assume roster-briefing-refreshes-on-membership ref=roster-stale-member-field
+    roster_stale: z.boolean().default(true),
+    // harn:end roster-briefing-refreshes-on-membership
     // harn:assume member-removal-timestamp-protocol ref=member-removal-field
     removed_ts: TimestampSchema.optional(),
     // harn:end member-removal-timestamp-protocol

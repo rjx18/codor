@@ -1,0 +1,405 @@
+id: codor-p3-switchboard
+title: P3 switchboard usability core and trusted tailnet enrollment
+assumptions:
+  retire:
+    - id: routing-eligibility-nonempty-finalized
+      reason: Exact ACK_OK replies are nonempty finalized runs but must never route,
+        so the old nonempty-only eligibility statement is no longer complete.
+    - id: default-recipient-latest-finalized
+      reason: A finalized acknowledgement must not become the mentionless default
+        recipient, so latest finalized is superseded by latest substantive
+        finalized.
+  create:
+    - id: substantive-routing-excludes-acknowledgements
+      title: Only substantive finalized runs route onward
+      statement: The router must route eligible nonempty finalized run messages except
+        those durably marked ack, skip mention parsing and all fanout for exact
+        trimmed ACK_OK completions, and retain the verbatim acknowledgement body
+        as evidence, because acknowledgement turns must terminate agent reply
+        chains without erasing their journaled result.
+      reason: S5 replaces the empty-only loop guard with an exact durable
+        acknowledgement protocol.
+      depends_on:
+        - acknowledgement-marker-protocol
+    - id: default-recipient-latest-substantive
+      title: Mentionless defaults use the latest substantive active agent
+      statement: Human and bridge messages with no valid mentions must default only to
+        the latest finalized non-ack agent whose member is not removed, while
+        agent replies still default to their trigger author when active, because
+        acknowledgements and tombstones must never capture future conversation.
+      reason: S5 and S11 narrow the existing latest-finalized default without changing
+        explicit mention routing.
+    - id: roster-briefing-refreshes-on-membership
+      title: Agent roster briefings refresh exactly once after membership changes
+      statement: Every agent must receive a roster block on its first delivery and
+        exactly once after spawn, join, adopt, rename, or removal changes active
+        membership; the block lists every non-removed member with handle, kind,
+        and optional purpose and its persisted stale bit clears only when
+        delivered, because agents need current participant roles without paying
+        the roster token cost on every turn.
+      reason: S5 conventions v2 makes active membership and the ACK_OK escape hatch
+        explicit in prompts.
+      depends_on:
+        - member-purpose-protocol-metadata
+        - member-removal-timestamp-protocol
+        - delivery-payload-snapshotted
+    - id: channel-creation-derived-and-seeded
+      title: Server-derived channel creation preserves the seeded room on agent
+        failure
+      statement: Channel creation must derive and collision-suffix an omitted id,
+        validate and persist color and cwd metadata, atomically seed owner and
+        system members, then attempt the optional starting agent while retaining
+        the channel and recording a system failure message if spawn fails,
+        because creation metadata and a usable channel must survive harness
+        availability errors.
+      reason: S6 and the Phase 3 create-room contract consume the additive Phase 1
+        request shape.
+      depends_on:
+        - channel-create-request-contract
+        - owner-and-system-members-seeded
+    - id: working-directories-validated-before-spawn
+      title: Working directories are normalized before adapter calls
+      statement: Every local create, spawn, join, and member REST path that accepts
+        cwd must expand a leading home shorthand, require an absolute existing
+        directory, persist the normalized path, and reject missing paths or
+        files with specific diagnostics before any adapter method is called,
+        because Node ENOENT otherwise misattributes cwd mistakes to missing
+        harness binaries.
+      reason: S10 establishes one shared boundary for all local working-directory
+        inputs.
+    - id: local-directory-listing-home-contained
+      title: Folder-picker listings stay inside the operator home
+      statement: The authenticated admin directory endpoint must realpath its target,
+        reject paths and symlink escapes outside home, list only sorted child
+        directories with optional hidden entries, and return status-specific
+        missing and non-directory errors without reading file contents, because
+        the channel picker needs useful navigation without becoming a filesystem
+        browser.
+      reason: S7 defines the smallest server capability needed by the Phase 4 folder
+        picker.
+      depends_on:
+        - roles-gate-human-acts-not-agents
+    - id: tailnet-auto-pairing-explicit-trust
+      title: Tailscale Serve identity enrollment is explicit and off by default
+      statement: Browser device enrollment may bypass a pairing token only when the
+        explicit trust-tailscale-serve option is enabled and a nonempty
+        Tailscale-User-Login header is present, must override the device label
+        with that login while using the normal key and room-key enrollment path,
+        and must remain disabled by default, because Serve strips spoofed
+        identity headers but loopback processes can still forge them.
+      reason: S8 passed its documentation and live-probe gate and adds an opt-in
+        convenience boundary with an explicit local-user warning.
+      depends_on:
+        - paired-browser-challenge-session
+        - revocation-rotates-room-keys
+    - id: removed-members-remain-attribution-tombstones
+      title: Dead member removal preserves identity and frees the handle
+      statement: Only dead agents may be removed; removal must set a durable timestamp
+        rather than delete the row, exclude the tombstone from active rosters,
+        lookup, routing, discovery, and member listings, preserve id-based
+        historical attribution, free its handle through active-only uniqueness,
+        and record a system notice, because operators need to replace dead
+        sessions without corrupting old messages.
+      reason: S11 consumes the additive removed timestamp and couples the wire act,
+        role matrix, store semantics, and daemon handler.
+      depends_on:
+        - member-removal-timestamp-protocol
+        - reserved-handles-rejected
+        - roles-gate-human-acts-not-agents
+    - id: run-item-raw-journal-only
+      title: Adapter raw evidence never reaches live clients
+      statement: The daemon must append full adapter run items including raw evidence
+        to the durable run journal while removing the top-level raw payload
+        member from ephemeral run_event frames before redaction and fanout,
+        because S1 preserves forensic evidence without sending unbounded or
+        sensitive native envelopes into browser caches.
+      reason: Phase 2 retained raw at adapter edges and Phase 3 establishes its live
+        transport boundary.
+      depends_on:
+        - first-party-run-items-normalized
+        - redaction-before-fanout
+        - run-blobs-off-db
+  reviewed:
+    - id: acknowledgement-marker-protocol
+      outcome: unchanged
+      reason: The Phase 1 field and parser remain the durable marker now consumed by
+        finalization and routing.
+    - id: member-removal-timestamp-protocol
+      outcome: unchanged
+      reason: The optional protocol timestamp is now persisted and enforced as a
+        tombstone rather than changing shape.
+    - id: member-purpose-protocol-metadata
+      outcome: unchanged
+      reason: Purpose stays optional and is persisted for roster rendering.
+    - id: channel-create-request-contract
+      outcome: unchanged
+      reason: The Phase 1 request shape is consumed server-side without widening its
+        fields.
+    - id: owner-and-system-members-seeded
+      outcome: unchanged
+      reason: Store creation still seeds both structural members transactionally
+        before optional agent spawn.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Remove and directory listing are added to the exhaustive admin
+        capability matrix.
+    - id: paired-browser-challenge-session
+      outcome: unchanged
+      reason: Auto-enrolled devices use the same public identity, challenge, session,
+        and revocation flow after enrollment.
+    - id: revocation-rotates-room-keys
+      outcome: unchanged
+      reason: Trusted-tailnet devices are ordinary enrolled peers and use existing
+        revocation rotation.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Raw stripping precedes the existing deep redaction projection and all
+        fanout remains centralized.
+    - id: first-party-run-items-normalized
+      outcome: unchanged
+      reason: Adapter payload normalization and bounds stay at the five first-party
+        edges.
+    - id: run-blobs-off-db
+      outcome: unchanged
+      reason: Full raw events remain in external journal blobs rather than SQLite.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: Message and reference snapshots remain immutable while roster freshness
+        is evaluated once at delivery time.
+    - id: reply-is-finalized-run-message
+      outcome: unchanged
+      reason: ACK detection updates and routes the same run message atomically and
+        creates no separate reply.
+    - id: turn-finalization-transactional
+      outcome: unchanged
+      reason: Ack metadata, member state, meter, consumed inputs, and zero or more
+        onward deliveries still commit together.
+    - id: adoption-explicit-or-sessionend
+      outcome: unchanged
+      reason: Join and adoption custody transitions remain explicit while marking
+        roster state stale.
+    - id: rename-preserves-mention-resolution
+      outcome: unchanged
+      reason: Rename still preserves id-based mention spans and additionally refreshes
+        rosters.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Spawn forwards policy and thinking through the already validated adapter
+        registry boundary.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: CLI flag propagation does not change the sole adapter composition source.
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: The self-host guide gains research evidence and an opt-in warning
+        without changing the later fresh-install gate.
+    - id: bridge-enable-admin-or-owner
+      outcome: unchanged
+      reason: Bridge ingress keeps ordinary routing and now inherits the stricter
+        non-ack eligibility and substantive fallback contracts.
+    - id: ledger-writes-audited-in-room
+      outcome: unchanged
+      reason: System-authored ledger notices remain non-routable under the replacement
+        eligibility contract.
+    - id: mirror-one-message-per-native-turn
+      outcome: unchanged
+      reason: Mirrored finalized runs use the same replacement substantive routing
+        rule without changing dedupe or authorship.
+    - id: implied-recipient-visible-before-send
+      outcome: unchanged
+      reason: The existing composer display remains staged until its owning Phase 4e
+        rewrite, where literal mention visibility supersedes this assumption;
+        Phase 3 only narrows the server fallback source.
+anchors:
+  routing-eligibility-nonempty-finalized:
+    eligibility-gate:
+      action: remove
+      reason: Replace nonempty-only run eligibility with the substantive non-ack rule.
+  default-recipient-latest-finalized:
+    default-recipient:
+      action: remove
+      reason: Replace latest-finalized fallback with latest active substantive
+        fallback.
+  substantive-routing-excludes-acknowledgements:
+    substantive-run-eligibility:
+      action: change
+      reason: Reject ack runs before parsing mentions or resolving recipients.
+    exact-ack-finalization:
+      action: change
+      reason: Detect exact trimmed ACK_OK, persist ack, skip parsing, and atomically
+        produce no fanout.
+  default-recipient-latest-substantive:
+    substantive-default-recipient:
+      action: change
+      reason: Exclude ack authors and removed members from fallback lookup.
+  roster-briefing-refreshes-on-membership:
+    roster-stale-member-field:
+      action: change
+      reason: Add persisted internal roster freshness to the member contract.
+    active-roster-storage:
+      action: change
+      reason: Persist purpose, removal, roster freshness, active-only uniqueness, and
+        active member queries.
+    roster-membership-transitions:
+      action: change
+      reason: Mark agent rosters stale on spawn, join, adopt, rename, and remove.
+    roster-payload-block:
+      action: change
+      reason: Compose and clear the roster block once while appending the exact ACK_OK
+        convention.
+  channel-creation-derived-and-seeded:
+    derived-channel-creation:
+      action: change
+      reason: Derive collision-free ids, validate metadata, and retain seeded rooms
+        across optional spawn failures.
+    create-room-rest-contract:
+      action: change
+      reason: Consume the additive create request and return the authoritative derived
+        result.
+  working-directories-validated-before-spawn:
+    cwd-normalization-boundary:
+      action: change
+      reason: Centralize home expansion and directory validation.
+    daemon-cwd-enforcement:
+      action: change
+      reason: Normalize create, spawn, and join before store or adapter operations.
+  local-directory-listing-home-contained:
+    contained-directory-listing:
+      action: change
+      reason: Implement the home-contained directory-only listing helper.
+    local-dirs-rest-boundary:
+      action: change
+      reason: Authorize admin access and map containment/filesystem failures to S7
+        statuses.
+  tailnet-auto-pairing-explicit-trust:
+    trusted-device-enrollment:
+      action: change
+      reason: Reuse peer and room-key enrollment without a bearer offer only at the
+        trusted boundary.
+    trusted-tailnet-pairing-rest:
+      action: change
+      reason: Gate header enrollment on the server option and override the device
+        label.
+    trusted-tailnet-up-option:
+      action: change
+      reason: Wire the opt-in CLI flag and CODOR_TRUST_TAILSCALE_SERVE environment
+        variable to the server.
+    trusted-tailnet-research-evidence:
+      action: change
+      reason: Record first-party documentation, live probe results, and the required
+        security consideration verbatim.
+  removed-members-remain-attribution-tombstones:
+    remove-act-contract:
+      action: change
+      reason: Add the exhaustive remove act beside its authorization and handler
+        consumers.
+    member-removal-role-matrix:
+      action: change
+      reason: Require admin manage-agents authority for removal.
+    member-removal-daemon:
+      action: change
+      reason: Enforce dead-only tombstoning, notices, roster refresh, and corrected
+        death guidance.
+  run-item-raw-journal-only:
+    live-run-item-raw-projection:
+      action: change
+      reason: Journal full events and emit a raw-free live projection.
+  redaction-before-fanout:
+    redacted-frame-emit:
+      action: change
+      reason: Strip run-item raw before the existing redaction and fanout projection.
+  reply-is-finalized-run-message:
+    finalize-and-route:
+      action: change
+      reason: Add exact ack finalization while preserving one-message turn identity.
+  turn-finalization-transactional:
+    atomic-turn-finalization:
+      action: change
+      reason: Persist ack as part of the existing atomic completion patch.
+  ledger-home-only-refs-travel:
+    ledger-aware-payload:
+      action: change
+      reason: Add roster and ACK convention blocks without changing reference
+        transport.
+  adoption-explicit-or-sessionend:
+    mirrored-adoption-transition:
+      action: change
+      reason: Normalize joined cwd and refresh rosters during join and adoption.
+  rename-preserves-mention-resolution:
+    member-rename-stable-mentions:
+      action: change
+      reason: Preserve mentions and refresh roster briefings after rename.
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: change
+      reason: Add manage_agents and remove at admin rank.
+    role-matrix-integration:
+      action: change
+      reason: Keep exhaustive act and capability coverage green.
+  run-blobs-off-db:
+    store-schema-no-blobs:
+      action: change
+      reason: Add scalar ack/member lifecycle columns and migrations while run
+        evidence stays out of SQLite.
+  attach-custody-lease-tracks-child-pid:
+    attach-lease-store:
+      action: change
+      reason: The shared schema region changes for member/message metadata without
+        altering lease semantics.
+  message-id-txn-allocation:
+    message-id-allocation:
+      action: change
+      reason: Persist ack in ordinary atomic message inserts.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Add remove handling to the shared HTTP and Unix WebSocket protocol
+        implementation.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Propagate the trusted Serve option through existing CLI composition
+        without changing adapter loading.
+    third-party-hot-swap-acceptance:
+      action: change
+      reason: Replace the nonexistent synthetic cwd with the test's real temporary
+        directory while preserving registry hot-swap behavior.
+  fresh-clone-install-proven-by-script:
+    selfhost-guide:
+      action: change
+      reason: Document verified Serve headers and the mandatory local-user security
+        warning.
+files:
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/authorization.ts
+  - packages/switchboard/src/authorization.spec.ts
+  - packages/switchboard/src/crypto/pairing.ts
+  - packages/switchboard/src/crypto/crypto.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/switchboard/src/hot-swap.integration.spec.ts
+  - packages/switchboard/src/ledger/ledger.spec.ts
+  - packages/switchboard/src/local-dirs.ts
+  - packages/switchboard/src/local-dirs.spec.ts
+  - packages/switchboard/src/router.ts
+  - packages/switchboard/src/router.spec.ts
+  - packages/switchboard/src/push/push.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/working-directory.ts
+  - packages/switchboard/src/working-directory.spec.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/up.ts
+  - packages/cli/src/index.spec.ts
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/state.spec.ts
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/harness.mjs
+  - docs/SELF-HOST.md
+applied:
+  applied_at: 2026-07-11T15:03:13.278Z

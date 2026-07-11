@@ -205,6 +205,22 @@ describe('routing eligibility gate', () => {
     expect(isRoutable(m, { author: codex })).toBe(false);
   });
 
+  it('never routes or parses a durably marked acknowledgement', () => {
+    const acknowledgement = msg({
+      author: codex.id,
+      kind: 'run',
+      body: '<ACK_OK> @claude #42 [[secret]]',
+      ack: true,
+      run: { status: 'completed', started_ts: '2026-07-10T07:00:00.000Z', tool_calls: 0, events_ref: 'runs/2.jsonl' },
+    });
+    const result = resolveRecipients(
+      acknowledgement,
+      ctx({ author: codex, triggerAuthor: claude.id }),
+    );
+    expect(result.routable).toBe(false);
+    expect(result.parsed).toEqual({ mentions: [], refs: [], ledger_refs: [], unresolved: [] });
+  });
+
   // every system source, exhaustively: none may ever produce a delivery
   const systemSources: [string, () => Message, Member][] = [
     ['rename notice', () => msg({ author: system.id, kind: 'system', body: '@codex is now @coder' }), system],
@@ -408,7 +424,23 @@ describe('delivery payload template (byte-exact goldens)', () => {
         '\n' +
         '[conventions: your reply posts to the room. Tag @claude / @richard to address ' +
         'them; an untagged reply goes to @richard. Reference messages as #N. ' +
-        'Cite ledger notes as [[name]].]\n',
+        'Cite ledger notes as [[name]]. If a message needs no substantive reply, ' +
+        'respond with exactly <ACK_OK>.]\n',
+    );
+  });
+
+  it('renders a roster with optional purposes independently of conventions', () => {
+    expect(composePayload({
+      ...payloadCtx,
+      refs: [],
+      ledgerRefs: [],
+      conventions: undefined,
+      roster: [
+        { handle: 'richard', kind: 'human' },
+        { handle: 'codex', kind: 'agent', purpose: 'Implements changes' },
+      ],
+    }, 'codex')).toContain(
+      '\n[roster:\n@richard (human)\n@codex (agent, Implements changes)\n]\n',
     );
   });
 

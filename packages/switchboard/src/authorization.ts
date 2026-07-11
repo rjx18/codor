@@ -10,6 +10,7 @@ export type HumanCapability =
   | 'enable_bridge'
   | 'manage_keys'
   | 'manage_devices'
+  | 'manage_agents'
   | 'manage_roles'
   | 'manage_rooms';
 
@@ -39,12 +40,16 @@ export const CAPABILITY_MINIMUM_ROLE: Record<HumanCapability, Role> = {
   rename: 'admin',
   revive: 'admin',
   kill: 'admin',
+  // harn:assume removed-members-remain-attribution-tombstones ref=member-removal-role-matrix
+  remove: 'admin',
   pause: 'admin',
   unpause: 'admin',
   interrupt: 'admin',
   mirror_turn: 'admin',
   mirror_session_end: 'admin',
   manage_ledger: 'admin',
+  manage_agents: 'admin',
+  // harn:end removed-members-remain-attribution-tombstones
   enable_bridge: 'admin',
   set_role: 'owner',
   manage_keys: 'owner',

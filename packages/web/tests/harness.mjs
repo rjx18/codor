@@ -68,7 +68,7 @@ const member = daemon.store.addMember('eng', {
 const observer = daemon.store.addMember('eng', {
   kind: 'human', handle: 'observer-user', display_name: 'Observer', role: 'observer',
 });
-const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: '/work' });
+const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: dir });
 const vapid = createECDH('prime256v1');
 vapid.generateKeys();
 const vapidPublicKey = vapid.getPublicKey().toString('base64url');

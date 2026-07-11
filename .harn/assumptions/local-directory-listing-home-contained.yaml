@@ -1,0 +1,12 @@
+id: local-directory-listing-home-contained
+hash: a-da4e0f890a4b
+title: Folder-picker listings stay inside the operator home
+state: active
+statement: The authenticated admin directory endpoint must realpath its target,
+  reject paths and symlink escapes outside home, list only sorted child
+  directories with optional hidden entries, and return status-specific missing
+  and non-directory errors without reading file contents, because the channel
+  picker needs useful navigation without becoming a filesystem browser.
+depends_on:
+  - roles-gate-human-acts-not-agents
+created_by: codor-p3-switchboard

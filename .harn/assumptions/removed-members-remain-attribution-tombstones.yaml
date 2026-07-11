@@ -1,0 +1,15 @@
+id: removed-members-remain-attribution-tombstones
+hash: a-1c0965bc0d6a
+title: Dead member removal preserves identity and frees the handle
+state: active
+statement: Only dead agents may be removed; removal must set a durable timestamp
+  rather than delete the row, exclude the tombstone from active rosters, lookup,
+  routing, discovery, and member listings, preserve id-based historical
+  attribution, free its handle through active-only uniqueness, and record a
+  system notice, because operators need to replace dead sessions without
+  corrupting old messages.
+depends_on:
+  - member-removal-timestamp-protocol
+  - reserved-handles-rejected
+  - roles-gate-human-acts-not-agents
+created_by: codor-p3-switchboard

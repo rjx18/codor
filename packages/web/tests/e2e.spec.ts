@@ -218,7 +218,7 @@ test('member rail: spawn → run → rename → kill → queued badge → revive
   await page.getByTestId('spawn-agent').click();
   await expect(page.getByTestId('spawn-dialog')).toBeVisible();
   await page.getByTestId('spawn-handle').fill('beta');
-  await page.getByTestId('spawn-cwd').fill('/work/review');
+  await page.getByTestId('spawn-cwd').fill(process.cwd());
   await page.getByTestId('spawn-submit').click();
   await expect(page.getByTestId('member-beta')).toBeVisible();
   await page.getByTestId('member-beta-toggle').click();

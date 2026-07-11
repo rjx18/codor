@@ -1,0 +1,11 @@
+id: working-directories-validated-before-spawn
+hash: a-7f452e224910
+title: Working directories are normalized before adapter calls
+state: active
+statement: Every local create, spawn, join, and member REST path that accepts
+  cwd must expand a leading home shorthand, require an absolute existing
+  directory, persist the normalized path, and reject missing paths or files with
+  specific diagnostics before any adapter method is called, because Node ENOENT
+  otherwise misattributes cwd mistakes to missing harness binaries.
+depends_on: []
+created_by: codor-p3-switchboard

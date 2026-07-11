@@ -2,7 +2,7 @@ id: default-recipient-latest-finalized
 hash: a-ae521abe56e4
 title: Mentionless defaults - latest FINALIZED agent for humans, trigger author
   for agents
-state: active
+state: retired
 statement: A human- or bridge-authored message with zero valid mentions must
   default to the author of the latest FINALIZED agent message (running
   placeholders never count; none ever finished means room commentary delivered
@@ -12,3 +12,4 @@ statement: A human- or bridge-authored message with zero valid mentions must
   not to a still-running placeholder.
 depends_on: []
 created_by: router-semantics
+retired_by: codor-p3-switchboard

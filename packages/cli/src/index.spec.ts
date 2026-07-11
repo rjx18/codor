@@ -194,6 +194,8 @@ describe('@wireroom/cli', () => {
     expect(output).toContain('eng\tEngineering');
 
     output = [];
+    const reviewCwd = join(dir, 'review');
+    mkdirSync(reviewCwd);
     await cli(
       'spawn',
       '-r',
@@ -203,7 +205,7 @@ describe('@wireroom/cli', () => {
       '--as',
       'reviewer',
       '--cwd',
-      '/work/review',
+      reviewCwd,
       '--policy',
       'read-only',
     );
@@ -244,6 +246,8 @@ describe('@wireroom/cli', () => {
   });
 
   it('joins a live session as mirrored and adopts it explicitly to drain queued work', async () => {
+    const planningCwd = join(dir, 'planning');
+    mkdirSync(planningCwd);
     await cli(
       'join',
       'eng',
@@ -254,7 +258,7 @@ describe('@wireroom/cli', () => {
       '--session',
       '019f4a9a-e20e-7131-9e9d-703db5c8a2fc',
       '--cwd',
-      '/work/planning',
+      planningCwd,
     );
     expect(output[0]).toMatch(/^joined @planner /);
     const planner = daemon.store.getMemberByHandle('eng', 'planner')!;
@@ -463,6 +467,15 @@ describe('@wireroom/cli', () => {
     } finally {
       await outpost.close();
     }
+  });
+
+  it('keeps trusted Tailscale Serve enrollment opt-in through flag and environment defaults', () => {
+    const disabled = createProgram({ env: {} }).commands.find((command) => command.name() === 'up')!;
+    const enabled = createProgram({
+      env: { CODOR_TRUST_TAILSCALE_SERVE: '1' },
+    }).commands.find((command) => command.name() === 'up')!;
+    expect(disabled.opts().trustTailscaleServe).toBe(false);
+    expect(enabled.opts().trustTailscaleServe).toBe(true);
   });
   // harn:end adapter-registry-sole-harness-source
 });

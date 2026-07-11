@@ -24,7 +24,7 @@ export interface EligibilityContext {
   repliedTo?: Message;
 }
 
-// harn:assume routing-eligibility-nonempty-finalized ref=eligibility-gate
+// harn:assume substantive-routing-excludes-acknowledgements ref=substantive-run-eligibility
 /**
  * Routing eligibility comes FIRST. Routed: `chat` authored by a human,
  * agent, or bridge member, and FINALIZED `run` messages. Never routed:
@@ -44,6 +44,7 @@ export function isRoutable(message: Message, ctx: EligibilityContext): boolean {
   }
   if (message.kind === 'run') {
     return (
+      message.ack !== true &&
       message.run !== undefined &&
       message.run.status !== 'running' &&
       message.body.trim() !== ''
@@ -59,7 +60,7 @@ export function isRoutable(message: Message, ctx: EligibilityContext): boolean {
   }
   return true;
 }
-// harn:end routing-eligibility-nonempty-finalized
+// harn:end substantive-routing-excludes-acknowledgements
 
 // ── recipient resolution ────────────────────────────────────────────────
 
@@ -102,7 +103,9 @@ const NO_ROUTE: Omit<RouteResult, 'parsed'> = {
  * a mentionless message falls back to the default recipient rule.
  */
 export function resolveRecipients(message: Message, ctx: RoutingContext): RouteResult {
-  const parsed = parseBody(message.body, ctx.members);
+  const parsed = message.ack === true
+    ? { mentions: [], refs: [], ledger_refs: [], unresolved: [] }
+    : parseBody(message.body, ctx.members);
   if (!isRoutable(message, ctx)) return { ...NO_ROUTE, parsed };
 
   const byId = new Map(ctx.members.map((m) => [m.id, m]));
@@ -113,7 +116,7 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
     if (member && !recipients.some((r) => r.id === member.id)) recipients.push(member);
   }
 
-  // harn:assume default-recipient-latest-finalized ref=default-recipient
+  // harn:assume default-recipient-latest-substantive ref=substantive-default-recipient
   // Zero valid mentions → human/bridge messages default to the author of the
   // latest FINALIZED agent message (running placeholders never count);
   // agent messages default to whoever triggered the run (last delivery of a
@@ -127,7 +130,7 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
       recipients.push(fallback);
     }
   }
-  // harn:end default-recipient-latest-finalized
+  // harn:end default-recipient-latest-substantive
 
   // harn:assume human-deliveries-are-inbox-records ref=recipient-split
   // Humans never get turns: the daemon materializes the humans list as inbox
@@ -176,6 +179,7 @@ export interface PayloadContext {
    * `untaggedGoesTo` = its default reply target (the message author).
    */
   conventions?: { others: string[]; untaggedGoesTo: string; ledger?: boolean };
+  roster?: { handle: string; kind: Member['kind']; purpose?: string }[];
 }
 
 const minuteUtc = (ts: string): string => `${ts.slice(0, 16)}Z`;
@@ -204,13 +208,23 @@ export function composePayload(ctx: PayloadContext, you: string): string {
       `${ref.body}\n` +
       `--- end ledger note ---\n`;
   }
+  // harn:assume roster-briefing-refreshes-on-membership ref=roster-payload-block
+  if (ctx.roster) {
+    payload += '\n[roster:\n';
+    for (const member of ctx.roster) {
+      payload += `@${member.handle} (${member.kind}${member.purpose ? `, ${member.purpose}` : ''})\n`;
+    }
+    payload += ']\n';
+  }
   if (ctx.conventions) {
     const tags = ctx.conventions.others.map((h) => `@${h}`).join(' / ');
     payload +=
       `\n[conventions: your reply posts to the room. Tag ${tags} to address ` +
       `them; an untagged reply goes to @${ctx.conventions.untaggedGoesTo}. ` +
-      `Reference messages as #N.${ctx.conventions.ledger ? ' Cite ledger notes as [[name]].' : ''}]\n`;
+      `Reference messages as #N.${ctx.conventions.ledger ? ' Cite ledger notes as [[name]].' : ''} ` +
+      `If a message needs no substantive reply, respond with exactly <ACK_OK>.]\n`;
   }
+  // harn:end roster-briefing-refreshes-on-membership
   return payload;
 }
 // harn:end ledger-home-only-refs-travel

@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { Store } from './store.js';
@@ -38,6 +39,66 @@ describe('room seeding', () => {
     expect(() =>
       store.addMember('eng', { kind: 'agent', handle: 'switchboard', display_name: 'X' }),
     ).toThrow();
+  });
+});
+
+describe('ack and active member lifecycle storage', () => {
+  it('roundtrips ack evidence and keeps removed identities outside active lookups', () => {
+    const { owner } = openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'coder', display_name: 'Coder', purpose: 'Implements', state: 'dead',
+    });
+    const acknowledgement = store.postMessage('eng', {
+      author: agent.id, kind: 'run', body: '<ACK_OK>', ack: true,
+      run: { status: 'completed', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: 'runs/1.jsonl' },
+    });
+    expect(store.getMessage('eng', acknowledgement.id)?.ack).toBe(true);
+    expect(store.getMessage('eng', store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: 'plain',
+    }).id)?.ack).toBeUndefined();
+
+    const removed = store.updateMember('eng', agent.id, { removed_ts: new Date().toISOString() });
+    expect(store.getMember('eng', agent.id)?.removed_ts).toBe(removed.removed_ts);
+    expect(store.getMemberByHandle('eng', 'coder')).toBeUndefined();
+    expect(store.listMembers('eng').some((member) => member.id === agent.id)).toBe(false);
+    expect(store.listMembers('eng', { includeRemoved: true }).some((member) => member.id === agent.id))
+      .toBe(true);
+    expect(store.addMember('eng', {
+      kind: 'agent', handle: 'coder', display_name: 'Replacement', state: 'idle',
+    }).id).not.toBe(agent.id);
+  });
+
+  it('migrates legacy global handle uniqueness to active-only uniqueness', () => {
+    store.close();
+    const path = join(dir, 'legacy.sqlite');
+    const legacy = new Database(path);
+    legacy.exec(`
+      CREATE TABLE rooms (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_ts TEXT NOT NULL, config TEXT NOT NULL, seq INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE members (
+        id TEXT PRIMARY KEY, room TEXT NOT NULL REFERENCES rooms(id), kind TEXT NOT NULL,
+        handle TEXT NOT NULL, display_name TEXT NOT NULL, harness TEXT, session_ref TEXT,
+        cwd TEXT, policy TEXT, host TEXT, state TEXT, custody TEXT, parent TEXT, role TEXT,
+        conventions_sent INTEGER NOT NULL DEFAULT 0, misaddressed INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (room, handle)
+      );
+      CREATE TABLE messages (
+        room TEXT NOT NULL REFERENCES rooms(id), id INTEGER NOT NULL, author TEXT NOT NULL,
+        kind TEXT NOT NULL, body TEXT NOT NULL, mentions TEXT NOT NULL, refs TEXT NOT NULL,
+        ledger_refs TEXT NOT NULL, reply_to INTEGER, run TEXT, ask TEXT, origin TEXT,
+        ts TEXT NOT NULL, seq INTEGER NOT NULL, PRIMARY KEY (room, id)
+      );
+      INSERT INTO rooms VALUES ('eng', 'Engineering', '2026-07-11T00:00:00.000Z', '{}', 0);
+      INSERT INTO members (id, room, kind, handle, display_name, state)
+      VALUES ('01J00000000000000000000000', 'eng', 'agent', 'coder', 'Coder', 'dead');
+    `);
+    legacy.close();
+    store = new Store(path);
+    const old = store.getMember('eng', '01J00000000000000000000000')!;
+    expect(old.roster_stale).toBe(true);
+    store.updateMember('eng', old.id, { removed_ts: new Date().toISOString() });
+    expect(store.addMember('eng', {
+      kind: 'agent', handle: 'coder', display_name: 'Replacement', state: 'idle',
+    })).toBeDefined();
   });
 });
 

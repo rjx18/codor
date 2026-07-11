@@ -565,6 +565,7 @@ describe('WS client frames', () => {
     ['attach_complete', { act: 'attach_complete', lease_id: 'lease-1' }],
     ['configure_room', { act: 'configure_room', turn_brake: 3, spend_brake_usd: null, stall_minutes: 15 }],
     ['spawn', { act: 'spawn', harness: 'codex', handle: 'coder', cwd: '/w', policy: 'read-only' }],
+    ['remove', { act: 'remove', member_id: ULID_A }],
     ['rename', { act: 'rename', member_id: ULID_A, handle: 'reviewer' }],
     ['revive', { act: 'revive', member_id: ULID_A }],
     ['kill', { act: 'kill', member_id: ULID_A }],
