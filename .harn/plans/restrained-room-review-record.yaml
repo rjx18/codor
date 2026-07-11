@@ -1,0 +1,10 @@
+id: restrained-room-review-record
+title: Record the unavailable restrained room review
+assumptions:
+  retire: []
+  create: []
+  reviewed: []
+anchors: {}
+files:
+  - MANUAL-VERIFY.md
+  - tmp/build/PROGRESS.md
