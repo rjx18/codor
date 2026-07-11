@@ -1,5 +1,5 @@
-id: bridges-optin-banner-v2
-title: Add opt-in Slack and Telegram room bridges with complete web anchor scope
+id: bridges-optin-banner-v3
+title: Add opt-in Slack and Telegram room bridges with complete workspace scope
 assumptions:
   retire: []
   create:
@@ -12,7 +12,7 @@ assumptions:
         - web-room-visual-hierarchy-matches-restrained-reference
     - id: bridge-enable-admin-or-owner
       title: Bridge enrollment and ingress are admin-authorized and idempotent
-      statement: Only an authenticated admin or owner may enable a room bridge or submit bridge ingress, bridge members must remain non-addressable post-only authors, and each bridge member platform external-id tuple must persist at most one routed message while outbound mirroring suppresses that bridge's own origin.
+      statement: Only an authenticated admin or owner may enable a room bridge or submit bridge ingress, bridge members must remain non-addressable post-only authors whose messages retain external-sender attribution, and each bridge member platform external-id tuple must persist at most one routed message while outbound mirroring suppresses that bridge's own origin.
       reason: The protocol role matrix and BridgeOrigin contract require explicit opt-in, deduplication, and echo suppression.
       depends_on:
         - roles-gate-human-acts-not-agents
@@ -46,6 +46,9 @@ assumptions:
     - id: web-glass-theme-accessible-modes
       outcome: unchanged
       reason: Banner colors use existing semantic tokens and retain light, dark, contrast, and reduced-transparency behavior.
+    - id: monorepo-workspace-layout
+      outcome: unchanged
+      reason: The nested bridge-package glob extends the existing pinned pnpm workspace without changing package ownership boundaries.
 anchors:
   bridged-room-wears-banner:
     bridged-room-config:
@@ -73,6 +76,9 @@ anchors:
     bridge-platform-regression:
       action: change
       reason: Mock-test Slack and Telegram inbound, outbound, retry dedup, and echo suppression.
+    bridge-origin-attribution:
+      action: change
+      reason: Render bridge-authored messages with their platform and external sender name.
   web-room-visual-hierarchy-matches-restrained-reference:
     restrained-room-visual-hierarchy:
       action: change
@@ -89,6 +95,10 @@ anchors:
     semantic-glass-theme:
       action: change
       reason: Add responsive semantic banner styling for all supported appearance modes.
+  monorepo-workspace-layout:
+    workspace-globs:
+      action: change
+      reason: Include the required nested Slack, Telegram, and shared bridge packages.
 files:
   - pnpm-workspace.yaml
   - pnpm-lock.yaml
