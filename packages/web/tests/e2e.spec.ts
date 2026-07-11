@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 
 const CONTROL = 'http://127.0.0.1:8138';
 
+test.use({ viewport: { width: 1440, height: 900 } });
+
 async function control<T = { ok: boolean }>(path: string, body: unknown = {}): Promise<T> {
   const res = await fetch(`${CONTROL}${path}`, {
     method: 'POST',
@@ -25,7 +27,7 @@ test('history pages, room search, and #N permalinks share stable message ids', a
 
   await expect(page.getByTestId(`msg-${seeded.last}`)).toBeVisible();
   await expect(page.getByTestId(`msg-${seeded.first}`)).toHaveCount(0);
-  await page.getByTestId('load-history').click();
+  await page.getByTestId('load-history').dispatchEvent('click');
   await expect(page.getByTestId(`msg-${seeded.first}`)).toBeVisible();
 
   await page.getByTestId('toggle-message-search').click();
@@ -37,7 +39,14 @@ test('history pages, room search, and #N permalinks share stable message ids', a
   await expect(result).toBeVisible();
   await result.click();
   await expect(page).toHaveURL(new RegExp(`#${String(seeded.first)}$`));
-  await expect(page.locator(`[id="${String(seeded.first)}"]`)).toBeInViewport();
+  const target = page.locator(`[id="${String(seeded.first)}"]`);
+  await expect(target).toBeInViewport();
+  const targetStyle = await target.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, shadow: style.boxShadow };
+  });
+  expect(targetStyle.background).not.toBe('rgba(0, 0, 0, 0)');
+  expect(targetStyle.shadow).toContain('inset');
 });
 
 test('ledger changes appear in the room and [[refs]] open a read-only note viewer', async ({ page }) => {
@@ -63,6 +72,7 @@ test('ledger changes appear in the room and [[refs]] open a read-only note viewe
 test('room v1: post → live run → expand → ask → hold release → reconnect shows the finalized message', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?room=eng&token=e2e-token');
 
   // hydrated over WS: room header, members, empty timeline
@@ -82,6 +92,8 @@ test('room v1: post → live run → expand → ask → hold release → reconne
   const run = page.locator('[data-testid^="run-"][data-run-status]').first();
   await expect(run).toHaveAttribute('data-run-status', 'running');
   const runId = (await run.getAttribute('data-testid'))!.replace('run-', '');
+  await page.evaluate((id) => { window.location.hash = id; }, runId);
+  expect(await run.evaluate((element) => getComputedStyle(element).boxShadow)).toContain('inset');
 
   // 2. expand the live run → journaled events from the redacted blob endpoint
   await page.getByTestId(`run-${runId}-toggle`).click();
@@ -90,6 +102,10 @@ test('room v1: post → live run → expand → ask → hold release → reconne
   // 3. the ask card raised by the blocked run → answer ALPHA from the room
   const alphaOption = page.locator('[data-testid$="-option-ALPHA"]');
   await expect(alphaOption).toBeVisible();
+  const askCard = alphaOption.locator('xpath=ancestor::*[contains(@class, "wr-ask-card")]').first();
+  const askId = (await askCard.getAttribute('id'))!;
+  await page.evaluate((id) => { window.location.hash = id; }, askId);
+  expect(await askCard.evaluate((element) => getComputedStyle(element).boxShadow)).toContain('inset');
   await alphaOption.click();
 
   // the SAME run message finalizes in place
@@ -302,6 +318,16 @@ test('desktop room keeps rooms, conversation, and context in stable non-overlapp
   await expect(page.getByTestId('context-rail')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Open room context' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1150);
+
+  await page.setViewportSize({ width: 1320, height: 820 });
+  await page.reload();
+  await expect(page.getByTestId('context-rail')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Open room context' })).toBeVisible();
+
+  await page.setViewportSize({ width: 1360, height: 820 });
+  await page.reload();
+  await expect(page.getByTestId('context-rail')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open room context' })).toBeHidden();
 });
 // harn:end web-shell-responsive-three-pane
 
@@ -329,6 +355,9 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
     const composer = getComputedStyle(document.querySelector<HTMLElement>('.wr-composer')!);
     const run = getComputedStyle(document.querySelector<HTMLElement>('.wr-run-card')!);
     const message = getComputedStyle(document.querySelector<HTMLElement>('.wr-message')!);
+    const meterItem = getComputedStyle(document.querySelector<HTMLElement>('.wr-meter > span')!);
+    const time = document.querySelector<HTMLElement>('.wr-message time')!.getBoundingClientRect();
+    const body = document.querySelector<HTMLElement>('.wr-message p')!.getBoundingClientRect();
     return {
       canvasImage: canvas.backgroundImage,
       headerBackground: header.backgroundColor,
@@ -340,7 +369,11 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
       runRadius: parseFloat(run.borderTopLeftRadius),
       runShadow: run.boxShadow,
       messageDisplay: message.display,
+      messageColumns: message.gridTemplateColumns,
       messageSize: parseFloat(message.fontSize),
+      meterSize: parseFloat(meterItem.fontSize),
+      timeRight: time.right,
+      bodyLeft: body.left,
       wiringCount: document.querySelectorAll('.wr-wiring').length,
     };
   });
@@ -353,7 +386,10 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
   expect(hierarchy.runRadius).toBe(0);
   expect(hierarchy.runShadow).toBe('none');
   expect(hierarchy.messageDisplay).toBe('grid');
+  expect(hierarchy.messageColumns.split(' ')).toHaveLength(2);
   expect(hierarchy.messageSize).toBeGreaterThanOrEqual(14);
+  expect(hierarchy.meterSize).toBeGreaterThanOrEqual(12);
+  expect(hierarchy.timeRight).toBeLessThanOrEqual(hierarchy.bodyLeft);
   expect(hierarchy.wiringCount).toBe(0);
 
   const spawn = page.getByTestId('spawn-agent');
@@ -391,6 +427,20 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
   await page.locator('[data-testid^="release-"]').last().click();
   await expect(page.getByText('visual reflow hold released')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await page.getByTestId('open-room-drawer').click();
+  const drawerMaterial = await page.getByTestId('room-drawer').evaluate((drawer) => {
+    const style = getComputedStyle(drawer);
+    const footer = getComputedStyle(drawer.querySelector<HTMLElement>('.wr-drawer-footer small')!);
+    return {
+      background: style.backgroundColor,
+      material: style.backdropFilter || style.getPropertyValue('-webkit-backdrop-filter'),
+      footerSize: parseFloat(footer.fontSize),
+    };
+  });
+  expect(drawerMaterial.background).toBe('rgba(24, 25, 29, 0.88)');
+  expect(drawerMaterial.material).toContain('blur(12px)');
+  expect(drawerMaterial.footerSize).toBeGreaterThanOrEqual(12);
+  await page.getByTestId('room-drawer').getByRole('button', { name: 'Close rooms' }).click();
 
   await page.setViewportSize({ width: 320, height: 700 });
   await page.reload();
@@ -531,6 +581,8 @@ test('restrained shell keeps accessible light tokens and limits glass to functio
         return {
           text: ratio(root.getPropertyValue('--wr-text').trim(), root.getPropertyValue('--wr-canvas').trim()),
           active: ratio(root.getPropertyValue('--wr-emerald').trim(), root.getPropertyValue('--wr-canvas').trim()),
+          faintCanvas: ratio(root.getPropertyValue('--wr-faint').trim(), root.getPropertyValue('--wr-canvas').trim()),
+          faintSelected: ratio(root.getPropertyValue('--wr-faint').trim(), root.getPropertyValue('--wr-surface-selected').trim()),
         };
       })(),
     };
@@ -542,6 +594,8 @@ test('restrained shell keeps accessible light tokens and limits glass to functio
   expect(light.composerMaterial).toContain('blur');
   expect(light.contrast.text).toBeGreaterThanOrEqual(4.5);
   expect(light.contrast.active).toBeGreaterThanOrEqual(4.5);
+  expect(light.contrast.faintCanvas).toBeGreaterThanOrEqual(4.5);
+  expect(light.contrast.faintSelected).toBeGreaterThanOrEqual(4.5);
 
   await page.getByTestId('composer-input').focus();
   expect(await page.getByTestId('composer-input').evaluate((element) => {
@@ -583,6 +637,30 @@ test('restrained shell keeps accessible light tokens and limits glass to functio
   expect(intermediate.headerMaterial).toBe('none');
   expect(intermediate.railMaterial).toBe('none');
   expect(intermediate.composerMaterial).toContain('blur');
+
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-transparency', value: 'reduce' }],
+  });
+  await expect.poll(() => page.locator('.wr-composer').evaluate((element) => {
+    const style = getComputedStyle(element);
+    return style.backdropFilter || style.getPropertyValue('-webkit-backdrop-filter');
+  })).toBe('none');
+  await page.getByTestId('toggle-message-search').click();
+  const reducedTransparency = await page.evaluate(() => {
+    const composer = getComputedStyle(document.querySelector<HTMLElement>('.wr-composer')!);
+    const search = getComputedStyle(document.querySelector<HTMLElement>('.wr-search')!);
+    return {
+      composerBackground: composer.backgroundColor,
+      composerMaterial: composer.backdropFilter || composer.getPropertyValue('-webkit-backdrop-filter'),
+      searchBackground: search.backgroundColor,
+      searchMaterial: search.backdropFilter || search.getPropertyValue('-webkit-backdrop-filter'),
+    };
+  });
+  expect(reducedTransparency.composerBackground).toBe('rgb(19, 20, 24)');
+  expect(reducedTransparency.searchBackground).toBe('rgb(19, 20, 24)');
+  expect(reducedTransparency.composerMaterial).toBe('none');
+  expect(reducedTransparency.searchMaterial).toBe('none');
 
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
   expect(await page.locator('.wr-room-link').first().evaluate((element) =>

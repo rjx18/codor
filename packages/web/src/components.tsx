@@ -1188,7 +1188,7 @@ export function MessageRow(props: { message: Message; authorHandle: string; mine
         <p
           id={String(message.id)}
           data-testid={`msg-${message.id}`}
-        className="wr-system-message scroll-mt-16 target:text-sky-300"
+        className="wr-system-message scroll-mt-16"
         >
           {body} <MessagePermalink id={message.id} />
         </p>
@@ -1201,7 +1201,7 @@ export function MessageRow(props: { message: Message; authorHandle: string; mine
       <div
         id={String(message.id)}
         data-testid={`msg-${message.id}`}
-        className={`wr-message scroll-mt-16 ${props.mine ? 'is-mine' : ''} target:border-l-2 target:border-sky-600 target:pl-2`}
+        className={`wr-message scroll-mt-16 ${props.mine ? 'is-mine' : ''}`}
       >
         <span className="wr-actor-mark wr-actor-human" aria-hidden="true"><UserRound size={17} /></span>
         <div className="wr-message-content">
