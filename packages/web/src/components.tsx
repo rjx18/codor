@@ -1,9 +1,13 @@
 import {
   parseBody,
+  PolicySchema,
+  ThinkingLevelSchema,
   type Delivery,
   type Member,
   type Message,
+  type Policy,
   type RoomMeter,
+  type ThinkingLevel,
   type WireEvent,
 } from '@wireroom/protocol';
 import {
@@ -53,6 +57,7 @@ import {
   me,
   type MemberStateObservation,
   type RunEventBuffer,
+  useRoomStore,
 } from './state.js';
 import type { Connection } from './ws.js';
 
@@ -253,18 +258,83 @@ export function Header(props: {
 }
 // harn:end spend-meter-always-on
 
+// harn:assume web-spawn-dialog-exposes-canonical-agent-controls ref=spawn-dialog-controls
+export const SPAWN_PRESETS = {
+  coder: {
+    handle: 'coder',
+    purpose: "Implements code changes in this channel's project",
+    policy: 'workspace-write',
+    thinking: 'medium',
+  },
+  reviewer: {
+    handle: 'reviewer',
+    purpose: 'Reviews diffs and flags defects; never edits',
+    policy: 'read-only',
+    thinking: 'high',
+  },
+  planner: {
+    handle: 'planner',
+    purpose: 'Investigates and writes implementation plans',
+    policy: 'read-only',
+    thinking: 'high',
+  },
+  writer: {
+    handle: 'writer',
+    purpose: 'Writes and edits documentation and prose',
+    policy: 'workspace-write',
+    thinking: 'low',
+  },
+  tester: {
+    handle: 'tester',
+    purpose: 'Runs tests, reproduces bugs, reports results',
+    policy: 'workspace-write',
+    thinking: 'medium',
+  },
+} as const satisfies Record<string, {
+  handle: string;
+  purpose: string;
+  policy: Policy;
+  thinking: ThinkingLevel;
+}>;
+
+export function availableAgentHandle(requested: string, members: Member[]): string {
+  const handles = new Set(
+    members.filter((member) => member.removed_ts === undefined).map((member) => member.handle),
+  );
+  if (!handles.has(requested)) return requested;
+  for (let suffix = 2; ; suffix++) {
+    const ending = `-${String(suffix)}`;
+    const candidate = `${requested.slice(0, 31 - ending.length)}${ending}`;
+    if (!handles.has(candidate)) return candidate;
+  }
+}
+
+function modelPlaceholder(harness: string): string {
+  if (harness === 'opencode') return 'provider/model';
+  return harness === '' ? 'default' : `${harness} model`;
+}
+
 export function SpawnAgentDialog(props: {
   adapters: AdapterRegistration[];
+  members: Member[];
   connection: Connection;
 }) {
   const [open, setOpen] = useState(false);
   const [harness, setHarness] = useState('');
   const [handle, setHandle] = useState('');
-  const [cwd, setCwd] = useState('.');
+  const roomCwd = useRoomStore((state) => state.room?.config.cwd ?? '.');
+  const errors = useRoomStore((state) => state.errors);
+  const [cwd, setCwd] = useState(roomCwd);
+  const [model, setModel] = useState('');
   const [policy, setPolicy] = useState('read-only');
+  const [thinking, setThinking] = useState<ThinkingLevel | ''>('');
+  const [purpose, setPurpose] = useState('');
+  const [submitError, setSubmitError] = useState<string>();
+  const [pending, setPending] = useState<{ handle: string; errorCount: number }>();
   const handleField = useRef<HTMLInputElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLFormElement>(null);
+  const adapter = props.adapters.find((candidate) => candidate.id === harness);
 
   useEffect(() => {
     if (harness === '' && props.adapters[0]) setHarness(props.adapters[0].id);
@@ -302,11 +372,46 @@ export function SpawnAgentDialog(props: {
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!pending) return;
+    if (errors.length > pending.errorCount) {
+      setSubmitError(errors.at(-1));
+      setPending(undefined);
+      return;
+    }
+    if (props.members.some((member) =>
+      member.removed_ts === undefined && member.kind === 'agent' && member.handle === pending.handle)) {
+      setHandle('');
+      setPending(undefined);
+      setOpen(false);
+    }
+  }, [errors, pending, props.members]);
+
+  const applyPreset = (preset: keyof typeof SPAWN_PRESETS): void => {
+    const values = SPAWN_PRESETS[preset];
+    setHandle(availableAgentHandle(values.handle, props.members));
+    setPurpose(values.purpose);
+    setPolicy(values.policy);
+    setThinking(values.thinking);
+    setSubmitError(undefined);
+  };
+
   const submit = (): void => {
     if (!harness || !handle || !cwd) return;
-    props.connection.act({ act: 'spawn', harness, handle, cwd, policy });
-    setHandle('');
-    setOpen(false);
+    const availableHandle = availableAgentHandle(handle, props.members);
+    setHandle(availableHandle);
+    setSubmitError(undefined);
+    setPending({ handle: availableHandle, errorCount: errors.length });
+    props.connection.act({
+      act: 'spawn',
+      harness,
+      handle: availableHandle,
+      cwd,
+      policy,
+      ...(model.trim() !== '' && { model: model.trim() }),
+      ...(adapter?.capabilities.thinking === true && thinking !== '' && { thinking }),
+      ...(purpose.trim() !== '' && { purpose: purpose.trim() }),
+    });
   };
 
   return (
@@ -317,7 +422,12 @@ export function SpawnAgentDialog(props: {
         data-testid="spawn-agent"
         aria-label="Spawn agent"
         title="Spawn agent"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setCwd(roomCwd);
+          setSubmitError(undefined);
+          setPending(undefined);
+          setOpen(true);
+        }}
         className="wr-spawn-button"
       >
         <Plus aria-hidden="true" size={17} />
@@ -335,7 +445,7 @@ export function SpawnAgentDialog(props: {
               event.preventDefault();
               submit();
             }}
-            className="wr-focused-glass w-full max-w-md p-5"
+            className="wr-spawn-dialog wr-focused-glass w-full p-5"
           >
             <div className="wr-dialog-heading">
               <div>
@@ -346,56 +456,111 @@ export function SpawnAgentDialog(props: {
                 <X aria-hidden="true" size={18} />
               </button>
             </div>
-            <label className="wr-field-label">
-              Harness
-              <select
-                data-testid="spawn-harness"
-                value={harness}
-                onChange={(event) => setHarness(event.target.value)}
-                className="wr-input min-h-11 w-full px-3 text-sm"
-              >
-                {props.adapters.map((adapter) => (
-                  <option key={adapter.id} value={adapter.id}>
-                    {adapter.id} {adapter.capabilities.resume ? '' : '(ephemeral)'}
-                  </option>
+            <fieldset className="wr-preset-list">
+              <legend>Presets</legend>
+              <div>
+                {(Object.keys(SPAWN_PRESETS) as (keyof typeof SPAWN_PRESETS)[]).map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    data-testid={`spawn-preset-${preset}`}
+                    onClick={() => applyPreset(preset)}
+                  >
+                    {preset}
+                  </button>
                 ))}
-              </select>
-            </label>
+              </div>
+            </fieldset>
+            <div className="wr-spawn-grid">
+              <label className="wr-field-label">
+                Harness
+                <select
+                  data-testid="spawn-harness"
+                  value={harness}
+                  onChange={(event) => setHarness(event.target.value)}
+                  className="wr-input min-h-11 w-full px-3 text-sm"
+                >
+                  {props.adapters.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.id} {candidate.capabilities.resume ? '' : '(ephemeral)'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="wr-field-label">
+                Handle
+                <input
+                  ref={handleField}
+                  data-testid="spawn-handle"
+                  value={handle}
+                  onChange={(event) => setHandle(event.target.value)}
+                  pattern="[a-z0-9][a-z0-9-]{1,30}"
+                  required
+                  className="wr-input min-h-11 w-full px-3 text-sm"
+                />
+              </label>
+              <label className="wr-field-label">
+                Model
+                <input
+                  data-testid="spawn-model"
+                  value={model}
+                  onChange={(event) => setModel(event.target.value)}
+                  placeholder={modelPlaceholder(harness)}
+                  className="wr-input min-h-11 w-full px-3 text-sm"
+                />
+              </label>
+              <label className="wr-field-label">
+                Policy
+                <select
+                  data-testid="spawn-policy"
+                  value={policy}
+                  onChange={(event) => setPolicy(event.target.value)}
+                  className="wr-input min-h-11 w-full px-3 text-sm"
+                >
+                  {PolicySchema.options.map((value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+              </label>
+              <label className="wr-field-label">
+                Thinking
+                <select
+                  data-testid="spawn-thinking"
+                  value={thinking}
+                  onChange={(event) => setThinking(event.target.value as ThinkingLevel | '')}
+                  disabled={adapter?.capabilities.thinking !== true}
+                  className="wr-input min-h-11 w-full px-3 text-sm disabled:opacity-50"
+                >
+                  <option value="">default</option>
+                  {ThinkingLevelSchema.options.map((value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+                {adapter?.capabilities.thinking !== true && <small>Not supported by this harness</small>}
+              </label>
+              <label className="wr-field-label">
+                Working directory
+                <input
+                  data-testid="spawn-cwd"
+                  value={cwd}
+                  onChange={(event) => setCwd(event.target.value)}
+                  required
+                  className="wr-input min-h-11 w-full px-3 text-sm"
+                />
+              </label>
+            </div>
             <label className="wr-field-label">
-              Handle
-              <input
-                ref={handleField}
-                data-testid="spawn-handle"
-                value={handle}
-                onChange={(event) => setHandle(event.target.value)}
-                pattern="[a-z0-9][a-z0-9-]{1,30}"
-                required
-                className="wr-input min-h-11 w-full px-3 text-sm"
+              Purpose
+              <textarea
+                data-testid="spawn-purpose"
+                value={purpose}
+                onChange={(event) => setPurpose(event.target.value)}
+                rows={3}
+                className="wr-input w-full px-3 py-2 text-sm"
               />
             </label>
-            <label className="wr-field-label">
-              Working directory
-              <input
-                data-testid="spawn-cwd"
-                value={cwd}
-                onChange={(event) => setCwd(event.target.value)}
-                required
-                className="wr-input min-h-11 w-full px-3 text-sm"
-              />
-            </label>
-            <label className="wr-field-label">
-              Policy
-              <select
-                data-testid="spawn-policy"
-                value={policy}
-                onChange={(event) => setPolicy(event.target.value)}
-                className="wr-input min-h-11 w-full px-3 text-sm"
-              >
-                <option value="read-only">read-only</option>
-                <option value="workspace-write">workspace-write</option>
-                <option value="full-access">full-access</option>
-              </select>
-            </label>
+            {adapter?.capabilities.approvals === 'spawn-time' && (
+              <p data-testid="spawn-approval-hint" className="wr-approval-hint">
+                Approval policy is fixed when this harness starts; in-turn approval cards are unavailable.
+              </p>
+            )}
+            {submitError && <p role="alert" className="wr-form-error">{submitError}</p>}
             <div className="wr-dialog-actions">
               <button
                 type="button"
@@ -407,10 +572,10 @@ export function SpawnAgentDialog(props: {
               <button
                 type="submit"
                 data-testid="spawn-submit"
-                disabled={props.adapters.length === 0}
+                disabled={props.adapters.length === 0 || pending !== undefined}
                 className="wr-primary-button min-h-11 px-4 text-sm disabled:opacity-40"
               >
-                Spawn
+                {pending ? 'Spawning' : 'Spawn'}
               </button>
             </div>
           </form>
@@ -419,7 +584,9 @@ export function SpawnAgentDialog(props: {
     </>
   );
 }
+// harn:end web-spawn-dialog-exposes-canonical-agent-controls
 
+// harn:assume web-spawn-dialog-exposes-canonical-agent-controls ref=dead-member-replacement-controls
 export function MemberCard(props: {
   member: Member;
   detail: MemberDetail | undefined;
@@ -608,15 +775,25 @@ export function MemberCard(props: {
               Adopt
             </button>
           ) : state === 'dead' ? (
-            <button
-              type="button"
-              data-testid={`revive-${props.member.handle}`}
-              disabled={!props.member.session_ref}
-              onClick={() => props.connection.act({ act: 'revive', member_id: props.member.id })}
-              className="min-h-11 bg-emerald-800 px-3 text-xs text-white disabled:opacity-40"
-            >
-              Revive
-            </button>
+            <>
+              <button
+                type="button"
+                data-testid={`revive-${props.member.handle}`}
+                disabled={!props.member.session_ref}
+                onClick={() => props.connection.act({ act: 'revive', member_id: props.member.id })}
+                className="min-h-11 bg-emerald-800 px-3 text-xs text-white disabled:opacity-40"
+              >
+                Revive
+              </button>
+              <button
+                type="button"
+                data-testid={`remove-${props.member.handle}`}
+                onClick={() => props.connection.act({ act: 'remove', member_id: props.member.id })}
+                className="min-h-11 bg-red-900 px-3 text-xs text-red-100"
+              >
+                Remove
+              </button>
+            </>
           ) : (
             <button
               type="button"
@@ -660,7 +837,8 @@ export function MemberRail(props: {
   canManageAgents?: boolean;
 }) {
   const variant = props.variant ?? 'rail';
-  const firstAgentId = props.members.find((member) => member.kind === 'agent')?.id;
+  const visibleMembers = props.members.filter((member) => member.removed_ts === undefined);
+  const firstAgentId = visibleMembers.find((member) => member.kind === 'agent')?.id;
   const [selectedMemberId, setSelectedMemberId] = useState<string | undefined>(firstAgentId);
   const initializedSelection = useRef(firstAgentId !== undefined);
 
@@ -670,21 +848,21 @@ export function MemberRail(props: {
       setSelectedMemberId(firstAgentId);
       return;
     }
-    if (selectedMemberId && !props.members.some((member) => member.id === selectedMemberId)) {
+    if (selectedMemberId && !visibleMembers.some((member) => member.id === selectedMemberId)) {
       setSelectedMemberId(undefined);
     }
-  }, [firstAgentId, props.members, selectedMemberId]);
+  }, [firstAgentId, selectedMemberId, visibleMembers]);
 
   return (
     <aside className={`wr-member-rail wr-member-rail-${variant} ${props.className ?? ''}`}>
       <div className="wr-member-rail-heading">
-        <div className="wr-rail-label"><span>Members</span><span>{props.members.filter((m) => m.kind !== 'system').length}</span></div>
+        <div className="wr-rail-label"><span>Members</span><span>{visibleMembers.filter((m) => m.kind !== 'system').length}</span></div>
         {(props.canManageAgents ?? true) && (
-          <SpawnAgentDialog adapters={props.adapters} connection={props.connection} />
+          <SpawnAgentDialog adapters={props.adapters} members={visibleMembers} connection={props.connection} />
         )}
       </div>
       <ul className="mt-3">
-        {props.members
+        {visibleMembers
           .filter((m) => m.kind !== 'system')
           .map((m) => (
             <MemberCard
@@ -704,6 +882,7 @@ export function MemberRail(props: {
     </aside>
   );
 }
+// harn:end web-spawn-dialog-exposes-canonical-agent-controls
 
 export interface ExtensionRunSummary {
   id: string;

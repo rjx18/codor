@@ -1,0 +1,15 @@
+id: web-spawn-dialog-exposes-canonical-agent-controls
+hash: a-427670483997
+title: The member rail spawns and replaces agents through canonical controls
+state: active
+statement: The agent spawn dialog must prefill the channel working directory,
+  expose editable preset, model, canonical policy, supported thinking, and
+  purpose controls, preserve server act errors for correction, choose an
+  available suffixed handle, and let operators remove dead agents before reusing
+  their handles, because agent setup and replacement must be complete without
+  exposing unsupported harness-native policy vocabulary.
+depends_on:
+  - canonical-spawn-controls-enforced
+  - working-directories-validated-before-spawn
+  - removed-members-remain-attribution-tombstones
+created_by: codor-p4d-spawn-dialog

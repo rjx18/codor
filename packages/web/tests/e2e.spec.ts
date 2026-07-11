@@ -245,6 +245,104 @@ test('member rail: spawn → run → rename → kill → queued badge → revive
   await expect(page.getByTestId('member-gamma-history')).toContainText('dead > idle');
 });
 
+// harn:assume web-spawn-dialog-exposes-canonical-agent-controls ref=spawn-dialog-browser-regression
+test('spawn dialog presets canonical controls and replaces removed agents', async ({ page, request }) => {
+  const room = `spawn-controls-${String(Date.now())}`;
+  const created = await request.post('/api/rooms', {
+    headers: { authorization: 'Bearer e2e-token' },
+    data: {
+      id: room,
+      name: 'Spawn controls',
+      cwd: process.cwd(),
+      owner: { handle: 'richard', display_name: 'Richard' },
+    },
+  });
+  expect(created.ok()).toBe(true);
+
+  await page.route('**/api/adapters', async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json() as { adapters: unknown[] };
+    await route.fulfill({
+      response,
+      json: {
+        adapters: [...payload.adapters, {
+          id: 'opencode',
+          capabilities: {
+            resume: true,
+            discover: true,
+            interactiveAttach: false,
+            ask: false,
+            approvals: 'spawn-time',
+            extensions: false,
+            thinking: true,
+          },
+        }],
+      },
+    });
+  });
+  await page.goto(`/?room=${room}&token=e2e-token`);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  await page.getByTestId('spawn-agent').click();
+  await expect(page.getByTestId('spawn-dialog')).toBeVisible();
+  await expect(page.getByTestId('spawn-cwd')).toHaveValue(process.cwd());
+  await page.getByTestId('spawn-harness').selectOption('opencode');
+  await expect(page.getByTestId('spawn-model')).toHaveAttribute('placeholder', 'provider/model');
+  await expect(page.getByTestId('spawn-thinking')).toBeEnabled();
+  await expect(page.getByTestId('spawn-approval-hint')).toBeVisible();
+
+  await page.getByTestId('spawn-model').fill('kept/model');
+  await page.getByTestId('spawn-harness').selectOption('fake');
+  await page.getByTestId('spawn-preset-tester').click();
+  await expect(page.getByTestId('spawn-harness')).toHaveValue('fake');
+  await expect(page.getByTestId('spawn-model')).toHaveValue('kept/model');
+  await expect(page.getByTestId('spawn-handle')).toHaveValue('tester');
+  await expect(page.getByTestId('spawn-purpose')).toHaveValue('Runs tests, reproduces bugs, reports results');
+  await expect(page.getByTestId('spawn-policy')).toHaveValue('workspace-write');
+  await expect(page.getByTestId('spawn-policy').locator('option')).toHaveText([
+    'read-only', 'workspace-write', 'full-access',
+  ]);
+  await expect(page.getByTestId('spawn-thinking')).toHaveValue('medium');
+  await expect(page.getByTestId('spawn-thinking')).toBeDisabled();
+  await expect(page.getByTestId('spawn-approval-hint')).toHaveCount(0);
+
+  await page.getByTestId('spawn-policy').evaluate((select) => {
+    const element = select as HTMLSelectElement;
+    const invalid = document.createElement('option');
+    invalid.value = 'not-a-policy';
+    invalid.textContent = invalid.value;
+    element.append(invalid);
+    element.value = invalid.value;
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.getByTestId('spawn-submit').click();
+  await expect(page.getByTestId('spawn-dialog')).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText("unknown policy 'not-a-policy'");
+
+  await page.getByTestId('spawn-policy').selectOption('workspace-write');
+  await page.getByTestId('spawn-submit').click();
+  await expect(page.getByTestId('member-tester')).toBeVisible();
+
+  await page.getByTestId('spawn-agent').click();
+  await page.getByTestId('spawn-preset-tester').click();
+  await expect(page.getByTestId('spawn-handle')).toHaveValue('tester-2');
+  await page.getByTestId('spawn-submit').click();
+  await expect(page.getByTestId('member-tester-2')).toBeVisible();
+
+  await page.getByTestId('kill-tester').click();
+  await expect(page.getByTestId('remove-tester')).toBeVisible();
+  await page.getByTestId('remove-tester').click();
+  await expect(page.getByTestId('member-tester')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Spawn controls' }).locator('..')).toContainText('2 members');
+
+  await page.getByTestId('spawn-agent').click();
+  await page.getByTestId('spawn-preset-tester').click();
+  await expect(page.getByTestId('spawn-handle')).toHaveValue('tester');
+  await page.getByTestId('spawn-submit').click();
+  await expect(page.getByTestId('member-tester')).toBeVisible();
+});
+// harn:end web-spawn-dialog-exposes-canonical-agent-controls
+
 test('parent run expands authoritative extension lifecycle and summary', async ({ page }) => {
   await page.goto('/?room=eng&token=e2e-token');
   await control('/enqueue', {

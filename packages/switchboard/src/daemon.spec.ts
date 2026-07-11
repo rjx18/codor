@@ -1801,10 +1801,17 @@ describe('Phase 3 usability core', () => {
     );
   });
 
-  it('exposes a thinking-false FakeAdapter variant for UI and core tests', () => {
+  // harn:assume canonical-spawn-controls-enforced ref=daemon-spawn-control-regression
+  it('rejects canonical control violations before a directly registered adapter spawns', () => {
+    const spawn = vi.spyOn(fake, 'spawn');
     expect(fake.capabilities.thinking).toBe(false);
+    expect(() => daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'policy-break', cwd: testCwd(), policy: 'not-a-policy',
+    })).toThrow('valid policies: read-only, workspace-write, full-access');
     expect(() => daemon.spawnMember('eng', {
       harness: 'fake', handle: 'thinker', cwd: testCwd(), thinking: 'high',
     })).toThrow("adapter 'fake' does not support thinking levels");
+    expect(spawn).not.toHaveBeenCalled();
   });
+  // harn:end canonical-spawn-controls-enforced
 });

@@ -18,6 +18,7 @@ import type {
 import { deriveRoomId } from '@wireroom/protocol';
 
 import { BlobStore } from './blobs.js';
+import { validateSpawnOptions } from './adapter-registry.js';
 import { roleAllows } from './authorization.js';
 import type { LedgerGraph, LedgerManager } from './ledger/watch.js';
 import type { LedgerNote, LedgerWrite } from './ledger/vault.js';
@@ -591,15 +592,16 @@ export class Daemon {
   ): Member {
     const cwd = normalizeWorkingDirectory(opts.cwd, this.homeDir);
     const adapter = this.requireAdapter(opts.harness);
-    if (opts.thinking !== undefined && !adapter.capabilities.thinking) {
-      throw new Error(`adapter '${adapter.id}' does not support thinking levels`);
-    }
-    const session = adapter.spawn({
+    const spawnOpts = {
       cwd,
       policy: opts.policy,
       model: opts.model,
       thinking: opts.thinking,
-    });
+    };
+    // harn:assume canonical-spawn-controls-enforced ref=daemon-initial-spawn-validation
+    validateSpawnOptions(adapter, spawnOpts);
+    const session = adapter.spawn(spawnOpts);
+    // harn:end canonical-spawn-controls-enforced
     const member = this.store.addMember(room, {
       kind: 'agent',
       handle: opts.handle,
@@ -1072,7 +1074,14 @@ export class Daemon {
       session =
         member.session_ref !== undefined
           ? adapter.attach(member.session_ref)
-          : adapter.spawn({ cwd: member.cwd ?? process.cwd(), policy: member.policy });
+          : (() => {
+              const spawnOpts = { cwd: member.cwd ?? process.cwd(), policy: member.policy };
+              // harn:assume canonical-spawn-controls-enforced ref=daemon-session-rebuild-validation
+              validateSpawnOptions(adapter, spawnOpts);
+              const rebuilt = adapter.spawn(spawnOpts);
+              // harn:end canonical-spawn-controls-enforced
+              return rebuilt;
+            })();
       session.cwd = member.cwd ?? session.cwd; // revive MUST reuse the persisted cwd
       session.policy = member.policy;
       this.sessions.set(member.id, session);

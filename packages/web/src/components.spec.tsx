@@ -12,6 +12,8 @@ import {
   ledgerTextSegments,
   RunMessageView,
   RunStallBadge,
+  SPAWN_PRESETS,
+  availableAgentHandle,
 } from './components.js';
 import type { Connection } from './ws.js';
 
@@ -68,6 +70,52 @@ const noopConnection: Connection = {
   disconnect: () => undefined,
   reconnect: () => undefined,
 };
+
+// harn:assume web-spawn-dialog-exposes-canonical-agent-controls ref=spawn-dialog-unit-regression
+describe('spawn presets', () => {
+  it('keeps the five operator presets exact and fully editable', () => {
+    expect(SPAWN_PRESETS).toEqual({
+      coder: {
+        handle: 'coder',
+        purpose: "Implements code changes in this channel's project",
+        policy: 'workspace-write',
+        thinking: 'medium',
+      },
+      reviewer: {
+        handle: 'reviewer',
+        purpose: 'Reviews diffs and flags defects; never edits',
+        policy: 'read-only',
+        thinking: 'high',
+      },
+      planner: {
+        handle: 'planner',
+        purpose: 'Investigates and writes implementation plans',
+        policy: 'read-only',
+        thinking: 'high',
+      },
+      writer: {
+        handle: 'writer',
+        purpose: 'Writes and edits documentation and prose',
+        policy: 'workspace-write',
+        thinking: 'low',
+      },
+      tester: {
+        handle: 'tester',
+        purpose: 'Runs tests, reproduces bugs, reports results',
+        policy: 'workspace-write',
+        thinking: 'medium',
+      },
+    });
+  });
+
+  it('suffixes active collisions and ignores removed tombstones', () => {
+    const tester = { ...alpha, id: '01BX5ZZKBKACTAV9WEVGEMMVS0', handle: 'tester' };
+    const tester2 = { ...alpha, id: '01BX5ZZKBKACTAV9WEVGEMMVS1', handle: 'tester-2' };
+    expect(availableAgentHandle('tester', [richard, tester, tester2])).toBe('tester-3');
+    expect(availableAgentHandle('tester', [richard, { ...tester, removed_ts: TS }])).toBe('tester');
+  });
+});
+// harn:end web-spawn-dialog-exposes-canonical-agent-controls
 
 describe('impliedRecipient (invariant 3: visible before send)', () => {
   const runMessages = { 7: finalizedRun };

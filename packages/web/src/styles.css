@@ -1992,6 +1992,72 @@ button:disabled {
 }
 /* harn:end channel-create-dialog-uses-authoritative-result */
 
+/* harn:assume web-spawn-dialog-exposes-canonical-agent-controls ref=spawn-dialog-style */
+.wr-spawn-dialog {
+  width: min(100%, 640px);
+  max-height: min(92dvh, 760px);
+  overflow-y: auto;
+}
+
+.wr-preset-list {
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
+  color: var(--wr-muted);
+  font-size: 12px;
+}
+
+.wr-preset-list > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.wr-preset-list button {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--wr-line-strong);
+  border-radius: 6px;
+  background: var(--wr-panel);
+  color: var(--wr-text-soft);
+  font-size: 12px;
+}
+
+.wr-preset-list button:hover,
+.wr-preset-list button:focus-visible {
+  border-color: var(--wr-cyan);
+  color: var(--wr-text);
+}
+
+.wr-spawn-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
+.wr-approval-hint {
+  margin: 12px 0 0;
+  padding: 9px 10px;
+  border-left: 2px solid var(--wr-gold);
+  background: color-mix(in srgb, var(--wr-gold) 8%, transparent);
+  color: var(--wr-text-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  .wr-spawn-dialog {
+    max-height: calc(100dvh - 24px);
+    padding: 16px;
+  }
+
+  .wr-spawn-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* harn:end web-spawn-dialog-exposes-canonical-agent-controls */
+
 .wr-settings-page,
 .wr-pairing-page {
   position: relative;

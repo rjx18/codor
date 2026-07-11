@@ -1,0 +1,93 @@
+id: codor-p4d-spawn-dialog
+title: P4d preset-driven agent spawn dialog
+assumptions:
+  create:
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      title: The member rail spawns and replaces agents through canonical controls
+      statement: The agent spawn dialog must prefill the channel working directory,
+        expose editable preset, model, canonical policy, supported thinking, and
+        purpose controls, preserve server act errors for correction, choose an
+        available suffixed handle, and let operators remove dead agents before
+        reusing their handles, because agent setup and replacement must be
+        complete without exposing unsupported harness-native policy vocabulary.
+      reason: Phase 4d implements the operator-facing spawn and dead-member
+        replacement workflow.
+      depends_on:
+        - canonical-spawn-controls-enforced
+        - working-directories-validated-before-spawn
+        - removed-members-remain-attribution-tombstones
+  reviewed:
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: The dialog consumes the fixed canonical policy and thinking capabilities
+        without changing adapter enforcement.
+    - id: working-directories-validated-before-spawn
+      outcome: unchanged
+      reason: Channel cwd is only a UI default; the daemon remains the validation
+        authority.
+    - id: removed-members-remain-attribution-tombstones
+      outcome: unchanged
+      reason: The rail exposes the existing dead-only remove act and hides emitted
+        tombstones.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: New operational controls use the existing semantic token and focus
+        system in both themes.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: The header member total must drop live tombstones while preserving the
+        restrained room hierarchy.
+anchors:
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    spawn-dialog-controls:
+      action: change
+      reason: Replace the minimal spawn form with presets and capability-gated
+        canonical fields.
+    dead-member-replacement-controls:
+      action: change
+      reason: Expose remove for dead agents and exclude the resulting tombstones from
+        the rail.
+    spawn-dialog-unit-regression:
+      action: change
+      reason: Lock the preset contract and deterministic available-handle suffixing.
+    spawn-dialog-style:
+      action: change
+      reason: Give the expanded form stable compact and responsive layout.
+    spawn-dialog-browser-regression:
+      action: change
+      reason: Prove presets, capability gating, act errors, removal, reuse, and
+        suffixing end to end.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Add semantic spawn dialog controls inside the existing theme boundary.
+  canonical-spawn-controls-enforced:
+    daemon-initial-spawn-validation:
+      action: change
+      reason: Validate canonical policy and thinking before raw daemon adapters spawn.
+    daemon-session-rebuild-validation:
+      action: change
+      reason: Validate persisted spawn controls before rebuilding a missing session.
+    daemon-spawn-control-regression:
+      action: change
+      reason: Prove direct FakeAdapter instances cannot bypass canonical daemon
+        validation.
+  working-directories-validated-before-spawn:
+    daemon-cwd-enforcement:
+      action: change
+      reason: Add canonical option validation alongside the existing pre-spawn cwd
+        boundary.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: Exclude newly removed member tombstones from the active header count.
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web/src/App.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+applied:
+  applied_at: 2026-07-11T17:24:23.013Z

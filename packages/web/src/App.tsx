@@ -409,7 +409,9 @@ export function App(props: {
             connected={state.connected}
             meter={state.meter}
             unread={unreadCount(state)}
-            memberCount={Object.values(state.members).filter((member) => member.kind !== 'system').length}
+            memberCount={Object.values(state.members).filter(
+              (member) => member.kind !== 'system' && member.removed_ts === undefined,
+            ).length}
             searchOpen={searchOpen}
             onToggleSearch={() => {
               setSearchOpen((open) => !open);
