@@ -76,6 +76,11 @@ assumptions:
       outcome: unchanged
       reason: The rebuilt composer keeps the resolved destination visible before
         send.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: The authenticated create-room action keeps validation, owner seeding,
+        and tokenless navigation while its modal gains consistent glass treatment
+        and contained keyboard focus.
 anchors:
   web-room-visual-hierarchy-matches-glass-reference:
     glass-room-visual-hierarchy:
@@ -151,6 +156,11 @@ anchors:
     composer-implied-recipient:
       action: change
       reason: Recompose the input dock while keeping its live resolved destination.
+  web-room-rail-creates-owner-room:
+    room-rail-create-action:
+      action: change
+      reason: Keep the existing create mutation intact while trapping modal focus,
+        restoring the trigger, and matching the polished glass dialog treatment.
 files:
   - packages/web/src/App.tsx
   - packages/web/src/components.tsx
