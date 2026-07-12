@@ -1,0 +1,26 @@
+id: u6-release
+title: U6 release - record the round and ship it
+assumptions:
+  create:
+    - id: the-changelog-records-what-the-operator-will-notice
+      title: Every operator-visible change of the round is written down
+      statement: The changelog must carry an entry for each finding this round fixed -
+        the short pairing codes, the fresh-channel default recipient, the
+        harness and model catalogs, the phone-first approval cards and one-line
+        tool rows, the derived channel accents, the honest footer, the timeline
+        states, the working inbox, and the one-row composer - naming what the
+        operator will see rather than the component that changed, because the
+        changelog is the only place someone upgrading finds out what moved under
+        them.
+      reason: U6. The round changed nine operator-visible behaviours and the changelog
+        still ends at the rename.
+      depends_on: []
+anchors:
+  the-changelog-records-what-the-operator-will-notice:
+    round-two-changelog:
+      action: change
+      reason: Record the round's operator-visible changes.
+files:
+  - CHANGELOG.md
+applied:
+  applied_at: 2026-07-12T13:09:10.228Z

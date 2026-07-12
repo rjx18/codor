@@ -1,0 +1,13 @@
+id: the-changelog-records-what-the-operator-will-notice
+hash: a-96f7db24f3ad
+title: Every operator-visible change of the round is written down
+state: active
+statement: The changelog must carry an entry for each finding this round fixed -
+  the short pairing codes, the fresh-channel default recipient, the harness and
+  model catalogs, the phone-first approval cards and one-line tool rows, the
+  derived channel accents, the honest footer, the timeline states, the working
+  inbox, and the one-row composer - naming what the operator will see rather
+  than the component that changed, because the changelog is the only place
+  someone upgrading finds out what moved under them.
+depends_on: []
+created_by: u6-release
