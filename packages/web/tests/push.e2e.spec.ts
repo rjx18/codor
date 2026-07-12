@@ -1,7 +1,6 @@
 import { expect, test, type CDPSession } from '@playwright/test';
 
-const CONTROL = 'http://127.0.0.1:8138';
-const BASE = 'http://127.0.0.1:8137';
+import { BASE, CONTROL } from './ports.js';
 
 async function control<T>(path: string, body: unknown = {}): Promise<T> {
   const response = await fetch(`${CONTROL}${path}`, {

@@ -20,9 +20,18 @@ import {
 } from '@codor/switchboard';
 import { createRelayServer } from '@codor/relay';
 
-const API_PORT = 8137;
-const CONTROL_PORT = 8138;
-const RELAY_PORT = 8139;
+// harn:assume playwright-spec-files-use-isolated-daemons ref=isolated-e2e-harness-ports
+const readPort = (name, fallback) => {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isInteger(value) || value < 1 || value > 65_535) {
+    throw new Error(`${name} must be a valid TCP port`);
+  }
+  return value;
+};
+const API_PORT = readPort('CODOR_E2E_API_PORT', 18_137);
+const CONTROL_PORT = readPort('CODOR_E2E_CONTROL_PORT', 18_138);
+const RELAY_PORT = readPort('CODOR_E2E_RELAY_PORT', 18_139);
+// harn:end playwright-spec-files-use-isolated-daemons
 const TOKEN = 'e2e-token';
 const ADMIN_TOKEN = 'e2e-admin-token';
 const MEMBER_TOKEN = 'e2e-member-token';

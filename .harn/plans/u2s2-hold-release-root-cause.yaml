@@ -1,0 +1,81 @@
+id: u2s2-hold-release-root-cause
+title: U2S2 isolate the browser harness per spec file as test architecture hygiene
+assumptions:
+  create:
+    - id: playwright-spec-files-use-isolated-daemons
+      title: Each browser spec file runs against its own fresh daemon
+      statement: Every Playwright spec file must run in its own test invocation
+        against a freshly booted harness process with its own daemon, ledger,
+        crypto vault, blob root, and SQLite database, reachable on API, control,
+        and relay ports derived from that file's position in the suite and
+        disjoint from the operator's live 8137-8139 deployment, so that no
+        device, room, delivery, or session record created by one spec file can
+        reach another and the suite can run while the live deployment is up,
+        because a spec file's serial narrative is only meaningful inside that
+        file and one long-lived cross-file daemon makes browser failures
+        order-dependent and hard to attribute.
+      reason: Test architecture hygiene. This is deliberately NOT the fix for the
+        held-delivery stall - that stall was root-caused to a U2 redaction
+        defect that corrupts UUIDs in the serving projection, and it is fixed
+        under U2's own lock. Isolation is justified on its own terms - per-file
+        attribution, no cross-file cascade, and coexistence with the live
+        service - and it is what made the real defect localizable by single-file
+        overlay.
+      depends_on:
+        - release-gate-runs-unit-and-browser
+    - id: e2e-gate-covers-every-spec-file
+      title: The browser gate runs every spec file or fails
+      statement: The web e2e entrypoint must discover every spec file the suite
+        pattern matches, run each exactly once, and exit non-zero when any file
+        fails or when discovery finds no files, reporting the per-file and total
+        test counts it observed, because splitting one shared invocation into
+        per-file invocations must not be able to shrink the gate's coverage
+        silently.
+      reason: Per-file isolation replaces a single invocation whose test count was
+        self-evident; the gate must keep proving how much it ran.
+      depends_on:
+        - playwright-spec-files-use-isolated-daemons
+  reviewed:
+    - id: release-gate-runs-unit-and-browser
+      outcome: unchanged
+      reason: The root test:all script still builds the workspace, runs every
+        package's Vitest suite, and then runs the complete web browser suite
+        through the same entrypoint; only that entrypoint's process model
+        changes, so the release gate's contract is untouched.
+anchors:
+  playwright-spec-files-use-isolated-daemons:
+    isolated-e2e-harness-ports:
+      action: change
+      reason: Bind the harness daemon, control endpoint, and relay to the ports the
+        runner assigns to the spec file under test.
+    isolated-e2e-playwright-config:
+      action: change
+      reason: Point the base URL and the per-invocation web server health check at the
+        assigned ports instead of the live deployment's.
+    isolated-e2e-spec-ports:
+      action: change
+      reason: Give the spec files one shared source for the assigned API and control
+        endpoints in place of hard-coded 8137/8138 constants.
+  e2e-gate-covers-every-spec-file:
+    isolated-e2e-spec-runner:
+      action: change
+      reason: Discover the spec files, run each against a fresh harness on its own
+        ports, aggregate the counts, and fail the gate on any file failure or on
+        empty discovery.
+files:
+  - packages/web/package.json
+  - packages/web/playwright.config.ts
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/ports.ts
+  - packages/web/tests/run-e2e.mjs
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/composer.e2e.spec.ts
+  - packages/web/tests/crypto.e2e.spec.ts
+  - packages/web/tests/inspector.e2e.spec.ts
+  - packages/web/tests/m3-acceptance.e2e.spec.ts
+  - packages/web/tests/motion-pairing.e2e.spec.ts
+  - packages/web/tests/push.e2e.spec.ts
+  - packages/web/tests/pwa.e2e.spec.ts
+  - packages/web/tests/run-stream.e2e.spec.ts
+applied:
+  applied_at: 2026-07-12T07:53:52.494Z

@@ -10,8 +10,7 @@ import {
   type DeviceIdentity,
 } from '@codor/switchboard';
 
-const CONTROL = 'http://127.0.0.1:8138';
-const BASE = 'http://127.0.0.1:8137';
+import { BASE, CONTROL } from './ports.js';
 
 async function control<T>(path: string): Promise<T> {
   const response = await fetch(`${CONTROL}${path}`, { method: 'POST' });

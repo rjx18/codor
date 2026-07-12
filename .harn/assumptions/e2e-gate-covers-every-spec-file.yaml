@@ -1,0 +1,12 @@
+id: e2e-gate-covers-every-spec-file
+hash: a-6a8489770257
+title: The browser gate runs every spec file or fails
+state: active
+statement: The web e2e entrypoint must discover every spec file the suite
+  pattern matches, run each exactly once, and exit non-zero when any file fails
+  or when discovery finds no files, reporting the per-file and total test counts
+  it observed, because splitting one shared invocation into per-file invocations
+  must not be able to shrink the gate's coverage silently.
+depends_on:
+  - playwright-spec-files-use-isolated-daemons
+created_by: u2s2-hold-release-root-cause

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const CONTROL = 'http://127.0.0.1:8138';
+import { CONTROL } from './ports.js';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 

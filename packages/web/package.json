@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "test": "vitest run",
-    "e2e": "xvfb-run -a playwright test"
+    "e2e": "node tests/run-e2e.mjs"
   },
   "dependencies": {
     "@codor/protocol": "workspace:*",

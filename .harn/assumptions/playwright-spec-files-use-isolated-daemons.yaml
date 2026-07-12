@@ -1,0 +1,16 @@
+id: playwright-spec-files-use-isolated-daemons
+hash: a-5d7255eef824
+title: Each browser spec file runs against its own fresh daemon
+state: active
+statement: Every Playwright spec file must run in its own test invocation
+  against a freshly booted harness process with its own daemon, ledger, crypto
+  vault, blob root, and SQLite database, reachable on API, control, and relay
+  ports derived from that file's position in the suite and disjoint from the
+  operator's live 8137-8139 deployment, so that no device, room, delivery, or
+  session record created by one spec file can reach another and the suite can
+  run while the live deployment is up, because a spec file's serial narrative is
+  only meaningful inside that file and one long-lived cross-file daemon makes
+  browser failures order-dependent and hard to attribute.
+depends_on:
+  - release-gate-runs-unit-and-browser
+created_by: u2s2-hold-release-root-cause
