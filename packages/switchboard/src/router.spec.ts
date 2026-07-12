@@ -1,4 +1,4 @@
-import type { Member, Message, RoomConfig } from '@codor/protocol';
+import { RoomConfigSchema, type Member, type Message, type RoomConfig } from '@codor/protocol';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -47,6 +47,7 @@ const msg = (partial: Partial<Message> & Pick<Message, 'author' | 'kind' | 'body
 
 const ctx = (over: Partial<RoutingContext> & { author: Member | undefined }): RoutingContext => ({
   members: ROSTER,
+  roomConfig: RoomConfigSchema.parse({}),
   ...over,
 });
 
@@ -283,6 +284,7 @@ describe('resolveRecipients', () => {
     expect(result.commentary).toBe(true);
   });
 
+  // harn:assume default-recipient-fallback-chain ref=effective-default-regression
   describe('default recipient', () => {
     it('mentionless human message goes to the latest FINALIZED agent author', () => {
       const m = msg({ author: richard.id, kind: 'chat', body: 'looks good, continue' });
@@ -297,6 +299,37 @@ describe('resolveRecipients', () => {
       const m = msg({ author: richard.id, kind: 'chat', body: 'and now?' });
       const result = resolveRecipients(m, ctx({ author: richard, latestFinalizedAgentAuthor: claude.id }));
       expect(result.agents.map((a) => a.handle)).toEqual(['claude']);
+    });
+
+    it('fresh human messages prefer the configured live starting agent', () => {
+      const m = msg({ author: richard.id, kind: 'chat', body: 'hi' });
+      const result = resolveRecipients(m, ctx({
+        author: richard,
+        roomConfig: RoomConfigSchema.parse({ starting_agent_handle: 'codex' }),
+      }));
+      expect(result.agents.map((agent) => agent.handle)).toEqual(['codex']);
+      expect(result.commentary).toBe(false);
+    });
+
+    it('falls back to the sole live agent when the configured starter is dead', () => {
+      const m = msg({ author: richard.id, kind: 'chat', body: 'continue' });
+      const result = resolveRecipients(m, ctx({
+        author: richard,
+        members: [richard, deadAgent, claude, system],
+        roomConfig: RoomConfigSchema.parse({ starting_agent_handle: deadAgent.handle }),
+      }));
+      expect(result.agents.map((agent) => agent.handle)).toEqual(['claude']);
+      expect(result.commentary).toBe(false);
+    });
+
+    it('uses the sole live agent when no starting handle was configured', () => {
+      const m = msg({ author: richard.id, kind: 'chat', body: 'continue' });
+      const result = resolveRecipients(m, ctx({
+        author: richard,
+        members: [richard, codex, system],
+      }));
+      expect(result.agents.map((agent) => agent.handle)).toEqual(['codex']);
+      expect(result.commentary).toBe(false);
     });
 
     it('no agent ever finished → room commentary, delivered to nobody', () => {
@@ -342,6 +375,7 @@ describe('resolveRecipients', () => {
       expect(result.agents).toEqual([]);
     });
   });
+  // harn:end default-recipient-fallback-chain
 
   describe('misaddressing', () => {
     it('unresolved tokens in a finalized agent message set the flag', () => {

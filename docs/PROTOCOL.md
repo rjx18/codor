@@ -392,12 +392,14 @@ read and extend), rebuilt local-first and graph-shaped:
    say it, or reference it with `#N`.
 2. `Message.id` is dense and monotonic per channel; `#N` is permanent (edits are new messages;
    there is no message deletion inside a channel, only channel deletion).
-<!-- harn:assume literal-draft-recipient-visible-before-send ref=literal-draft-recipient-invariant -->
+<!-- harn:assume literal-draft-effective-recipient-visible ref=literal-draft-recipient-invariant -->
 3. Every non-commentary message resolves to ≥1 recipient at post time. When an available
-   latest finalized non-ack agent is the default, the composer materializes that destination
-   as one literal, editable `@handle` mention on the first non-`@` input into an empty draft.
-   It inserts at most once per draft, so deleting the mention never silently restores it.
-<!-- harn:end literal-draft-recipient-visible-before-send -->
+   effective default agent exists — latest finalized non-ack author, then the configured live
+   starting agent, then the sole live agent — the composer materializes that destination as one
+   literal, editable `@handle` mention on the first non-`@` input into an empty draft. It inserts
+   at most once per draft, so deleting the mention never silently restores it. A nonempty draft
+   with no explicit or default recipient is labeled as posting to nobody.
+<!-- harn:end literal-draft-effective-recipient-visible -->
 4. The switchboard never fabricates member speech. Everything attributed to a member came out of
    its session or its human's keyboard/microphone.
 5. All state needed to rebuild a channel (messages, members, session_refs, blobs) lives on the

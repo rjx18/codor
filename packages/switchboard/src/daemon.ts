@@ -392,6 +392,11 @@ export class Daemon {
       config: {
         ...(opts.color !== undefined && { color: opts.color }),
         ...(cwd !== undefined && { cwd }),
+        // harn:assume channel-starting-agent-handle-persisted ref=starting-agent-creation-record
+        ...(opts.starting_agent !== undefined && {
+          starting_agent_handle: opts.starting_agent.handle,
+        }),
+        // harn:end channel-starting-agent-handle-persisted
       },
     });
     if (opts.starting_agent) {
@@ -1352,6 +1357,7 @@ export class Daemon {
       author,
       repliedTo: message.reply_to !== undefined ? this.store.getMessage(room, message.reply_to) : undefined,
       latestFinalizedAgentAuthor: this.latestFinalizedAgentAuthor(room),
+      roomConfig: this.store.getRoom(room)!.config,
       triggerAuthor,
     });
     const recipients = [...result.agents, ...result.humans];

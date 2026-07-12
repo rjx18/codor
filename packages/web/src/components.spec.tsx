@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AskCardView,
+  draftRoutesToNobody,
   Header,
   MemberCard,
   MessageRow,
@@ -117,7 +118,7 @@ describe('spawn presets', () => {
 });
 // harn:end web-spawn-dialog-exposes-canonical-agent-controls
 
-// harn:assume literal-draft-recipient-visible-before-send ref=composer-recipient-unit-regression
+// harn:assume literal-draft-effective-recipient-visible ref=composer-recipient-unit-regression
 describe('mentionMatchAtCaret', () => {
   it('orders agents before humans and filters by the caret prefix', () => {
     expect(mentionMatchAtCaret('@', 1, [richard, alpha])?.candidates.map((member) => member.handle))
@@ -134,8 +135,22 @@ describe('mentionMatchAtCaret', () => {
     expect(mentionMatchAtCaret('`@a`', 3, [alpha])).toBeUndefined();
     expect(mentionMatchAtCaret('@', 1, [{ ...alpha, removed_ts: TS }])).toBeUndefined();
   });
+
+  it('identifies only nonempty drafts that truly have no recipient', () => {
+    expect(draftRoutesToNobody('', [richard, alpha])).toBe(false);
+    expect(draftRoutesToNobody('hello', [richard])).toBe(true);
+    expect(draftRoutesToNobody('hello', [richard, alpha], alpha.id, richard.id)).toBe(false);
+    expect(draftRoutesToNobody('@alpha hello', [richard, alpha], undefined, richard.id)).toBe(false);
+    expect(draftRoutesToNobody('@richard note', [richard], undefined, richard.id)).toBe(true);
+    expect(draftRoutesToNobody(
+      '@alpha hello',
+      [richard, { ...alpha, removed_ts: TS }],
+      undefined,
+      richard.id,
+    )).toBe(true);
+  });
 });
-// harn:end literal-draft-recipient-visible-before-send
+// harn:end literal-draft-effective-recipient-visible
 
 describe('RunMessageView', () => {
   it('renders the live header while running', () => {

@@ -18,6 +18,9 @@ export const RoomConfigSchema = z.object({
   // harn:assume channel-create-request-contract ref=channel-room-metadata
   color: z.string().min(1).optional(),
   cwd: z.string().min(1).optional(),
+  // harn:assume channel-starting-agent-handle-persisted ref=starting-agent-config-field
+  starting_agent_handle: AssignableHandleSchema.optional(),
+  // harn:end channel-starting-agent-handle-persisted
   // harn:end channel-create-request-contract
   // harn:assume bridged-room-wears-banner ref=bridged-room-config
   bridged: z.boolean().default(false),

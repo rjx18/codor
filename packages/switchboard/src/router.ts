@@ -1,4 +1,5 @@
 import {
+  effectiveDefaultAgent,
   isAddressable,
   type Member,
   type Message,
@@ -67,6 +68,8 @@ export function isRoutable(message: Message, ctx: EligibilityContext): boolean {
 export interface RoutingContext extends EligibilityContext {
   /** Full room roster. */
   members: Member[];
+  /** Current channel metadata used by the fresh-channel default chain. */
+  roomConfig: RoomConfig;
   /** Author id of the latest FINALIZED agent message, if any ever finished. */
   latestFinalizedAgentAuthor?: string;
   /**
@@ -116,21 +119,26 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
     if (member && !recipients.some((r) => r.id === member.id)) recipients.push(member);
   }
 
-  // harn:assume default-recipient-latest-substantive ref=substantive-default-recipient
+  // harn:assume default-recipient-fallback-chain ref=substantive-default-recipient
   // Zero valid mentions → human/bridge messages default to the author of the
-  // latest FINALIZED agent message (running placeholders never count);
+  // latest FINALIZED agent message, then the live configured starting agent,
+  // then a sole live agent (running placeholders never become "latest");
   // agent messages default to whoever triggered the run (last delivery of a
   // batch). No candidate → room commentary, delivered to nobody.
   if (recipients.length === 0) {
     const authorKind = ctx.author!.kind;
-    const fallbackId =
-      authorKind === 'agent' ? ctx.triggerAuthor : ctx.latestFinalizedAgentAuthor;
-    const fallback = fallbackId === undefined ? undefined : byId.get(fallbackId);
+    const fallback = authorKind === 'agent'
+      ? (ctx.triggerAuthor === undefined ? undefined : byId.get(ctx.triggerAuthor))
+      : effectiveDefaultAgent({
+          members: ctx.members,
+          latestFinalizedAgentId: ctx.latestFinalizedAgentAuthor,
+          startingAgentHandle: ctx.roomConfig.starting_agent_handle,
+        });
     if (fallback && fallback.id !== message.author && isAddressable(fallback)) {
       recipients.push(fallback);
     }
   }
-  // harn:end default-recipient-latest-substantive
+  // harn:end default-recipient-fallback-chain
 
   // harn:assume human-deliveries-are-inbox-records ref=recipient-split
   // Humans never get turns: the daemon materializes the humans list as inbox

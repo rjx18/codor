@@ -1,7 +1,7 @@
 id: literal-draft-recipient-visible-before-send
 hash: a-27f291e82167
 title: The composer makes default recipients literal before send
-state: active
+state: retired
 statement: The composer must materialize an available latest finalized non-ack
   agent default as one editable literal @handle mention when the first character
   of an empty draft is not @, never reinsert it within that draft after
@@ -13,3 +13,4 @@ depends_on:
   - substantive-routing-excludes-acknowledgements
   - removed-members-remain-attribution-tombstones
 created_by: codor-p4e-composer
+retired_by: u1-fresh-default

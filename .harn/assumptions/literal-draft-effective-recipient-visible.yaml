@@ -1,0 +1,15 @@
+id: literal-draft-effective-recipient-visible
+hash: a-e67a56076e81
+title: The composer materializes the effective default before send
+state: active
+statement: The composer must materialize the effective default agent as one
+  editable literal @handle mention on the first non-@ input into an empty draft,
+  never reinsert it within that draft after deletion, retain the parser-backed
+  keyboard and touch mention popup, and show a no-recipient hint only for a
+  nonempty draft that would truly route to nobody, because the operator must see
+  and control the exact routing outcome before sending.
+depends_on:
+  - default-recipient-fallback-chain
+  - body-parser-shared-across-router-and-web
+  - removed-members-remain-attribution-tombstones
+created_by: u1-fresh-default

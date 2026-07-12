@@ -24,6 +24,7 @@ import {
   type MemberDetail,
 } from './api.js';
 import {
+  effectiveDefaultRecipient,
   heldDeliveries,
   HISTORY_PAGE_SIZE,
   me,
@@ -333,6 +334,7 @@ export function App(props: {
   const canManageAgents = roleAtLeast(self?.role, 'admin');
   const canManageRooms = roleAtLeast(self?.role, 'owner');
   const held = heldDeliveries(state.inbox);
+  const defaultRecipient = effectiveDefaultRecipient(state);
 
   useEffect(() => {
     if (!drawerOpen && !contextOpen) return;
@@ -609,8 +611,8 @@ export function App(props: {
           {canPost ? (
             <Composer
               members={state.members}
-              messages={state.messages}
-              defaultRecipientId={state.latestFinalizedAgentId}
+              defaultRecipientId={defaultRecipient?.id}
+              selfMemberId={state.selfMemberId}
               connection={connection}
             />
           ) : (

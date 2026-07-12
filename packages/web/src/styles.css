@@ -4000,7 +4000,7 @@ button:disabled {
   background: transparent;
 }
 
-/* harn:assume literal-draft-recipient-visible-before-send ref=composer-popup-style */
+/* harn:assume literal-draft-effective-recipient-visible ref=composer-popup-style */
 .wr-composer-field {
   position: relative;
   min-width: 0;
@@ -4079,7 +4079,14 @@ button:disabled {
 .wr-mention-popup > p {
   padding: 10px;
 }
-/* harn:end literal-draft-recipient-visible-before-send */
+
+.wr-composer-commentary-hint {
+  margin: 6px 2px 0;
+  color: var(--wr-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+/* harn:end literal-draft-effective-recipient-visible */
 
 .wr-send-button {
   border-color: var(--wr-line-strong);

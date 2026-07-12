@@ -1,0 +1,222 @@
+id: u1-fresh-default
+title: U1 route fresh-channel drafts to the effective default agent
+assumptions:
+  retire:
+    - id: default-recipient-latest-substantive
+      reason: Mentionless routing now has starting-agent and sole-live-agent fallbacks
+        when no substantive agent turn has finalized.
+    - id: literal-draft-recipient-visible-before-send
+      reason: The literal draft destination now materializes the full effective
+        default chain rather than only a finalized-agent default.
+  create:
+    - id: channel-starting-agent-handle-persisted
+      title: Channels persist the starting agent handle
+      statement: A channel created with a starting agent must persist that requested
+        handle in RoomConfig before the spawn attempt, because fresh-channel
+        routing needs a stable preferred handle even when creation and adapter
+        startup complete in separate steps.
+      reason: R7 requires the starting agent to be a well-defined first fallback.
+      depends_on:
+        - channel-create-request-contract
+        - channel-creation-derived-and-seeded
+    - id: default-recipient-fallback-chain
+      title: Mentionless human messages use one effective default chain
+      statement: A mentionless human or bridge message must prefer the latest
+        finalized non-ack active agent, then the configured starting agent when
+        live, then the sole live agent, and otherwise remain commentary, while
+        agent replies still prefer their trigger author and running or
+        acknowledgement runs never become substantive defaults, because fresh
+        channels need a reachable recipient without changing established
+        turn-chain precedence.
+      reason: R7 fixes the first-run dead end while preserving substantive and
+        acknowledgement routing rules.
+      depends_on:
+        - channel-starting-agent-handle-persisted
+        - substantive-routing-excludes-acknowledgements
+        - removed-members-remain-attribution-tombstones
+    - id: literal-draft-effective-recipient-visible
+      title: The composer materializes the effective default before send
+      statement: The composer must materialize the effective default agent as one
+        editable literal @handle mention on the first non-@ input into an empty
+        draft, never reinsert it within that draft after deletion, retain the
+        parser-backed keyboard and touch mention popup, and show a no-recipient
+        hint only for a nonempty draft that would truly route to nobody, because
+        the operator must see and control the exact routing outcome before
+        sending.
+      reason: R7 makes the server fallback visible and restores an honest commentary
+        warning only when needed.
+      depends_on:
+        - default-recipient-fallback-chain
+        - body-parser-shared-across-router-and-web
+        - removed-members-remain-attribution-tombstones
+  reviewed:
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: Running placeholders and exact acknowledgement completions remain
+        excluded from substantive routing and defaults.
+    - id: channel-create-request-contract
+      outcome: unchanged
+      reason: The existing optional starting-agent request supplies the handle
+        persisted into additive room metadata.
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: Creation still derives and seeds the channel before attempting the
+        optional adapter spawn.
+    - id: body-parser-shared-across-router-and-web
+      outcome: unchanged
+      reason: The commentary hint uses the shared parser to match server recipient
+        resolution.
+    - id: removed-members-remain-attribution-tombstones
+      outcome: unchanged
+      reason: Removed agents remain historical only and are excluded from both
+        fallback and popup candidates.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: The client still upserts frames and caches finalized substantive author
+        identity by sequence.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: App passes only already-authorized room state into the composer; posting
+        permissions do not change.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: New visible copy continues to use channel terminology.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: The existing shell hierarchy is preserved while its composer receives
+        the effective default.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: The inline commentary hint uses existing semantic theme tokens and focus
+        behavior.
+anchors:
+  default-recipient-latest-substantive:
+    substantive-default-recipient:
+      action: remove
+      reason: Replace the latest-only source and router markers with the effective
+        fallback chain.
+  literal-draft-recipient-visible-before-send:
+    literal-draft-recipient-invariant:
+      action: remove
+      reason: Replace the latest-only protocol invariant.
+    composer-recipient-unit-regression:
+      action: remove
+      reason: Replace the latest-only composer contract tests.
+    composer-literal-recipient:
+      action: remove
+      reason: Replace the latest-only composer behavior marker.
+    non-ack-default-regression:
+      action: remove
+      reason: Move acknowledgement and fallback tests under the effective default
+        contract.
+    non-ack-default-cache:
+      action: remove
+      reason: Move web default state under the effective default contract.
+    composer-popup-style:
+      action: remove
+      reason: Replace the old composer contract while retaining popup styling.
+    composer-browser-regression:
+      action: remove
+      reason: Replace the browser contract with fresh-channel and commentary coverage.
+  channel-starting-agent-handle-persisted:
+    starting-agent-config-field:
+      action: change
+      reason: Add the optional persisted starting-agent handle to RoomConfig.
+    starting-agent-creation-record:
+      action: change
+      reason: Record the requested handle before attempting the starting adapter spawn.
+    starting-agent-config-regression:
+      action: change
+      reason: Prove schema and creation persistence, including failed spawns.
+  default-recipient-fallback-chain:
+    effective-default-agent:
+      action: change
+      reason: Add the shared protocol helper used by server and web.
+    effective-default-agent-regression:
+      action: change
+      reason: Prove latest, starting, sole-live, dead, removed, and none cases.
+    substantive-default-recipient:
+      action: change
+      reason: Apply the shared fallback chain to mentionless server routing and its
+        latest source.
+    effective-default-regression:
+      action: change
+      reason: Prove the complete router fallback matrix and existing precedence.
+    web-effective-default-cache:
+      action: change
+      reason: Keep finalized non-ack caching and expose a shared effective-default
+        selector.
+    web-effective-default-regression:
+      action: change
+      reason: Prove web state agrees with the shared server fallback chain.
+  literal-draft-effective-recipient-visible:
+    literal-draft-recipient-invariant:
+      action: change
+      reason: Document effective default materialization and honest commentary
+        behavior.
+    composer-recipient-unit-regression:
+      action: change
+      reason: Prove popup behavior and exact commentary-hint detection.
+    composer-literal-recipient:
+      action: change
+      reason: Materialize the effective default and render the conditional inline hint.
+    composer-popup-style:
+      action: change
+      reason: Retain the popup and add a compact semantic commentary hint.
+    composer-browser-regression:
+      action: change
+      reason: Prove fresh channel delivery and the agent-less hint behavior end to end.
+  channel-create-request-contract:
+    channel-room-metadata:
+      action: change
+      reason: Extend additive room metadata with the starting-agent handle.
+  channel-creation-derived-and-seeded:
+    derived-channel-creation:
+      action: change
+      reason: Persist the starting handle while preserving seeded-channel failure
+        behavior.
+  client-syncs-by-seq:
+    store-upsert-in-place:
+      action: change
+      reason: Keep the finalized-author cache while exposing effective default
+        selection.
+  roles-gate-human-acts-not-agents:
+    role-aware-web-controls:
+      action: change
+      reason: Pass the effective default and self identity into the already role-gated
+        composer.
+  human-facing-surfaces-call-rooms-channels:
+    web-channel-terminology:
+      action: change
+      reason: Add the channel composer hint within the established terminology
+        boundary.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: Wire effective recipient state without altering the shell hierarchy.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Style the no-recipient hint with semantic theme tokens.
+files:
+  - docs/PROTOCOL.md
+  - website/docs/PROTOCOL.md
+  - packages/protocol/src/default-recipient.ts
+  - packages/protocol/src/default-recipient.spec.ts
+  - packages/protocol/src/index.ts
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/router.ts
+  - packages/switchboard/src/router.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web/src/state.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/App.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/composer.e2e.spec.ts
+applied:
+  applied_at: 2026-07-12T04:01:40.847Z

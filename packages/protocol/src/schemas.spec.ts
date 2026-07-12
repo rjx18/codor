@@ -315,6 +315,7 @@ describe('room config', () => {
     expect(config.bridged).toBe(false);
     expect(config.color).toBeUndefined();
     expect(config.cwd).toBeUndefined();
+    expect(config.starting_agent_handle).toBeUndefined();
   });
 
   it('supports opting in to brakes per room', () => {
@@ -326,6 +327,11 @@ describe('room config', () => {
       color: '#d45d5d',
       cwd: '/work/demo',
     });
+    // harn:assume channel-starting-agent-handle-persisted ref=starting-agent-config-regression
+    expect(RoomConfigSchema.parse({ starting_agent_handle: 'codor' }).starting_agent_handle)
+      .toBe('codor');
+    expect(RoomConfigSchema.safeParse({ starting_agent_handle: 'switchboard' }).success).toBe(false);
+    // harn:end channel-starting-agent-handle-persisted
   });
 
   it('accepts additive create requests with an optional id and starting agent', () => {

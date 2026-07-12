@@ -1,13 +1,14 @@
-import type {
-  Delivery,
-  Member,
-  MemberState,
-  Message,
-  Room,
-  RoomMeter,
-  ServerFrame,
-  WireEvent,
-  Role,
+import {
+  effectiveDefaultAgent,
+  type Delivery,
+  type Member,
+  type MemberState,
+  type Message,
+  type Role,
+  type Room,
+  type RoomMeter,
+  type ServerFrame,
+  type WireEvent,
 } from '@codor/protocol';
 import { create } from 'zustand';
 
@@ -122,14 +123,14 @@ export const useRoomStore = create<RoomState>((set) => ({
             };
           }
         case 'message': {
-          // harn:assume literal-draft-recipient-visible-before-send ref=non-ack-default-cache
+          // harn:assume default-recipient-fallback-chain ref=web-effective-default-cache
           const finalizedAgent =
             frame.message.kind === 'run' &&
             frame.message.run !== undefined &&
             frame.message.run.status !== 'running' &&
             frame.message.ack !== true &&
             state.members[frame.message.author]?.kind === 'agent';
-          // harn:end literal-draft-recipient-visible-before-send
+          // harn:end default-recipient-fallback-chain
           return {
             seq: bump,
             messages: { ...state.messages, [frame.message.id]: frame.message },
@@ -224,3 +225,13 @@ export const latestFinalizedAgentAuthor = (
   }
   return undefined;
 };
+
+// harn:assume default-recipient-fallback-chain ref=web-effective-default-cache
+export const effectiveDefaultRecipient = (
+  state: Pick<RoomState, 'room' | 'members' | 'latestFinalizedAgentId'>,
+): Member | undefined => effectiveDefaultAgent({
+  members: Object.values(state.members),
+  latestFinalizedAgentId: state.latestFinalizedAgentId,
+  startingAgentHandle: state.room?.config.starting_agent_handle,
+});
+// harn:end default-recipient-fallback-chain

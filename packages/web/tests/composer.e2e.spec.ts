@@ -11,7 +11,7 @@ async function enqueue(finalText: string): Promise<void> {
   if (!response.ok) throw new Error(`enqueue failed: ${await response.text()}`);
 }
 
-// harn:assume literal-draft-recipient-visible-before-send ref=composer-browser-regression
+// harn:assume literal-draft-effective-recipient-visible ref=composer-browser-regression
 test('composer materializes defaults once and offers parser-backed member mentions', async ({ page, request }) => {
   const room = `composer-${String(Date.now())}`;
   const authorization = { authorization: 'Bearer e2e-token' };
@@ -42,14 +42,12 @@ test('composer materializes defaults once and offers parser-backed member mentio
   const input = page.getByTestId('composer-input');
   await expect(page.getByTestId('implied-recipient')).toHaveCount(0);
 
-  await input.fill('n');
-  await expect(input).toHaveValue('n');
-  await input.fill('');
-
-  await enqueue('@richard codor ready');
-  await input.fill('@codor establish the default');
+  await enqueue('@richard fresh default reached');
+  await input.fill('hi');
+  await expect(input).toHaveValue('@codor hi');
+  await expect(page.getByTestId('composer-commentary-hint')).toHaveCount(0);
   await page.getByTestId('composer-send').click();
-  await expect(page.getByText('@richard codor ready')).toBeVisible();
+  await expect(page.getByText('@richard fresh default reached')).toBeVisible();
 
   await input.fill('h');
   await expect(input).toHaveValue('@codor h');
@@ -81,4 +79,29 @@ test('composer materializes defaults once and offers parser-backed member mentio
   await page.getByTestId('mention-option-writer').click();
   await expect(input).toHaveValue('@writer ');
 });
-// harn:end literal-draft-recipient-visible-before-send
+
+test('composer labels only an agent-less commentary draft as posting to nobody', async ({ page, request }) => {
+  const room = `commentary-${String(Date.now())}`;
+  const created = await request.post('/api/rooms', {
+    headers: { authorization: 'Bearer e2e-token' },
+    data: {
+      id: room,
+      name: 'Commentary only',
+      owner: { handle: 'richard', display_name: 'Richard' },
+    },
+  });
+  expect(created.ok()).toBe(true);
+
+  await page.goto(`/?room=${room}&token=e2e-token`);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  const input = page.getByTestId('composer-input');
+  await input.fill('hi');
+  await expect(input).toHaveValue('hi');
+  await expect(page.getByTestId('composer-commentary-hint'))
+    .toHaveText('no recipient — this posts to nobody');
+  await page.getByTestId('composer-send').click();
+  await expect(page.getByText('hi', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-testid^="run-"][data-run-status]')).toHaveCount(0);
+  await expect(page.getByTestId('composer-commentary-hint')).toHaveCount(0);
+});
+// harn:end literal-draft-effective-recipient-visible

@@ -1,0 +1,12 @@
+id: channel-starting-agent-handle-persisted
+hash: a-165de078f077
+title: Channels persist the starting agent handle
+state: active
+statement: A channel created with a starting agent must persist that requested
+  handle in RoomConfig before the spawn attempt, because fresh-channel routing
+  needs a stable preferred handle even when creation and adapter startup
+  complete in separate steps.
+depends_on:
+  - channel-create-request-contract
+  - channel-creation-derived-and-seeded
+created_by: u1-fresh-default

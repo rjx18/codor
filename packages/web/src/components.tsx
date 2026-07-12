@@ -1320,7 +1320,7 @@ export function HoldBanner(props: {
   );
 }
 
-// harn:assume literal-draft-recipient-visible-before-send ref=composer-literal-recipient
+// harn:assume literal-draft-effective-recipient-visible ref=composer-literal-recipient
 export interface MentionMatch {
   start: number;
   end: number;
@@ -1359,10 +1359,27 @@ export function mentionMatchAtCaret(
   };
 }
 
+export function draftRoutesToNobody(
+  draft: string,
+  members: Member[],
+  defaultRecipientId?: string,
+  selfMemberId?: string,
+): boolean {
+  if (draft.trim() === '') return false;
+  const active = members.filter((member) => member.removed_ts === undefined);
+  const hasExplicitRecipient = parseBody(draft, active).mentions.some(
+    (mention) => mention.member_id !== selfMemberId,
+  );
+  if (hasExplicitRecipient) return false;
+  return defaultRecipientId === undefined ||
+    defaultRecipientId === selfMemberId ||
+    !active.some((member) => member.id === defaultRecipientId);
+}
+
 export function Composer(props: {
   members: Record<string, Member>;
-  messages: Record<number, Message>;
   defaultRecipientId?: string;
+  selfMemberId?: string;
   connection: Connection;
 }) {
   const [draft, setDraft] = useState('');
@@ -1378,6 +1395,12 @@ export function Composer(props: {
   const autoMention = defaultRecipient?.kind === 'agent' && defaultRecipient.removed_ts === undefined
     ? defaultRecipient
     : undefined;
+  const commentaryDraft = draftRoutesToNobody(
+    draft,
+    roster,
+    props.defaultRecipientId,
+    props.selfMemberId,
+  );
 
   const refreshMention = (value: string, caret: number): void => {
     const key = `${String(caret)}\u0000${value}`;
@@ -1546,10 +1569,15 @@ export function Composer(props: {
           <Send aria-hidden="true" size={20} />
         </button>
       </div>
+      {commentaryDraft && (
+        <p role="status" data-testid="composer-commentary-hint" className="wr-composer-commentary-hint">
+          no recipient — this posts to nobody
+        </p>
+      )}
     </div>
   );
 }
-// harn:end literal-draft-recipient-visible-before-send
+// harn:end literal-draft-effective-recipient-visible
 
 export function MessageRow(props: {
   message: Message;

@@ -1,7 +1,8 @@
-import type { Member, Message } from '@codor/protocol';
+import { RoomConfigSchema, type Member, type Message, type Room } from '@codor/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  effectiveDefaultRecipient,
   heldDeliveries,
   HISTORY_PAGE_SIZE,
   latestFinalizedAgentAuthor,
@@ -15,6 +16,15 @@ const ULID_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
 const ULID_B = '01BX5ZZKBKACTAV9WEVGEMMVRZ';
 const ULID_C = '01CX5ZZKBKACTAV9WEVGEMMVRZ';
 const TS = '2026-07-10T07:00:00.000Z';
+
+const room = (startingAgentHandle?: string): Room => ({
+  id: 'eng',
+  name: 'Engineering',
+  created_ts: TS,
+  config: RoomConfigSchema.parse({
+    ...(startingAgentHandle !== undefined && { starting_agent_handle: startingAgentHandle }),
+  }),
+});
 
 const richard: Member = {
   id: ULID_A,
@@ -288,7 +298,39 @@ describe('selectors', () => {
     expect(sortedMessages(messages).map((m) => m.id)).toEqual([1, 2]);
   });
 
-  // harn:assume literal-draft-recipient-visible-before-send ref=non-ack-default-regression
+  // harn:assume default-recipient-fallback-chain ref=web-effective-default-regression
+  it('matches the server effective-default fallback chain', () => {
+    const beta = { ...alpha, id: ULID_C, handle: 'beta', display_name: 'Beta' };
+    expect(effectiveDefaultRecipient({
+      room: room('alpha'),
+      members: { [alpha.id]: alpha, [beta.id]: beta },
+      latestFinalizedAgentId: undefined,
+    })).toBe(alpha);
+    expect(effectiveDefaultRecipient({
+      room: room('alpha'),
+      members: { [alpha.id]: alpha, [beta.id]: beta },
+      latestFinalizedAgentId: beta.id,
+    })).toBe(beta);
+    expect(effectiveDefaultRecipient({
+      room: room(),
+      members: { [alpha.id]: alpha },
+      latestFinalizedAgentId: undefined,
+    })).toBe(alpha);
+    expect(effectiveDefaultRecipient({
+      room: room('alpha'),
+      members: {
+        [alpha.id]: { ...alpha, state: 'dead' },
+        [beta.id]: beta,
+      },
+      latestFinalizedAgentId: undefined,
+    })).toBe(beta);
+    expect(effectiveDefaultRecipient({
+      room: room(),
+      members: { [alpha.id]: alpha, [beta.id]: beta },
+      latestFinalizedAgentId: undefined,
+    })).toBeUndefined();
+  });
+
   it('keeps acknowledgement runs out of cached and visible-history defaults', () => {
     const { applyFrame } = useRoomStore.getState();
     const beta = { ...alpha, id: ULID_C, handle: 'beta', display_name: 'Beta' };
@@ -317,5 +359,5 @@ describe('selectors', () => {
     expect(useRoomStore.getState().latestFinalizedAgentId).toBe(alpha.id);
     expect(latestFinalizedAgentAuthor({ 4: ack }, { [beta.id]: beta })).toBeUndefined();
   });
-  // harn:end literal-draft-recipient-visible-before-send
+  // harn:end default-recipient-fallback-chain
 });

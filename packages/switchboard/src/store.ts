@@ -1017,7 +1017,7 @@ export class Store {
     return row.id;
   }
 
-  // harn:assume default-recipient-latest-substantive ref=substantive-default-recipient
+  // harn:assume default-recipient-fallback-chain ref=substantive-default-recipient
   latestFinalizedAgentAuthor(room: string): string | undefined {
     const row = this.db.prepare(
       `SELECT messages.author
@@ -1034,7 +1034,7 @@ export class Store {
     ).get(room) as { author: string } | undefined;
     return row?.author;
   }
-  // harn:end default-recipient-latest-substantive
+  // harn:end default-recipient-fallback-chain
 
   listMessagesAfter(room: string, after: number, limit = 100): Message[] {
     const rows = this.db.prepare(

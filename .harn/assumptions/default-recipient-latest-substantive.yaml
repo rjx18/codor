@@ -1,10 +1,11 @@
 id: default-recipient-latest-substantive
 hash: a-e51eefda591a
 title: Mentionless defaults use the latest substantive active agent
-state: active
+state: retired
 statement: Human and bridge messages with no valid mentions must default only to
   the latest finalized non-ack agent whose member is not removed, while agent
   replies still default to their trigger author when active, because
   acknowledgements and tombstones must never capture future conversation.
 depends_on: []
 created_by: codor-p3-switchboard
+retired_by: u1-fresh-default

@@ -1,0 +1,15 @@
+id: default-recipient-fallback-chain
+hash: a-b1e924db3bd6
+title: Mentionless human messages use one effective default chain
+state: active
+statement: A mentionless human or bridge message must prefer the latest
+  finalized non-ack active agent, then the configured starting agent when live,
+  then the sole live agent, and otherwise remain commentary, while agent replies
+  still prefer their trigger author and running or acknowledgement runs never
+  become substantive defaults, because fresh channels need a reachable recipient
+  without changing established turn-chain precedence.
+depends_on:
+  - channel-starting-agent-handle-persisted
+  - substantive-routing-excludes-acknowledgements
+  - removed-members-remain-attribution-tombstones
+created_by: u1-fresh-default

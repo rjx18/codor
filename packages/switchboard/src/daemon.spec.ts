@@ -202,6 +202,7 @@ describe('room bridges', () => {
 
   it('cannot mention a bridge or use a bridge to answer an interaction', async () => {
     const alpha = spawnAgent('alpha');
+    spawnAgent('beta');
     const bridge = daemon.enableBridge('eng', 'telegram', '-10022').member;
     daemon.postHumanMessage('eng', '@telegram-bridge this is commentary');
     await daemon.settle();
@@ -1060,7 +1061,11 @@ describe('kill-point matrix (boot reconcile)', () => {
     const alpha = spawnAgent('alpha');
     // Construct the crash scene: run placeholder + delivering delivery +
     // a blob that already contains the completion (post-kill orphan write).
-    const trigger = daemon.postHumanMessage('eng', 'setup');
+    const trigger = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id,
+      kind: 'chat',
+      body: 'setup',
+    });
     const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
     const runMsg = daemon.store.updateMessage('eng', posted.id, {
       run: { status: 'running', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: `runs/${posted.id}.jsonl` },
@@ -1090,7 +1095,11 @@ describe('kill-point matrix (boot reconcile)', () => {
 
   it('provably never started (empty blob, first attempt) → retried ONCE reusing the same run message', async () => {
     const alpha = spawnAgent('alpha');
-    const trigger = daemon.postHumanMessage('eng', 'setup two');
+    const trigger = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id,
+      kind: 'chat',
+      body: 'setup two',
+    });
     const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
     const runMsg = daemon.store.updateMessage('eng', posted.id, {
       run: { status: 'running', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: `runs/${posted.id}.jsonl` },
@@ -1118,7 +1127,11 @@ describe('kill-point matrix (boot reconcile)', () => {
 
   it('ambiguous (events but no completion) → HELD with a system message; release_hold retries', async () => {
     const alpha = spawnAgent('alpha');
-    const trigger = daemon.postHumanMessage('eng', 'setup three');
+    const trigger = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id,
+      kind: 'chat',
+      body: 'setup three',
+    });
     const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
     const runMsg = daemon.store.updateMessage('eng', posted.id, {
       run: { status: 'running', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: `runs/${posted.id}.jsonl` },
@@ -1245,7 +1258,11 @@ describe('kill-point matrix (boot reconcile)', () => {
 
   it('a second failure is NOT retried again (retry once, then hold)', async () => {
     const alpha = spawnAgent('alpha');
-    const trigger = daemon.postHumanMessage('eng', 'setup four');
+    const trigger = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id,
+      kind: 'chat',
+      body: 'setup four',
+    });
     const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
     const runMsg = daemon.store.updateMessage('eng', posted.id, {
       run: { status: 'running', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: `runs/${posted.id}.jsonl` },
@@ -1263,7 +1280,11 @@ describe('kill-point matrix (boot reconcile)', () => {
 
   it('holds confirmed-start evidence and refuses release while its process is alive', async () => {
     const alpha = spawnAgent('alpha');
-    const trigger = daemon.postHumanMessage('eng', 'process evidence');
+    const trigger = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id,
+      kind: 'chat',
+      body: 'process evidence',
+    });
     const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
     const runMsg = daemon.store.updateMessage('eng', posted.id, {
       run: { status: 'running', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: `runs/${posted.id}.jsonl` },
@@ -1680,7 +1701,8 @@ describe('Phase 3 usability core', () => {
     expect(daemon.store.getMember('eng', alpha.id)!.roster_stale).toBe(false);
   });
 
-  it('derives collision-safe channel ids and retains a seeded channel on starting-agent failure', () => {
+  // harn:assume channel-starting-agent-handle-persisted ref=starting-agent-config-regression
+  it('derives collision-safe channel ids and retains starting identity on spawn failure', () => {
     const project = testCwd('demo-project');
     const first = daemon.createRoom({
       name: 'Demo Site',
@@ -1690,7 +1712,8 @@ describe('Phase 3 usability core', () => {
       starting_agent: { harness: 'fake', handle: 'codor' },
     });
     expect(first.room).toMatchObject({
-      id: 'demo-site', config: { color: '#d45d5d', cwd: project },
+      id: 'demo-site',
+      config: { color: '#d45d5d', cwd: project, starting_agent_handle: 'codor' },
     });
     expect(daemon.store.getMemberByHandle('demo-site', 'codor')).toMatchObject({ cwd: project });
     expect(daemon.createRoom({
@@ -1704,11 +1727,13 @@ describe('Phase 3 usability core', () => {
       starting_agent: { harness: 'missing', handle: 'codor' },
     });
     expect(failed.room.id).toBe('still-useful');
+    expect(failed.room.config.starting_agent_handle).toBe('codor');
     expect(daemon.store.listMembers('still-useful').map((member) => member.kind).sort())
       .toEqual(['human', 'system']);
     expect(daemon.store.listMessages('still-useful', { limit: 10 }).at(-1)?.body)
       .toContain("no adapter registered for harness 'missing'");
   });
+  // harn:end channel-starting-agent-handle-persisted
 
   it('normalizes cwd inputs before every local member or adapter mutation', () => {
     const project = testCwd('project');
