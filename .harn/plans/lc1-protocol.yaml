@@ -1,0 +1,88 @@
+id: lc1-protocol
+title: LC1 - the protocol surface for live collaboration, additive only
+assumptions:
+  create:
+    - id: a-session-carries-the-environment-its-children-need
+      title: The switchboard tells a harness's children how to reach it
+      statement: A session must be able to carry environment variables for the
+        children spawned under it, and every adapter must merge that environment
+        OVER the inherited process environment for every child it spawns for
+        that session - because a harness's subprocess cannot reach the
+        switchboard it belongs to unless it is told where the socket is, which
+        channel it is in, and which member it speaks as. No adapter passes an
+        environment today; all five inherit the daemon's verbatim. The contract
+        must be published in the adapter documentation, because that document is
+        what a third-party harness author implements against.
+      reason: "LC1/L1. It is the foundation of every live-collab feature: an agent
+        that cannot address the switchboard from inside its own turn cannot post
+        an interim update, consume a delivery, or register a wait."
+      depends_on:
+        - the-adapter-doc-is-the-contract-it-enforces
+    - id: waiting-is-visible-member-state
+      title: An agent that is blocked says who it is blocked on
+      statement: "A member that is blocked waiting for another member must be able to
+        say so on the wire - who it waits on, why, since when, and until when -
+        because an agent that is merely quiet is indistinguishable from an agent
+        that is stuck, and the operator is the one who has to tell them apart.
+        The field is optional and transient: absent means not waiting, and
+        nothing about an existing member frame changes."
+      reason: LC1/L4. The member frame is where the web and the CLI both learn what an
+        agent is doing; a wait that is not on the frame cannot be shown.
+      depends_on:
+        - roster-briefing-refreshes-on-membership
+  reviewed:
+    - id: the-adapter-doc-is-the-contract-it-enforces
+      outcome: unchanged
+      reason: The doc still publishes what the registry enforces, and the drift gate
+        still fails the suite if a declared capability is missing from it. This
+        phase adds a capability and an environment contract to that same
+        published interface.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Spawn controls are untouched. A session gains an environment; what it is
+        allowed to be spawned WITH does not change.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The registry is unchanged. The new capability is OPTIONAL, so no
+        existing adapter - first-party or third-party - stops registering; the
+        adapters that implement the live inbox declare it in the phase that
+        builds it.
+    - id: roster-briefing-refreshes-on-membership
+      outcome: unchanged
+      reason: The roster is unchanged. A member frame may now also carry what it is
+        waiting on.
+anchors:
+  a-session-carries-the-environment-its-children-need:
+    session-env-contract:
+      action: change
+      reason: A session carries an optional environment for the children spawned under
+        it.
+    live-inbox-capability:
+      action: change
+      reason: A harness declares whether it can deliver messages to a running turn.
+        Optional, so that no adapter stops registering before the phase that
+        implements it.
+    adapter-env-contract-doc:
+      action: change
+      reason: Publish the merge rule where a third-party author will read it - the
+        environment is merged OVER the inherited one, for every child spawned
+        for that session.
+    session-env-regression:
+      action: change
+      reason: Prove the schema accepts an environment and a live-inbox declaration,
+        and that absence still means what it meant before.
+  waiting-is-visible-member-state:
+    member-waiting-field:
+      action: change
+      reason: A member frame can say who it waits on, why, and until when.
+    member-waiting-regression:
+      action: change
+      reason: Prove the field round-trips, that it is optional, and that a malformed
+        wait is rejected rather than carried.
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/schemas.spec.ts
+  - docs/ADAPTERS.md
+applied:
+  applied_at: 2026-07-12T18:08:38.339Z

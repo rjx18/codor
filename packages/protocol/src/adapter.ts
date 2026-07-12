@@ -25,6 +25,17 @@ export interface Session {
   model?: string;
   policy?: string;
   thinking?: ThinkingLevel;
+  // harn:assume a-session-carries-the-environment-its-children-need ref=session-env-contract
+  // Environment for the children spawned under this session. Adapters MUST merge it OVER
+  // the inherited process env for every child they spawn for the session.
+  //
+  // A harness's subprocess cannot reach the switchboard it belongs to unless it is told
+  // where the socket is, which channel it is in, and who it speaks as. Today no adapter
+  // passes an env at all — all five inherit the daemon's verbatim — so an agent has no way
+  // to address the switchboard from inside its own turn. Everything live-collab does rests
+  // on this.
+  env?: Record<string, string>;
+  // harn:end a-session-carries-the-environment-its-children-need
 }
 
 export interface SpawnOpts {
@@ -54,6 +65,13 @@ export interface AdapterCapabilities {
   // rather than hardcoding what it thinks it knows.
   policies: Record<Policy, string | null>;
   // harn:end harness-declares-what-a-policy-becomes
+  // harn:assume a-session-carries-the-environment-its-children-need ref=live-inbox-capability
+  // Whether this harness can deliver a message INTO a turn that is already running —
+  // rather than only between turns. OPTIONAL, and absent means no: the adapters that
+  // implement it declare it in the phase that builds it, so no adapter — first-party or
+  // third-party — stops registering today.
+  live_inbox?: boolean;
+  // harn:end a-session-carries-the-environment-its-children-need
 }
 // harn:end canonical-spawn-controls-enforced
 

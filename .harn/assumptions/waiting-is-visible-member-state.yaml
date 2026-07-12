@@ -1,0 +1,13 @@
+id: waiting-is-visible-member-state
+hash: a-833f37148cb6
+title: An agent that is blocked says who it is blocked on
+state: active
+statement: "A member that is blocked waiting for another member must be able to
+  say so on the wire - who it waits on, why, since when, and until when -
+  because an agent that is merely quiet is indistinguishable from an agent that
+  is stuck, and the operator is the one who has to tell them apart. The field is
+  optional and transient: absent means not waiting, and nothing about an
+  existing member frame changes."
+depends_on:
+  - roster-briefing-refreshes-on-membership
+created_by: lc1-protocol

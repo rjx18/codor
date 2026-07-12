@@ -80,6 +80,23 @@ export const MemberSchema = z
     // harn:assume member-removal-timestamp-protocol ref=member-removal-field
     removed_ts: TimestampSchema.optional(),
     // harn:end member-removal-timestamp-protocol
+    // harn:assume waiting-is-visible-member-state ref=member-waiting-field
+    // What this member is blocked on, if anything. Transient — it lives for the duration of
+    // a turn and is never persisted.
+    //
+    // An agent that is merely quiet is indistinguishable from an agent that is stuck, and
+    // the operator is the one who has to tell them apart. `peers` is who it waits on,
+    // `reason` is what would release it, `until_ts` is when it gives up. Absent means it is
+    // not waiting — which is what every member frame has meant until now.
+    waiting: z
+      .object({
+        peers: z.array(MemberIdSchema).min(1),
+        reason: z.enum(['reply', 'mention', 'any']),
+        since_ts: TimestampSchema,
+        until_ts: TimestampSchema,
+      })
+      .optional(),
+    // harn:end waiting-is-visible-member-state
   })
   .superRefine((member, ctx) => {
     if (

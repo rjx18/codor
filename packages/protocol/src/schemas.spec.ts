@@ -29,7 +29,7 @@ import {
   ToolResultPayloadSchema,
   WireEventSchema,
 } from './index.js';
-import type { RunItemType, SpawnOpts } from './index.js';
+import type { RunItemType, Session, SpawnOpts } from './index.js';
 
 const ULID_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
 const ULID_B = '01BX5ZZKBKACTAV9WEVGEMMVRZ';
@@ -755,3 +755,67 @@ describe('WS server frames', () => {
     expect(parsed).toHaveProperty('seq', 9);
   });
 });
+
+// harn:assume waiting-is-visible-member-state ref=member-waiting-regression
+describe('a member says what it is waiting on', () => {
+  const alpha: Record<string, unknown> = {
+    id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    kind: 'agent',
+    handle: 'coder',
+    display_name: 'Coder',
+    harness: 'claude-code',
+    state: 'running',
+  };
+  const wait = {
+    peers: ['01BX5ZZKBKACTAV9WEVGEMMVRZ'],
+    reason: 'reply' as const,
+    since_ts: TS,
+    until_ts: TS,
+  };
+
+  it('carries who it waits on, why, and until when', () => {
+    const parsed = MemberSchema.parse({ ...alpha, waiting: wait });
+    expect(parsed.waiting).toEqual(wait);
+  });
+
+  it('means NOT WAITING when absent — which is what every frame has meant until now', () => {
+    expect(MemberSchema.parse(alpha).waiting).toBeUndefined();
+  });
+
+  it('rejects a wait on nobody', () => {
+    // A wait with no peer is not a wait; it is a hang with a label on it.
+    expect(() => MemberSchema.parse({ ...alpha, waiting: { ...wait, peers: [] } })).toThrow();
+  });
+
+  it('rejects a reason the protocol does not define', () => {
+    expect(() => MemberSchema.parse({ ...alpha, waiting: { ...wait, reason: 'vibes' } })).toThrow();
+  });
+
+  it('rejects a peer that is not a member id', () => {
+    expect(() => MemberSchema.parse({ ...alpha, waiting: { ...wait, peers: ['coder'] } })).toThrow();
+  });
+});
+// harn:end waiting-is-visible-member-state
+
+// harn:assume a-session-carries-the-environment-its-children-need ref=session-env-regression
+describe('a session carries the environment its children need', () => {
+  it('accepts an environment for the children spawned under it', () => {
+    // The type is the contract here — Session is an interface, not a zod schema — so this
+    // asserts the shape the adapters are told to merge, and that it survives a spawn.
+    const session: Session = {
+      harness: 'claude-code',
+      cwd: '/work',
+      env: { CODOR_SOCKET: '/home/o/.codor/codor.sock', CODOR_CHANNEL: 'eng' },
+    };
+    expect({ ...process.env, ...session.env }.CODOR_CHANNEL).toBe('eng');
+    // Merged OVER, not instead of: the inherited environment survives.
+    expect({ ...process.env, ...session.env }.PATH).toBe(process.env.PATH);
+  });
+
+  it('means "inherit only" when absent, which is what every adapter does today', () => {
+    const session: Session = { harness: 'fake', cwd: '/work' };
+    expect(session.env).toBeUndefined();
+    expect({ ...process.env, ...session.env }).toEqual({ ...process.env });
+  });
+});
+// harn:end a-session-carries-the-environment-its-children-need

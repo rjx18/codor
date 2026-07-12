@@ -1,0 +1,16 @@
+id: a-session-carries-the-environment-its-children-need
+hash: a-78903e333d71
+title: The switchboard tells a harness's children how to reach it
+state: active
+statement: A session must be able to carry environment variables for the
+  children spawned under it, and every adapter must merge that environment OVER
+  the inherited process environment for every child it spawns for that session -
+  because a harness's subprocess cannot reach the switchboard it belongs to
+  unless it is told where the socket is, which channel it is in, and which
+  member it speaks as. No adapter passes an environment today; all five inherit
+  the daemon's verbatim. The contract must be published in the adapter
+  documentation, because that document is what a third-party harness author
+  implements against.
+depends_on:
+  - the-adapter-doc-is-the-contract-it-enforces
+created_by: lc1-protocol

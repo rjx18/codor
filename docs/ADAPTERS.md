@@ -31,6 +31,8 @@ interface HarnessAdapter {
     extensions: boolean;
     thinking: boolean;
     policies: Record<Policy, string | null>;
+    /** Optional. Can this harness deliver a message INTO a turn already running? */
+    live_inbox?: boolean;
   };
   spawn(options: {
     cwd: string;
@@ -87,6 +89,46 @@ an agent may do to their machine. Every first-party adapter is held to this by a
 compares its declaration against the arguments it emits; hold yours to the same.
 
 <!-- harn:end the-adapter-doc-is-the-contract-it-enforces -->
+
+<!-- harn:assume a-session-carries-the-environment-its-children-need ref=adapter-env-contract-doc -->
+### `session.env` — you MUST merge it over the inherited environment
+
+A `Session` may carry an environment:
+
+```ts
+interface Session {
+  harness: string;
+  session_ref?: string;
+  cwd: string;
+  model?: string;
+  policy?: Policy;
+  thinking?: ThinkingLevel;
+  /** Merge OVER the inherited process env for every child spawned for this session. */
+  env?: Record<string, string>;
+}
+```
+
+**Every child you spawn for a session must be spawned with `{ ...process.env, ...session.env }`.**
+Not instead of the inherited environment — *over* it.
+
+This is how a harness's subprocess finds the switchboard it belongs to. The switchboard puts
+the socket path, the channel, the member identity and that member's credential in here; an
+agent that cannot read them cannot address the switchboard from inside its own turn, and so
+cannot post an interim update, take a message off its own queue, or say that it is waiting on
+someone. An adapter that drops `session.env` does not fail loudly — it produces an agent that
+is simply deaf, which is worse.
+
+```ts
+const child = spawn(this.command, args, {
+  cwd: session.cwd,
+  env: { ...process.env, ...session.env },   // ← required
+  stdio: ['pipe', 'pipe', 'pipe'],
+});
+```
+
+`session.env` never contains anything the operator has not already granted this member. Treat
+its values as secret: do not log them, and do not echo them into run evidence.
+<!-- harn:end a-session-carries-the-environment-its-children-need -->
 
 `spawn()` creates an in-memory session handle; it does not need to launch the harness yet. One
 `deliver()` call is one turn. Launch the CLI as a supervised subprocess there, call
