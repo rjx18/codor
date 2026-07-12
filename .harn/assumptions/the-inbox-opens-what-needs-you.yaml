@@ -1,0 +1,14 @@
+id: the-inbox-opens-what-needs-you
+hash: a-941f0df71d85
+title: The inbox badge is a button that lists what is waiting
+state: active
+statement: The header's inbox must be a real control that opens a panel listing
+  every ask and approval still waiting on the operator - who asked, on what
+  tool, an excerpt of the prompt and how long it has waited - where choosing one
+  takes them to that card and highlights it; the panel must update as items are
+  answered, from this browser or any other, and say plainly when nothing needs
+  them, because a number that cannot be clicked tells the operator there is work
+  but not where.
+depends_on:
+  - interaction-state-machine-persisted
+created_by: u5-shell-polish

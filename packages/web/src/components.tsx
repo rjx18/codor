@@ -131,6 +131,8 @@ export function Header(props: {
   unread: number;
   memberCount?: number;
   searchOpen?: boolean;
+  inboxOpen?: boolean;
+  onOpenInbox?: () => void;
   onOpenNavigation?: () => void;
   onOpenContext?: () => void;
   onToggleSearch?: () => void;
@@ -249,11 +251,19 @@ export function Header(props: {
         >
           <Settings aria-hidden="true" size={18} />
         </a>
-        <span data-testid="inbox-badge" className="wr-inbox" title={`${String(props.unread)} unread`}>
+        <button
+          type="button"
+          data-testid="inbox-badge"
+          className="wr-inbox"
+          aria-haspopup="dialog"
+          aria-expanded={props.inboxOpen ?? false}
+          title={`${String(props.unread)} unread`}
+          onClick={props.onOpenInbox}
+        >
           <Inbox aria-hidden="true" size={16} />
           <span className="sr-only">inbox&nbsp;</span>
           {props.unread > 0 ? <strong>{props.unread}</strong> : 0}
-        </span>
+        </button>
       </div>
     </header>
   );
@@ -1448,10 +1458,10 @@ export function Composer(props: {
     dismissedMention.current = undefined;
   };
   return (
+    // harn:assume the-composer-is-one-row ref=composer-single-row
+    // One row plus padding. The heading only repeated the placeholder, and the
+    // controls disagreed on height; they now share one token.
     <div className="wr-composer">
-      <div className="wr-composer-heading">
-        <span>Message the channel</span>
-      </div>
       <div className="wr-composer-row">
         <button
           type="button"
@@ -1459,7 +1469,7 @@ export function Composer(props: {
           aria-label="Mention a member"
           title="Mention"
           onClick={insertMentionAffordance}
-          className="wr-mention-button h-12 w-12 shrink-0"
+          className="wr-mention-button wr-composer-control shrink-0"
         >
           <AtSign aria-hidden="true" size={19} />
         </button>
@@ -1550,7 +1560,7 @@ export function Composer(props: {
               ? `mention-${mention.candidates[activeMention].id}`
               : undefined}
             placeholder="Message the channel"
-            className="wr-input wr-composer-input min-h-12 min-w-0 resize-none px-3 py-2 text-base sm:text-sm"
+            className="wr-input wr-composer-input wr-composer-control min-w-0 resize-none px-3 py-2 text-base sm:text-sm"
           />
         </div>
         <button
@@ -1560,7 +1570,7 @@ export function Composer(props: {
           title="Send message"
           onClick={send}
           disabled={draft.trim() === ''}
-          className="wr-send-button h-12 w-12 shrink-0 disabled:opacity-40"
+          className="wr-send-button wr-composer-control shrink-0 disabled:opacity-40"
         >
           <Send aria-hidden="true" size={20} />
         </button>
@@ -1573,6 +1583,7 @@ export function Composer(props: {
     </div>
   );
 }
+// harn:end the-composer-is-one-row
 // harn:end literal-draft-effective-recipient-visible
 
 export function MessageRow(props: {
@@ -1731,3 +1742,70 @@ export const isMe = (
   memberId: string,
   selfMemberId?: string,
 ): boolean => me(members, selfMemberId)?.id === memberId;
+
+
+// harn:assume the-inbox-opens-what-needs-you ref=inbox-panel
+export interface InboxItem {
+  id: number;
+  authorHandle: string;
+  tool?: string;
+  prompt: string;
+  ageMs: number;
+}
+
+function age(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${String(minutes)}m ago`;
+  return `${String(Math.floor(minutes / 60))}h ago`;
+}
+
+/**
+ * A number the operator cannot click tells them there is work, but not where.
+ * Every item here reaches the card it stands for.
+ */
+export function InboxPanel(props: {
+  items: InboxItem[];
+  onSelect: (id: number) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-label="Inbox"
+      data-testid="inbox-panel"
+      className="wr-inbox-panel"
+    >
+      <div className="wr-inbox-heading">
+        <strong>Needs you</strong>
+        <button type="button" aria-label="Close inbox" className="wr-icon-button" onClick={props.onClose}>
+          <X aria-hidden="true" size={16} />
+        </button>
+      </div>
+      {props.items.length === 0 ? (
+        <p data-testid="inbox-empty">Nothing needs you.</p>
+      ) : (
+        <ul>
+          {props.items.map((item) => (
+            <li key={item.id}>
+              <button
+                type="button"
+                data-testid={`inbox-item-${String(item.id)}`}
+                className="wr-inbox-item"
+                onClick={() => props.onSelect(item.id)}
+              >
+                <span className="wr-inbox-item-head">
+                  <strong>@{item.authorHandle}</strong>
+                  {item.tool && <code>{item.tool}</code>}
+                  <small>{age(item.ageMs)}</small>
+                </span>
+                <span className="wr-inbox-item-prompt">{item.prompt}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+// harn:end the-inbox-opens-what-needs-you

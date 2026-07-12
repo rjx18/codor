@@ -549,7 +549,7 @@ export function SettingsPage(props: {
               </div>
               <div className="wr-setting-row">
                 <div className="wr-setting-copy">
-                  <strong>Local switchboard</strong>
+                  <strong>Codor</strong>
                   <span>Channel history, run evidence, keys, and ledger stay on your machine.</span>
                 </div>
                 <span className="wr-status-copy"><i className="wr-presence is-live" /> Local only</span>

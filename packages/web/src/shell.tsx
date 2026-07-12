@@ -439,8 +439,8 @@ export function RoomRail(props: {
       <div className="wr-rail-footer">
         <span className={`wr-presence ${props.connected ? 'is-live' : ''}`} aria-hidden="true" />
         <span>
-          <strong>{props.owner?.display_name ?? 'Local switchboard'}</strong>
-          <small>{props.connected ? 'Local switchboard · Connected' : 'Local switchboard · Reconnecting'}</small>
+          <strong>{props.owner?.display_name ?? 'Signed out'}</strong>
+          <small>{props.connected ? 'Connected' : 'Reconnecting…'}</small>
         </span>
         <a
           href={`/settings?${new URLSearchParams({ room: props.currentRoom }).toString()}`}

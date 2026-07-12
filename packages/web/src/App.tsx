@@ -13,6 +13,8 @@ import {
   RunStallBadge,
   handleLookup,
   isMe,
+  InboxPanel,
+  type InboxItem,
 } from './components.js';
 import {
   fetchAdapters,
@@ -311,6 +313,11 @@ export function App(props: {
     return () => window.removeEventListener('hashchange', followHash);
   }, [revealMessage, state.seq]);
 
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState<number>();
+  const everConnected = useRef(false);
+  if (state.connected) everConnected.current = true;
+
   const answeredCards = useMemo(() => {
     const answered = new Set<number>();
     for (const message of messages) {
@@ -318,6 +325,41 @@ export function App(props: {
     }
     return answered;
   }, [messages]);
+
+  // harn:assume the-inbox-opens-what-needs-you ref=inbox-panel
+  // Derived from the same messages the timeline renders, so an answer given in
+  // another browser removes the item here without any extra plumbing.
+  const inboxItems = useMemo<InboxItem[]>(() => {
+    const now = Date.now();
+    return messages
+      // An approval is a distinct message kind from a question; both need the operator.
+      .filter((message) =>
+        (message.kind === 'ask' || message.kind === 'approval')
+        && message.ask
+        && !answeredCards.has(message.id))
+      .map((message) => ({
+        id: message.id,
+        authorHandle: handles(message.author),
+        tool: message.ask!.tool,
+        prompt: message.ask!.prompt,
+        ageMs: Math.max(0, now - Date.parse(message.ts)),
+      }));
+  }, [messages, answeredCards, handles]);
+
+  const readyAgent = useMemo(() => {
+    const agent = Object.values(state.members).find(
+      (member) => member.kind === 'agent' && member.removed_ts === undefined,
+    );
+    return agent?.handle;
+  }, [state.members]);
+
+  const revealCard = (id: number): void => {
+    setInboxOpen(false);
+    setHighlighted(id);
+    window.location.hash = String(id);
+    document.getElementById(String(id))?.scrollIntoView({ block: 'center' });
+  };
+  // harn:end the-inbox-opens-what-needs-you
 
   const roomItems = useMemo(
     () => rooms.length > 0 ? rooms : state.room ? [state.room] : [],
@@ -433,6 +475,8 @@ export function App(props: {
               (member) => member.kind !== 'system' && member.removed_ts === undefined,
             ).length}
             searchOpen={searchOpen}
+            inboxOpen={inboxOpen}
+            onOpenInbox={() => setInboxOpen((open) => !open)}
             onToggleSearch={() => {
               setSearchOpen((open) => !open);
               if (searchOpen) {
@@ -447,6 +491,13 @@ export function App(props: {
               setContextOpen(true);
             }}
           />
+          {inboxOpen && (
+            <InboxPanel
+              items={inboxItems}
+              onSelect={revealCard}
+              onClose={() => setInboxOpen(false)}
+            />
+          )}
           {state.room?.config.bridged && <BridgedRoomBanner />}
           {!state.connected && (
             <div role="status" data-testid="offline-banner" className="wr-offline-banner">
@@ -565,7 +616,7 @@ export function App(props: {
                 stickToBottom.current = false;
               }
             }}
-            className="wr-timeline"
+            className={`wr-timeline${state.connected ? '' : ' is-offline'}`}
           >
             <div className="wr-history-control">
               {hasOlder && (
@@ -581,6 +632,32 @@ export function App(props: {
               )}
               {historyError && <span role="status">History unavailable</span>}
             </div>
+            {/* harn:assume empty-and-offline-are-shown-not-blank ref=timeline-empty-and-offline-states */}
+            {/* A blank timeline is indistinguishable from a broken one. */}
+            {!state.connected && !everConnected.current && (
+              <div data-testid="timeline-unreachable" className="wr-timeline-state" role="alert">
+                <span className="wr-room-glyph" aria-hidden="true">#</span>
+                <strong>Can’t reach Codor</strong>
+                <p>The switchboard isn’t answering. Check that it is running, then retry.</p>
+              </div>
+            )}
+            {state.connected && messages.length === 0 && (
+              <div data-testid="timeline-empty" className="wr-timeline-state">
+                <span className="wr-room-glyph" aria-hidden="true">#</span>
+                <strong>No messages yet</strong>
+                <p>
+                  {readyAgent
+                    ? <>@{readyAgent} is ready.</>
+                    : <>Spawn an agent to get started.</>}
+                </p>
+              </div>
+            )}
+            {!state.connected && everConnected.current && (
+              <p data-testid="timeline-reconnecting" className="wr-timeline-state is-quiet" role="status">
+                Reconnecting…
+              </p>
+            )}
+            {/* harn:end empty-and-offline-are-shown-not-blank */}
             {messages.map((message) => {
               if (message.kind === 'run') {
                 return (
@@ -700,8 +777,8 @@ export function App(props: {
             <div className="wr-drawer-footer">
               <span className={`wr-presence ${state.connected ? 'is-live' : ''}`} aria-hidden="true" />
               <span>
-                <strong>{owner?.display_name ?? 'Local switchboard'}</strong>
-                <small>{state.connected ? 'Local switchboard · Connected' : 'Local switchboard · Reconnecting'}</small>
+                <strong>{owner?.display_name ?? 'Signed out'}</strong>
+                <small>{state.connected ? 'Connected' : 'Reconnecting…'}</small>
               </span>
               <a
                 href={`/settings?${new URLSearchParams({ room: ROOM }).toString()}`}

@@ -1,0 +1,11 @@
+id: the-product-never-calls-itself-a-switchboard
+hash: a-7a4c3399b8d5
+title: The footer states the connection, and nothing calls itself a switchboard
+state: active
+statement: No human-facing surface in the web package may use the phrase "Local
+  switchboard"; the shell footer must state the connection - connected,
+  reconnecting, or offline - beside the owner's name and nothing else, because
+  the operator did not ask for a product tour in their sidebar.
+depends_on:
+  - human-facing-surfaces-call-rooms-channels
+created_by: u5-shell-polish

@@ -74,3 +74,28 @@ export const RoomMeterSchema = z.object({
 });
 export type RoomMeter = z.infer<typeof RoomMeterSchema>;
 // harn:end uncosted-usage-visible-not-guessed
+
+
+// harn:assume every-channel-has-a-visible-accent ref=channel-accent-derivation
+/**
+ * The palette a channel's accent is drawn from. F3's root cause was that colour
+ * was a creation-dialog concept: the CLI (and the systemd unit that boot-seeds a
+ * channel through it) created channels with no colour at all, so the rail had
+ * nothing to show. A channel that nobody chose a colour for still gets one.
+ */
+export const CHANNEL_ACCENTS = [
+  '#80c56d',
+  '#67b7c7',
+  '#8c86d7',
+  '#d8b34d',
+  '#d86a64',
+  '#5f8fd3',
+] as const;
+
+/** Stable in both directions: the same channel always gets the same accent. */
+export function deriveRoomColor(id: string): string {
+  let hash = 0;
+  for (const character of id) hash = (hash * 31 + character.codePointAt(0)!) % 1_000_003;
+  return CHANNEL_ACCENTS[hash % CHANNEL_ACCENTS.length]!;
+}
+// harn:end every-channel-has-a-visible-accent

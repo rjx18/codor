@@ -24,6 +24,7 @@ import {
   RoomMeterSchema,
   RoomSchema,
   type RunSummary,
+  deriveRoomColor,
 } from '@codor/protocol';
 
 import { redactText } from './redact.js';
@@ -442,14 +443,19 @@ function interactionFromRow(row: InteractionRow): PendingInteraction {
   });
 }
 
+// harn:assume every-channel-has-a-visible-accent ref=channel-accent-persistence
 function roomFromRow(row: RoomRow): Room {
+  const config = JSON.parse(row.config) as Partial<RoomConfig>;
   return RoomSchema.parse({
     id: row.id,
     name: row.name,
     created_ts: row.created_ts,
-    config: JSON.parse(row.config),
+    // Channels the CLI made (the boot-seeded unit among them) carry no colour.
+    // Deriving on read gives every existing channel an accent without a migration.
+    config: { ...config, color: config.color ?? deriveRoomColor(row.id) },
   });
 }
+// harn:end every-channel-has-a-visible-accent
 
 function meterFromRow(row: MeterRow): RoomMeter {
   return RoomMeterSchema.parse(row);
@@ -585,7 +591,10 @@ export class Store {
     owner: { handle: string; display_name: string };
     config?: Partial<RoomConfig>;
   }): { room: Room; owner: Member; system: Member } {
-    const config = RoomConfigSchema.parse(opts.config ?? {});
+    const config = RoomConfigSchema.parse({
+      ...opts.config,
+      color: opts.config?.color ?? deriveRoomColor(opts.id),
+    });
     const ts = new Date().toISOString();
     const result = this.db.transaction(() => {
       this.db

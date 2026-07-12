@@ -42,7 +42,7 @@ test('mobile room keeps the stream primary with a thumb-safe drawer and composer
   await expect(drawer).toBeVisible();
   await expect(drawer.getByTestId('room-link-eng')).toHaveAttribute('aria-current', 'page');
   await expect(drawer.getByTestId('member-alpha')).toHaveCount(0);
-  await expect(drawer.getByText('Local switchboard · Connected')).toBeVisible();
+  await expect(drawer.getByText('Connected', { exact: true })).toBeVisible();
   await expect(drawer.getByRole('button', { name: 'Close channels' })).toBeFocused();
   const drawerBox = (await drawer.boundingBox())!;
   expect(drawerBox.width).toBeLessThan(viewport.width);

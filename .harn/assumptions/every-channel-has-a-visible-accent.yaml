@@ -1,0 +1,14 @@
+id: every-channel-has-a-visible-accent
+hash: a-b3f51adcf6c2
+title: A channel's colour is derived when nobody chose one
+state: active
+statement: Every channel must carry an accent colour - the one its creator
+  chose, or one derived deterministically from the channel's own id when none
+  was - applied both when a channel is created and when a colourless one is read
+  back, so that channels made outside the creation dialog (the CLI and the
+  boot-seeded unit both make them) are never colourless, and the channel rail
+  must render that accent as a filled mark rather than a hairline that reads as
+  absent.
+depends_on:
+  - channel-creation-derived-and-seeded
+created_by: u5-shell-polish

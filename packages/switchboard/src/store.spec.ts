@@ -1,3 +1,4 @@
+import { CHANNEL_ACCENTS, deriveRoomColor } from '@codor/protocol';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -580,5 +581,33 @@ describe('atomic turn lifecycle', () => {
     expect(store.getMember('eng', agent.id)!.state).toBe('running');
     expect(store.listDeliveries('eng', { recipient: owner.id })).toHaveLength(0);
     expect(store.getMeter('eng', 'not-a-date')).toBeUndefined();
+  });
+});
+
+// harn:assume every-channel-has-a-visible-accent ref=channel-accent-regression
+describe('channel accents', () => {
+  it('gives a channel created without a colour one derived from its id', () => {
+    const store = new Store(join(mkdtempSync(join(tmpdir(), 'codor-accent-')), 'db.sqlite'));
+    // This is the F3 root cause: the CLI (and the boot-seeded unit) create channels
+    // with no colour at all, so the rail had nothing to show.
+    const { room } = store.createRoom({
+      id: 'desk', name: 'Desk', owner: { handle: 'richard', display_name: 'Richard' },
+    });
+    expect(room.config.color).toBe(deriveRoomColor('desk'));
+    expect(store.getRoom('desk')!.config.color).toBe(deriveRoomColor('desk'));
+  });
+
+  it('keeps the colour a creator actually chose', () => {
+    const store = new Store(join(mkdtempSync(join(tmpdir(), 'codor-accent-')), 'db.sqlite'));
+    const { room } = store.createRoom({
+      id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' },
+      config: { color: '#123456' },
+    });
+    expect(room.config.color).toBe('#123456');
+  });
+
+  it('derives the same accent every time, so a channel does not change colour', () => {
+    expect(deriveRoomColor('desk')).toBe(deriveRoomColor('desk'));
+    expect(CHANNEL_ACCENTS).toContain(deriveRoomColor('anything-at-all'));
   });
 });

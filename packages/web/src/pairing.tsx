@@ -220,7 +220,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
                 )}
                 <div className="wr-switchboard-identity">
                   <ShieldCheck aria-hidden="true" size={18} />
-                  <span><strong>Local switchboard</strong><small>{endpointLabel}</small></span>
+                  <span><strong>Codor</strong><small>{endpointLabel}</small></span>
                 </div>
               </div>
 

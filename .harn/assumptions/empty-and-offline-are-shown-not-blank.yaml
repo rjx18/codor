@@ -1,0 +1,13 @@
+id: empty-and-offline-are-shown-not-blank
+hash: a-7b3e4f5aaf9b
+title: A channel with nothing in it says so
+state: active
+statement: The timeline must never render as an unexplained blank - an empty
+  channel greets the operator and names the agent that is ready for them, or
+  tells them to spawn one when there is none; a dropped connection dims the
+  timeline and says it is reconnecting; and a first load that cannot reach the
+  switchboard shows that plainly rather than an empty room, because a blank
+  screen is indistinguishable from a broken one.
+depends_on:
+  - client-syncs-by-seq
+created_by: u5-shell-polish

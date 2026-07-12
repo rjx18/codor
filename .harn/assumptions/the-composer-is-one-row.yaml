@@ -1,0 +1,11 @@
+id: the-composer-is-one-row
+hash: a-4c0cf06d1192
+title: The composer is a single row
+state: active
+statement: The composer must occupy one row plus its padding - no heading above
+  it, its input and both of its buttons sharing a single minimum height - and
+  the only line it may ever add is the no-recipient hint, because vertical space
+  on a phone belongs to the conversation.
+depends_on:
+  - literal-draft-effective-recipient-visible
+created_by: u5-shell-polish

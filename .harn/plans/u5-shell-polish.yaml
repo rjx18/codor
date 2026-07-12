@@ -1,0 +1,219 @@
+id: u5-shell-polish
+title: U5 shell polish - derived colors, honest footer, real states, a working
+  inbox, one-row composer
+assumptions:
+  create:
+    - id: every-channel-has-a-visible-accent
+      title: A channel's colour is derived when nobody chose one
+      statement: Every channel must carry an accent colour - the one its creator
+        chose, or one derived deterministically from the channel's own id when
+        none was - applied both when a channel is created and when a colourless
+        one is read back, so that channels made outside the creation dialog (the
+        CLI and the boot-seeded unit both make them) are never colourless, and
+        the channel rail must render that accent as a filled mark rather than a
+        hairline that reads as absent.
+      reason: F3's root cause was not the rail's styling alone - the systemd unit
+        boot-seeds a channel through the CLI, and CLI-created channels carried
+        no colour at all because colour was a creation-dialog-only concept.
+      depends_on:
+        - channel-creation-derived-and-seeded
+    - id: the-product-never-calls-itself-a-switchboard
+      title: The footer states the connection, and nothing calls itself a switchboard
+      statement: No human-facing surface in the web package may use the phrase "Local
+        switchboard"; the shell footer must state the connection - connected,
+        reconnecting, or offline - beside the owner's name and nothing else,
+        because the operator did not ask for a product tour in their sidebar.
+      reason: F4. The phrase is unwanted; a grep gate keeps it from coming back.
+      depends_on:
+        - human-facing-surfaces-call-rooms-channels
+    - id: empty-and-offline-are-shown-not-blank
+      title: A channel with nothing in it says so
+      statement: The timeline must never render as an unexplained blank - an empty
+        channel greets the operator and names the agent that is ready for them,
+        or tells them to spawn one when there is none; a dropped connection dims
+        the timeline and says it is reconnecting; and a first load that cannot
+        reach the switchboard shows that plainly rather than an empty room,
+        because a blank screen is indistinguishable from a broken one.
+      reason: F5. An empty channel rendered nothing at all.
+      depends_on:
+        - client-syncs-by-seq
+    - id: the-inbox-opens-what-needs-you
+      title: The inbox badge is a button that lists what is waiting
+      statement: The header's inbox must be a real control that opens a panel listing
+        every ask and approval still waiting on the operator - who asked, on
+        what tool, an excerpt of the prompt and how long it has waited - where
+        choosing one takes them to that card and highlights it; the panel must
+        update as items are answered, from this browser or any other, and say
+        plainly when nothing needs them, because a number that cannot be clicked
+        tells the operator there is work but not where.
+      reason: F5. The badge counted inbox frames and did nothing.
+      depends_on:
+        - interaction-state-machine-persisted
+    - id: the-composer-is-one-row
+      title: The composer is a single row
+      statement: The composer must occupy one row plus its padding - no heading above
+        it, its input and both of its buttons sharing a single minimum height -
+        and the only line it may ever add is the no-recipient hint, because
+        vertical space on a phone belongs to the conversation.
+      reason: F6. The heading duplicated the placeholder and the controls disagreed on
+        height.
+      depends_on:
+        - literal-draft-effective-recipient-visible
+  reviewed:
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: Creation still derives the channel id and seeds the owner; it now also
+        derives an accent when the caller did not choose one, which is the same
+        derive-what-was-not-given contract applied to colour.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The vocabulary rule is unchanged; removing "Local switchboard" removes a
+        phrase it never blessed.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: The three-pane responsive contract is untouched; the footer inside it
+        loses a phrase and the rail mark gains fill.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: The restrained visual hierarchy is unchanged; the timeline gains the
+        empty and offline states it was missing.
+    - id: web-settings-controls-preserve-product-truth
+      outcome: unchanged
+      reason: Settings still states only what is true; it simply stops calling the
+        product a switchboard.
+    - id: pairing-discloses-browser-and-relay-boundaries
+      outcome: unchanged
+      reason: The pairing disclosures are unchanged; only the product name in the
+        header line changes.
+    - id: literal-draft-effective-recipient-visible
+      outcome: unchanged
+      reason: The composer still materializes the effective default and shows the
+        no-recipient hint; only its heading and control heights change.
+    - id: owner-and-system-members-seeded
+      outcome: unchanged
+      reason: Creation still seeds the owner and the system member; it now also
+        derives an accent when none was given.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: The service worker still caches only the shell; the timeline's new
+        states are rendered from the messages already in memory.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: The inbox navigates by the existing permalink id, which is exactly the
+        stability this assumption promises.
+    - id: web-settings-pairing-match-restrained-reference
+      outcome: unchanged
+      reason: The restrained pairing layout is unchanged; only the product phrase goes.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: The meter still always shows; the inbox beside it becomes a control.
+anchors:
+  every-channel-has-a-visible-accent:
+    channel-accent-derivation:
+      action: change
+      reason: Derive a stable accent from the channel id when none was chosen.
+    channel-accent-persistence:
+      action: change
+      reason: Apply it at creation and to a colourless channel on read, so boot-seeded
+        channels get one without a migration.
+    channel-accent-regression:
+      action: change
+      reason: Prove the derivation is stable, that an explicit colour wins, and that a
+        channel created without one still reads back with an accent.
+    channel-accent-rail:
+      action: change
+      reason: Render the accent as a filled mark in the rail.
+  the-product-never-calls-itself-a-switchboard:
+    honest-footer:
+      action: change
+      reason: State the connection beside the owner and drop the phrase.
+    switchboard-phrase-gate:
+      action: change
+      reason: Fail the suite if the phrase returns anywhere in the web package.
+  empty-and-offline-are-shown-not-blank:
+    timeline-empty-and-offline-states:
+      action: change
+      reason: Greet an empty channel, dim a reconnecting one, and show an unreachable
+        switchboard plainly.
+    timeline-state-regression:
+      action: change
+      reason: Prove each state renders instead of a blank timeline.
+  the-inbox-opens-what-needs-you:
+    inbox-panel:
+      action: change
+      reason: Turn the badge into a button that opens the pending asks and approvals.
+    inbox-panel-regression:
+      action: change
+      reason: Prove the panel lists what is waiting, reaches its card, updates when
+        answered elsewhere, and says when nothing needs the operator.
+  the-composer-is-one-row:
+    composer-single-row:
+      action: change
+      reason: Drop the heading and share one minimum height across the input and both
+        buttons.
+    composer-single-row-regression:
+      action: change
+      reason: Prove the composer is one row and that the hint is the only line it adds.
+  literal-draft-effective-recipient-visible:
+    composer-literal-recipient:
+      action: change
+      reason: The composer's markup changes around the unchanged insert-once behaviour.
+  spend-meter-always-on:
+    meter-settings-surface:
+      action: change
+      reason: The header's inbox beside the meter becomes a button.
+  web-shell-responsive-three-pane:
+    responsive-room-shell:
+      action: change
+      reason: The footer inside the shell changes copy.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: The timeline inside the restrained hierarchy gains its missing states.
+  web-settings-controls-preserve-product-truth:
+    glass-settings-surface:
+      action: change
+      reason: Settings drops the phrase.
+  pairing-discloses-browser-and-relay-boundaries:
+    pairing-boundary-workspace:
+      action: change
+      reason: The pairing header drops the phrase.
+  owner-and-system-members-seeded:
+    room-seeding:
+      action: change
+      reason: Creation derives the accent inside the same seeding region; the owner
+        and system members it seeds are unchanged.
+  sw-caches-shell-only-no-message-data:
+    page-memory-message-cache:
+      action: change
+      reason: The timeline's new empty and offline states sit inside the in-memory
+        message region; nothing about what is cached changes.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: The inbox reaches a card through its existing permalink id; the ids
+        themselves are unchanged.
+  web-settings-pairing-match-restrained-reference:
+    restrained-settings-pairing-surface:
+      action: change
+      reason: Settings drops the product phrase inside the restrained pairing surface.
+  channel-creation-derived-and-seeded:
+    derived-channel-creation:
+      action: change
+      reason: Creation now also derives the accent.
+files:
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/web/src/App.tsx
+  - packages/web/src/shell.tsx
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/pairing.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/pwa.e2e.spec.ts
+applied:
+  applied_at: 2026-07-12T12:42:09.803Z

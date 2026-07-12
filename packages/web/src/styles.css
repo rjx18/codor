@@ -5680,3 +5680,107 @@ button:disabled {
   }
 }
 /* harn:end compact-one-line-tool-rows */
+
+/* harn:assume the-composer-is-one-row ref=composer-single-row */
+/* One token, so the input and both buttons cannot disagree about their height. */
+.wr-composer-control {
+  min-height: 3rem;
+  height: 3rem;
+}
+textarea.wr-composer-control {
+  height: 3rem;
+}
+.wr-mention-button.wr-composer-control,
+.wr-send-button.wr-composer-control {
+  width: 3rem;
+}
+/* harn:end the-composer-is-one-row */
+
+/* harn:assume empty-and-offline-are-shown-not-blank ref=timeline-empty-and-offline-states */
+.wr-timeline-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  margin: auto;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--wr-text-muted);
+}
+.wr-timeline-state > strong {
+  color: var(--wr-text);
+}
+.wr-timeline-state.is-quiet {
+  padding: 0.75rem;
+}
+.wr-timeline.is-offline {
+  opacity: 0.55;
+}
+/* harn:end empty-and-offline-are-shown-not-blank */
+
+/* harn:assume the-inbox-opens-what-needs-you ref=inbox-panel */
+.wr-inbox-panel {
+  position: absolute;
+  right: 0.75rem;
+  top: 3.5rem;
+  z-index: 30;
+  width: min(22rem, calc(100vw - 1.5rem));
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 0.6rem;
+  border: 1px solid var(--wr-line);
+  border-radius: 0.7rem;
+  background: var(--wr-surface-raised, var(--wr-surface));
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.28);
+}
+.wr-inbox-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+.wr-inbox-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.45rem 0.5rem;
+  border-radius: 0.5rem;
+  text-align: left;
+  cursor: pointer;
+}
+.wr-inbox-item:hover {
+  background: var(--wr-surface);
+}
+.wr-inbox-item-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+}
+.wr-inbox-item-prompt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: var(--wr-text-muted);
+}
+/* The card the operator was sent to must be obvious when they land on it. */
+.wr-ask-card:target {
+  outline: 2px solid var(--wr-accent);
+  outline-offset: 2px;
+}
+/* harn:end the-inbox-opens-what-needs-you */
+
+/* harn:assume every-channel-has-a-visible-accent ref=channel-accent-rail */
+/* F3: a hairline chip read as absent. The accent is a filled mark. */
+.wr-room-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  flex: none;
+  border: 0;
+  border-radius: 999px;
+  background: var(--wr-line);
+}
+/* harn:end every-channel-has-a-visible-accent */

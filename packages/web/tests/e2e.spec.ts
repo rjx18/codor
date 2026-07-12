@@ -1188,3 +1188,80 @@ test('tool rows say what the tool did, on one line, at every width', async ({ pa
   }
 });
 // harn:end compact-one-line-tool-rows
+
+// harn:assume empty-and-offline-are-shown-not-blank ref=timeline-state-regression
+test('an empty channel greets instead of rendering nothing', async ({ page, request }) => {
+  const room = `empty-${String(Date.now())}`;
+  await request.post('/api/rooms', {
+    headers: { authorization: 'Bearer e2e-token' },
+    data: {
+      id: room,
+      name: 'Empty',
+      cwd: process.cwd(),
+      owner: { handle: 'richard', display_name: 'Richard' },
+      starting_agent: { harness: 'fake', handle: 'codor' },
+    },
+  });
+
+  await page.goto(`/?room=${room}&token=e2e-token`);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  // F5: this rendered as a blank timeline, indistinguishable from a broken one.
+  await expect(page.getByTestId('timeline-empty')).toBeVisible();
+  await expect(page.getByTestId('timeline-empty')).toContainText('@codor is ready.');
+
+  // F3: a channel created without a colour still shows an accent in the rail.
+  const dot = page.getByTestId(`room-color-${room}`);
+  const background = await dot.evaluate((node) => getComputedStyle(node).backgroundColor);
+  expect(background).not.toBe('rgba(0, 0, 0, 0)');
+
+  // F6: the composer is one row — no heading above it.
+  await expect(page.getByText('Message the channel', { exact: true })).toHaveCount(0);
+  const input = (await page.getByTestId('composer-input').boundingBox())!;
+  const send = (await page.getByTestId('composer-send').boundingBox())!;
+  expect(Math.abs(input.height - send.height)).toBeLessThanOrEqual(1);
+});
+// harn:end empty-and-offline-are-shown-not-blank
+
+// harn:assume the-inbox-opens-what-needs-you ref=inbox-panel-regression
+test('the inbox lists what needs you and takes you to it', async ({ page }) => {
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  await control('/enqueue', {
+    turns: [{
+      kind: 'ask',
+      cardKind: 'approval',
+      tool: 'Bash',
+      prompt: 'Deploy to production?',
+      detail: 'pnpm deploy --prod',
+      options: ['Allow', 'Deny'],
+      replyPrefix: 'chose ',
+    }],
+  });
+  await page.getByTestId('composer-input').fill('@alpha deploy');
+  await page.getByTestId('composer-send').click();
+
+  const allow = page.locator('[data-testid$="-option-Allow"]').first();
+  await expect(allow).toBeVisible();
+  const card = allow.locator('xpath=ancestor::*[contains(@class, "wr-ask-card")]').first();
+  const id = (await card.getAttribute('id'))!;
+
+  // The badge is a button now, not a number that tells you there is work but not where.
+  await page.getByTestId('inbox-badge').click();
+  const item = page.getByTestId(`inbox-item-${id}`);
+  await expect(item).toBeVisible();
+  await expect(item).toContainText('@alpha');
+  await expect(item).toContainText('Deploy to production?');
+
+  await item.click();
+  await expect(page.getByTestId('inbox-panel')).toHaveCount(0);
+  await expect(card).toBeVisible();
+
+  // Answering removes it — the panel follows the same messages the timeline does.
+  await allow.click();
+  await expect(page.getByText('chose Allow')).toBeVisible();
+  await page.getByTestId('inbox-badge').click();
+  await expect(page.getByTestId('inbox-empty')).toHaveText('Nothing needs you.');
+});
+// harn:end the-inbox-opens-what-needs-you

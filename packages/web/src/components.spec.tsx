@@ -1,9 +1,12 @@
+import { readdirSync, readFileSync } from 'node:fs';
+
 import type { Member, Message, WireEvent } from '@codor/protocol';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import {
   AskCardView,
+  InboxPanel,
   draftRoutesToNobody,
   Header,
   MemberCard,
@@ -481,5 +484,44 @@ describe('extension run summaries', () => {
         ended: true,
       },
     ]);
+  });
+});
+
+// harn:assume the-product-never-calls-itself-a-switchboard ref=switchboard-phrase-gate
+describe('product vocabulary', () => {
+  it('never calls itself a Local switchboard', () => {
+    // F4: the operator did not ask for a product tour in their sidebar. A grep gate,
+    // because the phrase came back once already.
+    const files = readdirSync('src')
+      .filter((name) => /\.(tsx?|css)$/.test(name) && !name.includes('.spec.'));
+    for (const file of files) {
+      expect(readFileSync(`src/${file}`, 'utf8'), `${file} must not say it`)
+        .not.toContain('Local switchboard');
+    }
+  });
+});
+
+// harn:assume the-inbox-opens-what-needs-you ref=inbox-panel-regression
+describe('InboxPanel', () => {
+  const items = [
+    { id: 12, authorHandle: 'alpha', tool: 'Bash', prompt: 'Run the migration?', ageMs: 120_000 },
+  ];
+
+  it('lists who is waiting, on what, and for how long', () => {
+    const html = renderToStaticMarkup(
+      <InboxPanel items={items} onSelect={() => undefined} onClose={() => undefined} />,
+    );
+    expect(html).toContain('@alpha');
+    expect(html).toContain('Bash');
+    expect(html).toContain('Run the migration?');
+    expect(html).toContain('2m ago');
+    expect(html).toContain('inbox-item-12');
+  });
+
+  it('says so plainly when nothing needs the operator', () => {
+    const html = renderToStaticMarkup(
+      <InboxPanel items={[]} onSelect={() => undefined} onClose={() => undefined} />,
+    );
+    expect(html).toContain('Nothing needs you.');
   });
 });
