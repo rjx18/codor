@@ -1045,6 +1045,13 @@ test('bridged rooms permanently disclose the external boundary and attribute rel
 });
 // harn:end bridged-room-wears-banner
 
+// Long enough that the timeline must scroll at 390x844. Every geometry assertion about
+// timeline content depends on this: nothing can be crushed in a timeline that fits.
+const PRIOR_HISTORY = [
+  'Earlier in this channel:',
+  ...Array.from({ length: 24 }, (_, index) => `Step ${String(index + 1)}: inspected the workspace and reported what it found.`),
+].join('\n\n');
+
 // harn:assume phone-first-interaction-cards ref=phone-ask-card-browser-regression
 test('an approval card is readable and answerable at phone width', async ({ page, request }) => {
   const room = `approve-${String(Date.now())}`;
@@ -1066,17 +1073,26 @@ test('an approval card is readable and answerable at phone width', async ({ page
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
 
   const command = 'rm -rf ./build && pnpm build --filter @codor/web --verbose';
+  // The card must survive a timeline that SCROLLS. A one-message fixture cannot
+  // shrink anything, so the version of this test that used one could never fail —
+  // and did not, while the operator's own approval cards were crushed to slivers.
   await control('/enqueue', {
-    turns: [{
-      kind: 'ask',
-      cardKind: 'approval',
-      tool: 'Bash',
-      prompt: 'Run this command?',
-      detail: command,
-      options: ['Allow', 'Deny'],
-      replyPrefix: 'chose ',
-    }],
+    turns: [
+      { kind: 'complete', final_text: PRIOR_HISTORY },
+      {
+        kind: 'ask',
+        cardKind: 'approval',
+        tool: 'Bash',
+        prompt: 'Run this command?',
+        detail: command,
+        options: ['Allow', 'Deny'],
+        replyPrefix: 'chose ',
+      },
+    ],
   });
+  await page.getByTestId('composer-input').fill('@codor what happened so far');
+  await page.getByTestId('composer-send').click();
+  await expect(page.getByText('Earlier in this channel')).toBeVisible();
   await page.getByTestId('composer-input').fill('@codor build it');
   await page.getByTestId('composer-send').click();
 
@@ -1084,6 +1100,16 @@ test('an approval card is readable and answerable at phone width', async ({ page
   await expect(allow).toBeVisible();
   const card = allow.locator('xpath=ancestor::*[contains(@class, "wr-ask-card")]').first();
   const id = (await card.getAttribute('id'))!;
+
+  // The fixture is only meaningful if the timeline actually overflows.
+  const overflowing = await page.locator('.wr-timeline').evaluate(
+    (node) => node.scrollHeight > node.clientHeight + 8,
+  );
+  expect(overflowing, 'the timeline must scroll, or this test cannot fail').toBe(true);
+
+  // The card is not crushed by the flex algorithm: it renders at its content height.
+  const crushed = await card.evaluate((node) => node.scrollHeight - node.getBoundingClientRect().height);
+  expect(crushed, 'the card must render at its full content height').toBeLessThanOrEqual(1);
 
   // The card must be answerable on the device the operator actually carries.
   await expect(page.getByTestId(`card-${id}-title`)).toHaveText('APPROVAL NEEDED');
@@ -1108,6 +1134,76 @@ test('an approval card is readable and answerable at phone width', async ({ page
   await expect(page.getByText('chose Allow')).toBeVisible();
 });
 // harn:end phone-first-interaction-cards
+
+// harn:assume timeline-rows-are-never-crushed ref=timeline-crush-browser-regression
+test('a scrolling timeline crushes no row, whatever overflow the row sets', async ({ page, request }) => {
+  // The ask card was the row that broke, but it was not special: it was merely the only
+  // row that set overflow:hidden, which zeroes a flex item's automatic minimum size and
+  // makes it the one child the flex algorithm may crush. Assert the INVARIANT over every
+  // row the timeline actually renders, so the next row to set overflow is covered too.
+  const room = `crush-${String(Date.now())}`;
+  const authorization = { authorization: 'Bearer e2e-token' };
+  await request.post('/api/rooms', {
+    headers: authorization,
+    data: {
+      id: room,
+      name: 'Crush',
+      cwd: process.cwd(),
+      owner: { handle: 'richard', display_name: 'Richard' },
+      starting_agent: { harness: 'fake', handle: 'codor' },
+    },
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/?room=${room}&token=e2e-token`);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  // A run row, a chat row, and an approval card — in a timeline tall enough to scroll.
+  await control('/enqueue', {
+    turns: [
+      { kind: 'complete', final_text: PRIOR_HISTORY },
+      {
+        kind: 'ask',
+        cardKind: 'approval',
+        tool: 'Write',
+        prompt: 'Allow Write?',
+        detail: 'app/uwu-bird/page.js',
+        options: ['allow once', 'allow always', 'deny'],
+      },
+    ],
+  });
+  await page.getByTestId('composer-input').fill('@codor recap');
+  await page.getByTestId('composer-send').click();
+  await expect(page.getByText('Earlier in this channel')).toBeVisible();
+  await page.getByTestId('composer-input').fill('@codor write the page');
+  await page.getByTestId('composer-send').click();
+  await expect(page.locator('.wr-ask-card')).toBeVisible();
+
+  const report = await page.locator('.wr-timeline').evaluate((timeline) => ({
+    overflowing: timeline.scrollHeight > timeline.clientHeight + 8,
+    rows: [...timeline.children]
+      .filter((row) => row.getBoundingClientRect().height > 0)
+      .map((row) => ({
+        cls: row.className.toString(),
+        shrink: getComputedStyle(row).flexShrink,
+        crushedBy: row.scrollHeight - Math.round(row.getBoundingClientRect().height),
+      })),
+  }));
+
+  // Without a scrolling timeline nothing can be crushed and this test cannot fail.
+  expect(report.overflowing, 'the timeline must scroll').toBe(true);
+  expect(report.rows.length).toBeGreaterThan(2);
+
+  for (const row of report.rows) {
+    expect(row.shrink, `${row.cls} must not be shrinkable`).toBe('0');
+    expect(row.crushedBy, `${row.cls} is crushed below its content`).toBeLessThanOrEqual(1);
+  }
+
+  // The card the operator has to answer is fully there, buttons included.
+  await expect(page.locator('[data-testid$="-option-deny"]')).toBeVisible();
+  await expect(page.locator('[data-testid$="-option-deny"]')).toBeEnabled();
+});
+// harn:end timeline-rows-are-never-crushed
 
 // harn:assume compact-one-line-tool-rows ref=compact-run-row-browser-regression
 test('tool rows say what the tool did, on one line, at every width', async ({ page, request }) => {

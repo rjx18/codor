@@ -565,3 +565,34 @@ describe('InboxPanel', () => {
     expect(html).toContain('Nothing needs you.');
   });
 });
+
+// harn:assume timeline-rows-are-never-crushed ref=timeline-crush-unit-gate
+describe('timeline rows are content, not flexible space', () => {
+  // Layout itself is asserted in the browser, where there is a real flex algorithm.
+  // This gate guards the RULE: it must exist, and nothing may quietly hand a timeline
+  // row its shrinkability back. Deleting the rule, or re-enabling shrink on any row,
+  // fails here long before it reaches a phone.
+  const css = readFileSync('src/styles.css', 'utf8');
+
+  it('forbids every direct child of the timeline from shrinking', () => {
+    const rule = /\.wr-timeline\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0[^}]*\}/.exec(css);
+    expect(rule, '.wr-timeline > * must set flex-shrink: 0').not.toBeNull();
+  });
+
+  it('lets no later rule give a timeline row its shrink back', () => {
+    // A rule that targets a timeline child and sets a nonzero flex-shrink would
+    // re-open the exact hole F10 came through — the ask card was crushable only
+    // because it was the one child the flex algorithm was permitted to shrink.
+    // Read the VALUE rather than lookahead past it: `flex-shrink:\s*(?!0)` backtracks
+    // to zero whitespace and then happily reports that a space is not a zero.
+    const shrinkValues = (block: string): string[] => [
+      ...[...block.matchAll(/flex-shrink:\s*([^;}]+)/g)].map((match) => match[1].trim()),
+      // The `flex: <grow> <shrink> <basis>` shorthand sets flex-shrink too.
+      ...[...block.matchAll(/[^-]flex:\s*\d+\s+(\d+)/g)].map((match) => match[1].trim()),
+    ];
+    const offenders = [...css.matchAll(/\.wr-timeline\s*>\s*[^{]*\{[^}]*\}/g)]
+      .map((match) => match[0])
+      .filter((block) => shrinkValues(block).some((value) => value !== '0'));
+    expect(offenders, 'these rules let a timeline row be crushed again').toEqual([]);
+  });
+});

@@ -5790,3 +5790,16 @@ textarea.wr-composer-control {
   box-shadow: 0 0 0 2px var(--wr-bg, #000), 0 0 0 4px currentColor;
 }
 /* harn:end every-channel-has-a-visible-accent */
+
+/* harn:assume timeline-rows-are-never-crushed ref=timeline-row-crush-resistance */
+/* A row in a scrolling list is content, not flexible space. Most rows are already
+   safe: a flex item's automatic minimum size is its content size, so it cannot be
+   crushed. But a row that sets any overflow other than visible becomes a scroll
+   container, whose automatic minimum size is ZERO — and the flex algorithm will
+   then crush that row, and only that row, whenever the timeline overflows. The
+   approval card sets overflow:hidden to clip its accent bar to the rounded corner,
+   which is why it — alone — collapsed to a sliver in any channel with real history. */
+.wr-timeline > * {
+  flex-shrink: 0;
+}
+/* harn:end timeline-rows-are-never-crushed */

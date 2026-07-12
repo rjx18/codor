@@ -1,0 +1,21 @@
+id: timeline-rows-are-never-crushed
+hash: a-4aee5f76665e
+title: A row in a scrolling list is content, not flexible space
+state: active
+statement: No row in the message timeline may be rendered shorter than its own
+  content. The timeline is a column flex container that scrolls, and a flex item
+  is normally protected from being crushed because its automatic minimum size is
+  its content size - but a row that establishes a scroll container, by setting
+  any overflow other than visible, has an automatic minimum size of ZERO and
+  becomes the only child the flex algorithm is permitted to crush. The approval
+  card does exactly that, to clip its accent bar to its rounded corner, and so
+  in any channel whose content overflows the viewport it was crushed to a
+  twenty-four pixel sliver with its own overflow hiding the remains. Every row
+  type must therefore be crush-resistant - not merely the one that was observed
+  to break - and any regression that asserts the geometry or the visibility of
+  timeline content must use a fixture long enough to OVERFLOW the viewport at
+  phone width, because a fixture that does not overflow cannot shrink anything
+  and such a test can never fail.
+depends_on:
+  - web-room-visual-hierarchy-matches-restrained-reference
+created_by: a1-card-crush

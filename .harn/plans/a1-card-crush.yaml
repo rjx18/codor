@@ -1,0 +1,70 @@
+id: a1-card-crush
+title: A1 - the scrolling timeline may never crush a row, and the regression
+  that proves it must be able to fail
+assumptions:
+  create:
+    - id: timeline-rows-are-never-crushed
+      title: A row in a scrolling list is content, not flexible space
+      statement: No row in the message timeline may be rendered shorter than its own
+        content. The timeline is a column flex container that scrolls, and a
+        flex item is normally protected from being crushed because its automatic
+        minimum size is its content size - but a row that establishes a scroll
+        container, by setting any overflow other than visible, has an automatic
+        minimum size of ZERO and becomes the only child the flex algorithm is
+        permitted to crush. The approval card does exactly that, to clip its
+        accent bar to its rounded corner, and so in any channel whose content
+        overflows the viewport it was crushed to a twenty-four pixel sliver with
+        its own overflow hiding the remains. Every row type must therefore be
+        crush-resistant - not merely the one that was observed to break - and
+        any regression that asserts the geometry or the visibility of timeline
+        content must use a fixture long enough to OVERFLOW the viewport at phone
+        width, because a fixture that does not overflow cannot shrink anything
+        and such a test can never fail.
+      reason: F10, found by the operator on the live service. Both approval cards in
+        his channel rendered as unreadable slivers - he could not see the
+        prompt, the path, or the buttons. The card's own assumption already
+        promised it would never be shrunk below readable size; the promise was
+        simply not delivered, and the browser regression could not catch it
+        because its fixture is one message long and never scrolls.
+      depends_on:
+        - web-room-visual-hierarchy-matches-restrained-reference
+  reviewed:
+    - id: phone-first-interaction-cards
+      outcome: unchanged
+      reason: The card's contract is right and unchanged - it already says the detail
+        is never truncated nor shrunk below readable size. It simply was not
+        delivered, because the crushing happened in the timeline's layout rather
+        than in the card's own rules. Its browser regression changes only to
+        obey the new standing rule - a fixture long enough to overflow - so that
+        it becomes a test that could actually have failed.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: The restrained hierarchy is unchanged. The timeline inside it gains the
+        rule that its rows are content and are never shrunk.
+anchors:
+  timeline-rows-are-never-crushed:
+    timeline-row-crush-resistance:
+      action: change
+      reason: The scrolling timeline's rows must not shrink below their content,
+        whatever overflow a row sets on itself.
+    timeline-crush-unit-gate:
+      action: change
+      reason: Assert the invariant across EVERY row type - chat, run collapsed and
+        expanded, ask, approval, ack, system - rather than the single instance
+        that was seen to break.
+    timeline-crush-browser-regression:
+      action: change
+      reason: Prove it in a real browser at phone width with a timeline long enough to
+        overflow, and verify the test FAILS without the rule.
+  phone-first-interaction-cards:
+    phone-ask-card-browser-regression:
+      action: change
+      reason: Its fixture is one message long, so the timeline never overflowed and
+        the card it asserts was never crushed - the test could not have failed.
+        It must overflow.
+files:
+  - packages/web/src/styles.css
+  - packages/web/src/components.spec.tsx
+  - packages/web/tests/e2e.spec.ts
+applied:
+  applied_at: 2026-07-12T14:51:13.090Z
