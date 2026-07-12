@@ -6,6 +6,7 @@ import type {
   HarnessAdapter,
   Member,
   Session,
+  ThinkingLevel,
   WireEvent,
 } from '@codor/protocol';
 
@@ -20,6 +21,12 @@ export interface ResidentMember {
   harness: string;
   cwd: string;
   policy?: string;
+  // harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-remote
+  // A deliberate wire-shape change: an outpost that rebuilds a session without these
+  // runs the operator's agent on a different model than the one they chose.
+  model?: string;
+  thinking?: ThinkingLevel;
+  // harn:end agent-model-and-thinking-are-durable
   session_ref?: string;
 }
 
@@ -488,9 +495,16 @@ export class ResidencyCoordinator {
     if (!session) {
       session = request.member.session_ref && adapter.capabilities.resume
         ? adapter.attach(request.member.session_ref)
-        : adapter.spawn({ cwd: request.member.cwd, policy: request.member.policy });
+        : adapter.spawn({
+            cwd: request.member.cwd,
+            policy: request.member.policy,
+            model: request.member.model,
+            thinking: request.member.thinking,
+          });
       session.cwd = request.member.cwd;
       session.policy = request.member.policy;
+      session.model = request.member.model;
+      session.thinking = request.member.thinking;
       this.sessions.set(sessionKey, session);
     }
     let started = false;
@@ -712,6 +726,8 @@ export function remoteMemberSpec(member: Member): ResidentMember {
     harness: member.harness,
     cwd: member.cwd,
     policy: member.policy,
+    model: member.model,
+    thinking: member.thinking,
     session_ref: member.session_ref,
   };
 }

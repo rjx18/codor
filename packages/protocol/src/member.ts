@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { ThinkingLevelSchema } from './adapter.js';
 import { MemberIdSchema, TimestampSchema } from './ids.js';
 
 export const MemberKindSchema = z.enum(['human', 'agent', 'extension', 'system', 'bridge']);
@@ -56,6 +57,14 @@ export const MemberSchema = z
     session_ref: z.string().min(1).optional(), // harness-native resume token
     cwd: z.string().min(1).optional(), // persisted launch dir — resume/revive MUST reuse it
     policy: z.string().min(1).optional(), // sandbox/permission mode chip
+    // harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-schema
+    // Member state, not spawn-time arguments. The harness holds nothing: every turn is
+    // a fresh subprocess whose argv is re-derived from the session, so a rebuild that
+    // loses these downgrades the agent to its harness default without saying so.
+    // Absent means exactly that — the harness default — never a guess.
+    model: z.string().min(1).optional(),
+    thinking: ThinkingLevelSchema.optional(),
+    // harn:end agent-model-and-thinking-are-durable
     host: z.string().min(1).optional(), // which switchboard machine owns the session
     state: MemberStateSchema.optional(),
     custody: CustodySchema.optional(),

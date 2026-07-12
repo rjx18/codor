@@ -1,0 +1,19 @@
+id: agent-model-and-thinking-are-durable
+hash: a-4f96d2696b37
+title: A rebuilt session is the same agent it was before
+state: active
+statement: A member's model and thinking level must be persisted on the member
+  row and restored by EVERY path that rebuilds its session - the lazy rebuild
+  after a switchboard restart, the attach used by revive and adopt, and the
+  resident member spec shipped to an outpost - because the harness holds no
+  state of its own. One deliver is one subprocess is one turn, and the model,
+  the policy and the thinking level are command-line arguments re-derived from
+  the in-memory session on every single turn. A rebuild that restores cwd and
+  policy while dropping model and thinking therefore does not merely lose a
+  setting - it silently downgrades the agent to its harness default,
+  mid-conversation, and tells nobody. A member arriving without them (join,
+  adopt, an older row) means the harness default, which must be stored as absent
+  rather than guessed.
+depends_on:
+  - canonical-spawn-controls-enforced
+created_by: a2-durable-agent-config

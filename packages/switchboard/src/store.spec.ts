@@ -611,3 +611,81 @@ describe('channel accents', () => {
     expect(CHANNEL_ACCENTS).toContain(deriveRoomColor('anything-at-all'));
   });
 });
+
+// harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-regression
+describe('a member keeps the model and thinking level it was given', () => {
+  it('round-trips them through the database', () => {
+    openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent',
+      handle: 'alpha',
+      display_name: 'alpha',
+      harness: 'claude-code',
+      cwd: '/tmp/work',
+      policy: 'workspace-write',
+      model: 'opus-4.8',
+      thinking: 'high',
+    });
+    expect(alpha.model).toBe('opus-4.8');
+    expect(alpha.thinking).toBe('high');
+
+    // Read back through a SECOND store over the same file: the row, not the object.
+    const reopened = new Store(join(dir, 'test.sqlite'));
+    const read = reopened.getMember('eng', alpha.id)!;
+    expect(read.model).toBe('opus-4.8');
+    expect(read.thinking).toBe('high');
+    reopened.close();
+  });
+
+  it('means the harness default when neither was given, rather than guessing one', () => {
+    openRoom(store);
+    const beta = store.addMember('eng', {
+      kind: 'agent', handle: 'beta', display_name: 'beta', harness: 'fake', cwd: '/tmp/work',
+    });
+    expect(beta.model).toBeUndefined();
+    expect(beta.thinking).toBeUndefined();
+  });
+
+  it('keeps the columns when a legacy database rebuilds the members table', () => {
+    // The lifecycle migration REBUILDS `members` from an explicit column list when it
+    // finds the old global UNIQUE(room, handle). Adding our columns before that runs
+    // would see them dropped straight back out — and then every insert would fail on a
+    // column that no longer exists. This is the ordering, asserted.
+    const legacyPath = join(dir, 'legacy.sqlite');
+    const legacy = new Database(legacyPath);
+    legacy.exec(`
+      CREATE TABLE rooms (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, created_ts TEXT NOT NULL,
+        config TEXT NOT NULL, seq INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE members (
+        id TEXT PRIMARY KEY,
+        room TEXT NOT NULL REFERENCES rooms(id),
+        kind TEXT NOT NULL,
+        handle TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        harness TEXT, session_ref TEXT, cwd TEXT, policy TEXT, host TEXT,
+        state TEXT, custody TEXT, parent TEXT, role TEXT,
+        conventions_sent INTEGER NOT NULL DEFAULT 0,
+        misaddressed INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (room, handle)
+      );
+    `);
+    legacy.close();
+
+    const migrated = new Store(legacyPath);
+    const columns = (migrated.db.pragma('table_info(members)') as { name: string }[])
+      .map((column) => column.name);
+    expect(columns).toContain('model');
+    expect(columns).toContain('thinking');
+
+    // And it still works: an insert against the rebuilt table must not fail.
+    openRoom(migrated);
+    const alpha = migrated.addMember('eng', {
+      kind: 'agent', handle: 'alpha', display_name: 'alpha', harness: 'fake',
+      cwd: '/tmp/work', model: 'sonnet-5', thinking: 'medium',
+    });
+    expect(migrated.getMember('eng', alpha.id)!.model).toBe('sonnet-5');
+    migrated.close();
+  });
+});

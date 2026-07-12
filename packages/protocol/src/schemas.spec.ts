@@ -118,6 +118,24 @@ describe('members', () => {
     expect(MemberSchema.parse({ ...agent, removed_ts: TS }).removed_ts).toBe(TS);
   });
 
+  // harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-schema
+  it('carries the model and thinking level as member state, not spawn-time arguments', () => {
+    const parsed = MemberSchema.parse({ ...agent, model: 'opus-4.8', thinking: 'high' });
+    expect(parsed.model).toBe('opus-4.8');
+    expect(parsed.thinking).toBe('high');
+  });
+
+  it('treats an absent model or thinking level as the harness default', () => {
+    const parsed = MemberSchema.parse(agent);
+    expect(parsed.model).toBeUndefined();
+    expect(parsed.thinking).toBeUndefined();
+  });
+
+  it('rejects a thinking level the protocol does not define', () => {
+    expect(() => MemberSchema.parse({ ...agent, thinking: 'extreme' })).toThrow();
+  });
+  // harn:end agent-model-and-thinking-are-durable
+
   it('accepts the new states unreachable and custody_uncertain', () => {
     expect(MemberSchema.safeParse({ ...agent, state: 'unreachable' }).success).toBe(true);
     expect(MemberSchema.safeParse({ ...agent, state: 'custody_uncertain' }).success).toBe(true);

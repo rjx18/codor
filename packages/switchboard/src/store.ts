@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS members (
   session_ref TEXT,
   cwd TEXT,
   policy TEXT,
+  model TEXT,
+  thinking TEXT,
   host TEXT,
   state TEXT,
   custody TEXT,
@@ -173,6 +175,21 @@ function migrateMemberCustody(db: Database.Database): void {
   }
 }
 
+// harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-storage
+// An existing database has members whose model and thinking were only ever held in
+// memory, and are already gone. Null is the honest value for them: it means the
+// harness default, which is exactly what they have been silently getting.
+function migrateMemberAgentConfig(db: Database.Database): void {
+  const columns = db.pragma('table_info(members)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'model')) {
+    db.exec('ALTER TABLE members ADD COLUMN model TEXT');
+  }
+  if (!columns.some((column) => column.name === 'thinking')) {
+    db.exec('ALTER TABLE members ADD COLUMN thinking TEXT');
+  }
+}
+// harn:end agent-model-and-thinking-are-durable
+
 // harn:assume roster-briefing-refreshes-on-membership ref=active-roster-storage
 function migrateMemberLifecycle(db: Database.Database): void {
   const columns = db.pragma('table_info(members)') as { name: string }[];
@@ -279,6 +296,8 @@ interface MemberRow {
   session_ref: string | null;
   cwd: string | null;
   policy: string | null;
+  model: string | null;
+  thinking: string | null;
   host: string | null;
   state: string | null;
   custody: string | null;
@@ -379,6 +398,8 @@ function memberFromRow(row: MemberRow): Member {
     session_ref: row.session_ref ?? undefined,
     cwd: row.cwd ?? undefined,
     policy: row.policy ?? undefined,
+    model: row.model ?? undefined,
+    thinking: row.thinking ?? undefined,
     host: row.host ?? undefined,
     state: row.state ?? undefined,
     custody: row.custody ?? undefined,
@@ -470,6 +491,8 @@ export interface NewMember {
   session_ref?: string;
   cwd?: string;
   policy?: string;
+  model?: string;
+  thinking?: Member['thinking'];
   host?: string;
   state?: Member['state'];
   custody?: Member['custody'];
@@ -549,6 +572,10 @@ export class Store {
     migrateDeliveryPayloadSnapshot(this.db);
     migrateMemberCustody(this.db);
     migrateMemberLifecycle(this.db);
+    // MUST run after migrateMemberLifecycle: on a legacy database that one REBUILDS the
+    // members table from an explicit column list, which would silently drop these two
+    // again — and then every insert would fail on a column that no longer exists.
+    migrateMemberAgentConfig(this.db);
     migrateMessageAck(this.db);
     migrateDeliveryHopCount(this.db);
     migrateMeterUncostedTokens(this.db);
@@ -648,9 +675,9 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO members (id, room, kind, handle, display_name, purpose, harness, session_ref,
-           cwd, policy, host, state, custody, parent, role, conventions_sent, misaddressed,
-           roster_stale, removed_ts)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           cwd, policy, model, thinking, host, state, custody, parent, role, conventions_sent,
+           misaddressed, roster_stale, removed_ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         validated.id,
@@ -663,6 +690,8 @@ export class Store {
         orNull(validated.session_ref),
         orNull(validated.cwd),
         orNull(validated.policy),
+        orNull(validated.model),
+        orNull(validated.thinking),
         orNull(validated.host),
         orNull(validated.state),
         orNull(validated.custody),

@@ -1,0 +1,124 @@
+id: a2-durable-agent-config
+title: A2 - a member's model and thinking level survive a restart, because today
+  every rebuild path silently drops them
+assumptions:
+  create:
+    - id: agent-model-and-thinking-are-durable
+      title: A rebuilt session is the same agent it was before
+      statement: A member's model and thinking level must be persisted on the member
+        row and restored by EVERY path that rebuilds its session - the lazy
+        rebuild after a switchboard restart, the attach used by revive and
+        adopt, and the resident member spec shipped to an outpost - because the
+        harness holds no state of its own. One deliver is one subprocess is one
+        turn, and the model, the policy and the thinking level are command-line
+        arguments re-derived from the in-memory session on every single turn. A
+        rebuild that restores cwd and policy while dropping model and thinking
+        therefore does not merely lose a setting - it silently downgrades the
+        agent to its harness default, mid-conversation, and tells nobody. A
+        member arriving without them (join, adopt, an older row) means the
+        harness default, which must be stored as absent rather than guessed.
+      reason: Found while researching the operator's request to change a member's
+        model and thinking after spawn. There are no model or thinking columns
+        at all, and sessionFor, attachedSession and remoteMemberSpec each
+        restore cwd and policy and drop the rest. The bug predates this round
+        and is live today. It also blocks the operator's request - a setting
+        that cannot survive a restart is not a setting.
+      depends_on:
+        - canonical-spawn-controls-enforced
+  reviewed:
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Spawn controls are still validated in exactly one place and the enum is
+        unchanged. The rebuild path inside it now restores the model and
+        thinking it validates, rather than validating a config it has already
+        lost. The fake adapter's delivery record gains the model alongside the
+        policy and thinking it already captured, so a test can SEE what the
+        harness was actually given.
+    - id: working-directories-validated-before-spawn
+      outcome: unchanged
+      reason: The cwd is still normalized and enforced before spawn. The same
+        persistence call now also carries the model and thinking level.
+    - id: resident-attempt-journal-reconciles
+      outcome: unchanged
+      reason: The attempt journal is unchanged. The session the resident host builds
+        for an attempt now carries the model and thinking the home switchboard
+        sent.
+    - id: run-blobs-off-db
+      outcome: unchanged
+      reason: Two short text columns are member configuration, not run blobs. Nothing
+        about what is kept out of the database changes.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: The attach lease is unchanged; the members table it sits beside gains
+        two columns.
+anchors:
+  agent-model-and-thinking-are-durable:
+    durable-agent-config-schema:
+      action: change
+      reason: Model and thinking become member state on the wire, not spawn-time
+        arguments that evaporate.
+    durable-agent-config-storage:
+      action: change
+      reason: Two nullable columns, an idempotent migration for existing databases,
+        and the insert and read paths that carry them. Null means harness
+        default. The migration MUST run after the lifecycle migration, which
+        rebuilds the members table from an explicit column list on a legacy
+        database and would otherwise drop the two columns straight back out
+        again.
+    durable-agent-config-rebuild:
+      action: change
+      reason: The lazy rebuild after a restart and the attach used by revive and adopt
+        must restore model and thinking, not only cwd and policy.
+    durable-agent-config-remote:
+      action: change
+      reason: The home-to-outpost member spec gains model and thinking. This is a
+        deliberate WIRE SHAPE CHANGE - pre-release, so no compatibility shim -
+        and the resident host must rebuild the same session the home switchboard
+        meant.
+    durable-agent-config-regression:
+      action: change
+      reason: Prove the round trip through the database, prove that a member survives
+        a switchboard restart with the SAME argv (this fails on main today),
+        prove the remote spec round-trips, prove a legacy database keeps the
+        columns through the table rebuild, and prove that a member with neither
+        value means the harness default rather than a guess.
+  canonical-spawn-controls-enforced:
+    daemon-session-rebuild-validation:
+      action: change
+      reason: The rebuild restores the model and thinking it then validates.
+    fake-adapter-delivery-record:
+      action: change
+      reason: The fake harness records the model it was handed, as it already records
+        the policy and the thinking level. Without it a test cannot observe the
+        very thing this phase exists to keep.
+  working-directories-validated-before-spawn:
+    daemon-cwd-enforcement:
+      action: change
+      reason: The persistence call inside the region carries two more fields; cwd
+        handling is unchanged.
+  resident-attempt-journal-reconciles:
+    resident-attempt-wal:
+      action: change
+      reason: The resident session build inside the region applies the model and
+        thinking from the spec.
+  run-blobs-off-db:
+    store-schema-no-blobs:
+      action: change
+      reason: The members table gains two nullable text columns.
+  attach-custody-lease-tracks-child-pid:
+    attach-lease-store:
+      action: change
+      reason: The members table it neighbours gains two columns; the lease is
+        untouched.
+files:
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/residency.ts
+  - packages/switchboard/src/residency.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+applied:
+  applied_at: 2026-07-12T15:12:04.303Z

@@ -14,6 +14,7 @@ let dir: string;
 let fake: FakeAdapter;
 let claudeFake: FakeAdapter;
 let codexFake: FakeAdapter;
+let thinkingFake: FakeAdapter;
 let daemon: Daemon;
 let frames: { room: string; frame: ServerFrame }[];
 
@@ -21,7 +22,7 @@ function newDaemon(): Daemon {
   const d = new Daemon({
     dbPath: join(dir, 'switchboard.sqlite'),
     blobRoot: join(dir, 'blobs'),
-    adapters: [fake, claudeFake, codexFake],
+    adapters: [fake, claudeFake, codexFake, thinkingFake],
     homeDir: dir,
   });
   d.onFrame((room, frame) => frames.push({ room, frame }));
@@ -43,6 +44,8 @@ beforeEach(() => {
   fake = new FakeAdapter('fake', { interactiveAttach: true });
   claudeFake = new FakeAdapter('claude-code', { extensions: true });
   codexFake = new FakeAdapter('codex');
+  // `fake` must keep thinking:false — a test below relies on it rejecting a thinking level.
+  thinkingFake = new FakeAdapter('thinking-fake', { thinking: true });
   frames = [];
   daemon = newDaemon();
   daemon.createRoom({ id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' } });
@@ -1972,3 +1975,73 @@ describe('adapter model discovery', () => {
   });
 });
 // harn:end adapters-own-their-model-catalog
+
+// harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-regression
+describe('a rebuilt session is the same agent it was before', () => {
+  const spawnThinker = (model?: string, thinking?: 'low' | 'medium' | 'high') =>
+    daemon.spawnMember('eng', {
+      harness: 'thinking-fake',
+      handle: 'alpha',
+      cwd: testCwd(),
+      ...(model !== undefined && { model }),
+      ...(thinking !== undefined && { thinking }),
+    });
+
+  it('carries the model and thinking level across a switchboard restart', async () => {
+    // The harness holds NOTHING. Model and thinking are argv, re-derived from the
+    // session every turn — so if a restart rebuilds the session without them, the
+    // operator's agent quietly becomes a different, cheaper one, mid-conversation.
+    spawnThinker('opus-4.8', 'high');
+    thinkingFake.enqueue({ kind: 'complete', final_text: '@richard before' });
+    daemon.postHumanMessage('eng', '@alpha before the restart');
+    await daemon.settle();
+    expect(thinkingFake.deliveries[0]).toMatchObject({ model: 'opus-4.8', thinking: 'high' });
+
+    await daemon.close();
+    daemon = newDaemon(); // the restart: the in-memory session map is gone
+
+    thinkingFake.enqueue({ kind: 'complete', final_text: '@richard after' });
+    daemon.postHumanMessage('eng', '@alpha after the restart');
+    await daemon.settle();
+
+    const after = thinkingFake.deliveries[1]!;
+    expect(after.model, 'a restart must not silently downgrade the model').toBe('opus-4.8');
+    expect(after.thinking, 'nor the thinking level').toBe('high');
+  });
+
+  it('revives a dead agent as the same agent', async () => {
+    const alpha = spawnThinker('opus-4.8', 'low');
+    thinkingFake.enqueue({ kind: 'complete', final_text: '@richard hi' });
+    daemon.postHumanMessage('eng', '@alpha hello');
+    await daemon.settle();
+
+    daemon.killMember('eng', alpha.id);
+    daemon.reviveMember('eng', alpha.id);
+    thinkingFake.enqueue({ kind: 'complete', final_text: '@richard back' });
+    daemon.postHumanMessage('eng', '@alpha you are back');
+    await daemon.settle();
+
+    expect(thinkingFake.deliveries.at(-1)).toMatchObject({ model: 'opus-4.8', thinking: 'low' });
+  });
+
+  it('means the harness default when the member never had either', async () => {
+    // Absent is a real value: it means "whatever the harness defaults to". It must be
+    // stored as absent and handed over as absent — never guessed at.
+    spawnThinker();
+    thinkingFake.enqueue({ kind: 'complete', final_text: '@richard ok' });
+    daemon.postHumanMessage('eng', '@alpha go');
+    await daemon.settle();
+
+    await daemon.close();
+    daemon = newDaemon();
+
+    thinkingFake.enqueue({ kind: 'complete', final_text: '@richard still ok' });
+    daemon.postHumanMessage('eng', '@alpha again');
+    await daemon.settle();
+
+    const after = thinkingFake.deliveries.at(-1)!;
+    expect(after.model).toBeUndefined();
+    expect(after.thinking).toBeUndefined();
+  });
+});
+// harn:end agent-model-and-thinking-are-durable

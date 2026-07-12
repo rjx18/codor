@@ -38,7 +38,13 @@ export interface DeliverRecord {
   session_ref: string | undefined;
   cwd: string;
   policy: string | undefined;
+  // harn:assume canonical-spawn-controls-enforced ref=fake-adapter-delivery-record
+  // What the harness was ACTUALLY handed for this turn. A real harness holds no state:
+  // these are argv, re-derived from the session every turn, so this record is the only
+  // honest witness to what the operator's agent was actually run as.
+  model: Session['model'];
   thinking: Session['thinking'];
+  // harn:end canonical-spawn-controls-enforced
   attached: boolean;
 }
 
@@ -116,6 +122,7 @@ export class FakeAdapter implements HarnessAdapter {
       session_ref: session.session_ref,
       cwd: session.cwd,
       policy: session.policy,
+      model: session.model,
       thinking: session.thinking,
       attached: this.attachedRefs.has(session.session_ref),
     });

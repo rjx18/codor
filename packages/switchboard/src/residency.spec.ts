@@ -10,6 +10,7 @@ import { Daemon } from './daemon.js';
 import { FakeAdapter } from './fake-adapter.js';
 import {
   ResidencyCoordinator,
+  remoteMemberSpec,
   type ResidencyBoundary,
   type ResidencyCoordinatorOptions,
 } from './residency.js';
@@ -72,6 +73,13 @@ class StubTransport {
   send(peerId: string, envelope: OutgoingEnvelope): string {
     this.sent.push({ peerId, envelope });
     return `sent-${String(this.sent.length)}`;
+  }
+
+  readonly runEvents: { peerId: string; room: string; payload: unknown }[] = [];
+
+  sendRunEvent(peerId: string, room: string, payload: unknown): string {
+    this.runEvents.push({ peerId, room, payload });
+    return `run-event-${String(this.runEvents.length)}`;
   }
 
   async emit(peerId: string, envelope: OutgoingEnvelope): Promise<void> {
@@ -406,3 +414,78 @@ describe('multi-box member residency over hyperdht/testnet', () => {
     )).toMatchObject({ state: 'ambiguous', attempt_count: 1 });
   }, 20_000);
 });
+
+// harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-regression
+describe('the outpost runs the agent the operator actually chose', () => {
+  const member = {
+    id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    kind: 'agent' as const,
+    handle: 'alpha',
+    display_name: 'alpha',
+    harness: 'claude-code',
+    cwd: '/work',
+    policy: 'workspace-write',
+    model: 'opus-4.8',
+    thinking: 'high' as const,
+    conventions_sent: false,
+    misaddressed: false,
+    roster_stale: false,
+  };
+
+  it('ships the model and thinking level across the home-to-outpost wire', () => {
+    // A deliberate wire-shape change. An outpost that rebuilds a session without these
+    // runs the operator's agent on a different model than the one they picked — and
+    // bills them for it — while every local surface still shows the model they chose.
+    expect(remoteMemberSpec(member)).toEqual({
+      id: member.id,
+      harness: 'claude-code',
+      cwd: '/work',
+      policy: 'workspace-write',
+      model: 'opus-4.8',
+      thinking: 'high',
+      session_ref: undefined,
+    });
+  });
+
+  it('ships absence as absence, so the outpost uses the harness default', () => {
+    const spec = remoteMemberSpec({ ...member, model: undefined, thinking: undefined });
+    expect(spec.model).toBeUndefined();
+    expect(spec.thinking).toBeUndefined();
+  });
+
+  it('hands the resident harness the model and thinking level it was sent', async () => {
+    // Enter the way a real outpost does: a `resident_deliver` envelope off the wire.
+    const root = mkdtempSync(join(tmpdir(), 'codor-resident-config-'));
+    const transport = new StubTransport();
+    const fake = new FakeAdapter('fake', { thinking: true });
+    const coordinator = new ResidencyCoordinator({
+      transport: transport as unknown as HyperswarmTransport,
+      adapters: [fake],
+      journalPath: join(root, 'resident.sqlite'),
+      blobRoot: join(root, 'blobs'),
+    });
+    try {
+      fake.enqueue({ kind: 'complete', final_text: 'done' });
+      await transport.emit('home-peer', {
+        kind: 'resident_deliver',
+        room: 'eng',
+        payload: {
+          rpc_id: 'home:eng:1',
+          room: 'eng',
+          member: {
+            id: 'remote-agent', harness: 'fake', cwd: '/work',
+            policy: 'workspace-write', model: 'opus-4.8', thinking: 'high',
+          },
+          payload: 'go',
+          trigger_msg: 1,
+        },
+      });
+      await vi.waitFor(() => expect(fake.deliveries).toHaveLength(1));
+      expect(fake.deliveries[0]).toMatchObject({ model: 'opus-4.8', thinking: 'high' });
+    } finally {
+      coordinator.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+// harn:end agent-model-and-thinking-are-durable

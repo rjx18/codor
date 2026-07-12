@@ -683,6 +683,12 @@ export class Daemon {
       harness: opts.harness,
       cwd,
       policy: opts.policy,
+      // harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-rebuild
+      // These are turn arguments, re-derived from the session on every turn. Held only
+      // in memory, they vanish on restart and the agent quietly becomes a different one.
+      model: opts.model,
+      thinking: opts.thinking,
+      // harn:end agent-model-and-thinking-are-durable
       host: this.hostId,
       state: 'idle',
       custody: 'owned',
@@ -775,6 +781,9 @@ export class Daemon {
     const session = adapter.attach(member.session_ref);
     session.cwd = member.cwd ?? session.cwd;
     session.policy = member.policy;
+    // A revived agent must be the SAME agent: same model, same thinking level.
+    session.model = member.model;
+    session.thinking = member.thinking;
     return session;
   }
 
@@ -1156,7 +1165,12 @@ export class Daemon {
         member.session_ref !== undefined
           ? adapter.attach(member.session_ref)
           : (() => {
-              const spawnOpts = { cwd: member.cwd ?? process.cwd(), policy: member.policy };
+              const spawnOpts = {
+                cwd: member.cwd ?? process.cwd(),
+                policy: member.policy,
+                model: member.model,
+                thinking: member.thinking,
+              };
               // harn:assume canonical-spawn-controls-enforced ref=daemon-session-rebuild-validation
               validateSpawnOptions(adapter, spawnOpts);
               const rebuilt = adapter.spawn(spawnOpts);
@@ -1165,6 +1179,12 @@ export class Daemon {
             })();
       session.cwd = member.cwd ?? session.cwd; // revive MUST reuse the persisted cwd
       session.policy = member.policy;
+      // harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-rebuild
+      // This is the path a restart takes. Restoring cwd and policy but not these two is
+      // how an agent silently reverted to its harness default model, mid-conversation.
+      session.model = member.model;
+      session.thinking = member.thinking;
+      // harn:end agent-model-and-thinking-are-durable
       this.sessions.set(member.id, session);
     }
     return session;
