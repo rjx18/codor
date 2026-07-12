@@ -46,8 +46,12 @@ export function AgentControls(props: {
   const adapter = adapters.find((candidate) => candidate.id === value.harness);
   const models = adapter?.models ?? [];
   const thinkingSupported = adapter?.capabilities.thinking === true;
+  // A searchable list IS free text: a half-typed model is a search in progress, not
+  // an off-catalog model. Deriving `custom` from it would unmount the search box on
+  // the first keystroke.
+  const searchable = models.length > ROW_LIMIT;
   const listed = models.includes(value.model);
-  const custom = customOpen || (value.model !== '' && !listed);
+  const custom = customOpen || (!searchable && value.model !== '' && !listed);
 
   const pick = (next: Partial<AgentControlsValue>): void => onChange({ ...value, ...next });
   const reset = (next: Partial<AgentControlsValue>): void => {
@@ -81,8 +85,14 @@ export function AgentControls(props: {
                 data-testid={`${idPrefix}-harness-${candidate.id}`}
                 aria-pressed={value.harness === candidate.id}
                 className="wr-tile"
-                // A model only means anything to the harness it was chosen under.
-                onClick={() => reset({ harness: candidate.id, model: '' })}
+                onClick={() => reset({
+                  harness: candidate.id,
+                  // A model only means anything to the harness it was chosen under,
+                  // and a thinking level the new harness rejects would strand the
+                  // form: its buttons are disabled, so nothing could clear it.
+                  model: '',
+                  ...(candidate.capabilities.thinking === true ? {} : { thinking: '' }),
+                })}
               >
                 <Icon aria-hidden size={18} />
                 <span>{candidate.id}</span>
@@ -105,7 +115,7 @@ export function AgentControls(props: {
             >
               Default
             </button>
-            {models.length <= ROW_LIMIT && models.map((model) => (
+            {!searchable && models.map((model) => (
               <button
                 key={model}
                 type="button"
@@ -130,7 +140,7 @@ export function AgentControls(props: {
           </div>
 
           {/* Too many to be a row — opencode reports one per configured provider. */}
-          {!custom && models.length > ROW_LIMIT && (
+          {!custom && searchable && (
             <>
               <input
                 data-testid={`${idPrefix}-model-search`}
@@ -175,7 +185,6 @@ export function AgentControls(props: {
               type="button"
               data-testid={`${idPrefix}-thinking-default`}
               aria-pressed={value.thinking === ''}
-              disabled={!thinkingSupported}
               onClick={() => pick({ thinking: '' })}
             >
               Default

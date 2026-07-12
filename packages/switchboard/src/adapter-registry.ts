@@ -96,6 +96,12 @@ function withSpawnValidation(adapter: HarnessAdapter): HarnessAdapter {
       adapter.respondInteraction(session, interactionId, answer),
     interrupt: (session) => adapter.interrupt(session),
     discoverSessions: () => adapter.discoverSessions(),
+    // harn:assume adapter-wrappers-preserve-the-whole-contract ref=registry-wrapper-completeness
+    // This wrapper is what production runs. A member it omits does not degrade —
+    // it vanishes, while every test that builds the adapter directly still passes.
+    // U3 lost model discovery here for exactly that reason.
+    ...(adapter.listModels && { listModels: () => adapter.listModels!() }),
+    // harn:end adapter-wrappers-preserve-the-whole-contract
   };
 }
 // harn:end canonical-spawn-controls-enforced

@@ -1,0 +1,70 @@
+id: u3-review-fix
+title: U3 review fix - the registry wrapper dropped listModels, and the model
+  control could wedge
+assumptions:
+  create:
+    - id: adapter-wrappers-preserve-the-whole-contract
+      title: A wrapped adapter is still the adapter
+      statement: Any decorator the registry puts around a HarnessAdapter must carry
+        every member of the adapter contract through to the wrapped adapter,
+        including optional ones, and a regression must exercise the WRAPPED
+        adapter rather than the raw one, because the registry wrapper is what
+        production runs and a member the wrapper silently drops disappears in
+        production while every unit test that constructs the adapter directly
+        still passes.
+      reason: U3 shipped model discovery that could never run - withSpawnValidation
+        rebuilt each adapter from an explicit property list that omitted
+        listModels, and the daemon tests bypassed the wrapper, so a dead feature
+        tested green.
+      depends_on:
+        - adapters-own-their-model-catalog
+        - canonical-spawn-controls-enforced
+  reviewed:
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: The contract is right and unchanged; it simply never reached production
+        because the registry wrapper dropped the method. The validator is
+        widened to accept the multi-segment ids opencode actually reports and to
+        reject a leading dash, which the statement's "output it cannot validate"
+        already covers.
+    - id: agent-controls-shared-by-both-dialogs
+      outcome: unchanged
+      reason: The shared-control contract is unchanged. The searchable list must
+        simply survive being typed into, and switching harness must not strand a
+        thinking level the new harness cannot accept.
+anchors:
+  adapter-wrappers-preserve-the-whole-contract:
+    registry-wrapper-completeness:
+      action: change
+      reason: Carry listModels through the spawn-validation wrapper.
+    registry-wrapper-regression:
+      action: change
+      reason: Prove the WRAPPED adapter the registry hands the daemon still reports
+        its models - the path production takes.
+  adapters-own-their-model-catalog:
+    adapter-model-discovery:
+      action: change
+      reason: Accept the multi-segment model ids opencode reports, reject a leading
+        dash, and report a discovery failure instead of swallowing it.
+    adapter-model-discovery-regression:
+      action: change
+      reason: Prove a provider-prefixed id survives validation and a leading-dash id
+        does not.
+  agent-controls-shared-by-both-dialogs:
+    agent-controls-component:
+      action: change
+      reason: Keep the searchable list mounted while it is being typed into, and clear
+        a thinking level the newly chosen harness cannot accept.
+    agent-controls-unit-regression:
+      action: change
+      reason: Prove typing into the search does not unmount it, and that switching to
+        a harness without thinking support leaves no stranded level.
+files:
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web/src/agent-controls.tsx
+  - packages/web/src/agent-controls.spec.tsx
+applied:
+  applied_at: 2026-07-12T10:34:37.105Z

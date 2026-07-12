@@ -17,8 +17,12 @@ import type {
   CreateRoomRequest,
 } from '@codor/protocol';
 
-/** Untrusted CLI stdout: only these shapes become buttons, and never many. */
-const MODEL_ID = /^[\w.:-]+(?:\/[\w.:-]+)?$/;
+/**
+ * Untrusted CLI stdout: only these shapes become buttons, and never many.
+ * Multi-segment ids are real (opencode reports `openrouter/anthropic/claude-…`),
+ * but a leading dash is not a model — it is a flag smuggled into an argv slot.
+ */
+const MODEL_ID = /^\w[\w.:-]*(?:\/[\w.:-]+)*$/;
 const MAX_MODELS = 200;
 import { deriveRoomId } from '@codor/protocol';
 
@@ -550,7 +554,9 @@ export class Daemon {
           const models = catalog.models.filter((model) => MODEL_ID.test(model)).slice(0, MAX_MODELS);
           if (models.length > 0) this.modelCatalogs.set(adapter.id, { ...catalog, models });
         },
-        () => undefined,
+        (error: unknown) => this.onBackgroundError(
+          error instanceof Error ? error : new Error(`${adapter.id} model discovery failed`),
+        ),
       );
     }
   }

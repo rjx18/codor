@@ -36,3 +36,33 @@ describe('adapter registry spawn controls', () => {
     }
   });
 });
+
+// harn:assume adapter-wrappers-preserve-the-whole-contract ref=registry-wrapper-regression
+describe('the registry wrapper preserves the whole adapter contract', () => {
+  it('still reports the models of every adapter that can answer', async () => {
+    // The daemon only ever sees WRAPPED adapters. U3 shipped model discovery that
+    // could never run because the wrapper rebuilt each adapter from a property list
+    // that omitted listModels — and every test that built adapters directly passed.
+    const adapters = await loadAdapterRegistry();
+    const answering = adapters.filter((adapter) => adapter.listModels !== undefined);
+    expect(answering.map((adapter) => adapter.id).sort()).toEqual(
+      ['claude-code', 'codex', 'copilot', 'gemini', 'opencode'],
+    );
+
+    const claude = adapters.find((adapter) => adapter.id === 'claude-code')!;
+    const catalog = await claude.listModels!();
+    expect(catalog.source).toBe('curated');
+    expect(catalog.models).toContain('opus');
+  });
+
+  it('carries every declared member of the contract through the wrapper', async () => {
+    // Guards the next member somebody adds to HarnessAdapter and forgets here.
+    const [wrapped] = await loadAdapterRegistry();
+    for (const member of [
+      'id', 'capabilities', 'spawn', 'attach', 'deliver',
+      'respondInteraction', 'interrupt', 'discoverSessions', 'listModels',
+    ]) {
+      expect(wrapped, `wrapper must carry ${member}`).toHaveProperty(member);
+    }
+  });
+});

@@ -1901,6 +1901,31 @@ describe('adapter model discovery', () => {
     expect(daemon.registeredAdapters()[0]!.models).toEqual(['ok/model']);
   });
 
+  it('keeps the provider-prefixed ids opencode actually reports', async () => {
+    const daemon = daemonWith([
+      adapterWith('nested', () => Promise.resolve({
+        models: ['openrouter/anthropic/claude-sonnet-5', 'openai/gpt-4o'],
+        source: 'discovered',
+      })),
+    ]);
+    await settle();
+    expect(daemon.registeredAdapters()[0]!.models).toEqual([
+      'openrouter/anthropic/claude-sonnet-5',
+      'openai/gpt-4o',
+    ]);
+  });
+
+  it('refuses a model id that is really a flag', async () => {
+    const daemon = daemonWith([
+      adapterWith('hostile', () => Promise.resolve({
+        models: ['--dangerously-skip-permissions', 'ok/model'],
+        source: 'discovered',
+      })),
+    ]);
+    await settle();
+    expect(daemon.registeredAdapters()[0]!.models).toEqual(['ok/model']);
+  });
+
   it('can be switched off so the browser suite stays hermetic', async () => {
     const daemon = daemonWith(
       [adapterWith('discovers', () => Promise.resolve({ models: ['a/b'], source: 'discovered' }))],

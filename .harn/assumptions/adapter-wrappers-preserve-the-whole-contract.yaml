@@ -1,0 +1,14 @@
+id: adapter-wrappers-preserve-the-whole-contract
+hash: a-79eb18787c38
+title: A wrapped adapter is still the adapter
+state: active
+statement: Any decorator the registry puts around a HarnessAdapter must carry
+  every member of the adapter contract through to the wrapped adapter, including
+  optional ones, and a regression must exercise the WRAPPED adapter rather than
+  the raw one, because the registry wrapper is what production runs and a member
+  the wrapper silently drops disappears in production while every unit test that
+  constructs the adapter directly still passes.
+depends_on:
+  - adapters-own-their-model-catalog
+  - canonical-spawn-controls-enforced
+created_by: u3-review-fix

@@ -100,6 +100,31 @@ describe('agent controls', () => {
     expect(container.querySelectorAll('#t-model-options option')).toHaveLength(40);
   });
 
+  it('keeps the search mounted while it is being typed into', () => {
+    render();
+    click('t-harness-opencode');
+    const search = at<HTMLInputElement>('t-model-search')!;
+    // Every keystroke is a half-typed model. Treating that as "off-catalog" would
+    // unmount the search box mid-search, which is what shipped in 03e03e8.
+    act(() => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setValue.call(search, 'openai/mod');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(latest.model).toBe('openai/mod');
+    expect(at('t-model-search')).not.toBeNull();
+  });
+
+  it('strands no thinking level on a harness that cannot accept one', () => {
+    render();
+    click('t-thinking-high');
+    expect(latest.thinking).toBe('high');
+    click('t-harness-gemini');
+    // gemini declares thinking:false, so every level button is disabled — a level
+    // left behind here could never be cleared, and the spawn would be rejected.
+    expect(latest.thinking).toBe('');
+  });
+
   it('still offers the custom escape when the harness reported nothing', () => {
     render();
     click('t-harness-gemini');
