@@ -569,6 +569,7 @@ export function MemberCard(props: {
 }) {
   const [renaming, setRenaming] = useState(false);
   const [configuring, setConfiguring] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [handle, setHandle] = useState(props.member.handle);
   const [displayName, setDisplayName] = useState(props.member.display_name);
   const state = props.member.state ?? 'idle';
@@ -771,21 +772,36 @@ export function MemberCard(props: {
               <button
                 type="button"
                 data-testid={`remove-${props.member.handle}`}
-                onClick={() => props.connection.act({ act: 'remove', member_id: props.member.id })}
+                onClick={() => setRemoving(true)}
                 className="min-h-11 bg-red-900 px-3 text-xs text-red-100"
               >
                 Remove
               </button>
             </>
           ) : (
-            <button
-              type="button"
-              data-testid={`kill-${props.member.handle}`}
-              onClick={() => props.connection.act({ act: 'kill', member_id: props.member.id })}
-              className="min-h-11 bg-red-900 px-3 text-xs text-red-100"
-            >
-              Kill
-            </button>
+            <>
+              <button
+                type="button"
+                data-testid={`kill-${props.member.handle}`}
+                onClick={() => props.connection.act({ act: 'kill', member_id: props.member.id })}
+                className="min-h-11 bg-red-900 px-3 text-xs text-red-100"
+              >
+                Kill
+              </button>
+              {/* harn:assume removing-an-agent-is-one-deliberate-step ref=remove-member-control */}
+              {/* Removing an agent was a ritual: kill it, then find the button that only
+                  appears once it is dead. It is one act now — and a destructive one, so it
+                  names what it is about to destroy before it does anything. */}
+              <button
+                type="button"
+                data-testid={`remove-${props.member.handle}`}
+                onClick={() => setRemoving(true)}
+                className="min-h-11 border border-red-900 px-3 text-xs text-red-200"
+              >
+                Remove
+              </button>
+              {/* harn:end removing-an-agent-is-one-deliberate-step */}
+            </>
           )}
           {state !== 'dead' && props.member.custody !== 'mirrored' && (
             <button
@@ -804,6 +820,37 @@ export function MemberCard(props: {
           )}
         </div>
       ))}
+
+      {/* harn:assume removing-an-agent-is-one-deliberate-step ref=remove-member-control */}
+      {props.canManage && removing && (
+        <div data-testid={`remove-${props.member.handle}-confirm`} className="wr-remove-confirm" role="alertdialog">
+          <p>
+            Remove <strong>@{props.member.handle}</strong>? Its running turn is interrupted and
+            any work still queued for it is dropped. Its past messages keep its name.
+          </p>
+          <div className="wr-dialog-actions">
+            <button
+              type="button"
+              onClick={() => setRemoving(false)}
+              className="wr-secondary-button min-h-11 px-3 text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              data-testid={`remove-${props.member.handle}-confirmed`}
+              onClick={() => {
+                props.connection.act({ act: 'remove', member_id: props.member.id });
+                setRemoving(false);
+              }}
+              className="min-h-11 bg-red-900 px-3 text-xs text-red-100"
+            >
+              Remove @{props.member.handle}
+            </button>
+          </div>
+        </div>
+      )}
+      {/* harn:end removing-an-agent-is-one-deliberate-step */}
 
       {/* harn:assume member-config-is-changed-not-respawned ref=member-card-settings */}
       {props.canManage && configuring && props.member.kind === 'agent' && (

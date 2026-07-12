@@ -1229,14 +1229,38 @@ export class Daemon {
   removeMember(room: string, memberId: string): Member {
     const existing = this.store.getMember(room, memberId);
     if (!existing || existing.kind !== 'agent') throw new Error(`no such agent member: ${memberId}`);
-    if (existing.state !== 'dead') throw new Error(`member @${existing.handle} must be dead before removal`);
+    // harn:assume removing-an-agent-is-one-deliberate-step ref=remove-live-member
+    // Removing an agent is ONE act, not a ritual of kill-then-find-the-other-button. The
+    // invariant is preserved rather than bypassed: the member is still dead before it is
+    // tombstoned — killMember interrupts the running turn, orphans its cards, and refuses
+    // outright if an interactive attach lease is held, so nothing is ever half-removed.
+    if (existing.state !== 'dead') this.killMember(room, memberId);
+    // harn:end removing-an-agent-is-one-deliberate-step
+
     const member = this.store.updateMember(room, memberId, {
       removed_ts: new Date().toISOString(),
     });
     this.sessions.delete(memberId);
+    this.staleSessions.delete(memberId);
+
+    // harn:assume removing-an-agent-is-one-deliberate-step ref=remove-drains-queued-work
+    // Work addressed to a member that no longer exists has nowhere to go. Left queued it
+    // would wait in the pump forever for an agent that is never coming back, and count
+    // against a member the roster no longer shows.
+    const abandoned = this.store.listDeliveries(room, { recipient: memberId, state: 'queued' });
+    for (const delivery of abandoned) {
+      this.store.updateDelivery(room, delivery.id, { state: 'consumed' });
+    }
+    // harn:end removing-an-agent-is-one-deliberate-step
+
     this.markRostersStale(room);
     this.emitMember(room, member);
-    this.postSystemMessage(room, `@${member.handle} was removed; its history remains attributed`);
+    this.postSystemMessage(
+      room,
+      abandoned.length > 0
+        ? `@${member.handle} was removed; ${String(abandoned.length)} queued message${abandoned.length === 1 ? '' : 's'} dropped; its history remains attributed`
+        : `@${member.handle} was removed; its history remains attributed`,
+    );
     return member;
   }
   // harn:end removed-members-remain-attribution-tombstones

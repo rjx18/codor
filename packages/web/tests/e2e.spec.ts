@@ -330,6 +330,9 @@ test('spawn dialog presets canonical controls and replaces removed agents', asyn
   await page.getByTestId('kill-tester').click();
   await expect(page.getByTestId('remove-tester')).toBeVisible();
   await page.getByTestId('remove-tester').click();
+  // Removal is destructive, so it asks first — and names what it is about to destroy.
+  await expect(page.getByTestId('remove-tester-confirm')).toContainText('@tester');
+  await page.getByTestId('remove-tester-confirmed').click();
   await expect(page.getByTestId('member-tester')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Spawn controls' }).locator('..')).toContainText('2 members');
 
@@ -1421,3 +1424,37 @@ test('changing an agent from the sidebar is visible to everyone in the channel',
   expect(details.find((item) => item.member.kind === 'agent')!.member.policy).toBe('full-access');
 });
 // harn:end a-permission-change-is-never-silent
+
+// harn:assume removing-an-agent-is-one-deliberate-step ref=remove-member-regression
+test('an agent is removed in one step, after being asked to confirm', async ({ page, request }) => {
+  const room = `remove-${String(Date.now())}`;
+  const authorization = { authorization: 'Bearer e2e-token' };
+  await request.post('/api/rooms', {
+    headers: authorization,
+    data: {
+      id: room,
+      name: 'Remove',
+      cwd: process.cwd(),
+      owner: { handle: 'richard', display_name: 'Richard' },
+      starting_agent: { harness: 'fake', handle: 'codor' },
+    },
+  });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/?room=${room}&token=e2e-token`);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  await page.getByTestId('member-codor').click();
+  // The agent is alive and idle — and Remove is right there, without killing it first.
+  await page.getByTestId('remove-codor').click();
+
+  // It is destructive, so it names what it is about to destroy.
+  await expect(page.getByTestId('remove-codor-confirm')).toContainText('@codor');
+  await expect(page.getByTestId('remove-codor-confirm')).toContainText('past messages keep its name');
+
+  await page.getByTestId('remove-codor-confirmed').click();
+
+  await expect(page.getByText('@codor was removed; its history remains attributed')).toBeVisible();
+  await expect(page.getByTestId('member-codor')).toHaveCount(0);
+});
+// harn:end removing-an-agent-is-one-deliberate-step

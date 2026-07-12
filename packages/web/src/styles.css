@@ -5895,3 +5895,20 @@ textarea.wr-composer-control {
   font-family: var(--wr-mono, ui-monospace, monospace);
 }
 /* harn:end member-config-is-changed-not-respawned */
+
+/* harn:assume removing-an-agent-is-one-deliberate-step ref=remove-member-control */
+.wr-remove-confirm {
+  display: grid;
+  margin-top: 10px;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--wr-danger, #b3403a) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--wr-danger, #b3403a) 8%, var(--wr-surface));
+}
+
+.wr-remove-confirm p {
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+/* harn:end removing-an-agent-is-one-deliberate-step */

@@ -642,3 +642,37 @@ describe('MemberSettings', () => {
   });
 });
 // harn:end member-config-is-changed-not-respawned
+
+// harn:assume removing-an-agent-is-one-deliberate-step ref=remove-member-regression
+describe('removing an agent', () => {
+  const live: Member = { ...alpha, harness: 'fake', cwd: '/work', state: 'idle' };
+  const render = (member: Member): string =>
+    renderToStaticMarkup(
+      <MemberCard
+        member={member}
+        detail={undefined}
+        history={[]}
+        adapters={[]}
+        connection={noopConnection}
+        expanded
+        canManage
+      />,
+    );
+
+  it('is offered on a LIVE member, not only once it is already dead', () => {
+    // It used to be a ritual: kill it, then find the button that only appears after.
+    expect(render(live)).toContain('data-testid="remove-alpha"');
+  });
+
+  it('is still offered on a dead one', () => {
+    expect(render({ ...live, state: 'dead', session_ref: 's-1' })).toContain('data-testid="remove-alpha"');
+  });
+
+  it('does not destroy anything on the first click — it asks first', () => {
+    // The button opens a confirmation; it does not send the act.
+    const html = render(live);
+    expect(html).not.toContain('data-testid="remove-alpha-confirm"');
+    expect(html).toContain('data-testid="remove-alpha"');
+  });
+});
+// harn:end removing-an-agent-is-one-deliberate-step

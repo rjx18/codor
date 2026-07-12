@@ -1,0 +1,90 @@
+id: a5-remove-member
+title: A5 - removing an agent is one deliberate step, and it leaves nothing behind
+assumptions:
+  create:
+    - id: removing-an-agent-is-one-deliberate-step
+      title: Remove it, and nothing of it is left running or queued
+      statement: "Removing an agent must be a single act the operator can perform on a
+        LIVE member - not a two-step ritual of kill-then-remove that only offers
+        the second button once the first has already been pressed - and it must
+        be confirmed by name, because it is destructive. The act itself must
+        still kill before it tombstones, so the invariant that a member is dead
+        before it is removed is preserved rather than weakened: a running turn
+        is interrupted, an interactive attach lease refuses the whole operation
+        rather than being orphaned, and the work still queued for that member is
+        CONSUMED rather than left addressed to a member that no longer exists,
+        where it would sit in the pump forever waiting for an agent that is
+        never coming back. The tombstone stays: the row survives with a removal
+        timestamp so that every message the agent ever wrote keeps its author."
+      reason: F13. Remove was offered only once a member was already dead, so removing
+        an agent meant pressing Kill and then finding Remove. And nothing ever
+        cleaned up the deliveries queued for it.
+      depends_on:
+        - removed-members-remain-attribution-tombstones
+  reviewed:
+    - id: removed-members-remain-attribution-tombstones
+      outcome: unchanged
+      reason: "The tombstone contract is unchanged and is the reason the row survives
+        at all: a removed member's messages keep their author. What changes is
+        that the operator reaches it in one step, and that the member's queued
+        work does not outlive it."
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: The spawn dialog is unchanged. Remove sits in the same control row as
+        the dead-member controls this region covers - it simply no longer waits
+        for the member to be dead before it appears.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: An interactive attach lease still refuses a kill, and therefore refuses
+        a remove. The lease is never orphaned, because the whole operation is
+        refused before anything is written.
+    - id: delivery-fifo-has-durable-sequence
+      outcome: unchanged
+      reason: The queue is still per-member FIFO. Removing the member it belongs to
+        consumes what is left in it, which is the only honest end for work
+        addressed to someone who no longer exists.
+anchors:
+  removing-an-agent-is-one-deliberate-step:
+    remove-live-member:
+      action: change
+      reason: Remove kills first when the member is not already dead, so the
+        dead-before- removal invariant is preserved rather than bypassed.
+    remove-drains-queued-work:
+      action: change
+      reason: The deliveries still queued for a removed member are consumed, not left
+        waiting for an agent that is never coming back.
+    remove-member-control:
+      action: change
+      reason: The sidebar offers Remove on a live member, and confirms by name before
+        doing anything.
+    remove-member-regression:
+      action: change
+      reason: Prove a running member is interrupted and tombstoned with no half-state,
+        prove an attach lease refuses the whole operation, prove queued work is
+        consumed, and prove the removed agent's messages still name their
+        author.
+  removed-members-remain-attribution-tombstones:
+    member-removal-daemon:
+      action: change
+      reason: Removal now kills a live member first and consumes the work still queued
+        for it. The tombstone itself - the surviving row that keeps every
+        message's author - is unchanged, which is the whole reason the row is
+        kept.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    spawn-dialog-browser-regression:
+      action: change
+      reason: Its removal step must confirm now, because removal asks before it
+        destroys.
+    dead-member-replacement-controls:
+      action: change
+      reason: Remove joins Kill on a live member, and both removal paths now confirm
+        by name before destroying anything.
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+applied:
+  applied_at: 2026-07-12T17:06:30.938Z

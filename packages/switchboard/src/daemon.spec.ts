@@ -1785,12 +1785,13 @@ describe('Phase 3 usability core', () => {
     expect(spawn).toHaveBeenCalledTimes(calls);
   });
 
-  it('tombstones only dead agents, preserves attribution, and frees the handle', () => {
+  it('tombstones a removed agent, preserves attribution, and frees the handle', () => {
     const alpha = spawnAgent('alpha');
     const historical = daemon.store.postMessage('eng', {
       author: alpha.id, kind: 'chat', body: 'historical alpha message',
     });
-    expect(() => daemon.removeMember('eng', alpha.id)).toThrow('must be dead before removal');
+    // A5: remove no longer REFUSES a live member — it kills it first, so the member is
+    // still dead before it is tombstoned. The invariant is preserved; the ritual is not.
     daemon.killMember('eng', alpha.id);
     expect(daemon.store.listMessages('eng', { limit: 20 }).some((message) =>
       message.kind === 'system' && message.body.includes('remove it and spawn a replacement')))
@@ -2258,3 +2259,75 @@ describe('a turn is never assembled from a mixture of old and new settings', () 
   });
 });
 // harn:end member-config-is-changed-not-respawned
+
+// harn:assume removing-an-agent-is-one-deliberate-step ref=remove-member-regression
+describe('removing an agent leaves nothing of it behind', () => {
+  it('removes a RUNNING member in one step, interrupting it first', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Hold the turn', options: [{ label: 'ok' }] },
+      reply: () => 'done',
+    });
+    daemon.postHumanMessage('eng', '@alpha start');
+    await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
+    );
+
+    daemon.removeMember('eng', alpha.id);
+
+    // Dead before removed — the invariant is preserved, not bypassed.
+    const removed = daemon.store.getMember('eng', alpha.id)!;
+    expect(removed.state).toBe('dead');
+    expect(removed.removed_ts).toBeDefined();
+    // No half-state: the card it was waiting on is not left pending forever.
+    expect(daemon.store.listInteractions('eng', 'pending')).toHaveLength(0);
+    // And it is gone from the roster the operator sees.
+    expect(daemon.memberDetails('eng').map((item) => item.member.id)).not.toContain(alpha.id);
+  });
+
+  it('consumes the work still queued for it, rather than leaving it in the pump', async () => {
+    const alpha = spawnAgent('alpha');
+    daemon.pauseMember('eng', alpha.id); // hold the queue so work piles up
+    daemon.postHumanMessage('eng', '@alpha one');
+    daemon.postHumanMessage('eng', '@alpha two');
+    await daemon.settle();
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id, state: 'queued' })).toHaveLength(2);
+
+    daemon.removeMember('eng', alpha.id);
+
+    // Work addressed to a member that no longer exists has nowhere to go.
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id, state: 'queued' })).toHaveLength(0);
+    expect(daemon.store.listMessages('eng', { limit: 100 }).map((message) => message.body))
+      .toContainEqual(expect.stringContaining('2 queued messages dropped'));
+  });
+
+  it('refuses the whole operation while an interactive attach lease is held', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'complete', final_text: '@richard ready' });
+    daemon.postHumanMessage('eng', '@alpha ready?');
+    await daemon.settle();
+    await daemon.acquireAttachLease('eng', alpha.id, 4242);
+    // Refused BEFORE anything is written: no orphaned lease, no half-removed member.
+    expect(() => daemon.removeMember('eng', alpha.id)).toThrow(/attach lease/);
+    const untouched = daemon.store.getMember('eng', alpha.id)!;
+    expect(untouched.state).not.toBe('dead');
+    expect(untouched.removed_ts).toBeUndefined();
+  });
+
+  it('keeps the author of every message the agent ever wrote', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'complete', final_text: '@richard I did the thing' });
+    daemon.postHumanMessage('eng', '@alpha do the thing');
+    await daemon.settle();
+    const run = runMessages().at(-1)!;
+
+    daemon.removeMember('eng', alpha.id);
+
+    // The tombstone is the whole point: the row survives so history keeps its author.
+    expect(daemon.store.getMember('eng', alpha.id)!.handle).toBe('alpha');
+    expect(daemon.store.listMessages('eng', { limit: 100 }).find((m) => m.id === run.id)!.author)
+      .toBe(alpha.id);
+  });
+});
+// harn:end removing-an-agent-is-one-deliberate-step

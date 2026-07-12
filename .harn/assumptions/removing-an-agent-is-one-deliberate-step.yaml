@@ -1,0 +1,19 @@
+id: removing-an-agent-is-one-deliberate-step
+hash: a-b0fa4933bdad
+title: Remove it, and nothing of it is left running or queued
+state: active
+statement: "Removing an agent must be a single act the operator can perform on a
+  LIVE member - not a two-step ritual of kill-then-remove that only offers the
+  second button once the first has already been pressed - and it must be
+  confirmed by name, because it is destructive. The act itself must still kill
+  before it tombstones, so the invariant that a member is dead before it is
+  removed is preserved rather than weakened: a running turn is interrupted, an
+  interactive attach lease refuses the whole operation rather than being
+  orphaned, and the work still queued for that member is CONSUMED rather than
+  left addressed to a member that no longer exists, where it would sit in the
+  pump forever waiting for an agent that is never coming back. The tombstone
+  stays: the row survives with a removal timestamp so that every message the
+  agent ever wrote keeps its author."
+depends_on:
+  - removed-members-remain-attribution-tombstones
+created_by: a5-remove-member
