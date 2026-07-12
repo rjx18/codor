@@ -1,0 +1,52 @@
+id: u2-gate-fixes
+title: U2 gate fixes - composer caret placement must be synchronous
+assumptions:
+  create:
+    - id: composer-caret-updates-are-synchronous
+      title: The composer never moves focus or the caret on a later frame
+      statement: The composer must apply every programmatic caret placement - default
+        materialization, mention insertion, and the mention affordance - in the
+        same commit as the value change that requires it, and must never leave a
+        focus or selection write pending on a later animation frame, because a
+        deferred selection write lands after the next interaction has already
+        begun and collapses a selection made in the meantime, silently turning a
+        replace-the-draft interaction into an append and reinserting a mention
+        the operator had removed.
+      reason: A loaded host reproduced the composer materializing its default a second
+        time mid-typing, serving `@codor hhello` where the operator had replaced
+        the draft with `hello`; the deferred requestAnimationFrame caret write
+        collapsed the select-all that the replacing interaction depends on.
+      depends_on:
+        - literal-draft-effective-recipient-visible
+  reviewed:
+    - id: literal-draft-effective-recipient-visible
+      outcome: unchanged
+      reason: The insert-once contract itself is right and unchanged - the default is
+        still materialized on the first non-@ input into an empty draft and
+        never reinserted within that draft. The defect was not the state
+        machine, whose flag is a synchronous ref, but the deferred caret write
+        that let a later interaction be rewritten; making the caret synchronous
+        restores the contract the statement already promises.
+anchors:
+  composer-caret-updates-are-synchronous:
+    composer-caret-sync:
+      action: change
+      reason: Apply the pending caret in a layout effect in the same commit as the
+        value change instead of scheduling focus and selection on a later frame.
+    composer-caret-sync-regression:
+      action: change
+      reason: Prove deterministically that no selection write is left pending - a
+        select-all performed after materialization survives a flushed frame -
+        and that the replace-then-type sequence keeps the operator's draft.
+  literal-draft-effective-recipient-visible:
+    composer-literal-recipient:
+      action: change
+      reason: The caret placement being fixed lives inside the composer's literal
+        recipient region; the insert-once behavior it declares is unchanged.
+files:
+  - packages/web/src/components.tsx
+  - packages/web/src/composer.spec.tsx
+  - packages/web/package.json
+  - pnpm-lock.yaml
+applied:
+  applied_at: 2026-07-12T08:37:35.508Z

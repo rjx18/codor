@@ -1,0 +1,15 @@
+id: composer-caret-updates-are-synchronous
+hash: a-19674f04cc9a
+title: The composer never moves focus or the caret on a later frame
+state: active
+statement: The composer must apply every programmatic caret placement - default
+  materialization, mention insertion, and the mention affordance - in the same
+  commit as the value change that requires it, and must never leave a focus or
+  selection write pending on a later animation frame, because a deferred
+  selection write lands after the next interaction has already begun and
+  collapses a selection made in the meantime, silently turning a
+  replace-the-draft interaction into an append and reinserting a mention the
+  operator had removed.
+depends_on:
+  - literal-draft-effective-recipient-visible
+created_by: u2-gate-fixes

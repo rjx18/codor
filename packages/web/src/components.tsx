@@ -42,7 +42,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchLedgerNote, fetchRunEvents } from './api.js';
 import type { AdapterRegistration, LedgerNote, MemberDetail } from './api.js';
@@ -1410,12 +1410,25 @@ export function Composer(props: {
     setActiveMention(0);
   };
 
+  // harn:assume composer-caret-updates-are-synchronous ref=composer-caret-sync
+  // The caret must land in the same commit as the value that moved it. Deferring
+  // it to a frame lets it fire after the NEXT interaction has begun: a caller
+  // that selects the draft to replace it (every fill, and any select-all) has its
+  // selection collapsed by the late write, so the replacement appends instead —
+  // which reads as the default mention re-materializing ("@codor hhello").
+  const pendingCaret = useRef<number>();
   const focusAt = (caret: number): void => {
-    requestAnimationFrame(() => {
-      input.current?.focus();
-      input.current?.setSelectionRange(caret, caret);
-    });
+    pendingCaret.current = caret;
   };
+
+  useLayoutEffect(() => {
+    const caret = pendingCaret.current;
+    if (caret === undefined) return;
+    pendingCaret.current = undefined;
+    input.current?.focus();
+    input.current?.setSelectionRange(caret, caret);
+  });
+  // harn:end composer-caret-updates-are-synchronous
 
   const insertMention = (member: Member): void => {
     if (!mention) return;
