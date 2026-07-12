@@ -36,6 +36,15 @@ const actSamples = {
   pause: { act: 'pause', member_id: '01J00000000000000000000000' },
   unpause: { act: 'unpause', member_id: '01J00000000000000000000000' },
   interrupt: { act: 'interrupt', member_id: '01J00000000000000000000000' },
+  consume_delivery: { act: 'consume_delivery', delivery_id: '018f47b4-7f9f-7d3b-a064-52f004c2b782' },
+  wait_begin: {
+    act: 'wait_begin',
+    reason: 'reply',
+    peers: ['01J00000000000000000000000'],
+    until_ts: '2026-07-13T00:00:00.000Z',
+  },
+  wait_end: { act: 'wait_end' },
+  configure: { act: 'configure', member_id: '01J00000000000000000000000' },
   set_role: { act: 'set_role', member_id: '01J00000000000000000000000', role: 'member' },
 } satisfies { [K in Act['act']]: Extract<Act, { act: K }> };
 
@@ -52,10 +61,17 @@ describe('PROTOCOL section 1 role matrix', () => {
   it('accounts for every wire act exactly once', () => {
     const acts = Object.values(actSamples) as Act[];
     expect(new Set(acts.map((act) => act.act))).toEqual(new Set(Object.keys(actSamples)));
+    const agentOnly = new Set<Act['act']>(['wait_begin', 'wait_end']);
     for (const role of roles) {
       for (const act of acts) {
-        expect(roleAllows(role, act.act), `${role} -> ${act.act}`)
-          .toBe(rank[role] >= rank[CAPABILITY_MINIMUM_ROLE[act.act]]);
+        if (agentOnly.has(act.act)) {
+          expect(CAPABILITY_MINIMUM_ROLE, `${act.act} must not gain a fake human role`)
+            .not.toHaveProperty(act.act);
+          continue;
+        }
+        const capability = act.act as HumanCapability;
+        expect(roleAllows(role, capability), `${role} -> ${act.act}`)
+          .toBe(rank[role] >= rank[CAPABILITY_MINIMUM_ROLE[capability]]);
       }
     }
   });
@@ -104,12 +120,18 @@ describe('agent member credential capability matrix', () => {
   });
 
   it('excludes configure and every existing management act', () => {
-    const existingWireActs = [...Object.keys(actSamples), 'configure'];
-    for (const act of existingWireActs) {
-      expect(agentAllows(act as RoomCapability), act).toBe(false);
-      expect(() => assertAgentCapability(agent, act as RoomCapability), act)
-        .toThrow('forbidden: agent cannot');
+    const allowedActs = new Set(['consume_delivery', 'wait_begin', 'wait_end']);
+    for (const act of Object.keys(actSamples)) {
+      const allowed = allowedActs.has(act);
+      expect(agentAllows(act as RoomCapability), act).toBe(allowed);
+      if (allowed) {
+        expect(() => assertAgentCapability(agent, act as RoomCapability), act).not.toThrow();
+      } else {
+        expect(() => assertAgentCapability(agent, act as RoomCapability), act)
+          .toThrow('forbidden: agent cannot');
+      }
     }
+    expect(agentAllows('configure')).toBe(false);
   });
 
   it('accepts every declared agent capability and rejects a human principal', () => {

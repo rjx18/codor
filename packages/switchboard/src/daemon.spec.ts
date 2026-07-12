@@ -128,6 +128,149 @@ describe('agent member session credentials', () => {
 });
 // harn:end agent-member-credentials-stay-secret
 
+// harn:assume live-delivery-consumption-is-idempotent ref=consumption-daemon-regression
+describe('live queued-delivery consumption', () => {
+  it('removes work queued during a blocked turn without admitting a second run', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Keep this turn open?', options: [{ label: 'finish' }] },
+      reply: () => '@richard first turn done',
+    });
+    daemon.postHumanMessage('eng', '@alpha start the first turn');
+    const interaction = await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
+    );
+    const queuedMessage = daemon.postHumanMessage('eng', '@alpha consume this while blocked');
+    const queued = daemon.store.listDeliveries('eng', {
+      recipient: alpha.id,
+      state: 'queued',
+    }).find((delivery) => delivery.message_id === queuedMessage.id)!;
+
+    const first = daemon.consumeDelivery('eng', queued.id, alpha.id);
+    expect(first).toMatchObject({
+      delivery: { id: queued.id, state: 'consumed' },
+      message: { id: queuedMessage.id, body: '@alpha consume this while blocked' },
+    });
+    expect(daemon.consumeDelivery('eng', queued.id, alpha.id)).toEqual(first);
+
+    await daemon.answerInteraction('eng', interaction.id, 'finish');
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(1);
+    expect(fake.deliveries[0]!.payload).not.toContain('consume this while blocked');
+    expect(runMessages()).toHaveLength(1);
+    expect(runMessages()[0]!.body).toBe('@richard first turn done');
+  });
+});
+// harn:end live-delivery-consumption-is-idempotent
+
+// harn:assume live-agent-waits-are-transient ref=wait-daemon-regression
+describe('transient live waits', () => {
+  const createRunningAgent = (handle: string) => {
+    const agent = spawnAgent(handle, testCwd(handle));
+    daemon.store.updateMember('eng', agent.id, { state: 'running' });
+    const posted = daemon.store.postMessage('eng', { author: agent.id, kind: 'run', body: '' });
+    const run = daemon.store.updateMessage('eng', posted.id, {
+      run: {
+        status: 'running',
+        started_ts: new Date(Date.now() - 3_600_000).toISOString(),
+        tool_calls: 0,
+        events_ref: `runs/${String(posted.id)}.jsonl`,
+      },
+    });
+    return { agent, run };
+  };
+
+  it('overlays waits, exempts only their live deadline, and clears on end, kill, and restart', async () => {
+    const beta = spawnAgent('beta', testCwd('beta'));
+    const { agent: alpha, run } = createRunningAgent('alpha');
+    const now = new Date();
+    const untilTs = new Date(now.getTime() + 2 * 3_600_000).toISOString();
+
+    expect(() => daemon.beginWait('eng', alpha.id, {
+      reason: 'reply', peers: [alpha.id], until_ts: untilTs,
+    }, now)).toThrow('at least one other member');
+    expect(() => daemon.beginWait('eng', alpha.id, {
+      reason: 'reply', peers: [beta.id], until_ts: new Date(now.getTime() - 1).toISOString(),
+    }, now)).toThrow('deadline must be in the future');
+    const idle = spawnAgent('idle', testCwd('idle'));
+    expect(() => daemon.beginWait('eng', idle.id, {
+      reason: 'reply', peers: [beta.id], until_ts: untilTs,
+    }, now)).toThrow('cannot wait while idle');
+    const otherOwner = daemon.createRoom({
+      id: 'other', name: 'Other', owner: { handle: 'other-owner', display_name: 'Other Owner' },
+    }).owner;
+    expect(() => daemon.beginWait('eng', alpha.id, {
+      reason: 'reply', peers: [otherOwner.id], until_ts: untilTs,
+    }, now)).toThrow('no active wait peer');
+    const hydrationCursor = daemon.store.currentSeq('eng');
+
+    expect(daemon.beginWait('eng', alpha.id, {
+      reason: 'reply', peers: [beta.id, beta.id], until_ts: untilTs,
+    }, now)).toMatchObject({
+      id: alpha.id,
+      waiting: { reason: 'reply', peers: [beta.id], since_ts: now.toISOString(), until_ts: untilTs },
+    });
+    expect(daemon.store.getMember('eng', alpha.id)).not.toHaveProperty('waiting');
+    expect(daemon.sync('eng', hydrationCursor).members.find((item) => item.id === alpha.id)).toMatchObject({
+      waiting: { peers: [beta.id], reason: 'reply' },
+    });
+    expect([...frames].reverse().find((item) =>
+      item.frame.type === 'member' && item.frame.member.id === alpha.id)?.frame)
+      .toMatchObject({ type: 'member', member: { waiting: { reason: 'reply' } } });
+
+    daemon.checkStalls(new Date(now.getTime() + 60 * 60_000));
+    expect(daemon.store.getMessage('eng', run.id)!.run!.stalled_since).toBeUndefined();
+    daemon.checkStalls(new Date(now.getTime() + 3 * 60 * 60_000));
+    expect(daemon.store.getMessage('eng', run.id)!.run!.stalled_since).toBeDefined();
+
+    expect(daemon.endWait('eng', alpha.id)).not.toHaveProperty('waiting');
+    expect(daemon.endWait('eng', alpha.id)).not.toHaveProperty('waiting');
+    expect(daemon.sync('eng', hydrationCursor).members.find((item) => item.id === alpha.id))
+      .not.toHaveProperty('waiting');
+
+    daemon.beginWait('eng', alpha.id, {
+      reason: 'any', peers: [beta.id], until_ts: untilTs,
+    }, now);
+    daemon.killMember('eng', alpha.id);
+    expect(daemon.sync('eng', 0).members.find((item) => item.id === alpha.id))
+      .not.toHaveProperty('waiting');
+
+    const { agent: gamma } = createRunningAgent('gamma');
+    daemon.beginWait('eng', gamma.id, {
+      reason: 'mention', peers: [beta.id], until_ts: untilTs,
+    }, now);
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    expect(daemon.sync('eng', 0).members.find((item) => item.id === gamma.id))
+      .not.toHaveProperty('waiting');
+  });
+
+  it('clears the wait before a completed turn emits its idle member frame', async () => {
+    const beta = spawnAgent('beta', testCwd('completion-beta'));
+    const alpha = spawnAgent('alpha', testCwd('completion-alpha'));
+    fake.enqueue({ kind: 'complete', final_text: '@richard done', delay_ms: 100 });
+    daemon.postHumanMessage('eng', '@alpha wait briefly');
+    await until(() => daemon.store.getMember('eng', alpha.id)?.state === 'running' ? true : undefined);
+    daemon.beginWait('eng', alpha.id, {
+      reason: 'reply',
+      peers: [beta.id],
+      until_ts: new Date(Date.now() + 60_000).toISOString(),
+    });
+    await daemon.settle();
+
+    expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('idle');
+    expect(daemon.sync('eng', 0).members.find((item) => item.id === alpha.id))
+      .not.toHaveProperty('waiting');
+    const lastMember = [...frames].reverse().find((item) =>
+      item.frame.type === 'member' && item.frame.member.id === alpha.id)?.frame;
+    expect(lastMember).toMatchObject({ type: 'member', member: { id: alpha.id, state: 'idle' } });
+    expect(lastMember && 'member' in lastMember ? lastMember.member : undefined)
+      .not.toHaveProperty('waiting');
+  });
+});
+// harn:end live-agent-waits-are-transient
+
 describe('member management', () => {
   it('renames mid-queue without retargeting mentions and rejects duplicate handles', async () => {
     const alpha = spawnAgent('alpha');

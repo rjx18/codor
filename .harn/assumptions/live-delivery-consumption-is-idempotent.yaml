@@ -1,0 +1,17 @@
+id: live-delivery-consumption-is-idempotent
+hash: a-9988732150cf
+title: Mid-turn consumption and turn admission have one winner
+state: active
+statement: A consume_delivery act must return its delivery and source message
+  and may transition the delivery to consumed only when it is still queued and
+  addressed to the authenticated actor. Repeating the act or losing the race to
+  turn admission must return the current state without changing it, while a
+  consume that wins before beginTurn must compose with the transactional LC0b
+  admission guard so the message is never placed in a run or handed to the
+  harness. The serving result must use the room redaction projection, because an
+  act response is a client surface like any other.
+depends_on:
+  - only-an-admissible-delivery-becomes-delivering
+  - agent-network-authority-is-narrow
+  - redaction-before-fanout
+created_by: lc2b-live-consumption-waits

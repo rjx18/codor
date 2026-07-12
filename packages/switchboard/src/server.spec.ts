@@ -38,6 +38,22 @@ const testCwd = (name = 'work') => {
   return path;
 };
 
+const spawnAgentWithToken = (handle: string, room = 'eng') => {
+  let captured: Session | undefined;
+  const originalSpawn = fake.spawn.bind(fake);
+  const spawn = vi.spyOn(fake, 'spawn').mockImplementationOnce((opts: SpawnOpts) => {
+    captured = originalSpawn(opts);
+    return captured;
+  });
+  const agent = daemon.spawnMember(room, {
+    harness: 'fake', handle, cwd: testCwd(`${room}-${handle}`),
+  });
+  spawn.mockRestore();
+  const token = captured?.env?.CODOR_MEMBER_TOKEN;
+  if (!token) throw new Error(`spawn did not issue a member credential for @${handle}`);
+  return { agent, token };
+};
+
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'codor-server-'));
   fake = new FakeAdapter('fake', { interactiveAttach: true });
@@ -1177,6 +1193,129 @@ describe('WebSocket', () => {
     expect(daemon.store.getAttachLease(lease.id)).toBeDefined();
     expect(daemon.store.getMember('ops', agent.id)).toMatchObject({ custody: 'mirrored' });
   });
+
+  // harn:assume live-delivery-consumption-is-idempotent ref=consumption-server-regression
+  it('lets an agent consume only its own queued delivery and returns a projected source message', async () => {
+    const { agent: alpha, token: alphaToken } = spawnAgentWithToken('consume-alpha');
+    const { token: betaToken } = spawnAgentWithToken('consume-beta');
+    daemon.pauseMember('eng', alpha.id);
+    const secret = 'AKIAIOSFODNN7EXAMPLE';
+    const message = daemon.postHumanMessage('eng', `@consume-alpha inspect ${secret}`);
+    const delivery = daemon.store.listDeliveries('eng', {
+      recipient: alpha.id,
+      state: 'queued',
+    }).find((item) => item.message_id === message.id)!;
+
+    const alphaClient = await connectAs(alphaToken);
+    alphaClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'consume_delivery', delivery_id: delivery.id },
+    }));
+    const consumed = await alphaClient.next((frame) => frame.type === 'consume_result');
+    expect(consumed).toMatchObject({
+      type: 'consume_result',
+      delivery: { id: delivery.id, recipient: alpha.id, state: 'consumed' },
+      message: { id: message.id, body: expect.stringContaining('[redacted]') },
+    });
+    expect(JSON.stringify(consumed)).not.toContain(secret);
+    expect(daemon.store.getMessage('eng', message.id)!.body).toContain(secret);
+
+    alphaClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'consume_delivery', delivery_id: delivery.id },
+    }));
+    await vi.waitFor(() => {
+      expect(alphaClient.frames.filter((frame) => frame.type === 'consume_result')).toHaveLength(2);
+    });
+    expect(alphaClient.frames.filter((frame) => frame.type === 'consume_result')[1])
+      .toEqual(consumed);
+
+    const betaClient = await connectAs(betaToken);
+    betaClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'consume_delivery', delivery_id: delivery.id },
+    }));
+    await expect(betaClient.next((frame) => frame.type === 'error')).resolves.toMatchObject({
+      type: 'error', ref: 'act', message: expect.stringContaining('not addressed'),
+    });
+
+    const humanClient = await connectAs(MEMBER_TOKEN);
+    humanClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'consume_delivery', delivery_id: delivery.id },
+    }));
+    await expect(humanClient.next((frame) => frame.type === 'error')).resolves.toMatchObject({
+      type: 'error', ref: 'act', message: expect.stringContaining('not addressed'),
+    });
+
+    alphaClient.ws.close();
+    betaClient.ws.close();
+    humanClient.ws.close();
+  });
+  // harn:end live-delivery-consumption-is-idempotent
+
+  // harn:assume live-agent-waits-are-transient ref=wait-server-regression
+  it('accepts self waits only from the running agent credential in its own room', async () => {
+    const { agent: alpha, token: alphaToken } = spawnAgentWithToken('wait-alpha');
+    const { agent: beta } = spawnAgentWithToken('wait-beta');
+    daemon.store.updateMember('eng', alpha.id, { state: 'running' });
+    const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+    daemon.store.updateMessage('eng', posted.id, {
+      run: {
+        status: 'running',
+        started_ts: new Date().toISOString(),
+        tool_calls: 0,
+        events_ref: `runs/${String(posted.id)}.jsonl`,
+      },
+    });
+    daemon.createRoom({
+      id: 'other', name: 'Other', owner: { handle: 'elsewhere', display_name: 'Elsewhere' },
+    });
+    const untilTs = new Date(Date.now() + 60_000).toISOString();
+
+    const agentClient = await connectAs(alphaToken);
+    agentClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await agentClient.next((frame) => frame.type === 'sync_complete');
+    agentClient.ws.send(JSON.stringify({
+      type: 'act',
+      room: 'eng',
+      act: { act: 'wait_begin', reason: 'mention', peers: [beta.id], until_ts: untilTs },
+    }));
+    await expect(agentClient.next((frame) =>
+      frame.type === 'member' && frame.member.id === alpha.id && frame.member.waiting !== undefined))
+      .resolves.toMatchObject({
+        member: { id: alpha.id, waiting: { reason: 'mention', peers: [beta.id], until_ts: untilTs } },
+      });
+
+    const humanClient = await connectAs(MEMBER_TOKEN);
+    humanClient.ws.send(JSON.stringify({
+      type: 'act',
+      room: 'eng',
+      act: { act: 'wait_begin', reason: 'any', peers: [beta.id], until_ts: untilTs },
+    }));
+    await expect(humanClient.next((frame) => frame.type === 'error')).resolves.toMatchObject({
+      type: 'error', ref: 'act', message: expect.stringContaining('forbidden'),
+    });
+
+    agentClient.ws.send(JSON.stringify({
+      type: 'act',
+      room: 'other',
+      act: { act: 'wait_begin', reason: 'any', peers: [beta.id], until_ts: untilTs },
+    }));
+    await expect(agentClient.next((frame) => frame.type === 'error')).resolves.toMatchObject({
+      type: 'error', ref: 'act', message: expect.stringContaining('belongs to room eng'),
+    });
+
+    const beforeEnd = agentClient.frames.length;
+    agentClient.ws.send(JSON.stringify({ type: 'act', room: 'eng', act: { act: 'wait_end' } }));
+    await vi.waitFor(() => {
+      expect(agentClient.frames.slice(beforeEnd).some((frame) =>
+        frame.type === 'member' && frame.member.id === alpha.id && frame.member.waiting === undefined))
+        .toBe(true);
+    });
+    expect(daemon.sync('eng', 0).members.find((item) => item.id === alpha.id))
+      .not.toHaveProperty('waiting');
+
+    agentClient.ws.close();
+    humanClient.ws.close();
+  });
+  // harn:end live-agent-waits-are-transient
 
   it('acts flow through: mark_read clears the unread count', async () => {
     daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: testCwd() });

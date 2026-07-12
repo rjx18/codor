@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { PolicySchema, ThinkingLevelSchema } from './adapter.js';
 import { DeliverySchema } from './delivery.js';
 import { WireEventSchema } from './events.js';
-import { MemberIdSchema, MessageIdSchema, RoomIdSchema, SeqSchema } from './ids.js';
+import { MemberIdSchema, MessageIdSchema, RoomIdSchema, SeqSchema, TimestampSchema } from './ids.js';
 import { AssignableHandleSchema } from './member.js';
 import { MemberSchema } from './member.js';
 import { MessageSchema } from './message.js';
@@ -94,6 +94,18 @@ export const ActSchema = z.discriminatedUnion('act', [
   z.object({ act: z.literal('pause'), member_id: MemberIdSchema }),
   z.object({ act: z.literal('unpause'), member_id: MemberIdSchema }),
   z.object({ act: z.literal('interrupt'), member_id: MemberIdSchema }),
+  // harn:assume live-delivery-consumption-is-idempotent ref=consume-act-contract
+  z.object({ act: z.literal('consume_delivery'), delivery_id: z.string().uuid() }),
+  // harn:end live-delivery-consumption-is-idempotent
+  // harn:assume live-agent-waits-are-transient ref=wait-act-contract
+  z.object({
+    act: z.literal('wait_begin'),
+    reason: z.enum(['reply', 'mention', 'any']),
+    peers: z.array(MemberIdSchema).min(1),
+    until_ts: TimestampSchema,
+  }),
+  z.object({ act: z.literal('wait_end') }),
+  // harn:end live-agent-waits-are-transient
   // harn:assume member-config-is-changed-not-respawned ref=configure-act-contract
   // The settings a live agent can be given AFTER it exists. Not the harness and not
   // the cwd: those are fixed when the agent is created, and offering a control that
@@ -188,6 +200,13 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('message'), seq: SeqSchema, message: MessageSchema }),
   z.object({ type: z.literal('member'), seq: SeqSchema, member: MemberSchema }),
   z.object({ type: z.literal('inbox'), seq: SeqSchema, delivery: DeliverySchema }),
+  // harn:assume live-delivery-consumption-is-idempotent ref=consume-result-frame
+  z.object({
+    type: z.literal('consume_result'),
+    delivery: DeliverySchema,
+    message: MessageSchema,
+  }),
+  // harn:end live-delivery-consumption-is-idempotent
   z.object({ type: z.literal('meter'), seq: SeqSchema, meter: RoomMeterSchema }),
   z.object({ type: z.literal('room'), seq: SeqSchema, room: RoomSchema }),
   // harn:assume sync-cursor-commits-after-hydration ref=sync-complete-frame

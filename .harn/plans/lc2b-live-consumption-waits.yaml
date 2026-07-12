@@ -1,0 +1,182 @@
+id: lc2b-live-consumption-waits
+title: LC2b - queued work can be consumed once and a live agent can wait without
+  looking stalled
+assumptions:
+  create:
+    - id: live-delivery-consumption-is-idempotent
+      title: Mid-turn consumption and turn admission have one winner
+      statement: A consume_delivery act must return its delivery and source message
+        and may transition the delivery to consumed only when it is still queued
+        and addressed to the authenticated actor. Repeating the act or losing
+        the race to turn admission must return the current state without
+        changing it, while a consume that wins before beginTurn must compose
+        with the transactional LC0b admission guard so the message is never
+        placed in a run or handed to the harness. The serving result must use
+        the room redaction projection, because an act response is a client
+        surface like any other.
+      reason: LC2/L3. Live inbox, blocking post, and follow-tail all need one
+        loser-safe path that removes queued work without letting the turn pump
+        resurrect it.
+      depends_on:
+        - only-an-admissible-delivery-becomes-delivering
+        - agent-network-authority-is-narrow
+        - redaction-before-fanout
+    - id: live-agent-waits-are-transient
+      title: A live wait is visible runtime state, never durable member state
+      statement: Only an authenticated agent may register or clear its own wait, and
+        it may do so only while its daemon-owned turn is running. The wait must
+        name real same-channel peers, a defined reason, its registration time,
+        and a future deadline. It lives only in daemon memory, is overlaid on
+        member frames and sync without entering the member row or change log,
+        and is cleared when the turn ends, the member dies, or the daemon
+        restarts. While its deadline is still in the future the stall watchdog
+        must not flag that run, because waiting on a live peer is progress with
+        an external dependency rather than inactivity.
+      reason: LC2/L4 and E5/E8. Operators need to distinguish blocked collaboration
+        from a stuck process, without a stale wait surviving the process that
+        owned it.
+      depends_on:
+        - waiting-is-visible-member-state
+        - stall-flags-never-kills
+        - agent-network-authority-is-narrow
+  reviewed:
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: The three protocol acts now exist and are dispatched through the matrix
+        LC2a declared. Consume is own-delivery only and wait begin/end are
+        agent-only; configure remains explicitly absent.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Human roles still gate every human act. consume_delivery is a member
+        act; wait_begin and wait_end are excluded from the human capability type
+        rather than receiving a fictitious role entry for an operation humans
+        cannot perform.
+    - id: waiting-is-visible-member-state
+      outcome: unchanged
+      reason: LC1's optional wire field remains the contract. This sub-plan supplies
+        its transient daemon source and never persists it.
+    - id: only-an-admissible-delivery-becomes-delivering
+      outcome: unchanged
+      reason: The LC0b predicate is untouched. The new consumption path proves a
+        delivery consumed after selection is rejected inside beginTurn and
+        cannot appear in a run.
+    - id: stall-flags-never-kills
+      outcome: unchanged
+      reason: The watchdog still only records evidence and never interrupts. It now
+        knows an unexpired registered wait is not inactivity.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: The shared listener gains the three acts and one result frame; local and
+        network sockets still execute identical frame semantics.
+anchors:
+  live-delivery-consumption-is-idempotent:
+    consume-act-contract:
+      action: change
+      reason: Add consume_delivery with a delivery id to the Act union.
+    consume-result-frame:
+      action: change
+      reason: Return both the current delivery state and its projected source message.
+    consume-queued-transaction:
+      action: change
+      reason: In one transaction enforce recipient ownership, conditionally move only
+        queued to consumed, and return the current state on every retry or lost
+        race.
+    consume-delivery-daemon:
+      action: change
+      reason: Expose the single store transition through the daemon and apply the room
+        projection before the result reaches a client.
+    consume-act-dispatch:
+      action: change
+      reason: Dispatch after principal-kind authorization and send the explicit result.
+    consumption-protocol-regression:
+      action: change
+      reason: Prove the act and result schemas accept exact valid shapes and reject
+        malformed ids or missing source messages.
+    consumption-store-regression:
+      action: change
+      reason: Prove queued-only transition, idempotency, wrong-recipient refusal, and
+        the select-consume-begin race against the LC0b guard.
+    consumption-daemon-regression:
+      action: change
+      reason: Consume work queued during a blocked turn, finish that turn, and prove
+        the consumed message never reaches a second harness invocation or run
+        message.
+    consumption-server-regression:
+      action: change
+      reason: Prove an agent consumes only its own delivery, receives the projected
+        message, and a human cannot take another member's queued work.
+  live-agent-waits-are-transient:
+    wait-act-contract:
+      action: change
+      reason: Add wait_begin and wait_end with peer ids, reason, and deadline.
+    transient-wait-registry:
+      action: change
+      reason: Validate and hold waits only in daemon memory; begin and end are
+        self-only and end is idempotent.
+    wait-act-dispatch:
+      action: change
+      reason: Dispatch wait registration and clearing only for an authenticated agent
+        principal acting as itself.
+    wait-member-projection:
+      action: change
+      reason: Overlay the transient wait on live member frames and sync hydration
+        without writing it to Store.
+    wait-stall-exemption:
+      action: change
+      reason: Skip the stall flag until the active wait deadline passes.
+    wait-clears-on-turn-end:
+      action: change
+      reason: Delete the transient wait before the final member frame is emitted, and
+        when a member is killed.
+    wait-protocol-regression:
+      action: change
+      reason: Prove exact reasons, nonempty peer ids, and valid deadlines on the acts.
+    wait-daemon-regression:
+      action: change
+      reason: Prove begin/end emission, sync overlay, no DB persistence,
+        deadline-aware stall behavior, and clearing on completion, kill, and
+        restart.
+    wait-server-regression:
+      action: change
+      reason: Prove only an agent credential can begin/end its own wait and another
+        room or a human credential is refused.
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: change
+      reason: consume_delivery is member-authorized; the two agent-only wait acts are
+        deliberately excluded from the human capability record.
+    role-matrix-integration:
+      action: change
+      reason: The compile-time act inventory now proves which acts are human-capable
+        and which are agent-only.
+  agent-network-authority-is-narrow:
+    agent-capability-matrix:
+      action: change
+      reason: Bind the already-declared capability names to the new Act union without
+        widening the set; configure remains absent.
+    agent-capability-regression:
+      action: change
+      reason: Account for all three new wire acts and prove only those three from the
+        act union are agent-allowed.
+  stall-flags-never-kills:
+    run-stall-watchdog:
+      action: change
+      reason: A live unexpired wait exempts its member's current run; expiry restores
+        the unchanged evidence-only watchdog behavior.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Shared act dispatch gains consume and wait handling for both transports.
+files:
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/authorization.ts
+  - packages/switchboard/src/authorization.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+applied:
+  applied_at: 2026-07-12T19:08:52.654Z

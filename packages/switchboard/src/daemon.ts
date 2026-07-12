@@ -176,6 +176,7 @@ export class Daemon {
   private readonly pendingAttach = new Set<string>();
   private readonly releasedDeliveries = new Set<string>();
   private readonly operatorInterrupts = new Set<string>();
+  private readonly memberWaits = new Map<string, NonNullable<Member['waiting']>>();
   private readonly attachLeaseTimeoutMs: number;
   private readonly processProbe: (target: number) => boolean;
   private readonly attachLeaseTimer: NodeJS.Timeout;
@@ -304,6 +305,10 @@ export class Daemon {
       const timeoutMs = room.config.stall_minutes * 60_000;
       for (const message of this.store.listMessages(room.id, { limit: Number.MAX_SAFE_INTEGER })) {
         if (message.kind !== 'run' || message.run?.status !== 'running') continue;
+        // harn:assume live-agent-waits-are-transient ref=wait-stall-exemption
+        const wait = this.memberWaits.get(message.author);
+        if (wait && Date.parse(wait.until_ts) > now.getTime()) continue;
+        // harn:end live-agent-waits-are-transient
         const key = `${room.id}:${message.id}`;
         const lastActivity = this.runActivity.get(key) ?? Date.parse(message.run.started_ts);
         if (now.getTime() - lastActivity < timeoutMs || message.run.stalled_since !== undefined) {
@@ -383,7 +388,14 @@ export class Daemon {
   }
 
   private emitMember(room: string, member: Member): void {
-    this.emit(room, { type: 'member', seq: this.store.currentSeq(room), member });
+    // harn:assume live-agent-waits-are-transient ref=wait-member-projection
+    const waiting = this.memberWaits.get(member.id);
+    this.emit(room, {
+      type: 'member',
+      seq: this.store.currentSeq(room),
+      member: { ...member, ...(waiting && { waiting }) },
+    });
+    // harn:end live-agent-waits-are-transient
   }
 
   // harn:assume push-only-for-human-targeted-events ref=push-target-dispatch
@@ -1191,6 +1203,7 @@ export class Daemon {
         this.store.upsertInteraction({ ...interaction, state: 'orphaned' });
       }
     }
+    this.memberWaits.delete(memberId);
     const member = this.store.updateMember(room, memberId, { state: 'dead' });
     this.emitMember(room, member);
     this.postSystemMessage(
@@ -1379,6 +1392,67 @@ export class Daemon {
     return this.postChatMessage(room, body, memberId, replyTo);
   }
   // harn:end agent-network-authority-is-narrow
+
+  // harn:assume live-agent-waits-are-transient ref=transient-wait-registry
+  beginWait(
+    room: string,
+    memberId: string,
+    input: {
+      reason: NonNullable<Member['waiting']>['reason'];
+      peers: string[];
+      until_ts: string;
+    },
+    now = new Date(),
+  ): Member {
+    const member = this.store.getMember(room, memberId);
+    if (!member || member.kind !== 'agent' || member.removed_ts !== undefined) {
+      throw new Error(`no active agent member: ${memberId}`);
+    }
+    if (member.state !== 'running') {
+      throw new Error(`member @${member.handle} cannot wait while ${member.state ?? 'inactive'}`);
+    }
+    const until = Date.parse(input.until_ts);
+    if (!Number.isFinite(until) || until <= now.getTime()) {
+      throw new Error('wait deadline must be in the future');
+    }
+    const run = this.store.listMessages(room, { limit: Number.MAX_SAFE_INTEGER })
+      .reverse()
+      .find((message) =>
+        message.kind === 'run' && message.author === memberId && message.run?.status === 'running');
+    if (!run) throw new Error(`member @${member.handle} has no running turn to wait in`);
+    const peers = [...new Set(input.peers)];
+    if (peers.length === 0 || peers.includes(memberId)) {
+      throw new Error('wait peers must name at least one other member');
+    }
+    for (const peerId of peers) {
+      const peer = this.store.getMember(room, peerId);
+      if (!peer || peer.removed_ts !== undefined) throw new Error(`no active wait peer: ${peerId}`);
+    }
+    const waiting = {
+      peers,
+      reason: input.reason,
+      since_ts: now.toISOString(),
+      until_ts: input.until_ts,
+    } satisfies NonNullable<Member['waiting']>;
+    this.memberWaits.set(memberId, waiting);
+    this.noteRunActivity(room, run.id);
+    this.emitMember(room, member);
+    return { ...member, waiting };
+  }
+
+  endWait(room: string, memberId: string): Member {
+    const member = this.store.getMember(room, memberId);
+    if (!member || member.kind !== 'agent' || member.removed_ts !== undefined) {
+      throw new Error(`no active agent member: ${memberId}`);
+    }
+    if (member.state !== 'running') {
+      throw new Error(`member @${member.handle} cannot end a wait while ${member.state ?? 'inactive'}`);
+    }
+    const changed = this.memberWaits.delete(memberId);
+    if (changed) this.emitMember(room, member);
+    return member;
+  }
+  // harn:end live-agent-waits-are-transient
 
   postSystemMessage(
     room: string,
@@ -2037,6 +2111,9 @@ export class Daemon {
       },
       fanout,
     });
+    // harn:assume live-agent-waits-are-transient ref=wait-clears-on-turn-end
+    this.memberWaits.delete(memberId);
+    // harn:end live-agent-waits-are-transient
     this.emitMessage(room, completed.message);
     this.emitMember(room, completed.member);
     // harn:assume extensions-retire-with-parent-run ref=parent-finalization-extension-sweep
@@ -2330,6 +2407,9 @@ export class Daemon {
       }) — release_hold to retry or redeliver`,
     );
     const current = this.store.getMember(room, member.id);
+    // harn:assume live-agent-waits-are-transient ref=wait-clears-on-turn-end
+    this.memberWaits.delete(member.id);
+    // harn:end live-agent-waits-are-transient
     if (
       current?.custody === 'owned' &&
       current.state !== 'paused' &&
@@ -2487,6 +2567,19 @@ export class Daemon {
     return updated;
   }
 
+  // harn:assume live-delivery-consumption-is-idempotent ref=consume-delivery-daemon
+  consumeDelivery(
+    room: string,
+    deliveryId: string,
+    byMemberId: string,
+  ): { delivery: Delivery; message: Message } {
+    return this.project(
+      room,
+      this.store.consumeQueuedDelivery(room, deliveryId, byMemberId),
+    );
+  }
+  // harn:end live-delivery-consumption-is-idempotent
+
   unreadCount(room: string, memberId: string): number {
     return this.store
       .listDeliveries(room, { recipient: memberId })
@@ -2494,9 +2587,22 @@ export class Daemon {
   }
 
   /** Delta-sync straight off the change log, redacted like every fanout. */
+  // harn:assume live-agent-waits-are-transient ref=wait-member-projection
   sync(room: string, sinceSeq: number): ReturnType<Store['sync']> {
-    return this.project(room, this.store.sync(room, sinceSeq));
+    const sync = this.store.sync(room, sinceSeq);
+    const members = new Map(sync.members.map((member) => [member.id, member]));
+    for (const member of this.store.listMembers(room)) members.set(member.id, member);
+    return this.project(room, {
+      ...sync,
+      // Transient waits have no change-log row, so every hydration gets the
+      // authoritative active roster plus any removed-member delta from Store.
+      members: [...members.values()].map((member) => {
+        const waiting = this.memberWaits.get(member.id);
+        return { ...member, ...(waiting && { waiting }) };
+      }),
+    });
   }
+  // harn:end live-agent-waits-are-transient
 
   readRunBlob(room: string, msgId: number): WireEvent[] {
     const message = this.store.getMessage(room, msgId);

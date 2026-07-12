@@ -1,9 +1,11 @@
 import type { Act, Member, Role } from '@codor/protocol';
 
+type AgentOnlyAct = 'wait_begin' | 'wait_end';
+
 export type HumanCapability =
   | 'read'
   | 'post'
-  | Act['act']
+  | Exclude<Act['act'], AgentOnlyAct>
   | 'mirror_turn'
   | 'mirror_session_end'
   | 'manage_ledger'
@@ -25,6 +27,7 @@ const ROLE_RANK: Record<Role, number> = {
 export const CAPABILITY_MINIMUM_ROLE: Record<HumanCapability, Role> = {
   read: 'observer',
   mark_read: 'observer',
+  consume_delivery: 'member',
   post: 'member',
   answer_interaction: 'member',
   release_hold: 'member',

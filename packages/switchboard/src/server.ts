@@ -952,6 +952,25 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             else if (act.act === 'redeliver') daemon.redeliver(frame.room, act.delivery_id);
             else if (act.act === 'release_hold') daemon.releaseHold(frame.room, act.delivery_id);
             else if (act.act === 'mark_read') daemon.markRead(frame.room, act.delivery_id, actor.id);
+            // harn:assume live-delivery-consumption-is-idempotent ref=consume-act-dispatch
+            else if (act.act === 'consume_delivery') {
+              const consumed = daemon.consumeDelivery(frame.room, act.delivery_id, actor.id);
+              send({ type: 'consume_result', ...consumed });
+            }
+            // harn:end live-delivery-consumption-is-idempotent
+            // harn:assume live-agent-waits-are-transient ref=wait-act-dispatch
+            else if (act.act === 'wait_begin') {
+              if (principal.kind !== 'agent') throw new Error('forbidden: waits require an agent credential');
+              daemon.beginWait(frame.room, actor.id, {
+                reason: act.reason,
+                peers: act.peers,
+                until_ts: act.until_ts,
+              });
+            } else if (act.act === 'wait_end') {
+              if (principal.kind !== 'agent') throw new Error('forbidden: waits require an agent credential');
+              daemon.endWait(frame.room, actor.id);
+            }
+            // harn:end live-agent-waits-are-transient
             else if (act.act === 'spawn') {
               daemon.spawnMember(frame.room, {
                 harness: act.harness,

@@ -33,6 +33,7 @@ import type { RunItemType, Session, SpawnOpts } from './index.js';
 
 const ULID_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
 const ULID_B = '01BX5ZZKBKACTAV9WEVGEMMVRZ';
+const DELIVERY_ID = '018f47b4-7f9f-7d3b-a064-52f004c2b782';
 const TS = '2026-07-10T07:00:00.000Z';
 
 const chatMessage = {
@@ -755,6 +756,68 @@ describe('WS server frames', () => {
     expect(parsed).toHaveProperty('seq', 9);
   });
 });
+
+// harn:assume live-delivery-consumption-is-idempotent ref=consumption-protocol-regression
+describe('live delivery consumption protocol', () => {
+  it('accepts the consume act and its delivery plus source-message result', () => {
+    expect(ActSchema.parse({ act: 'consume_delivery', delivery_id: DELIVERY_ID }))
+      .toEqual({ act: 'consume_delivery', delivery_id: DELIVERY_ID });
+    expect(ServerFrameSchema.parse({
+      type: 'consume_result',
+      delivery: {
+        id: DELIVERY_ID,
+        room: 'r',
+        message_id: chatMessage.id,
+        recipient: ULID_A,
+        state: 'consumed',
+        ts: TS,
+      },
+      message: chatMessage,
+    })).toMatchObject({
+      type: 'consume_result',
+      delivery: { id: DELIVERY_ID, state: 'consumed' },
+      message: { id: chatMessage.id },
+    });
+  });
+
+  it('rejects a malformed delivery id or a result without its source message', () => {
+    expect(ActSchema.safeParse({ act: 'consume_delivery', delivery_id: 'not-a-delivery' }).success)
+      .toBe(false);
+    expect(ServerFrameSchema.safeParse({
+      type: 'consume_result',
+      delivery: {
+        id: DELIVERY_ID, room: 'r', message_id: 1, recipient: ULID_A,
+        state: 'consumed', ts: TS,
+      },
+    }).success).toBe(false);
+  });
+});
+// harn:end live-delivery-consumption-is-idempotent
+
+// harn:assume live-agent-waits-are-transient ref=wait-protocol-regression
+describe('live wait acts', () => {
+  const wait = {
+    act: 'wait_begin' as const,
+    reason: 'reply' as const,
+    peers: [ULID_B],
+    until_ts: TS,
+  };
+
+  it('accepts every wait reason and the idempotent end act', () => {
+    for (const reason of ['reply', 'mention', 'any'] as const) {
+      expect(ActSchema.parse({ ...wait, reason })).toEqual({ ...wait, reason });
+    }
+    expect(ActSchema.parse({ act: 'wait_end' })).toEqual({ act: 'wait_end' });
+  });
+
+  it('rejects empty peers, handles in place of ids, unknown reasons, and bad deadlines', () => {
+    expect(ActSchema.safeParse({ ...wait, peers: [] }).success).toBe(false);
+    expect(ActSchema.safeParse({ ...wait, peers: ['tester'] }).success).toBe(false);
+    expect(ActSchema.safeParse({ ...wait, reason: 'later' }).success).toBe(false);
+    expect(ActSchema.safeParse({ ...wait, until_ts: 'tomorrow' }).success).toBe(false);
+  });
+});
+// harn:end live-agent-waits-are-transient
 
 // harn:assume waiting-is-visible-member-state ref=member-waiting-regression
 describe('a member says what it is waiting on', () => {

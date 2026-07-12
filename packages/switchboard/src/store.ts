@@ -1312,6 +1312,32 @@ export class Store {
     return row ? deliveryFromRow(row) : undefined;
   }
 
+  // harn:assume live-delivery-consumption-is-idempotent ref=consume-queued-transaction
+  consumeQueuedDelivery(
+    room: string,
+    deliveryId: string,
+    recipientId: string,
+  ): { delivery: Delivery; message: Message } {
+    return this.db.transaction(() => {
+      const existing = this.getDelivery(room, deliveryId);
+      if (!existing) throw new Error(`no such delivery: ${deliveryId}`);
+      if (existing.recipient !== recipientId) {
+        throw new Error(`delivery ${deliveryId} is not addressed to member ${recipientId}`);
+      }
+      this.db
+        .prepare(
+          `UPDATE deliveries SET state = 'consumed'
+           WHERE room = ? AND id = ? AND recipient = ? AND state = 'queued'`,
+        )
+        .run(room, deliveryId, recipientId);
+      const delivery = this.getDelivery(room, deliveryId)!;
+      const message = this.getMessage(room, delivery.message_id);
+      if (!message) throw new Error(`delivery ${deliveryId} has no source message`);
+      return { delivery, message };
+    })();
+  }
+  // harn:end live-delivery-consumption-is-idempotent
+
   getDeliveryPayloadSnapshot(room: string, deliveryId: string): string | undefined {
     const row = this.db
       .prepare('SELECT payload_snapshot FROM deliveries WHERE room = ? AND id = ?')

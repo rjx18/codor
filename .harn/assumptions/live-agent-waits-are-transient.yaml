@@ -1,0 +1,17 @@
+id: live-agent-waits-are-transient
+hash: a-7ab0d205c195
+title: A live wait is visible runtime state, never durable member state
+state: active
+statement: Only an authenticated agent may register or clear its own wait, and
+  it may do so only while its daemon-owned turn is running. The wait must name
+  real same-channel peers, a defined reason, its registration time, and a future
+  deadline. It lives only in daemon memory, is overlaid on member frames and
+  sync without entering the member row or change log, and is cleared when the
+  turn ends, the member dies, or the daemon restarts. While its deadline is
+  still in the future the stall watchdog must not flag that run, because waiting
+  on a live peer is progress with an external dependency rather than inactivity.
+depends_on:
+  - waiting-is-visible-member-state
+  - stall-flags-never-kills
+  - agent-network-authority-is-narrow
+created_by: lc2b-live-consumption-waits

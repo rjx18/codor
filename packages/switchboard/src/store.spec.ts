@@ -57,6 +57,61 @@ describe('agent member credential storage', () => {
 });
 // harn:end agent-member-credentials-stay-secret
 
+// harn:assume live-delivery-consumption-is-idempotent ref=consumption-store-regression
+describe('queued delivery consumption', () => {
+  it('is recipient-bound, idempotent, and wins cleanly before turn admission', () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'alpha', display_name: 'Alpha', state: 'idle',
+    });
+    const beta = store.addMember('eng', {
+      kind: 'agent', handle: 'beta', display_name: 'Beta', state: 'idle',
+    });
+    const message = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '@alpha take this live',
+    });
+    const delivery = store.createDelivery('eng', {
+      message_id: message.id, recipient: alpha.id,
+    });
+    const selected = store.listDeliveries('eng', { recipient: alpha.id, state: 'queued' });
+    expect(selected.map((item) => item.id)).toEqual([delivery.id]);
+
+    expect(() => store.consumeQueuedDelivery('eng', delivery.id, beta.id))
+      .toThrow('is not addressed to member');
+    const first = store.consumeQueuedDelivery('eng', delivery.id, alpha.id);
+    expect(first).toEqual({ delivery: { ...delivery, state: 'consumed' }, message });
+    expect(store.consumeQueuedDelivery('eng', delivery.id, alpha.id)).toEqual(first);
+
+    const started = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: selected.map((item) => item.id),
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    });
+    expect(started).toBeUndefined();
+    expect(store.listMessages('eng', { limit: 100 }).filter((item) => item.kind === 'run'))
+      .toEqual([]);
+  });
+
+  it('returns a non-queued delivery unchanged when turn admission won first', () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'alpha', display_name: 'Alpha', state: 'running',
+    });
+    const message = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'work' });
+    const delivery = store.createDelivery('eng', {
+      message_id: message.id, recipient: alpha.id,
+    });
+    store.updateDelivery('eng', delivery.id, { state: 'delivering' });
+
+    expect(store.consumeQueuedDelivery('eng', delivery.id, alpha.id)).toEqual({
+      delivery: { ...delivery, state: 'delivering' },
+      message,
+    });
+  });
+});
+// harn:end live-delivery-consumption-is-idempotent
+
 afterEach(() => {
   store.close();
   rmSync(dir, { recursive: true, force: true });
