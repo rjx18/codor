@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS members (
   policy TEXT,
   model TEXT,
   thinking TEXT,
+  credential_hash TEXT,
   host TEXT,
   state TEXT,
   custody TEXT,
@@ -189,6 +190,19 @@ function migrateMemberAgentConfig(db: Database.Database): void {
   }
 }
 // harn:end agent-model-and-thinking-are-durable
+
+// harn:assume agent-member-credentials-stay-secret ref=member-credential-storage
+function migrateMemberCredential(db: Database.Database): void {
+  const columns = db.pragma('table_info(members)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'credential_hash')) {
+    db.exec('ALTER TABLE members ADD COLUMN credential_hash TEXT');
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS member_credential_hash_unique
+    ON members (credential_hash) WHERE credential_hash IS NOT NULL
+  `);
+}
+// harn:end agent-member-credentials-stay-secret
 
 // harn:assume roster-briefing-refreshes-on-membership ref=active-roster-storage
 function migrateMemberLifecycle(db: Database.Database): void {
@@ -576,6 +590,7 @@ export class Store {
     // members table from an explicit column list, which would silently drop these two
     // again — and then every insert would fail on a column that no longer exists.
     migrateMemberAgentConfig(this.db);
+    migrateMemberCredential(this.db);
     migrateMessageAck(this.db);
     migrateDeliveryHopCount(this.db);
     migrateMeterUncostedTokens(this.db);
@@ -759,6 +774,34 @@ export class Store {
       return merged;
     })();
   }
+
+  // harn:assume agent-member-credentials-stay-secret ref=member-credential-storage
+  setAgentCredentialHash(room: string, memberId: string, credentialHash: string): void {
+    if (!/^[a-f0-9]{64}$/.test(credentialHash)) {
+      throw new Error('member credential hash must be a SHA-256 digest');
+    }
+    const member = this.getMember(room, memberId);
+    if (!member || member.kind !== 'agent' || member.removed_ts !== undefined) {
+      throw new Error(`no active agent member: ${memberId}`);
+    }
+    this.db
+      .prepare('UPDATE members SET credential_hash = ? WHERE room = ? AND id = ?')
+      .run(credentialHash, room, memberId);
+  }
+
+  findAgentByCredentialHash(
+    credentialHash: string,
+  ): { room: string; member: Member } | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM members
+         WHERE credential_hash = ? AND kind = 'agent' AND removed_ts IS NULL
+           AND state <> 'dead'`,
+      )
+      .get(credentialHash) as MemberRow | undefined;
+    return row ? { room: row.room, member: memberFromRow(row) } : undefined;
+  }
+  // harn:end agent-member-credentials-stay-secret
 
   getMember(room: string, memberId: string): Member | undefined {
     const row = this.db

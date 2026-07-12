@@ -1,0 +1,16 @@
+id: agent-network-authority-is-narrow
+hash: a-c4d0613ea000
+title: An agent credential grants a small explicit matrix in one channel
+state: active
+statement: An authenticated agent principal must be bound to exactly one member
+  and one channel and must be authorized by a separate agent capability matrix,
+  never by a human role. It may read and subscribe to its own channel, post only
+  as itself, search that channel, consume only its own deliveries, register and
+  clear only its own wait, and read member status in that channel. Every global
+  operation, every other channel, every management act, and especially configure
+  must be forbidden, because an agent that can raise its own permission has
+  crossed the boundary the operator set around it.
+depends_on:
+  - agent-member-credentials-stay-secret
+  - roles-gate-human-acts-not-agents
+created_by: lc2a-member-credentials

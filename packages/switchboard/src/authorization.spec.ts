@@ -2,10 +2,14 @@ import type { Act, Member, Role } from '@codor/protocol';
 import { describe, expect, it } from 'vitest';
 
 import {
+  AGENT_CAPABILITIES,
+  agentAllows,
+  assertAgentCapability,
   assertHumanCapability,
   CAPABILITY_MINIMUM_ROLE,
   roleAllows,
   type HumanCapability,
+  type RoomCapability,
 } from './authorization.js';
 
 const roles: Role[] = ['observer', 'member', 'admin', 'owner'];
@@ -72,3 +76,48 @@ describe('PROTOCOL section 1 role matrix', () => {
   });
 });
 // harn:end roles-gate-human-acts-not-agents
+
+// harn:assume agent-network-authority-is-narrow ref=agent-capability-regression
+describe('agent member credential capability matrix', () => {
+  const agent = {
+    id: '01J00000000000000000000001',
+    kind: 'agent',
+    handle: 'runner',
+    display_name: 'Runner',
+    harness: 'fake',
+    cwd: '/w',
+    state: 'running',
+    conventions_sent: false,
+    misaddressed: false,
+  } satisfies Member;
+
+  it('contains exactly the live collaboration capabilities', () => {
+    expect(new Set(AGENT_CAPABILITIES)).toEqual(new Set([
+      'read',
+      'post',
+      'search',
+      'consume_delivery',
+      'wait_begin',
+      'wait_end',
+      'member_status',
+    ]));
+  });
+
+  it('excludes configure and every existing management act', () => {
+    const existingWireActs = [...Object.keys(actSamples), 'configure'];
+    for (const act of existingWireActs) {
+      expect(agentAllows(act as RoomCapability), act).toBe(false);
+      expect(() => assertAgentCapability(agent, act as RoomCapability), act)
+        .toThrow('forbidden: agent cannot');
+    }
+  });
+
+  it('accepts every declared agent capability and rejects a human principal', () => {
+    for (const capability of AGENT_CAPABILITIES) {
+      expect(() => assertAgentCapability(agent, capability)).not.toThrow();
+    }
+    const human = { ...agent, kind: 'human', role: 'member' } satisfies Member;
+    expect(() => assertAgentCapability(human, 'read')).toThrow('not an agent member');
+  });
+});
+// harn:end agent-network-authority-is-narrow

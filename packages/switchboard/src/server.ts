@@ -16,7 +16,13 @@ import {
   type ThinkingLevel,
 } from '@codor/protocol';
 
-import { assertHumanCapability, roleAllows, type HumanCapability } from './authorization.js';
+import {
+  assertAgentCapability,
+  assertHumanCapability,
+  roleAllows,
+  type HumanCapability,
+  type RoomCapability,
+} from './authorization.js';
 import { constantTimeEqual, hashTranscript } from './crypto/challenge.js';
 import type { CryptoVault, PairingRequest } from './crypto/pairing.js';
 import type { Daemon } from './daemon.js';
@@ -56,12 +62,11 @@ export interface RunningServer {
   close(): Promise<void>;
 }
 
-interface AuthPrincipal {
-  /** Undefined is the backwards-compatible single-operator owner token. */
-  memberId?: string;
-  /** Paired browser session; resolves to the owner until the device directory ships. */
-  deviceId?: string;
-}
+type AuthPrincipal =
+  | { kind: 'owner' }
+  | { kind: 'human'; memberId: string }
+  | { kind: 'browser'; deviceId: string }
+  | { kind: 'agent'; memberId: string; room: string };
 
 const PAIRING_CODE_ATTEMPTS = 5;
 const PAIRING_CODE_WINDOW_MS = 60_000;
@@ -155,12 +160,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   const principalForToken = (candidate: string | undefined): AuthPrincipal | undefined => {
     if (candidate === undefined) return undefined;
-    if (constantTimeEqual(candidate, token)) return {};
+    if (constantTimeEqual(candidate, token)) return { kind: 'owner' };
     const configured = configuredPrincipals.find((principal) =>
       constantTimeEqual(candidate, principal.token));
-    if (configured) return { memberId: configured.member_id };
+    if (configured) return { kind: 'human', memberId: configured.member_id };
     const deviceId = options.crypto?.browserSessions.authenticate(candidate);
-    return deviceId ? { deviceId } : undefined;
+    if (deviceId) return { kind: 'browser', deviceId };
+    // harn:assume agent-member-credentials-stay-secret ref=agent-principal-resolution
+    const agent = daemon.authenticateAgentToken(candidate);
+    return agent
+      ? { kind: 'agent', memberId: agent.member.id, room: agent.room }
+      : undefined;
+    // harn:end agent-member-credentials-stay-secret
   };
 
   const authed = (req: FastifyRequest, reply: FastifyReply): AuthPrincipal | undefined => {
@@ -176,14 +187,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   };
 
   const memberForRoom = (principal: AuthPrincipal, room: string): Member => {
-    if (principal.memberId === undefined) return daemon.ownerOf(room);
+    if (principal.kind === 'owner' || principal.kind === 'browser') return daemon.ownerOf(room);
+    if (principal.kind === 'agent' && principal.room !== room) {
+      throw new Error(`forbidden: agent credential belongs to room ${principal.room}`);
+    }
     const member = daemon.store.getMember(room, principal.memberId);
-    if (member?.kind !== 'human') throw new Error('principal is not a human member of this room');
+    if (member?.kind !== principal.kind) {
+      throw new Error(`principal is not a ${principal.kind} member of this room`);
+    }
     return member;
   };
 
   const memberForGlobal = (principal: AuthPrincipal): Member | undefined => {
-    if (principal.memberId === undefined) return undefined;
+    if (principal.kind === 'owner' || principal.kind === 'browser') return undefined;
+    if (principal.kind === 'agent') throw new Error('forbidden: agent principal is room-scoped');
     for (const room of daemon.store.listRooms()) {
       const member = daemon.store.getMember(room.id, principal.memberId);
       if (member?.kind === 'human') return member;
@@ -191,10 +208,23 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     throw new Error('principal is not a human member');
   };
 
+  // harn:assume agent-network-authority-is-narrow ref=agent-room-authorization
+  const assertRoomCapability = (
+    principal: AuthPrincipal,
+    room: string,
+    capability: RoomCapability,
+  ): Member => {
+    if (!daemon.store.getRoom(room)) throw new Error(`no such room ${room}`);
+    const member = memberForRoom(principal, room);
+    if (principal.kind === 'agent') assertAgentCapability(member, capability);
+    else assertHumanCapability(member, capability as HumanCapability);
+    return member;
+  };
+
   const authorizeRoom = (
     principal: AuthPrincipal,
     room: string,
-    capability: HumanCapability,
+    capability: RoomCapability,
     reply?: FastifyReply,
   ): Member | undefined => {
     if (!daemon.store.getRoom(room)) {
@@ -202,9 +232,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return undefined;
     }
     try {
-      const member = memberForRoom(principal, room);
-      assertHumanCapability(member, capability);
-      return member;
+      return assertRoomCapability(principal, room, capability);
     } catch (error) {
       if (reply) void reply.code(403).send({ error: String(error) });
       return undefined;
@@ -217,6 +245,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     reply?: FastifyReply,
   ): boolean => {
     try {
+      if (principal.kind === 'agent') {
+        throw new Error(`forbidden: agent cannot use global ${capability}`);
+      }
       const member = memberForGlobal(principal);
       if (member) assertHumanCapability(member, capability);
       else if (!roleAllows('owner', capability)) throw new Error(`forbidden: owner cannot ${capability}`);
@@ -227,8 +258,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
   };
 
-  const roomsFor = (principal: AuthPrincipal) => daemon.store.listRooms().filter((room) =>
-    principal.memberId === undefined || daemon.store.getMember(room.id, principal.memberId)?.kind === 'human');
+  const roomsFor = (principal: AuthPrincipal) => daemon.store.listRooms().filter((room) => {
+    if (principal.kind === 'owner' || principal.kind === 'browser') return true;
+    if (principal.kind === 'agent') return room.id === principal.room;
+    return daemon.store.getMember(room.id, principal.memberId)?.kind === 'human';
+  });
+  // harn:end agent-network-authority-is-narrow
 
   // harn:assume paired-browser-challenge-session ref=browser-device-session-rest
   app.post('/api/auth/challenge', (req, reply) => {
@@ -415,7 +450,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   app.get('/api/rooms', (req, reply) => {
     const principal = authed(req, reply);
-    if (!principal || !authorizeGlobal(principal, 'read', reply)) return;
+    if (!principal) return;
+    if (principal.kind === 'agent') {
+      if (!authorizeRoom(principal, principal.room, 'read', reply)) return;
+    } else if (!authorizeGlobal(principal, 'read', reply)) return;
     void reply.send({ rooms: roomsFor(principal) });
   });
 
@@ -763,14 +801,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         return;
       }
       subscriptions.set(socket, new Set());
-      if (principal.deviceId) {
+      if (principal.kind === 'browser') {
         const sockets = deviceSockets.get(principal.deviceId) ?? new Set<WebSocket>();
         sockets.add(socket);
         deviceSockets.set(principal.deviceId, sockets);
       }
       socket.on('close', () => {
         subscriptions.delete(socket);
-        if (!principal.deviceId) return;
+        if (principal.kind !== 'browser') return;
         const sockets = deviceSockets.get(principal.deviceId);
         sockets?.delete(socket);
         if (sockets?.size === 0) deviceSockets.delete(principal.deviceId);
@@ -791,7 +829,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           if (frame.type === 'mirror_turn') {
             const joined = daemon.store.findMemberBySessionRef(frame.harness, frame.session_ref);
             if (!joined) throw new Error(`no mirrored member for ${frame.harness} session ${frame.session_ref}`);
-            assertHumanCapability(memberForRoom(principal, joined.room), 'mirror_turn');
+            assertRoomCapability(principal, joined.room, 'mirror_turn');
             const mirrored = daemon.mirrorTurn(frame);
             send({
               type: 'mirror_ack',
@@ -802,20 +840,23 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           } else if (frame.type === 'mirror_session_end') {
             const joined = daemon.store.findMemberBySessionRef(frame.harness, frame.session_ref);
             if (!joined) throw new Error(`no mirrored member for ${frame.harness} session ${frame.session_ref}`);
-            assertHumanCapability(memberForRoom(principal, joined.room), 'mirror_session_end');
+            assertRoomCapability(principal, joined.room, 'mirror_session_end');
             send({
               type: 'mirror_ack',
               adopted: daemon.mirrorSessionEnd(frame.harness, frame.session_ref),
             });
           } else if (frame.type === 'list_rooms') {
-            if (!authorizeGlobal(principal, 'read')) throw new Error('forbidden: principal cannot list rooms');
+            if (principal.kind === 'agent') {
+              assertRoomCapability(principal, principal.room, 'read');
+            } else if (!authorizeGlobal(principal, 'read')) {
+              throw new Error('forbidden: principal cannot list rooms');
+            }
             send({
               type: 'rooms',
               rooms: roomsFor(principal).map((room) => daemon.project(room.id, room)),
             });
           } else if (frame.type === 'subscribe') {
-            const actor = memberForRoom(principal, frame.room);
-            assertHumanCapability(actor, 'read');
+            const actor = assertRoomCapability(principal, frame.room, 'read');
             subscriptions.get(socket)!.add(frame.room);
             const sync = daemon.sync(frame.room, frame.since_seq);
             const hydrationCursor = frame.since_seq;
@@ -827,16 +868,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             for (const meter of sync.meters) send({ type: 'meter', seq: hydrationCursor, meter });
             send({ type: 'sync_complete', seq: sync.seq });
           } else if (frame.type === 'post') {
-            const actor = memberForRoom(principal, frame.room);
-            assertHumanCapability(actor, 'post');
-            daemon.postHumanMessage(frame.room, frame.body, {
-              author: actor.id,
-              reply_to: frame.reply_to,
-            });
+            const actor = assertRoomCapability(principal, frame.room, 'post');
+            if (principal.kind === 'agent') {
+              daemon.postAgentMessage(frame.room, actor.id, frame.body, frame.reply_to);
+            } else {
+              daemon.postHumanMessage(frame.room, frame.body, {
+                author: actor.id,
+                reply_to: frame.reply_to,
+              });
+            }
           } else if (frame.type === 'act') {
             const act = frame.act;
-            const actor = memberForRoom(principal, frame.room);
-            assertHumanCapability(actor, act.act);
+            const actor = assertRoomCapability(principal, frame.room, act.act);
             if (act.act === 'answer_interaction') {
               void daemon
                 .answerInteraction(frame.room, act.interaction_id, act.answer, actor.id)
@@ -946,7 +989,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   if (options.socketPath !== undefined) {
     ipcServer = createHttpServer((_req, res) => res.writeHead(404).end());
     ipcWss = new WebSocketServer({ server: ipcServer, path: '/ws' });
-    bindProtocol(ipcWss, () => ({}));
+    bindProtocol(ipcWss, (url) => {
+      const candidate = url.searchParams.get('token') ?? undefined;
+      return candidate === undefined ? { kind: 'owner' } : principalForToken(candidate);
+    });
     try {
       await listenUnix(ipcServer, options.socketPath);
     } catch (error) {

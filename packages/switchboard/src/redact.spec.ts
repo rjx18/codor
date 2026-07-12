@@ -110,3 +110,12 @@ describe('redaction goldens', () => {
   });
   // harn:end pairing-codes-redacted-from-content
 });
+
+// harn:assume agent-member-credentials-stay-secret ref=member-credential-redaction-regression
+describe('member credential redaction', () => {
+  it('redacts a derived CODOR_MEMBER_TOKEN assignment through the generic token rule', () => {
+    const token = randomBytes(32).toString('base64url');
+    expect(redactText(`CODOR_MEMBER_TOKEN=${token}`)).toBe('CODOR_MEMBER_TOKEN=[redacted]');
+  });
+});
+// harn:end agent-member-credentials-stay-secret

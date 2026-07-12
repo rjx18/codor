@@ -1,4 +1,6 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 
 import type {
   ModelCatalog,
@@ -71,6 +73,7 @@ export interface DaemonOptions {
   pushProducer?: HumanPushNotifier;
   onBackgroundError?: (error: Error) => void;
   homeDir?: string;
+  socketPath?: string;
 }
 
 export interface MemberDetails {
@@ -184,6 +187,7 @@ export class Daemon {
   private readonly pushProducer?: HumanPushNotifier;
   private readonly onBackgroundError: (error: Error) => void;
   private readonly homeDir: string;
+  private readonly socketPath: string;
   private readonly stopResidencyReachability?: () => void;
   private closing = false;
   private closed = false;
@@ -197,6 +201,7 @@ export class Daemon {
     this.pushProducer = options.pushProducer;
     this.onBackgroundError = options.onBackgroundError ?? (() => undefined);
     this.homeDir = options.homeDir ?? homedir();
+    this.socketPath = options.socketPath ?? join(dirname(options.dbPath), 'codor.sock');
     this.ledger?.setRoomValidator((room) => this.store.getRoom(room) !== undefined);
     this.ledger?.setRemoteWriteAuthorizer((peerId, room, author) => {
       const members = this.store.listMembers(room);
@@ -232,6 +237,27 @@ export class Daemon {
     this.stopResidencyReachability = this.residency?.onReachability((peerId, connected) =>
       this.handleResidentReachability(peerId, connected));
   }
+
+  // harn:assume agent-member-credentials-stay-secret ref=member-session-environment
+  private issueMemberCredential(room: string, member: Member, session: Session): void {
+    const token = randomBytes(32).toString('base64url');
+    const credentialHash = createHash('sha256').update(token).digest('hex');
+    this.store.setAgentCredentialHash(room, member.id, credentialHash);
+    session.env = {
+      ...session.env,
+      CODOR_SOCKET: this.socketPath,
+      CODOR_CHANNEL: room,
+      CODOR_MEMBER_ID: member.id,
+      CODOR_MEMBER_TOKEN: token,
+    };
+  }
+
+  authenticateAgentToken(token: string): { room: string; member: Member } | undefined {
+    if (token === '') return undefined;
+    const credentialHash = createHash('sha256').update(token).digest('hex');
+    return this.store.findAgentByCredentialHash(credentialHash);
+  }
+  // harn:end agent-member-credentials-stay-secret
 
   async close(options: { force?: boolean } = {}): Promise<void> {
     if (this.closed) return;
@@ -705,6 +731,7 @@ export class Daemon {
       state: 'idle',
       custody: 'owned',
     });
+    this.issueMemberCredential(room, member, session);
     this.sessions.set(member.id, session);
     this.markRostersStale(room);
     this.emitMember(room, member);
@@ -796,6 +823,10 @@ export class Daemon {
     // A revived agent must be the SAME agent: same model, same thinking level.
     session.model = member.model;
     session.thinking = member.thinking;
+    const located = this.store.listRooms().find((room) =>
+      this.store.getMember(room.id, member.id) !== undefined);
+    if (!located) throw new Error(`no room for agent member: ${member.id}`);
+    this.issueMemberCredential(located.id, member, session);
     return session;
   }
 
@@ -1303,6 +1334,7 @@ export class Daemon {
       session.model = member.model;
       session.thinking = member.thinking;
       // harn:end agent-model-and-thinking-are-durable
+      this.issueMemberCredential(room, member, session);
       this.sessions.set(member.id, session);
     }
     return session;
@@ -1310,10 +1342,12 @@ export class Daemon {
 
   // ── posting ───────────────────────────────────────────────────────────
 
-  postHumanMessage(room: string, body: string, opts: { author?: string; reply_to?: number } = {}): Message {
-    const authorId = opts.author ?? this.ownerOf(room).id;
-    const author = this.store.getMember(room, authorId);
-    if (author?.kind !== 'human') throw new Error(`no such human author: ${authorId}`);
+  private postChatMessage(
+    room: string,
+    body: string,
+    authorId: string,
+    replyTo?: number,
+  ): Message {
     const parsed = parseBody(body, this.store.listMembers(room));
     const message = this.store.postMessage(room, {
       author: authorId,
@@ -1322,12 +1356,29 @@ export class Daemon {
       mentions: parsed.mentions,
       refs: parsed.refs,
       ledger_refs: parsed.ledger_refs,
-      reply_to: opts.reply_to,
+      reply_to: replyTo,
     });
     this.emitMessage(room, message);
     this.routeAndFanout(room, message);
     return message;
   }
+
+  postHumanMessage(room: string, body: string, opts: { author?: string; reply_to?: number } = {}): Message {
+    const authorId = opts.author ?? this.ownerOf(room).id;
+    const author = this.store.getMember(room, authorId);
+    if (author?.kind !== 'human') throw new Error(`no such human author: ${authorId}`);
+    return this.postChatMessage(room, body, authorId, opts.reply_to);
+  }
+
+  // harn:assume agent-network-authority-is-narrow ref=agent-interim-post-ingress
+  postAgentMessage(room: string, memberId: string, body: string, replyTo?: number): Message {
+    const author = this.store.getMember(room, memberId);
+    if (!author || author.kind !== 'agent' || author.removed_ts !== undefined) {
+      throw new Error(`no active agent author: ${memberId}`);
+    }
+    return this.postChatMessage(room, body, memberId, replyTo);
+  }
+  // harn:end agent-network-authority-is-narrow
 
   postSystemMessage(
     room: string,

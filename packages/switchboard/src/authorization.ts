@@ -77,3 +77,33 @@ export function assertHumanCapability(member: Member, capability: HumanCapabilit
   }
 }
 // harn:end roles-gate-human-acts-not-agents
+
+// harn:assume agent-network-authority-is-narrow ref=agent-capability-matrix
+export const AGENT_CAPABILITIES = [
+  'read',
+  'post',
+  'search',
+  'consume_delivery',
+  'wait_begin',
+  'wait_end',
+  'member_status',
+] as const;
+
+export type AgentCapability = (typeof AGENT_CAPABILITIES)[number];
+export type RoomCapability = HumanCapability | AgentCapability;
+
+const AGENT_CAPABILITY_SET = new Set<string>(AGENT_CAPABILITIES);
+
+export function agentAllows(capability: RoomCapability): capability is AgentCapability {
+  return AGENT_CAPABILITY_SET.has(capability);
+}
+
+export function assertAgentCapability(member: Member, capability: RoomCapability): void {
+  if (member.kind !== 'agent') {
+    throw new Error(`authorization principal ${member.id} is not an agent member`);
+  }
+  if (!agentAllows(capability)) {
+    throw new Error(`forbidden: agent cannot ${capability.replaceAll('_', ' ')}`);
+  }
+}
+// harn:end agent-network-authority-is-narrow

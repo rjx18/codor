@@ -19,6 +19,44 @@ beforeEach(() => {
   store = new Store(join(dir, 'test.sqlite'));
 });
 
+// harn:assume agent-member-credentials-stay-secret ref=member-credential-store-regression
+describe('agent member credential storage', () => {
+  it('persists only a replaceable hash and never projects it as member state', () => {
+    openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'credentialed', display_name: 'Credentialed', state: 'idle',
+    });
+    const firstHash = 'a'.repeat(64);
+    const secondHash = 'b'.repeat(64);
+
+    expect(() => store.setAgentCredentialHash('eng', agent.id, 'raw-token-must-not-land-here'))
+      .toThrow('must be a SHA-256 digest');
+
+    store.setAgentCredentialHash('eng', agent.id, firstHash);
+    expect(store.findAgentByCredentialHash(firstHash)).toEqual({
+      room: 'eng',
+      member: agent,
+    });
+    expect(store.getMember('eng', agent.id)).not.toHaveProperty('credential_hash');
+    expect(JSON.stringify(store.listMembers('eng'))).not.toContain(firstHash);
+
+    store.setAgentCredentialHash('eng', agent.id, secondHash);
+    expect(store.findAgentByCredentialHash(firstHash)).toBeUndefined();
+    expect(store.findAgentByCredentialHash(secondHash)?.member.id).toBe(agent.id);
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.findAgentByCredentialHash(secondHash)?.member.id).toBe(agent.id);
+  });
+
+  it('never assigns a member credential to a human', () => {
+    const { owner } = openRoom(store);
+    expect(() => store.setAgentCredentialHash('eng', owner.id, 'c'.repeat(64)))
+      .toThrow('no active agent member');
+  });
+});
+// harn:end agent-member-credentials-stay-secret
+
 afterEach(() => {
   store.close();
   rmSync(dir, { recursive: true, force: true });

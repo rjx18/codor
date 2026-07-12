@@ -3,7 +3,7 @@ import { Agent as HttpAgent, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { Member, ServerFrame } from '@codor/protocol';
+import type { Member, ServerFrame, Session, SpawnOpts } from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 
@@ -75,6 +75,116 @@ beforeEach(async () => {
   });
   base = `http://127.0.0.1:${server.port}`;
 });
+
+// harn:assume agent-member-credentials-stay-secret ref=agent-principal-resolution-regression
+// harn:assume agent-network-authority-is-narrow ref=agent-authz-regression
+describe('agent member credential principal', () => {
+  it('resolves dynamically, stays in one room, posts as self, and forbids management', async () => {
+    let session: Session | undefined;
+    const originalSpawn = fake.spawn.bind(fake);
+    vi.spyOn(fake, 'spawn').mockImplementation((opts: SpawnOpts) => {
+      session = originalSpawn(opts);
+      return session;
+    });
+    const agent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'live-agent', cwd: testCwd('agent'),
+    });
+    const agentToken = session!.env!.CODOR_MEMBER_TOKEN!;
+    daemon.createRoom({
+      id: 'other', name: 'Other', owner: { handle: 'elsewhere', display_name: 'Elsewhere' },
+    });
+
+    const roomList = await fetch(`${base}/api/rooms`, {
+      headers: { authorization: `Bearer ${agentToken}` },
+    });
+    expect(roomList.status).toBe(200);
+    expect((await roomList.json() as { rooms: { id: string }[] }).rooms.map((room) => room.id))
+      .toEqual(['eng']);
+
+    const ownHistory = await fetch(`${base}/api/rooms/eng/messages`, {
+      headers: { authorization: `Bearer ${agentToken}` },
+    });
+    expect(ownHistory.status).toBe(200);
+    const otherHistory = await fetch(`${base}/api/rooms/other/messages`, {
+      headers: { authorization: `Bearer ${agentToken}` },
+    });
+    expect(otherHistory.status).toBe(403);
+    const globalCatalog = await fetch(`${base}/api/adapters`, {
+      headers: { authorization: `Bearer ${agentToken}` },
+    });
+    expect(globalCatalog.status).toBe(403);
+    const createRoom = await fetch(`${base}/api/rooms`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${agentToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ id: 'forbidden', name: 'Forbidden' }),
+    });
+    expect(createRoom.status).toBe(403);
+
+    const client = await connectAs(agentToken);
+    client.ws.send(JSON.stringify({ type: 'list_rooms' }));
+    const rooms = await client.next((frame) => frame.type === 'rooms');
+    expect(rooms.type === 'rooms' && rooms.rooms.map((room) => room.id)).toEqual(['eng']);
+
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    const self = await client.next((frame) => frame.type === 'self');
+    expect(self).toEqual({ type: 'self', member_id: agent.id });
+
+    client.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: '@richard interim update' }));
+    const posted = await client.next((frame) =>
+      frame.type === 'message' && frame.message.author === agent.id);
+    expect(posted.type === 'message' && posted.message).toMatchObject({
+      author: agent.id,
+      kind: 'chat',
+      body: '@richard interim update',
+    });
+
+    client.ws.send(JSON.stringify({
+      type: 'act',
+      room: 'eng',
+      act: { act: 'configure', member_id: agent.id, policy: 'full-access' },
+    }));
+    const denied = await client.next((frame) =>
+      frame.type === 'error' && frame.message.includes('agent cannot configure'));
+    expect(denied).toMatchObject({ type: 'error', ref: 'act' });
+    client.ws.close();
+
+    expect(daemon.store.getMember('eng', agent.id)!.policy).toBeUndefined();
+    expect(JSON.stringify(daemon.store.listMembers('eng'))).not.toContain(agentToken);
+  });
+
+  it('uses an explicit member token on the Unix socket while tokenless use stays owner', async () => {
+    let session: Session | undefined;
+    const originalSpawn = fake.spawn.bind(fake);
+    vi.spyOn(fake, 'spawn').mockImplementation((opts: SpawnOpts) => {
+      session = originalSpawn(opts);
+      return session;
+    });
+    const agent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'socket-agent', cwd: testCwd('socket-agent'),
+    });
+    const agentToken = session!.env!.CODOR_MEMBER_TOKEN!;
+    const socketPath = join(dir, 'codor.sock');
+    await server.close();
+    server = await startServer({ daemon, token: TOKEN, socketPath, crypto, pushSubscriptions });
+
+    const agentClient = await connectUrl(`ws+unix://${socketPath}:/ws?token=${agentToken}`);
+    agentClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    expect(await agentClient.next((frame) => frame.type === 'self'))
+      .toEqual({ type: 'self', member_id: agent.id });
+    agentClient.ws.close();
+
+    const ownerClient = await connectUrl(`ws+unix://${socketPath}:/ws`);
+    ownerClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    expect(await ownerClient.next((frame) => frame.type === 'self'))
+      .toEqual({ type: 'self', member_id: daemon.ownerOf('eng').id });
+    ownerClient.ws.close();
+  });
+});
+// harn:end agent-network-authority-is-narrow
+// harn:end agent-member-credentials-stay-secret
 
 afterEach(async () => {
   await server.close();

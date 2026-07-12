@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { ServerFrame } from '@codor/protocol';
+import type { ServerFrame, Session, SpawnOpts } from '@codor/protocol';
 import { createTurnTranslator, wireEventFromHook } from '@codor/adapter-claude-code';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -67,6 +67,66 @@ const spawnAgent = (handle: string, cwd = testCwd()) =>
 
 const runMessages = () =>
   daemon.store.listMessages('eng', { limit: 100 }).filter((m) => m.kind === 'run');
+
+// harn:assume agent-member-credentials-stay-secret ref=member-session-environment-regression
+describe('agent member session credentials', () => {
+  it('composes the scoped env, stores only a hash, and rotates on revive and rebuild', async () => {
+    const originalSpawn = fake.spawn.bind(fake);
+    const originalAttach = fake.attach.bind(fake);
+    let capturedSession: Session | undefined;
+    vi.spyOn(fake, 'spawn').mockImplementation((opts: SpawnOpts) => {
+      capturedSession = originalSpawn(opts);
+      return capturedSession;
+    });
+    vi.spyOn(fake, 'attach').mockImplementation((sessionRef) => {
+      capturedSession = originalAttach(sessionRef);
+      return capturedSession;
+    });
+
+    const alpha = spawnAgent('alpha');
+    const firstToken = capturedSession!.env!.CODOR_MEMBER_TOKEN!;
+    expect(capturedSession!.env).toMatchObject({
+      CODOR_SOCKET: join(dir, 'codor.sock'),
+      CODOR_CHANNEL: 'eng',
+      CODOR_MEMBER_ID: alpha.id,
+      CODOR_MEMBER_TOKEN: firstToken,
+    });
+    expect(firstToken.length).toBeGreaterThanOrEqual(40);
+    expect(daemon.authenticateAgentToken(firstToken)).toMatchObject({
+      room: 'eng', member: { id: alpha.id },
+    });
+    expect(JSON.stringify(daemon.store.getMember('eng', alpha.id))).not.toContain(firstToken);
+
+    fake.enqueue({ kind: 'complete', final_text: '@richard credential-safe result' });
+    daemon.postHumanMessage('eng', '@alpha establish the native session');
+    await daemon.settle();
+    const run = runMessages().at(-1)!;
+    expect(fake.deliveries.at(-1)!.payload).not.toContain(firstToken);
+    expect(JSON.stringify(daemon.blobs.read('eng', run.run!.events_ref))).not.toContain(firstToken);
+    expect(JSON.stringify(frames)).not.toContain(firstToken);
+
+    daemon.killMember('eng', alpha.id);
+    expect(daemon.authenticateAgentToken(firstToken)).toBeUndefined();
+    capturedSession = undefined;
+    daemon.reviveMember('eng', alpha.id);
+    const revivedToken = capturedSession!.env!.CODOR_MEMBER_TOKEN!;
+    expect(revivedToken).not.toBe(firstToken);
+    expect(daemon.authenticateAgentToken(firstToken)).toBeUndefined();
+    expect(daemon.authenticateAgentToken(revivedToken)?.member.id).toBe(alpha.id);
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    capturedSession = undefined;
+    fake.enqueue({ kind: 'complete', final_text: '@richard rebuilt safely' });
+    daemon.postHumanMessage('eng', '@alpha run after restart');
+    await daemon.settle();
+    const rebuiltToken = capturedSession!.env!.CODOR_MEMBER_TOKEN!;
+    expect(rebuiltToken).not.toBe(revivedToken);
+    expect(daemon.authenticateAgentToken(revivedToken)).toBeUndefined();
+    expect(daemon.authenticateAgentToken(rebuiltToken)?.member.id).toBe(alpha.id);
+  });
+});
+// harn:end agent-member-credentials-stay-secret
 
 describe('member management', () => {
   it('renames mid-queue without retargeting mentions and rejects duplicate handles', async () => {
