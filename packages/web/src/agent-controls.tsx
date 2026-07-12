@@ -85,14 +85,20 @@ export function AgentControls(props: {
                 data-testid={`${idPrefix}-harness-${candidate.id}`}
                 aria-pressed={value.harness === candidate.id}
                 className="wr-tile"
-                onClick={() => reset({
-                  harness: candidate.id,
+                onClick={() => {
+                  // Re-picking the harness already selected is not a change: wiping
+                  // the model here would throw away what the operator just typed
+                  // into the custom escape.
+                  if (candidate.id === value.harness) return;
                   // A model only means anything to the harness it was chosen under,
                   // and a thinking level the new harness rejects would strand the
                   // form: its buttons are disabled, so nothing could clear it.
-                  model: '',
-                  ...(candidate.capabilities.thinking === true ? {} : { thinking: '' }),
-                })}
+                  reset({
+                    harness: candidate.id,
+                    model: '',
+                    ...(candidate.capabilities.thinking === true ? {} : { thinking: '' }),
+                  });
+                }}
               >
                 <Icon aria-hidden size={18} />
                 <span>{candidate.id}</span>

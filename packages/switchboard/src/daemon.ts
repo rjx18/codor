@@ -17,13 +17,6 @@ import type {
   CreateRoomRequest,
 } from '@codor/protocol';
 
-/**
- * Untrusted CLI stdout: only these shapes become buttons, and never many.
- * Multi-segment ids are real (opencode reports `openrouter/anthropic/claude-…`),
- * but a leading dash is not a model — it is a flag smuggled into an argv slot.
- */
-const MODEL_ID = /^\w[\w.:-]*(?:\/[\w.:-]+)*$/;
-const MAX_MODELS = 200;
 import { deriveRoomId } from '@codor/protocol';
 
 import { BlobStore } from './blobs.js';
@@ -48,6 +41,14 @@ import {
 } from './router.js';
 import { Store, type FanoutDelivery } from './store.js';
 import { normalizeWorkingDirectory } from './working-directory.js';
+
+/**
+ * Untrusted CLI stdout: only these shapes become buttons, and never many.
+ * Multi-segment ids are real (opencode reports `openrouter/anthropic/claude-…`),
+ * but a leading dash is not a model — it is a flag smuggled into an argv slot.
+ */
+const MODEL_ID = /^\w[\w.:-]*(?:\/[\w.:-]+)*$/;
+const MAX_MODELS = 200;
 
 export interface DaemonOptions {
   dbPath: string;

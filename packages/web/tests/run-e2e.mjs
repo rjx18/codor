@@ -2,6 +2,7 @@
 // Playwright invocation, which boots its own harness daemon on its own port
 // trio, so nothing durable can cross a spec-file boundary.
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -10,13 +11,44 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const testsRoot = join(packageRoot, 'tests');
 
-function readBasePort() {
-  const value = Number(process.env.CODOR_E2E_PORT_BASE ?? 18_137);
+// harn:assume concurrent-browser-suites-do-not-collide ref=e2e-runner-port-selection
+/**
+ * The reviewer and the implementer gate at the same time. A fixed base means the
+ * second suite to start cannot bind, and that failure is indistinguishable from a
+ * product regression — it already cost one phantom finding. So claim a range that
+ * is actually free, and say which one.
+ */
+function readOverride() {
+  const raw = process.env.CODOR_E2E_PORT_BASE;
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
   if (!Number.isInteger(value) || value < 1 || value + 32 > 65_535) {
     throw new Error('CODOR_E2E_PORT_BASE must leave room for every spec port trio');
   }
   return value;
 }
+
+function isFree(port) {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once('error', () => resolve(false));
+    probe.once('listening', () => probe.close(() => resolve(true)));
+    probe.listen(port, '127.0.0.1');
+  });
+}
+
+async function selectBasePort(trios) {
+  const override = readOverride();
+  if (override !== undefined) return override;
+  const span = trios * 3;
+  for (let base = 18_137; base + span < 30_000; base += span) {
+    const ports = Array.from({ length: span }, (_, offset) => base + offset);
+    const free = await Promise.all(ports.map((port) => isFree(port)));
+    if (free.every(Boolean)) return base;
+  }
+  throw new Error('no free contiguous port range for the browser suite');
+}
+// harn:end concurrent-browser-suites-do-not-collide
 
 // A spec file whose report is missing or unreadable fails the gate rather than
 // silently contributing zero tests to the total.
@@ -41,7 +73,8 @@ const specs = readdirSync(testsRoot)
   .sort();
 if (specs.length === 0) throw new Error('no browser spec file matched the suite pattern');
 
-const basePort = readBasePort();
+const basePort = await selectBasePort(specs.length);
+process.stdout.write(`[e2e] port base ${String(basePort)}\n`);
 const reportRoot = mkdtempSync(join(tmpdir(), 'codor-e2e-report-'));
 const totals = { expected: 0, unexpected: 0, flaky: 0, skipped: 0, total: 0 };
 const failed = [];

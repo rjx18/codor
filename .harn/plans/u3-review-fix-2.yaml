@@ -1,0 +1,72 @@
+id: u3-review-fix-2
+title: U3 review fix 2 - concurrent suites must not collide, and re-picking a
+  harness must not wipe a typed model
+assumptions:
+  create:
+    - id: concurrent-browser-suites-do-not-collide
+      title: Two browser suites can run at once
+      statement: The browser-suite runner must choose a contiguous, currently free
+        port range for its per-spec-file harnesses rather than always starting
+        from one fixed base, honour an explicit override when the operator gives
+        one, and log the range it chose, because the reviewer and the
+        implementer now gate concurrently as a matter of course and two suites
+        that both claim the same base make one of them fail to bind - a failure
+        that looks exactly like a product regression and already produced one
+        phantom finding.
+      reason: Per-spec-file isolation made the suite coexist with the operator's live
+        deployment but not with a second run of itself; the reviewer ruled that
+        the runner must auto-select.
+      depends_on:
+        - playwright-spec-files-use-isolated-daemons
+        - e2e-gate-covers-every-spec-file
+  reviewed:
+    - id: e2e-gate-covers-every-spec-file
+      outcome: unchanged
+      reason: The runner still discovers every spec file, runs each exactly once,
+        reports per-file and total counts, and fails on any failure or on empty
+        discovery. Only where its port range comes from changes.
+    - id: playwright-spec-files-use-isolated-daemons
+      outcome: unchanged
+      reason: Each spec file still gets its own harness on its own port trio, still
+        disjoint from the live deployment. The trios now start from a probed
+        free base instead of a fixed one, which strengthens the isolation the
+        statement already promises rather than altering it.
+    - id: agent-controls-shared-by-both-dialogs
+      outcome: unchanged
+      reason: The controls are unchanged; re-picking the harness already selected
+        simply stops being treated as a harness change.
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: Only the placement of the validator constants changes, so that they sit
+        below the imports rather than between them.
+anchors:
+  concurrent-browser-suites-do-not-collide:
+    e2e-runner-port-selection:
+      action: change
+      reason: Probe for a free contiguous range for the whole suite, keep the explicit
+        override, and log the chosen base.
+  e2e-gate-covers-every-spec-file:
+    isolated-e2e-spec-runner:
+      action: change
+      reason: The runner's loop now takes the probed base; its discovery, counting,
+        and failure contract are untouched.
+  agent-controls-shared-by-both-dialogs:
+    agent-controls-component:
+      action: change
+      reason: Re-picking the harness that is already selected must not wipe a model
+        the operator typed into the custom escape.
+    agent-controls-unit-regression:
+      action: change
+      reason: Prove that re-clicking the selected harness preserves a typed custom
+        model while switching harness still clears it.
+  adapters-own-their-model-catalog:
+    adapter-model-discovery:
+      action: change
+      reason: Move the validator constants below the import block.
+files:
+  - packages/web/tests/run-e2e.mjs
+  - packages/web/src/agent-controls.tsx
+  - packages/web/src/agent-controls.spec.tsx
+  - packages/switchboard/src/daemon.ts
+applied:
+  applied_at: 2026-07-12T10:50:47.052Z

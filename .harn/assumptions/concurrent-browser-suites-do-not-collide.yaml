@@ -1,0 +1,15 @@
+id: concurrent-browser-suites-do-not-collide
+hash: a-b08ad784b944
+title: Two browser suites can run at once
+state: active
+statement: The browser-suite runner must choose a contiguous, currently free
+  port range for its per-spec-file harnesses rather than always starting from
+  one fixed base, honour an explicit override when the operator gives one, and
+  log the range it chose, because the reviewer and the implementer now gate
+  concurrently as a matter of course and two suites that both claim the same
+  base make one of them fail to bind - a failure that looks exactly like a
+  product regression and already produced one phantom finding.
+depends_on:
+  - playwright-spec-files-use-isolated-daemons
+  - e2e-gate-covers-every-spec-file
+created_by: u3-review-fix-2

@@ -115,6 +115,26 @@ describe('agent controls', () => {
     expect(at('t-model-search')).not.toBeNull();
   });
 
+  it('keeps a typed custom model when the selected harness is re-picked', () => {
+    render();
+    click('t-model-custom');
+    const input = at<HTMLInputElement>('t-model-custom-input')!;
+    act(() => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setValue.call(input, 'claude-sonnet-5-20260101');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(latest.model).toBe('claude-sonnet-5-20260101');
+
+    // Re-picking the harness that is already selected is not a harness change.
+    click('t-harness-claude-code');
+    expect(latest.model).toBe('claude-sonnet-5-20260101');
+
+    // Actually switching still clears it.
+    click('t-harness-gemini');
+    expect(latest.model).toBe('');
+  });
+
   it('strands no thinking level on a harness that cannot accept one', () => {
     render();
     click('t-thinking-high');
