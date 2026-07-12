@@ -1707,6 +1707,18 @@ export class Daemon {
       eventsRef: (messageId) => this.blobs.ref(messageId),
       reuseRunMsgId: reuseRunMsg?.id,
     });
+    // harn:assume only-an-admissible-delivery-becomes-delivering ref=turn-start-with-nothing-admissible
+    // Everything in the batch was consumed between selection and admission — the member
+    // was removed, or the work was taken by something else. There is nothing to say, and
+    // an empty run message would be a defect of its own. Idle the member and stop.
+    if (!started) {
+      const current = this.store.getMember(room, member.id);
+      if (current !== undefined && current.state === 'queued') {
+        this.emitMember(room, this.store.updateMember(room, member.id, { state: 'idle' }));
+      }
+      return;
+    }
+    // harn:end only-an-admissible-delivery-becomes-delivering
     const runMsg = started.runMessage;
     this.emitMessage(room, runMsg);
     this.noteRunActivity(room, runMsg.id);

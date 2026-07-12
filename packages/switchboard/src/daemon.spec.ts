@@ -2331,3 +2331,77 @@ describe('removing an agent leaves nothing of it behind', () => {
   });
 });
 // harn:end removing-an-agent-is-one-deliberate-step
+
+// harn:assume only-an-admissible-delivery-becomes-delivering ref=turn-admission-regression
+describe('the turn pump never resurrects consumed work', () => {
+  const runs = () => daemon.store.listMessages('eng', { limit: 100 }).filter((m) => m.kind === 'run');
+
+  it('starts no turn, and posts no empty run, when its whole batch was consumed', async () => {
+    const alpha = spawnAgent('alpha');
+    daemon.pauseMember('eng', alpha.id); // hold the queue so the work is still selectable
+    daemon.postHumanMessage('eng', '@alpha work');
+    await daemon.settle();
+    const [queued] = daemon.store.listDeliveries('eng', { recipient: alpha.id, state: 'queued' });
+
+    // Consumed from OUTSIDE the pump — exactly what the A5 removal drain does.
+    daemon.store.updateDelivery('eng', queued!.id, { state: 'consumed' });
+
+    daemon.unpauseMember('eng', alpha.id);
+    await daemon.settle();
+
+    expect(fake.deliveries, 'consumed work must never reach the harness').toHaveLength(0);
+    expect(runs(), 'an empty run message is a defect of its own').toHaveLength(0);
+    expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('idle');
+  });
+
+  it('runs the remainder when only part of the batch was consumed', async () => {
+    const alpha = spawnAgent('alpha');
+    daemon.pauseMember('eng', alpha.id);
+    daemon.postHumanMessage('eng', '@alpha one');
+    daemon.postHumanMessage('eng', '@alpha two');
+    await daemon.settle();
+    const queued = daemon.store.listDeliveries('eng', { recipient: alpha.id, state: 'queued' });
+    expect(queued).toHaveLength(2);
+
+    daemon.store.updateDelivery('eng', queued[0]!.id, { state: 'consumed' });
+
+    fake.enqueue({ kind: 'complete', final_text: '@richard did the rest' });
+    daemon.unpauseMember('eng', alpha.id);
+    await daemon.settle();
+
+    expect(fake.deliveries).toHaveLength(1);
+    expect(fake.deliveries[0]!.payload).toContain('@alpha two');
+    expect(fake.deliveries[0]!.payload, 'the consumed one must not be in the payload')
+      .not.toContain('@alpha one');
+  });
+
+  // Requirement (d): the invariant must hold against EVERY site that consumes, not once.
+  it('holds when the member is removed mid-queue (the A5 removal drain)', async () => {
+    const alpha = spawnAgent('alpha');
+    daemon.pauseMember('eng', alpha.id);
+    daemon.postHumanMessage('eng', '@alpha work');
+    await daemon.settle();
+
+    daemon.removeMember('eng', alpha.id); // kills, tombstones, and drains its queue
+
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id, state: 'queued' })).toHaveLength(0);
+  });
+
+  it('holds when a turn completes (the end-of-turn consumption)', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'complete', final_text: '@richard done' });
+    daemon.postHumanMessage('eng', '@alpha work');
+    await daemon.settle();
+
+    // Its deliveries are consumed by completeTurn; nothing may re-deliver them.
+    const consumed = daemon.store.listDeliveries('eng', { recipient: alpha.id, state: 'consumed' });
+    expect(consumed.length).toBeGreaterThan(0);
+
+    await daemon.settle();
+    expect(fake.deliveries, 'a completed turn is not re-run').toHaveLength(1);
+    expect(runs()).toHaveLength(1);
+  });
+});
+// harn:end only-an-admissible-delivery-becomes-delivering

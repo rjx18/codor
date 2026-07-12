@@ -1,0 +1,88 @@
+id: lc0b-consumption-guard
+title: LC0b - a consumed delivery is never resurrected, because the guard lives
+  in the transaction that admits it
+assumptions:
+  create:
+    - id: only-an-admissible-delivery-becomes-delivering
+      title: The transaction that starts a turn decides what may enter it
+      statement: "The transaction that starts a turn must itself decide which
+        deliveries may enter it. A delivery may be admitted ONLY if it is
+        queued, or if it is already delivering AND bound to the very run message
+        being reused - which is a reconciled retry re-running the turn it
+        already claimed. A consumed delivery must NEVER be admitted, and a held
+        delivery must remain held: the admission set is not widened by this
+        guard, only closed. Selecting deliveries in one statement and admitting
+        them in another is not a guard at all - between the two, anything may
+        have consumed them, and the turn pump would then resurrect a consumed
+        delivery and hand it to the agent as work. When every delivery in a
+        batch turns out to be inadmissible, the turn must not begin at all: no
+        run message is posted, no attempt is recorded, and the member returns to
+        idle - because an empty run message is a defect of its own, not a
+        graceful degradation."
+      reason: LC0's C1, confirmed by the reviewer as their own spec error. The
+        live-collab plan asserted that the turn pump skips consumed deliveries.
+        It does not. The only state filter is at selection (daemon.ts:1678);
+        beginTurn checks ownership and then flips every id it was given to
+        delivering (store.ts:1377-1387). This is a LATENT BUG AT HEAD, reachable
+        today through the removal drain added in A5 (daemon.ts:1252), which
+        consumes deliveries from outside the pump. It must be fixed before
+        live-collab builds an exactly-once feature on top of it.
+      depends_on:
+        - turn-start-transactional
+        - delivery-fifo-has-durable-sequence
+  reviewed:
+    - id: turn-start-transactional
+      outcome: unchanged
+      reason: Starting a turn is still one transaction that posts the run message and
+        binds its deliveries atomically. The transaction simply decides WHAT it
+        may bind, rather than trusting a filter that ran in an earlier
+        statement.
+    - id: runs-are-one-message
+      outcome: unchanged
+      reason: Still exactly one run message per turn, and a reconciled retry still
+        reuses it. The new case is that a turn with nothing admissible left
+        posts NO message at all - which protects the rule rather than bending
+        it.
+    - id: removing-an-agent-is-one-deliberate-step
+      outcome: unchanged
+      reason: The removal drain is unchanged. It is simply no longer able to race the
+        pump into resurrecting the work it just consumed.
+    - id: delivery-fifo-has-durable-sequence
+      outcome: unchanged
+      reason: The queue's durable order is untouched. A delivery that is no longer
+        queued is not reordered - it is not admitted.
+anchors:
+  only-an-admissible-delivery-becomes-delivering:
+    turn-admission-guard:
+      action: change
+      reason: Inside beginTurn's transaction, admit only a queued delivery or one
+        already bound to the run being reused. Never a consumed one; never a
+        held one.
+    turn-start-with-nothing-admissible:
+      action: change
+      reason: A batch that is entirely inadmissible starts no turn - no run message,
+        no attempt, member back to idle.
+    turn-admission-regression:
+      action: change
+      reason: "Prove the resurrection exists at HEAD and is gone here: consume a
+        delivery AFTER it is selected and BEFORE the turn begins, and assert it
+        is neither delivered nor named by any run message. Prove the partial
+        case proceeds with the remainder, and the total case posts nothing.
+        Prove the invariant against ALL THREE consumption sites, and prove a
+        reconciled retry still re-runs the deliveries it had already claimed."
+  turn-start-transactional:
+    atomic-turn-start:
+      action: change
+      reason: The same transaction now also decides admission.
+  runs-are-one-message:
+    run-message-lifecycle:
+      action: change
+      reason: The caller handles the case where the turn does not begin, so no empty
+        run message is ever posted.
+files:
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+applied:
+  applied_at: 2026-07-12T17:58:08.300Z

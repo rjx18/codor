@@ -689,3 +689,161 @@ describe('a member keeps the model and thinking level it was given', () => {
     migrated.close();
   });
 });
+
+// harn:assume only-an-admissible-delivery-becomes-delivering ref=turn-admission-regression
+describe('a consumed delivery is never resurrected into a turn', () => {
+  const queueOne = (body = '@alpha do it') => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'alpha', display_name: 'alpha', harness: 'fake', cwd: '/work',
+    });
+    const message = store.postMessage('eng', { author: owner.id, kind: 'chat', body });
+    const delivery = store.createDelivery('eng', { message_id: message.id, recipient: alpha.id });
+    return { alpha, delivery };
+  };
+
+  it('refuses a delivery consumed AFTER it was selected and BEFORE the turn began', () => {
+    const { alpha, delivery } = queueOne();
+
+    // The pump selects what is queued...
+    const selected = store.listDeliveries('eng', { recipient: alpha.id, state: 'queued' });
+    expect(selected.map((item) => item.id)).toEqual([delivery.id]);
+
+    // ...and something consumes it in the window before the turn is admitted. At HEAD this
+    // is reachable: the A5 removal drain consumes from outside the pump entirely.
+    store.updateDelivery('eng', delivery.id, { state: 'consumed' });
+
+    const started = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: selected.map((item) => item.id),
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    });
+
+    // It must not be handed to the agent as work...
+    expect(started, 'a turn with nothing admissible must not begin').toBeUndefined();
+    expect(store.getDelivery('eng', delivery.id)!.state).toBe('consumed');
+    // ...and no empty run message may be posted in its name.
+    expect(store.listMessages('eng', { limit: 20 }).filter((m) => m.kind === 'run')).toHaveLength(0);
+  });
+
+  it('proceeds with the remainder when only SOME of the batch was consumed', () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'alpha', display_name: 'alpha', harness: 'fake', cwd: '/work',
+    });
+    const first = store.createDelivery('eng', {
+      message_id: store.postMessage('eng', { author: owner.id, kind: 'chat', body: '@alpha one' }).id,
+      recipient: alpha.id,
+    });
+    const second = store.createDelivery('eng', {
+      message_id: store.postMessage('eng', { author: owner.id, kind: 'chat', body: '@alpha two' }).id,
+      recipient: alpha.id,
+    });
+
+    store.updateDelivery('eng', first.id, { state: 'consumed' });
+
+    const started = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: [first.id, second.id],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    })!;
+
+    expect(started.deliveries.map((item) => item.id)).toEqual([second.id]);
+    expect(store.getDelivery('eng', first.id)!.state).toBe('consumed');
+    expect(store.getDelivery('eng', second.id)!.state).toBe('delivering');
+    expect(started.deliveries[0]!.run_msg_id).toBe(started.runMessage.id);
+  });
+
+  it('leaves a HELD delivery held — the admission set is closed, not widened', () => {
+    const { alpha, delivery } = queueOne();
+    store.updateDelivery('eng', delivery.id, { state: 'held' });
+
+    const started = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: [delivery.id],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    });
+
+    expect(started).toBeUndefined();
+    expect(store.getDelivery('eng', delivery.id)!.state).toBe('held');
+  });
+
+  it('re-admits a HELD delivery bound to the run being reused — the operator released it', () => {
+    // An ambiguous turn parks its deliveries as `held`. When the operator releases one,
+    // the daemon retries THAT run with the held group. Those deliveries are not being
+    // swept into a turn: this run already claimed them, and the release is the request.
+    // Restricting admission to `queued` alone would silently kill release_hold.
+    const { alpha, delivery } = queueOne();
+    const first = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: [delivery.id],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    })!;
+    store.updateDelivery('eng', delivery.id, { state: 'held' });
+
+    const released = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: [delivery.id],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+      reuseRunMsgId: first.runMessage.id,
+    })!;
+
+    expect(released.runMessage.id).toBe(first.runMessage.id);
+    expect(released.deliveries.map((item) => item.id)).toEqual([delivery.id]);
+  });
+
+  it('never re-admits a CONSUMED delivery, even for the run that claimed it', () => {
+    // The one state that is admissible in no case at all.
+    const { alpha, delivery } = queueOne();
+    const first = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: [delivery.id],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    })!;
+    store.updateDelivery('eng', delivery.id, { state: 'consumed' });
+
+    const retried = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: [delivery.id],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+      reuseRunMsgId: first.runMessage.id,
+    });
+
+    expect(retried, 'work that was already taken is never handed out again').toBeUndefined();
+    expect(store.getDelivery('eng', delivery.id)!.state).toBe('consumed');
+  });
+
+  it('still re-runs the deliveries a reconciled retry had already claimed', () => {
+    // A crash-retry reuses its run message and re-runs deliveries that are ALREADY
+    // `delivering` — this very run claimed them. Closing admission to `queued` alone
+    // would silently kill crash recovery, so a delivery bound to the run being reused
+    // is admissible too.
+    const { alpha, delivery } = queueOne();
+    const first = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: [delivery.id],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    })!;
+    expect(store.getDelivery('eng', delivery.id)!.state).toBe('delivering');
+
+    const retried = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: [delivery.id],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+      reuseRunMsgId: first.runMessage.id,
+    })!;
+
+    expect(retried.runMessage.id, 'the retry reuses its run message').toBe(first.runMessage.id);
+    expect(retried.deliveries.map((item) => item.id)).toEqual([delivery.id]);
+    expect(retried.deliveries[0]!.attempt_count).toBe(2);
+  });
+});

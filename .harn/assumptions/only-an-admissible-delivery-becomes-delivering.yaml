@@ -1,0 +1,21 @@
+id: only-an-admissible-delivery-becomes-delivering
+hash: a-a5a181bb50b3
+title: The transaction that starts a turn decides what may enter it
+state: active
+statement: "The transaction that starts a turn must itself decide which
+  deliveries may enter it. A delivery may be admitted ONLY if it is queued, or
+  if it is already delivering AND bound to the very run message being reused -
+  which is a reconciled retry re-running the turn it already claimed. A consumed
+  delivery must NEVER be admitted, and a held delivery must remain held: the
+  admission set is not widened by this guard, only closed. Selecting deliveries
+  in one statement and admitting them in another is not a guard at all - between
+  the two, anything may have consumed them, and the turn pump would then
+  resurrect a consumed delivery and hand it to the agent as work. When every
+  delivery in a batch turns out to be inadmissible, the turn must not begin at
+  all: no run message is posted, no attempt is recorded, and the member returns
+  to idle - because an empty run message is a defect of its own, not a graceful
+  degradation."
+depends_on:
+  - turn-start-transactional
+  - delivery-fifo-has-durable-sequence
+created_by: lc0b-consumption-guard

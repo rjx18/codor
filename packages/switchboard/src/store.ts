@@ -1348,8 +1348,51 @@ export class Store {
       eventsRef: (messageId: number) => string;
       reuseRunMsgId?: number;
     },
-  ): AtomicTurnStart {
+  ): AtomicTurnStart | undefined {
     return this.db.transaction(() => {
+      // harn:assume only-an-admissible-delivery-becomes-delivering ref=turn-admission-guard
+      // Admission is decided HERE, inside the transaction that binds them — not by a
+      // filter that ran in an earlier statement. Between selecting a delivery and
+      // admitting it, anything may have consumed it: the end of a turn, the removal of
+      // the member, or (in live-collab) the agent itself. Trusting the earlier filter is
+      // how a consumed delivery gets resurrected and handed to an agent as work.
+      //
+      // A FRESH turn admits only what is `queued`. Nothing else may be swept into it: a
+      // held delivery stays held, and a consumed one is gone.
+      //
+      // A REUSED run — a reconciled retry, or an ambiguous turn the operator has just
+      // released — re-admits the deliveries ALREADY BOUND TO THAT RUN, whatever state the
+      // interruption left them in: `delivering` after a crash, `held` after an ambiguous
+      // turn was parked. They are not being swept in; this run already claimed them, and
+      // the operator asked for the retry. Restricting admission to `queued` alone would
+      // silently kill both crash recovery and release_hold.
+      //
+      // `consumed` is admissible in NO case. That is the whole point: it is the state a
+      // delivery reaches when its work is done, or when the member it was addressed to no
+      // longer exists, and resurrecting it hands an agent work that was already taken.
+      const boundToReusedRun = (delivery: Delivery): boolean =>
+        opts.reuseRunMsgId !== undefined && delivery.run_msg_id === opts.reuseRunMsgId;
+      const admissible = opts.deliveryIds
+        .map((deliveryId) => {
+          const delivery = this.getDelivery(room, deliveryId);
+          if (!delivery) throw new Error(`no such delivery: ${deliveryId}`);
+          if (delivery.recipient !== opts.memberId) {
+            throw new Error(`delivery ${deliveryId} does not belong to member ${opts.memberId}`);
+          }
+          return delivery;
+        })
+        .filter((delivery) =>
+          delivery.state !== 'consumed' &&
+          (delivery.state === 'queued' || boundToReusedRun(delivery)),
+        );
+
+      // harn:assume only-an-admissible-delivery-becomes-delivering ref=turn-start-with-nothing-admissible
+      // Nothing left to say. An empty run message would be a defect of its own, so the
+      // turn does not begin at all — no message, no attempt, and the caller idles the
+      // member.
+      if (admissible.length === 0) return undefined;
+      // harn:end only-an-admissible-delivery-becomes-delivering
+
       let runMessage: Message;
       if (opts.reuseRunMsgId !== undefined) {
         const existing = this.getMessage(room, opts.reuseRunMsgId);
@@ -1374,21 +1417,17 @@ export class Store {
         });
       }
 
-      const deliveries = opts.deliveryIds.map((deliveryId) => {
-        const delivery = this.getDelivery(room, deliveryId);
-        if (!delivery) throw new Error(`no such delivery: ${deliveryId}`);
-        if (delivery.recipient !== opts.memberId) {
-          throw new Error(`delivery ${deliveryId} does not belong to member ${opts.memberId}`);
-        }
-        const updated = this.updateDelivery(room, deliveryId, {
+      const deliveries = admissible.map((delivery) => {
+        const updated = this.updateDelivery(room, delivery.id, {
           state: 'delivering',
           attempt_count: delivery.attempt_count + 1,
           run_msg_id: runMessage.id,
           batch_id: `batch-${runMessage.id}`,
         });
-        this.setDeliveryAttemptProcess(room, [deliveryId], undefined);
+        this.setDeliveryAttemptProcess(room, [delivery.id], undefined);
         return updated;
       });
+      // harn:end only-an-admissible-delivery-becomes-delivering
       return { runMessage, deliveries };
     })();
   }
