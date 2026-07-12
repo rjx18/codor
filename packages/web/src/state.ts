@@ -96,9 +96,23 @@ export const useRoomStore = create<RoomState>((set) => ({
           if (state.seq !== 0 || Object.keys(state.messages).length <= HISTORY_PAGE_SIZE) {
             return { seq: bump };
           }
-          const latest = Object.values(state.messages)
-            .sort((a, b) => a.id - b.id)
-            .slice(-HISTORY_PAGE_SIZE);
+          // harn:assume the-inbox-badge-and-panel-are-one-truth ref=pending-survives-history-trim
+          // An interaction still waiting on the operator is not history. Trimming it
+          // out of the window makes the inbox say, untruthfully, that nothing needs
+          // them — the card is on the server, but the panel cannot see it.
+          const answered = new Set<number>();
+          for (const message of Object.values(state.messages)) {
+            if (message.reply_to !== undefined) answered.add(message.reply_to);
+          }
+          const isPending = (message: Message): boolean =>
+            (message.kind === 'ask' || message.kind === 'approval')
+            && message.ask !== undefined
+            && !answered.has(message.id);
+          const sorted = Object.values(state.messages).sort((a, b) => a.id - b.id);
+          const kept = new Map(sorted.slice(-HISTORY_PAGE_SIZE).map((m) => [m.id, m]));
+          for (const message of sorted) if (isPending(message)) kept.set(message.id, message);
+          const latest = [...kept.values()].sort((a, b) => a.id - b.id);
+          // harn:end the-inbox-badge-and-panel-are-one-truth
           return {
             seq: bump,
             messages: Object.fromEntries(latest.map((message) => [message.id, message])),
@@ -235,3 +249,31 @@ export const effectiveDefaultRecipient = (
   startingAgentHandle: state.room?.config.starting_agent_handle,
 });
 // harn:end default-recipient-fallback-chain
+
+
+// harn:assume the-inbox-badge-and-panel-are-one-truth ref=pending-interactions-selector
+/**
+ * The single answer to "what needs you". The header's count and the panel's list
+ * both come from here, so a badge saying 3 can never open onto "Nothing needs
+ * you" — and an ask addressed to somebody else is not the operator's to answer.
+ */
+export const pendingInteractions = (
+  state: Pick<RoomState, 'messages' | 'inbox' | 'members' | 'selfMemberId'>,
+): Message[] => {
+  const self = me(state.members, state.selfMemberId);
+  if (!self) return [];
+  const answered = new Set<number>();
+  for (const message of Object.values(state.messages)) {
+    if (message.reply_to !== undefined) answered.add(message.reply_to);
+  }
+  return Object.values(state.messages)
+    .filter((message) =>
+      (message.kind === 'ask' || message.kind === 'approval')
+      && message.ask !== undefined
+      && !answered.has(message.id)
+      && Object.values(state.inbox).some(
+        (delivery) => delivery.message_id === message.id && delivery.recipient === self.id,
+      ))
+    .sort((a, b) => a.id - b.id);
+};
+// harn:end the-inbox-badge-and-panel-are-one-truth

@@ -1,0 +1,15 @@
+id: the-inbox-badge-and-panel-are-one-truth
+hash: a-3fa12f187e5b
+title: The number and the list cannot disagree
+state: active
+statement: The header's inbox count and the panel it opens must be derived from
+  one selector over the same state - the asks and approvals that are addressed
+  to this operator and still unanswered - so the count can never promise work
+  the panel does not list, nor stay silent about work it does; and a pending ask
+  must survive the client's history trim, because an interaction that is still
+  waiting is not history and dropping it out of the window makes the panel
+  state, untruthfully, that nothing needs the operator.
+depends_on:
+  - the-inbox-opens-what-needs-you
+  - client-syncs-by-seq
+created_by: u5-review-fix

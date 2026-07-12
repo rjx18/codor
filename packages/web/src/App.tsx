@@ -26,10 +26,11 @@ import {
   type MemberDetail,
 } from './api.js';
 import {
+  HISTORY_PAGE_SIZE,
   effectiveDefaultRecipient,
   heldDeliveries,
-  HISTORY_PAGE_SIZE,
   me,
+  pendingInteractions,
   roleAtLeast,
   sortedMessages,
   unreadCount,
@@ -314,9 +315,15 @@ export function App(props: {
   }, [revealMessage, state.seq]);
 
   const [inboxOpen, setInboxOpen] = useState(false);
-  const [highlighted, setHighlighted] = useState<number>();
   const everConnected = useRef(false);
   if (state.connected) everConnected.current = true;
+  // `connected` starts false, so without a grace period every cold load announces
+  // that the switchboard is unreachable while the socket is still shaking hands.
+  const [handshakeOver, setHandshakeOver] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setHandshakeOver(true), 2_500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const answeredCards = useMemo(() => {
     const answered = new Set<number>();
@@ -329,22 +336,17 @@ export function App(props: {
   // harn:assume the-inbox-opens-what-needs-you ref=inbox-panel
   // Derived from the same messages the timeline renders, so an answer given in
   // another browser removes the item here without any extra plumbing.
+  const pending = useMemo(() => pendingInteractions(state), [state]);
   const inboxItems = useMemo<InboxItem[]>(() => {
     const now = Date.now();
-    return messages
-      // An approval is a distinct message kind from a question; both need the operator.
-      .filter((message) =>
-        (message.kind === 'ask' || message.kind === 'approval')
-        && message.ask
-        && !answeredCards.has(message.id))
-      .map((message) => ({
-        id: message.id,
-        authorHandle: handles(message.author),
-        tool: message.ask!.tool,
-        prompt: message.ask!.prompt,
-        ageMs: Math.max(0, now - Date.parse(message.ts)),
-      }));
-  }, [messages, answeredCards, handles]);
+    return pending.map((message) => ({
+      id: message.id,
+      authorHandle: handles(message.author),
+      tool: message.ask!.tool,
+      prompt: message.ask!.prompt,
+      ageMs: Math.max(0, now - Date.parse(message.ts)),
+    }));
+  }, [pending, handles]);
 
   const readyAgent = useMemo(() => {
     const agent = Object.values(state.members).find(
@@ -355,7 +357,6 @@ export function App(props: {
 
   const revealCard = (id: number): void => {
     setInboxOpen(false);
-    setHighlighted(id);
     window.location.hash = String(id);
     document.getElementById(String(id))?.scrollIntoView({ block: 'center' });
   };
@@ -470,7 +471,7 @@ export function App(props: {
             token={accessToken()}
             connected={state.connected}
             meter={state.meter}
-            unread={unreadCount(state)}
+            unread={pending.length}
             memberCount={Object.values(state.members).filter(
               (member) => member.kind !== 'system' && member.removed_ts === undefined,
             ).length}
@@ -634,7 +635,7 @@ export function App(props: {
             </div>
             {/* harn:assume empty-and-offline-are-shown-not-blank ref=timeline-empty-and-offline-states */}
             {/* A blank timeline is indistinguishable from a broken one. */}
-            {!state.connected && !everConnected.current && (
+            {!state.connected && !everConnected.current && handshakeOver && (
               <div data-testid="timeline-unreachable" className="wr-timeline-state" role="alert">
                 <span className="wr-room-glyph" aria-hidden="true">#</span>
                 <strong>Can’t reach Codor</strong>

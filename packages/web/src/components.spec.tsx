@@ -492,10 +492,15 @@ describe('product vocabulary', () => {
   it('never calls itself a Local switchboard', () => {
     // F4: the operator did not ask for a product tour in their sidebar. A grep gate,
     // because the phrase came back once already.
-    const files = readdirSync('src')
-      .filter((name) => /\.(tsx?|css)$/.test(name) && !name.includes('.spec.'));
-    for (const file of files) {
-      expect(readFileSync(`src/${file}`, 'utf8'), `${file} must not say it`)
+    // Recursive: a future subdirectory must not be able to smuggle it back in.
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const path = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) return walk(path);
+        return /\.(tsx?|css)$/.test(entry.name) && !entry.name.includes('.spec.') ? [path] : [];
+      });
+    for (const file of walk('src')) {
+      expect(readFileSync(file, 'utf8'), `${file} must not say it`)
         .not.toContain('Local switchboard');
     }
   });

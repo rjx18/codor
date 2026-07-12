@@ -1,0 +1,102 @@
+id: u5-review-fix
+title: U5 review fix - the badge and the panel must be the same truth, and a
+  pending ask must not fall out of the window
+assumptions:
+  create:
+    - id: the-inbox-badge-and-panel-are-one-truth
+      title: The number and the list cannot disagree
+      statement: The header's inbox count and the panel it opens must be derived from
+        one selector over the same state - the asks and approvals that are
+        addressed to this operator and still unanswered - so the count can never
+        promise work the panel does not list, nor stay silent about work it
+        does; and a pending ask must survive the client's history trim, because
+        an interaction that is still waiting is not history and dropping it out
+        of the window makes the panel state, untruthfully, that nothing needs
+        the operator.
+      reason: The badge counted unread deliveries while the panel listed unanswered
+        cards, so "3 unread" could open to "Nothing needs you"; the panel also
+        listed asks the operator could not answer, and lost any ask more than
+        fifty messages back when the client trimmed its window.
+      depends_on:
+        - the-inbox-opens-what-needs-you
+        - client-syncs-by-seq
+  reviewed:
+    - id: the-inbox-opens-what-needs-you
+      outcome: unchanged
+      reason: The panel's contract is right and unchanged - it still lists what is
+        waiting, reaches its card, and updates as items are answered. It simply
+        must list the same things the badge counts, and only what this operator
+        can actually answer.
+    - id: empty-and-offline-are-shown-not-blank
+      outcome: unchanged
+      reason: The states are right; the unreachable one must not be announced during
+        the ordinary connection handshake, when nothing is wrong yet.
+    - id: every-channel-has-a-visible-accent
+      outcome: unchanged
+      reason: Every channel still shows its accent. The rail's live marker has to
+        survive now that the accent always fills the mark it used to colour.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: The restrained hierarchy is unchanged; only the unreachable state's
+        timing changes.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: The inbox still navigates by the existing permalink id.
+    - id: the-product-never-calls-itself-a-switchboard
+      outcome: unchanged
+      reason: The phrase is still absent; the gate that keeps it out simply has to
+        look in subdirectories too.
+anchors:
+  the-inbox-badge-and-panel-are-one-truth:
+    pending-interactions-selector:
+      action: change
+      reason: One selector for what needs this operator, feeding both the count and
+        the list.
+    pending-survives-history-trim:
+      action: change
+      reason: Keep an unanswered ask when trimming the window; it is not history.
+    pending-interactions-regression:
+      action: change
+      reason: Prove the count and the list agree, that another operator's ask is not
+        listed, and that an ask older than the window survives the trim.
+  the-inbox-opens-what-needs-you:
+    inbox-panel:
+      action: change
+      reason: Feed the panel from the shared selector.
+    inbox-panel-regression:
+      action: change
+      reason: Prove the badge and the panel cannot disagree.
+  empty-and-offline-are-shown-not-blank:
+    timeline-empty-and-offline-states:
+      action: change
+      reason: Do not raise the unreachable alert during the ordinary handshake.
+    timeline-state-regression:
+      action: change
+      reason: Prove a cold load does not announce that the switchboard is unreachable.
+  every-channel-has-a-visible-accent:
+    channel-accent-rail:
+      action: change
+      reason: Keep the live marker visible now that the accent always fills the dot.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: The timeline's unreachable state gains its handshake grace inside the
+        restrained hierarchy region; the hierarchy itself is unchanged.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: The inbox count and list now come from one selector inside the history
+        region; permalink ids are unchanged.
+  the-product-never-calls-itself-a-switchboard:
+    switchboard-phrase-gate:
+      action: change
+      reason: Scan the package's subdirectories too.
+files:
+  - packages/web/src/state.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/App.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+applied:
+  applied_at: 2026-07-12T12:56:22.233Z

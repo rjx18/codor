@@ -5783,4 +5783,10 @@ textarea.wr-composer-control {
   border-radius: 999px;
   background: var(--wr-line);
 }
+/* Every channel now has an accent, and the inline colour fills the dot — so the
+   live marker can no longer BE the fill. It becomes a ring around it, which reads
+   over any accent. */
+.wr-room-dot.is-live {
+  box-shadow: 0 0 0 2px var(--wr-bg, #000), 0 0 0 4px currentColor;
+}
 /* harn:end every-channel-has-a-visible-accent */

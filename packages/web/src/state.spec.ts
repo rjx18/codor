@@ -1,16 +1,7 @@
 import { RoomConfigSchema, type Member, type Message, type Room } from '@codor/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import {
-  effectiveDefaultRecipient,
-  heldDeliveries,
-  HISTORY_PAGE_SIZE,
-  latestFinalizedAgentAuthor,
-  me,
-  sortedMessages,
-  unreadCount,
-  useRoomStore,
-} from './state.js';
+import { HISTORY_PAGE_SIZE, effectiveDefaultRecipient, heldDeliveries, latestFinalizedAgentAuthor, me, pendingInteractions, sortedMessages, unreadCount, useRoomStore } from './state.js';
 
 const ULID_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
 const ULID_B = '01BX5ZZKBKACTAV9WEVGEMMVRZ';
@@ -360,4 +351,77 @@ describe('selectors', () => {
     expect(latestFinalizedAgentAuthor({ 4: ack }, { [beta.id]: beta })).toBeUndefined();
   });
   // harn:end default-recipient-fallback-chain
+});
+
+// harn:assume the-inbox-badge-and-panel-are-one-truth ref=pending-interactions-regression
+describe('what needs the operator', () => {
+  const ask = (id: number): Message => ({
+    id, room: 'eng', author: 'agent-1', kind: 'approval', body: 'Run it?',
+    ts: '2026-07-12T00:00:00.000Z',
+    ask: { interaction_id: `i-${String(id)}`, kind: 'approval', prompt: 'Run it?', options: [{ label: 'Allow' }] },
+  } as unknown as Message);
+
+  const base = (messages: Message[], recipient = 'me') => ({
+    messages: Object.fromEntries(messages.map((m) => [m.id, m])),
+    inbox: Object.fromEntries(messages.map((m) => [
+      `d-${String(m.id)}`, { message_id: m.id, recipient } as never,
+    ])),
+    members: { me: { id: 'me', kind: 'human', handle: 'richard' } as never },
+    selfMemberId: 'me',
+  });
+
+  it('lists an ask that is waiting on this operator', () => {
+    expect(pendingInteractions(base([ask(1)])).map((m) => m.id)).toEqual([1]);
+  });
+
+  it('does not list an ask addressed to somebody else', () => {
+    // Clicking it would land on a card whose buttons are disabled.
+    expect(pendingInteractions(base([ask(1)], 'someone-else'))).toEqual([]);
+  });
+
+  it('does not list an ask that has been answered', () => {
+    const answered = { ...base([ask(1)]) };
+    answered.messages[2] = { id: 2, kind: 'chat', reply_to: 1 } as unknown as Message;
+    expect(pendingInteractions(answered)).toEqual([]);
+  });
+});
+
+// harn:assume the-inbox-badge-and-panel-are-one-truth ref=pending-survives-history-trim
+describe('history trim', () => {
+  it('keeps an ask that is still waiting, however far back it is', () => {
+    const { applyFrame, reset } = useRoomStore.getState();
+    reset();
+
+    // Hydration: the ask arrives first, then the channel fills past the window.
+    const messages: Record<number, unknown> = {
+      1: {
+        ...message({ id: 1, seq: 1 }),
+        kind: 'approval',
+        ask: { interaction_id: 'i-1', kind: 'approval', prompt: 'Run it?', options: [{ label: 'Allow' }] },
+      },
+    };
+    for (let id = 2; id <= HISTORY_PAGE_SIZE + 10; id++) {
+      messages[id] = message({ id, seq: id });
+    }
+    useRoomStore.setState({ messages: messages as never, seq: 0 });
+
+    applyFrame({ type: 'sync_complete', seq: HISTORY_PAGE_SIZE + 20 } as never);
+
+    const kept = useRoomStore.getState().messages;
+    // An interaction still waiting is not history: dropping it makes the inbox say,
+    // untruthfully, that nothing needs the operator.
+    expect(kept[1]).toBeDefined();
+    expect(Object.keys(kept)).toHaveLength(HISTORY_PAGE_SIZE + 1);
+  });
+
+  it('still trims the ordinary chatter it is supposed to', () => {
+    const { applyFrame, reset } = useRoomStore.getState();
+    reset();
+    const messages: Record<number, unknown> = {};
+    for (let id = 1; id <= HISTORY_PAGE_SIZE + 10; id++) messages[id] = message({ id, seq: id });
+    useRoomStore.setState({ messages: messages as never, seq: 0 });
+
+    applyFrame({ type: 'sync_complete', seq: 999 } as never);
+    expect(Object.keys(useRoomStore.getState().messages)).toHaveLength(HISTORY_PAGE_SIZE);
+  });
 });
