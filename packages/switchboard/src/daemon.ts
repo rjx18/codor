@@ -1913,7 +1913,12 @@ export class Daemon {
       interaction.answer,
     );
     this.store.upsertInteraction({ ...interaction, state: 'acked' });
-    this.emitMember(room, this.store.updateMember(room, member.id, { state: 'running' }));
+    // harn:assume interaction-ack-preserves-finalized-member-state ref=interaction-ack-member-transition
+    const current = this.store.getMember(room, member.id);
+    if (current?.state === 'awaiting_input') {
+      this.emitMember(room, this.store.updateMember(room, member.id, { state: 'running' }));
+    }
+    // harn:end interaction-ack-preserves-finalized-member-state
   }
 
   // ── boot reconcile ────────────────────────────────────────────────────

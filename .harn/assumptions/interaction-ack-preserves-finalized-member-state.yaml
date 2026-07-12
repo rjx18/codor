@@ -1,0 +1,13 @@
+id: interaction-ack-preserves-finalized-member-state
+hash: a-b9ad8b7dba75
+title: Late interaction acknowledgements cannot reopen finalized members
+state: active
+statement: After an adapter accepts an interaction answer, the daemon must mark
+  the member running only while it is still awaiting input, because the resumed
+  turn may finalize and make the member idle before the adapter acknowledgement
+  settles and a late acknowledgement must not reopen a completed turn or stall
+  queued deliveries.
+depends_on:
+  - interaction-state-machine-persisted
+  - runs-are-one-message
+created_by: u2s-e2e-stabilization

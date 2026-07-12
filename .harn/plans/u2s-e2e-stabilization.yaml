@@ -1,0 +1,32 @@
+id: u2s-e2e-stabilization
+title: Preserve finalized member state after interaction acknowledgement
+assumptions:
+  create:
+    - id: interaction-ack-preserves-finalized-member-state
+      title: Late interaction acknowledgements cannot reopen finalized members
+      statement: After an adapter accepts an interaction answer, the daemon must mark
+        the member running only while it is still awaiting input, because the
+        resumed turn may finalize and make the member idle before the adapter
+        acknowledgement settles and a late acknowledgement must not reopen a
+        completed turn or stall queued deliveries.
+      reason: A reproduced acknowledgement/finalization race left completed runs
+        attached to members incorrectly marked running and stalled later held
+        delivery releases.
+      depends_on:
+        - interaction-state-machine-persisted
+        - runs-are-one-message
+anchors:
+  interaction-ack-preserves-finalized-member-state:
+    interaction-ack-member-transition:
+      action: change
+      reason: Guard the post-ack running transition with the member's current
+        awaiting-input state.
+    interaction-ack-finalization-regression:
+      action: change
+      reason: Prove a resumed turn can finalize before acknowledgement without being
+        reopened and that a later delivery still drains.
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+applied:
+  applied_at: 2026-07-12T05:57:33.575Z

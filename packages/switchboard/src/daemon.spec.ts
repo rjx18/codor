@@ -957,6 +957,7 @@ describe('adapter lifecycle evidence', () => {
 });
 
 describe('interactions: the full state machine', () => {
+  // harn:assume interaction-ack-preserves-finalized-member-state ref=interaction-ack-finalization-regression
   it('ask → pending card → answered → acked → run resumes', async () => {
     const alpha = spawnAgent('alpha');
     fake.enqueue({
@@ -990,7 +991,15 @@ describe('interactions: the full state machine', () => {
     const run = runMessages()[0]!;
     expect(run.run!.status).toBe('completed');
     expect(run.body).toBe('chose ALPHA');
+    expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('idle');
+
+    fake.enqueue({ kind: 'complete', final_text: 'follow-up complete' });
+    daemon.postHumanMessage('eng', '@alpha follow up');
+    await daemon.settle();
+    expect(runMessages()).toHaveLength(2);
+    expect(runMessages()[1]!.body).toBe('follow-up complete');
   });
+  // harn:end interaction-ack-preserves-finalized-member-state
 
   it('rejects an interaction answer from a human outside the persisted targets', async () => {
     const alpha = spawnAgent('alpha');
