@@ -1,0 +1,16 @@
+id: the-adapter-doc-is-the-contract-it-enforces
+hash: a-48d0cae9e422
+title: A third-party author who follows the doc must be able to register
+state: active
+statement: "The capabilities interface published in docs/ADAPTERS.md must list
+  every field the adapter registry requires, because that document IS the
+  contract for harnesses the core does not ship - an author can only follow what
+  is written down. A doc that omits a required field describes an adapter that
+  is refused at load with no explanation of why, which is worse than no doc: it
+  is a contract that lies. A gate must therefore compare the fields a real
+  adapter declares against the fields the document publishes, so the two cannot
+  drift again - as they already had, silently, for `thinking`."
+depends_on:
+  - adapter-registry-sole-harness-source
+  - harness-declares-what-a-policy-becomes
+created_by: a3-review-fix

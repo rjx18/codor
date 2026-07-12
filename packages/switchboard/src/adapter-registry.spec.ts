@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
 import { BUILTIN_ADAPTER_IDS, loadAdapterRegistry } from './adapter-registry.js';
+import { FakeAdapter } from './fake-adapter.js';
 
 describe('adapter registry spawn controls', () => {
   it('requires every built-in to declare thinking support explicitly', async () => {
@@ -116,5 +119,28 @@ describe('an unknown policy is refused wherever it comes from', () => {
     const [adapter] = await loadAdapterRegistry({ adapters: {} });
     expect(() => adapter!.spawn({ cwd: '/work', policy: 'root' }))
       .toThrow(/unknown policy 'root'/);
+  });
+});
+
+// harn:assume the-adapter-doc-is-the-contract-it-enforces ref=adapter-doc-drift-gate
+describe('the published adapter contract is the one the registry enforces', () => {
+  // docs/ADAPTERS.md IS the contract for harnesses the core does not ship — an author
+  // can only follow what is written down. It had drifted silently: `thinking` was never
+  // published at all, and `policies` became required while the doc still showed the old
+  // interface, so a faithful third-party adapter would be REFUSED at load with nothing
+  // to explain why. A doc that omits a required field is worse than no doc.
+  const doc = readFileSync('../../docs/ADAPTERS.md', 'utf8');
+  const published = /interface HarnessAdapter \{[\s\S]*?\n\}/.exec(doc)?.[0] ?? '';
+
+  it('publishes every capability a real adapter declares', () => {
+    // Runtime truth, not a hand-kept list: whatever an adapter actually carries.
+    const declared = Object.keys(new FakeAdapter().capabilities);
+    expect(declared.length).toBeGreaterThan(0);
+    const missing = declared.filter((field) => !published.includes(field));
+    expect(missing, 'the doc must publish every capability the registry requires').toEqual([]);
+  });
+
+  it('publishes the capability the registry refuses adapters for omitting', () => {
+    expect(published).toContain('policies');
   });
 });

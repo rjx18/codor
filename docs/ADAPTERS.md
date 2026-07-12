@@ -14,7 +14,12 @@ the same routing, persistence, run journal, interaction, and crash handling as e
 
 Implement the `HarnessAdapter` exported by `@codor/protocol`:
 
+<!-- harn:assume the-adapter-doc-is-the-contract-it-enforces ref=published-adapter-contract -->
+
 ```ts
+type Policy = 'read-only' | 'workspace-write' | 'full-access';
+type ThinkingLevel = 'low' | 'medium' | 'high';
+
 interface HarnessAdapter {
   id: string;
   capabilities: {
@@ -24,15 +29,64 @@ interface HarnessAdapter {
     ask: boolean;
     approvals: 'runtime' | 'spawn-time';
     extensions: boolean;
+    thinking: boolean;
+    policies: Record<Policy, string | null>;
   };
-  spawn(options: { cwd: string; model?: string; policy?: string }): Session;
+  spawn(options: {
+    cwd: string;
+    model?: string;
+    policy?: Policy;
+    thinking?: ThinkingLevel;
+  }): Session;
   attach(sessionRef: string): Session;
+  /** Optional. The models this harness accepts; omit when it cannot say. */
+  listModels?(): Promise<{ models: string[]; source: 'discovered' | 'curated' }>;
   deliver(session: Session, payload: string, hooks?: AdapterTurnHooks): AsyncIterable<WireEvent>;
   respondInteraction(session: Session, interactionId: string, answer: unknown): Promise<void>;
   interrupt(session: Session): void;
   discoverSessions(): string[];
 }
 ```
+
+**Every field above is required, and the registry refuses an adapter that omits one.**
+`thinking` says whether the harness takes a reasoning-effort setting at all; a spawn that
+asks for one from a harness that declares `false` is rejected rather than quietly ignored.
+
+### `policies` — declare what each permission tier actually becomes
+
+Codor has exactly three permission tiers. Your adapter declares what each one BECOMES for
+your harness: the native mode it maps to, or `null` when your harness does not distinguish
+that tier at all.
+
+```ts
+// claude-code: all three tiers are distinct native modes.
+policies: {
+  'read-only': 'plan',
+  'workspace-write': 'acceptEdits',
+  'full-access': 'bypassPermissions',
+}
+
+// opencode: only the top tier emits a flag. The other two build IDENTICAL arguments,
+// so this harness is not being told to restrict anything — its own configured rules
+// apply. `null` says exactly that.
+policies: {
+  'read-only': null,
+  'workspace-write': null,
+  'full-access': '--auto',
+}
+```
+
+`null` is not "unknown" and not "unsupported" — it is the harness stating plainly that the
+operator's choice of that tier changes nothing about what the agent may do. The web surfaces
+read this declaration to tell the operator the truth: a tier declared `null` is shown as *not
+enforced*, and choosing it raises a warning rather than implying a guarantee nobody is making.
+
+**The declaration must match the arguments you actually build.** A `policies` entry that
+disagrees with your own argv is a lie the UI will faithfully repeat to the operator about what
+an agent may do to their machine. Every first-party adapter is held to this by a test that
+compares its declaration against the arguments it emits; hold yours to the same.
+
+<!-- harn:end the-adapter-doc-is-the-contract-it-enforces -->
 
 `spawn()` creates an in-memory session handle; it does not need to launch the harness yet. One
 `deliver()` call is one turn. Launch the CLI as a supervised subprocess there, call

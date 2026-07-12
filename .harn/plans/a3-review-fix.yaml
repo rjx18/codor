@@ -1,0 +1,57 @@
+id: a3-review-fix
+title: A3 review fix - the published adapter contract must be the contract the
+  registry actually enforces
+assumptions:
+  create:
+    - id: the-adapter-doc-is-the-contract-it-enforces
+      title: A third-party author who follows the doc must be able to register
+      statement: "The capabilities interface published in docs/ADAPTERS.md must list
+        every field the adapter registry requires, because that document IS the
+        contract for harnesses the core does not ship - an author can only
+        follow what is written down. A doc that omits a required field describes
+        an adapter that is refused at load with no explanation of why, which is
+        worse than no doc: it is a contract that lies. A gate must therefore
+        compare the fields a real adapter declares against the fields the
+        document publishes, so the two cannot drift again - as they already had,
+        silently, for `thinking`."
+      reason: The reviewer's A3 finding. adapter-registry.ts refuses any adapter whose
+        capabilities omit `policies` - deliberately, third-party fixture
+        included - but docs/ADAPTERS.md still published the old interface,
+        without `policies` and without `thinking`. A third-party author could
+        follow it faithfully and still be rejected.
+      depends_on:
+        - adapter-registry-sole-harness-source
+        - harness-declares-what-a-policy-becomes
+  reviewed:
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The registry is unchanged and remains the sole source of harness truth.
+        What changes is that the document now says what the registry has been
+        enforcing, and a gate keeps it that way.
+    - id: harness-declares-what-a-policy-becomes
+      outcome: unchanged
+      reason: The declaration rule is unchanged. It is now written down where the
+        people who must obey it will actually read it, including the honesty
+        rule that a declaration disagreeing with the arguments the adapter
+        builds is a lie the UI will faithfully repeat.
+anchors:
+  the-adapter-doc-is-the-contract-it-enforces:
+    published-adapter-contract:
+      action: change
+      reason: Publish the capabilities the registry requires - `policies` and the
+        long-absent `thinking` - and the rules that govern them.
+    adapter-doc-drift-gate:
+      action: change
+      reason: Compare a real adapter's declared capability fields against the ones the
+        document publishes, so the contract cannot silently drift from what is
+        enforced.
+  adapter-registry-sole-harness-source:
+    adapter-registration-contract:
+      action: change
+      reason: The registration contract this region documents gains the fields it has
+        been rejecting adapters for omitting.
+files:
+  - docs/ADAPTERS.md
+  - packages/switchboard/src/adapter-registry.spec.ts
+applied:
+  applied_at: 2026-07-12T16:28:14.621Z
