@@ -1,0 +1,204 @@
+id: a3-policy-control
+title: A3 - one shared permission control, and it tells the truth about the
+  harness it is pointed at
+assumptions:
+  create:
+    - id: harness-declares-what-a-policy-becomes
+      title: The browser never guesses what a permission level does
+      statement: Every adapter must declare, for each of the three canonical policies,
+        the native mode that policy becomes for that harness - or NULL where the
+        harness does not distinguish it at all - so that no surface has to
+        hardcode harness knowledge to tell the operator the truth. claude-code,
+        gemini and codex map all three distinctly; copilot and opencode emit a
+        flag ONLY for full-access, which means read-only and workspace-write
+        produce identical arguments there and BOTH defer to whatever rules that
+        harness is configured with. A control that offers read-only on such a
+        harness while implying it is enforced is lying about what the agent may
+        do to the operator's machine, and a control that implies workspace-write
+        is a known behaviour there is lying too - both are deferrals, and both
+        must say so. The declaration must match the arguments the adapter
+        actually builds, because a declaration that drifts from the argv is
+        simply a new way to lie. No harness may register without it, third-party
+        harnesses included.
+      reason: The operator asked to choose the permission level for every harness "as
+        far as possible". As far as possible is not the same for every harness,
+        and the difference is a safety boundary, so the difference has to be
+        declared by the adapter and shown, not smoothed over.
+      depends_on:
+        - adapter-registry-sole-harness-source
+    - id: one-control-chooses-an-agent-everywhere
+      title: An agent is configured by one control, wherever it is created
+      statement: The harness, the model, the thinking level and the permission policy
+        must be chosen through ONE shared control, used everywhere an agent is
+        configured - the spawn dialog, the create-channel dialog, and in a later
+        phase the member card - because a second copy of a permission control is
+        a second place for it to disagree with itself, and a permission control
+        that disagrees with itself is worse than none. Creating a channel with a
+        starting agent must therefore be able to express that agent's policy,
+        which today it cannot - the schema has no field for it, so every
+        channel-seeded agent is spawned with no policy at all.
+      reason: F11. The spawn dialog has a policy select; the create-channel dialog has
+        nothing, and StartingAgentSchema has no policy field. The operator asked
+        for the permission level at channel creation.
+      depends_on:
+        - web-spawn-dialog-exposes-canonical-agent-controls
+        - channel-creation-derived-and-seeded
+  reviewed:
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: The three canonical policies and the single validation point are
+        unchanged. The adapters now additionally DECLARE what each policy
+        becomes for them, which is a statement about the harness rather than a
+        new control.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The registry remains the sole source of harness truth. It validates one
+        more capability field, so no adapter - including a third-party one
+        loaded by hot-swap, whose fixture declares its mapping like any other -
+        can register without saying what its policies do. Each adapter's barrel
+        test asserts its capabilities in full and therefore asserts the new
+        declaration too, which is exactly what an honest-capabilities test is
+        for.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: The spawn dialog still exposes the canonical controls. Its hand-rolled
+        policy select moves into the shared control, so there is exactly one of
+        them.
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: Creation still derives the channel and seeds the owner and the starting
+        agent. The starting agent can now carry the policy it is spawned with.
+    - id: model-catalogs-reach-a-browser-that-arrives-early
+      outcome: unchanged
+      reason: The adapter listing the browser already refreshes now also carries what
+        each policy becomes. Nothing about the discovery timing changes.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: The rail still creates and enters an owner-seeded channel. Its create
+        dialog simply asks one more question - the starting agent's permission
+        level - and sends the answer.
+    - id: agent-controls-shared-by-both-dialogs
+      outcome: unchanged
+      reason: The control is still the one place an agent is configured, still
+        hardcodes no harness knowledge, and is still shared by both dialogs. It
+        simply configures one more thing - the permission level - which is the
+        whole point of it being shared.
+anchors:
+  harness-declares-what-a-policy-becomes:
+    adapter-policy-capability:
+      action: change
+      reason: Each policy declares the native mode it becomes, or null where the
+        harness does not distinguish it.
+    adapter-policy-declarations:
+      action: change
+      reason: All five harnesses declare their real mapping, taken from the arguments
+        they actually build.
+    adapter-policy-registry-validation:
+      action: change
+      reason: A harness cannot register without declaring what its policies do.
+    adapter-policy-regression:
+      action: change
+      reason: Prove the declaration matches the arguments the adapter actually emits,
+        and that the two unenforced levels really do build identical arguments.
+  one-control-chooses-an-agent-everywhere:
+    shared-policy-control:
+      action: change
+      reason: The policy joins harness, model and thinking in the one shared control,
+        and discloses what the level becomes on the selected harness - warning
+        where the harness defers rather than enforces.
+    starting-agent-policy:
+      action: change
+      reason: A channel's starting agent can express its policy; today the schema
+        cannot.
+    shared-policy-control-regression:
+      action: change
+      reason: Prove both dialogs use the one control, that creating a channel with a
+        policy persists it on the spawned member, and that selecting EITHER
+        deferred level on copilot or opencode warns.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    spawn-dialog-controls:
+      action: change
+      reason: The hand-rolled policy select lived here. It is gone; the shared control
+        beside it carries the permission level now.
+    spawn-dialog-browser-regression:
+      action: change
+      reason: The browser regression asserted that select. It follows the control -
+        and the unknown-policy rejection it used to prove by injecting an
+        invalid option moves down to a unit test, because three buttons off the
+        enum cannot produce one.
+    spawn-dialog-unit-regression:
+      action: change
+      reason: The dialog's own policy select is gone; the regression follows it to the
+        shared control.
+    canonical-spawn-dialog:
+      action: change
+      reason: The dialog drops its hand-rolled policy select in favour of the shared
+        control.
+  web-room-rail-creates-owner-room:
+    room-rail-create-action:
+      action: change
+      reason: The create payload inside this region carries the starting agent's
+        policy.
+  channel-creation-derived-and-seeded:
+    derived-channel-creation:
+      action: change
+      reason: The create-channel payload carries the starting agent's policy.
+  canonical-spawn-controls-enforced:
+    canonical-policy-thinking-enforcement:
+      action: change
+      reason: The policy enum is unchanged; the capability that describes what each
+        value becomes is declared beside it.
+    fake-thinking-capability:
+      action: change
+      reason: The fake harness declares its policy mapping like any other.
+  agent-controls-shared-by-both-dialogs:
+    agent-controls-component:
+      action: change
+      reason: The shared control gains the permission level, and still hardcodes no
+        harness knowledge - the native mode names belong to the adapters.
+    agent-controls-unit-regression:
+      action: change
+      reason: Its fixtures gain the policy declarations, including a harness that
+        enforces neither of the lower levels.
+  adapter-registry-sole-harness-source:
+    configured-adapter-registry:
+      action: change
+      reason: The registry's capability check inside this region gains the policy
+        declaration it now requires of every harness.
+    third-party-hot-swap-acceptance:
+      action: change
+      reason: The third-party fixture adapter declares its policy mapping. It is the
+        proof that the requirement reaches harnesses the core does not ship.
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/test-fixtures/third-party-adapter.mjs
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/claude-code/src/adapter.spec.ts
+  - packages/adapters/claude-code/src/index.spec.ts
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/adapter.spec.ts
+  - packages/adapters/codex/src/index.spec.ts
+  - packages/adapters/gemini/src/adapter.ts
+  - packages/adapters/gemini/src/adapter.spec.ts
+  - packages/adapters/gemini/src/index.spec.ts
+  - packages/adapters/copilot/src/adapter.ts
+  - packages/adapters/copilot/src/adapter.spec.ts
+  - packages/adapters/copilot/src/index.spec.ts
+  - packages/adapters/opencode/src/adapter.ts
+  - packages/adapters/opencode/src/adapter.spec.ts
+  - packages/adapters/opencode/src/index.spec.ts
+  - packages/web/src/agent-controls.tsx
+  - packages/web/src/agent-controls.spec.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/shell.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+applied:
+  applied_at: 2026-07-12T15:39:56.476Z

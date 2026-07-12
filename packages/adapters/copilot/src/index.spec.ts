@@ -14,6 +14,12 @@ describe('@codor/adapter-copilot barrel', () => {
       approvals: 'spawn-time',
       extensions: true,
       thinking: false,
+      // Only full-access is enforced; the other two defer to copilot's own rules.
+      policies: {
+        'read-only': null,
+        'workspace-write': null,
+        'full-access': '--allow-all',
+      },
     });
   });
 });

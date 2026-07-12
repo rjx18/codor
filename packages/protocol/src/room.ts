@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { RoomIdSchema, TimestampSchema } from './ids.js';
 import { AssignableHandleSchema } from './member.js';
-import { ThinkingLevelSchema } from './adapter.js';
+import { PolicySchema, ThinkingLevelSchema } from './adapter.js';
 
 // harn:assume brakes-default-off ref=room-config-brakes
 /**
@@ -44,6 +44,12 @@ export const StartingAgentSchema = z.object({
   handle: AssignableHandleSchema,
   model: z.string().optional(),
   thinking: ThinkingLevelSchema.optional(),
+  // harn:assume one-control-chooses-an-agent-everywhere ref=starting-agent-policy
+  // Without this, every channel-seeded agent spawned with NO policy at all — the
+  // create-channel dialog could not express one because the contract had nowhere to
+  // put it. The spawn dialog could. Same agent, same question, two different answers.
+  policy: PolicySchema.optional(),
+  // harn:end one-control-chooses-an-agent-everywhere
 });
 export type StartingAgent = z.infer<typeof StartingAgentSchema>;
 

@@ -1,4 +1,4 @@
-import { ThinkingLevelSchema, type ThinkingLevel } from '@codor/protocol';
+import { PolicySchema, ThinkingLevelSchema, type Policy, type ThinkingLevel } from '@codor/protocol';
 import { Bot, Box, Cat, Sparkles, SquareTerminal, Terminal, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 
@@ -19,7 +19,15 @@ export interface AgentControlsValue {
   harness: string;
   model: string;
   thinking: ThinkingLevel | '';
+  policy: Policy;
 }
+
+/** What the operator is choosing, in their words rather than the enum's. */
+const POLICY_LABELS: Record<Policy, { title: string; blurb: string }> = {
+  'read-only': { title: 'Plan only', blurb: 'Reads and plans. No edits.' },
+  'workspace-write': { title: 'Edit workspace', blurb: 'Edits inside the working directory.' },
+  'full-access': { title: 'Full access', blurb: 'Skips permission prompts entirely.' },
+};
 
 // harn:assume agent-controls-shared-by-both-dialogs ref=agent-controls-component
 /**
@@ -46,6 +54,11 @@ export function AgentControls(props: {
   const adapter = adapters.find((candidate) => candidate.id === value.harness);
   const models = adapter?.models ?? [];
   const thinkingSupported = adapter?.capabilities.thinking === true;
+  // Warn on EITHER deferred level, not just read-only: on a harness that emits a flag
+  // only for full-access, workspace-write is no more enforced than read-only is, and
+  // implying otherwise would trade one false promise for another.
+  const deferredSelected =
+    adapter !== undefined && adapter.capabilities.policies?.[value.policy] === null;
   // A searchable list IS free text: a half-typed model is a search in progress, not
   // an off-catalog model. Deriving `custom` from it would unmount the search box on
   // the first keystroke.
@@ -211,6 +224,46 @@ export function AgentControls(props: {
           {!thinkingSupported && <small>Not supported by this harness</small>}
         </fieldset>
       )}
+
+      {/* harn:assume one-control-chooses-an-agent-everywhere ref=shared-policy-control */}
+      {value.harness !== '' && (
+        <fieldset className="wr-control-group">
+          <legend>Permission</legend>
+          <div className="wr-policy-row">
+            {PolicySchema.options.map((policy) => {
+              const native = adapter?.capabilities.policies?.[policy] ?? null;
+              const deferred = adapter !== undefined && native === null;
+              return (
+                <button
+                  key={policy}
+                  type="button"
+                  data-testid={`${idPrefix}-policy-${policy}`}
+                  className={`wr-policy-option${deferred ? ' is-deferred' : ''}`}
+                  aria-pressed={value.policy === policy}
+                  onClick={() => pick({ policy })}
+                >
+                  <strong>{POLICY_LABELS[policy].title}</strong>
+                  <small>{POLICY_LABELS[policy].blurb}</small>
+                  {/* What it ACTUALLY becomes for this harness — read from the adapter,
+                      never guessed here. A UI that hardcodes harness knowledge goes
+                      stale silently, and this particular staleness is a safety one. */}
+                  <em data-testid={`${idPrefix}-policy-${policy}-native`}>
+                    {native ?? 'not enforced'}
+                  </em>
+                </button>
+              );
+            })}
+          </div>
+          {deferredSelected && (
+            <small data-testid={`${idPrefix}-policy-deferred`} role="status" className="wr-policy-warning">
+              {value.harness} does not take this setting. Both Plan only and Edit workspace
+              build the same command, so what this agent may do is whatever {value.harness}
+              is configured to allow. Only Full access changes anything.
+            </small>
+          )}
+        </fieldset>
+      )}
+      {/* harn:end one-control-chooses-an-agent-everywhere */}
     </div>
   );
 }

@@ -8,20 +8,26 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AgentControls, type AgentControlsValue } from './agent-controls.js';
 import type { AdapterRegistration } from './api.js';
 
+const DISTINCT = { 'read-only': 'plan', 'workspace-write': 'acceptEdits', 'full-access': 'bypassPermissions' };
+// A harness that emits a flag only for full-access: the other two levels are NOT
+// enforced by us — they defer to whatever that harness is configured to allow.
+const DEFERS = { 'read-only': null, 'workspace-write': null, 'full-access': '--auto' };
+
 const adapters = [
   // A harness that reported a short curated list.
   {
     id: 'claude-code',
-    capabilities: { resume: true, thinking: true },
+    capabilities: { resume: true, thinking: true, policies: DISTINCT },
     models: ['haiku', 'sonnet', 'opus'],
     models_source: 'curated',
   },
   // A harness that reported nothing at all.
-  { id: 'gemini', capabilities: { resume: true, thinking: false } },
-  // A harness that discovered many models from the operator's own providers.
+  { id: 'gemini', capabilities: { resume: true, thinking: false, policies: DISTINCT } },
+  // A harness that discovered many models from the operator's own providers, and that
+  // cannot enforce either of the two lower permission levels.
   {
     id: 'opencode',
-    capabilities: { resume: true, thinking: true },
+    capabilities: { resume: true, thinking: true, policies: DEFERS },
     models: Array.from({ length: 40 }, (_, index) => `openai/model-${String(index)}`),
     models_source: 'discovered',
   },
@@ -38,6 +44,7 @@ describe('agent controls', () => {
       harness: 'claude-code',
       model: '',
       thinking: '',
+      policy: 'read-only',
     });
     latest = value;
     return (
@@ -188,3 +195,84 @@ describe('agent controls', () => {
   });
 });
 // harn:end agent-controls-shared-by-both-dialogs
+
+// harn:assume one-control-chooses-an-agent-everywhere ref=shared-policy-control-regression
+describe('the permission control tells the truth about the harness', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let latest: AgentControlsValue;
+
+  function Harness(props: { harness: string }) {
+    const [value, setValue] = useState<AgentControlsValue>({
+      harness: props.harness,
+      model: '',
+      thinking: '',
+      policy: 'read-only',
+    });
+    latest = value;
+    return <AgentControls adapters={adapters} idPrefix="t" value={value} onChange={setValue} />;
+  }
+
+  const render = (harness: string): void => {
+    act(() => root.render(<Harness harness={harness} />));
+  };
+  const click = (testid: string): void => {
+    act(() => {
+      container.querySelector<HTMLButtonElement>(`[data-testid="${testid}"]`)!.click();
+    });
+  };
+  const text = (testid: string): string | undefined =>
+    container.querySelector(`[data-testid="${testid}"]`)?.textContent ?? undefined;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it('shows what each level actually becomes on the selected harness', () => {
+    render('claude-code');
+    expect(text('t-policy-read-only-native')).toBe('plan');
+    expect(text('t-policy-workspace-write-native')).toBe('acceptEdits');
+    expect(text('t-policy-full-access-native')).toBe('bypassPermissions');
+  });
+
+  it('picks the policy through the one shared control', () => {
+    render('claude-code');
+    click('t-policy-full-access');
+    expect(latest.policy).toBe('full-access');
+  });
+
+  it('warns on EITHER level a harness cannot enforce, not just read-only', () => {
+    // The whole point: on opencode, workspace-write is no more enforced than read-only.
+    // Warning about one and not the other would trade a false promise for a quieter one.
+    render('opencode');
+    expect(text('t-policy-deferred'), 'read-only must warn').toContain('does not take this setting');
+
+    click('t-policy-workspace-write');
+    expect(text('t-policy-deferred'), 'workspace-write must warn too').toContain('does not take this setting');
+
+    click('t-policy-full-access');
+    expect(text('t-policy-deferred'), 'full-access IS enforced, so it must not warn').toBeUndefined();
+  });
+
+  it('says plainly that an unenforced level is not enforced', () => {
+    render('opencode');
+    expect(text('t-policy-read-only-native')).toBe('not enforced');
+    expect(text('t-policy-workspace-write-native')).toBe('not enforced');
+    expect(text('t-policy-full-access-native')).toBe('--auto');
+  });
+
+  it('hardcodes no harness knowledge of its own', () => {
+    // The mapping is the adapter's to declare. A native mode name spelled out in this
+    // package would go stale silently — and this staleness is a safety one.
+    const source = readFileSync('src/agent-controls.tsx', 'utf8');
+    for (const native of ['acceptEdits', 'bypassPermissions', 'danger-full-access', 'auto_edit', 'yolo', '--allow-all']) {
+      expect(source, `${native} belongs to the adapter, not the UI`).not.toContain(native);
+    }
+  });
+});

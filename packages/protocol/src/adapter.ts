@@ -42,6 +42,18 @@ export interface AdapterCapabilities {
   approvals: 'runtime' | 'spawn-time';
   extensions: boolean; // reports subagents (extension.*)
   thinking: boolean;
+  // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-capability
+  // What each canonical policy ACTUALLY becomes for this harness — the native mode it
+  // maps to, or null where the harness does not distinguish it at all.
+  //
+  // Null is the safety-critical value. copilot and opencode emit a flag only for
+  // full-access, so read-only and workspace-write build identical arguments there:
+  // BOTH defer to whatever rules that harness is configured with. Telling an operator
+  // their agent is read-only when the harness was never told so is a lie about what it
+  // may do to their machine — so the harness declares this, and every surface reads it
+  // rather than hardcoding what it thinks it knows.
+  policies: Record<Policy, string | null>;
+  // harn:end harness-declares-what-a-policy-becomes
 }
 // harn:end canonical-spawn-controls-enforced
 

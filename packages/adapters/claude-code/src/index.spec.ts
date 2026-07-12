@@ -14,6 +14,11 @@ describe('@codor/adapter-claude-code barrel', () => {
       approvals: 'runtime',
       extensions: true,
       thinking: true,
+      policies: {
+        'read-only': 'plan',
+        'workspace-write': 'acceptEdits',
+        'full-access': 'bypassPermissions',
+      },
     });
   });
 });

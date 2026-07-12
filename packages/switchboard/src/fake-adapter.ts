@@ -75,6 +75,13 @@ export class FakeAdapter implements HarnessAdapter {
       extensions: false,
       // harn:assume canonical-spawn-controls-enforced ref=fake-thinking-capability
       thinking: false,
+      // The fake harness declares its mapping like any other; tests that need a
+      // deferring harness pass their own.
+      policies: {
+        'read-only': 'read-only',
+        'workspace-write': 'workspace-write',
+        'full-access': 'full-access',
+      },
       // harn:end canonical-spawn-controls-enforced
       ...capabilities,
     };

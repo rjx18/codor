@@ -86,3 +86,14 @@ console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_t
     expect(session.session_ref).toBe('11111111-1111-4111-8111-111111111111');
   });
 });
+
+// harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-regression
+describe('the declared policy mapping matches the arguments actually built', () => {
+  it('declares exactly what --sandbox receives', () => {
+    const { policies } = new CodexAdapter().capabilities;
+    for (const [policy, native] of Object.entries(policies)) {
+      const args = codexArgs({ harness: 'codex', cwd: '/work', policy }, 'go');
+      expect(args[args.indexOf('--sandbox') + 1], policy).toBe(native);
+    }
+  });
+});

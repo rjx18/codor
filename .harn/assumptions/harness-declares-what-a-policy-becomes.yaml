@@ -1,0 +1,21 @@
+id: harness-declares-what-a-policy-becomes
+hash: a-d7cdfbf49524
+title: The browser never guesses what a permission level does
+state: active
+statement: Every adapter must declare, for each of the three canonical policies,
+  the native mode that policy becomes for that harness - or NULL where the
+  harness does not distinguish it at all - so that no surface has to hardcode
+  harness knowledge to tell the operator the truth. claude-code, gemini and
+  codex map all three distinctly; copilot and opencode emit a flag ONLY for
+  full-access, which means read-only and workspace-write produce identical
+  arguments there and BOTH defer to whatever rules that harness is configured
+  with. A control that offers read-only on such a harness while implying it is
+  enforced is lying about what the agent may do to the operator's machine, and a
+  control that implies workspace-write is a known behaviour there is lying too -
+  both are deferrals, and both must say so. The declaration must match the
+  arguments the adapter actually builds, because a declaration that drifts from
+  the argv is simply a new way to lie. No harness may register without it,
+  third-party harnesses included.
+depends_on:
+  - adapter-registry-sole-harness-source
+created_by: a3-policy-control

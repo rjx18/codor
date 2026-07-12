@@ -1,0 +1,17 @@
+id: one-control-chooses-an-agent-everywhere
+hash: a-4921889d8680
+title: An agent is configured by one control, wherever it is created
+state: active
+statement: The harness, the model, the thinking level and the permission policy
+  must be chosen through ONE shared control, used everywhere an agent is
+  configured - the spawn dialog, the create-channel dialog, and in a later phase
+  the member card - because a second copy of a permission control is a second
+  place for it to disagree with itself, and a permission control that disagrees
+  with itself is worse than none. Creating a channel with a starting agent must
+  therefore be able to express that agent's policy, which today it cannot - the
+  schema has no field for it, so every channel-seeded agent is spawned with no
+  policy at all.
+depends_on:
+  - web-spawn-dialog-exposes-canonical-agent-controls
+  - channel-creation-derived-and-seeded
+created_by: a3-policy-control

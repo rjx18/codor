@@ -96,6 +96,14 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     approvals: 'runtime',
     extensions: true,
     thinking: true,
+    // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-declarations
+    // --permission-mode <mode>; all three are distinct here.
+    policies: {
+      'read-only': 'plan',
+      'workspace-write': 'acceptEdits',
+      'full-access': 'bypassPermissions',
+    },
+    // harn:end harness-declares-what-a-policy-becomes
   } as const;
 
   private readonly turns = new WeakMap<Session, TurnState>();

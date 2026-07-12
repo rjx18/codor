@@ -367,6 +367,26 @@ describe('room config', () => {
         starting_agent: { harness: 'claude-code', handle: 'codor', model: 'haiku', thinking: 'high' },
       }).starting_agent,
     ).toEqual({ harness: 'claude-code', handle: 'codor', model: 'haiku', thinking: 'high' });
+    // harn:assume one-control-chooses-an-agent-everywhere ref=starting-agent-policy
+    // The contract is where this actually bites: zod STRIPS a key the schema does not
+    // declare, so before this field existed a create request carrying a policy lost it
+    // silently at the API boundary and the channel's agent spawned with none.
+    expect(
+      CreateRoomRequestSchema.parse({
+        ...base,
+        starting_agent: { harness: 'claude-code', handle: 'codor', policy: 'full-access' },
+      }).starting_agent?.policy,
+      'a starting agent must be able to carry its permission level',
+    ).toBe('full-access');
+    // And it takes the same permission vocabulary a spawned agent does.
+    expect(
+      CreateRoomRequestSchema.safeParse({
+        ...base,
+        starting_agent: { harness: 'claude-code', handle: 'codor', policy: 'root' },
+      }).success,
+    ).toBe(false);
+    // harn:end one-control-chooses-an-agent-everywhere
+
     // A starting agent takes the same thinking vocabulary a spawned one does.
     expect(
       CreateRoomRequestSchema.safeParse({

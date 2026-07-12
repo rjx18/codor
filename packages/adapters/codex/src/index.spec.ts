@@ -14,6 +14,11 @@ describe('@codor/adapter-codex barrel', () => {
       approvals: 'spawn-time',
       extensions: false,
       thinking: true,
+      policies: {
+        'read-only': 'read-only',
+        'workspace-write': 'workspace-write',
+        'full-access': 'danger-full-access',
+      },
     });
   });
 });

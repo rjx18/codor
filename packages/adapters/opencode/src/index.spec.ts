@@ -14,6 +14,12 @@ describe('@codor/adapter-opencode barrel', () => {
       approvals: 'spawn-time',
       extensions: false,
       thinking: true,
+      // Only full-access is enforced; the other two defer to opencode's own rules.
+      policies: {
+        'read-only': null,
+        'workspace-write': null,
+        'full-access': '--auto',
+      },
     });
   });
 });

@@ -76,6 +76,14 @@ export class GeminiAdapter implements HarnessAdapter {
     approvals: 'spawn-time',
     extensions: false,
     thinking: false,
+    // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-declarations
+    // --approval-mode <mode>; all three are distinct here.
+    policies: {
+      'read-only': 'plan',
+      'workspace-write': 'auto_edit',
+      'full-access': 'yolo',
+    },
+    // harn:end harness-declares-what-a-policy-becomes
   } as const;
 
   private readonly children = new WeakMap<Session, ChildProcess>();

@@ -5803,3 +5803,66 @@ textarea.wr-composer-control {
   flex-shrink: 0;
 }
 /* harn:end timeline-rows-are-never-crushed */
+
+/* harn:assume one-control-chooses-an-agent-everywhere ref=shared-policy-control */
+/* The permission control is the most consequential thing in the dialog: it decides what
+   the agent may do to the operator's machine. It gets room to say so. */
+.wr-policy-row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 720px) {
+  .wr-policy-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.wr-policy-option {
+  display: flex;
+  min-height: 44px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--wr-line);
+  border-radius: 8px;
+  background: var(--wr-glass-soft);
+  text-align: left;
+}
+
+.wr-policy-option[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--wr-accent) 60%, transparent);
+  background: color-mix(in srgb, var(--wr-accent) 12%, var(--wr-glass-strong));
+}
+
+.wr-policy-option strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.wr-policy-option small {
+  color: var(--wr-text-dim);
+  font-size: 0.72rem;
+}
+
+/* What the level ACTUALLY becomes on this harness — the operator's ground truth. */
+.wr-policy-option em {
+  color: var(--wr-text-faint);
+  font-family: var(--wr-mono, ui-monospace, monospace);
+  font-size: 0.68rem;
+  font-style: normal;
+}
+
+.wr-policy-option.is-deferred em {
+  color: var(--wr-amber);
+}
+
+.wr-policy-warning {
+  display: block;
+  margin-top: 8px;
+  color: var(--wr-amber);
+  line-height: 1.45;
+}
+/* harn:end one-control-chooses-an-agent-everywhere */

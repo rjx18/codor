@@ -58,6 +58,14 @@ export class CodexAdapter implements HarnessAdapter {
     approvals: 'spawn-time',
     extensions: false,
     thinking: true,
+    // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-declarations
+    // --sandbox <mode>; all three are distinct here.
+    policies: {
+      'read-only': 'read-only',
+      'workspace-write': 'workspace-write',
+      'full-access': 'danger-full-access',
+    },
+    // harn:end harness-declares-what-a-policy-becomes
   } as const;
 
   private readonly children = new WeakMap<Session, ChildProcess>();

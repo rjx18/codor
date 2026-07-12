@@ -51,6 +51,15 @@ export class CopilotAdapter implements HarnessAdapter {
     approvals: 'spawn-time',
     extensions: true,
     thinking: false,
+    // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-declarations
+    // Only full-access emits a flag. read-only and workspace-write build IDENTICAL
+    // arguments, so neither is enforced by us: both defer to copilot's own rules.
+    policies: {
+      'read-only': null,
+      'workspace-write': null,
+      'full-access': '--allow-all',
+    },
+    // harn:end harness-declares-what-a-policy-becomes
   } as const;
 
   private readonly children = new WeakMap<Session, ChildProcess>();

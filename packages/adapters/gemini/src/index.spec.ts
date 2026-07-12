@@ -14,6 +14,11 @@ describe('@codor/adapter-gemini barrel', () => {
       approvals: 'spawn-time',
       extensions: false,
       thinking: false,
+      policies: {
+        'read-only': 'plan',
+        'workspace-write': 'auto_edit',
+        'full-access': 'yolo',
+      },
     });
   });
 });

@@ -144,3 +144,23 @@ describe('opencode model discovery', () => {
       .rejects.toThrow();
   });
 });
+
+// harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-regression
+describe('the declared policy mapping matches the arguments actually built', () => {
+  it('declares a flag only where it emits one, and null where it enforces nothing', () => {
+    const { policies } = new OpenCodeAdapter().capabilities;
+    for (const [policy, native] of Object.entries(policies)) {
+      const args = openCodeArgs({ harness: 'opencode', cwd: '/work', policy }, 'go');
+      expect(args.includes('--auto'), policy).toBe(native !== null);
+      expect(openCodeAutoApprove(policy), policy).toBe(native !== null);
+    }
+    expect(policies['read-only']).toBeNull();
+    expect(policies['workspace-write']).toBeNull();
+  });
+
+  it('builds the SAME arguments for both unenforced levels', () => {
+    const base = { harness: 'opencode', cwd: '/work' };
+    expect(openCodeArgs({ ...base, policy: 'read-only' }, 'go'))
+      .toEqual(openCodeArgs({ ...base, policy: 'workspace-write' }, 'go'));
+  });
+});

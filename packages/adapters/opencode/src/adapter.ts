@@ -53,6 +53,15 @@ export class OpenCodeAdapter implements HarnessAdapter {
     approvals: 'spawn-time',
     extensions: false,
     thinking: true,
+    // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-declarations
+    // Only full-access emits a flag. read-only and workspace-write build IDENTICAL
+    // arguments, so neither is enforced by us: both defer to opencode's own rules.
+    policies: {
+      'read-only': null,
+      'workspace-write': null,
+      'full-access': '--auto',
+    },
+    // harn:end harness-declares-what-a-policy-becomes
   } as const;
 
   private readonly children = new WeakMap<Session, ChildProcess>();

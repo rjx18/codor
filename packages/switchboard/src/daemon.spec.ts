@@ -2045,3 +2045,38 @@ describe('a rebuilt session is the same agent it was before', () => {
   });
 });
 // harn:end agent-model-and-thinking-are-durable
+
+// harn:assume one-control-chooses-an-agent-everywhere ref=shared-policy-control-regression
+describe('a channel-seeded agent gets the permission the operator chose', () => {
+  it('spawns the starting agent with its policy', () => {
+    // F11: the create-channel contract had nowhere to put a policy, so every
+    // channel-seeded agent — including the one the systemd unit boot-seeds — spawned
+    // with none at all, while the spawn dialog could set one. Same agent, same
+    // question, two different answers.
+    daemon.createRoom({
+      id: 'ops',
+      name: 'Ops',
+      owner: { handle: 'richard', display_name: 'Richard' },
+      cwd: testCwd('ops'),
+      starting_agent: {
+        harness: 'fake',
+        handle: 'codor',
+        policy: 'full-access',
+      },
+    });
+    const seeded = daemon.store.listMembers('ops').find((member) => member.handle === 'codor')!;
+    expect(seeded.policy).toBe('full-access');
+  });
+
+  it('still seeds an agent that was given no policy, and says so honestly', () => {
+    daemon.createRoom({
+      id: 'ops2',
+      name: 'Ops 2',
+      owner: { handle: 'richard', display_name: 'Richard' },
+      cwd: testCwd('ops2'),
+      starting_agent: { harness: 'fake', handle: 'codor' },
+    });
+    const seeded = daemon.store.listMembers('ops2').find((member) => member.handle === 'codor')!;
+    expect(seeded.policy).toBeUndefined();
+  });
+});

@@ -66,3 +66,55 @@ describe('the registry wrapper preserves the whole adapter contract', () => {
     }
   });
 });
+
+// harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-registry-validation
+describe('a harness must say what its permission levels do', () => {
+  const dataModule = (source: string): string =>
+    `data:text/javascript,${encodeURIComponent(source)}`;
+
+  const capabilities = (extra: string): string =>
+    `export function createAdapter({id}){return {id,capabilities:{resume:true,discover:false,` +
+    `interactiveAttach:false,ask:false,approvals:'spawn-time',extensions:false,thinking:false,${extra}},` +
+    `spawn:()=>({harness:id,cwd:'/'}),attach:()=>({harness:id,cwd:'/'}),` +
+    `deliver:async function*(){},respondInteraction:async()=>{},interrupt(){},discoverSessions:()=>[]}}`;
+
+  it('refuses a harness that never declares its policies', async () => {
+    // The declaration is what every surface reads to tell the operator what an agent
+    // may do to their machine. A harness that will not say does not get to register.
+    await expect(loadAdapterRegistry({
+      adapters: { silent: dataModule(capabilities('')) },
+    })).rejects.toThrow(/invalid capabilities/);
+  });
+
+  it('refuses a harness that declares only some of them', async () => {
+    await expect(loadAdapterRegistry({
+      adapters: { partial: dataModule(capabilities(`policies:{'read-only':'plan'}`)) },
+    })).rejects.toThrow(/invalid capabilities/);
+  });
+
+  it('accepts null — a harness saying plainly that it does not enforce a level', async () => {
+    // Null is not a missing declaration. It is the harness stating that it does not
+    // distinguish this level at all, which the operator is then told.
+    const adapters = await loadAdapterRegistry({
+      adapters: {
+        deferring: dataModule(capabilities(
+          `policies:{'read-only':null,'workspace-write':null,'full-access':'--yolo'}`,
+        )),
+      },
+    });
+    const deferring = adapters.find((adapter) => adapter.id === 'deferring')!;
+    expect(deferring.capabilities.policies['read-only']).toBeNull();
+    expect(deferring.capabilities.policies['full-access']).toBe('--yolo');
+  });
+});
+
+// harn:assume canonical-spawn-controls-enforced ref=canonical-policy-thinking-enforcement
+describe('an unknown policy is refused wherever it comes from', () => {
+  it('rejects a policy outside the canonical three', async () => {
+    // The UI can no longer produce one — the control is three buttons off the enum. A
+    // hand-written API call still can, and this is the guarantee that stops it.
+    const [adapter] = await loadAdapterRegistry({ adapters: {} });
+    expect(() => adapter!.spawn({ cwd: '/work', policy: 'root' }))
+      .toThrow(/unknown policy 'root'/);
+  });
+});

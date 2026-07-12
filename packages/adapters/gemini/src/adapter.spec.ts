@@ -118,3 +118,13 @@ console.log(JSON.stringify({type:'result',timestamp:new Date().toISOString(),sta
     );
   });
 });
+
+// harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-regression
+describe('the declared policy mapping matches the arguments actually built', () => {
+  it('declares exactly what --approval-mode receives', () => {
+    const { policies } = new GeminiAdapter().capabilities;
+    for (const [policy, native] of Object.entries(policies)) {
+      expect(geminiApprovalMode(policy), policy).toBe(native);
+    }
+  });
+});

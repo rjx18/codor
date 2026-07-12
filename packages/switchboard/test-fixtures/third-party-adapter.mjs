@@ -11,6 +11,13 @@ export function createAdapter({ id }) {
       approvals: 'spawn-time',
       extensions: false,
       thinking: false,
+      // A third-party harness must say what its permission levels actually do, exactly
+      // as a built-in one must. The registry refuses to load it otherwise.
+      policies: {
+        'read-only': 'read-only',
+        'workspace-write': 'workspace-write',
+        'full-access': 'full-access',
+      },
     },
     spawn(options) {
       return {

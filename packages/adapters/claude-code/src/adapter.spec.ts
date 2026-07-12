@@ -113,3 +113,17 @@ describe('claude subprocess and interaction lifecycle', () => {
     await expect(acknowledgement).rejects.toThrow('ended before interaction acknowledgement');
   });
 });
+
+// harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-regression
+describe('the declared policy mapping matches the arguments actually built', () => {
+  it('declares exactly what --permission-mode receives', () => {
+    // A declaration that drifts from the argv is just a new way to lie to the operator,
+    // so assert the declaration against the flags the adapter really emits.
+    const { policies } = new ClaudeCodeAdapter().capabilities;
+    const base = { harness: 'claude-code', cwd: '/work' };
+    for (const [policy, native] of Object.entries(policies)) {
+      const args = claudeArgs({ ...base, policy }, '/settings');
+      expect(args[args.indexOf('--permission-mode') + 1], policy).toBe(native);
+    }
+  });
+});

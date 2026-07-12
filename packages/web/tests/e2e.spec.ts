@@ -309,28 +309,15 @@ test('spawn dialog presets canonical controls and replaces removed agents', asyn
   await expect(page.getByTestId('spawn-harness-fake')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('spawn-handle')).toHaveValue('tester');
   await expect(page.getByTestId('spawn-purpose')).toHaveValue('Runs tests, reproduces bugs, reports results');
-  await expect(page.getByTestId('spawn-policy')).toHaveValue('workspace-write');
-  await expect(page.getByTestId('spawn-policy').locator('option')).toHaveText([
-    'read-only', 'workspace-write', 'full-access',
-  ]);
+  // The policy lives in the ONE shared control now, not a select the dialog rolled itself.
+  await expect(page.getByTestId('spawn-policy-workspace-write')).toHaveAttribute('aria-pressed', 'true');
+  // And it says what the level actually becomes on this harness, read from the adapter.
+  await expect(page.getByTestId('spawn-policy-full-access-native')).toHaveText('full-access');
   await expect(page.getByTestId('spawn-thinking-medium')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('spawn-thinking-medium')).toBeDisabled();
   await expect(page.getByTestId('spawn-approval-hint')).toHaveCount(0);
 
-  await page.getByTestId('spawn-policy').evaluate((select) => {
-    const element = select as HTMLSelectElement;
-    const invalid = document.createElement('option');
-    invalid.value = 'not-a-policy';
-    invalid.textContent = invalid.value;
-    element.append(invalid);
-    element.value = invalid.value;
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-  await page.getByTestId('spawn-submit').click();
-  await expect(page.getByTestId('spawn-dialog')).toBeVisible();
-  await expect(page.getByRole('alert')).toContainText("unknown policy 'not-a-policy'");
-
-  await page.getByTestId('spawn-policy').selectOption('workspace-write');
+  await page.getByTestId('spawn-policy-workspace-write').click();
   await page.getByTestId('spawn-submit').click();
   await expect(page.getByTestId('member-tester')).toBeVisible();
 
@@ -720,6 +707,37 @@ test('desktop room rail creates and enters an owner-seeded room without a bearer
   await expect(page.getByRole('heading', { name: 'Glass review room' })).toBeVisible();
 });
 // harn:end web-room-rail-creates-owner-room
+
+// harn:assume one-control-chooses-an-agent-everywhere ref=shared-policy-control-regression
+test('a channel is created with the permission its agent was given', async ({ page, request }) => {
+  // F11, end to end through the real contract: the create request has to CARRY the
+  // policy. Before the schema had the field, zod stripped it silently at the boundary
+  // and the channel's agent spawned with none — while the spawn dialog set one fine.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  await page.getByTestId('create-room').click();
+  await expect(page.getByTestId('create-room-dialog')).toBeVisible();
+  await page.getByTestId('create-room-name').fill('Permission room');
+  await page.getByTestId('create-room-harness-fake').click();
+
+  // The one shared control — the same one the spawn dialog uses.
+  await expect(page.getByTestId('create-room-policy-read-only')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('create-room-policy-full-access').click();
+  await expect(page.getByTestId('create-room-policy-full-access')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('create-room-submit').click();
+
+  await expect(page.getByRole('heading', { name: 'Permission room' })).toBeVisible();
+
+  const members = await request.get('/api/rooms/permission-room/members', {
+    headers: { authorization: 'Bearer e2e-token' },
+  });
+  const { members: details } = await members.json() as { members: { member: { kind: string; policy?: string } }[] };
+  const agent = details.find((item) => item.member.kind === 'agent')!;
+  expect(agent.member.policy, 'the channel-seeded agent must carry the chosen policy').toBe('full-access');
+});
+// harn:end one-control-chooses-an-agent-everywhere
 
 // harn:assume web-glass-theme-accessible-modes ref=glass-theme-regression
 test('restrained shell keeps accessible light tokens and limits glass to functional surfaces', async ({ page }) => {

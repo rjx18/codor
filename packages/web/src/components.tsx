@@ -333,7 +333,7 @@ export function SpawnAgentDialog(props: {
   const errors = useRoomStore((state) => state.errors);
   const [cwd, setCwd] = useState(roomCwd);
   const [model, setModel] = useState('');
-  const [policy, setPolicy] = useState('read-only');
+  const [policy, setPolicy] = useState<Policy>('read-only');
   const [thinking, setThinking] = useState<ThinkingLevel | ''>('');
   const [purpose, setPurpose] = useState('');
   const [submitError, setSubmitError] = useState<string>();
@@ -481,11 +481,12 @@ export function SpawnAgentDialog(props: {
             <AgentControls
               adapters={props.adapters}
               idPrefix="spawn"
-              value={{ harness, model, thinking }}
+              value={{ harness, model, thinking, policy }}
               onChange={(next) => {
                 setHarness(next.harness);
                 setModel(next.model);
                 setThinking(next.thinking);
+                setPolicy(next.policy);
               }}
             />
             <div className="wr-spawn-grid">
@@ -500,17 +501,6 @@ export function SpawnAgentDialog(props: {
                   required
                   className="wr-input min-h-11 w-full px-3 text-sm"
                 />
-              </label>
-              <label className="wr-field-label">
-                Policy
-                <select
-                  data-testid="spawn-policy"
-                  value={policy}
-                  onChange={(event) => setPolicy(event.target.value)}
-                  className="wr-input min-h-11 w-full px-3 text-sm"
-                >
-                  {PolicySchema.options.map((value) => <option key={value} value={value}>{value}</option>)}
-                </select>
               </label>
               <label className="wr-field-label">
                 Working directory

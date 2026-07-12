@@ -130,3 +130,26 @@ console.log(JSON.stringify({type:'session.idle',data:{}}));
     );
   });
 });
+
+// harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-regression
+describe('the declared policy mapping matches the arguments actually built', () => {
+  it('declares a flag only where it emits one, and null where it enforces nothing', () => {
+    // copilot emits --allow-all for full-access and NOTHING for the other two, so those
+    // two build identical arguments. Declaring null is the honest way to say the
+    // operator's choice is not enforced by us at all.
+    const { policies } = new CopilotAdapter().capabilities;
+    for (const [policy, native] of Object.entries(policies)) {
+      const args = copilotArgs({ harness: 'copilot', cwd: '/work', policy }, 'go');
+      expect(args.includes('--allow-all'), policy).toBe(native !== null);
+      expect(copilotAllowAll(policy), policy).toBe(native !== null);
+    }
+    expect(policies['read-only']).toBeNull();
+    expect(policies['workspace-write']).toBeNull();
+  });
+
+  it('builds the SAME arguments for both unenforced levels', () => {
+    const base = { harness: 'copilot', cwd: '/work' };
+    expect(copilotArgs({ ...base, policy: 'read-only' }, 'go'))
+      .toEqual(copilotArgs({ ...base, policy: 'workspace-write' }, 'go'));
+  });
+});

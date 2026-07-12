@@ -63,8 +63,23 @@ function validCapabilities(value: unknown): value is AdapterCapabilities {
     typeof capabilities.ask === 'boolean' &&
     (capabilities.approvals === 'runtime' || capabilities.approvals === 'spawn-time') &&
     typeof capabilities.extensions === 'boolean' &&
-    typeof capabilities.thinking === 'boolean';
+    typeof capabilities.thinking === 'boolean' &&
+    validPolicyMap(capabilities.policies);
 }
+
+// harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-registry-validation
+// A harness may not register without saying what its policies actually do. Every
+// canonical policy needs an entry: the native mode it becomes, or null where this
+// harness does not distinguish it — which the operator has to be told, not spared.
+function validPolicyMap(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const policies = value as Record<string, unknown>;
+  return PolicySchema.options.every((policy) => {
+    const native = policies[policy];
+    return native === null || (typeof native === 'string' && native.length > 0);
+  });
+}
+// harn:end harness-declares-what-a-policy-becomes
 
 const validPolicies = PolicySchema.options.join(', ');
 const validThinking = ThinkingLevelSchema.options.join(', ');

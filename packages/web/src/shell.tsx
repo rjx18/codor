@@ -2,6 +2,7 @@ import {
   deriveRoomId,
   type Member,
   type Message,
+  type Policy,
   type Room,
   type ThinkingLevel,
   type WireEvent,
@@ -163,6 +164,7 @@ export function RoomList(props: {
   const [startingHandle, setStartingHandle] = useState('codor');
   const [startingModel, setStartingModel] = useState('');
   const [startingThinking, setStartingThinking] = useState<ThinkingLevel | ''>('');
+  const [startingPolicy, setStartingPolicy] = useState<Policy>('read-only');
   const [createError, setCreateError] = useState<string>();
   const [createBusy, setCreateBusy] = useState(false);
   const firstCreateField = useRef<HTMLInputElement>(null);
@@ -297,6 +299,8 @@ export function RoomList(props: {
                     handle: startingHandle.trim() || 'codor',
                     ...(startingModel.trim() !== '' && { model: startingModel.trim() }),
                     ...(startingThinking !== '' && { thinking: startingThinking }),
+                    // F11: a channel-seeded agent used to spawn with NO policy at all.
+                    policy: startingPolicy,
                   },
                 }),
               }, { token: props.token! }).then(
@@ -373,11 +377,13 @@ export function RoomList(props: {
                   harness: selectedStartingHarness,
                   model: startingModel,
                   thinking: startingThinking,
+                  policy: startingPolicy,
                 }}
                 onChange={(next) => {
                   setStartingHarness(next.harness);
                   setStartingModel(next.model);
                   setStartingThinking(next.thinking);
+                  setStartingPolicy(next.policy);
                 }}
               />
               <label className="wr-field-label">
