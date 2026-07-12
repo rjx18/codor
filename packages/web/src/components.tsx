@@ -49,6 +49,7 @@ import { fetchLedgerNote, fetchRunEvents } from './api.js';
 import type { AdapterRegistration, LedgerNote, MemberDetail } from './api.js';
 import { currentBrowserAccessToken } from './crypto.js';
 import {
+  compactRunRow,
   formatRunDuration,
   mergeRunEvents,
   presentRunEvents,
@@ -903,6 +904,7 @@ function RunEvidenceRow(props: {
       </li>
     );
   }
+  const compact = compactRunRow(props.row);
   return (
     <li
       data-run-row
@@ -917,10 +919,14 @@ function RunEvidenceRow(props: {
         className="wr-run-row-button"
         onClick={() => props.onSelect?.(props.row)}
       >
-        <span className="wr-event-icon"><RunRowIcon icon={props.row.icon} /></span>
-        <span className="wr-run-row-copy">
-          <strong>{props.row.title}</strong>
-          {props.row.detail && <code>{props.row.detail}</code>}
+        <span className="wr-event-icon"><RunRowIcon icon={compact.icon} /></span>
+        {/* One line: the command it ran, the file it read, the diff it wrote. The
+            full text lives in the inspector this row opens. */}
+        <span
+          className={`wr-run-row-copy${compact.mono ? ' is-mono' : ''}`}
+          title={props.row.detail}
+        >
+          {compact.label}
         </span>
         <span className="wr-run-row-result">
           {props.row.status === 'ok' && <CircleCheck aria-label="completed" size={15} />}
@@ -1178,6 +1184,7 @@ export function RunStallBadge(props: { message: Message }) {
 }
 // harn:end web-motion-is-purposeful-and-reduced-motion-safe
 
+// harn:assume phone-first-interaction-cards ref=phone-ask-card
 export function AskCardView(props: {
   message: Message;
   authorHandle: string;
@@ -1193,23 +1200,31 @@ export function AskCardView(props: {
     <div
       id={String(props.message.id)}
       data-testid={`card-${props.message.id}`}
-      className="wr-ask-card scroll-mt-16"
+      className={`wr-ask-card scroll-mt-16${done ? ' is-answered' : ''}`}
     >
       <div className="wr-ask-heading">
         <span className="wr-ask-symbol" aria-hidden="true">
           {approval ? <ShieldAlert size={20} /> : <CircleHelp size={20} />}
         </span>
         <div>
-          <strong>{approval ? 'Approval required' : 'Question needs you'}</strong>
+          <strong data-testid={`card-${props.message.id}-title`}>
+            {approval ? 'APPROVAL NEEDED' : 'QUESTION'}
+          </strong>
           <p>
-            {ask.kind === 'ask' ? 'question from' : 'approval requested by'} @{props.authorHandle}
-            {ask.tool && ` · ${ask.tool}`}
+            @{props.authorHandle}
+            {ask.tool && <> · <span className="wr-ask-tool">{ask.tool}</span></>}
           </p>
         </div>
         <MessagePermalink id={props.message.id} />
       </div>
       <p className="wr-ask-prompt">{ask.prompt}</p>
-      {ask.detail && <code className="wr-ask-detail">{ask.detail}</code>}
+      {/* The command is what the operator is actually approving: it is the visual
+          centre, wrapped rather than truncated, and never shrunk to fit. */}
+      {ask.detail && (
+        <code data-testid={`card-${props.message.id}-detail`} className="wr-ask-detail">
+          {ask.detail}
+        </code>
+      )}
       {(props.canAnswer ?? true) && <div className="wr-ask-actions">
         {(ask.options ?? []).map((option, index) => {
           const destructive = /^(deny|reject|no|cancel)$/i.test(option.label);
@@ -1244,10 +1259,11 @@ export function AskCardView(props: {
           );
         })}
       </div>}
-      {done && <p className="mt-1 text-xs text-zinc-400">answered</p>}
+      {done && <p data-testid={`card-${props.message.id}-answered`} className="wr-ask-answered">answered</p>}
     </div>
   );
 }
+// harn:end phone-first-interaction-cards
 
 export function HoldBanner(props: {
   held: Delivery[];

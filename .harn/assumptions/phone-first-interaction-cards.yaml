@@ -1,0 +1,16 @@
+id: phone-first-interaction-cards
+hash: a-c929bee6826b
+title: An approval card is readable and answerable on a phone
+state: active
+statement: The approval and question card must fill the timeline's width at
+  every breakpoint, lead with a heading pairing its warning icon with APPROVAL
+  NEEDED or QUESTION, the asking agent, and the tool, make the command or detail
+  the visual centre in a wrapped monospace block that is never truncated nor
+  shrunk below readable size, stack its options as full-width targets of at
+  least forty-four pixels below the tablet breakpoint while keeping them inline
+  above it, and keep an answered card visible but muted, because an approval the
+  operator cannot read or reliably tap on the device they actually carry is an
+  approval they will not give.
+depends_on:
+  - interaction-state-machine-persisted
+created_by: u4-phone-density

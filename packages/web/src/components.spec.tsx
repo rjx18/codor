@@ -246,6 +246,48 @@ describe('AskCardView', () => {
     },
   };
 
+  // harn:assume phone-first-interaction-cards ref=phone-ask-card-regression
+  it('leads with what is being asked and who is asking', () => {
+    const approval: Message = {
+      ...card,
+      ask: {
+        interaction_id: 'native-2',
+        kind: 'approval',
+        prompt: 'Run this command?',
+        tool: 'Bash',
+        detail: 'rm -rf ./build && pnpm build',
+        options: [{ label: 'Allow' }, { label: 'Deny' }],
+      },
+    };
+    const html = renderToStaticMarkup(
+      <AskCardView message={approval} authorHandle="alpha" answered={false} connection={noopConnection} />,
+    );
+    expect(html).toContain('APPROVAL NEEDED');
+    expect(html).toContain('@alpha');
+    expect(html).toContain('Bash');
+    // The command is the point of the card — it must be present in full.
+    expect(html).toContain('rm -rf ./build &amp;&amp; pnpm build');
+  });
+
+  it('calls a question a question', () => {
+    const html = renderToStaticMarkup(
+      <AskCardView message={card} authorHandle="alpha" answered={false} connection={noopConnection} />,
+    );
+    expect(html).toContain('QUESTION');
+    expect(html).not.toContain('APPROVAL NEEDED');
+  });
+
+  it('keeps an answered card visible, only muted', () => {
+    const html = renderToStaticMarkup(
+      <AskCardView message={card} authorHandle="alpha" answered connection={noopConnection} />,
+    );
+    // The operator must still be able to see what they approved.
+    expect(html).toContain('is-answered');
+    expect(html).toContain('Which codeword?');
+    expect(html).toContain('card-9-answered');
+  });
+  // harn:end phone-first-interaction-cards
+
   it('renders the prompt with an option button per choice', () => {
     const html = renderToStaticMarkup(
       <AskCardView message={card} authorHandle="alpha" answered={false} connection={noopConnection} />,

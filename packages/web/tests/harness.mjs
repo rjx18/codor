@@ -118,10 +118,14 @@ createServer(async (req, res) => {
           fake.enqueue({
             kind: 'ask',
             card: {
+              // harn:assume phone-first-interaction-cards ref=phone-ask-card-harness
               kind: turn.cardKind ?? 'ask',
               prompt: turn.prompt,
               options: turn.options.map((label) => ({ label })),
               ...(turn.tool !== undefined && { tool: turn.tool }),
+              // The command being approved is the card's whole point.
+              ...(turn.detail !== undefined && { detail: turn.detail }),
+              // harn:end phone-first-interaction-cards
             },
             reply: (answer) => `${turn.replyPrefix ?? ''}${String(answer)}`,
           });

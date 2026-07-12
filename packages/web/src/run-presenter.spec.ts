@@ -1,7 +1,15 @@
 import type { WireEvent } from '@codor/protocol';
 import { describe, expect, it } from 'vitest';
 
-import { formatRunDuration, mergeRunEvents, presentRunEvents } from './run-presenter.js';
+import {
+  compactRunRow,
+  diffStat,
+  formatRunDuration,
+  mergeRunEvents,
+  middleEllipsis,
+  presentRunEvents,
+  type RunRow,
+} from './run-presenter.js';
 
 const indexed = (events: WireEvent[]) => events.map((event, index) => ({ event, index }));
 
@@ -63,5 +71,55 @@ describe('run presenter', () => {
   it('formats elapsed durations without viewport-dependent sizing', () => {
     expect(formatRunDuration(900)).toBe('0s');
     expect(formatRunDuration(62_900)).toBe('1m02s');
+  });
+});
+
+// harn:assume compact-one-line-tool-rows ref=compact-run-row-regression
+describe('compact one-line tool rows', () => {
+  const row = (over: Partial<RunRow>): RunRow => ({
+    id: 'r', eventIndex: 0, kind: 'tool', icon: 'tool', title: 'Tool',
+    status: 'ok', event: {} as never, ...over,
+  });
+
+  it('shows the verbatim command a shell tool ran', () => {
+    expect(compactRunRow(row({ title: 'Bash', detail: 'pnpm test --filter web' })))
+      .toEqual({ icon: 'terminal', label: 'pnpm test --filter web', mono: true });
+  });
+
+  it('shows the file a read-like tool explored, not its path', () => {
+    expect(compactRunRow(row({ title: 'Read', detail: '/home/richard/git/codor/src/App.tsx' })))
+      .toMatchObject({ icon: 'search', label: 'Explored App.tsx' });
+  });
+
+  it('shows a diff as its added and removed counts against the file', () => {
+    const unified = [
+      '--- a/src/shell.tsx', '+++ b/src/shell.tsx',
+      '@@ -1,2 +1,3 @@', ' keep', '-gone', '+added', '+added too',
+    ].join('\n');
+    expect(compactRunRow(row({ title: 'Edit', diff: { path: 'src/shell.tsx', unified } as never })))
+      .toEqual({ icon: 'edit', label: '+2 −1 shell.tsx', mono: true });
+  });
+
+  it('does not count the diff file headers as changed lines', () => {
+    const { added, removed } = diffStat('--- a/x\n+++ b/x\n+one\n-two\n');
+    expect({ added, removed }).toEqual({ added: 1, removed: 1 });
+  });
+
+  it('names the tool and its title when it is nothing more specific', () => {
+    expect(compactRunRow(row({ title: 'Task', detail: 'spawn a reviewer' })))
+      .toMatchObject({ label: 'Task: spawn a reviewer' });
+  });
+
+  it('elides a long command in the middle, keeping both ends legible', () => {
+    const long = `pnpm ${'x'.repeat(120)} --end`;
+    const { label } = compactRunRow(row({ title: 'Bash', detail: long }));
+    expect(label).toHaveLength(80);
+    expect(label.startsWith('pnpm ')).toBe(true);
+    expect(label.endsWith('--end')).toBe(true);
+    expect(label).toContain('…');
+  });
+
+  it('leaves a short command untouched', () => {
+    expect(middleEllipsis('ls -la')).toBe('ls -la');
   });
 });

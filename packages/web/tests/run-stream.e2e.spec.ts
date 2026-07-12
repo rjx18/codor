@@ -65,9 +65,12 @@ test('normalized rows stream in order, elapsed time ticks, and completion collap
   const rows = run.locator('[data-run-row]');
   await expect(rows).toHaveCount(4);
   await expect(rows.nth(0)).toContainText("I'll run the tests first.");
-  await expect(rows.nth(1)).toContainText('Bashpnpm test --filter web');
-  await expect(rows.nth(2)).toContainText('Editpackages/web/src/App.tsx');
-  await expect(rows.nth(3)).toContainText('Bashpnpm test:allrunning');
+  // R9: the row carries the evidence, not the tool's generic name.
+  await expect(rows.nth(1)).toContainText('pnpm test --filter web');
+  await expect(rows.nth(1)).not.toContainText('Bash');
+  await expect(rows.nth(2)).toContainText('App.tsx');
+  await expect(rows.nth(3)).toContainText('pnpm test:all');
+  await expect(rows.nth(3)).toContainText('running');
 
   const elapsed = run.getByTestId('run-elapsed');
   const firstElapsed = await elapsed.textContent();

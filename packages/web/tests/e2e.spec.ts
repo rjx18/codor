@@ -1044,3 +1044,141 @@ test('bridged rooms permanently disclose the external boundary and attribute rel
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
 // harn:end bridged-room-wears-banner
+
+// harn:assume phone-first-interaction-cards ref=phone-ask-card-browser-regression
+test('an approval card is readable and answerable at phone width', async ({ page, request }) => {
+  const room = `approve-${String(Date.now())}`;
+  const authorization = { authorization: 'Bearer e2e-token' };
+  const created = await request.post('/api/rooms', {
+    headers: authorization,
+    data: {
+      id: room,
+      name: 'Phone approval',
+      cwd: process.cwd(),
+      owner: { handle: 'richard', display_name: 'Richard' },
+      starting_agent: { harness: 'fake', handle: 'codor' },
+    },
+  });
+  expect(created.ok()).toBe(true);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/?room=${room}&token=e2e-token`);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  const command = 'rm -rf ./build && pnpm build --filter @codor/web --verbose';
+  await control('/enqueue', {
+    turns: [{
+      kind: 'ask',
+      cardKind: 'approval',
+      tool: 'Bash',
+      prompt: 'Run this command?',
+      detail: command,
+      options: ['Allow', 'Deny'],
+      replyPrefix: 'chose ',
+    }],
+  });
+  await page.getByTestId('composer-input').fill('@codor build it');
+  await page.getByTestId('composer-send').click();
+
+  const allow = page.locator('[data-testid$="-option-Allow"]').first();
+  await expect(allow).toBeVisible();
+  const card = allow.locator('xpath=ancestor::*[contains(@class, "wr-ask-card")]').first();
+  const id = (await card.getAttribute('id'))!;
+
+  // The card must be answerable on the device the operator actually carries.
+  await expect(page.getByTestId(`card-${id}-title`)).toHaveText('APPROVAL NEEDED');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+
+  // Every option is a real tap target.
+  for (const option of ['Allow', 'Deny']) {
+    const box = (await page.locator(`[data-testid$="-option-${option}"]`).first().boundingBox())!;
+    expect(box.height, `${option} must be tappable`).toBeGreaterThanOrEqual(44);
+    expect(box.width).toBeGreaterThan(200);
+  }
+
+  // The command is the thing being approved: readable, and never truncated away.
+  const detail = page.getByTestId(`card-${id}-detail`);
+  await expect(detail).toContainText(command.slice(0, 20));
+  const size = await detail.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
+  expect(size).toBeGreaterThanOrEqual(14);
+
+  // And the answer flow still works from the phone.
+  await allow.click();
+  await expect(page.getByTestId(`card-${id}-answered`)).toBeVisible();
+  await expect(page.getByText('chose Allow')).toBeVisible();
+});
+// harn:end phone-first-interaction-cards
+
+// harn:assume compact-one-line-tool-rows ref=compact-run-row-browser-regression
+test('tool rows say what the tool did, on one line, at every width', async ({ page, request }) => {
+  const room = `rows-${String(Date.now())}`;
+  const authorization = { authorization: 'Bearer e2e-token' };
+  await request.post('/api/rooms', {
+    headers: authorization,
+    data: {
+      id: room,
+      name: 'Compact rows',
+      cwd: process.cwd(),
+      owner: { handle: 'richard', display_name: 'Richard' },
+      starting_agent: { harness: 'fake', handle: 'codor' },
+    },
+  });
+
+  await page.goto(`/?room=${room}&token=e2e-token`);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  await control('/enqueue', {
+    turns: [{
+      kind: 'complete',
+      items: [
+        {
+          type: 'run.item', item_type: 'tool_call',
+          payload: { call_id: 'c1', tool: 'Bash', title: 'pnpm test --filter web' },
+        },
+        {
+          type: 'run.item', item_type: 'tool_result',
+          payload: { call_id: 'c1', status: 'ok', duration_ms: 2000 },
+        },
+        {
+          type: 'run.item', item_type: 'tool_call',
+          payload: { call_id: 'c2', tool: 'Read', title: '/home/richard/git/codor/src/App.tsx' },
+        },
+        {
+          type: 'run.item', item_type: 'tool_result',
+          payload: { call_id: 'c2', status: 'ok', duration_ms: 0 },
+        },
+        {
+          type: 'run.item', item_type: 'tool_call',
+          payload: { call_id: 'c3', tool: 'Edit', title: 'shell.tsx' },
+        },
+        {
+          type: 'run.item', item_type: 'tool_result',
+          payload: {
+            call_id: 'c3', status: 'ok', duration_ms: 0,
+            diff: { path: 'packages/web/src/shell.tsx', unified: '--- a/x\n+++ b/x\n+one\n+two\n-gone\n' },
+          },
+        },
+      ],
+      final_text: '@richard rows rendered',
+    }],
+  });
+  await page.getByTestId('composer-input').fill('@codor go');
+  await page.getByTestId('composer-send').click();
+  await expect(page.getByText('@richard rows rendered')).toBeVisible();
+
+  // The row shows the command, the file, and the diffstat — not "Bash", "Read", "Edit".
+  await expect(page.getByText('pnpm test --filter web')).toBeVisible();
+  await expect(page.getByText('Explored App.tsx')).toBeVisible();
+  await expect(page.getByText('+2 −1 shell.tsx')).toBeVisible();
+
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    const heights = await page.locator('[data-run-row][data-row-kind="tool"]').evaluateAll(
+      (rows) => rows.map((row) => row.getBoundingClientRect().height),
+    );
+    expect(heights.length).toBeGreaterThanOrEqual(3);
+    // One line each: a two-line row would roughly double this.
+    for (const height of heights) expect(height, `row at ${String(width)}px`).toBeLessThanOrEqual(44);
+  }
+});
+// harn:end compact-one-line-tool-rows

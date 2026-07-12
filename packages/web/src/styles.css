@@ -5594,3 +5594,61 @@ button:disabled {
     grid-template-columns: repeat(auto-fill, minmax(6.25rem, 1fr));
   }
 }
+
+/* harn:assume phone-first-interaction-cards ref=phone-ask-card-style */
+/* The operator answers approvals on the phone they carry, not at a desk. */
+.wr-ask-card {
+  width: 100%;
+  box-sizing: border-box;
+}
+.wr-ask-heading > div > strong {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  /* WCAG AA against the amber card in both themes. */
+  color: var(--wr-ask-heading-text, #3b2a05);
+}
+.wr-ask-tool {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+/* The command is the visual centre: wrapped, never truncated, never shrunk. */
+.wr-ask-detail {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.875rem; /* 14px floor — readable on a phone */
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: rgb(0 0 0 / 0.18);
+}
+.wr-ask-answered {
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+.wr-ask-card.is-answered {
+  opacity: 0.72; /* muted, but still readable — the operator must see what they approved */
+}
+@media (max-width: 767px) {
+  .wr-ask-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+  .wr-ask-actions > .wr-ask-option {
+    width: 100%;
+    min-height: 44px; /* tap target */
+    justify-content: center;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  .wr-ask-heading > div > strong { color: #f6e7c1; }
+}
+:root[data-theme='dark'] .wr-ask-heading > div > strong { color: #f6e7c1; }
+:root[data-theme='light'] .wr-ask-heading > div > strong { color: #3b2a05; }
+/* harn:end phone-first-interaction-cards */

@@ -1,0 +1,17 @@
+id: compact-one-line-tool-rows
+hash: a-34a0782dce34
+title: A tool row is one line that says what the tool actually did
+state: active
+statement: Every tool row must render as a single line carrying the icon for its
+  class, the evidence itself, and a right-aligned status and duration - a shell
+  row showing the verbatim command, a read-like row showing the file it
+  explored, a row carrying a diff showing that diff's added and removed counts
+  against the file's base name, and any other tool showing its name and title -
+  with a long command middle-ellipsed rather than wrapped and the full text kept
+  for the inspector, and prose rows left alone, because a two-line row labelled
+  only with the tool's generic name spends the phone's scarce vertical space
+  telling the operator nothing they could not already guess.
+depends_on:
+  - normalized-run-items-presented-live
+  - normalized-run-evidence-inspector
+created_by: u4-phone-density

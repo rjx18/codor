@@ -261,3 +261,70 @@ export function formatRunDuration(durationMs: number): string {
   const remainder = seconds % 60;
   return minutes > 0 ? `${String(minutes)}m${String(remainder).padStart(2, '0')}s` : `${String(remainder)}s`;
 }
+
+// harn:assume compact-one-line-tool-rows ref=compact-run-row-model
+const SHELL_TOOLS = /^(bash|sh|zsh|shell|run|exec|execute|terminal|command)$/i;
+const READ_TOOLS = /^(read|glob|grep|ls|list|search|webfetch|web_fetch|fetch|view|cat)$/i;
+
+/** The row is one line; a long command is elided in the middle, never wrapped. */
+export function middleEllipsis(text: string, max = 80): string {
+  if (text.length <= max) return text;
+  const keep = max - 1;
+  const head = Math.ceil(keep / 2);
+  const tail = Math.floor(keep / 2);
+  return `${text.slice(0, head)}…${text.slice(text.length - tail)}`;
+}
+
+export function diffStat(unified: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const line of unified.split('\n')) {
+    // +++/--- are the file headers, not changed lines.
+    if (line.startsWith('+') && !line.startsWith('+++')) added += 1;
+    else if (line.startsWith('-') && !line.startsWith('---')) removed += 1;
+  }
+  return { added, removed };
+}
+
+function baseName(path: string): string {
+  const cleaned = path.trim().replace(/\/+$/, '');
+  return cleaned.slice(cleaned.lastIndexOf('/') + 1) || cleaned;
+}
+
+export interface CompactRunRow {
+  icon: RunRowIcon;
+  /** What the tool actually did — the row's only text. */
+  label: string;
+  mono: boolean;
+}
+
+/**
+ * One line per tool row: the command it ran, the file it read, the diff it wrote.
+ * The generic tool name ("Bash", "Read") is what the operator already knows; the
+ * evidence is what they came for, and on a phone there is only room for one.
+ */
+export function compactRunRow(row: RunRow): CompactRunRow {
+  const tool = row.title;
+  const detail = row.detail?.trim() ?? '';
+
+  if (SHELL_TOOLS.test(tool)) {
+    return { icon: 'terminal', label: middleEllipsis(detail || tool), mono: true };
+  }
+
+  if (row.diff?.unified) {
+    const { added, removed } = diffStat(row.diff.unified);
+    const file = baseName(row.diff.path ?? detail ?? tool);
+    return { icon: 'edit', label: `+${String(added)} −${String(removed)} ${file}`, mono: true };
+  }
+
+  if (READ_TOOLS.test(tool)) {
+    return { icon: 'search', label: `Explored ${baseName(detail || tool)}`, mono: false };
+  }
+
+  return {
+    icon: row.icon,
+    label: detail === '' ? tool : `${tool}: ${middleEllipsis(detail)}`,
+    mono: false,
+  };
+}
+// harn:end compact-one-line-tool-rows

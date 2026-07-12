@@ -1,0 +1,100 @@
+id: u4-phone-density
+title: U4 phone-first approval cards and one-line tool rows
+assumptions:
+  create:
+    - id: compact-one-line-tool-rows
+      title: A tool row is one line that says what the tool actually did
+      statement: Every tool row must render as a single line carrying the icon for its
+        class, the evidence itself, and a right-aligned status and duration - a
+        shell row showing the verbatim command, a read-like row showing the file
+        it explored, a row carrying a diff showing that diff's added and removed
+        counts against the file's base name, and any other tool showing its name
+        and title - with a long command middle-ellipsed rather than wrapped and
+        the full text kept for the inspector, and prose rows left alone, because
+        a two-line row labelled only with the tool's generic name spends the
+        phone's scarce vertical space telling the operator nothing they could
+        not already guess.
+      reason: R9. Everything the row needs is already in the normalized payload; this
+        is presentation only.
+      depends_on:
+        - normalized-run-items-presented-live
+        - normalized-run-evidence-inspector
+    - id: phone-first-interaction-cards
+      title: An approval card is readable and answerable on a phone
+      statement: The approval and question card must fill the timeline's width at
+        every breakpoint, lead with a heading pairing its warning icon with
+        APPROVAL NEEDED or QUESTION, the asking agent, and the tool, make the
+        command or detail the visual centre in a wrapped monospace block that is
+        never truncated nor shrunk below readable size, stack its options as
+        full-width targets of at least forty-four pixels below the tablet
+        breakpoint while keeping them inline above it, and keep an answered card
+        visible but muted, because an approval the operator cannot read or
+        reliably tap on the device they actually carry is an approval they will
+        not give.
+      reason: R8. The desktop rendering and its e2e existed; the phone-width approval
+        flow was never visually exercised.
+      depends_on:
+        - interaction-state-machine-persisted
+anchors:
+  compact-one-line-tool-rows:
+    compact-run-row-model:
+      action: change
+      reason: Derive the one-line evidence and icon for each tool class from the
+        normalized row, including the diffstat and the middle-ellipsis.
+    compact-run-row-regression:
+      action: change
+      reason: Prove the formatting matrix - shell, read-like, diff-bearing, other -
+        plus the long-command ellipsis and the diffstat parsing.
+    compact-run-row-browser-regression:
+      action: change
+      reason: Prove rows render on one line at phone and desktop widths and that a
+        diff row shows its exact added and removed counts.
+  normalized-run-items-presented-live:
+    normalized-run-presenter:
+      action: change
+      reason: The presenter's own region is byte-identical - the compact model is
+        appended below it - but Harn classifies it as touched because the spec
+        file's import block above it shifts position.
+    live-run-stream-regression:
+      action: change
+      reason: The live-stream regression asserted the old two-line row text, which is
+        the very thing R9 replaces; it now asserts the one-line evidence.
+  normalized-run-evidence-inspector:
+    normalized-row-selection:
+      action: change
+      reason: Render the compact one-line row; selection and the inspector it opens
+        are unchanged.
+  phone-first-interaction-cards:
+    phone-ask-card:
+      action: change
+      reason: Rebuild the card heading, detail block, and option layout for phone
+        width.
+    phone-ask-card-style:
+      action: change
+      reason: Full-width card, stacked forty-four pixel options below the tablet
+        breakpoint, muted answered state, and accessible contrast in both
+        themes.
+    phone-ask-card-regression:
+      action: change
+      reason: Prove the heading, the never-truncated detail, and the
+        answered-but-visible state.
+    phone-ask-card-browser-regression:
+      action: change
+      reason: Prove at phone width that the card needs no horizontal scroll, its
+        options meet the tap-target minimum, and its detail stays readable, and
+        re-run the answer flow there.
+    phone-ask-card-harness:
+      action: change
+      reason: Let the browser harness raise an approval carrying the command being
+        approved, which is the very thing the card must render.
+files:
+  - packages/web/src/run-presenter.ts
+  - packages/web/src/run-presenter.spec.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/run-stream.e2e.spec.ts
+applied:
+  applied_at: 2026-07-12T11:35:58.026Z
