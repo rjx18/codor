@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import type {
+  ModelCatalog,
   AdapterTurnHooks,
   HarnessAdapter,
   Session,
@@ -77,6 +78,16 @@ export class CodexAdapter implements HarnessAdapter {
     };
   }
   // harn:end canonical-spawn-controls-enforced
+
+  // harn:assume adapters-own-their-model-catalog ref=codex-model-catalog
+  /** Curated: `codex` has no listing command. Cited in NOTES.md. */
+  listModels(): Promise<ModelCatalog> {
+    return Promise.resolve({
+      models: ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol', 'gpt-5.5'],
+      source: 'curated',
+    });
+  }
+  // harn:end adapters-own-their-model-catalog
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };

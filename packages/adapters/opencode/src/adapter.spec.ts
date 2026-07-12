@@ -109,3 +109,38 @@ console.log(JSON.stringify([{id:'ses_first'},{id:'ses_second'},{title:'missing i
     );
   });
 });
+
+// harn:assume adapters-own-their-model-catalog ref=opencode-model-discovery
+describe('opencode model discovery', () => {
+  const stub = (body: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'codor-opencode-models-'));
+    const command = join(dir, 'opencode');
+    writeFileSync(command, `#!/usr/bin/env bash\n${body}\n`);
+    chmodSync(command, 0o755);
+    return command;
+  };
+
+  it('reports the models the operator’s own installation configured', async () => {
+    // opencode's catalog is per-installation, so it is asked, never hardcoded.
+    const command = stub('echo "anthropic/claude-sonnet-5"; echo "openai/gpt-4o"');
+    const catalog = await new OpenCodeAdapter(command).listModels();
+    expect(catalog).toEqual({
+      models: ['anthropic/claude-sonnet-5', 'openai/gpt-4o'],
+      source: 'discovered',
+    });
+  });
+
+  it('fails rather than reporting an empty catalog as fact', async () => {
+    await expect(new OpenCodeAdapter(stub('exit 0')).listModels()).rejects.toThrow();
+  });
+
+  it('fails when the harness is not installed', async () => {
+    await expect(new OpenCodeAdapter('/definitely/missing/codor-opencode').listModels())
+      .rejects.toThrow();
+  });
+
+  it('fails when the harness exits non-zero', async () => {
+    await expect(new OpenCodeAdapter(stub('echo boom >&2; exit 1')).listModels())
+      .rejects.toThrow();
+  });
+});

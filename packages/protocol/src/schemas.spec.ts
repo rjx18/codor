@@ -346,9 +346,16 @@ describe('room config', () => {
       CreateRoomRequestSchema.parse({
         ...base,
         id: 'demo',
-        starting_agent: { harness: 'claude-code', handle: 'codor', model: 'haiku' },
+        starting_agent: { harness: 'claude-code', handle: 'codor', model: 'haiku', thinking: 'high' },
       }).starting_agent,
-    ).toEqual({ harness: 'claude-code', handle: 'codor', model: 'haiku' });
+    ).toEqual({ harness: 'claude-code', handle: 'codor', model: 'haiku', thinking: 'high' });
+    // A starting agent takes the same thinking vocabulary a spawned one does.
+    expect(
+      CreateRoomRequestSchema.safeParse({
+        ...base,
+        starting_agent: { harness: 'claude-code', handle: 'codor', thinking: 'ludicrous' },
+      }).success,
+    ).toBe(false);
     expect(
       CreateRoomRequestSchema.safeParse({
         ...base,

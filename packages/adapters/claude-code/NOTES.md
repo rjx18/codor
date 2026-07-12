@@ -162,3 +162,20 @@ answer wrongly encoded per-question — read as "dismissed"), kept until the `an
 encoding was confirmed from the CLI binary's own schema strings. No quota/auth exhaustion; no
 fixture is MISSING. Probes ran with the user's global config (visible as SessionStart hook
 events + plugin/skill lists in init) — scrubbed of paths only.
+
+
+<!-- harn:assume adapters-own-their-model-catalog ref=claude-code-model-catalog-notes -->
+## Model catalog (U3): curated aliases
+
+`claude` has NO model-listing subcommand, so `listModels()` returns a curated list rather
+than discovering one. Evidence: `claude --help` documents `--model <model>` as "Provide an
+alias for the latest model (e.g. 'fable', 'opus', or 'sonnet') or a model's full name
+(e.g. 'claude-fable-5')". Probed 2026-07-12; no model call was made.
+
+The catalog reports **aliases** (`haiku`, `sonnet`, `opus`, `fable`), not dated ids, and
+that is deliberate: an alias resolves to the latest model of its tier by definition, so it
+cannot go stale the way a pinned id does. An operator who needs a specific version uses the
+dialog's `Custom…` escape, which the CLI accepts as "a model's full name".
+
+Thinking is supported (`thinking:true`), so the thinking row is enabled.
+<!-- harn:end adapters-own-their-model-catalog -->

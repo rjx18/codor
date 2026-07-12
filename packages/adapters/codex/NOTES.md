@@ -156,3 +156,21 @@ no dollar cost is reported by this harness). Extra probes beyond the plan's list
 to induce an attempted-write refusal (model declined twice — kept the third, which pasted the
 sandbox error), 1 vanilla `ls` probe (command_execution shape), 1 bogus-model probe
 (turn.failed shape). No quota/auth exhaustion encountered; no fixture is MISSING.
+
+<!-- harn:assume adapters-own-their-model-catalog ref=codex-model-catalog-notes -->
+## Model catalog (U3)
+
+`codex --help` exposes `-m, --model <MODEL>` ("Model the agent should use") but enumerates
+no ids. The catalog therefore cites the vendor model documentation at
+<https://learn.chatgpt.com/docs/models>, which lists the models Codex accepts and names
+`gpt-5.6-sol` as the default. Checked 2026-07-12; no model call was made.
+
+| Label | Model id |
+| --- | --- |
+| Luna | `gpt-5.6-luna` |
+| Terra | `gpt-5.6-terra` |
+| Sol | `gpt-5.6-sol` |
+| GPT-5.5 | `gpt-5.5` |
+
+Thinking is supported and maps to `-c model_reasoning_effort=<low|medium|high>`.
+<!-- harn:end adapters-own-their-model-catalog -->

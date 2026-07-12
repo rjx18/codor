@@ -1,4 +1,11 @@
-import { deriveRoomId, type Member, type Message, type Room, type WireEvent } from '@codor/protocol';
+import {
+  deriveRoomId,
+  type Member,
+  type Message,
+  type Room,
+  type ThinkingLevel,
+  type WireEvent,
+} from '@codor/protocol';
 import {
   Activity,
   ArrowUp,
@@ -12,6 +19,8 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+
+import { AgentControls } from './agent-controls.js';
 
 import {
   createRoom,
@@ -152,6 +161,8 @@ export function RoomList(props: {
   const [pickingFolder, setPickingFolder] = useState(false);
   const [startingHarness, setStartingHarness] = useState<string>();
   const [startingHandle, setStartingHandle] = useState('codor');
+  const [startingModel, setStartingModel] = useState('');
+  const [startingThinking, setStartingThinking] = useState<ThinkingLevel | ''>('');
   const [createError, setCreateError] = useState<string>();
   const [createBusy, setCreateBusy] = useState(false);
   const firstCreateField = useRef<HTMLInputElement>(null);
@@ -284,6 +295,8 @@ export function RoomList(props: {
                   starting_agent: {
                     harness: selectedStartingHarness,
                     handle: startingHandle.trim() || 'codor',
+                    ...(startingModel.trim() !== '' && { model: startingModel.trim() }),
+                    ...(startingThinking !== '' && { thinking: startingThinking }),
                   },
                 }),
               }, { token: props.token! }).then(
@@ -352,20 +365,21 @@ export function RoomList(props: {
               </span>
             </label>
             <div className="wr-starting-agent">
-              <label className="wr-field-label">
-                Starting agent
-                <select
-                  data-testid="create-room-harness"
-                  value={selectedStartingHarness}
-                  onChange={(event) => setStartingHarness(event.target.value)}
-                  className="wr-input min-h-11 px-3"
-                >
-                  <option value="">No starting agent</option>
-                  {(props.adapters ?? []).map((adapter) => (
-                    <option key={adapter.id} value={adapter.id}>{adapter.id}</option>
-                  ))}
-                </select>
-              </label>
+              <AgentControls
+                adapters={props.adapters ?? []}
+                idPrefix="create-room"
+                allowNone
+                value={{
+                  harness: selectedStartingHarness,
+                  model: startingModel,
+                  thinking: startingThinking,
+                }}
+                onChange={(next) => {
+                  setStartingHarness(next.harness);
+                  setStartingModel(next.model);
+                  setStartingThinking(next.thinking);
+                }}
+              />
               <label className="wr-field-label">
                 Name
                 <input

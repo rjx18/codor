@@ -61,6 +61,8 @@ const pushProducer = new PushProducer({
   subscriptions: pushSubscriptions,
 });
 const daemon = new Daemon({
+  // Discovery shells out to real CLIs; the browser suite must stay hermetic.
+  discoverModels: false,
   dbPath: join(dir, 'db.sqlite'),
   blobRoot: join(dir, 'blobs'),
   adapters: [fake],

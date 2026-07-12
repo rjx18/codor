@@ -111,3 +111,22 @@ The checked-in JSONL files are explicitly **SYNTHETIC**, built from Google's
 documented event interfaces. The `gemini` binary is absent and no authenticated
 Gemini account is available on this machine, so no live claim is made. The one
 deferred tiny authenticated probe is recorded in `MANUAL-VERIFY.md`.
+
+<!-- harn:assume adapters-own-their-model-catalog ref=gemini-model-catalog-notes -->
+## Model catalog (U3)
+
+The Gemini CLI is not installed on the development host, so the catalog cites the CLI's own
+model documentation:
+<https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/model.md>, which lists the
+models selectable via `--model` / `/model`. Checked 2026-07-12; no model call was made.
+
+| Label | Model id |
+| --- | --- |
+| Flash | `gemini-3-flash-preview` |
+| Pro | `gemini-3-pro-preview` |
+| 2.5 Flash | `gemini-2.5-flash` |
+| 2.5 Pro | `gemini-2.5-pro` |
+
+This interface exposes no documented low/medium/high thinking control, so the adapter
+declares `thinking:false` and the thinking row renders disabled with the capability hint.
+<!-- harn:end adapters-own-their-model-catalog -->

@@ -1,0 +1,211 @@
+id: u3-catalogs
+title: U3 adapters own their model catalog and the dialogs share one control
+assumptions:
+  create:
+    - id: agent-controls-shared-by-both-dialogs
+      title: One agent-controls component serves channel creation and agent spawn
+      statement: The harness, model, and thinking inputs must be rendered by a single
+        AgentControls component that both the channel-creation dialog and the
+        agent-spawn dialog import, presenting harnesses as labeled tiles built
+        from the /api/adapters registration list, models as a button row when
+        the harness reports few enough of them and as a searchable list when it
+        reports many, and thinking as a button row that is disabled and carries
+        the capability hint exactly when the adapter declares thinking
+        unsupported; no agent setup on the common path in either dialog may
+        require typing an enum string, and the only free text either dialog
+        needs is the channel name, the agent handle, the working directory, and
+        the deliberate custom-model escape, because two dialogs that drift apart
+        are how an operator learns an option exists in one place and not the
+        other.
+      reason: R2 replaces harness/model/thinking enum entry with catalogs, and makes
+        the single shared component the structural guarantee that both dialogs
+        offer the same controls.
+      depends_on:
+        - canonical-spawn-controls-enforced
+        - adapter-registry-sole-harness-source
+    - id: adapters-own-their-model-catalog
+      title: The harness reports its own models; the web never hardcodes a model id
+      statement: Each adapter must answer for the models its harness accepts,
+        reporting them with the source that produced them - discovered, when the
+        adapter can enumerate them by running the harness's own listing command
+        locally with a fixed argument vector and a hard timeout, or curated,
+        when the CLI offers no listing command and the models are therefore
+        cited in that adapter's NOTES.md; the switchboard must perform discovery
+        in the background away from any request path, must serve whatever it
+        already holds, and must fall back silently to a harness's curated list,
+        or to no list at all, whenever discovery is unavailable, slow, failing,
+        or returns output it cannot validate; no model id may live in the web
+        package, because model ids churn and the adapter that spawns the harness
+        is the only component that can know, or find out, what that harness will
+        accept.
+      reason: A model id hardcoded in the UI goes stale silently and fails only when
+        the agent is already starting, in front of the operator. The adapter
+        package already owns the harness knowledge and the NOTES.md evidence.
+      depends_on:
+        - adapter-registry-sole-harness-source
+        - agent-controls-shared-by-both-dialogs
+  reviewed:
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: The spawn dialog still prefills the working directory, exposes preset,
+        model, canonical policy, supported thinking, and purpose, preserves
+        server act errors, and suffixes handles. Only the input shape changes -
+        selects and free text become tiles and button rows - so the contract the
+        statement describes is untouched.
+    - id: channel-create-dialog-uses-authoritative-result
+      outcome: unchanged
+      reason: Creation still routes on the server's authoritative channel id; the
+        dialog's starting-agent section gains the shared controls without
+        changing how the created channel is resolved.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: The canonical policy and thinking vocabulary is unchanged; the tiles and
+        rows render exactly the values the schemas already allow, and the new
+        model reporting sits beside the capability set rather than altering it.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The harness tiles are still built from the registry's /api/adapters
+        list; the adapters now also report the models each harness takes, which
+        is harness knowledge belonging to the same registry, not a new source of
+        harnesses.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: The claude-code supervision region is byte-for-byte unchanged - verified
+        by hashing it against HEAD - but Harn classifies the region as touched
+        because the listModels method inserted above it shifts its position.
+        Nothing about how that adapter supervises its CLI child changes.
+    - id: adapters-cli-only-no-sdk
+      outcome: unchanged
+      reason: Model discovery shells out to the harness's own CLI with a fixed
+        argument vector and reads stdout, exactly as every other adapter
+        operation does; no SDK and no model call is involved.
+anchors:
+  agent-controls-shared-by-both-dialogs:
+    agent-controls-component:
+      action: change
+      reason: Add the shared harness-tile, model, and thinking component that both
+        dialogs consume, rendering whatever models the adapter reported.
+    agent-controls-unit-regression:
+      action: change
+      reason: Prove the tiles, the button row and the searchable list, the
+        capability-disabled thinking, the custom escape, and that both dialogs
+        render the one component and hold no model id of their own.
+    agent-controls-browser-regression:
+      action: change
+      reason: Prove a channel can be created by touching only tiles and buttons plus
+        the channel name and handle.
+  adapters-own-their-model-catalog:
+    adapter-model-catalog-contract:
+      action: change
+      reason: Declare the optional listModels contract and the discovered/curated
+        source on the adapter interface.
+    adapter-model-discovery:
+      action: change
+      reason: Discover model lists in the background at registration, never on a
+        request path, and serve the cached result.
+    adapter-model-discovery-regression:
+      action: change
+      reason: Prove discovery populates the registry, that a missing, failing, slow,
+        or unparseable harness degrades silently, and that discovery can be
+        disabled so the browser suite stays hermetic.
+    opencode-model-discovery:
+      action: change
+      reason: Enumerate opencode's models by running its own listing command, since
+        its catalog is per-installation.
+    claude-code-model-catalog:
+      action: change
+      reason: Report the aliases the CLI's own help blesses, which do not churn.
+    codex-model-catalog:
+      action: change
+      reason: Report the curated list the vendor documentation establishes.
+    gemini-model-catalog:
+      action: change
+      reason: Report the curated list the CLI's own model documentation establishes.
+    copilot-model-catalog:
+      action: change
+      reason: Report only auto, which is all its own CLI reference documents.
+    claude-code-model-catalog-notes:
+      action: change
+      reason: Cite the CLI help that establishes the claude-code aliases.
+    codex-model-catalog-notes:
+      action: change
+      reason: Cite the vendor model documentation behind the codex list.
+    gemini-model-catalog-notes:
+      action: change
+      reason: Cite the CLI's own model documentation behind the gemini list.
+    opencode-model-catalog-notes:
+      action: change
+      reason: Record that opencode's models are discovered per installation.
+    copilot-model-catalog-notes:
+      action: change
+      reason: Record that copilot's models are plan-dependent and only auto is
+        documented.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    spawn-dialog-controls:
+      action: change
+      reason: Replace the spawn dialog's harness select, free-text model, and thinking
+        select with the shared component.
+    spawn-dialog-unit-regression:
+      action: change
+      reason: Update the spawn-dialog unit regression for the tile and button controls.
+    spawn-dialog-browser-regression:
+      action: change
+      reason: Update the spawn-dialog browser regression to drive tiles and buttons.
+  channel-create-dialog-uses-authoritative-result:
+    channel-create-dialog:
+      action: change
+      reason: Replace the creation dialog's harness select with the shared component
+        so a starting agent gets the same model and thinking controls.
+    channel-create-browser-regression:
+      action: change
+      reason: Update the creation regression for the tile and button controls.
+  channel-create-request-contract:
+    channel-create-request-schema:
+      action: change
+      reason: Let a starting agent carry a thinking level, so the creation dialog can
+        offer the same thinking row as the spawn dialog.
+  channel-creation-derived-and-seeded:
+    channel-create-request-regression:
+      action: change
+      reason: Prove the starting agent's thinking level round-trips through the create
+        request contract.
+  adapter-process-lifecycle-supervised:
+    cli-process-supervision:
+      action: change
+      reason: Review the byte-identical claude-code supervision region that Harn
+        classifies as touched because the model-catalog method above it shifts
+        its position.
+  web-room-rail-creates-owner-room:
+    room-rail-create-action:
+      action: change
+      reason: The creation dialog the rail opens now renders the shared controls; the
+        rail's own create action is otherwise unchanged.
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/claude-code/NOTES.md
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/NOTES.md
+  - packages/adapters/gemini/src/adapter.ts
+  - packages/adapters/gemini/NOTES.md
+  - packages/adapters/copilot/src/adapter.ts
+  - packages/adapters/copilot/NOTES.md
+  - packages/adapters/opencode/src/adapter.ts
+  - packages/adapters/opencode/src/adapter.spec.ts
+  - packages/adapters/opencode/NOTES.md
+  - packages/web/src/agent-controls.tsx
+  - packages/web/src/agent-controls.spec.tsx
+  - packages/web/src/api.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/shell.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/channel-create.e2e.spec.ts
+applied:
+  applied_at: 2026-07-12T10:11:20.536Z

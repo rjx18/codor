@@ -22,7 +22,15 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   await page.getByTestId('folder-use').click();
   await expect(page.getByTestId('create-room-cwd')).not.toHaveValue('');
 
-  await expect(page.getByTestId('create-room-harness')).toHaveValue('fake');
+  // harn:assume agent-controls-shared-by-both-dialogs ref=agent-controls-browser-regression
+  // The starting agent is configured by tapping tiles and buttons; the only text the
+  // common path types is the channel name and the agent handle.
+  await expect(page.getByTestId('create-room-harness-fake')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('create-room-model-default')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('create-room-model-custom')).toBeVisible();
+  await expect(page.getByTestId('create-room-model-custom-input')).toHaveCount(0);
+  await expect(page.getByTestId('create-room-thinking-default')).toBeVisible();
+  // harn:end agent-controls-shared-by-both-dialogs
   await expect(page.getByTestId('create-room-agent-name')).toHaveValue('codor');
   await page.getByTestId('create-room-submit').click();
 
@@ -60,7 +68,7 @@ test('channel creation stays available when no starting adapters are installed',
 
   await page.getByTestId('create-room').click();
   await page.getByTestId('create-room-name').fill('Adapterless Channel');
-  await expect(page.getByTestId('create-room-harness')).toHaveValue('');
+  await expect(page.getByTestId('create-room-harness-none')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('create-room-agent-name')).toBeDisabled();
   await page.getByTestId('create-room-submit').click();
 

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import type {
+  ModelCatalog,
   AdapterTurnHooks,
   HarnessAdapter,
   Session,
@@ -97,6 +98,21 @@ export class GeminiAdapter implements HarnessAdapter {
     };
   }
   // harn:end canonical-spawn-controls-enforced
+
+  // harn:assume adapters-own-their-model-catalog ref=gemini-model-catalog
+  /** Curated from the CLI's own model documentation. Cited in NOTES.md. */
+  listModels(): Promise<ModelCatalog> {
+    return Promise.resolve({
+      models: [
+        'gemini-3-flash-preview',
+        'gemini-3-pro-preview',
+        'gemini-2.5-flash',
+        'gemini-2.5-pro',
+      ],
+      source: 'curated',
+    });
+  }
+  // harn:end adapters-own-their-model-catalog
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };

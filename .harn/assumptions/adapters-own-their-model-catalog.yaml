@@ -1,0 +1,20 @@
+id: adapters-own-their-model-catalog
+hash: a-9b01cc0c4fcb
+title: The harness reports its own models; the web never hardcodes a model id
+state: active
+statement: Each adapter must answer for the models its harness accepts,
+  reporting them with the source that produced them - discovered, when the
+  adapter can enumerate them by running the harness's own listing command
+  locally with a fixed argument vector and a hard timeout, or curated, when the
+  CLI offers no listing command and the models are therefore cited in that
+  adapter's NOTES.md; the switchboard must perform discovery in the background
+  away from any request path, must serve whatever it already holds, and must
+  fall back silently to a harness's curated list, or to no list at all, whenever
+  discovery is unavailable, slow, failing, or returns output it cannot validate;
+  no model id may live in the web package, because model ids churn and the
+  adapter that spawns the harness is the only component that can know, or find
+  out, what that harness will accept.
+depends_on:
+  - adapter-registry-sole-harness-source
+  - agent-controls-shared-by-both-dialogs
+created_by: u3-catalogs

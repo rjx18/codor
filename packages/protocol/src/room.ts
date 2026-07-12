@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { RoomIdSchema, TimestampSchema } from './ids.js';
 import { AssignableHandleSchema } from './member.js';
+import { ThinkingLevelSchema } from './adapter.js';
 
 // harn:assume brakes-default-off ref=room-config-brakes
 /**
@@ -42,6 +43,7 @@ export const StartingAgentSchema = z.object({
   harness: z.string().min(1),
   handle: AssignableHandleSchema,
   model: z.string().optional(),
+  thinking: ThinkingLevelSchema.optional(),
 });
 export type StartingAgent = z.infer<typeof StartingAgentSchema>;
 

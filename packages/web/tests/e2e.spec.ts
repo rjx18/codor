@@ -276,6 +276,9 @@ test('spawn dialog presets canonical controls and replaces removed agents', asyn
             extensions: false,
             thinking: true,
           },
+          // The harness reports its own models; the web hardcodes none.
+          models: ['anthropic/claude-sonnet-5', 'openai/gpt-4o'],
+          models_source: 'discovered',
         }],
       },
     });
@@ -286,24 +289,32 @@ test('spawn dialog presets canonical controls and replaces removed agents', asyn
   await page.getByTestId('spawn-agent').click();
   await expect(page.getByTestId('spawn-dialog')).toBeVisible();
   await expect(page.getByTestId('spawn-cwd')).toHaveValue(process.cwd());
-  await page.getByTestId('spawn-harness').selectOption('opencode');
-  await expect(page.getByTestId('spawn-model')).toHaveAttribute('placeholder', 'provider/model');
-  await expect(page.getByTestId('spawn-thinking')).toBeEnabled();
+  await page.getByTestId('spawn-harness-opencode').click();
+  await expect(page.getByTestId('spawn-harness-opencode')).toHaveAttribute('aria-pressed', 'true');
+  // The models the harness itself reported become buttons — nothing is typed.
+  await page.getByTestId('spawn-model-openai/gpt-4o').click();
+  await expect(page.getByTestId('spawn-model-openai/gpt-4o')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('spawn-thinking-medium')).toBeEnabled();
   await expect(page.getByTestId('spawn-approval-hint')).toBeVisible();
 
-  await page.getByTestId('spawn-model').fill('kept/model');
-  await page.getByTestId('spawn-harness').selectOption('fake');
+  await page.getByTestId('spawn-harness-fake').click();
+  // A model only means anything to the harness it was chosen under.
+  await expect(page.getByTestId('spawn-model-default')).toHaveAttribute('aria-pressed', 'true');
+  // The fake harness reports no models, so the operator still gets an escape.
+  await expect(page.getByTestId('spawn-model-note')).toBeVisible();
+  await page.getByTestId('spawn-model-custom').click();
+  await page.getByTestId('spawn-model-custom-input').fill('kept/model');
+
   await page.getByTestId('spawn-preset-tester').click();
-  await expect(page.getByTestId('spawn-harness')).toHaveValue('fake');
-  await expect(page.getByTestId('spawn-model')).toHaveValue('kept/model');
+  await expect(page.getByTestId('spawn-harness-fake')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('spawn-handle')).toHaveValue('tester');
   await expect(page.getByTestId('spawn-purpose')).toHaveValue('Runs tests, reproduces bugs, reports results');
   await expect(page.getByTestId('spawn-policy')).toHaveValue('workspace-write');
   await expect(page.getByTestId('spawn-policy').locator('option')).toHaveText([
     'read-only', 'workspace-write', 'full-access',
   ]);
-  await expect(page.getByTestId('spawn-thinking')).toHaveValue('medium');
-  await expect(page.getByTestId('spawn-thinking')).toBeDisabled();
+  await expect(page.getByTestId('spawn-thinking-medium')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('spawn-thinking-medium')).toBeDisabled();
   await expect(page.getByTestId('spawn-approval-hint')).toHaveCount(0);
 
   await page.getByTestId('spawn-policy').evaluate((select) => {

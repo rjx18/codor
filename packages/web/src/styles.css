@@ -5510,3 +5510,87 @@ button:disabled {
   background: #fff;
 }
 /* harn:end pairing-code-enrollment-surfaces */
+
+/* U3: shared agent controls — harness tiles, model and thinking button rows. */
+.wr-agent-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.wr-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.wr-control-group > legend {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--wr-text-muted);
+  padding: 0;
+}
+.wr-control-group > small {
+  font-size: 0.72rem;
+  color: var(--wr-text-muted);
+}
+.wr-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.4rem;
+}
+.wr-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  min-height: 3.25rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--wr-line);
+  border-radius: 0.6rem;
+  background: var(--wr-surface);
+  color: var(--wr-text);
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+.wr-tile > small {
+  font-size: 0.65rem;
+  color: var(--wr-text-muted);
+}
+.wr-tile[aria-pressed='true'] {
+  border-color: var(--wr-accent);
+  background: var(--wr-surface-raised);
+  box-shadow: inset 0 0 0 1px var(--wr-accent);
+}
+.wr-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.wr-button-row > button {
+  min-height: 2.5rem;
+  padding: 0 0.7rem;
+  border: 1px solid var(--wr-line);
+  border-radius: 999px;
+  background: var(--wr-surface);
+  color: var(--wr-text);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.wr-button-row > button[aria-pressed='true'] {
+  border-color: var(--wr-accent);
+  background: var(--wr-surface-raised);
+  box-shadow: inset 0 0 0 1px var(--wr-accent);
+}
+.wr-button-row > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+@media (max-width: 768px) {
+  .wr-tile-grid {
+    grid-template-columns: repeat(auto-fill, minmax(6.25rem, 1fr));
+  }
+}

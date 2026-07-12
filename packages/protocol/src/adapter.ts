@@ -46,6 +46,19 @@ export interface AdapterCapabilities {
 // harn:end canonical-spawn-controls-enforced
 
 /** Durable lifecycle facts reported while a turn is still in progress. */
+// harn:assume adapters-own-their-model-catalog ref=adapter-model-catalog-contract
+/**
+ * The models a harness will accept. `discovered` means the adapter asked the
+ * harness itself (its own listing command, run locally, zero spend); `curated`
+ * means the CLI offers no listing command, so the ids are cited in that
+ * adapter's NOTES.md. Model ids churn — the web must never hardcode one.
+ */
+export interface ModelCatalog {
+  models: string[];
+  source: 'discovered' | 'curated';
+}
+// harn:end adapters-own-their-model-catalog
+
 export interface AdapterTurnHooks {
   /** Called only after the CLI child has emitted its spawn event. */
   onStarted?(process: { pid?: number; process_group_id?: number }): void;
@@ -62,6 +75,11 @@ export interface HarnessAdapter {
   capabilities: AdapterCapabilities;
   spawn(opts: SpawnOpts): Session;
   attach(session_ref: SessionRef): Session;
+  /**
+   * The models this harness accepts. Omitted when the harness cannot say.
+   * Never called on a request path — the daemon discovers in the background.
+   */
+  listModels?(): Promise<ModelCatalog>;
   // harn:assume attempt-start-evidence-persisted ref=adapter-turn-hooks
   deliver(session: Session, payload: string, hooks?: AdapterTurnHooks): AsyncIterable<WireEvent>;
   // harn:end attempt-start-evidence-persisted

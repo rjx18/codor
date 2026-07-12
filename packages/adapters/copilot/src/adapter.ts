@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import type {
+  ModelCatalog,
   AdapterTurnHooks,
   HarnessAdapter,
   Session,
@@ -73,6 +74,17 @@ export class CopilotAdapter implements HarnessAdapter {
     };
   }
   // harn:end canonical-spawn-controls-enforced
+
+  // harn:assume adapters-own-their-model-catalog ref=copilot-model-catalog
+  /**
+   * Copilot's reachable models depend on the operator's subscription and their
+   * org's policies, and its own CLI reference documents only `auto`. Offering a
+   * fixed row would be a guess; `auto` plus the custom escape is the honest set.
+   */
+  listModels(): Promise<ModelCatalog> {
+    return Promise.resolve({ models: ['auto'], source: 'curated' });
+  }
+  // harn:end adapters-own-their-model-catalog
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };

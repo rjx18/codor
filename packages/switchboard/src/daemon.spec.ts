@@ -1849,3 +1849,71 @@ describe('Phase 3 usability core', () => {
   });
   // harn:end canonical-spawn-controls-enforced
 });
+
+// harn:assume adapters-own-their-model-catalog ref=adapter-model-discovery-regression
+describe('adapter model discovery', () => {
+  const adapterWith = (id: string, listModels?: () => Promise<unknown>) =>
+    ({ ...new FakeAdapter(id), id, listModels } as never);
+
+  const daemonWith = (adapters: never[], discoverModels = true) => {
+    const dir = mkdtempSync(join(tmpdir(), 'codor-models-'));
+    return new Daemon({
+      dbPath: join(dir, 'switchboard.sqlite'),
+      blobRoot: join(dir, 'blobs'),
+      adapters,
+      homeDir: dir,
+      discoverModels,
+    });
+  };
+
+  const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+  it('serves the models a harness reported, with their source', async () => {
+    const daemon = daemonWith([
+      adapterWith('discovers', () => Promise.resolve({ models: ['a/b'], source: 'discovered' })),
+    ]);
+    await settle();
+    expect(daemon.registeredAdapters()[0]).toMatchObject({
+      models: ['a/b'],
+      models_source: 'discovered',
+    });
+  });
+
+  it('degrades silently when a harness cannot be asked', async () => {
+    // A missing binary, a non-zero exit, a hang killed by the timeout: all the same.
+    const daemon = daemonWith([
+      adapterWith('broken', () => Promise.reject(new Error('ENOENT'))),
+    ]);
+    await settle();
+    const [adapter] = daemon.registeredAdapters();
+    expect(adapter!.models).toBeUndefined();
+    expect(adapter!.id).toBe('broken');
+  });
+
+  it('drops output it cannot validate rather than trusting harness stdout', async () => {
+    const daemon = daemonWith([
+      adapterWith('noisy', () => Promise.resolve({
+        models: ['ok/model', 'rm -rf /', 'two words', '<script>'],
+        source: 'discovered',
+      })),
+    ]);
+    await settle();
+    expect(daemon.registeredAdapters()[0]!.models).toEqual(['ok/model']);
+  });
+
+  it('can be switched off so the browser suite stays hermetic', async () => {
+    const daemon = daemonWith(
+      [adapterWith('discovers', () => Promise.resolve({ models: ['a/b'], source: 'discovered' }))],
+      false,
+    );
+    await settle();
+    expect(daemon.registeredAdapters()[0]!.models).toBeUndefined();
+  });
+
+  it('leaves a harness that cannot enumerate without a list', async () => {
+    const daemon = daemonWith([adapterWith('silent')]);
+    await settle();
+    expect(daemon.registeredAdapters()[0]!.models).toBeUndefined();
+  });
+});
+// harn:end adapters-own-their-model-catalog

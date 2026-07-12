@@ -15,6 +15,9 @@ export interface ApiOptions {
 export interface AdapterRegistration {
   id: string;
   capabilities: AdapterCapabilities;
+  /** Models the harness itself reported. The web never hardcodes a model id. */
+  models?: string[];
+  models_source?: 'discovered' | 'curated';
 }
 
 export interface MemberDetail {

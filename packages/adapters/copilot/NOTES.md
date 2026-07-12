@@ -120,3 +120,18 @@ tokens remain visibly uncosted in Codor's meter.
 All checked-in JSONL is explicitly **SYNTHETIC**, assembled from the first-party
 event envelope and field tables. The deferred authenticated checks are recorded
 in the repository-root `MANUAL-VERIFY.md`.
+
+<!-- harn:assume adapters-own-their-model-catalog ref=copilot-model-catalog-notes -->
+## Model catalog (U3): auto only — plan-dependent
+
+The Copilot CLI is not installed on the development host. Its own command reference
+(<https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference>)
+documents `--model` as "Set the AI model you want to use. Pass `auto` as the value to let
+Copilot pick the best available model automatically" and deliberately enumerates no ids:
+which models a given operator can reach depends on their subscription plan and their
+organization's policies. Checked 2026-07-12; no model call was made.
+
+The dialog therefore offers only `Auto` (`auto`) plus the `Custom…` escape. Copilot exposes
+no documented low/medium/high thinking control in prompt-mode JSONL, so the adapter declares
+`thinking:false` and the thinking row renders disabled with the capability hint.
+<!-- harn:end adapters-own-their-model-catalog -->

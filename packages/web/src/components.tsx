@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
+import { AgentControls } from './agent-controls.js';
 import { fetchLedgerNote, fetchRunEvents } from './api.js';
 import type { AdapterRegistration, LedgerNote, MemberDetail } from './api.js';
 import { currentBrowserAccessToken } from './crypto.js';
@@ -309,11 +310,6 @@ export function availableAgentHandle(requested: string, members: Member[]): stri
   }
 }
 
-function modelPlaceholder(harness: string): string {
-  if (harness === 'opencode') return 'provider/model';
-  return harness === '' ? 'default' : `${harness} model`;
-}
-
 export function SpawnAgentDialog(props: {
   adapters: AdapterRegistration[];
   members: Member[];
@@ -471,22 +467,17 @@ export function SpawnAgentDialog(props: {
                 ))}
               </div>
             </fieldset>
+            <AgentControls
+              adapters={props.adapters}
+              idPrefix="spawn"
+              value={{ harness, model, thinking }}
+              onChange={(next) => {
+                setHarness(next.harness);
+                setModel(next.model);
+                setThinking(next.thinking);
+              }}
+            />
             <div className="wr-spawn-grid">
-              <label className="wr-field-label">
-                Harness
-                <select
-                  data-testid="spawn-harness"
-                  value={harness}
-                  onChange={(event) => setHarness(event.target.value)}
-                  className="wr-input min-h-11 w-full px-3 text-sm"
-                >
-                  {props.adapters.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {candidate.id} {candidate.capabilities.resume ? '' : '(ephemeral)'}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <label className="wr-field-label">
                 Handle
                 <input
@@ -500,16 +491,6 @@ export function SpawnAgentDialog(props: {
                 />
               </label>
               <label className="wr-field-label">
-                Model
-                <input
-                  data-testid="spawn-model"
-                  value={model}
-                  onChange={(event) => setModel(event.target.value)}
-                  placeholder={modelPlaceholder(harness)}
-                  className="wr-input min-h-11 w-full px-3 text-sm"
-                />
-              </label>
-              <label className="wr-field-label">
                 Policy
                 <select
                   data-testid="spawn-policy"
@@ -519,20 +500,6 @@ export function SpawnAgentDialog(props: {
                 >
                   {PolicySchema.options.map((value) => <option key={value} value={value}>{value}</option>)}
                 </select>
-              </label>
-              <label className="wr-field-label">
-                Thinking
-                <select
-                  data-testid="spawn-thinking"
-                  value={thinking}
-                  onChange={(event) => setThinking(event.target.value as ThinkingLevel | '')}
-                  disabled={adapter?.capabilities.thinking !== true}
-                  className="wr-input min-h-11 w-full px-3 text-sm disabled:opacity-50"
-                >
-                  <option value="">default</option>
-                  {ThinkingLevelSchema.options.map((value) => <option key={value} value={value}>{value}</option>)}
-                </select>
-                {adapter?.capabilities.thinking !== true && <small>Not supported by this harness</small>}
               </label>
               <label className="wr-field-label">
                 Working directory

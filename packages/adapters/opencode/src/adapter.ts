@@ -1,7 +1,8 @@
-import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import { execFile, type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
 import type {
+  ModelCatalog,
   AdapterTurnHooks,
   HarnessAdapter,
   Session,
@@ -72,6 +73,28 @@ export class OpenCodeAdapter implements HarnessAdapter {
     };
   }
   // harn:end canonical-spawn-controls-enforced
+
+  // harn:assume adapters-own-their-model-catalog ref=opencode-model-discovery
+  /**
+   * opencode's models come from the operator's OWN configured providers, so no
+   * fixed list can be right for every install — ask the CLI. Fixed argv (no
+   * shell), hard timeout, capped output; a failure throws and the daemon
+   * silently degrades this harness to the custom escape.
+   */
+  async listModels(): Promise<ModelCatalog> {
+    const listed = await new Promise<string>((resolve, reject) => {
+      execFile(
+        this.command,
+        ['models'],
+        { timeout: 5_000, maxBuffer: 1_000_000 },
+        (error, stdout) => (error ? reject(error) : resolve(stdout)),
+      );
+    });
+    const models = listed.split('\n').map((line) => line.trim()).filter((line) => line !== '');
+    if (models.length === 0) throw new Error('opencode listed no models');
+    return { models, source: 'discovered' };
+  }
+  // harn:end adapters-own-their-model-catalog
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };

@@ -1,0 +1,20 @@
+id: agent-controls-shared-by-both-dialogs
+hash: a-2672513d7d65
+title: One agent-controls component serves channel creation and agent spawn
+state: active
+statement: The harness, model, and thinking inputs must be rendered by a single
+  AgentControls component that both the channel-creation dialog and the
+  agent-spawn dialog import, presenting harnesses as labeled tiles built from
+  the /api/adapters registration list, models as a button row when the harness
+  reports few enough of them and as a searchable list when it reports many, and
+  thinking as a button row that is disabled and carries the capability hint
+  exactly when the adapter declares thinking unsupported; no agent setup on the
+  common path in either dialog may require typing an enum string, and the only
+  free text either dialog needs is the channel name, the agent handle, the
+  working directory, and the deliberate custom-model escape, because two dialogs
+  that drift apart are how an operator learns an option exists in one place and
+  not the other.
+depends_on:
+  - canonical-spawn-controls-enforced
+  - adapter-registry-sole-harness-source
+created_by: u3-catalogs

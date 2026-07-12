@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import type {
+  ModelCatalog,
   AdapterTurnHooks,
   HarnessAdapter,
   Session,
@@ -113,6 +114,21 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     };
   }
   // harn:end canonical-spawn-controls-enforced
+
+  // harn:assume adapters-own-their-model-catalog ref=claude-code-model-catalog
+  /**
+   * `claude --help`: "Provide an alias for the latest model (e.g. 'fable',
+   * 'opus', or 'sonnet') or a model's full name (e.g. 'claude-fable-5')."
+   * The CLI has no listing command, so this is curated — but aliases track the
+   * latest model by definition, so they do not go stale the way ids do.
+   */
+  listModels(): Promise<ModelCatalog> {
+    return Promise.resolve({
+      models: ['haiku', 'sonnet', 'opus', 'fable'],
+      source: 'curated',
+    });
+  }
+  // harn:end adapters-own-their-model-catalog
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };

@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 
 import type {
+  ModelCatalog,
   AskCard,
   AttachLease,
   BridgeOrigin,
@@ -15,6 +16,10 @@ import type {
   WireEvent,
   CreateRoomRequest,
 } from '@codor/protocol';
+
+/** Untrusted CLI stdout: only these shapes become buttons, and never many. */
+const MODEL_ID = /^[\w.:-]+(?:\/[\w.:-]+)?$/;
+const MAX_MODELS = 200;
 import { deriveRoomId } from '@codor/protocol';
 
 import { BlobStore } from './blobs.js';
@@ -44,6 +49,11 @@ export interface DaemonOptions {
   dbPath: string;
   blobRoot: string;
   adapters: HarnessAdapter[];
+  /**
+   * Ask each adapter for its model list at registration. Off in the browser
+   * suite: discovery shells out to real CLIs, which would make it non-hermetic.
+   */
+  discoverModels?: boolean;
   attachLeaseTimeoutMs?: number;
   attachLeasePollMs?: number;
   processProbe?: (target: number) => boolean;
@@ -137,6 +147,7 @@ export class Daemon {
   readonly blobs: BlobStore;
   readonly pushLog: { room: string; body: string; ts: string }[] = [];
   private readonly adapters = new Map<string, HarnessAdapter>();
+  private readonly modelCatalogs = new Map<string, ModelCatalog>();
   private readonly sessions = new Map<string, Session>();
   private readonly inflight = new Set<string>();
   private readonly active = new Set<Promise<void>>();
@@ -183,6 +194,7 @@ export class Daemon {
       if (this.store.getRoom(room)) this.postSystemMessage(room, `@${author} updated [[${name}]]`);
     });
     for (const adapter of options.adapters) this.adapters.set(adapter.id, adapter);
+    if (options.discoverModels ?? true) this.discoverModels();
     this.attachLeaseTimeoutMs = options.attachLeaseTimeoutMs ?? 5_000;
     this.processProbe = options.processProbe ?? ((target) => {
       try {
@@ -522,11 +534,45 @@ export class Daemon {
     return owner;
   }
 
-  registeredAdapters(): { id: string; capabilities: HarnessAdapter['capabilities'] }[] {
+  // harn:assume adapters-own-their-model-catalog ref=adapter-model-discovery
+  /**
+   * Ask every adapter that can answer what models its harness takes. Runs once,
+   * in the background, at registration — never on a request path, because a hung
+   * CLI must not be able to wedge /api/adapters, which gates both dialogs.
+   * Any failure leaves the harness without a list: the dialog then offers the
+   * custom escape, which is a worse UI, not a broken one.
+   */
+  private discoverModels(): void {
+    for (const adapter of this.adapters.values()) {
+      if (!adapter.listModels) continue;
+      void adapter.listModels().then(
+        (catalog) => {
+          const models = catalog.models.filter((model) => MODEL_ID.test(model)).slice(0, MAX_MODELS);
+          if (models.length > 0) this.modelCatalogs.set(adapter.id, { ...catalog, models });
+        },
+        () => undefined,
+      );
+    }
+  }
+
+  registeredAdapters(): {
+    id: string;
+    capabilities: HarnessAdapter['capabilities'];
+    models?: string[];
+    models_source?: ModelCatalog['source'];
+  }[] {
     return [...this.adapters.values()]
-      .map((adapter) => ({ id: adapter.id, capabilities: adapter.capabilities }))
+      .map((adapter) => {
+        const catalog = this.modelCatalogs.get(adapter.id);
+        return {
+          id: adapter.id,
+          capabilities: adapter.capabilities,
+          ...(catalog && { models: catalog.models, models_source: catalog.source }),
+        };
+      })
       .sort((a, b) => a.id.localeCompare(b.id));
   }
+  // harn:end adapters-own-their-model-catalog
 
   setHumanRole(room: string, memberId: string, role: Role): Member {
     const member = this.store.getMember(room, memberId);
