@@ -153,6 +153,7 @@ export class Daemon {
   readonly pushLog: { room: string; body: string; ts: string }[] = [];
   private readonly adapters = new Map<string, HarnessAdapter>();
   private readonly modelCatalogs = new Map<string, ModelCatalog>();
+  private pendingDiscoveries = 0;
   private readonly sessions = new Map<string, Session>();
   private readonly inflight = new Set<string>();
   private readonly active = new Set<Promise<void>>();
@@ -550,7 +551,10 @@ export class Daemon {
   private discoverModels(): void {
     for (const adapter of this.adapters.values()) {
       if (!adapter.listModels) continue;
-      void adapter.listModels().then(
+      this.pendingDiscoveries += 1;
+      void adapter.listModels().finally(() => {
+        this.pendingDiscoveries -= 1;
+      }).then(
         (catalog) => {
           const models = catalog.models.filter((model) => MODEL_ID.test(model)).slice(0, MAX_MODELS);
           if (models.length > 0) this.modelCatalogs.set(adapter.id, { ...catalog, models });
@@ -561,6 +565,17 @@ export class Daemon {
       );
     }
   }
+
+  // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-signal
+  /**
+   * True while a harness that can answer still hasn't. It lets a browser tell an
+   * empty catalog apart from an unfinished one, so a page loaded during discovery
+   * asks again instead of stranding the operator with no models until reload.
+   */
+  modelDiscoveryPending(): boolean {
+    return this.pendingDiscoveries > 0;
+  }
+  // harn:end model-catalogs-reach-a-browser-that-arrives-early
 
   registeredAdapters(): {
     id: string;

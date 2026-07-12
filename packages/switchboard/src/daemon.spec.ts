@@ -1926,6 +1926,36 @@ describe('adapter model discovery', () => {
     expect(daemon.registeredAdapters()[0]!.models).toEqual(['ok/model']);
   });
 
+  // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-regression
+  it('says discovery is pending while a slow harness is still answering', async () => {
+    let answer!: (catalog: unknown) => void;
+    const slow = new Promise((resolve) => { answer = resolve as (catalog: unknown) => void; });
+    const daemon = daemonWith([adapterWith('slow', () => slow as Promise<never>)]);
+
+    // A browser arriving here must be told the empty catalog is not the final word.
+    expect(daemon.modelDiscoveryPending()).toBe(true);
+    expect(daemon.registeredAdapters()[0]!.models).toBeUndefined();
+
+    answer({ models: ['a/b'], source: 'discovered' });
+    await settle();
+    await settle();
+    expect(daemon.modelDiscoveryPending()).toBe(false);
+    expect(daemon.registeredAdapters()[0]!.models).toEqual(['a/b']);
+  });
+
+  it('says nothing is pending when no harness can answer', () => {
+    expect(daemonWith([adapterWith('silent')]).modelDiscoveryPending()).toBe(false);
+  });
+
+  it('stops being pending even when the harness fails', async () => {
+    const daemon = daemonWith([adapterWith('broken', () => Promise.reject(new Error('ENOENT')))]);
+    await settle();
+    await settle();
+    // Otherwise a client would ask again forever.
+    expect(daemon.modelDiscoveryPending()).toBe(false);
+  });
+  // harn:end model-catalogs-reach-a-browser-that-arrives-early
+
   it('can be switched off so the browser suite stays hermetic', async () => {
     const daemon = daemonWith(
       [adapterWith('discovers', () => Promise.resolve({ models: ['a/b'], source: 'discovered' }))],

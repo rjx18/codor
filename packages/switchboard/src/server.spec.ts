@@ -694,9 +694,14 @@ describe('REST', () => {
   it('lists registered adapters and exposes full member lifecycle REST actions', async () => {
     const auth = { authorization: `Bearer ${TOKEN}` };
     const adaptersRes = await fetch(`${base}/api/adapters`, { headers: auth });
+    // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-rest
+    // The listing says whether discovery is still running, so a browser that arrives
+    // early can tell an empty catalog from an unfinished one and ask again.
     expect(await adaptersRes.json()).toMatchObject({
       adapters: [{ id: 'fake', capabilities: { resume: true } }],
+      discovering: false,
     });
+    // harn:end model-catalogs-reach-a-browser-that-arrives-early
 
     const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: testCwd('review') });
     fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });

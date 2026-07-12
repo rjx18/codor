@@ -117,10 +117,21 @@ async function sendJson<T>(
   return (await response.json()) as T;
 }
 
-export async function fetchAdapters(options: ApiOptions): Promise<AdapterRegistration[]> {
-  const body = await fetchJson<{ adapters: AdapterRegistration[] }>('/api/adapters', options);
-  return body.adapters;
+// harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-catalog-client-refresh
+export interface AdapterListing {
+  adapters: AdapterRegistration[];
+  /** A harness that can report its models still hasn't. Ask again. */
+  discovering: boolean;
 }
+
+export async function fetchAdapters(options: ApiOptions): Promise<AdapterListing> {
+  const body = await fetchJson<{
+    adapters: AdapterRegistration[];
+    discovering?: boolean;
+  }>('/api/adapters', options);
+  return { adapters: body.adapters, discovering: body.discovering === true };
+}
+// harn:end model-catalogs-reach-a-browser-that-arrives-early
 
 export async function fetchRooms(options: ApiOptions): Promise<Room[]> {
   const body = await fetchJson<{ rooms: Room[] }>('/api/rooms', options);

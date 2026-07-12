@@ -85,18 +85,35 @@ export function App(props: {
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const contextCloseRef = useRef<HTMLButtonElement>(null);
 
+  // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-catalog-client-refresh
+  // Discovery is deliberately asynchronous, so a page opened right after the service
+  // starts can beat it and would otherwise show no models until the operator reloads
+  // — exactly when they are most likely to open a dialog. Ask again until it lands.
   useEffect(() => {
     if (!state.connected) return;
     let current = true;
-    void fetchAdapters({ token: accessToken() })
-      .then((items) => {
-        if (current) setAdapters(items);
-      })
-      .catch(() => undefined);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attemptsLeft = 10;
+
+    const load = (): void => {
+      void fetchAdapters({ token: accessToken() })
+        .then((listing) => {
+          if (!current) return;
+          setAdapters(listing.adapters);
+          if (!listing.discovering || attemptsLeft <= 0) return;
+          attemptsLeft -= 1;
+          timer = setTimeout(load, 500);
+        })
+        .catch(() => undefined);
+    };
+    load();
+
     return () => {
       current = false;
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, [accessToken, state.connected]);
+  // harn:end model-catalogs-reach-a-browser-that-arrives-early
 
   useEffect(() => {
     if (!state.connected) return;

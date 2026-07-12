@@ -1,0 +1,62 @@
+id: u3-adapters-refresh
+title: U3 follow-up - a browser that arrives during discovery still gets the catalog
+assumptions:
+  create:
+    - id: model-catalogs-reach-a-browser-that-arrives-early
+      title: A browser loaded during discovery gets the catalog without reloading
+      statement: The adapters endpoint must report whether model discovery is still in
+        flight, and a browser that receives a catalog while discovery is pending
+        must ask again until it is not, so that a page loaded inside the
+        discovery window ends up with the harnesses' models without the operator
+        reloading it, because discovery is asynchronous precisely so it cannot
+        wedge the endpoint, and the first page load after a service start - the
+        moment the operator is most likely to open a dialog - is exactly when
+        the window is open.
+      reason: U3 shipped an empty catalog for any browser that beat discovery, which
+        defeats R2's whole point (never type an enum) at first run. The reviewer
+        authorized this follow-up.
+      depends_on:
+        - adapters-own-their-model-catalog
+  reviewed:
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: Discovery still runs in the background at registration and never on a
+        request path. The endpoint merely also states whether it has finished,
+        so a client can tell an empty catalog from an unfinished one.
+anchors:
+  model-catalogs-reach-a-browser-that-arrives-early:
+    adapter-discovery-pending-signal:
+      action: change
+      reason: Report whether any adapter that can answer has yet to.
+    adapter-discovery-pending-rest:
+      action: change
+      reason: Serve that signal beside the registrations.
+    adapter-catalog-client-refresh:
+      action: change
+      reason: Ask again while discovery is pending instead of settling for an empty
+        catalog.
+    adapter-discovery-pending-regression:
+      action: change
+      reason: Prove the signal is set while a slow harness is still answering and
+        clears once it has, and that a client which fetched early ends up with
+        the models.
+  adapters-own-their-model-catalog:
+    adapter-model-discovery:
+      action: change
+      reason: Count the discoveries still outstanding, so the daemon can say whether
+        it has finished asking.
+    adapter-model-discovery-regression:
+      action: change
+      reason: Extend the discovery regression with the pending signal - set while a
+        slow harness answers, cleared when it does, and cleared even when it
+        fails.
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web/src/api.ts
+  - packages/web/src/api.spec.ts
+  - packages/web/src/App.tsx
+applied:
+  applied_at: 2026-07-12T10:57:13.736Z

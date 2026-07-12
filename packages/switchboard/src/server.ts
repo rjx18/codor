@@ -420,7 +420,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   app.get('/api/adapters', (req, reply) => {
     const principal = authed(req, reply);
     if (!principal || !authorizeGlobal(principal, 'read', reply)) return;
-    void reply.send({ adapters: daemon.registeredAdapters() });
+    // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-rest
+    void reply.send({
+      adapters: daemon.registeredAdapters(),
+      discovering: daemon.modelDiscoveryPending(),
+    });
+    // harn:end model-catalogs-reach-a-browser-that-arrives-early
   });
 
   // harn:assume local-directory-listing-home-contained ref=local-dirs-rest-boundary

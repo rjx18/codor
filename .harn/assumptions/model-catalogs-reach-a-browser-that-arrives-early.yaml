@@ -1,0 +1,14 @@
+id: model-catalogs-reach-a-browser-that-arrives-early
+hash: a-bd08bd9dfc53
+title: A browser loaded during discovery gets the catalog without reloading
+state: active
+statement: The adapters endpoint must report whether model discovery is still in
+  flight, and a browser that receives a catalog while discovery is pending must
+  ask again until it is not, so that a page loaded inside the discovery window
+  ends up with the harnesses' models without the operator reloading it, because
+  discovery is asynchronous precisely so it cannot wedge the endpoint, and the
+  first page load after a service start - the moment the operator is most likely
+  to open a dialog - is exactly when the window is open.
+depends_on:
+  - adapters-own-their-model-catalog
+created_by: u3-adapters-refresh
