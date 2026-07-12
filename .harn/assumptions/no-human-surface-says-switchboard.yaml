@@ -1,0 +1,21 @@
+id: no-human-surface-says-switchboard
+hash: a-5bd0915ee696
+title: The word survives only as a wire identifier, never as copy
+state: active
+statement: No string a human reads in the web package may call the product a
+  switchboard - not the channel rail, the timeline, settings, pairing, nor an
+  error thrown at them. The word may survive ONLY as a machine identifier,
+  because the pairing link's switchboard_sign_pub parameter, the
+  peer:switchboard and access:switchboard IndexedDB keys, and the
+  BrowserPeer.kind discriminant are protocol and storage contracts that a rename
+  would silently break. The shell footer must still state the connection -
+  connected, reconnecting, or offline - beside the owner's name and nothing
+  else. A gate must enforce the distinction by PARSING the package rather than
+  grepping it, extracting only string literals and JSX text through the
+  TypeScript AST and ignoring import specifiers, and must fail on any standalone
+  occurrence of the word inside a phrase of human prose, because a substring
+  grep cannot tell a sentence from a storage key and the last gate proved it by
+  passing while the rail said the word.
+depends_on:
+  - human-facing-surfaces-call-rooms-channels
+created_by: u6-review-fix

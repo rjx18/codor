@@ -306,7 +306,7 @@ export function SettingsPage(props: {
               <div className="wr-setting-row">
                 <div className="wr-setting-copy">
                   <strong>{currentDevice?.push_enabled ? 'Browser notifications on' : 'Browser notifications off'}</strong>
-                  <span>{pushConfig.enabled ? `Permission: ${notificationPermission()}` : 'Push is not configured on this switchboard.'}</span>
+                  <span>{pushConfig.enabled ? `Permission: ${notificationPermission()}` : 'Push is not configured on this device.'}</span>
                 </div>
                 <button
                   type="button"
@@ -505,7 +505,7 @@ export function SettingsPage(props: {
                                   try {
                                     await revokeDevice(device.device_id, { token: accessToken() });
                                   } catch {
-                                    setUnpairWarning('The switchboard could not be reached. Revoke this browser from another paired device before treating it as fully revoked.');
+                                    setUnpairWarning('Codor could not be reached. Revoke this browser from another paired device before treating it as fully revoked.');
                                   } finally {
                                     connection.disconnect();
                                     state.reset();
@@ -623,7 +623,7 @@ function RelayPairing() {
           <ul>
             <li>Opaque padded ciphertext</li>
             <li>Web Push endpoint + delivery keys</li>
-            <li>Opaque switchboard public key</li>
+            <li>Opaque Codor public key</li>
             <li>Timing, TTL, and source IP</li>
           </ul>
           <strong>Stores nothing · no mailbox · no retries</strong>

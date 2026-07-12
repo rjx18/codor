@@ -183,11 +183,11 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
 
   const endpointLabel = useMemo(() => {
     const endpoint = currentUrl.searchParams.get('endpoint');
-    if (!endpoint) return 'No switchboard selected';
+    if (!endpoint) return 'No Codor address selected';
     try {
       return new URL(endpoint).host;
     } catch {
-      return 'Invalid switchboard address';
+      return 'Invalid Codor address';
     }
   }, [currentUrl]);
 
@@ -206,7 +206,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
           <div className="wr-pairing-heading">
             <div>
               <h1>Pair this browser</h1>
-              <span>Authorize this browser with your local switchboard. This is not an account login.</span>
+              <span>Authorize this browser with Codor on this device. This is not an account login.</span>
             </div>
           </div>
 
@@ -226,7 +226,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
 
               <div className="wr-pairing-action">
                 <h2>Browser authority</h2>
-                <p>A fresh signing and encryption identity stays in this origin's IndexedDB. Private keys never enter the QR or switchboard.</p>
+                <p>A fresh signing and encryption identity stays in this origin's IndexedDB. Private keys never enter the QR or Codor.</p>
                 <ul>
                   <li><Check aria-hidden="true" size={15} /> Dual signing and encryption keys</li>
                   <li><Check aria-hidden="true" size={15} /> Channel keys stored locally for this device</li>
@@ -243,8 +243,8 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
                       (error: unknown) => {
                         const signingMismatch = error instanceof Error && error.message.includes('signing key does not match');
                         setFailure(signingMismatch
-                          ? 'Security check failed. Stop: the switchboard identity does not match this pairing link.'
-                          : 'Pairing failed. Check the switchboard connection and request a fresh link.');
+                          ? 'Security check failed. Stop: the Codor identity does not match this pairing link.'
+                          : 'Pairing failed. Check the Codor connection and request a fresh link.');
                         setState('failed');
                       },
                     );
@@ -262,7 +262,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
             <div data-testid="trusted-pairing-progress" role="status" className="wr-pairing-empty">
               <LoaderCircle className="wr-progress-icon" aria-hidden="true" size={24} />
               <h2>Checking tailnet access</h2>
-              <p>This browser is requesting device enrollment from the local switchboard.</p>
+              <p>This browser is requesting device enrollment from Codor on this device.</p>
             </div>
           ) : (
             // harn:assume pairing-code-enrollment-surfaces ref=browser-pairing-code-workspace
@@ -345,7 +345,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
         <div className="wr-pairing-disclosure">
           <section>
             <Database aria-hidden="true" size={19} />
-            <div><h2>This browser stores</h2><p>Private device keys, decrypted channel keys, and same-origin switchboard access in this origin's IndexedDB.</p></div>
+            <div><h2>This browser stores</h2><p>Private device keys, decrypted channel keys, and same-origin Codor access in this origin's IndexedDB.</p></div>
           </section>
           <section>
             <Eye aria-hidden="true" size={19} />

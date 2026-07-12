@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
+import ts from 'typescript';
 
 import type { Member, Message, WireEvent } from '@codor/protocol';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -487,22 +488,56 @@ describe('extension run summaries', () => {
   });
 });
 
-// harn:assume the-product-never-calls-itself-a-switchboard ref=switchboard-phrase-gate
+// harn:assume no-human-surface-says-switchboard ref=switchboard-phrase-gate
 describe('product vocabulary', () => {
-  it('never calls itself a Local switchboard', () => {
-    // F4: the operator did not ask for a product tour in their sidebar. A grep gate,
-    // because the phrase came back once already.
-    // Recursive: a future subdirectory must not be able to smuggle it back in.
-    const walk = (dir: string): string[] =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-        const path = `${dir}/${entry.name}`;
-        if (entry.isDirectory()) return walk(path);
-        return /\.(tsx?|css)$/.test(entry.name) && !entry.name.includes('.spec.') ? [path] : [];
-      });
-    for (const file of walk('src')) {
-      expect(readFileSync(file, 'utf8'), `${file} must not say it`)
-        .not.toContain('Local switchboard');
-    }
+  // The word is legitimate as a machine identifier — `switchboard_sign_pub` in the
+  // pairing link, the `peer:switchboard` IndexedDB key, the BrowserPeer.kind
+  // discriminant — and renaming those would break the wire and the stored pairing.
+  // It is never legitimate as something a human reads. A substring grep cannot tell
+  // those apart, which is exactly how the previous gate passed while the channel rail
+  // said "Live on this switchboard": it only ever looked for the footer's phrase.
+  // So parse instead of grep, and judge only what the parser says is human text.
+  const humanStrings = (file: string): string[] => {
+    const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const found: string[] = [];
+    const visit = (node: ts.Node): void => {
+      // An import specifier is a module path, not copy.
+      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) return;
+      if (ts.isStringLiteralLike(node) || ts.isJsxText(node)) found.push(node.text);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return found;
+  };
+
+  // A standalone word, so `switchboard_sign_pub` and `wr-switchboard-identity` are
+  // identifiers and pass; and prose, so the single-token key 'peer:switchboard' passes
+  // while any sentence containing the word does not.
+  const saysIt = (text: string): boolean =>
+    /(?<![\w-])switchboard(?![\w-])/i.test(text) && /\s/.test(text.trim());
+
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) return walk(path);
+      return /\.tsx?$/.test(entry.name) && !entry.name.includes('.spec.') ? [path] : [];
+    });
+
+  it('never calls itself a switchboard in anything a human reads', () => {
+    const offenders = walk('src').flatMap((file) =>
+      humanStrings(file).filter(saysIt).map((text) => `${file}: ${JSON.stringify(text.trim())}`),
+    );
+    expect(offenders, 'these strings are read by a human and call the product a switchboard').toEqual([]);
+  });
+
+  it('still allows the word as a machine identifier', () => {
+    // Guards the gate itself: if this ever fails, the gate has become a blunt grep
+    // and the next person will "fix" it by renaming a wire field.
+    expect(saysIt('peer:switchboard')).toBe(false);
+    expect(saysIt('switchboard_sign_pub')).toBe(false);
+    expect(saysIt('wr-switchboard-identity')).toBe(false);
+    expect(saysIt('Live on this switchboard')).toBe(true);
+    expect(saysIt('The switchboard isn’t answering.')).toBe(true);
   });
 });
 

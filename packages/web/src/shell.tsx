@@ -245,7 +245,7 @@ export function RoomList(props: {
                 <span className="wr-room-copy">
                   <strong title={room.name}>{room.name}</strong>
                   <small>
-                    {selected ? (props.connected ? 'Live on this switchboard' : 'Offline') : 'Channel'}
+                    {selected ? (props.connected ? 'Live on this device' : 'Offline') : 'Channel'}
                   </small>
                 </span>
                 <span className="wr-room-marks">
@@ -308,7 +308,7 @@ export function RoomList(props: {
             <div className="wr-dialog-heading">
               <div>
                 <h2>Create channel</h2>
-                <p>A private channel on this switchboard.</p>
+                <p>A private channel on this device.</p>
               </div>
               <button type="button" aria-label="Close create channel" className="wr-icon-button" onClick={() => setCreating(false)}>
                 <X aria-hidden="true" size={18} />

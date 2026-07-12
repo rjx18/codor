@@ -1,0 +1,162 @@
+id: u6-review-fix
+title: U6 review fix - the product must not call itself a switchboard on any
+  surface a human reads
+assumptions:
+  retire:
+    - id: the-product-never-calls-itself-a-switchboard
+      reason: Its statement was scoped to one literal phrase, "Local switchboard", in
+        the footer - and the gate it authorised was a substring grep for exactly
+        that phrase. That scope was too narrow to be true to its own name. The
+        channel rail still told every operator they were "Live on this
+        switchboard", and twelve more human-visible strings across settings,
+        pairing, the timeline and the crypto errors still said it. The
+        obligation genuinely changes meaning - from one phrase in one component
+        to any human-visible use anywhere in the package - so it is retired and
+        replaced rather than edited.
+  create:
+    - id: no-human-surface-says-switchboard
+      title: The word survives only as a wire identifier, never as copy
+      statement: No string a human reads in the web package may call the product a
+        switchboard - not the channel rail, the timeline, settings, pairing, nor
+        an error thrown at them. The word may survive ONLY as a machine
+        identifier, because the pairing link's switchboard_sign_pub parameter,
+        the peer:switchboard and access:switchboard IndexedDB keys, and the
+        BrowserPeer.kind discriminant are protocol and storage contracts that a
+        rename would silently break. The shell footer must still state the
+        connection - connected, reconnecting, or offline - beside the owner's
+        name and nothing else. A gate must enforce the distinction by PARSING
+        the package rather than grepping it, extracting only string literals and
+        JSX text through the TypeScript AST and ignoring import specifiers, and
+        must fail on any standalone occurrence of the word inside a phrase of
+        human prose, because a substring grep cannot tell a sentence from a
+        storage key and the last gate proved it by passing while the rail said
+        the word.
+      reason: The reviewer's U6 ruling. The round's stated purpose included exactly
+        this class of finding (F4), and shipping it with the primary rail
+        surface still calling the product a switchboard would leave the round
+        self-contradicted.
+      depends_on:
+        - human-facing-surfaces-call-rooms-channels
+  reviewed:
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The vocabulary rule is unchanged. Removing the word from human copy is
+        the same rule applied to the product's own name for itself.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: The rail still creates the owner's channel. Only two strings inside it
+        change - the selected channel's subtitle and the private-channel note.
+    - id: empty-and-offline-are-shown-not-blank
+      outcome: unchanged
+      reason: The three timeline states are unchanged and still shown. The unreachable
+        state's body names the product instead of the plumbing.
+    - id: web-settings-controls-preserve-product-truth
+      outcome: unchanged
+      reason: Settings still states only what is true. Three of its strings stop
+        naming the product a switchboard.
+    - id: web-settings-pairing-match-restrained-reference
+      outcome: unchanged
+      reason: The restrained pairing layout is unchanged. Only copy inside it changes.
+    - id: unpair-purges-all-browser-state
+      outcome: unchanged
+      reason: Unpair still purges everything. Its unreachable-warning copy changes
+        only.
+    - id: pairing-discloses-browser-and-relay-boundaries
+      outcome: unchanged
+      reason: Every disclosure still discloses the same boundary. The sentences name
+        Codor and the device rather than a switchboard, and the regression that
+        pins the tamper-detection alert changes with the sentence it asserts.
+    - id: unpaired-browser-always-has-enrollment-path
+      outcome: unchanged
+      reason: The enrollment path is unchanged. The copy around it changes.
+    - id: pairing-offer-token-remains-qr-only
+      outcome: unchanged
+      reason: The offer token is still QR-only. Only surrounding prose changes.
+    - id: single-crypto-suite-libsodium
+      outcome: unchanged
+      reason: The suite is unchanged. One thrown error's wording changes; the identity
+        check it guards does not.
+    - id: paired-browser-challenge-session
+      outcome: unchanged
+      reason: The challenge session is unchanged, including the peer:switchboard key
+        and the switchboard_device_id field, which are storage and wire
+        identifiers and MUST NOT be renamed. One thrown error's wording changes.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: The hierarchy is unchanged. The offline banner inside it drops the word.
+    - id: literal-draft-effective-recipient-visible
+      outcome: unchanged
+      reason: The composer is untouched.
+anchors:
+  no-human-surface-says-switchboard:
+    honest-footer:
+      action: change
+      reason: The footer's copy is already right and does not change. The region is
+        re-anchored to the assumption that replaces the retired one.
+    switchboard-phrase-gate:
+      action: change
+      reason: Replace the substring grep with an AST gate over string literals and JSX
+        text, so a storage key passes and a sentence cannot.
+  web-room-rail-creates-owner-room:
+    room-rail-create-action:
+      action: change
+      reason: The selected channel's subtitle said "Live on this switchboard" - the
+        finding itself - and the private-channel note said it too.
+  empty-and-offline-are-shown-not-blank:
+    timeline-empty-and-offline-states:
+      action: change
+      reason: The unreachable state's body named the plumbing. It names the product.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: The offline banner's copy inside the hierarchy drops the word.
+  web-settings-controls-preserve-product-truth:
+    glass-settings-surface:
+      action: change
+      reason: The push-config line and the relay key label drop the word.
+    glass-settings-regression:
+      action: change
+      reason: The browser regression asserts the relay key label, so it must assert
+        the new copy.
+  web-settings-pairing-match-restrained-reference:
+    restrained-settings-pairing-surface:
+      action: change
+      reason: Copy inside the restrained pairing surface changes.
+    restrained-settings-pairing-regression:
+      action: change
+      reason: The regression asserting that copy changes with it.
+  unpair-purges-all-browser-state:
+    settings-unpair-action:
+      action: change
+      reason: The unreachable warning's wording changes. The purge does not.
+  pairing-discloses-browser-and-relay-boundaries:
+    pairing-boundary-workspace:
+      action: change
+      reason: Six disclosure strings name Codor and the device instead of a
+        switchboard.
+    pairing-boundary-regression:
+      action: change
+      reason: The tamper-detection regression asserts the security alert word for
+        word, so it changes with the sentence. Harn caught this one - the first
+        locked plan did not declare it, and the check blocked rather than let an
+        undeclared anchored region through.
+  single-crypto-suite-libsodium:
+    browser-libsodium-suite:
+      action: change
+      reason: The signing-key mismatch error's wording. The check is unchanged.
+  paired-browser-challenge-session:
+    browser-session-signin:
+      action: change
+      reason: The identity-mismatch error's wording. The storage key and the wire
+        field are deliberately NOT renamed.
+files:
+  - packages/web/src/shell.tsx
+  - packages/web/src/App.tsx
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/pairing.tsx
+  - packages/web/src/crypto.ts
+  - packages/web/src/components.spec.tsx
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/crypto.e2e.spec.ts
+applied:
+  applied_at: 2026-07-12T13:43:41.280Z

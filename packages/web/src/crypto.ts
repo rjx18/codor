@@ -198,7 +198,7 @@ export async function completeBrowserPairing(url: URL): Promise<PairingResult> {
   if (!response.ok) throw new Error(`pairing failed: ${String(response.status)}`);
   const result = (await response.json()) as PairingResult;
   if (result.switchboard.sign_public_key !== expectedSwitchboard) {
-    throw new Error('switchboard signing key does not match the pairing link');
+    throw new Error('Codor signing key does not match the pairing link');
   }
   await persistBrowserPairing(result, endpoint);
   return result;
@@ -251,7 +251,7 @@ export async function openBrowserDeviceSession(origin = window.location.origin):
     switchboard_device_id?: string;
   };
   if (offered.switchboard_device_id !== switchboard.device_id || !offered.challenge) {
-    throw new Error('device authentication switchboard identity mismatch');
+    throw new Error('device authentication Codor identity mismatch');
   }
   const challenge = offered.challenge;
   const expectedTranscript = encode(sodium.crypto_generichash(

@@ -502,7 +502,7 @@ export function App(props: {
           {state.room?.config.bridged && <BridgedRoomBanner />}
           {!state.connected && (
             <div role="status" data-testid="offline-banner" className="wr-offline-banner">
-              Offline · channel history stays on your switchboard
+              Offline · channel history stays on your device
             </div>
           )}
           <HoldBanner
@@ -639,7 +639,7 @@ export function App(props: {
               <div data-testid="timeline-unreachable" className="wr-timeline-state" role="alert">
                 <span className="wr-room-glyph" aria-hidden="true">#</span>
                 <strong>Can’t reach Codor</strong>
-                <p>The switchboard isn’t answering. Check that it is running, then retry.</p>
+                <p>Codor isn’t answering. Check that it is running, then retry.</p>
               </div>
             )}
             {state.connected && messages.length === 0 && (

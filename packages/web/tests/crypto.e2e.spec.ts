@@ -87,7 +87,7 @@ test('pairing page renders a QR without visible authority and enrolls the browse
   await page.goto(tamperedOffer.toString());
   await page.getByRole('button', { name: 'Pair this browser' }).click();
   await expect(page.getByRole('alert')).toHaveText(
-    'Security check failed. Stop: the switchboard identity does not match this pairing link.',
+    'Security check failed. Stop: the Codor identity does not match this pairing link.',
   );
 
   await page.goto('/?room=eng');
@@ -285,7 +285,7 @@ test('unpair still purges local browser state when remote revocation is unavaila
   await page.getByRole('button', { name: 'Unpair', exact: true }).click();
   await page.getByTestId('confirm-unpair-browser').click();
   await expect(page.getByTestId('browser-unpaired')).toBeVisible();
-  await expect(page.getByRole('alert')).toContainText('switchboard could not be reached');
+  await expect(page.getByRole('alert')).toContainText('Codor could not be reached');
   expect(await page.evaluate(async () => ({
     local: localStorage.length,
     caches: await caches.keys(),

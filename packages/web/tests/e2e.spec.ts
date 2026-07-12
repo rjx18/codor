@@ -926,7 +926,7 @@ test('restrained settings keep row-based desktop focus, mobile fit, and honest r
   await expect(relay.getByText('Relay never sees')).toBeVisible();
   await expect(relay).toContainText('Stores nothing · no mailbox · no retries');
   await expect(relay).toContainText('Web Push endpoint + delivery keys');
-  await expect(relay).toContainText('Opaque switchboard public key');
+  await expect(relay).toContainText('Opaque Codor public key');
   await expect(relay).toContainText('Decrypted channel keys or any private key');
   await expect(relay).toContainText('Hosted roadmap · deferred from the v1 push relay.');
   await expect(relayCategory).toHaveAttribute('aria-current', 'location');
