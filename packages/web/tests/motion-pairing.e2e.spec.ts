@@ -100,11 +100,13 @@ test('an unpaired app visit offers trusted progress and a manual pairing-link pa
   const manual = page.getByTestId('manual-pairing');
   await expect(manual).toBeVisible();
   await expect(manual).toContainText('codor pair');
+  await expect(page.getByTestId('pairing-code').locator('input')).toHaveCount(8);
+  await expect(page.getByTestId('pairing-code-0')).toBeFocused();
   await expect(page.getByTestId('pairing-link')).toHaveAttribute('type', 'password');
 
   const offer = await control<{ url: string }>('/pair-offer');
   await page.getByTestId('pairing-link').fill(offer.url);
-  await page.getByRole('button', { name: 'Open pairing' }).click();
+  await page.getByRole('button', { name: 'Open pairing link' }).click();
   await page.waitForURL('**/pair?**');
   await expect(page.getByRole('button', { name: 'Pair this browser' })).toBeVisible();
   expect(pairingRequests).toEqual(['GET /api/pairing/status']);

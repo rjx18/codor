@@ -7,6 +7,19 @@
  */
 
 const PATTERNS: RegExp[] = [
+  // harn:assume pairing-codes-redacted-from-content ref=pairing-code-redaction
+  // Pairing codes, in display form and in labeled form.
+  //
+  // Both patterns reject a candidate that is adjacent to a word character or a
+  // hyphen. `\b` does NOT: a hyphen is a non-word character, so `\b[X]{4}-[X]{4}\b`
+  // matches the middle groups of a UUID (`…-9fd8-48d3-…`), and ids are what
+  // clients use to correlate runs and address deliveries. The bare display form
+  // additionally requires the canonical uppercase that `formatPairingCode` emits,
+  // because case-insensitively it also matches ordinary hyphenated prose
+  // ("self-help", "well-kept"). A code carrying a label is redacted in any case.
+  /(?<![\w-])[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}(?![\w-])/g,
+  /\b(?:pairing[ _-]?)?code\s*[:=]\s*["']?[23456789A-HJ-NP-Z]{4}-?[23456789A-HJ-NP-Z]{4}["']?(?![\w-])/gi,
+  // harn:end pairing-codes-redacted-from-content
   // AWS access key ids
   /\b(?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b/g,
   // Bearer tokens (authorization headers pasted into logs)

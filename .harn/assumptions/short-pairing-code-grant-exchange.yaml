@@ -1,0 +1,16 @@
+id: short-pairing-code-grant-exchange
+hash: a-43fdf0af5a29
+title: Short pairing codes exchange one existing grant
+state: active
+statement: Every pairing offer must include a crypto-random eight-character
+  case-insensitive code from the unambiguous 32-symbol alphabet, displayed as
+  XXXX-XXXX and accepted with or without the hyphen, that shares the offer's
+  ten-minute expiry and single-use grant; a successful exchange must burn the
+  code, invalidate the original link token, and return a fresh token for that
+  same grant while invalid, expired, or failed exchanges leave the grant
+  unconsumed, because link and code are alternate enrollment paths rather than
+  independent device grants.
+depends_on:
+  - pairing-offer-token-remains-qr-only
+  - paired-browser-challenge-session
+created_by: u2-pairing-codes

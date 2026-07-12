@@ -203,10 +203,13 @@ createServer(async (req, res) => {
       }));
       return;
     } else if (url.pathname === '/pair-offer') {
+      // harn:assume pairing-code-enrollment-surfaces ref=pairing-code-browser-harness
       const offer = crypto.pairing.issue(`http://127.0.0.1:${String(API_PORT)}`);
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
         url: pairingUrl(offer),
+        code: offer.pairing_code,
       }));
+      // harn:end pairing-code-enrollment-surfaces
       return;
     } else if (url.pathname === '/peers') {
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({

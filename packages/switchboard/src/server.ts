@@ -61,6 +61,24 @@ interface AuthPrincipal {
   deviceId?: string;
 }
 
+const PAIRING_CODE_ATTEMPTS = 5;
+const PAIRING_CODE_WINDOW_MS = 60_000;
+
+function pairingCodeAttemptLimiter(now: () => number): (connection: object) => boolean {
+  const attempts = new WeakMap<object, number[]>();
+  return (connection) => {
+    const cutoff = now() - PAIRING_CODE_WINDOW_MS;
+    const recent = (attempts.get(connection) ?? []).filter((timestamp) => timestamp > cutoff);
+    if (recent.length >= PAIRING_CODE_ATTEMPTS) {
+      attempts.set(connection, recent);
+      return false;
+    }
+    recent.push(now());
+    attempts.set(connection, recent);
+    return true;
+  };
+}
+
 async function prepareSocketPath(socketPath: string): Promise<void> {
   // harn:assume unix-socket-parent-private-before-listen ref=unix-socket-parent-precondition
   const parent = dirname(socketPath);
@@ -125,6 +143,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   }
   // harn:end server-token-required
   const app = Fastify();
+  const allowPairingCodeAttempt = pairingCodeAttemptLimiter(Date.now);
   const browserAuthTranscript = options.crypto
     ? hashTranscript(Buffer.from(
         `codor-browser-session-v1\0${options.crypto.keys.identity.device_id}`,
@@ -261,6 +280,23 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end unpaired-browser-always-has-enrollment-path
 
+  // harn:assume pairing-code-exchange-uniform-and-rate-limited ref=pairing-code-exchange-rest
+  app.post('/api/pairing/exchange', (req, reply) => {
+    const notFound = () => reply.header('cache-control', 'no-store')
+      .code(404).send({ error: 'pairing code not found' });
+    if (!options.crypto || !allowPairingCodeAttempt(req.raw.socket)) return notFound();
+    try {
+      const body = req.body as { code?: unknown };
+      if (typeof body.code !== 'string') return notFound();
+      return reply.header('cache-control', 'no-store').send(
+        options.crypto.pairing.exchange(body.code),
+      );
+    } catch {
+      return notFound();
+    }
+  });
+  // harn:end pairing-code-exchange-uniform-and-rate-limited
+
   app.post('/api/pairing/complete', (req, reply) => {
     if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
     const authorization = req.headers.authorization;
@@ -300,7 +336,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
     try {
       const { endpoint } = req.body as { endpoint: string };
-      return reply.send(options.crypto.pairing.issue(endpoint));
+      return reply.header('cache-control', 'no-store').send(options.crypto.pairing.issue(endpoint));
     } catch (error) {
       return reply.code(400).send({ error: String(error) });
     }

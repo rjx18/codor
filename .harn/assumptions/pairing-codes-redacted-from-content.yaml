@@ -1,0 +1,19 @@
+id: pairing-codes-redacted-from-content
+hash: a-9da5b79c376e
+title: Pairing codes are redacted without corrupting identifiers or prose
+state: active
+statement: The serving-side redaction projection must replace a pairing code
+  written in its canonical uppercase display form XXXX-XXXX, and any labeled
+  pairing-code value in either case, before chat or run content reaches clients;
+  it must match only where the candidate is bounded by neither a word character
+  nor a hyphen, so that identifiers built from hyphenated groups - UUIDs above
+  all, which every client uses to correlate runs and address deliveries - and
+  ordinary lowercase hyphenated prose are projected byte-identical; and pairing
+  implementation tests must derive live codes rather than record them in adapter
+  fixtures, because short enrollment authority must not escape into durable
+  output, yet a projection that rewrites the ids or the words clients depend on
+  is a corruption of served content rather than a redaction of secrets.
+depends_on:
+  - short-pairing-code-grant-exchange
+  - redaction-before-fanout
+created_by: u2-pairing-codes

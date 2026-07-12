@@ -12,7 +12,12 @@ import {
   signChallenge,
 } from './challenge.js';
 import { BrowserDeviceSessionAuthority } from './browser-sessions.js';
-import { CryptoVault, pairingUrl } from './pairing.js';
+import {
+  CryptoVault,
+  PAIRING_CODE_ALPHABET,
+  PairingService,
+  pairingUrl,
+} from './pairing.js';
 import { openSealedBox } from './roomkeys.js';
 
 const roots: string[] = [];
@@ -72,6 +77,74 @@ describe('device identity, pairing, challenge auth, and room keys', () => {
     home.close();
     outpost.close();
   });
+
+  // harn:assume short-pairing-code-grant-exchange ref=pairing-code-grant-regression
+  it('exchanges unambiguous short codes as an alternate single-use grant path', () => {
+    const home = vault('code-home');
+    const device = vault('code-device');
+    let linkDevice: CryptoVault | undefined;
+    try {
+      home.roomKeys.ensureRoom('eng');
+
+      const samples = Array.from({ length: 64 }, () => home.pairing.issue('http://localhost:8137'));
+      expect(PAIRING_CODE_ALPHABET).toHaveLength(32);
+      expect(new Set(samples.map((offer) => offer.pairing_code)).size).toBe(samples.length);
+      for (const { pairing_code: code } of samples) {
+        expect(code).toMatch(/^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
+        expect(Array.from(code.replace('-', '')).every((character) =>
+          PAIRING_CODE_ALPHABET.includes(character))).toBe(true);
+      }
+
+      const offer = samples[0]!;
+      const wrong = `${offer.pairing_code.slice(0, -1)}${offer.pairing_code.endsWith('2') ? '3' : '2'}`;
+      expect(() => home.pairing.exchange(wrong)).toThrow('not found');
+      expect(() => home.pairing.exchange(`-${offer.pairing_code}`)).toThrow('not found');
+      const exchanged = home.pairing.exchange(offer.pairing_code.replace('-', '').toLowerCase());
+      expect(exchanged).toMatchObject({
+        endpoint: offer.endpoint,
+        expires_at: offer.expires_at,
+        switchboard_sign_pub: offer.switchboard_sign_pub,
+      });
+      expect(exchanged.pairing_token).not.toBe(offer.pairing_token);
+      expect(() => home.pairing.exchange(offer.pairing_code)).toThrow('not found');
+      expect(() => home.pairing.complete(offer.pairing_token, {
+        ...device.keys.publicIdentity(),
+        kind: 'device',
+      })).toThrow('already-used');
+      expect(home.pairing.complete(exchanged.pairing_token, {
+        ...device.keys.publicIdentity(),
+        kind: 'device',
+      }).room_keys).toHaveLength(1);
+
+      const linkFirst = samples[1]!;
+      linkDevice = vault('code-link-device');
+      home.pairing.complete(linkFirst.pairing_token, {
+        ...linkDevice.keys.publicIdentity(),
+        kind: 'device',
+      });
+      expect(() => home.pairing.exchange(linkFirst.pairing_code)).toThrow('not found');
+    } finally {
+      linkDevice?.close();
+      home.close();
+      device.close();
+    }
+  });
+
+  it('rejects expired pairing codes without consuming a still-stored grant', () => {
+    const home = vault('expiring-code-home');
+    let now = Date.now();
+    const pairing = new PairingService(home.dataDir, home.keys, home.roomKeys, () => now);
+    try {
+      const offer = pairing.issue('http://localhost:8137');
+      now += 10 * 60 * 1_000 + 1;
+      expect(() => pairing.exchange(offer.pairing_code)).toThrow('not found');
+      now -= 2;
+      expect(pairing.exchange(offer.pairing_code).expires_at).toBe(offer.expires_at);
+    } finally {
+      home.close();
+    }
+  });
+  // harn:end short-pairing-code-grant-exchange
 
   it('trusted device enrollment reuses ordinary peer and room-key enrollment', () => {
     const home = vault('trusted-home');

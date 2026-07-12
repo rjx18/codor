@@ -5407,3 +5407,106 @@ button:disabled {
 }
 /* harn:end web-motion-is-purposeful-and-reduced-motion-safe */
 /* harn:end web-glass-theme-accessible-modes */
+
+/* harn:assume pairing-code-enrollment-surfaces ref=pairing-code-surface-style */
+.wr-pairing-code-form,
+.wr-pairing-link-form {
+  display: grid;
+  gap: 10px;
+}
+
+.wr-pairing-code-cells {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  width: min(100%, 408px);
+  gap: 5px;
+}
+
+.wr-pairing-code-cell {
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 4 / 5;
+  border: 1px solid var(--wr-line-strong);
+  border-radius: 4px;
+  background: var(--wr-surface-raised);
+  color: var(--wr-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.wr-pairing-code-cell:focus {
+  border-color: var(--wr-cyan);
+  outline: 2px solid color-mix(in srgb, var(--wr-cyan) 22%, transparent);
+  outline-offset: 1px;
+}
+
+.wr-pairing-fallback {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 2px;
+  color: var(--wr-faint);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.wr-pairing-fallback::before,
+.wr-pairing-fallback::after {
+  height: 1px;
+  flex: 1;
+  background: var(--wr-line);
+  content: '';
+}
+
+.wr-pair-another {
+  display: grid;
+  gap: 12px;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--wr-line);
+}
+
+.wr-pair-another > button {
+  justify-self: start;
+}
+
+.wr-settings-pairing-offer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  align-items: center;
+  width: min(100%, 430px);
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--wr-line);
+  border-radius: 6px;
+  background: var(--wr-surface-raised);
+}
+
+.wr-settings-pairing-offer > div {
+  display: grid;
+  gap: 5px;
+}
+
+.wr-settings-pairing-offer span,
+.wr-settings-pairing-offer small {
+  color: var(--wr-muted);
+  font-size: 12px;
+}
+
+.wr-settings-pairing-offer output {
+  color: var(--wr-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.wr-settings-pairing-offer img {
+  width: 112px;
+  height: 112px;
+  border: 1px solid var(--wr-line);
+  border-radius: 4px;
+  background: #fff;
+}
+/* harn:end pairing-code-enrollment-surfaces */

@@ -397,3 +397,31 @@ async function requiredIdentity(): Promise<BrowserIdentity> {
   return identity;
 }
 // harn:end single-crypto-suite-libsodium
+
+// harn:assume pairing-code-enrollment-surfaces ref=browser-pairing-code-client
+interface PairingPayload {
+  endpoint: string;
+  pairing_token: string;
+  expires_at: string;
+  switchboard_sign_pub: string;
+}
+
+export async function exchangeBrowserPairingCode(
+  code: string,
+  origin = window.location.origin,
+): Promise<URL> {
+  const normalizedOrigin = new URL(origin).origin;
+  const response = await fetch(`${normalizedOrigin}/api/pairing/exchange`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  if (!response.ok) throw new Error('pairing code not found');
+  const offer = await response.json() as PairingPayload;
+  const url = new URL('/pair', offer.endpoint);
+  url.searchParams.set('endpoint', offer.endpoint);
+  url.searchParams.set('pairing_token', offer.pairing_token);
+  url.searchParams.set('switchboard_sign_pub', offer.switchboard_sign_pub);
+  return url;
+}
+// harn:end pairing-code-enrollment-surfaces

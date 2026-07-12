@@ -1,0 +1,15 @@
+id: pairing-code-enrollment-surfaces
+hash: a-cbe9bb826bc6
+title: CLI and browser surfaces expose the short-code path
+state: active
+statement: The pair command must print a code line formatted as XXXX-XXXX, the
+  unpaired root must autofocus an eight-cell code input above the concealed link
+  fallback and continue through ordinary browser enrollment after exchange, and
+  paired-owner Settings must mint and show a code plus QR through an
+  authenticated device session, because both first-device and add-device pairing
+  must work without transmitting a long URL by hand.
+depends_on:
+  - short-pairing-code-grant-exchange
+  - unpaired-browser-always-has-enrollment-path
+  - web-settings-controls-preserve-product-truth
+created_by: u2-pairing-codes

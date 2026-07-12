@@ -219,3 +219,20 @@ Before an upgrade, take a stopped backup. Then fetch the intended Git revision, 
 `corepack pnpm install --frozen-lockfile && corepack pnpm -r build`, and restart. Never run a
 moving branch directly as root.
 <!-- harn:end fresh-clone-install-proven-by-script -->
+
+<!-- harn:assume pairing-codes-redacted-from-content ref=pairing-code-selfhost-docs -->
+## Pairing Code Security
+
+`codor pair` prints a single-use `XXXX-XXXX` code beside the URL and QR. The
+code contains 40 bits of cryptographic randomness from an unambiguous
+32-character alphabet, is case-insensitive, and may be entered with or without
+the hyphen. It expires with the underlying pairing grant after ten minutes.
+
+The URL and code are alternate credentials for one grant. Exchanging the code
+burns it and invalidates the original URL token; completing the URL first also
+invalidates the code. Invalid, expired, replayed, and rate-limited exchanges all
+return the same 404 response, and failed exchanges do not burn a valid code.
+The switchboard accepts at most five exchange attempts per client connection
+identity in a rolling minute. Treat the displayed code as a secret until the
+new browser finishes pairing.
+<!-- harn:end pairing-codes-redacted-from-content -->

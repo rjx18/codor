@@ -19,12 +19,15 @@ import {
   Unplug,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import QRCode from 'qrcode';
 
 import {
   fetchDevices,
   fetchPushConfig,
+  mintPairingOffer,
   revokeDevice,
   type DeviceSummary,
+  type PairingOffer,
   type PushConfig,
 } from './api.js';
 import {
@@ -97,6 +100,8 @@ export function SettingsPage(props: {
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [pushConfig, setPushConfig] = useState<PushConfig>({ enabled: false });
   const [currentDeviceId, setCurrentDeviceId] = useState('');
+  const [pairingOffer, setPairingOffer] = useState<PairingOffer>();
+  const [pairingQr, setPairingQr] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [confirmDevice, setConfirmDevice] = useState<string>();
@@ -168,6 +173,22 @@ export function SettingsPage(props: {
       void fetchPushConfig({ token: accessToken() }).then(setPushConfig).catch(() => undefined);
     }
   }, [accessToken, canOwner, self?.id]);
+
+  useEffect(() => {
+    if (!pairingOffer) {
+      setPairingQr(undefined);
+      return;
+    }
+    const url = new URL('/pair', pairingOffer.endpoint);
+    url.searchParams.set('endpoint', pairingOffer.endpoint);
+    url.searchParams.set('pairing_token', pairingOffer.pairing_token);
+    url.searchParams.set('switchboard_sign_pub', pairingOffer.switchboard_sign_pub);
+    let current = true;
+    void QRCode.toDataURL(url.toString(), { margin: 1, width: 240 }).then((data) => {
+      if (current) setPairingQr(data);
+    });
+    return () => { current = false; };
+  }, [pairingOffer]);
 
   if (unpaired) {
     return (
@@ -414,6 +435,41 @@ export function SettingsPage(props: {
                 <Laptop aria-hidden="true" size={18} />
                 <div><h2>Paired devices</h2><p>Device authority and sealed push state.</p></div>
               </div>
+              {/* harn:assume pairing-code-enrollment-surfaces ref=settings-pair-another-device */}
+              <div className="wr-pair-another">
+                <button
+                  type="button"
+                  data-testid="pair-another-device"
+                  disabled={busy}
+                  className="wr-secondary-button min-h-11 px-4"
+                  onClick={() => {
+                    setBusy(true);
+                    setNotice(undefined);
+                    void mintPairingOffer(window.location.origin, { token: accessToken() }).then(
+                      setPairingOffer,
+                      () => setNotice('A pairing code could not be created.'),
+                    ).finally(() => setBusy(false));
+                  }}
+                >
+                  <KeyRound aria-hidden="true" size={18} />
+                  Pair another device
+                </button>
+                {pairingOffer && (
+                  <div data-testid="pairing-offer" className="wr-settings-pairing-offer">
+                    <div>
+                      <span>Pairing code</span>
+                      <output data-testid="settings-pairing-code">{pairingOffer.pairing_code}</output>
+                      <small>Expires {new Date(pairingOffer.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
+                    </div>
+                    {pairingQr ? (
+                      <img src={pairingQr} alt="Pair another device QR code" />
+                    ) : (
+                      <span role="status">Preparing QR</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              {/* harn:end pairing-code-enrollment-surfaces */}
               <ul className="wr-device-list">
                 {devices.map((device) => {
                   const current = device.device_id === currentDeviceId;

@@ -587,6 +587,9 @@ export function createProgram(context: CliContext = {}): Command {
         const url = pairingUrl(offer);
         if (options.qr) out((context.renderQr ?? renderTerminalQr)(url));
         out(url);
+        // harn:assume pairing-code-enrollment-surfaces ref=pair-code-command
+        out(`code: ${offer.pairing_code}`);
+        // harn:end pairing-code-enrollment-surfaces
         out(`expires ${offer.expires_at}`);
       });
     });

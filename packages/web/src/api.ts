@@ -77,6 +77,14 @@ export interface PushConfig {
   vapid_public_key?: string;
 }
 
+export interface PairingOffer {
+  endpoint: string;
+  pairing_token: string;
+  pairing_code: string;
+  expires_at: string;
+  switchboard_sign_pub: string;
+}
+
 async function fetchJson<T>(path: string, options: ApiOptions): Promise<T> {
   const origin = options.origin ?? window.location.origin;
   const res = await fetch(`${origin}${path}`, {
@@ -143,6 +151,15 @@ export async function fetchLocalDirectories(
 export async function fetchDevices(options: ApiOptions): Promise<DeviceSummary[]> {
   return (await fetchJson<{ devices: DeviceSummary[] }>('/api/devices', options)).devices;
 }
+
+// harn:assume pairing-code-enrollment-surfaces ref=pairing-code-client-api
+export async function mintPairingOffer(
+  endpoint: string,
+  options: ApiOptions,
+): Promise<PairingOffer> {
+  return sendJson<PairingOffer>('/api/pairing/offers', 'POST', { endpoint }, options);
+}
+// harn:end pairing-code-enrollment-surfaces
 
 export async function fetchPushConfig(options: ApiOptions): Promise<PushConfig> {
   return fetchJson<PushConfig>('/api/push/config', options);

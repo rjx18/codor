@@ -1,0 +1,241 @@
+id: u2-pairing-codes
+title: U2 add short single-use pairing codes
+assumptions:
+  create:
+    - id: short-pairing-code-grant-exchange
+      title: Short pairing codes exchange one existing grant
+      statement: Every pairing offer must include a crypto-random eight-character
+        case-insensitive code from the unambiguous 32-symbol alphabet, displayed
+        as XXXX-XXXX and accepted with or without the hyphen, that shares the
+        offer's ten-minute expiry and single-use grant; a successful exchange
+        must burn the code, invalidate the original link token, and return a
+        fresh token for that same grant while invalid, expired, or failed
+        exchanges leave the grant unconsumed, because link and code are
+        alternate enrollment paths rather than independent device grants.
+      reason: R1 replaces an untransmittable URL with a hand-enterable credential
+        without weakening the existing grant lifecycle.
+      depends_on:
+        - pairing-offer-token-remains-qr-only
+        - paired-browser-challenge-session
+    - id: pairing-code-exchange-uniform-and-rate-limited
+      title: Pairing code exchange fails uniformly and rate limits guessing
+      statement: The unauthenticated pairing-code exchange endpoint must allow at most
+        five attempts per client connection identity in a rolling minute,
+        compare candidate digests in constant time, return the same 404 response
+        for malformed, unknown, expired, replayed, and rate-limited attempts,
+        never log submitted codes, and burn a code only after a successful
+        exchange, because a forty-bit human credential needs bounded online
+        guessing without a validity oracle.
+      reason: R1 specifies the security boundary for the unauthenticated code exchange.
+      depends_on:
+        - short-pairing-code-grant-exchange
+        - server-token-required
+    - id: pairing-code-enrollment-surfaces
+      title: CLI and browser surfaces expose the short-code path
+      statement: The pair command must print a code line formatted as XXXX-XXXX, the
+        unpaired root must autofocus an eight-cell code input above the
+        concealed link fallback and continue through ordinary browser enrollment
+        after exchange, and paired-owner Settings must mint and show a code plus
+        QR through an authenticated device session, because both first-device
+        and add-device pairing must work without transmitting a long URL by
+        hand.
+      reason: R1 requires complete operator workflows, not only a server API.
+      depends_on:
+        - short-pairing-code-grant-exchange
+        - unpaired-browser-always-has-enrollment-path
+        - web-settings-controls-preserve-product-truth
+    - id: pairing-codes-redacted-from-content
+      title: Pairing codes are redacted without corrupting identifiers or prose
+      statement: The serving-side redaction projection must replace a pairing code
+        written in its canonical uppercase display form XXXX-XXXX, and any
+        labeled pairing-code value in either case, before chat or run content
+        reaches clients; it must match only where the candidate is bounded by
+        neither a word character nor a hyphen, so that identifiers built from
+        hyphenated groups - UUIDs above all, which every client uses to
+        correlate runs and address deliveries - and ordinary lowercase
+        hyphenated prose are projected byte-identical; and pairing
+        implementation tests must derive live codes rather than record them in
+        adapter fixtures, because short enrollment authority must not escape
+        into durable output, yet a projection that rewrites the ids or the words
+        clients depend on is a corruption of served content rather than a
+        redaction of secrets.
+      reason: R1 requires pairing codes to stay out of logs and payload fixtures. The
+        first implementation of this pattern word-bounded at hyphens and
+        corrupted 57% of randomUUID ids in every served frame, breaking run
+        correlation and hold release; the final pattern states the boundary and
+        case rules that make that class of corruption impossible.
+      depends_on:
+        - short-pairing-code-grant-exchange
+        - redaction-before-fanout
+  reviewed:
+    - id: pairing-offer-token-remains-qr-only
+      outcome: unchanged
+      reason: The UI may show the short code and QR, but never renders the pairing
+        token as text or an inspectable attribute.
+    - id: terminal-pairing-qr-matches-plain-url
+      outcome: unchanged
+      reason: Adding a separate code line does not change the QR or URL bytes, and
+        no-QR mode still suppresses only the QR.
+    - id: unpaired-browser-always-has-enrollment-path
+      outcome: unchanged
+      reason: The existing actionable trusted and concealed-link paths remain; the
+        short-code field is added above the fallback.
+    - id: pairing-discloses-browser-and-relay-boundaries
+      outcome: unchanged
+      reason: Code entry and Settings minting retain the established enrollment and
+        privacy disclosures.
+    - id: web-settings-controls-preserve-product-truth
+      outcome: unchanged
+      reason: Pair-another-device is a real authenticated device operation in the
+        existing owner-only devices section.
+    - id: web-settings-pairing-match-restrained-reference
+      outcome: unchanged
+      reason: The new controls extend the restrained row-based operational surface
+        without changing its responsive layout contract.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Minting reuses the owner-only manage_devices authorization path.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: The existing projection remains the serving boundary and gains a
+        pairing-code secret pattern; the projection stays a pure serving-side
+        rewrite over raw stored content.
+    - id: search-does-not-reveal-redacted-text
+      outcome: unchanged
+      reason: Search still matches against the redacted projection rather than raw
+        stored text; the final pattern only narrows which spans that projection
+        rewrites, so search cannot become a secret-existence oracle either way.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The required CLI pairing regression does not alter adapter composition;
+        the existing registry anchor remains byte-for-byte unchanged but Harn
+        classifies the test-file insertion as a direct touch.
+anchors:
+  short-pairing-code-grant-exchange:
+    pairing-code-grant-source:
+      action: change
+      reason: Generate, store, normalize, exchange, rotate, expire, and consume the
+        short credential with the existing pairing grant.
+    pairing-code-grant-regression:
+      action: change
+      reason: Prove alphabet, entropy shape, expiry, alternate-path invalidation,
+        success-only burn, and replay behavior.
+  pairing-code-exchange-uniform-and-rate-limited:
+    pairing-code-exchange-rest:
+      action: change
+      reason: Add the unauthenticated uniform-404 exchange endpoint and rolling
+        five-attempt limiter.
+    pairing-code-exchange-rest-regression:
+      action: change
+      reason: Prove uniform failures, rate limiting, authentication boundaries, and
+        successful payload exchange.
+  pairing-code-enrollment-surfaces:
+    pair-code-command:
+      action: change
+      reason: Print the display-formatted code beside the existing link and QR.
+    pair-code-cli-regression:
+      action: change
+      reason: Prove CLI format and exact QR/link behavior together.
+    browser-pairing-code-client:
+      action: change
+      reason: Exchange a normalized code into the existing enrollment offer.
+    browser-pairing-code-workspace:
+      action: change
+      reason: Add the autofocus segmented input above the link fallback.
+    settings-pair-another-device:
+      action: change
+      reason: Add owner-authenticated offer minting with code and QR display.
+    pairing-code-client-api:
+      action: change
+      reason: Add the authenticated offer-mint client used by Settings.
+    pairing-code-browser-regression:
+      action: change
+      reason: Prove root-screen code enrollment and a Settings-minted second device
+        round trip in real Chromium.
+    pairing-code-browser-harness:
+      action: change
+      reason: Expose each synthetic offer's generated code to browser tests without
+        recording a fixed secret fixture.
+    pairing-code-surface-style:
+      action: change
+      reason: Give the eight cells and Settings code/QR stable responsive sizing.
+  pairing-codes-redacted-from-content:
+    pairing-code-redaction:
+      action: change
+      reason: Add the canonical-uppercase display-form and labeled-value patterns with
+        the word/hyphen adjacency exclusion that keeps identifiers and prose
+        intact.
+    pairing-code-redaction-regression:
+      action: change
+      reason: Prove synthetic codes are removed from text and nested payloads, and
+        prove as a property that UUID and ULID identifiers and ordinary
+        hyphenated prose survive the projection byte-identical.
+    pairing-code-selfhost-docs:
+      action: change
+      reason: Document entropy, expiry, burn, normalization, and rate limiting.
+  redaction-before-fanout:
+    redaction-projection:
+      action: change
+      reason: Extend the secret patterns with pairing codes inside the existing
+        projection region.
+  terminal-pairing-qr-matches-plain-url:
+    pair-qr-command:
+      action: change
+      reason: Keep exact QR/link output while inserting the separate code line.
+    pairing-qr-regression:
+      action: change
+      reason: Update output positions and prove the QR payload remains exact.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Review the byte-identical downstream CLI registry regression that Harn
+        classifies as touched by the required pairing-output test insertion.
+  unpaired-browser-always-has-enrollment-path:
+    unpaired-pairing-workspace:
+      action: change
+      reason: Add code entry while preserving trusted progress and link fallback.
+    pairing-gate-browser-regression:
+      action: change
+      reason: Update the unpaired-screen regression for code-first ordering.
+  pairing-offer-token-remains-qr-only:
+    glass-pairing-surface:
+      action: change
+      reason: Exchange codes without rendering the returned token.
+    pairing-token-visibility-regression:
+      action: change
+      reason: Verify both code and Settings flows keep token authority invisible.
+  pairing-discloses-browser-and-relay-boundaries:
+    pairing-boundary-workspace:
+      action: change
+      reason: Preserve the established disclosure workspace around code entry.
+    pairing-boundary-regression:
+      action: change
+      reason: Exercise code pairing within the existing disclosure checks.
+  web-settings-controls-preserve-product-truth:
+    glass-settings-surface:
+      action: change
+      reason: Add the real pair-another-device control to the device settings.
+  web-settings-pairing-match-restrained-reference:
+    restrained-settings-pairing-surface:
+      action: change
+      reason: Fit the code and QR into the restrained owner-only device section.
+files:
+  - packages/switchboard/src/crypto/pairing.ts
+  - packages/switchboard/src/crypto/crypto.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/redact.ts
+  - packages/switchboard/src/redact.spec.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+  - packages/web/src/api.ts
+  - packages/web/src/crypto.ts
+  - packages/web/src/pairing.tsx
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/motion-pairing.e2e.spec.ts
+  - packages/web/tests/crypto.e2e.spec.ts
+  - docs/SELF-HOST.md
+applied:
+  applied_at: 2026-07-12T08:20:40.529Z

@@ -7,18 +7,88 @@ import {
   LoaderCircle,
   ShieldCheck,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 
 import cryptoWorkerUrl from './crypto-sw?worker&url';
 import {
   completeBrowserPairing,
   ensureBrowserIdentity,
+  exchangeBrowserPairingCode,
   openForBrowser,
   sealForBrowserPeer,
   tryTrustedBrowserPairing,
   unpairBrowser,
 } from './crypto';
+
+const PAIRING_CODE_CHARACTERS = /^[23456789A-HJ-NP-Z]$/;
+
+function PairingCodeInput(props: {
+  value: string;
+  onChange(value: string): void;
+  disabled: boolean;
+}): JSX.Element {
+  const cells = useRef<Array<HTMLInputElement | null>>([]);
+  const replaceAt = (index: number, character: string): void => {
+    const next = props.value.padEnd(8, ' ').split('');
+    next[index] = character;
+    props.onChange(next.join('').trimEnd());
+  };
+  const acceptPaste = (value: string): boolean => {
+    const compact = value.replaceAll('-', '').toUpperCase();
+    if (compact.length !== 8 || !Array.from(compact).every((character) =>
+      PAIRING_CODE_CHARACTERS.test(character))) return false;
+    props.onChange(compact);
+    cells.current[7]?.focus();
+    return true;
+  };
+
+  return (
+    <div
+      role="group"
+      aria-label="Pairing code"
+      data-testid="pairing-code"
+      className="wr-pairing-code-cells"
+      onPaste={(event) => {
+        if (acceptPaste(event.clipboardData.getData('text'))) event.preventDefault();
+      }}
+    >
+      {Array.from({ length: 8 }, (_, index) => (
+        <input
+          key={index}
+          ref={(element) => { cells.current[index] = element; }}
+          aria-label={`Pairing code character ${String(index + 1)}`}
+          data-testid={`pairing-code-${String(index)}`}
+          value={props.value[index] ?? ''}
+          disabled={props.disabled}
+          maxLength={1}
+          inputMode="text"
+          autoCapitalize="characters"
+          autoComplete={index === 0 ? 'one-time-code' : 'off'}
+          autoFocus={index === 0}
+          spellCheck={false}
+          onChange={(event) => {
+            const character = event.target.value.toUpperCase();
+            if (character !== '' && !PAIRING_CODE_CHARACTERS.test(character)) return;
+            replaceAt(index, character);
+            if (character !== '') cells.current[index + 1]?.focus();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Backspace' && (props.value[index] ?? '') === '' && index > 0) {
+              replaceAt(index - 1, '');
+              cells.current[index - 1]?.focus();
+            } else if (event.key === 'ArrowLeft') {
+              cells.current[index - 1]?.focus();
+            } else if (event.key === 'ArrowRight') {
+              cells.current[index + 1]?.focus();
+            }
+          }}
+          className="wr-pairing-code-cell"
+        />
+      ))}
+    </div>
+  );
+}
 
 interface CryptoTestApi {
   identity(): ReturnType<typeof ensureBrowserIdentity>;
@@ -82,6 +152,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
   );
   const [failure, setFailure] = useState<string>();
   const [pairingLink, setPairingLink] = useState('');
+  const [pairingCode, setPairingCode] = useState('');
 
   useEffect(() => {
     if (!hasOffer) return;
@@ -194,47 +265,80 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
               <p>This browser is requesting device enrollment from the local switchboard.</p>
             </div>
           ) : (
-            <form
-              data-testid="manual-pairing"
-              className="wr-pairing-empty wr-manual-pairing"
-              onSubmit={(event) => {
-                event.preventDefault();
-                setFailure(undefined);
-                try {
-                  const link = new URL(pairingLink.trim());
-                  if (
-                    link.pathname !== '/pair' ||
-                    !link.searchParams.has('endpoint') ||
-                    !link.searchParams.has('pairing_token') ||
-                    !link.searchParams.has('switchboard_sign_pub')
-                  ) throw new Error('invalid pairing link');
-                  window.location.assign(link.toString());
-                } catch {
-                  setFailure('Paste the complete pairing link from the host.');
-                }
-              }}
-            >
+            // harn:assume pairing-code-enrollment-surfaces ref=browser-pairing-code-workspace
+            <div data-testid="manual-pairing" className="wr-pairing-empty wr-manual-pairing">
               <KeyRound aria-hidden="true" size={24} />
               <h2>Pair this browser</h2>
-              <p>Run <code>codor pair</code> on the host, then paste its pairing link here.</p>
-              <label className="wr-field-label">
-                Pairing link
-                <input
-                  type="password"
-                  data-testid="pairing-link"
-                  value={pairingLink}
-                  onChange={(event) => setPairingLink(event.target.value)}
-                  autoComplete="off"
-                  spellCheck={false}
-                  required
-                  className="wr-input min-h-11 px-3"
+              <p>Enter the code shown by <code>codor pair</code>.</p>
+              <form
+                data-testid="pairing-code-form"
+                className="wr-pairing-code-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setFailure(undefined);
+                  if (pairingCode.length !== 8) {
+                    setFailure('Enter the complete 8-character pairing code.');
+                    return;
+                  }
+                  setState('pairing');
+                  void exchangeBrowserPairingCode(pairingCode).then(
+                    (url) => window.location.assign(url.toString()),
+                    () => {
+                      setState('failed');
+                      setFailure('Pairing code not found. Request a fresh code and try again.');
+                    },
+                  );
+                }}
+              >
+                <PairingCodeInput
+                  value={pairingCode}
+                  onChange={setPairingCode}
+                  disabled={state === 'pairing'}
                 />
-              </label>
-              <button type="submit" className="wr-primary-button min-h-11 px-4">
-                Open pairing
-              </button>
+                <button type="submit" disabled={state === 'pairing'} className="wr-primary-button min-h-11 px-4">
+                  {state === 'pairing' ? 'Checking code' : 'Continue'}
+                </button>
+              </form>
+              <div className="wr-pairing-fallback"><span>or use a pairing link</span></div>
+              <form
+                className="wr-pairing-link-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setFailure(undefined);
+                  try {
+                    const link = new URL(pairingLink.trim());
+                    if (
+                      link.pathname !== '/pair' ||
+                      !link.searchParams.has('endpoint') ||
+                      !link.searchParams.has('pairing_token') ||
+                      !link.searchParams.has('switchboard_sign_pub')
+                    ) throw new Error('invalid pairing link');
+                    window.location.assign(link.toString());
+                  } catch {
+                    setFailure('Paste the complete pairing link from the host.');
+                  }
+                }}
+              >
+                <label className="wr-field-label">
+                  Pairing link
+                  <input
+                    type="password"
+                    data-testid="pairing-link"
+                    value={pairingLink}
+                    onChange={(event) => setPairingLink(event.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    required
+                    className="wr-input min-h-11 px-3"
+                  />
+                </label>
+                <button type="submit" className="wr-secondary-button min-h-11 px-4">
+                  Open pairing link
+                </button>
+              </form>
               {failure && <p role="alert" className="wr-form-error">{failure}</p>}
-            </form>
+            </div>
+            // harn:end pairing-code-enrollment-surfaces
           )}
         </div>
 

@@ -97,6 +97,54 @@ test('pairing page renders a QR without visible authority and enrolls the browse
 // harn:end pairing-discloses-browser-and-relay-boundaries
 // harn:end pairing-offer-token-remains-qr-only
 
+// harn:assume pairing-code-enrollment-surfaces ref=pairing-code-browser-regression
+test('root code entry pairs a browser and Settings mints a second-device round trip', async ({ page, browser }) => {
+  const initial = await control<{ url: string; code: string }>('/pair-offer');
+  await page.goto('/?room=eng');
+  await expect(page.getByTestId('pairing-code-0')).toBeFocused();
+  const compact = initial.code.replace('-', '').toLowerCase();
+  for (const [index, character] of Array.from(compact).entries()) {
+    await page.getByTestId(`pairing-code-${String(index)}`).fill(character);
+  }
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.waitForURL('**/pair?**');
+  await expect(page.getByRole('button', { name: 'Pair this browser' })).toBeVisible();
+  await page.getByRole('button', { name: 'Pair this browser' }).click();
+  await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
+
+  await page.goto('/?room=eng');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await page.goto('/settings?room=eng#devices');
+  await expect(page.getByTestId('settings-page')).toBeVisible();
+  const mintResponse = page.waitForResponse((response) =>
+    response.request().method() === 'POST' && response.url().endsWith('/api/pairing/offers'));
+  await page.getByTestId('pair-another-device').click();
+  const minted = await (await mintResponse).json() as { pairing_code: string; pairing_token: string };
+  await expect(page.getByTestId('settings-pairing-code')).toHaveText(minted.pairing_code);
+  await expect(page.getByAltText('Pair another device QR code')).toBeVisible();
+  expect(minted.pairing_code).toMatch(/^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
+  expect(await page.locator('body').innerText()).not.toContain(minted.pairing_token);
+  expect(await page.locator('html').evaluate((element) => element.outerHTML))
+    .not.toContain(minted.pairing_token);
+
+  const secondContext = await browser.newContext();
+  try {
+    const second = await secondContext.newPage();
+    await second.goto(`${BASE}/?room=eng`);
+    const nextCompact = minted.pairing_code.replace('-', '');
+    for (const [index, character] of Array.from(nextCompact).entries()) {
+      await second.getByTestId(`pairing-code-${String(index)}`).fill(character);
+    }
+    await second.getByRole('button', { name: 'Continue' }).click();
+    await second.waitForURL('**/pair?**');
+    await second.getByRole('button', { name: 'Pair this browser' }).click();
+    await expect(second.getByRole('button', { name: 'Paired' })).toBeVisible();
+  } finally {
+    await secondContext.close();
+  }
+});
+// harn:end pairing-code-enrollment-surfaces
+
 test('sodium-native and real Chromium page/SW sealed boxes interoperate across restart', async () => {
   const profile = mkdtempSync(join(tmpdir(), 'codor-chromium-crypto-'));
   const nodeIdentity: DeviceIdentity = generateIdentity();

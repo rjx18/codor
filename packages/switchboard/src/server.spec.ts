@@ -1,4 +1,5 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { Agent as HttpAgent, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,7 +10,7 @@ import WebSocket from 'ws';
 import { Daemon } from './daemon.js';
 import { BlobStore } from './blobs.js';
 import { signChallenge, type AuthChallenge } from './crypto/challenge.js';
-import { CryptoVault } from './crypto/pairing.js';
+import { CryptoVault, PAIRING_CODE_ALPHABET } from './crypto/pairing.js';
 import { FakeAdapter } from './fake-adapter.js';
 import { LedgerManager } from './ledger/watch.js';
 import { PushSubscriptionStore } from './push/subscriptions.js';
@@ -121,6 +122,30 @@ function connectUrl(url: string): Promise<{ ws: WebSocket; frames: ServerFrame[]
 const connectAs = (token: string) =>
   connectUrl(`ws://127.0.0.1:${server.port}/ws?token=${token}`);
 const connect = () => connectAs(TOKEN);
+
+function postJsonOnConnection(
+  agent: HttpAgent,
+  url: string,
+  body: unknown,
+): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const encoded = JSON.stringify(body);
+    const request = httpRequest(url, {
+      method: 'POST',
+      agent,
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(encoded) },
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.on('end', () => resolve({
+        status: response.statusCode ?? 0,
+        body: JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown,
+      }));
+    });
+    request.on('error', reject);
+    request.end(encoded);
+  });
+}
 
 async function authenticateDevice(device: CryptoVault): Promise<string> {
   const challengeResponse = await fetch(`${base}/api/auth/challenge`, {
@@ -390,6 +415,131 @@ describe('REST', () => {
     })).status).toBe(401);
     device.close();
   });
+
+  // harn:assume pairing-code-exchange-uniform-and-rate-limited ref=pairing-code-exchange-rest-regression
+  it('exchanges a short code uniformly and lets only paired owners mint another', async () => {
+    const offerResponse = await fetch(`${base}/api/pairing/offers`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint: base }),
+    });
+    const offer = await offerResponse.json() as {
+      endpoint: string;
+      pairing_token: string;
+      pairing_code: string;
+      expires_at: string;
+      switchboard_sign_pub: string;
+    };
+    expect(offer.pairing_code).toMatch(/^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
+
+    const uniformFailure = { error: 'pairing code not found' };
+    const malformed = await fetch(`${base}/api/pairing/exchange`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: 42 }),
+    });
+    expect(malformed.status).toBe(404);
+    expect(await malformed.json()).toEqual(uniformFailure);
+    const unknown = await fetch(`${base}/api/pairing/exchange`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: 'ZZZZ-ZZZ2' }),
+    });
+    expect(unknown.status).toBe(404);
+    expect(await unknown.json()).toEqual(uniformFailure);
+
+    const exchangedResponse = await fetch(`${base}/api/pairing/exchange`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: offer.pairing_code.replace('-', '').toLowerCase() }),
+    });
+    expect(exchangedResponse.status).toBe(200);
+    const exchanged = await exchangedResponse.json() as typeof offer;
+    expect(exchanged).toMatchObject({
+      endpoint: offer.endpoint,
+      expires_at: offer.expires_at,
+      switchboard_sign_pub: offer.switchboard_sign_pub,
+    });
+    expect(exchanged).not.toHaveProperty('pairing_code');
+    expect(exchanged.pairing_token).not.toBe(offer.pairing_token);
+
+    const device = new CryptoVault(join(dir, 'code-device'));
+    const request = { ...device.keys.publicIdentity(), kind: 'device', label: 'code browser' };
+    expect((await fetch(`${base}/api/pairing/complete`, {
+      method: 'POST',
+      headers: { authorization: `Pairing ${offer.pairing_token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    })).status).toBe(401);
+    expect((await fetch(`${base}/api/pairing/complete`, {
+      method: 'POST',
+      headers: { authorization: `Pairing ${exchanged.pairing_token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    })).status).toBe(200);
+    const replay = await fetch(`${base}/api/pairing/exchange`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: offer.pairing_code }),
+    });
+    expect(replay.status).toBe(404);
+    expect(await replay.json()).toEqual(uniformFailure);
+
+    expect((await fetch(`${base}/api/pairing/offers`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint: base }),
+    })).status).toBe(403);
+    expect((await fetch(`${base}/api/pairing/offers`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint: base }),
+    })).status).toBe(401);
+    const deviceToken = await authenticateDevice(device);
+    const pairedMint = await fetch(`${base}/api/pairing/offers`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${deviceToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint: base }),
+    });
+    expect(pairedMint.status).toBe(200);
+    expect((await pairedMint.json() as { pairing_code: string }).pairing_code)
+      .toMatch(/^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
+    device.close();
+  });
+
+  it('limits code guessing to five attempts per minute without burning the grant', async () => {
+    const offer = crypto.pairing.issue(base);
+    const compact = offer.pairing_code.replace('-', '');
+    const alternatives = Array.from(PAIRING_CODE_ALPHABET)
+      .filter((character) => character !== compact.at(-1))
+      .slice(0, 5)
+      .map((character) => `${compact.slice(0, -1)}${character}`);
+    const agent = new HttpAgent({ keepAlive: true, maxSockets: 1 });
+    try {
+      for (const code of alternatives) {
+        expect(await postJsonOnConnection(agent, `${base}/api/pairing/exchange`, { code }))
+          .toEqual({ status: 404, body: { error: 'pairing code not found' } });
+      }
+      expect(await postJsonOnConnection(
+        agent,
+        `${base}/api/pairing/exchange`,
+        { code: offer.pairing_code },
+      )).toEqual({ status: 404, body: { error: 'pairing code not found' } });
+    } finally {
+      agent.destroy();
+    }
+    const freshConnection = new HttpAgent({ keepAlive: true, maxSockets: 1 });
+    try {
+      const exchanged = await postJsonOnConnection(
+        freshConnection,
+        `${base}/api/pairing/exchange`,
+        { code: offer.pairing_code },
+      );
+      expect(exchanged.status).toBe(200);
+      expect(exchanged.body).toMatchObject({ endpoint: base });
+    } finally {
+      freshConnection.destroy();
+    }
+  });
+  // harn:end pairing-code-exchange-uniform-and-rate-limited
 
   it('registers and removes full Web Push subscriptions only for paired devices', async () => {
     const auth = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };

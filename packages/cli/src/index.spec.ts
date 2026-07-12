@@ -196,10 +196,16 @@ describe('@codor/cli', () => {
 
     output = [];
     await cli('pair', '--no-qr');
-    expect(output).toHaveLength(2);
+    expect(output).toHaveLength(3);
     expect(output[0]).toMatch(/^http:\/\/127\.0\.0\.1:8137\/pair\?/);
   });
   // harn:end terminal-pairing-qr-matches-plain-url
+  // harn:assume pairing-code-enrollment-surfaces ref=pair-code-cli-regression
+  it('prints the generated short pairing code in display form', async () => {
+    await cli('pair', '--no-qr');
+    expect(output[1]).toMatch(/^code: [23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
+  });
+  // harn:end pairing-code-enrollment-surfaces
 
   // harn:assume cli-setup-wizard-preserves-service-environment ref=setup-regression
   it('snapshots setup dry-run with the absolute Node path and every detected harness directory', async () => {

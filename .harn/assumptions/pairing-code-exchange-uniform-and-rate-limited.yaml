@@ -1,0 +1,15 @@
+id: pairing-code-exchange-uniform-and-rate-limited
+hash: a-67faa9f30452
+title: Pairing code exchange fails uniformly and rate limits guessing
+state: active
+statement: The unauthenticated pairing-code exchange endpoint must allow at most
+  five attempts per client connection identity in a rolling minute, compare
+  candidate digests in constant time, return the same 404 response for
+  malformed, unknown, expired, replayed, and rate-limited attempts, never log
+  submitted codes, and burn a code only after a successful exchange, because a
+  forty-bit human credential needs bounded online guessing without a validity
+  oracle.
+depends_on:
+  - short-pairing-code-grant-exchange
+  - server-token-required
+created_by: u2-pairing-codes
