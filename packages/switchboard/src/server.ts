@@ -11,7 +11,9 @@ import {
   CreateRoomRequestSchema,
   type BridgeOrigin,
   type Member,
+  type Policy,
   type ServerFrame,
+  type ThinkingLevel,
 } from '@codor/protocol';
 
 import { assertHumanCapability, roleAllows, type HumanCapability } from './authorization.js';
@@ -683,6 +685,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     void reply.send(daemon.renameMember(room, memberId, body.handle, body.display_name));
   });
 
+  // harn:assume member-config-is-changed-not-respawned ref=configure-act-contract
+  app.post('/api/rooms/:room/members/:memberId/configure', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room, memberId } = req.params as { room: string; memberId: string };
+    if (!authorizeRoom(principal, room, 'configure', reply)) return;
+    const body = req.body as { model?: string | null; thinking?: ThinkingLevel | null; policy?: Policy };
+    const actor = memberForRoom(principal, room);
+    void reply.send(daemon.configureMember(room, memberId, body, { actor: actor.id }));
+  });
+  // harn:end member-config-is-changed-not-respawned
+
   for (const action of ['revive', 'kill', 'pause', 'unpause'] as const) {
     app.post(`/api/rooms/:room/members/:memberId/${action}`, (req, reply) => {
       const principal = authed(req, reply);
@@ -905,6 +919,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 thinking: act.thinking,
                 purpose: act.purpose,
               });
+            } else if (act.act === 'configure') {
+              daemon.configureMember(
+                frame.room,
+                act.member_id,
+                { model: act.model, thinking: act.thinking, policy: act.policy },
+                { actor: actor.id },
+              );
             } else if (act.act === 'rename') daemon.renameMember(frame.room, act.member_id, act.handle, act.display_name);
             else if (act.act === 'revive') daemon.reviveMember(frame.room, act.member_id);
             else if (act.act === 'kill') daemon.killMember(frame.room, act.member_id);

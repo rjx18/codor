@@ -3,6 +3,8 @@ import { homedir } from 'node:os';
 import type {
   ModelCatalog,
   AskCard,
+  Policy,
+  ThinkingLevel,
   AttachLease,
   BridgeOrigin,
   Delivery,
@@ -155,6 +157,16 @@ export class Daemon {
   private readonly modelCatalogs = new Map<string, ModelCatalog>();
   private pendingDiscoveries = 0;
   private readonly sessions = new Map<string, Session>();
+  /**
+   * Members whose settings changed and whose cached session is therefore out of date.
+   *
+   * The session is NOT dropped when it is marked: a turn in flight raised its own ask
+   * cards against that very session object, and answering one looks it up here — pull it
+   * out from under a running turn and the operator's answer lands on nothing. It is
+   * rebuilt at the START of the next turn, which is the only moment at which the old
+   * settings stop being the ones actually in use.
+   */
+  private readonly staleSessions = new Set<string>();
   private readonly inflight = new Set<string>();
   private readonly active = new Set<Promise<void>>();
   private readonly listeners: FrameListener[] = [];
@@ -1053,6 +1065,85 @@ export class Daemon {
   }
   // harn:end custody-uncertain-never-double-writes
 
+  // harn:assume member-config-is-changed-not-respawned ref=configure-member-daemon
+  /**
+   * Give a live agent new settings without losing it.
+   *
+   * The harness holds nothing: every turn is a fresh subprocess whose arguments are
+   * re-derived from the session, and the conversation lives in the resume token on the
+   * member row. So a change writes the row and DISCARDS the cached session — the next
+   * turn rebuilds from that row and runs entirely on the new settings, while a turn
+   * already in flight keeps the session object it started with and completes entirely
+   * on the old ones. A turn can therefore never be assembled out of a mixture of the
+   * two: not because we were careful, but because there is only ever one row to read.
+   *
+   * `undefined` leaves a setting alone; `null` clears it back to the harness default.
+   */
+  configureMember(
+    room: string,
+    memberId: string,
+    changes: { model?: string | null; thinking?: ThinkingLevel | null; policy?: Policy },
+    opts: { actor?: string } = {},
+  ): Member {
+    const member = this.store.getMember(room, memberId);
+    if (!member || member.kind !== 'agent') throw new Error(`no such agent member: ${memberId}`);
+    if (member.removed_ts !== undefined) throw new Error(`member @${member.handle} was removed`);
+    // harn:assume a-permission-change-is-never-silent ref=configure-custody-and-capability-guards
+    // A mirrored member's session lives on another switchboard. A half-applied remote
+    // change is worse than a refused one, so refuse it here and say where to go.
+    if (member.custody === 'mirrored') {
+      throw new Error(
+        `member @${member.handle} is mirrored from another switchboard; configure it there`,
+      );
+    }
+
+    const settled = <T>(next: T | null | undefined, current: T | undefined): T | undefined =>
+      next === undefined ? current : (next ?? undefined);
+    const next = {
+      cwd: member.cwd ?? process.cwd(),
+      model: settled(changes.model, member.model),
+      thinking: settled(changes.thinking, member.thinking),
+      policy: settled(changes.policy, member.policy),
+    };
+    // The same single gate the spawn path uses: an unknown policy, or a thinking level
+    // this harness cannot honour, is refused rather than recorded as a preference it
+    // would silently ignore.
+    validateSpawnOptions(this.requireAdapter(member.harness!), next);
+    // harn:end a-permission-change-is-never-silent
+
+    const updated = this.store.updateMember(room, memberId, {
+      model: next.model,
+      thinking: next.thinking,
+      policy: next.policy,
+    });
+    // The next turn rebuilds from the row we just wrote. A turn already in flight keeps
+    // the session it started with — including for the ask cards it has already raised.
+    this.staleSessions.add(memberId);
+
+    // harn:assume a-permission-change-is-never-silent ref=configure-audit-message
+    // Raising what an agent may do to the operator's machine is a consequential act. A
+    // capability change visible only as a flicker in a member frame is one nobody saw.
+    const changed = ([
+      ['policy', member.policy, updated.policy],
+      ['model', member.model, updated.model],
+      ['thinking', member.thinking, updated.thinking],
+    ] as const)
+      .filter(([, before, after]) => before !== after)
+      .map(([field, before, after]) => `${field}: ${before ?? 'default'} → ${after ?? 'default'}`);
+    if (changed.length > 0) {
+      const actor = opts.actor === undefined ? undefined : this.store.getMember(room, opts.actor);
+      this.postSystemMessage(
+        room,
+        `@${actor?.handle ?? 'someone'} changed @${updated.handle} — ${changed.join(', ')}`,
+      );
+    }
+    // harn:end a-permission-change-is-never-silent
+
+    this.emitMember(room, updated);
+    return updated;
+  }
+  // harn:end member-config-is-changed-not-respawned
+
   killMember(room: string, memberId: string): Member {
     const existing = this.store.getMember(room, memberId);
     if (!existing || existing.kind !== 'agent') throw new Error(`no such agent member: ${memberId}`);
@@ -1158,6 +1249,9 @@ export class Daemon {
 
   /** Sessions are rebuilt from the persisted member row after a restart. */
   private sessionFor(room: string, member: Member): Session {
+    // A configure since the last turn: discard the cached session so this turn is built
+    // wholly from the row, and therefore wholly from the new settings.
+    if (this.staleSessions.delete(member.id)) this.sessions.delete(member.id);
     let session = this.sessions.get(member.id);
     if (!session) {
       const adapter = this.requireAdapter(member.harness!);

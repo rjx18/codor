@@ -1,0 +1,19 @@
+id: a-permission-change-is-never-silent
+hash: a-d67cda09595b
+title: Raising what an agent may do is an event, not a field update
+state: active
+statement: Every change to a member's permission policy must post a system
+  message into the channel naming who changed it, which member, and the old and
+  new value, because raising what an agent may do to the operator's machine is a
+  consequential act and a capability change visible only as a flicker in a
+  member frame is a capability change nobody saw. The switchboard must refuse to
+  configure a member it does not own - a mirrored member lives on another
+  switchboard and a half-applied remote change is worse than a refused one - and
+  it must refuse a setting the harness cannot honour rather than record a
+  preference it will silently ignore. Configuring a dead member is permitted and
+  persists, because reviving it rebuilds from the row and must revive the agent
+  the operator last asked for.
+depends_on:
+  - member-config-is-changed-not-respawned
+  - roles-gate-human-acts-not-agents
+created_by: a4-configure-member

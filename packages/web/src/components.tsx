@@ -45,6 +45,7 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { AgentControls } from './agent-controls.js';
+import type { AgentControlsValue } from './agent-controls.js';
 import { fetchLedgerNote, fetchRunEvents } from './api.js';
 import type { AdapterRegistration, LedgerNote, MemberDetail } from './api.js';
 import { currentBrowserAccessToken } from './crypto.js';
@@ -560,12 +561,14 @@ export function MemberCard(props: {
   member: Member;
   detail: MemberDetail | undefined;
   history: MemberStateObservation[];
+  adapters: AdapterRegistration[];
   connection: Connection;
   expanded?: boolean;
   onToggle?: () => void;
   canManage?: boolean;
 }) {
   const [renaming, setRenaming] = useState(false);
+  const [configuring, setConfiguring] = useState(false);
   const [handle, setHandle] = useState(props.member.handle);
   const [displayName, setDisplayName] = useState(props.member.display_name);
   const state = props.member.state ?? 'idle';
@@ -734,6 +737,17 @@ export function MemberCard(props: {
           >
             Rename
           </button>
+          {props.member.kind === 'agent' && props.member.custody !== 'mirrored' && (
+            <button
+              type="button"
+              data-testid={`configure-${props.member.handle}`}
+              onClick={() => setConfiguring((open) => !open)}
+              aria-expanded={configuring}
+              className="min-h-11 border border-zinc-700 px-3 text-xs text-zinc-300"
+            >
+              Settings
+            </button>
+          )}
           {props.member.custody === 'mirrored' ? (
             <button
               type="button"
@@ -790,10 +804,96 @@ export function MemberCard(props: {
           )}
         </div>
       ))}
+
+      {/* harn:assume member-config-is-changed-not-respawned ref=member-card-settings */}
+      {props.canManage && configuring && props.member.kind === 'agent' && (
+        <MemberSettings
+          member={props.member}
+          adapters={props.adapters}
+          connection={props.connection}
+          onDone={() => setConfiguring(false)}
+        />
+      )}
+      {/* harn:end member-config-is-changed-not-respawned */}
       </div>}
     </li>
   );
 }
+
+// harn:assume member-config-is-changed-not-respawned ref=member-card-settings
+/**
+ * The third surface the one shared control serves. An agent is configured here with the
+ * same control that created it, so a permission level cannot mean one thing in the spawn
+ * dialog and another in the sidebar.
+ *
+ * Nothing restarts and nothing is lost: the harness holds no state, so new settings simply
+ * apply to the agent's next turn and the conversation carries on. The harness and the
+ * working directory are the two things that genuinely cannot change — say so, rather than
+ * offer a control that cannot work.
+ */
+function MemberSettings(props: {
+  member: Member;
+  adapters: AdapterRegistration[];
+  connection: Connection;
+  onDone: () => void;
+}) {
+  const [value, setValue] = useState<AgentControlsValue>({
+    harness: props.member.harness ?? '',
+    model: props.member.model ?? '',
+    thinking: props.member.thinking ?? '',
+    policy: (props.member.policy as Policy | undefined) ?? 'read-only',
+  });
+  const running = props.member.state === 'running' || props.member.state === 'queued';
+
+  return (
+    <form
+      data-testid={`settings-${props.member.handle}`}
+      className="wr-member-settings"
+      onSubmit={(event) => {
+        event.preventDefault();
+        props.connection.act({
+          act: 'configure',
+          member_id: props.member.id,
+          // Empty means the harness default — send null, which CLEARS it, rather than
+          // omitting the field, which would leave the old value in place.
+          model: value.model.trim() === '' ? null : value.model.trim(),
+          thinking: value.thinking === '' ? null : value.thinking,
+          policy: value.policy,
+        });
+        props.onDone();
+      }}
+    >
+      <AgentControls
+        adapters={props.adapters}
+        idPrefix={`settings-${props.member.handle}`}
+        value={value}
+        onChange={(next) => setValue({ ...next, harness: value.harness })}
+        lockHarness
+      />
+      <p data-testid={`settings-${props.member.handle}-fixed`} className="wr-settings-note">
+        Harness and working directory are fixed for this agent. Spawn a new one to change them.
+      </p>
+      <p data-testid={`settings-${props.member.handle}-effect`} className="wr-settings-note">
+        {running
+          ? 'Applies to the next turn. The turn already running finishes on its current settings.'
+          : 'Applies to the next turn. The conversation is kept.'}
+      </p>
+      <div className="wr-dialog-actions">
+        <button type="button" onClick={props.onDone} className="wr-secondary-button min-h-11 px-3 text-xs">
+          Cancel
+        </button>
+        <button
+          type="submit"
+          data-testid={`settings-${props.member.handle}-save`}
+          className="wr-primary-button min-h-11 px-3 text-xs"
+        >
+          Save
+        </button>
+      </div>
+    </form>
+  );
+}
+// harn:end member-config-is-changed-not-respawned
 
 export function MemberRail(props: {
   members: Member[];
@@ -839,6 +939,7 @@ export function MemberRail(props: {
               member={m}
               detail={props.details[m.id]}
               history={props.history[m.id] ?? []}
+              adapters={props.adapters}
               connection={props.connection}
               expanded={m.kind === 'agent' ? selectedMemberId === m.id : undefined}
               onToggle={m.kind === 'agent'

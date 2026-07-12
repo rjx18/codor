@@ -37,6 +37,10 @@ export const CAPABILITY_MINIMUM_ROLE: Record<HumanCapability, Role> = {
   attach_complete: 'admin',
   configure_room: 'admin',
   spawn: 'admin',
+  // Changing what an agent may do to the machine is an admin act, like creating one.
+  // NOTE for codor-live-collab: when members gain credentials, `configure` must be
+  // EXCLUDED from what an agent may do — an agent must never raise its own permission.
+  configure: 'admin',
   rename: 'admin',
   revive: 'admin',
   kill: 'admin',

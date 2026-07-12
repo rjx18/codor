@@ -2080,3 +2080,181 @@ describe('a channel-seeded agent gets the permission the operator chose', () => 
     expect(seeded.policy).toBeUndefined();
   });
 });
+
+// harn:assume member-config-is-changed-not-respawned ref=configure-member-regression
+describe('changing an agent keeps the agent', () => {
+  const richardId = () => daemon.ownerOf('eng').id;
+  const spawnThinker = () =>
+    daemon.spawnMember('eng', {
+      harness: 'thinking-fake',
+      handle: 'alpha',
+      cwd: testCwd(),
+      model: 'haiku',
+      thinking: 'low',
+      policy: 'read-only',
+    });
+
+  it('runs the NEXT turn on the new settings, with the same conversation', async () => {
+    const alpha = spawnThinker();
+    thinkingFake.enqueue({ kind: 'complete', final_text: '@richard one' });
+    daemon.postHumanMessage('eng', '@alpha one');
+    await daemon.settle();
+    const before = thinkingFake.deliveries[0]!;
+    expect(before).toMatchObject({ model: 'haiku', thinking: 'low', policy: 'read-only' });
+
+    daemon.configureMember('eng', alpha.id, {
+      model: 'opus-4.8', thinking: 'high', policy: 'workspace-write',
+    }, { actor: richardId() });
+
+    thinkingFake.enqueue({ kind: 'complete', final_text: '@richard two' });
+    daemon.postHumanMessage('eng', '@alpha two');
+    await daemon.settle();
+    const after = thinkingFake.deliveries[1]!;
+    expect(after).toMatchObject({ model: 'opus-4.8', thinking: 'high', policy: 'workspace-write' });
+    // The conversation is the point: the agent resumes, it is not replaced.
+    expect(after.session_ref, 'the conversation must survive the change').toBe(before.session_ref);
+    expect(after.attached || after.session_ref === before.session_ref).toBe(true);
+  });
+
+  it('clears a setting back to the harness default when asked, rather than guessing', () => {
+    const alpha = spawnThinker();
+    const updated = daemon.configureMember('eng', alpha.id, { model: null, thinking: null }, {});
+    expect(updated.model).toBeUndefined();
+    expect(updated.thinking).toBeUndefined();
+  });
+
+  it('survives a switchboard restart', async () => {
+    const alpha = spawnThinker();
+    daemon.configureMember('eng', alpha.id, { model: 'opus-4.8' }, { actor: richardId() });
+    await daemon.close();
+    daemon = newDaemon();
+
+    thinkingFake.enqueue({ kind: 'complete', final_text: '@richard ok' });
+    daemon.postHumanMessage('eng', '@alpha still you?');
+    await daemon.settle();
+    expect(thinkingFake.deliveries.at(-1)!.model).toBe('opus-4.8');
+  });
+
+  it('refuses a thinking level the harness cannot honour, rather than recording it', () => {
+    const beta = daemon.spawnMember('eng', { harness: 'fake', handle: 'beta', cwd: testCwd('b') });
+    expect(() => daemon.configureMember('eng', beta.id, { thinking: 'high' }, {}))
+      .toThrow("adapter 'fake' does not support thinking levels");
+    // And it recorded nothing.
+    expect(daemon.store.getMember('eng', beta.id)!.thinking).toBeUndefined();
+  });
+});
+// harn:end member-config-is-changed-not-respawned
+
+// harn:assume a-permission-change-is-never-silent ref=configure-audit-regression
+describe('a permission change is never silent', () => {
+  const systemBodies = () =>
+    daemon.store.listMessages('eng', { limit: 100 })
+      .filter((message) => message.kind === 'system')
+      .map((message) => message.body);
+
+  it('posts who changed what, from which value to which', () => {
+    const alpha = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'alpha', cwd: testCwd(), policy: 'read-only',
+    });
+    daemon.configureMember('eng', alpha.id, { policy: 'full-access' }, {
+      actor: daemon.ownerOf('eng').id,
+    });
+    // A capability change visible only as a flicker in a member frame is one nobody saw.
+    expect(systemBodies()).toContainEqual(
+      expect.stringContaining('@richard changed @alpha — policy: read-only → full-access'),
+    );
+  });
+
+  it('says nothing when nothing changed', () => {
+    const alpha = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'alpha', cwd: testCwd(), policy: 'read-only',
+    });
+    const before = systemBodies().length;
+    daemon.configureMember('eng', alpha.id, { policy: 'read-only' }, {
+      actor: daemon.ownerOf('eng').id,
+    });
+    expect(systemBodies()).toHaveLength(before);
+  });
+
+  it('refuses a member this switchboard does not own', () => {
+    const alpha = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: testCwd() });
+    daemon.store.updateMember('eng', alpha.id, { custody: 'mirrored' });
+    // A half-applied remote change is worse than a refused one.
+    expect(() => daemon.configureMember('eng', alpha.id, { policy: 'full-access' }, {}))
+      .toThrow(/mirrored from another switchboard/);
+    expect(daemon.store.getMember('eng', alpha.id)!.policy).not.toBe('full-access');
+  });
+
+  it('configures a dead member, and revive brings back the agent last asked for', async () => {
+    const alpha = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'alpha', cwd: testCwd(), policy: 'read-only',
+    });
+    fake.enqueue({ kind: 'complete', final_text: '@richard hi' });
+    daemon.postHumanMessage('eng', '@alpha hello');
+    await daemon.settle();
+
+    daemon.killMember('eng', alpha.id);
+    daemon.configureMember('eng', alpha.id, { policy: 'workspace-write' }, {
+      actor: daemon.ownerOf('eng').id,
+    });
+    daemon.reviveMember('eng', alpha.id);
+
+    fake.enqueue({ kind: 'complete', final_text: '@richard back' });
+    daemon.postHumanMessage('eng', '@alpha back?');
+    await daemon.settle();
+    expect(fake.deliveries.at(-1)!.policy).toBe('workspace-write');
+  });
+});
+// harn:end a-permission-change-is-never-silent
+
+// harn:assume member-config-is-changed-not-respawned ref=configure-member-regression
+describe('a turn is never assembled from a mixture of old and new settings', () => {
+  it('completes an in-flight turn on the OLD settings and runs the next entirely on the NEW', async () => {
+    // The guarantee is structural, not careful: a turn builds its arguments once, from
+    // the session object it holds. configure never touches that object — it writes the
+    // row and DROPS the cached session — so the running turn cannot see half a change,
+    // and the next turn rebuilds from one row and therefore sees all of it.
+    const alpha = daemon.spawnMember('eng', {
+      harness: 'thinking-fake',
+      handle: 'alpha',
+      cwd: testCwd(),
+      model: 'haiku',
+      thinking: 'low',
+      policy: 'read-only',
+    });
+    thinkingFake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Hold this turn open?', options: [{ label: 'ok' }] },
+      reply: () => 'held turn done',
+    });
+    daemon.postHumanMessage('eng', '@alpha start a long turn');
+    const interaction = await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
+    );
+
+    // Change everything, mid-turn.
+    daemon.configureMember('eng', alpha.id, {
+      model: 'opus-4.8', thinking: 'high', policy: 'full-access',
+    }, { actor: daemon.ownerOf('eng').id });
+
+    // The turn in flight is untouched: every field is the one it started with.
+    expect(thinkingFake.deliveries[0]).toMatchObject({
+      model: 'haiku', thinking: 'low', policy: 'read-only',
+    });
+
+    // And it still finishes — a settings change does not disturb a running turn.
+    await daemon.answerInteraction('eng', interaction.id, 'ok');
+    await daemon.settle();
+    expect(runMessages().at(-1)!.run!.status).toBe('completed');
+
+    thinkingFake.enqueue({ kind: 'complete', final_text: '@richard next' });
+    daemon.postHumanMessage('eng', '@alpha next turn');
+    await daemon.settle();
+
+    // The next turn is entirely the new agent. Not one field of the old one survives.
+    expect(thinkingFake.deliveries.at(-1)).toMatchObject({
+      model: 'opus-4.8', thinking: 'high', policy: 'full-access',
+    });
+  });
+});
+// harn:end member-config-is-changed-not-respawned

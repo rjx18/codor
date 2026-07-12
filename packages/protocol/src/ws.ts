@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { ThinkingLevelSchema } from './adapter.js';
+import { PolicySchema, ThinkingLevelSchema } from './adapter.js';
 import { DeliverySchema } from './delivery.js';
 import { WireEventSchema } from './events.js';
 import { MemberIdSchema, MessageIdSchema, RoomIdSchema, SeqSchema } from './ids.js';
@@ -94,6 +94,21 @@ export const ActSchema = z.discriminatedUnion('act', [
   z.object({ act: z.literal('pause'), member_id: MemberIdSchema }),
   z.object({ act: z.literal('unpause'), member_id: MemberIdSchema }),
   z.object({ act: z.literal('interrupt'), member_id: MemberIdSchema }),
+  // harn:assume member-config-is-changed-not-respawned ref=configure-act-contract
+  // The settings a live agent can be given AFTER it exists. Not the harness and not
+  // the cwd: those are fixed when the agent is created, and offering a control that
+  // cannot work is worse than saying so.
+  z.object({
+    act: z.literal('configure'),
+    member_id: MemberIdSchema,
+    // Absent leaves a setting alone; NULL clears it back to the harness default. Without
+    // the distinction there is no way to say "stop pinning a model" — only a way to pin a
+    // different one.
+    model: z.string().min(1).nullable().optional(),
+    thinking: ThinkingLevelSchema.nullable().optional(),
+    policy: PolicySchema.optional(),
+  }),
+  // harn:end member-config-is-changed-not-respawned
   z.object({
     act: z.literal('set_role'),
     member_id: MemberIdSchema,

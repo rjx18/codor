@@ -48,6 +48,12 @@ export function AgentControls(props: {
   idPrefix: string;
   /** The creation dialog may start a channel with no agent at all. */
   allowNone?: boolean;
+  /**
+   * The member card configures an agent that already exists, and an agent's harness is
+   * fixed the moment it is created. Show which one it is; do not offer a choice that
+   * cannot be honoured.
+   */
+  lockHarness?: boolean;
 }) {
   const { adapters, value, onChange, idPrefix } = props;
   const [customOpen, setCustomOpen] = useState(false);
@@ -71,6 +77,166 @@ export function AgentControls(props: {
     setCustomOpen(false);
     pick(next);
   };
+
+  const fields = (
+    <>
+    {value.harness !== '' && (
+      <fieldset className="wr-control-group">
+        <legend>Model</legend>
+        <div className="wr-button-row">
+          <button
+            type="button"
+            data-testid={`${idPrefix}-model-default`}
+            aria-pressed={value.model === '' && !custom}
+            onClick={() => reset({ model: '' })}
+          >
+            Default
+          </button>
+          {!searchable && models.map((model) => (
+            <button
+              key={model}
+              type="button"
+              data-testid={`${idPrefix}-model-${model}`}
+              aria-pressed={!custom && value.model === model}
+              onClick={() => reset({ model })}
+            >
+              {model}
+            </button>
+          ))}
+          <button
+            type="button"
+            data-testid={`${idPrefix}-model-custom`}
+            aria-pressed={custom}
+            onClick={() => {
+              setCustomOpen(!custom);
+              if (custom) pick({ model: '' });
+            }}
+          >
+            Custom…
+          </button>
+        </div>
+
+        {/* Too many to be a row — opencode reports one per configured provider. */}
+        {!custom && searchable && (
+          <>
+            <input
+              data-testid={`${idPrefix}-model-search`}
+              aria-label="Model"
+              list={`${idPrefix}-model-options`}
+              value={value.model}
+              placeholder={`Search ${String(models.length)} models`}
+              onChange={(event) => pick({ model: event.target.value })}
+              className="wr-input min-h-11 w-full px-3 text-sm"
+            />
+            <datalist id={`${idPrefix}-model-options`}>
+              {models.map((model) => <option key={model} value={model} />)}
+            </datalist>
+          </>
+        )}
+
+        {custom && (
+          <input
+            data-testid={`${idPrefix}-model-custom-input`}
+            aria-label="Custom model"
+            value={value.model}
+            autoFocus
+            placeholder="model id"
+            onChange={(event) => pick({ model: event.target.value })}
+            className="wr-input min-h-11 w-full px-3 text-sm"
+          />
+        )}
+
+        {models.length === 0 && !custom && (
+          <small data-testid={`${idPrefix}-model-note`}>
+            This harness did not report a model list.
+          </small>
+        )}
+      </fieldset>
+    )}
+
+    {value.harness !== '' && (
+      <fieldset className="wr-control-group">
+        <legend>Thinking</legend>
+        <div className="wr-button-row">
+          <button
+            type="button"
+            data-testid={`${idPrefix}-thinking-default`}
+            aria-pressed={value.thinking === ''}
+            onClick={() => pick({ thinking: '' })}
+          >
+            Default
+          </button>
+          {ThinkingLevelSchema.options.map((level) => (
+            <button
+              key={level}
+              type="button"
+              data-testid={`${idPrefix}-thinking-${level}`}
+              aria-pressed={value.thinking === level}
+              disabled={!thinkingSupported}
+              onClick={() => pick({ thinking: level })}
+            >
+              {level}
+            </button>
+          ))}
+        </div>
+        {!thinkingSupported && <small>Not supported by this harness</small>}
+      </fieldset>
+    )}
+
+    {/* harn:assume one-control-chooses-an-agent-everywhere ref=shared-policy-control */}
+    {value.harness !== '' && (
+      <fieldset className="wr-control-group">
+        <legend>Permission</legend>
+        <div className="wr-policy-row">
+          {PolicySchema.options.map((policy) => {
+            const native = adapter?.capabilities.policies?.[policy] ?? null;
+            const deferred = adapter !== undefined && native === null;
+            return (
+              <button
+                key={policy}
+                type="button"
+                data-testid={`${idPrefix}-policy-${policy}`}
+                className={`wr-policy-option${deferred ? ' is-deferred' : ''}`}
+                aria-pressed={value.policy === policy}
+                onClick={() => pick({ policy })}
+              >
+                <strong>{POLICY_LABELS[policy].title}</strong>
+                <small>{POLICY_LABELS[policy].blurb}</small>
+                {/* What it ACTUALLY becomes for this harness — read from the adapter,
+                    never guessed here. A UI that hardcodes harness knowledge goes
+                    stale silently, and this particular staleness is a safety one. */}
+                <em data-testid={`${idPrefix}-policy-${policy}-native`}>
+                  {native ?? 'not enforced'}
+                </em>
+              </button>
+            );
+          })}
+        </div>
+        {deferredSelected && (
+          <small data-testid={`${idPrefix}-policy-deferred`} role="status" className="wr-policy-warning">
+            {value.harness} does not take this setting. Both Plan only and Edit workspace
+            build the same command, so what this agent may do is whatever {value.harness}
+            is configured to allow. Only Full access changes anything.
+          </small>
+        )}
+      </fieldset>
+    )}
+    </>
+  );
+
+  // An agent's harness is fixed the moment it is created, so the member card shows which
+  // one it is rather than offering tiles that cannot be honoured. The rest of the control
+  // is identical — that is the point of there being only one of it.
+  if (props.lockHarness === true) {
+    return (
+      <div className="wr-agent-controls">
+        <p data-testid={`${idPrefix}-harness-fixed`} className="wr-control-fixed">
+          Harness <strong>{value.harness}</strong>
+        </p>
+        {fields}
+      </div>
+    );
+  }
 
   return (
     <div className="wr-agent-controls">
@@ -122,148 +288,7 @@ export function AgentControls(props: {
         </div>
       </fieldset>
 
-      {value.harness !== '' && (
-        <fieldset className="wr-control-group">
-          <legend>Model</legend>
-          <div className="wr-button-row">
-            <button
-              type="button"
-              data-testid={`${idPrefix}-model-default`}
-              aria-pressed={value.model === '' && !custom}
-              onClick={() => reset({ model: '' })}
-            >
-              Default
-            </button>
-            {!searchable && models.map((model) => (
-              <button
-                key={model}
-                type="button"
-                data-testid={`${idPrefix}-model-${model}`}
-                aria-pressed={!custom && value.model === model}
-                onClick={() => reset({ model })}
-              >
-                {model}
-              </button>
-            ))}
-            <button
-              type="button"
-              data-testid={`${idPrefix}-model-custom`}
-              aria-pressed={custom}
-              onClick={() => {
-                setCustomOpen(!custom);
-                if (custom) pick({ model: '' });
-              }}
-            >
-              Custom…
-            </button>
-          </div>
-
-          {/* Too many to be a row — opencode reports one per configured provider. */}
-          {!custom && searchable && (
-            <>
-              <input
-                data-testid={`${idPrefix}-model-search`}
-                aria-label="Model"
-                list={`${idPrefix}-model-options`}
-                value={value.model}
-                placeholder={`Search ${String(models.length)} models`}
-                onChange={(event) => pick({ model: event.target.value })}
-                className="wr-input min-h-11 w-full px-3 text-sm"
-              />
-              <datalist id={`${idPrefix}-model-options`}>
-                {models.map((model) => <option key={model} value={model} />)}
-              </datalist>
-            </>
-          )}
-
-          {custom && (
-            <input
-              data-testid={`${idPrefix}-model-custom-input`}
-              aria-label="Custom model"
-              value={value.model}
-              autoFocus
-              placeholder="model id"
-              onChange={(event) => pick({ model: event.target.value })}
-              className="wr-input min-h-11 w-full px-3 text-sm"
-            />
-          )}
-
-          {models.length === 0 && !custom && (
-            <small data-testid={`${idPrefix}-model-note`}>
-              This harness did not report a model list.
-            </small>
-          )}
-        </fieldset>
-      )}
-
-      {value.harness !== '' && (
-        <fieldset className="wr-control-group">
-          <legend>Thinking</legend>
-          <div className="wr-button-row">
-            <button
-              type="button"
-              data-testid={`${idPrefix}-thinking-default`}
-              aria-pressed={value.thinking === ''}
-              onClick={() => pick({ thinking: '' })}
-            >
-              Default
-            </button>
-            {ThinkingLevelSchema.options.map((level) => (
-              <button
-                key={level}
-                type="button"
-                data-testid={`${idPrefix}-thinking-${level}`}
-                aria-pressed={value.thinking === level}
-                disabled={!thinkingSupported}
-                onClick={() => pick({ thinking: level })}
-              >
-                {level}
-              </button>
-            ))}
-          </div>
-          {!thinkingSupported && <small>Not supported by this harness</small>}
-        </fieldset>
-      )}
-
-      {/* harn:assume one-control-chooses-an-agent-everywhere ref=shared-policy-control */}
-      {value.harness !== '' && (
-        <fieldset className="wr-control-group">
-          <legend>Permission</legend>
-          <div className="wr-policy-row">
-            {PolicySchema.options.map((policy) => {
-              const native = adapter?.capabilities.policies?.[policy] ?? null;
-              const deferred = adapter !== undefined && native === null;
-              return (
-                <button
-                  key={policy}
-                  type="button"
-                  data-testid={`${idPrefix}-policy-${policy}`}
-                  className={`wr-policy-option${deferred ? ' is-deferred' : ''}`}
-                  aria-pressed={value.policy === policy}
-                  onClick={() => pick({ policy })}
-                >
-                  <strong>{POLICY_LABELS[policy].title}</strong>
-                  <small>{POLICY_LABELS[policy].blurb}</small>
-                  {/* What it ACTUALLY becomes for this harness — read from the adapter,
-                      never guessed here. A UI that hardcodes harness knowledge goes
-                      stale silently, and this particular staleness is a safety one. */}
-                  <em data-testid={`${idPrefix}-policy-${policy}-native`}>
-                    {native ?? 'not enforced'}
-                  </em>
-                </button>
-              );
-            })}
-          </div>
-          {deferredSelected && (
-            <small data-testid={`${idPrefix}-policy-deferred`} role="status" className="wr-policy-warning">
-              {value.harness} does not take this setting. Both Plan only and Edit workspace
-              build the same command, so what this agent may do is whatever {value.harness}
-              is configured to allow. Only Full access changes anything.
-            </small>
-          )}
-        </fieldset>
-      )}
-      {/* harn:end one-control-chooses-an-agent-everywhere */}
+      {fields}
     </div>
   );
 }

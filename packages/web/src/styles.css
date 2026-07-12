@@ -5866,3 +5866,32 @@ textarea.wr-composer-control {
   line-height: 1.45;
 }
 /* harn:end one-control-chooses-an-agent-everywhere */
+
+/* harn:assume member-config-is-changed-not-respawned ref=member-card-settings */
+.wr-member-settings {
+  display: grid;
+  margin-top: 10px;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--wr-line);
+  border-radius: 8px;
+  background: var(--wr-glass-soft);
+}
+
+/* What cannot change, and what happens when you save: both are the operator's business. */
+.wr-settings-note {
+  color: var(--wr-text-dim);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.wr-control-fixed {
+  color: var(--wr-text-dim);
+  font-size: 0.75rem;
+}
+
+.wr-control-fixed strong {
+  color: var(--wr-text);
+  font-family: var(--wr-mono, ui-monospace, monospace);
+}
+/* harn:end member-config-is-changed-not-respawned */

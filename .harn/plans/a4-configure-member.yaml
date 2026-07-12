@@ -1,0 +1,160 @@
+id: a4-configure-member
+title: A4 - a member's model, thinking level and permission can be changed after
+  it exists, and a permission change is never silent
+assumptions:
+  create:
+    - id: member-config-is-changed-not-respawned
+      title: Changing an agent's settings keeps the agent
+      statement: "An operator must be able to change a live member's model, thinking
+        level and permission policy without losing its conversation, because the
+        harness holds no state - every turn is a fresh subprocess whose
+        arguments are re-derived from the session, and the conversation lives in
+        the resume token. A change therefore writes the member row and DISCARDS
+        the cached session, so the next turn rebuilds from that row: the new
+        settings and the existing resume token together. It follows that a turn
+        already in flight keeps the session object it started with and completes
+        on the settings it started with, and the next turn runs entirely on the
+        new ones - so a turn can never be assembled from a mixture of the two,
+        and no restart, reset or lost context is ever required. The harness and
+        the working directory are NOT changeable: they are fixed when the agent
+        is created, and the operator must be told to make a new agent rather
+        than shown a control that cannot work."
+      reason: F12. A member's settings could not be changed at all after it was
+        spawned. The operator asked to change them from the sidebar.
+      depends_on:
+        - agent-model-and-thinking-are-durable
+        - canonical-spawn-controls-enforced
+    - id: a-permission-change-is-never-silent
+      title: Raising what an agent may do is an event, not a field update
+      statement: Every change to a member's permission policy must post a system
+        message into the channel naming who changed it, which member, and the
+        old and new value, because raising what an agent may do to the
+        operator's machine is a consequential act and a capability change
+        visible only as a flicker in a member frame is a capability change
+        nobody saw. The switchboard must refuse to configure a member it does
+        not own - a mirrored member lives on another switchboard and a
+        half-applied remote change is worse than a refused one - and it must
+        refuse a setting the harness cannot honour rather than record a
+        preference it will silently ignore. Configuring a dead member is
+        permitted and persists, because reviving it rebuilds from the row and
+        must revive the agent the operator last asked for.
+      reason: The reviewer's A4 ruling. An agent's permission is the boundary around
+        what it may do to the machine; changes to it are the one thing that must
+        never be quiet.
+      depends_on:
+        - member-config-is-changed-not-respawned
+        - roles-gate-human-acts-not-agents
+  reviewed:
+    - id: agent-model-and-thinking-are-durable
+      outcome: unchanged
+      reason: "The rebuild paths are unchanged and are exactly what makes this phase
+        simple - a configure writes the row and drops the cached session, and
+        the existing lazy rebuild does the rest. It does reveal a gap A2 left:
+        updateMember's UPDATE statement never learned to write the two new
+        columns, because nothing had reason to change them after spawn. It does
+        now."
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: The same single validation point rejects an unknown policy and a
+        thinking level the harness does not support, whether the settings arrive
+        at spawn or later.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Configure is an act like any other and takes the same admin gate spawn
+        and kill take. The capability type is derived from the act union, so the
+        compiler itself demands the entry.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: The socket speaks the same protocol it always did. One more act travels
+        over it.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: The spawn dialog is unchanged. The member card's controls sit in the
+        same region as the dead-member controls beside them.
+    - id: agent-controls-shared-by-both-dialogs
+      outcome: unchanged
+      reason: The one shared control gains a locked-harness mode, because an agent's
+        harness is fixed once it exists and offering tiles that cannot be
+        honoured would be the same class of lie as a permission that is not
+        enforced. Everything below the harness is the identical control - which
+        is the entire point of there being one.
+    - id: harness-declares-what-a-policy-becomes
+      outcome: unchanged
+      reason: The member card reads the same declaration the creation dialogs read, so
+        it tells the operator the same truth about the same harness.
+    - id: one-control-chooses-an-agent-everywhere
+      outcome: unchanged
+      reason: This is the third surface the one control serves, which is the point of
+        it - the member card configures an agent with the same control that
+        created it.
+anchors:
+  member-config-is-changed-not-respawned:
+    configure-act-contract:
+      action: change
+      reason: The act that carries a member's new settings.
+    configure-member-daemon:
+      action: change
+      reason: Validate, persist, and drop the cached session so the next turn rebuilds
+        from the row - which is what makes old-or-new-never-a-mix structural
+        rather than careful.
+    member-config-storage:
+      action: change
+      reason: updateMember must write the model and thinking columns it never learned
+        to write.
+    member-card-settings:
+      action: change
+      reason: The member card configures the agent with the same shared control that
+        created it, and states plainly that the harness and the working
+        directory cannot change.
+    configure-member-regression:
+      action: change
+      reason: Prove the conversation survives, that the next turn carries the new
+        arguments, that an in-flight turn is untouched, and that the settings
+        outlive a restart.
+  a-permission-change-is-never-silent:
+    configure-audit-message:
+      action: change
+      reason: A permission change posts who changed what, from which value to which.
+    configure-custody-and-capability-guards:
+      action: change
+      reason: Refuse a member this switchboard does not own; refuse a setting the
+        harness cannot honour.
+    configure-audit-regression:
+      action: change
+      reason: Prove the audit message names actor, member, and both values; prove a
+        mirrored member is refused; prove a dead member persists and revives
+        with the new settings.
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: change
+      reason: Configure joins the admin-gated acts. An agent must never be able to
+        change its own permission - noted for the live-collab round, where
+        members gain credentials.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: The act dispatch inside the listener gains one more act. The protocol
+        the socket speaks is unchanged.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    dead-member-replacement-controls:
+      action: change
+      reason: The member card's Settings button sits in the same control row as the
+        revive and remove controls this region covers.
+files:
+  - packages/protocol/src/ws.ts
+  - packages/web/src/agent-controls.tsx
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/authorization.ts
+  - packages/switchboard/src/authorization.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/web/src/api.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+applied:
+  applied_at: 2026-07-12T16:47:14.308Z

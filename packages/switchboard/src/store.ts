@@ -721,9 +721,15 @@ export class Store {
       const merged = MemberSchema.parse({ ...existing, ...patch });
       this.db
         .prepare(
+          // harn:assume member-config-is-changed-not-respawned ref=member-config-storage
+          // A2 gave members a model and a thinking level and taught the INSERT and the
+          // READ about them — but not this. Nothing changed them after spawn, so nothing
+          // noticed. A configure that called this would have reported success and
+          // persisted nothing at all.
           `UPDATE members SET handle = ?, display_name = ?, purpose = ?, harness = ?, session_ref = ?,
-             cwd = ?, policy = ?, host = ?, state = ?, custody = ?, parent = ?, role = ?,
-             conventions_sent = ?, misaddressed = ?, roster_stale = ?, removed_ts = ?
+             cwd = ?, policy = ?, model = ?, thinking = ?, host = ?, state = ?, custody = ?,
+             parent = ?, role = ?, conventions_sent = ?, misaddressed = ?, roster_stale = ?,
+             removed_ts = ?
            WHERE room = ? AND id = ?`,
         )
         .run(
@@ -734,6 +740,8 @@ export class Store {
           orNull(merged.session_ref),
           orNull(merged.cwd),
           orNull(merged.policy),
+          orNull(merged.model),
+          orNull(merged.thinking),
           orNull(merged.host),
           orNull(merged.state),
           orNull(merged.custody),
@@ -746,6 +754,7 @@ export class Store {
           room,
           memberId,
         );
+      // harn:end member-config-is-changed-not-respawned
       this.appendChange(room, 'member', memberId);
       return merged;
     })();

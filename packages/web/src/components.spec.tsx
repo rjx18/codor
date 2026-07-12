@@ -423,6 +423,7 @@ describe('MemberCard', () => {
           { state: 'running', ts: TS },
           { state: 'paused', ts: TS },
         ]}
+        adapters={[]}
         connection={noopConnection}
       />,
     );
@@ -448,7 +449,7 @@ describe('MemberCard', () => {
       custody: 'mirrored',
     };
     const html = renderToStaticMarkup(
-      <MemberCard member={member} detail={undefined} history={[]} connection={noopConnection} />,
+      <MemberCard member={member} detail={undefined} history={[]} adapters={[]} connection={noopConnection} />,
     );
     expect(html).toContain('mirrored');
     expect(html).toContain('data-testid="adopt-alpha"');
@@ -596,3 +597,48 @@ describe('timeline rows are content, not flexible space', () => {
     expect(offenders, 'these rules let a timeline row be crushed again').toEqual([]);
   });
 });
+
+// harn:assume member-config-is-changed-not-respawned ref=member-card-settings
+describe('MemberSettings', () => {
+  const agent: Member = {
+    ...alpha,
+    harness: 'claude-code',
+    cwd: '/work',
+    policy: 'read-only',
+    model: 'haiku',
+    thinking: 'low',
+    state: 'idle',
+  };
+  const adapters = [{
+    id: 'claude-code',
+    capabilities: {
+      resume: true, thinking: true,
+      policies: { 'read-only': 'plan', 'workspace-write': 'acceptEdits', 'full-access': 'bypassPermissions' },
+    },
+    models: ['haiku', 'sonnet', 'opus'],
+    models_source: 'curated',
+  }] as unknown as Parameters<typeof MemberCard>[0]['adapters'];
+
+  const render = (member: Member): string =>
+    renderToStaticMarkup(
+      <MemberCard
+        member={member}
+        detail={undefined}
+        history={[]}
+        adapters={adapters}
+        connection={noopConnection}
+        expanded
+        canManage
+      />,
+    );
+
+  it('offers the settings an agent can actually be given', () => {
+    expect(render(agent)).toContain('data-testid="configure-alpha"');
+  });
+
+  it('never offers to configure a member this switchboard does not own', () => {
+    // The daemon refuses it; the UI must not invite the operator to try.
+    expect(render({ ...agent, custody: 'mirrored' })).not.toContain('data-testid="configure-alpha"');
+  });
+});
+// harn:end member-config-is-changed-not-respawned

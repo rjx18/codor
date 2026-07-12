@@ -1,0 +1,21 @@
+id: member-config-is-changed-not-respawned
+hash: a-0de95f900e67
+title: Changing an agent's settings keeps the agent
+state: active
+statement: "An operator must be able to change a live member's model, thinking
+  level and permission policy without losing its conversation, because the
+  harness holds no state - every turn is a fresh subprocess whose arguments are
+  re-derived from the session, and the conversation lives in the resume token. A
+  change therefore writes the member row and DISCARDS the cached session, so the
+  next turn rebuilds from that row: the new settings and the existing resume
+  token together. It follows that a turn already in flight keeps the session
+  object it started with and completes on the settings it started with, and the
+  next turn runs entirely on the new ones - so a turn can never be assembled
+  from a mixture of the two, and no restart, reset or lost context is ever
+  required. The harness and the working directory are NOT changeable: they are
+  fixed when the agent is created, and the operator must be told to make a new
+  agent rather than shown a control that cannot work."
+depends_on:
+  - agent-model-and-thinking-are-durable
+  - canonical-spawn-controls-enforced
+created_by: a4-configure-member

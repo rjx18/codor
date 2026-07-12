@@ -1379,3 +1379,45 @@ test('the inbox lists what needs you and takes you to it', async ({ page }) => {
   await expect(page.getByTestId('inbox-empty')).toHaveText('Nothing needs you.');
 });
 // harn:end the-inbox-opens-what-needs-you
+
+// harn:assume a-permission-change-is-never-silent ref=configure-audit-regression
+test('changing an agent from the sidebar is visible to everyone in the channel', async ({ page, request }) => {
+  const room = `configure-${String(Date.now())}`;
+  const authorization = { authorization: 'Bearer e2e-token' };
+  await request.post('/api/rooms', {
+    headers: authorization,
+    data: {
+      id: room,
+      name: 'Configure',
+      cwd: process.cwd(),
+      owner: { handle: 'richard', display_name: 'Richard' },
+      starting_agent: { harness: 'fake', handle: 'codor', policy: 'read-only' },
+    },
+  });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/?room=${room}&token=e2e-token`);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  await page.getByTestId('member-codor').click();
+  await page.getByTestId('configure-codor').click();
+
+  // The same shared control — with the two things that genuinely cannot change stated.
+  await expect(page.getByTestId('settings-codor-harness-fixed')).toContainText('fake');
+  await expect(page.getByTestId('settings-codor-fixed'))
+    .toContainText('Spawn a new one to change them');
+  await expect(page.getByTestId('settings-codor-effect')).toContainText('conversation is kept');
+
+  await page.getByTestId('settings-codor-policy-full-access').click();
+  await page.getByTestId('settings-codor-save').click();
+
+  // A capability change nobody saw is a capability change nobody agreed to.
+  await expect(page.getByText('@richard changed @codor — policy: read-only → full-access'))
+    .toBeVisible();
+
+  // And it is the truth, not just a message: the member carries it.
+  const members = await request.get(`/api/rooms/${room}/members`, { headers: authorization });
+  const { members: details } = await members.json() as { members: { member: { kind: string; policy?: string } }[] };
+  expect(details.find((item) => item.member.kind === 'agent')!.member.policy).toBe('full-access');
+});
+// harn:end a-permission-change-is-never-silent
