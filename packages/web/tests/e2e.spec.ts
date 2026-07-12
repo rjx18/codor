@@ -1133,7 +1133,13 @@ test('tool rows say what the tool did, on one line, at every width', async ({ pa
       items: [
         {
           type: 'run.item', item_type: 'tool_call',
-          payload: { call_id: 'c1', tool: 'Bash', title: 'pnpm test --filter web' },
+          // Long enough to wrap onto a second line if it were not ellipsised — the
+          // previous version of this test used a 22-character command and so could
+          // not have caught the missing one-line rule.
+          payload: {
+            call_id: 'c1', tool: 'Bash',
+            title: 'pnpm test --filter @codor/web --reporter=verbose --run --coverage --no-color --bail=1',
+          },
         },
         {
           type: 'run.item', item_type: 'tool_result',
@@ -1167,7 +1173,7 @@ test('tool rows say what the tool did, on one line, at every width', async ({ pa
   await expect(page.getByText('@richard rows rendered')).toBeVisible();
 
   // The row shows the command, the file, and the diffstat — not "Bash", "Read", "Edit".
-  await expect(page.getByText('pnpm test --filter web')).toBeVisible();
+  await expect(page.getByText('pnpm test --filter', { exact: false })).toBeVisible();
   await expect(page.getByText('Explored App.tsx')).toBeVisible();
   await expect(page.getByText('+2 −1 shell.tsx')).toBeVisible();
 

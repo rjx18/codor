@@ -110,6 +110,39 @@ describe('compact one-line tool rows', () => {
       .toMatchObject({ label: 'Task: spawn a reviewer' });
   });
 
+  it('recognises the shell tools other harnesses actually emit', () => {
+    // Codex says local_shell; Gemini says run_shell_command. Exact-matching "bash"
+    // would drop both to the generic branch and lose the verbatim command.
+    for (const tool of ['Bash', 'local_shell', 'run_shell_command', 'shell']) {
+      expect(compactRunRow(row({ title: tool, detail: 'ls -la' })), tool)
+        .toMatchObject({ icon: 'terminal', label: 'ls -la', mono: true });
+    }
+  });
+
+  it('recognises the read tools other harnesses actually emit', () => {
+    for (const tool of ['Read', 'read_file', 'read_many_files', 'list_directory', 'search_file_content']) {
+      expect(compactRunRow(row({ title: tool, detail: '/a/b/App.tsx' })), tool)
+        .toMatchObject({ label: 'Explored App.tsx' });
+    }
+  });
+
+  it('says a file was deleted rather than showing it as an edit of nothing', () => {
+    const unified = '--- a/gone.ts\n+++ /dev/null\n-one\n-two\n';
+    expect(compactRunRow(row({ title: 'Delete', diff: { path: 'src/gone.ts', unified } as never })))
+      .toMatchObject({ label: 'Deleted gone.ts' });
+  });
+
+  it('counts a content line that begins with a plus as an addition', () => {
+    // `+++i;` is real C. Only `+++ ` with a space is a file header.
+    expect(diffStat('--- a/x.c\n+++ b/x.c\n++++i;\n---j;\n')).toEqual({ added: 1, removed: 1 });
+  });
+
+  it('does not split an emoji when it elides', () => {
+    const label = middleEllipsis(`echo ${'🙂'.repeat(60)} done`, 20);
+    expect(label).not.toContain('\uFFFD');
+    expect([...label]).toHaveLength(20);
+  });
+
   it('elides a long command in the middle, keeping both ends legible', () => {
     const long = `pnpm ${'x'.repeat(120)} --end`;
     const { label } = compactRunRow(row({ title: 'Bash', detail: long }));

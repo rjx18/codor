@@ -5616,6 +5616,10 @@ button:disabled {
   display: block;
   width: 100%;
   box-sizing: border-box;
+  /* The card clips its overflow; an inherited left margin pushed the block past
+     the content box and shaved the right-hand characters off every line. */
+  margin-left: 0;
+  margin-right: 0;
   margin-top: 0.5rem;
   padding: 0.6rem 0.7rem;
   border-radius: 0.5rem;
@@ -5634,7 +5638,7 @@ button:disabled {
 .wr-ask-card.is-answered {
   opacity: 0.72; /* muted, but still readable — the operator must see what they approved */
 }
-@media (max-width: 767px) {
+@media (max-width: 720px) {
   .wr-ask-actions {
     display: flex;
     flex-direction: column;
@@ -5652,3 +5656,27 @@ button:disabled {
 :root[data-theme='dark'] .wr-ask-heading > div > strong { color: #f6e7c1; }
 :root[data-theme='light'] .wr-ask-heading > div > strong { color: #3b2a05; }
 /* harn:end phone-first-interaction-cards */
+
+/* harn:assume compact-one-line-tool-rows ref=compact-run-row-style */
+/* R9's one line. The markup asks for a single ellipsised line and, for a command,
+   a monospace one — without these rules a shell command renders in the UI font and
+   wraps, which is the two-line row this phase exists to delete. */
+.wr-run-row-copy {
+  display: block;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wr-run-row-copy.is-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+}
+@media (max-width: 767px) {
+  .wr-run-row-button {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+}
+/* harn:end compact-one-line-tool-rows */

@@ -1,0 +1,58 @@
+id: u4-review-fix
+title: U4 review fix - the one-line row had no styles, the detail was clipped,
+  and the diffstat was duplicated
+assumptions:
+  reviewed:
+    - id: compact-one-line-tool-rows
+      outcome: unchanged
+      reason: The contract is right and unchanged. It simply was not delivered - the
+        markup asked for a monospace, single-line label but no rule defined
+        either, so a command rendered in the proportional UI font and wrapped,
+        and the browser regression only passed because every label it used was
+        short enough to fit anyway. There is also exactly one diffstat now
+        instead of two.
+    - id: phone-first-interaction-cards
+      outcome: unchanged
+      reason: The card's contract is right; the detail block inherited a left margin
+        inside a clipping ancestor, so the promise that it is never truncated
+        held only at the width the regression happened to test.
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: The presenter still emits the same normalized rows. Only the single
+        diffstat helper they share moves above them.
+anchors:
+  compact-one-line-tool-rows:
+    compact-run-row-model:
+      action: change
+      reason: Classify the tools real harnesses actually emit, share one diffstat with
+        the presenter instead of duplicating it, keep a deletion distinguishable
+        from an edit, and elide by code point rather than by UTF-16 unit.
+    compact-run-row-style:
+      action: change
+      reason: Give the row the monospace, single-line, ellipsised rule its markup has
+        been asking for.
+    compact-run-row-regression:
+      action: change
+      reason: Cover the tool names other harnesses emit, the deletion row, and a diff
+        whose content lines begin with plus or minus.
+    compact-run-row-browser-regression:
+      action: change
+      reason: Prove one line with a command long enough to wrap if it were not
+        ellipsised - the previous test could not have failed.
+  phone-first-interaction-cards:
+    phone-ask-card-style:
+      action: change
+      reason: Stop the detail block being clipped by the card, and match the card's
+        existing mobile breakpoint instead of introducing a second one.
+  normalized-run-items-presented-live:
+    normalized-run-presenter:
+      action: change
+      reason: The presenter's rows are unchanged; it now shares the single diffstat
+        rather than carrying a second copy of it.
+files:
+  - packages/web/src/run-presenter.ts
+  - packages/web/src/run-presenter.spec.ts
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+applied:
+  applied_at: 2026-07-12T11:48:50.503Z

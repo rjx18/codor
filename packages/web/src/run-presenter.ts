@@ -65,14 +65,24 @@ const toolIcon = (tool: string): RunRowIcon => {
   return 'tool';
 };
 
-const diffSummary = (diff: RunItemDiff | undefined): string | undefined => {
-  if (!diff) return undefined;
+/**
+ * The one diffstat. A unified diff's file headers are `+++ ` and `--- ` WITH the
+ * space: a content line such as `+++i;` is a real addition, not a header.
+ */
+export function diffStat(unified: string): { added: number; removed: number } {
   let added = 0;
   let removed = 0;
-  for (const line of diff.unified.split('\n')) {
-    if (line.startsWith('+') && !line.startsWith('+++')) added++;
-    if (line.startsWith('-') && !line.startsWith('---')) removed++;
+  for (const line of unified.split('\n')) {
+    if (line.startsWith('+++ ') || line.startsWith('--- ')) continue;
+    if (line.startsWith('+')) added += 1;
+    else if (line.startsWith('-')) removed += 1;
   }
+  return { added, removed };
+}
+
+const diffSummary = (diff: RunItemDiff | undefined): string | undefined => {
+  if (!diff) return undefined;
+  const { added, removed } = diffStat(diff.unified);
   return `+${String(added)} -${String(removed)}`;
 };
 
@@ -263,32 +273,34 @@ export function formatRunDuration(durationMs: number): string {
 }
 
 // harn:assume compact-one-line-tool-rows ref=compact-run-row-model
-const SHELL_TOOLS = /^(bash|sh|zsh|shell|run|exec|execute|terminal|command)$/i;
-const READ_TOOLS = /^(read|glob|grep|ls|list|search|webfetch|web_fetch|fetch|view|cat)$/i;
+/**
+ * Real harnesses do not agree on tool names: Claude Code says Bash/Read/Grep,
+ * Codex says local_shell/apply_patch, Gemini says run_shell_command/read_file.
+ * Match the way the icon mapping already does — on substrings, not exact names —
+ * or a Gemini shell command silently loses its verbatim-command row.
+ */
+const SHELL_TOOLS = /(^|_|\b)(bash|sh|zsh|shell|exec|command|terminal)(\b|_|$)/i;
+const READ_TOOLS = /(read|glob|grep|search|list_director|ls|webfetch|web_fetch|fetch|view|cat)/i;
+const DELETE_TOOLS = /(delete|remove|unlink|rm)/i;
 
-/** The row is one line; a long command is elided in the middle, never wrapped. */
+/** One line: elide the middle, and by code point so an emoji is never split. */
 export function middleEllipsis(text: string, max = 80): string {
-  if (text.length <= max) return text;
+  const glyphs = [...text];
+  if (glyphs.length <= max) return text;
   const keep = max - 1;
   const head = Math.ceil(keep / 2);
   const tail = Math.floor(keep / 2);
-  return `${text.slice(0, head)}…${text.slice(text.length - tail)}`;
-}
-
-export function diffStat(unified: string): { added: number; removed: number } {
-  let added = 0;
-  let removed = 0;
-  for (const line of unified.split('\n')) {
-    // +++/--- are the file headers, not changed lines.
-    if (line.startsWith('+') && !line.startsWith('+++')) added += 1;
-    else if (line.startsWith('-') && !line.startsWith('---')) removed += 1;
-  }
-  return { added, removed };
+  return `${glyphs.slice(0, head).join('')}…${glyphs.slice(glyphs.length - tail).join('')}`;
 }
 
 function baseName(path: string): string {
   const cleaned = path.trim().replace(/\/+$/, '');
   return cleaned.slice(cleaned.lastIndexOf('/') + 1) || cleaned;
+}
+
+/** The presenter merges the diffstat into `detail`; strip it back off for a name. */
+function detailWithoutSummary(detail: string): string {
+  return detail.replace(/\s·\s\+\d+ -\d+$/, '');
 }
 
 export interface CompactRunRow {
@@ -305,7 +317,7 @@ export interface CompactRunRow {
  */
 export function compactRunRow(row: RunRow): CompactRunRow {
   const tool = row.title;
-  const detail = row.detail?.trim() ?? '';
+  const detail = detailWithoutSummary(row.detail?.trim() ?? '');
 
   if (SHELL_TOOLS.test(tool)) {
     return { icon: 'terminal', label: middleEllipsis(detail || tool), mono: true };
@@ -313,7 +325,12 @@ export function compactRunRow(row: RunRow): CompactRunRow {
 
   if (row.diff?.unified) {
     const { added, removed } = diffStat(row.diff.unified);
-    const file = baseName(row.diff.path ?? detail ?? tool);
+    const file = baseName(row.diff.path ?? detail);
+    // A deletion is +0 −N, which is indistinguishable from an edit that removed
+    // every line. Say so, rather than making the operator open the inspector.
+    if (DELETE_TOOLS.test(tool)) {
+      return { icon: 'edit', label: `Deleted ${file}`, mono: true };
+    }
     return { icon: 'edit', label: `+${String(added)} −${String(removed)} ${file}`, mono: true };
   }
 
