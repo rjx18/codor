@@ -5912,3 +5912,24 @@ textarea.wr-composer-control {
   line-height: 1.5;
 }
 /* harn:end removing-an-agent-is-one-deliberate-step */
+
+/* harn:assume controls-fit-the-surface-they-sit-on ref=control-fits-narrow-surface */
+/* The permission control is shared by three surfaces, and a shared control gets laid out
+   for the roomiest one unless somebody says otherwise. Three columns fit a dialog and
+   burst the member card: the row measured 310px inside a 285px panel, which put FULL
+   ACCESS — of all options — sixteen pixels past the edge of the screen. An option the
+   operator cannot see is an option they cannot weigh. Inside the card, they stack. */
+.wr-member-settings .wr-policy-row {
+  grid-template-columns: 1fr;
+}
+
+.wr-member-settings .wr-agent-controls,
+.wr-member-settings .wr-button-row,
+.wr-member-settings .wr-tile-grid {
+  min-width: 0;
+}
+
+.wr-member-settings .wr-button-row {
+  flex-wrap: wrap;
+}
+/* harn:end controls-fit-the-surface-they-sit-on */

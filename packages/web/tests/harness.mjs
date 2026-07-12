@@ -38,7 +38,21 @@ const MEMBER_TOKEN = 'e2e-member-token';
 const OBSERVER_TOKEN = 'e2e-observer-token';
 
 const dir = mkdtempSync(join(tmpdir(), 'codor-e2e-'));
-const fake = new FakeAdapter('fake', { extensions: true });
+// harn:assume controls-fit-the-surface-they-sit-on ref=control-fit-regression
+// Native mode names of a REALISTIC length. With the fake adapter's short defaults the
+// permission control fits three columns in the sidebar and the clipping defect cannot
+// occur — so a regression written against them could never fail. The defect is driven by
+// a long native name in a narrow panel (claude-code's `bypassPermissions`), so the
+// fixture carries one.
+const fake = new FakeAdapter('fake', {
+  extensions: true,
+  policies: {
+    'read-only': 'plan',
+    'workspace-write': 'acceptEdits',
+    'full-access': 'bypassPermissions',
+  },
+});
+// harn:end controls-fit-the-surface-they-sit-on
 const ledger = new LedgerManager({ dataDir: dir });
 const crypto = new CryptoVault(dir);
 crypto.roomKeys.ensureRoom('eng');

@@ -1,0 +1,66 @@
+id: a5-review-fix
+title: A5 review fix - a control must fit the surface it is placed on, and the
+  option that grants full access must not be the one off the screen
+assumptions:
+  create:
+    - id: controls-fit-the-surface-they-sit-on
+      title: Every option of a control renders inside the surface holding it
+      statement: "Every option of a control must render within the bounds of the
+        surface it is placed on, at that surface's real width - not merely at
+        the width of the widest surface that happens to use it. A control shared
+        across surfaces is laid out for the roomiest one by default, and the
+        permission control proves the cost: three columns fit a dialog and burst
+        a member card, so the option that grants FULL ACCESS rendered sixteen
+        pixels beyond the edge of the operator's screen, in a panel two hundred
+        and eighty-five pixels wide holding a row three hundred and ten pixels
+        wide. An option the operator cannot see is an option they cannot weigh,
+        and this is the one control where that matters most. A regression must
+        therefore assert the fit at the NARROW surface's width - the sidebar -
+        because a test that only ever renders the control in a dialog cannot
+        fail."
+      reason: "Found in my own screenshot review of the deployed round, and ruled by
+        the reviewer to be the same clipping family as F10 and A1: the code was
+        right and the thing that makes it visible was absent."
+      depends_on:
+        - one-control-chooses-an-agent-everywhere
+  reviewed:
+    - id: member-config-is-changed-not-respawned
+      outcome: unchanged
+      reason: The member card's contract is unchanged - it configures an agent with
+        the shared control. The control simply has to fit inside it.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: The spawn dialog is unchanged. Its browser regression asserts the native
+        mode the fixture harness declares, and the fixture's names had to become
+        realistic for the clipping regression to be able to fail at all - so the
+        assertion follows the fixture.
+    - id: one-control-chooses-an-agent-everywhere
+      outcome: unchanged
+      reason: One control, three surfaces, unchanged. Being shared is exactly why its
+        layout cannot assume the widest of them.
+anchors:
+  controls-fit-the-surface-they-sit-on:
+    control-fits-narrow-surface:
+      action: change
+      reason: The permission options stack inside the member card, where three columns
+        do not fit.
+    control-fit-regression:
+      action: change
+      reason: Prove at the SIDEBAR's width that every option of the control renders
+        inside the panel - a test that only renders it in a dialog could never
+        have failed.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    spawn-dialog-browser-regression:
+      action: change
+      reason: It asserts the fixture's native mode name, which changed so that the
+        clipping regression could reproduce the defect.
+  member-config-is-changed-not-respawned:
+    member-card-settings:
+      action: change
+      reason: The settings panel's rules gain the one that makes its control fit.
+files:
+  - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/harness.mjs
+applied:
+  applied_at: 2026-07-12T17:26:32.261Z

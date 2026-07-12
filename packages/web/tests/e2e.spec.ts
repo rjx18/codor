@@ -312,7 +312,7 @@ test('spawn dialog presets canonical controls and replaces removed agents', asyn
   // The policy lives in the ONE shared control now, not a select the dialog rolled itself.
   await expect(page.getByTestId('spawn-policy-workspace-write')).toHaveAttribute('aria-pressed', 'true');
   // And it says what the level actually becomes on this harness, read from the adapter.
-  await expect(page.getByTestId('spawn-policy-full-access-native')).toHaveText('full-access');
+  await expect(page.getByTestId('spawn-policy-full-access-native')).toHaveText('bypassPermissions');
   await expect(page.getByTestId('spawn-thinking-medium')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('spawn-thinking-medium')).toBeDisabled();
   await expect(page.getByTestId('spawn-approval-hint')).toHaveCount(0);
@@ -1458,3 +1458,54 @@ test('an agent is removed in one step, after being asked to confirm', async ({ p
   await expect(page.getByTestId('member-codor')).toHaveCount(0);
 });
 // harn:end removing-an-agent-is-one-deliberate-step
+
+// harn:assume controls-fit-the-surface-they-sit-on ref=control-fit-regression
+test('every option of the agent control fits inside the sidebar that holds it', async ({ page, request }) => {
+  // The control is shared by the dialogs and the member card, and it was laid out for the
+  // dialogs: three columns, 310px, inside a 285px panel — which put FULL ACCESS, of all
+  // options, past the edge of the screen. A test that only ever rendered it in a dialog
+  // could not have caught that, so this one asserts the fit where it is TIGHTEST.
+  const room = `fit-${String(Date.now())}`;
+  const authorization = { authorization: 'Bearer e2e-token' };
+  await request.post('/api/rooms', {
+    headers: authorization,
+    data: {
+      id: room,
+      name: 'Fit',
+      cwd: process.cwd(),
+      owner: { handle: 'richard', display_name: 'Richard' },
+      starting_agent: { harness: 'fake', handle: 'codor' },
+    },
+  });
+
+  await page.setViewportSize({ width: 1440, height: 950 });
+  await page.goto(`/?room=${room}&token=e2e-token`);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  await page.getByTestId('member-codor').click();
+  await page.getByTestId('configure-codor').click();
+  await expect(page.getByTestId('settings-codor')).toBeVisible();
+
+  const report = await page.locator('.wr-member-settings').evaluate((panel) => {
+    const bounds = panel.getBoundingClientRect();
+    const options = [...panel.querySelectorAll<HTMLElement>('.wr-policy-option, .wr-button-row button')];
+    return {
+      panelRight: Math.round(bounds.right),
+      viewportRight: window.innerWidth,
+      overflowing: options
+        .map((option) => ({
+          label: (option.textContent ?? '').trim().slice(0, 24),
+          right: Math.round(option.getBoundingClientRect().right),
+        }))
+        .filter((option) => option.right > Math.round(bounds.right) + 1),
+    };
+  });
+
+  expect(report.panelRight).toBeLessThanOrEqual(report.viewportRight);
+  expect(report.overflowing, 'these options render outside the panel that holds them').toEqual([]);
+
+  // And the one that matters most is actually on the screen.
+  const fullAccess = (await page.getByTestId('settings-codor-policy-full-access').boundingBox())!;
+  expect(fullAccess.x + fullAccess.width).toBeLessThanOrEqual(1440);
+});
+// harn:end controls-fit-the-surface-they-sit-on

@@ -1,0 +1,19 @@
+id: controls-fit-the-surface-they-sit-on
+hash: a-363bde7a4193
+title: Every option of a control renders inside the surface holding it
+state: active
+statement: "Every option of a control must render within the bounds of the
+  surface it is placed on, at that surface's real width - not merely at the
+  width of the widest surface that happens to use it. A control shared across
+  surfaces is laid out for the roomiest one by default, and the permission
+  control proves the cost: three columns fit a dialog and burst a member card,
+  so the option that grants FULL ACCESS rendered sixteen pixels beyond the edge
+  of the operator's screen, in a panel two hundred and eighty-five pixels wide
+  holding a row three hundred and ten pixels wide. An option the operator cannot
+  see is an option they cannot weigh, and this is the one control where that
+  matters most. A regression must therefore assert the fit at the NARROW
+  surface's width - the sidebar - because a test that only ever renders the
+  control in a dialog cannot fail."
+depends_on:
+  - one-control-chooses-an-agent-everywhere
+created_by: a5-review-fix
