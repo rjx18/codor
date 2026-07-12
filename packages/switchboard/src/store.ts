@@ -1187,6 +1187,42 @@ export class Store {
     return rows.reverse().map(messageFromRow);
   }
 
+  // harn:assume run-evidence-search-is-bounded-and-redacted ref=bounded-run-message-listing
+  listRunMessages(
+    room: string,
+    opts: { limit?: number; author?: string } = {},
+  ): Message[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE room = ? AND kind = 'run' AND (? IS NULL OR author = ?)
+         ORDER BY id DESC LIMIT ?`,
+      )
+      .all(room, opts.author ?? null, opts.author ?? null, opts.limit ?? 50) as MessageRow[];
+    return rows.map(messageFromRow);
+  }
+  // harn:end run-evidence-search-is-bounded-and-redacted
+
+  // harn:assume member-status-is-bounded-and-identity-safe ref=bounded-live-post-listing
+  listChatMessagesByAuthorWithin(
+    room: string,
+    author: string,
+    startedTs: string,
+    endedTs: string | undefined,
+    limit = 5,
+  ): Message[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE room = ? AND author = ? AND kind = 'chat' AND ts >= ?
+           AND (? IS NULL OR ts <= ?)
+         ORDER BY id DESC LIMIT ?`,
+      )
+      .all(room, author, startedTs, endedTs ?? null, endedTs ?? null, limit) as MessageRow[];
+    return rows.map(messageFromRow);
+  }
+  // harn:end member-status-is-bounded-and-identity-safe
+
   // harn:assume search-does-not-reveal-redacted-text ref=redacted-message-search-match
   searchMessages(room: string, query: string, opts: { limit?: number } = {}): Message[] {
     const limit = opts.limit ?? 50;

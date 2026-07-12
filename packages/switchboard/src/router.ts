@@ -181,12 +181,18 @@ export interface PayloadContext {
   toHandles: string[];
   refs: ResolvedRef[];
   ledgerRefs?: { name: string; body: string }[];
+  awaitingReply?: boolean;
   /**
    * Conventions trailer, included on a member's FIRST delivery in a channel and
    * again after it misaddressed. `others` = the other parties it can tag;
    * `untaggedGoesTo` = its default reply target (the message author).
    */
-  conventions?: { others: string[]; untaggedGoesTo: string; ledger?: boolean };
+  conventions?: {
+    others: string[];
+    untaggedGoesTo: string;
+    ledger?: boolean;
+    liveInbox?: boolean;
+  };
   roster?: { handle: string; kind: Member['kind']; purpose?: string }[];
 }
 
@@ -200,11 +206,14 @@ const minuteUtc = (ts: string): string => `${ts.slice(0, 16)}Z`;
 export function composePayload(ctx: PayloadContext, you: string): string {
   const to = ctx.toHandles.map((h) => `@${h}`).join(' ');
   // harn:assume codor-delivery-header-identifies-channel ref=delivery-header-template
+  // harn:assume awaiting-reply-marker-is-delivery-context ref=awaiting-reply-header
+  const headerKind = ctx.awaitingReply ? 'chat, awaiting reply' : ctx.authorKind;
   let payload =
-    `[codor channel=${ctx.room} msg=#${ctx.message.id} from=@${ctx.authorHandle} (${ctx.authorKind})\n` +
+    `[codor channel=${ctx.room} msg=#${ctx.message.id} from=@${ctx.authorHandle} (${headerKind})\n` +
     ` to=${to} · you=@${you}]\n` +
     `\n` +
     `${ctx.message.body}\n`;
+  // harn:end awaiting-reply-marker-is-delivery-context
   // harn:end codor-delivery-header-identifies-channel
   for (const ref of ctx.refs) {
     payload +=
@@ -227,12 +236,18 @@ export function composePayload(ctx: PayloadContext, you: string): string {
     payload += ']\n';
   }
   if (ctx.conventions) {
+    // harn:assume collaboration-briefing-is-capability-aware ref=collaboration-conventions
     const tags = ctx.conventions.others.map((h) => `@${h}`).join(' / ');
     payload +=
       `\n[conventions: your reply posts to the channel. Tag ${tags} to address ` +
       `them; an untagged reply goes to @${ctx.conventions.untaggedGoesTo}. ` +
       `Reference messages as #N.${ctx.conventions.ledger ? ' Cite ledger notes as [[name]].' : ''} ` +
-      `If a message needs no substantive reply, respond with exactly <ACK_OK>.]\n`;
+      `Use codor post for interim updates and --wait when a direct reply is required; ` +
+      `on timeout, check codor status and renew while the peer is active. ` +
+      `${ctx.conventions.liveInbox ? '' : 'During long tasks, check codor inbox --new. '}` +
+      `Use codor search --runs before asking about unseen referenced context. ` +
+      `If no substantive reply is needed, respond with exactly <ACK_OK>.]\n`;
+    // harn:end collaboration-briefing-is-capability-aware
   }
   // harn:end roster-briefing-refreshes-on-membership
   return payload;

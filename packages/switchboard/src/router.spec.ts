@@ -458,8 +458,11 @@ describe('delivery payload template (byte-exact goldens)', () => {
         '\n' +
         '[conventions: your reply posts to the channel. Tag @claude / @richard to address ' +
         'them; an untagged reply goes to @richard. Reference messages as #N. ' +
-        'Cite ledger notes as [[name]]. If a message needs no substantive reply, ' +
-        'respond with exactly <ACK_OK>.]\n',
+        'Cite ledger notes as [[name]]. Use codor post for interim updates and --wait when ' +
+        'a direct reply is required; on timeout, check codor status and renew while the peer ' +
+        'is active. During long tasks, check codor inbox --new. Use codor search --runs before ' +
+        'asking about unseen referenced context. If no substantive reply is needed, respond with ' +
+        'exactly <ACK_OK>.]\n',
     );
   });
 
@@ -505,6 +508,37 @@ describe('delivery payload template (byte-exact goldens)', () => {
     expect(forCodex).toContain('draft the M4 test plan');
     expect(forClaude).toContain('Start implementation of phase 3');
   });
+
+  // harn:assume awaiting-reply-marker-is-delivery-context ref=awaiting-reply-header-regression
+  it('marks blocking chat only in the immutable delivery header', () => {
+    const payload = composePayload({
+      ...payloadCtx,
+      authorHandle: 'codex',
+      authorKind: 'agent',
+      awaitingReply: true,
+      refs: [],
+      ledgerRefs: [],
+      conventions: undefined,
+    }, 'claude');
+    expect(payload).toContain('from=@codex (chat, awaiting reply)');
+    expect(payload).not.toContain('from=@codex (agent)');
+  });
+  // harn:end awaiting-reply-marker-is-delivery-context
+
+  // harn:assume collaboration-briefing-is-capability-aware ref=collaboration-briefing-regression
+  it('omits polling only for a live-inbox adapter and retains every collaboration rule', () => {
+    const polling = composePayload(payloadCtx, 'codex');
+    const live = composePayload({
+      ...payloadCtx,
+      conventions: { ...payloadCtx.conventions, liveInbox: true },
+    }, 'codex');
+    expect(polling).toContain('codor inbox --new');
+    expect(live).not.toContain('codor inbox --new');
+    for (const phrase of ['codor post', '--wait', 'codor status', 'codor search --runs', '<ACK_OK>']) {
+      expect(live, phrase).toContain(phrase);
+    }
+  });
+  // harn:end collaboration-briefing-is-capability-aware
 });
 
 // ── brakes ──────────────────────────────────────────────────────────────

@@ -512,6 +512,25 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
   });
 
+  // harn:assume member-status-is-bounded-and-identity-safe ref=status-rest-boundary
+  app.get('/api/rooms/:room/members/:memberId/status', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room, memberId } = req.params as { room: string; memberId: string };
+    if (!authorizeRoom(
+      principal,
+      room,
+      principal.kind === 'agent' ? 'member_status' : 'read',
+      reply,
+    )) return;
+    try {
+      return reply.send(daemon.memberStatus(room, memberId));
+    } catch (error) {
+      return reply.code(404).send({ error: String(error) });
+    }
+  });
+  // harn:end member-status-is-bounded-and-identity-safe
+
   // harn:assume permalink-ids-stable ref=message-history-rest
   const positiveInteger = (
     value: string | undefined,
@@ -555,15 +574,29 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const principal = authed(req, reply);
     if (!principal) return;
     const { room } = req.params as { room: string };
-    if (!authorizeRoom(principal, room, 'read', reply)) return;
+    if (!authorizeRoom(
+      principal,
+      room,
+      principal.kind === 'agent' ? 'search' : 'read',
+      reply,
+    )) return;
     if (!daemon.store.getRoom(room)) return reply.code(404).send({ error: `no such room ${room}` });
     try {
-      const query = req.query as { q?: string; limit?: string };
+      const query = req.query as { q?: string; include?: string; limit?: string };
       const needle = query.q?.trim();
       if (!needle || needle.length > 200) throw new Error('q must contain 1 to 200 characters');
-      const limit = positiveInteger(query.limit, 50, 100, 'limit');
+      if (query.include !== undefined && query.include !== 'runs') {
+        throw new Error('include must be runs when provided');
+      }
+      const includeRuns = query.include === 'runs';
+      const limit = positiveInteger(query.limit, 50, includeRuns ? 200 : 100, 'limit');
       const messages = daemon.store.searchMessages(room, needle, { limit });
-      return reply.send({ messages: daemon.project(room, messages) });
+      // harn:assume run-evidence-search-is-bounded-and-redacted ref=run-search-rest-boundary
+      return reply.send({
+        messages: daemon.project(room, messages),
+        ...(includeRuns && { runs: daemon.searchRunEvidence(room, needle, limit) }),
+      });
+      // harn:end run-evidence-search-is-bounded-and-redacted
     } catch (error) {
       return reply.code(400).send({ error: String(error) });
     }
@@ -870,7 +903,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           } else if (frame.type === 'post') {
             const actor = assertRoomCapability(principal, frame.room, 'post');
             if (principal.kind === 'agent') {
-              daemon.postAgentMessage(frame.room, actor.id, frame.body, frame.reply_to);
+              daemon.postAgentMessage(
+                frame.room,
+                actor.id,
+                frame.body,
+                frame.reply_to,
+                frame.awaiting_reply,
+              );
             } else {
               daemon.postHumanMessage(frame.room, frame.body, {
                 author: actor.id,

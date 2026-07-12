@@ -12,16 +12,22 @@ import type {
   Delivery,
   HarnessAdapter,
   Member,
+  MemberStatusResponse,
   Message,
   PendingInteraction,
   Role,
+  RunSearchHit,
   ServerFrame,
   Session,
   WireEvent,
   CreateRoomRequest,
 } from '@codor/protocol';
 
-import { deriveRoomId } from '@codor/protocol';
+import {
+  MemberStatusResponseSchema,
+  deriveRoomId,
+  parseRunItemPayload,
+} from '@codor/protocol';
 
 import { BlobStore } from './blobs.js';
 import { validateSpawnOptions } from './adapter-registry.js';
@@ -1360,6 +1366,7 @@ export class Daemon {
     body: string,
     authorId: string,
     replyTo?: number,
+    awaitingReply = false,
   ): Message {
     const parsed = parseBody(body, this.store.listMembers(room));
     const message = this.store.postMessage(room, {
@@ -1372,7 +1379,7 @@ export class Daemon {
       reply_to: replyTo,
     });
     this.emitMessage(room, message);
-    this.routeAndFanout(room, message);
+    this.routeAndFanout(room, message, undefined, awaitingReply);
     return message;
   }
 
@@ -1384,12 +1391,24 @@ export class Daemon {
   }
 
   // harn:assume agent-network-authority-is-narrow ref=agent-interim-post-ingress
-  postAgentMessage(room: string, memberId: string, body: string, replyTo?: number): Message {
+  postAgentMessage(
+    room: string,
+    memberId: string,
+    body: string,
+    replyTo?: number,
+    awaitingReply = false,
+  ): Message {
     const author = this.store.getMember(room, memberId);
     if (!author || author.kind !== 'agent' || author.removed_ts !== undefined) {
       throw new Error(`no active agent author: ${memberId}`);
     }
-    return this.postChatMessage(room, body, memberId, replyTo);
+    // harn:assume interim-agent-posts-are-nonfinal-routing ref=interim-post-classification
+    // A latest running row makes this an interim post. It remains ordinary chat; status
+    // derives the live-turn window from timestamps instead of changing Message kind.
+    const currentRun = this.store.listRunMessages(room, { author: memberId, limit: 1 })[0];
+    if (currentRun?.run?.status === 'running') this.noteRunActivity(room, currentRun.id);
+    // harn:end interim-agent-posts-are-nonfinal-routing
+    return this.postChatMessage(room, body, memberId, replyTo, awaitingReply);
   }
   // harn:end agent-network-authority-is-narrow
 
@@ -1596,8 +1615,19 @@ export class Daemon {
     return this.store.latestFinalizedAgentAuthor(room);
   }
 
-  private routeAndFanout(room: string, message: Message, triggerAuthor?: string): void {
-    const { result, fanout } = this.planFanout(room, message, triggerAuthor);
+  private routeAndFanout(
+    room: string,
+    message: Message,
+    triggerAuthor?: string,
+    awaitingReply = false,
+  ): void {
+    const { result, fanout } = this.planFanout(
+      room,
+      message,
+      triggerAuthor,
+      undefined,
+      awaitingReply,
+    );
     if (!result.routable) return;
 
     const author = this.store.getMember(room, message.author);
@@ -1680,7 +1710,13 @@ export class Daemon {
   }
   // harn:end mirrored-deliveries-queue
 
-  private planFanout(room: string, message: Message, triggerAuthor?: string, agentHop?: number) {
+  private planFanout(
+    room: string,
+    message: Message,
+    triggerAuthor?: string,
+    agentHop?: number,
+    awaitingReply = false,
+  ) {
     const members = this.store.listMembers(room);
     const author = members.find((m) => m.id === message.author);
     const result = resolveRecipients(message, {
@@ -1697,7 +1733,7 @@ export class Daemon {
       ...result.agents.map((agent) => ({
         recipient: agent.id,
         state: 'queued' as const,
-        payload_snapshot: this.snapshotPayload(room, message, agent, recipients),
+        payload_snapshot: this.snapshotPayload(room, message, agent, recipients, awaitingReply),
         hop_count: agentHop ?? (author?.kind === 'agent' ? 1 : 0),
       })),
     ];
@@ -1705,7 +1741,13 @@ export class Daemon {
   }
 
   // harn:assume delivery-payload-snapshotted ref=daemon-payload-snapshot
-  private snapshotPayload(room: string, message: Message, recipient: Member, recipients: Member[]): string {
+  private snapshotPayload(
+    room: string,
+    message: Message,
+    recipient: Member,
+    recipients: Member[],
+    awaitingReply = false,
+  ): string {
     const author = this.store.getMember(room, message.author)!;
     const recipientIds = new Set(recipients.map((member) => member.id));
     const toHandles = [
@@ -1736,6 +1778,9 @@ export class Daemon {
         toHandles,
         refs,
         ledgerRefs,
+        // harn:assume awaiting-reply-marker-is-delivery-context ref=awaiting-reply-snapshot
+        ...(awaitingReply && { awaitingReply: true }),
+        // harn:end awaiting-reply-marker-is-delivery-context
       },
       you: recipient.handle,
     };
@@ -1920,6 +1965,11 @@ export class Daemon {
         this.noteRunActivity(room, runMsg.id);
         let journalEvent = event;
         if (event.type === 'run.item') {
+          // harn:assume member-status-is-bounded-and-identity-safe ref=run-item-journal-timestamp
+          if (event.item_type === 'tool_call' || event.item_type === 'tool_result') {
+            journalEvent = { ...event, ts: new Date().toISOString() };
+          }
+          // harn:end member-status-is-bounded-and-identity-safe
           if (event.item_type === 'tool_call') toolCalls++;
           const description = extensionDescription(event);
           if (description !== undefined) pendingExtensionDescriptions.push(description);
@@ -1940,7 +1990,12 @@ export class Daemon {
           journalEvent.type === 'extension.started' ||
           journalEvent.type === 'extension.ended'
         ) {
-          this.emit(room, { type: 'run_event', room, message_id: runMsg.id, event: journalEvent });
+          this.emit(room, {
+            type: 'run_event',
+            room,
+            message_id: runMsg.id,
+            event: event.type === 'run.item' ? event : journalEvent,
+          });
         }
         if (event.type === 'ask.raised' || event.type === 'approval.raised') {
           this.handleInteractionRaised(room, member, event.card, event.type === 'ask.raised' ? 'ask' : 'approval');
@@ -2011,6 +2066,10 @@ export class Daemon {
               ],
               untaggedGoesTo: snapshot.context.authorHandle,
               ledger: this.ledger?.isEnabled(room) ?? false,
+              // harn:assume collaboration-briefing-is-capability-aware ref=collaboration-capability-context
+              liveInbox: fresh.harness !== undefined &&
+                this.adapters.get(fresh.harness)?.capabilities.live_inbox === true,
+              // harn:end collaboration-briefing-is-capability-aware
             }
           : undefined,
       };
@@ -2579,6 +2638,121 @@ export class Daemon {
     );
   }
   // harn:end live-delivery-consumption-is-idempotent
+
+  // harn:assume member-status-is-bounded-and-identity-safe ref=status-aggregation
+  memberStatus(room: string, memberId: string, now = new Date()): MemberStatusResponse {
+    const member = this.store.getMember(room, memberId);
+    if (!member || member.removed_ts !== undefined) throw new Error(`no such member: ${memberId}`);
+    const latestRun = this.store.listRunMessages(room, { author: memberId, limit: 1 })[0];
+    const currentRun = latestRun?.run?.status === 'running' ? latestRun : undefined;
+    const resultByCall = new Map<string, { status: 'ok' | 'error'; duration_ms?: number }>();
+    const events = latestRun ? this.readRunBlob(room, latestRun.id) : [];
+    for (const event of events) {
+      if (event.type !== 'run.item' || event.item_type !== 'tool_result') continue;
+      const parsed = parseRunItemPayload('tool_result', event.payload);
+      if (!parsed.success) continue;
+      resultByCall.set(parsed.data.call_id, {
+        status: parsed.data.status,
+        ...(parsed.data.duration_ms !== undefined && { duration_ms: parsed.data.duration_ms }),
+      });
+    }
+    const recent: MemberStatusResponse['recent'] = [];
+    let observedToolCalls = 0;
+    if (latestRun?.run) {
+      for (const event of events) {
+        if (event.type !== 'run.item' || event.item_type !== 'tool_call') continue;
+        const parsed = parseRunItemPayload('tool_call', event.payload);
+        if (!parsed.success) continue;
+        observedToolCalls++;
+        const result = resultByCall.get(parsed.data.call_id);
+        recent.push({
+          kind: 'tool',
+          title: parsed.data.title.slice(0, 500),
+          ...(result?.status !== undefined && { status: result.status }),
+          ...(result?.duration_ms !== undefined && { duration_ms: result.duration_ms }),
+          ts: event.ts ?? latestRun.run.started_ts,
+        });
+      }
+      for (const post of this.store.listChatMessagesByAuthorWithin(
+        room,
+        memberId,
+        latestRun.run.started_ts,
+        latestRun.run.ended_ts,
+        5,
+      )) {
+        recent.push({ kind: 'post', title: post.body.slice(0, 500), ts: post.ts });
+      }
+    }
+    recent.sort((left, right) => Date.parse(right.ts) - Date.parse(left.ts));
+    const waiting = this.memberWaits.get(memberId);
+    const response: MemberStatusResponse = {
+      member: {
+        handle: member.handle,
+        state: member.state ?? 'idle',
+        ...(waiting && {
+          waiting: {
+            peers: waiting.peers
+              .map((peerId) => this.store.getMember(room, peerId)?.handle)
+              .filter((handle): handle is string => handle !== undefined),
+            reason: waiting.reason,
+            since_ts: waiting.since_ts,
+            until_ts: waiting.until_ts,
+          },
+        }),
+      },
+      ...(currentRun?.run && {
+        current_run: {
+          message_id: currentRun.id,
+          started_ts: currentRun.run.started_ts,
+          elapsed_ms: Math.max(0, now.getTime() - Date.parse(currentRun.run.started_ts)),
+          tool_calls: Math.max(currentRun.run.tool_calls, observedToolCalls),
+        },
+      }),
+      recent: recent.slice(0, 5),
+    };
+    return MemberStatusResponseSchema.parse(this.project(room, response));
+  }
+  // harn:end member-status-is-bounded-and-identity-safe
+
+  // harn:assume run-evidence-search-is-bounded-and-redacted ref=bounded-run-evidence-scan
+  searchRunEvidence(room: string, query: string, scanLimit = 50): RunSearchHit[] {
+    if (!Number.isSafeInteger(scanLimit) || scanLimit < 1 || scanLimit > 200) {
+      throw new Error('run search limit must be an integer from 1 to 200');
+    }
+    const needle = query.toLowerCase();
+    const hits: RunSearchHit[] = [];
+    const excerpt = (value: string): string => {
+      const text = value.replace(/\s+/g, ' ').trim();
+      const match = text.toLowerCase().indexOf(needle);
+      const start = Math.max(0, match - 80);
+      return text.slice(start, start + 240);
+    };
+    for (const run of this.store.listRunMessages(room, { limit: scanLimit })) {
+      const events = this.readRunBlob(room, run.id);
+      for (let itemIndex = 0; itemIndex < events.length; itemIndex++) {
+        const event = events[itemIndex]!;
+        if (event.type !== 'run.item') continue;
+        let value: string | undefined;
+        if (event.item_type === 'tool_call') {
+          const parsed = parseRunItemPayload('tool_call', event.payload);
+          if (parsed.success) value = parsed.data.title;
+        } else if (event.item_type === 'tool_result') {
+          const parsed = parseRunItemPayload('tool_result', event.payload);
+          if (parsed.success) value = parsed.data.output_text;
+        }
+        if (value === undefined || !value.toLowerCase().includes(needle)) continue;
+        hits.push({
+          message_id: run.id,
+          item_index: itemIndex,
+          kind: event.item_type as 'tool_call' | 'tool_result',
+          excerpt: excerpt(value),
+        });
+        if (hits.length === scanLimit) return hits;
+      }
+    }
+    return hits;
+  }
+  // harn:end run-evidence-search-is-bounded-and-redacted
 
   unreadCount(room: string, memberId: string): number {
     return this.store

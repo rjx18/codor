@@ -269,6 +269,60 @@ describe('message history and search', () => {
     ]);
   });
 
+  // harn:assume run-evidence-search-is-bounded-and-redacted ref=run-list-bound-regression
+  it('selects newest runs directly despite newer chat volume and filters by author', () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'alpha', display_name: 'Alpha', state: 'idle',
+    });
+    const beta = store.addMember('eng', {
+      kind: 'agent', handle: 'beta', display_name: 'Beta', state: 'idle',
+    });
+    const run = (author: string, label: string) => store.postMessage('eng', {
+      author,
+      kind: 'run',
+      body: label,
+      run: {
+        status: 'completed', started_ts: '2026-07-10T07:00:00.000Z',
+        ended_ts: '2026-07-10T07:01:00.000Z', tool_calls: 0,
+        events_ref: `runs/${label}.jsonl`, final_text: label,
+      },
+    });
+    const first = run(alpha.id, 'alpha-old');
+    const middle = run(beta.id, 'beta');
+    const newest = run(alpha.id, 'alpha-new');
+    for (let index = 0; index < 20; index++) {
+      store.postMessage('eng', { author: owner.id, kind: 'chat', body: `newer chat ${index}` });
+    }
+
+    expect(store.listRunMessages('eng', { limit: 2 }).map((item) => item.id))
+      .toEqual([newest.id, middle.id]);
+    expect(store.listRunMessages('eng', { author: alpha.id, limit: 2 }).map((item) => item.id))
+      .toEqual([newest.id, first.id]);
+  });
+  // harn:end run-evidence-search-is-bounded-and-redacted
+
+  // harn:assume member-status-is-bounded-and-identity-safe ref=status-store-regression
+  it('selects only newest chat actions for one author inside the run time window', () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'alpha', display_name: 'Alpha', state: 'running',
+    });
+    store.postMessage('eng', { author: alpha.id, kind: 'chat', body: 'alpha one' });
+    store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'owner noise' });
+    store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+    store.postMessage('eng', { author: alpha.id, kind: 'chat', body: 'alpha two' });
+    store.postMessage('eng', { author: alpha.id, kind: 'chat', body: 'alpha three' });
+
+    expect(store.listChatMessagesByAuthorWithin(
+      'eng', alpha.id, '2000-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z', 2,
+    ).map((item) => item.body)).toEqual(['alpha three', 'alpha two']);
+    expect(store.listChatMessagesByAuthorWithin(
+      'eng', alpha.id, '2100-01-01T00:00:00.000Z', undefined, 5,
+    )).toEqual([]);
+  });
+  // harn:end member-status-is-bounded-and-identity-safe
+
   it('searches only the selected room and treats LIKE wildcards literally', () => {
     const { owner } = openRoom(store);
     const ops = store.createRoom({

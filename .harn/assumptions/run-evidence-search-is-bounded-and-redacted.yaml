@@ -1,0 +1,13 @@
+id: run-evidence-search-is-bounded-and-redacted
+hash: a-f77c208fc231
+title: Run evidence search scans a bounded projected window
+state: active
+statement: Search with include=runs must inspect only the newest requested run
+  window, default 50 and capped at 200, match only projected tool-call titles
+  and tool-result output text, return bounded excerpts with message and item
+  positions, and never reveal that a query exists only in raw redacted evidence.
+depends_on:
+  - search-does-not-reveal-redacted-text
+  - redaction-before-fanout
+  - run-blobs-off-db
+created_by: lc2c-live-observability

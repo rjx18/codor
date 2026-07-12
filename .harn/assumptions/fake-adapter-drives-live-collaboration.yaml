@@ -1,0 +1,12 @@
+id: fake-adapter-drives-live-collaboration
+hash: a-74027ca86c80
+title: Fake turns can deterministically post and wait while still running
+state: active
+statement: A scripted FakeAdapter completion may execute ordered interim_post
+  and wait steps through an injected handler before it completes; the browser
+  harness must translate that vocabulary into member-attributed daemon post and
+  transient wait operations using only fake turns and no paid model calls.
+depends_on:
+  - interim-agent-posts-are-nonfinal-routing
+  - live-agent-waits-are-transient
+created_by: lc2c-live-observability

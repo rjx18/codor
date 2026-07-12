@@ -1,0 +1,342 @@
+id: lc2c-live-observability
+title: LC2c - bounded live status and run search plus honest interim
+  collaboration context
+assumptions:
+  create:
+    - id: member-status-is-bounded-and-identity-safe
+      title: Member status exposes only bounded projected live work
+      statement: The member status response must contain the requested member's
+        handle, state, handle-resolved wait metadata, an optional summary of its
+        current run, and at most five newest tool or live-turn post actions from
+        only its latest run window. Tool evidence must carry a journal timestamp
+        and may expose title, result status, and duration but never raw
+        payloads, member ids, session values, or credentials; the whole response
+        passes through the room redaction projection.
+      reason: L6 gives humans and room-scoped agents enough evidence to renew a wait
+        without turning status into a transcript or identity exfiltration
+        endpoint.
+      depends_on:
+        - redaction-before-fanout
+        - live-agent-waits-are-transient
+        - agent-network-authority-is-narrow
+        - run-blobs-off-db
+    - id: run-evidence-search-is-bounded-and-redacted
+      title: Run evidence search scans a bounded projected window
+      statement: Search with include=runs must inspect only the newest requested run
+        window, default 50 and capped at 200, match only projected tool-call
+        titles and tool-result output text, return bounded excerpts with message
+        and item positions, and never reveal that a query exists only in raw
+        redacted evidence.
+      reason: L7 extends transcript search without a new index or a secret-existence
+        oracle, so the linear blob scan needs both a hard work bound and serving
+        projection.
+      depends_on:
+        - search-does-not-reveal-redacted-text
+        - redaction-before-fanout
+        - run-blobs-off-db
+    - id: interim-agent-posts-are-nonfinal-routing
+      title: A live agent post routes as chat without becoming turn completion
+      statement: A post authored while that agent has a running turn must remain an
+        ordinary routed chat message, while the running placeholder remains
+        live; it must not become a finalized run, change the
+        latest-finalized-agent fallback, or inherit acknowledgement semantics.
+        Posts outside a live turn remain ordinary agent chat.
+      reason: L8 and E1-E3 allow coordination inside a turn without corrupting the
+        one-run-message lifecycle or the established untagged recipient chain.
+      depends_on:
+        - substantive-routing-excludes-acknowledgements
+        - default-recipient-fallback-chain
+        - agent-network-authority-is-narrow
+    - id: awaiting-reply-marker-is-delivery-context
+      title: Blocking-post intent travels in the immutable delivery header
+      statement: An agent post may declare awaiting-reply intent on the client frame;
+        the intent must be accepted only as post metadata, persisted inside each
+        routed payload snapshot, and render the recipient header as chat
+        awaiting reply without changing message kind, routing, or turn
+        finalization.
+      reason: E6 needs the recipient to know a direct response is blocking the sender,
+        and delayed or retried delivery must retain that fact.
+      depends_on:
+        - delivery-payload-snapshotted
+        - codor-delivery-header-identifies-channel
+        - interim-agent-posts-are-nonfinal-routing
+    - id: collaboration-briefing-is-capability-aware
+      title: The conventions trailer teaches live collaboration without lying about
+        hooks
+      statement: A first-turn conventions trailer must tersely cover interim and
+        blocking posts, wait timeout status renewal, unseen-context run search,
+        and exact ACK_OK; only a member whose adapter lacks live_inbox may be
+        told to poll its inbox during a long task.
+      reason: L10 makes the new primitives usable while avoiding an inbox instruction
+        for adapters that will receive live delivery automatically.
+      depends_on:
+        - roster-briefing-refreshes-on-membership
+    - id: fake-adapter-drives-live-collaboration
+      title: Fake turns can deterministically post and wait while still running
+      statement: A scripted FakeAdapter completion may execute ordered interim_post
+        and wait steps through an injected handler before it completes; the
+        browser harness must translate that vocabulary into member-attributed
+        daemon post and transient wait operations using only fake turns and no
+        paid model calls.
+      reason: LC2 supplies deterministic mid-turn fixtures that LC5 and LC6 can drive
+        at the real switchboard and browser boundaries.
+      depends_on:
+        - interim-agent-posts-are-nonfinal-routing
+        - live-agent-waits-are-transient
+  reviewed:
+    - id: search-does-not-reveal-redacted-text
+      outcome: unchanged
+      reason: Message matching keeps its existing projected/raw opt-out behavior; run
+        evidence adds a sibling projected matcher rather than weakening Store
+        search.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Status, run hits, and awaiting-reply payloads are passed through the
+        same daemon projection already used by REST and socket serving surfaces.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: Interim posts are chat, never run completion or ack; the finalized-run
+        eligibility and exact ACK_OK exclusions remain unchanged and are
+        regression tested.
+    - id: default-recipient-fallback-chain
+      outcome: unchanged
+      reason: The durable latest-finalized query remains run-only and ack-excluding,
+        so an interim chat cannot become the human untagged fallback.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: Awaiting-reply intent becomes part of the existing immutable JSON
+        snapshot and therefore survives delay, retry, and rename exactly like
+        the message context.
+    - id: codor-delivery-header-identifies-channel
+      outcome: unchanged
+      reason: The same channel/message/from header gains only the specified chat
+        qualifier.
+    - id: roster-briefing-refreshes-on-membership
+      outcome: unchanged
+      reason: The trailer still follows first-delivery and stale-roster bookkeeping;
+        only its concise collaboration instructions and capability conditional
+        are extended.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Status and run search use existing read/search authority in the agent's
+        own room; interim posts remain self-attributed and awaiting_reply grants
+        no capability.
+    - id: run-blobs-off-db
+      outcome: unchanged
+      reason: Tool timestamps are journal metadata and both observability paths
+        continue reading JSONL pointers rather than introducing event columns or
+        tables.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Run search returns the same permanent room-local message ids and does
+        not alter paging, allocation, or permalink lookup.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: The shared post frame and REST observability handlers behave identically
+        on the listener regardless of network or Unix transport.
+    - id: agent-model-and-thinking-are-durable
+      outcome: unchanged
+      reason: The shared daemon FakeAdapter fixture gains an optional live-step
+        handler; durable model and thinking regressions keep exercising
+        unchanged rebuild and delivery controls and remain green.
+anchors:
+  member-status-is-bounded-and-identity-safe:
+    observability-status-contract:
+      action: change
+      reason: Define the exact identity-safe status response and recent action shapes.
+    run-item-journal-timestamp-contract:
+      action: change
+      reason: Add an optional top-level run-item timestamp for old-journal
+        compatibility.
+    run-item-journal-timestamp:
+      action: change
+      reason: Stamp normalized items at the daemon journal boundary.
+    status-aggregation:
+      action: change
+      reason: Resolve handles, current run, latest-run tools, live-turn posts, and the
+        five-item cap.
+    bounded-live-post-listing:
+      action: change
+      reason: Select only the latest agent chat actions inside the latest run time
+        window.
+    status-rest-boundary:
+      action: change
+      reason: Authorize room read and return 404 for an unknown member.
+    status-protocol-regression:
+      action: change
+      reason: Round-trip the bounded response and reject raw or identity-bearing
+        fields.
+    status-daemon-regression:
+      action: change
+      reason: Prove latest-run windowing, tool/result pairing, post merging, wait
+        handles, cap, and redaction.
+    status-store-regression:
+      action: change
+      reason: Prove author, time-window, kind, newest-first, and limit predicates in
+        SQL.
+    status-server-regression:
+      action: change
+      reason: Prove human and same-room agent access, other-room denial, exact shape,
+        and unknown-member error.
+  run-evidence-search-is-bounded-and-redacted:
+    run-search-contract:
+      action: change
+      reason: Define positioned tool-call and tool-result search hits.
+    bounded-run-evidence-scan:
+      action: change
+      reason: Scan projected newest runs with default and hard caps and bounded
+        excerpts.
+    bounded-run-message-listing:
+      action: change
+      reason: Select the newest run rows directly with an optional author and SQL
+        limit.
+    run-search-rest-boundary:
+      action: change
+      reason: Parse include=runs and a limit up to 200 while preserving message-only
+        search.
+    run-search-protocol-regression:
+      action: change
+      reason: Round-trip exact hits and reject unbounded excerpts or unknown kinds.
+    run-search-daemon-regression:
+      action: change
+      reason: Prove fields, ordering, bounds, title/output matching, and raw-secret
+        non-disclosure.
+    run-list-bound-regression:
+      action: change
+      reason: Prove run selection ignores newer chat volume and respects author and
+        limit.
+    run-search-server-regression:
+      action: change
+      reason: Prove REST query validation, projected hits, agent room scope, and
+        message compatibility.
+  interim-agent-posts-are-nonfinal-routing:
+    interim-post-classification:
+      action: change
+      reason: Preserve self attribution while identifying the running turn window for
+        status.
+    interim-post-regression:
+      action: change
+      reason: Prove the placeholder stays running, direct routing works, and
+        latest-finalized/default/ack behavior is unchanged.
+    substantive-run-eligibility:
+      action: keep
+      reason: Chat posts must not widen or alter finalized-run and acknowledgement
+        eligibility.
+  awaiting-reply-marker-is-delivery-context:
+    awaiting-reply-post-contract:
+      action: change
+      reason: Add the optional intent bit to the post client frame.
+    awaiting-reply-snapshot:
+      action: change
+      reason: Carry intent from self-attributed post dispatch into each immutable
+        payload snapshot.
+    awaiting-reply-header:
+      action: change
+      reason: Render chat awaiting reply in the payload header only when declared.
+    awaiting-reply-protocol-regression:
+      action: change
+      reason: Prove additive true/absent frame parsing and reject non-booleans.
+    awaiting-reply-daemon-regression:
+      action: change
+      reason: Prove a scripted live post retains intent in delayed delivery without
+        changing the chat message or running turn.
+    awaiting-reply-header-regression:
+      action: change
+      reason: Prove only declared blocking chat receives the exact payload qualifier.
+    awaiting-reply-server-regression:
+      action: change
+      reason: Prove the real member-credential post frame reaches the immutable
+        payload snapshot while an ordinary post remains unmarked.
+  collaboration-briefing-is-capability-aware:
+    collaboration-conventions:
+      action: change
+      reason: Append the tight L10 instructions with a live_inbox conditional.
+    collaboration-capability-context:
+      action: change
+      reason: Supply the recipient adapter capability when materializing conventions.
+    collaboration-briefing-regression:
+      action: change
+      reason: Pin both live-inbox and polling trailer variants plus ACK continuity.
+  fake-adapter-drives-live-collaboration:
+    fake-live-step-vocabulary:
+      action: change
+      reason: Execute ordered interim_post and wait descriptors through an injected
+        handler.
+    harness-live-step-bridge:
+      action: change
+      reason: Resolve session env and peer handles into daemon operations for browser
+        fixtures.
+    fake-live-step-regression:
+      action: change
+      reason: Drive both steps inside a still-running fake turn and prove their
+        observable effects.
+  search-does-not-reveal-redacted-text:
+    redacted-message-search-match:
+      action: keep
+      reason: Existing message search matching is not rewritten by the run evidence
+        sibling.
+  default-recipient-fallback-chain:
+    substantive-default-recipient:
+      action: keep
+      reason: The run-only latest-finalized query and pure fallback resolver must
+        remain unchanged.
+  delivery-payload-snapshotted:
+    daemon-payload-snapshot:
+      action: change
+      reason: Persist awaiting-reply intent with the routed context.
+  codor-delivery-header-identifies-channel:
+    delivery-header-template:
+      action: change
+      reason: Add only the awaiting-reply qualifier to the existing header kind.
+  roster-briefing-refreshes-on-membership:
+    roster-payload-block:
+      action: change
+      reason: Extend conventions without changing roster emission or stale bookkeeping.
+  agent-network-authority-is-narrow:
+    agent-interim-post-ingress:
+      action: change
+      reason: Accept the harmless awaiting-reply option only on the authenticated
+        agent's own post.
+    agent-room-authorization:
+      action: change
+      reason: Reuse scoped read/search checks for the two REST observability surfaces.
+  run-blobs-off-db:
+    store-schema-no-blobs:
+      action: keep
+      reason: No observability event data may enter SQLite.
+  permalink-ids-stable:
+    message-history-search:
+      action: change
+      reason: Add a run-only bounded query beside existing stable history and search
+        helpers.
+    message-history-rest:
+      action: change
+      reason: Extend the adjacent search handler without changing permanent ids or
+        history paging.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Shared post dispatch forwards awaiting-reply intent on both transports.
+  agent-model-and-thinking-are-durable:
+    durable-agent-config-regression:
+      action: change
+      reason: The shared fake fixture supplies a dormant live-step handler while the
+        existing durable configuration cases verify the same behavior.
+files:
+  - packages/protocol/src/events.ts
+  - packages/protocol/src/observability.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/index.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/switchboard/src/router.ts
+  - packages/switchboard/src/router.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/web/tests/harness.mjs
+applied:
+  applied_at: 2026-07-12T19:50:05.488Z

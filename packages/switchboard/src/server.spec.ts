@@ -809,6 +809,118 @@ describe('REST', () => {
     expect(await projectedSearch.json()).toMatchObject({ messages: [{ id: 2 }] });
   });
 
+  // harn:assume run-evidence-search-is-bounded-and-redacted ref=run-search-server-regression
+  it('adds bounded projected run hits without changing message-only search', async () => {
+    const { agent: alpha, token: agentToken } = spawnAgentWithToken('search-agent');
+    const message = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id, kind: 'chat', body: 'needle in the timeline',
+    });
+    const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: 'done' });
+    const run = daemon.store.updateMessage('eng', posted.id, {
+      run: {
+        status: 'completed', started_ts: '2026-07-10T07:00:00.000Z',
+        ended_ts: '2026-07-10T07:01:00.000Z', tool_calls: 1,
+        events_ref: `runs/${String(posted.id)}.jsonl`, final_text: 'done',
+      },
+    });
+    daemon.blobs.append('eng', run.run!.events_ref, {
+      type: 'run.item', item_type: 'tool_call',
+      payload: { call_id: 'search-call', tool: 'Bash', title: 'needle AKIAIOSFODNN7EXAMPLE' },
+    });
+    daemon.blobs.append('eng', run.run!.events_ref, {
+      type: 'run.item', item_type: 'tool_result',
+      payload: { call_id: 'search-call', status: 'ok', output_text: 'needle output' },
+    });
+
+    const headers = { authorization: `Bearer ${agentToken}` };
+    const response = await fetch(`${base}/api/rooms/eng/search?q=needle&include=runs&limit=50`, {
+      headers,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      messages: [{ id: message.id }],
+      runs: [
+        { message_id: run.id, item_index: 0, kind: 'tool_call', excerpt: expect.stringContaining('[redacted]') },
+        { message_id: run.id, item_index: 1, kind: 'tool_result', excerpt: 'needle output' },
+      ],
+    });
+    const rawSecret = await fetch(
+      `${base}/api/rooms/eng/search?q=AKIAIOSFODNN7EXAMPLE&include=runs`,
+      { headers },
+    );
+    expect(await rawSecret.json()).toMatchObject({ runs: [] });
+    const messagesOnly = await fetch(`${base}/api/rooms/eng/search?q=needle`, { headers });
+    expect(await messagesOnly.json()).not.toHaveProperty('runs');
+    expect((await fetch(`${base}/api/rooms/eng/search?q=x&include=tools`, { headers })).status)
+      .toBe(400);
+    expect((await fetch(`${base}/api/rooms/eng/search?q=x&include=runs&limit=201`, { headers })).status)
+      .toBe(400);
+
+    daemon.createRoom({
+      id: 'search-other', name: 'Search Other',
+      owner: { handle: 'other-owner', display_name: 'Other Owner' },
+    });
+    expect((await fetch(`${base}/api/rooms/search-other/search?q=needle&include=runs`, { headers })).status)
+      .toBe(403);
+  });
+  // harn:end run-evidence-search-is-bounded-and-redacted
+
+  // harn:assume member-status-is-bounded-and-identity-safe ref=status-server-regression
+  it('serves identity-safe status to readers and only same-room agent credentials', async () => {
+    const { agent: alpha, token: agentToken } = spawnAgentWithToken('status-agent');
+    const beta = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'status-peer', cwd: testCwd('status-peer'),
+    });
+    const now = new Date();
+    daemon.store.updateMember('eng', alpha.id, { state: 'running' });
+    const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+    const run = daemon.store.updateMessage('eng', posted.id, {
+      run: {
+        status: 'running', started_ts: new Date(now.getTime() - 1_000).toISOString(),
+        tool_calls: 1, events_ref: `runs/${String(posted.id)}.jsonl`,
+      },
+    });
+    daemon.blobs.append('eng', run.run!.events_ref, {
+      type: 'run.item', item_type: 'tool_call', ts: now.toISOString(),
+      payload: { call_id: 'status-call', tool: 'Bash', title: 'Check AKIAIOSFODNN7EXAMPLE' },
+    });
+    daemon.beginWait('eng', alpha.id, {
+      reason: 'reply', peers: [beta.id], until_ts: new Date(now.getTime() + 60_000).toISOString(),
+    }, now);
+
+    const path = `/api/rooms/eng/members/${alpha.id}/status`;
+    const observerResponse = await fetch(`${base}${path}`, {
+      headers: { authorization: `Bearer ${OBSERVER_TOKEN}` },
+    });
+    expect(observerResponse.status).toBe(200);
+    const status = await observerResponse.json();
+    expect(status).toMatchObject({
+      member: { handle: 'status-agent', state: 'running', waiting: { peers: ['status-peer'] } },
+      current_run: { message_id: run.id, tool_calls: 1 },
+      recent: [{ kind: 'tool', title: expect.stringContaining('[redacted]') }],
+    });
+    expect(JSON.stringify(status)).not.toContain(alpha.id);
+    expect(JSON.stringify(status)).not.toContain(beta.id);
+    expect(JSON.stringify(status)).not.toContain('AKIAIOSFODNN7EXAMPLE');
+
+    expect((await fetch(`${base}${path}`, {
+      headers: { authorization: `Bearer ${agentToken}` },
+    })).status).toBe(200);
+    expect((await fetch(`${base}/api/rooms/eng/members/01ARZ3NDEKTSV4RRFFQ69G5FAV/status`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    })).status).toBe(404);
+    daemon.createRoom({
+      id: 'status-other', name: 'Status Other',
+      owner: { handle: 'status-owner', display_name: 'Status Owner' },
+    });
+    const otherOwner = daemon.ownerOf('status-other');
+    expect((await fetch(`${base}/api/rooms/status-other/members/${otherOwner.id}/status`, {
+      headers: { authorization: `Bearer ${agentToken}` },
+    })).status).toBe(403);
+    daemon.endWait('eng', alpha.id);
+  });
+  // harn:end member-status-is-bounded-and-identity-safe
+
   it('validates history and search parameters and missing rooms', async () => {
     const auth = { authorization: `Bearer ${TOKEN}` };
     expect((await fetch(`${base}/api/rooms/eng/messages?limit=0`, { headers: auth })).status).toBe(400);
@@ -1193,6 +1305,42 @@ describe('WebSocket', () => {
     expect(daemon.store.getAttachLease(lease.id)).toBeDefined();
     expect(daemon.store.getMember('ops', agent.id)).toMatchObject({ custody: 'mirrored' });
   });
+
+  // harn:assume awaiting-reply-marker-is-delivery-context ref=awaiting-reply-server-regression
+  it('carries member post wait intent through the real socket into only that delivery snapshot', async () => {
+    const { agent: alpha, token } = spawnAgentWithToken('posting-alpha');
+    const beta = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'posting-beta', cwd: testCwd('posting-beta'),
+    });
+    daemon.pauseMember('eng', beta.id);
+    const client = await connectAs(token);
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+
+    client.ws.send(JSON.stringify({
+      type: 'post', room: 'eng', body: '@posting-beta blocking question', awaiting_reply: true,
+    }));
+    const blocking = await client.next((frame) =>
+      frame.type === 'message' && frame.message.author === alpha.id && frame.message.body.includes('blocking'));
+    const blockingId = blocking.type === 'message' ? blocking.message.id : 0;
+    const blockingDelivery = daemon.store.listDeliveries('eng', { recipient: beta.id })
+      .find((delivery) => delivery.message_id === blockingId)!;
+    expect(JSON.parse(daemon.store.getDeliveryPayloadSnapshot('eng', blockingDelivery.id)!))
+      .toMatchObject({ context: { awaitingReply: true } });
+
+    client.ws.send(JSON.stringify({
+      type: 'post', room: 'eng', body: '@posting-beta ordinary update',
+    }));
+    const ordinary = await client.next((frame) =>
+      frame.type === 'message' && frame.message.author === alpha.id && frame.message.body.includes('ordinary'));
+    const ordinaryId = ordinary.type === 'message' ? ordinary.message.id : 0;
+    const ordinaryDelivery = daemon.store.listDeliveries('eng', { recipient: beta.id })
+      .find((delivery) => delivery.message_id === ordinaryId)!;
+    expect(JSON.parse(daemon.store.getDeliveryPayloadSnapshot('eng', ordinaryDelivery.id)!))
+      .not.toHaveProperty('context.awaitingReply');
+    client.ws.close();
+  });
+  // harn:end awaiting-reply-marker-is-delivery-context
 
   // harn:assume live-delivery-consumption-is-idempotent ref=consumption-server-regression
   it('lets an agent consume only its own queued delivery and returns a projected source message', async () => {

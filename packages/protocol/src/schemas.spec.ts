@@ -11,6 +11,7 @@ import {
   deriveRoomId,
   FileChangePayloadSchema,
   HandleSchema,
+  MemberStatusResponseSchema,
   MemberSchema,
   MentionSpanSchema,
   MessageSchema,
@@ -22,6 +23,7 @@ import {
   RoomConfigSchema,
   RoomMeterSchema,
   RoomSchema,
+  RunSearchHitSchema,
   ServerFrameSchema,
   TextDeltaPayloadSchema,
   ThinkingLevelSchema,
@@ -818,6 +820,92 @@ describe('live wait acts', () => {
   });
 });
 // harn:end live-agent-waits-are-transient
+
+// harn:assume awaiting-reply-marker-is-delivery-context ref=awaiting-reply-protocol-regression
+describe('awaiting-reply post intent', () => {
+  it('is additive on a post frame and remains absent for ordinary posts', () => {
+    expect(ClientFrameSchema.parse({
+      type: 'post', room: 'eng', body: '@tester check this', awaiting_reply: true,
+    })).toMatchObject({ type: 'post', awaiting_reply: true });
+    expect(ClientFrameSchema.parse({ type: 'post', room: 'eng', body: 'progress' }))
+      .not.toHaveProperty('awaiting_reply');
+  });
+
+  it('rejects a non-boolean marker', () => {
+    expect(ClientFrameSchema.safeParse({
+      type: 'post', room: 'eng', body: 'progress', awaiting_reply: 'yes',
+    }).success).toBe(false);
+  });
+});
+// harn:end awaiting-reply-marker-is-delivery-context
+
+// harn:assume member-status-is-bounded-and-identity-safe ref=status-protocol-regression
+describe('member status response', () => {
+  const response = {
+    member: {
+      handle: 'coder',
+      state: 'running' as const,
+      waiting: {
+        peers: ['tester'],
+        reason: 'reply' as const,
+        since_ts: TS,
+        until_ts: TS,
+      },
+    },
+    current_run: {
+      message_id: 7,
+      started_ts: TS,
+      elapsed_ms: 250,
+      tool_calls: 1,
+    },
+    recent: [{ kind: 'tool' as const, title: 'Run tests', status: 'ok' as const, duration_ms: 42, ts: TS }],
+  };
+
+  it('round-trips handles, bounded actions, and timestamped journal items', () => {
+    expect(MemberStatusResponseSchema.parse(response)).toEqual(response);
+    expect(WireEventSchema.parse({
+      type: 'run.item', item_type: 'tool_call',
+      payload: { call_id: 'c1', tool: 'Bash', title: 'Run tests' }, ts: TS,
+    })).toMatchObject({ type: 'run.item', ts: TS });
+  });
+
+  it('rejects identity or raw-payload fields and more than five actions', () => {
+    expect(MemberStatusResponseSchema.safeParse({
+      ...response,
+      member: { ...response.member, member_id: ULID_A },
+    }).success).toBe(false);
+    expect(MemberStatusResponseSchema.safeParse({
+      ...response,
+      recent: Array.from({ length: 6 }, () => response.recent[0]),
+    }).success).toBe(false);
+    expect(MemberStatusResponseSchema.safeParse({
+      ...response,
+      recent: [{ ...response.recent[0], raw: { command: 'secret' } }],
+    }).success).toBe(false);
+  });
+});
+// harn:end member-status-is-bounded-and-identity-safe
+
+// harn:assume run-evidence-search-is-bounded-and-redacted ref=run-search-protocol-regression
+describe('run evidence search hit', () => {
+  it('carries a stable message and journal position with a bounded excerpt', () => {
+    expect(RunSearchHitSchema.parse({
+      message_id: 12, item_index: 3, kind: 'tool_result', excerpt: '42 tests passed',
+    })).toEqual({
+      message_id: 12, item_index: 3, kind: 'tool_result', excerpt: '42 tests passed',
+    });
+  });
+
+  it('rejects unknown evidence kinds and excerpts beyond the serving bound', () => {
+    expect(RunSearchHitSchema.safeParse({
+      message_id: 12, item_index: 3, kind: 'reasoning', excerpt: 'hidden',
+    }).success).toBe(false);
+    expect(RunSearchHitSchema.safeParse({
+      message_id: 12, item_index: 3, kind: 'tool_call', excerpt: 'x'.repeat(241),
+    }).success).toBe(false);
+  });
+});
+// harn:end run-evidence-search-is-bounded-and-redacted
 
 // harn:assume waiting-is-visible-member-state ref=member-waiting-regression
 describe('a member says what it is waiting on', () => {

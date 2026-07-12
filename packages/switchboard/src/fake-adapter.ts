@@ -23,6 +23,7 @@ export type FakeTurn =
       item_delay_ms?: number;
       delay_ms?: number;
       status?: 'completed' | 'failed';
+      steps?: FakeTurnStep[];
     }
   | {
       kind: 'ask';
@@ -32,6 +33,17 @@ export type FakeTurn =
     }
   | { kind: 'fail-on-interrupt'; final_text?: string }
   | { kind: 'die-silently' }; // stream ends with no run.completed
+
+export type FakeTurnStep =
+  | { kind: 'interim_post'; body: string; awaiting_reply?: boolean }
+  | {
+      kind: 'wait';
+      reason: 'reply' | 'mention' | 'any';
+      peers: string[];
+      duration_ms: number;
+    };
+
+export type FakeTurnStepHandler = (session: Session, step: FakeTurnStep) => void | Promise<void>;
 
 export interface DeliverRecord {
   payload: string;
@@ -64,7 +76,11 @@ export class FakeAdapter implements HarnessAdapter {
   private concurrent = new Map<string, number>();
   maxConcurrent = 0;
 
-  constructor(id = 'fake', capabilities: Partial<AdapterCapabilities> = {}) {
+  constructor(
+    id = 'fake',
+    capabilities: Partial<AdapterCapabilities> = {},
+    private readonly handleStep?: FakeTurnStepHandler,
+  ) {
     this.id = id;
     this.capabilities = {
       resume: true,
@@ -185,6 +201,12 @@ export class FakeAdapter implements HarnessAdapter {
         };
         return;
       }
+      // harn:assume fake-adapter-drives-live-collaboration ref=fake-live-step-vocabulary
+      for (const step of turn.steps ?? []) {
+        if (!this.handleStep) throw new Error(`fake step ${step.kind} has no handler`);
+        await this.handleStep(session, step);
+      }
+      // harn:end fake-adapter-drives-live-collaboration
       // harn:assume normalized-run-items-presented-live ref=delayed-fake-run-fixture
       for (const item of turn.items ?? []) {
         yield item;

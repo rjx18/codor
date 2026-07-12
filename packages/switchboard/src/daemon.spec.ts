@@ -41,7 +41,24 @@ async function until<T>(fn: () => T | undefined, ms = 2000): Promise<T> {
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'codor-daemon-'));
-  fake = new FakeAdapter('fake', { interactiveAttach: true });
+  fake = new FakeAdapter('fake', { interactiveAttach: true }, async (session, step) => {
+    const room = session.env?.CODOR_CHANNEL;
+    const memberId = session.env?.CODOR_MEMBER_ID;
+    if (!room || !memberId) throw new Error('fake live step has no member environment');
+    if (step.kind === 'interim_post') {
+      daemon.postAgentMessage(room, memberId, step.body, undefined, step.awaiting_reply === true);
+      return;
+    }
+    const peers = step.peers.map((peer) =>
+      daemon.store.getMember(room, peer)?.id ?? daemon.store.getMemberByHandle(room, peer)?.id ?? peer);
+    daemon.beginWait(room, memberId, {
+      reason: step.reason,
+      peers,
+      until_ts: new Date(Date.now() + Math.max(60_000, step.duration_ms + 1_000)).toISOString(),
+    });
+    await new Promise((resolve) => setTimeout(resolve, step.duration_ms));
+    if (daemon.store.getMember(room, memberId)?.state === 'running') daemon.endWait(room, memberId);
+  });
   claudeFake = new FakeAdapter('claude-code', { extensions: true });
   codexFake = new FakeAdapter('codex');
   // `fake` must keep thinking:false — a test below relies on it rejecting a thinking level.
@@ -270,6 +287,179 @@ describe('transient live waits', () => {
   });
 });
 // harn:end live-agent-waits-are-transient
+
+// harn:assume fake-adapter-drives-live-collaboration ref=fake-live-step-regression
+// harn:assume interim-agent-posts-are-nonfinal-routing ref=interim-post-regression
+// harn:assume awaiting-reply-marker-is-delivery-context ref=awaiting-reply-daemon-regression
+describe('scripted live collaboration', () => {
+  it('posts and waits inside one live turn without replacing finalization or the default', async () => {
+    const beta = spawnAgent('beta', testCwd('live-beta'));
+    fake.enqueue({ kind: 'complete', final_text: '@richard beta baseline' });
+    daemon.postHumanMessage('eng', '@beta establish the prior default');
+    await daemon.settle();
+    expect(daemon.store.latestFinalizedAgentAuthor('eng')).toBe(beta.id);
+    daemon.pauseMember('eng', beta.id);
+
+    const alpha = spawnAgent('alpha', testCwd('live-alpha'));
+    fake.enqueue({
+      kind: 'complete',
+      final_text: '@richard alpha final',
+      items: [{
+        type: 'run.item', item_type: 'tool_call',
+        payload: { call_id: 'live-call', tool: 'Bash', title: 'Run live checks' },
+      }],
+      steps: [
+        { kind: 'interim_post', body: '@beta please check the fixture', awaiting_reply: true },
+        { kind: 'wait', reason: 'reply', peers: ['beta'], duration_ms: 100 },
+      ],
+    });
+    daemon.postHumanMessage('eng', '@alpha begin live work');
+    await until(() => daemon.memberStatus('eng', alpha.id).member.waiting ? true : undefined);
+
+    const interim = daemon.store.listMessages('eng', { limit: 100 })
+      .find((message) => message.kind === 'chat' && message.body.includes('please check'))!;
+    const running = daemon.store.listRunMessages('eng', { author: alpha.id, limit: 1 })[0]!;
+    expect(interim).toMatchObject({ author: alpha.id, kind: 'chat', ack: undefined });
+    expect(running.run!.status).toBe('running');
+    expect(daemon.store.latestFinalizedAgentAuthor('eng')).toBe(beta.id);
+    expect(daemon.memberStatus('eng', alpha.id).member.waiting).toMatchObject({
+      peers: ['beta'], reason: 'reply',
+    });
+
+    const untagged = daemon.postHumanMessage('eng', 'continue with the established default');
+    expect(daemon.store.listDeliveries('eng', { recipient: beta.id })
+      .some((delivery) => delivery.message_id === untagged.id)).toBe(true);
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id })
+      .some((delivery) => delivery.message_id === untagged.id)).toBe(false);
+    const interimDelivery = daemon.store.listDeliveries('eng', { recipient: beta.id })
+      .find((delivery) => delivery.message_id === interim.id)!;
+    expect(JSON.parse(daemon.store.getDeliveryPayloadSnapshot('eng', interimDelivery.id)!))
+      .toMatchObject({ context: { awaitingReply: true } });
+
+    await daemon.settle();
+    expect(daemon.store.listRunMessages('eng', { author: alpha.id, limit: 1 })[0])
+      .toMatchObject({ id: running.id, run: { status: 'completed' }, body: '@richard alpha final' });
+    expect(daemon.blobs.read('eng', running.run!.events_ref)
+      .find((event) => event.type === 'run.item')).toHaveProperty('ts');
+    expect(daemon.memberStatus('eng', alpha.id).member).not.toHaveProperty('waiting');
+
+    fake.enqueue({ kind: 'complete', final_text: '' });
+    daemon.unpauseMember('eng', beta.id);
+    await daemon.settle();
+    expect(fake.deliveries.at(-1)!.payload).toContain('from=@alpha (chat, awaiting reply)');
+  });
+});
+// harn:end awaiting-reply-marker-is-delivery-context
+// harn:end interim-agent-posts-are-nonfinal-routing
+// harn:end fake-adapter-drives-live-collaboration
+
+// harn:assume member-status-is-bounded-and-identity-safe ref=status-daemon-regression
+describe('bounded member status', () => {
+  it('merges projected latest-run tools and live posts without identity or raw payload fields', () => {
+    const beta = spawnAgent('beta', testCwd('status-beta'));
+    const alpha = spawnAgent('alpha', testCwd('status-alpha'));
+    const now = new Date();
+    const startedTs = new Date(now.getTime() - 5_000).toISOString();
+    daemon.store.updateMember('eng', alpha.id, { state: 'running' });
+    const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+    const run = daemon.store.updateMessage('eng', posted.id, {
+      run: {
+        status: 'running', started_ts: startedTs, tool_calls: 6,
+        events_ref: `runs/${String(posted.id)}.jsonl`,
+      },
+    });
+    for (let index = 0; index < 6; index++) {
+      const callId = `call-${String(index)}`;
+      const ts = new Date(now.getTime() - 1_000 + index * 100).toISOString();
+      daemon.blobs.append('eng', run.run!.events_ref, {
+        type: 'run.item', item_type: 'tool_call', ts,
+        payload: {
+          call_id: callId,
+          tool: 'Bash',
+          title: index === 5 ? 'Inspect AKIAIOSFODNN7EXAMPLE' : `Tool ${String(index)}`,
+          input: { raw_command: 'must not escape status' },
+        },
+      });
+      daemon.blobs.append('eng', run.run!.events_ref, {
+        type: 'run.item', item_type: 'tool_result', ts,
+        payload: { call_id: callId, status: index === 4 ? 'error' : 'ok', duration_ms: index + 10 },
+      });
+    }
+    const interim = daemon.postAgentMessage('eng', alpha.id, 'progress AKIAIOSFODNN7EXAMPLE');
+    daemon.beginWait('eng', alpha.id, {
+      reason: 'reply', peers: [beta.id], until_ts: new Date(now.getTime() + 60_000).toISOString(),
+    }, now);
+
+    const status = daemon.memberStatus('eng', alpha.id, now);
+    expect(status.member).toMatchObject({
+      handle: 'alpha', state: 'running', waiting: { peers: ['beta'], reason: 'reply' },
+    });
+    expect(status.current_run).toMatchObject({
+      message_id: run.id, started_ts: startedTs, elapsed_ms: 5_000, tool_calls: 6,
+    });
+    expect(status.recent).toHaveLength(5);
+    expect(status.recent[0]).toMatchObject({ kind: 'post', ts: interim.ts });
+    expect(status.recent).toContainEqual(expect.objectContaining({
+      kind: 'tool', title: expect.stringContaining('[redacted]'), status: 'ok', duration_ms: 15,
+    }));
+    expect(status.recent).toContainEqual(expect.objectContaining({
+      kind: 'post', title: expect.stringContaining('[redacted]'), ts: interim.ts,
+    }));
+    expect(JSON.stringify(status)).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    expect(JSON.stringify(status)).not.toContain('raw_command');
+    expect(daemon.store.getMessage('eng', interim.id)!.body).toContain('AKIAIOSFODNN7EXAMPLE');
+    daemon.endWait('eng', alpha.id);
+  });
+});
+// harn:end member-status-is-bounded-and-identity-safe
+
+// harn:assume run-evidence-search-is-bounded-and-redacted ref=run-search-daemon-regression
+describe('bounded run evidence search', () => {
+  it('searches projected tool titles and outputs newest-first within the requested run window', () => {
+    const alpha = spawnAgent('alpha', testCwd('search-alpha'));
+    const addRun = (title: string, output: string) => {
+      const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: title });
+      const run = daemon.store.updateMessage('eng', posted.id, {
+        run: {
+          status: 'completed', started_ts: '2026-07-10T07:00:00.000Z',
+          ended_ts: '2026-07-10T07:01:00.000Z', tool_calls: 1,
+          events_ref: `runs/${String(posted.id)}.jsonl`, final_text: title,
+        },
+      });
+      daemon.blobs.append('eng', run.run!.events_ref, {
+        type: 'run.item', item_type: 'tool_call',
+        payload: { call_id: `call-${String(run.id)}`, tool: 'Bash', title },
+      });
+      daemon.blobs.append('eng', run.run!.events_ref, {
+        type: 'run.item', item_type: 'tool_result',
+        payload: { call_id: `call-${String(run.id)}`, status: 'ok', output_text: output },
+      });
+      return run;
+    };
+
+    const oldest = addRun('oldest-only needle', 'old output');
+    for (let index = 0; index < 49; index++) addRun(`filler ${String(index)}`, 'nothing');
+    const newer = addRun('shared needle newest', 'result needle output');
+    expect(daemon.searchRunEvidence('eng', 'oldest-only')).toEqual([]);
+    expect(daemon.searchRunEvidence('eng', 'oldest-only', 51)).toEqual([
+      expect.objectContaining({ message_id: oldest.id, item_index: 0, kind: 'tool_call' }),
+    ]);
+    expect(daemon.searchRunEvidence('eng', 'needle', 51)[0]).toMatchObject({
+      message_id: newer.id, item_index: 0, kind: 'tool_call',
+    });
+    expect(daemon.searchRunEvidence('eng', 'needle', 51)).toContainEqual(expect.objectContaining({
+      message_id: newer.id, item_index: 1, kind: 'tool_result',
+    }));
+
+    const secret = addRun('Inspect AKIAIOSFODNN7EXAMPLE', 'safe');
+    expect(daemon.searchRunEvidence('eng', 'AKIAIOSFODNN7EXAMPLE', 52)).toEqual([]);
+    expect(daemon.searchRunEvidence('eng', '[redacted]', 52)).toContainEqual(expect.objectContaining({
+      message_id: secret.id, kind: 'tool_call', excerpt: expect.stringContaining('[redacted]'),
+    }));
+    expect(() => daemon.searchRunEvidence('eng', 'needle', 201)).toThrow('1 to 200');
+  });
+});
+// harn:end run-evidence-search-is-bounded-and-redacted
 
 describe('member management', () => {
   it('renames mid-queue without retargeting mentions and rejects duplicate handles', async () => {

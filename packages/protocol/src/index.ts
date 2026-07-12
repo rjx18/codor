@@ -1,6 +1,7 @@
 export * from './ids.js';
 export * from './member.js';
 export * from './message.js';
+export * from './observability.js';
 export * from './body.js';
 export * from './default-recipient.js';
 export * from './interaction.js';

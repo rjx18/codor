@@ -51,6 +51,32 @@ const fake = new FakeAdapter('fake', {
     'workspace-write': 'acceptEdits',
     'full-access': 'bypassPermissions',
   },
+// harn:assume fake-adapter-drives-live-collaboration ref=harness-live-step-bridge
+}, async (session, step) => {
+  const room = session.env?.CODOR_CHANNEL;
+  const memberId = session.env?.CODOR_MEMBER_ID;
+  if (!room || !memberId) throw new Error('live fake steps require a member session environment');
+  if (step.kind === 'interim_post') {
+    daemon.postAgentMessage(room, memberId, step.body, undefined, step.awaiting_reply === true);
+    return;
+  }
+  if (!Number.isFinite(step.duration_ms) || step.duration_ms < 0) {
+    throw new Error('fake wait duration_ms must be non-negative');
+  }
+  const peers = step.peers.map((peer) => {
+    const handle = peer.startsWith('@') ? peer.slice(1) : peer;
+    return daemon.store.getMember(room, peer)?.id ??
+      daemon.store.getMemberByHandle(room, handle)?.id ??
+      (() => { throw new Error(`no such fake wait peer: ${peer}`); })();
+  });
+  daemon.beginWait(room, memberId, {
+    reason: step.reason,
+    peers,
+    until_ts: new Date(Date.now() + Math.max(60_000, step.duration_ms + 1_000)).toISOString(),
+  });
+  await new Promise((resolve) => setTimeout(resolve, step.duration_ms));
+  if (daemon.store.getMember(room, memberId)?.state === 'running') daemon.endWait(room, memberId);
+// harn:end fake-adapter-drives-live-collaboration
 });
 // harn:end controls-fit-the-surface-they-sit-on
 const ledger = new LedgerManager({ dataDir: dir });

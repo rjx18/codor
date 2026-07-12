@@ -26,6 +26,9 @@ export const PostFrameSchema = z.object({
   room: RoomIdSchema,
   body: z.string().min(1),
   reply_to: MessageIdSchema.optional(),
+  // harn:assume awaiting-reply-marker-is-delivery-context ref=awaiting-reply-post-contract
+  awaiting_reply: z.boolean().optional(),
+  // harn:end awaiting-reply-marker-is-delivery-context
 });
 export type PostFrame = z.infer<typeof PostFrameSchema>;
 

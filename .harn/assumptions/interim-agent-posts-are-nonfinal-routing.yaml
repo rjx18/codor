@@ -1,0 +1,14 @@
+id: interim-agent-posts-are-nonfinal-routing
+hash: a-555e0d3b6599
+title: A live agent post routes as chat without becoming turn completion
+state: active
+statement: A post authored while that agent has a running turn must remain an
+  ordinary routed chat message, while the running placeholder remains live; it
+  must not become a finalized run, change the latest-finalized-agent fallback,
+  or inherit acknowledgement semantics. Posts outside a live turn remain
+  ordinary agent chat.
+depends_on:
+  - substantive-routing-excludes-acknowledgements
+  - default-recipient-fallback-chain
+  - agent-network-authority-is-narrow
+created_by: lc2c-live-observability

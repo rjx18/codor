@@ -1,0 +1,11 @@
+id: collaboration-briefing-is-capability-aware
+hash: a-f2f64056666c
+title: The conventions trailer teaches live collaboration without lying about hooks
+state: active
+statement: A first-turn conventions trailer must tersely cover interim and
+  blocking posts, wait timeout status renewal, unseen-context run search, and
+  exact ACK_OK; only a member whose adapter lacks live_inbox may be told to poll
+  its inbox during a long task.
+depends_on:
+  - roster-briefing-refreshes-on-membership
+created_by: lc2c-live-observability

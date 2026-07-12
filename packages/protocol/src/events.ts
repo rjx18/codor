@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { MemberIdSchema, MessageIdSchema } from './ids.js';
+import { MemberIdSchema, MessageIdSchema, TimestampSchema } from './ids.js';
 import { MemberStateSchema } from './member.js';
 import { AskCardSchema, RunStatusSchema, UsageSchema } from './message.js';
 
@@ -109,6 +109,9 @@ export const WireEventSchema = z.discriminatedUnion('type', [
     type: z.literal('run.item'),
     item_type: RunItemTypeSchema,
     payload: z.unknown(),
+    // harn:assume member-status-is-bounded-and-identity-safe ref=run-item-journal-timestamp-contract
+    ts: TimestampSchema.optional(),
+    // harn:end member-status-is-bounded-and-identity-safe
   }),
   z.object({ type: z.literal('ask.raised'), card: AskCardSchema }),
   z.object({ type: z.literal('approval.raised'), card: AskCardSchema }),

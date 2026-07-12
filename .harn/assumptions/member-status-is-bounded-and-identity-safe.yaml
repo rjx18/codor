@@ -1,0 +1,17 @@
+id: member-status-is-bounded-and-identity-safe
+hash: a-552c44df552c
+title: Member status exposes only bounded projected live work
+state: active
+statement: The member status response must contain the requested member's
+  handle, state, handle-resolved wait metadata, an optional summary of its
+  current run, and at most five newest tool or live-turn post actions from only
+  its latest run window. Tool evidence must carry a journal timestamp and may
+  expose title, result status, and duration but never raw payloads, member ids,
+  session values, or credentials; the whole response passes through the room
+  redaction projection.
+depends_on:
+  - redaction-before-fanout
+  - live-agent-waits-are-transient
+  - agent-network-authority-is-narrow
+  - run-blobs-off-db
+created_by: lc2c-live-observability

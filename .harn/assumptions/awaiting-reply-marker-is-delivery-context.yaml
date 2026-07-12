@@ -1,0 +1,13 @@
+id: awaiting-reply-marker-is-delivery-context
+hash: a-7d6444381647
+title: Blocking-post intent travels in the immutable delivery header
+state: active
+statement: An agent post may declare awaiting-reply intent on the client frame;
+  the intent must be accepted only as post metadata, persisted inside each
+  routed payload snapshot, and render the recipient header as chat awaiting
+  reply without changing message kind, routing, or turn finalization.
+depends_on:
+  - delivery-payload-snapshotted
+  - codor-delivery-header-identifies-channel
+  - interim-agent-posts-are-nonfinal-routing
+created_by: lc2c-live-observability
