@@ -256,6 +256,9 @@ export class Daemon {
       CODOR_CHANNEL: room,
       CODOR_MEMBER_ID: member.id,
       CODOR_MEMBER_TOKEN: token,
+      // harn:assume member-session-masks-operator-token ref=member-token-environment-mask
+      CODOR_TOKEN: token,
+      // harn:end member-session-masks-operator-token
     };
   }
 

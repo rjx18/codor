@@ -1,0 +1,12 @@
+id: member-session-masks-operator-token
+hash: a-c2735fdac8bb
+title: Agent children cannot inherit the operator bearer
+state: active
+statement: Every daemon-issued agent Session.env must set both
+  CODOR_MEMBER_TOKEN and the generic CODOR_TOKEN to the same narrow member
+  credential, overriding any operator CODOR_TOKEN inherited by adapter children.
+depends_on:
+  - agent-member-credentials-stay-secret
+  - agent-network-authority-is-narrow
+  - adapter-children-inherit-session-env
+created_by: lc4-gate-fix-member-token-mask

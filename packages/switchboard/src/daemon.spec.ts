@@ -102,12 +102,15 @@ describe('agent member session credentials', () => {
 
     const alpha = spawnAgent('alpha');
     const firstToken = capturedSession!.env!.CODOR_MEMBER_TOKEN!;
+    // harn:assume member-session-masks-operator-token ref=member-token-mask-regression
     expect(capturedSession!.env).toMatchObject({
       CODOR_SOCKET: join(dir, 'codor.sock'),
       CODOR_CHANNEL: 'eng',
       CODOR_MEMBER_ID: alpha.id,
       CODOR_MEMBER_TOKEN: firstToken,
+      CODOR_TOKEN: firstToken,
     });
+    // harn:end member-session-masks-operator-token
     expect(firstToken.length).toBeGreaterThanOrEqual(40);
     expect(daemon.authenticateAgentToken(firstToken)).toMatchObject({
       room: 'eng', member: { id: alpha.id },

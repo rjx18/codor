@@ -1,0 +1,52 @@
+id: lc4-gate-fix-member-token-mask
+title: LC4 gate fix - mask inherited operator token in agent children
+assumptions:
+  create:
+    - id: member-session-masks-operator-token
+      title: Agent children cannot inherit the operator bearer
+      statement: Every daemon-issued agent Session.env must set both
+        CODOR_MEMBER_TOKEN and the generic CODOR_TOKEN to the same narrow member
+        credential, overriding any operator CODOR_TOKEN inherited by adapter
+        children.
+      reason: CLI default precedence prevents accidents, but the restricted agent
+        boundary fails if arbitrary child code can still read and replay the
+        owner bearer.
+      depends_on:
+        - agent-member-credentials-stay-secret
+        - agent-network-authority-is-narrow
+        - adapter-children-inherit-session-env
+  reviewed:
+    - id: agent-member-credentials-stay-secret
+      outcome: unchanged
+      reason: The same rotating raw member token remains only in the in-memory Session
+        environment and only its digest persists.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Masking the generic variable makes the already-reviewed narrow server
+        matrix effective for arbitrary child commands.
+anchors:
+  member-session-masks-operator-token:
+    member-token-environment-mask:
+      action: change
+      reason: Override the generic CLI bearer with the same narrow member token.
+    member-token-mask-regression:
+      action: change
+      reason: Prove both variables carry the member token and no inherited owner value
+        survives.
+  agent-member-credentials-stay-secret:
+    member-session-environment:
+      action: change
+      reason: Add an alias of the same rotating member secret inside Session.env only.
+    member-session-environment-regression:
+      action: change
+      reason: Extend the existing credential lifecycle regression with the
+        generic-token mask.
+  agent-network-authority-is-narrow:
+    agent-interim-post-ingress:
+      action: keep
+      reason: Server agent attribution and post authority remain unchanged.
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+applied:
+  applied_at: 2026-07-13T01:28:56.078Z
