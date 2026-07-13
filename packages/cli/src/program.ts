@@ -1,7 +1,17 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import type { AttachLease, Member, Message, ServerFrame } from '@codor/protocol';
+import {
+  MemberStatusResponseSchema,
+  MessageSchema,
+  RunSearchHitSchema,
+  type AttachLease,
+  type Delivery,
+  type Member,
+  type Message,
+  type RunSearchHit,
+  type ServerFrame,
+} from '@codor/protocol';
 import { Command } from 'commander';
 import {
   addRemoteLedgerNote,
@@ -44,6 +54,10 @@ interface GlobalOptions {
 
 interface ChannelOptions {
   channel: string;
+}
+
+interface OptionalChannelOptions {
+  channel?: string;
 }
 
 // harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition
@@ -91,6 +105,164 @@ async function readStandardInput(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+const parsePositiveNumber = (value: string, label: string): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`${label} must be greater than zero`);
+  return parsed;
+};
+
+const parsePositiveInteger = (value: string, label: string): number => {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error(`${label} must be a positive integer`);
+  return parsed;
+};
+
+const formatElapsed = (milliseconds: number): string => {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1_000));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return minutes > 0 ? `${minutes}m${String(remainder).padStart(2, '0')}s` : `${remainder}s`;
+};
+
+const formatDuration = (milliseconds: number | undefined): string => {
+  if (milliseconds === undefined) return '-';
+  return milliseconds >= 1_000 ? `${(milliseconds / 1_000).toFixed(1)}s` : `${Math.round(milliseconds)}ms`;
+};
+
+interface RoomSnapshot {
+  self: string;
+  members: Map<string, Member>;
+  messages: Map<number, Message>;
+  deliveries: Map<string, Delivery>;
+}
+
+// harn:assume cli-waits-consume-only-matching-deliveries ref=collaboration-room-sync
+async function syncRoom(client: ProtocolClient, room: string): Promise<RoomSnapshot> {
+  let self: string | undefined;
+  const members = new Map<string, Member>();
+  const messages = new Map<number, Message>();
+  const deliveries = new Map<string, Delivery>();
+  client.send({ type: 'subscribe', room, since_seq: 0 });
+  for (;;) {
+    const frame = await client.next();
+    if (frame.type === 'error') throw new Error(frame.message);
+    if (frame.type === 'self') self = frame.member_id;
+    else if (frame.type === 'member') members.set(frame.member.id, frame.member);
+    else if (frame.type === 'message') messages.set(frame.message.id, frame.message);
+    else if (frame.type === 'inbox') deliveries.set(frame.delivery.id, frame.delivery);
+    else if (frame.type === 'sync_complete') {
+      if (!self) throw new Error('channel subscription did not identify the caller');
+      return { self, members, messages, deliveries };
+    }
+  }
+}
+
+const ownQueuedDeliveries = (snapshot: RoomSnapshot): Delivery[] =>
+  [...snapshot.deliveries.values()]
+    .filter((delivery) => delivery.recipient === snapshot.self && delivery.state === 'queued')
+    .sort((left, right) => left.ts.localeCompare(right.ts));
+
+async function consumeDelivery(
+  client: ProtocolClient,
+  room: string,
+  delivery: Delivery,
+): Promise<Message> {
+  client.send({
+    type: 'act',
+    room,
+    act: { act: 'consume_delivery', delivery_id: delivery.id },
+  });
+  for (;;) {
+    const frame = await client.next();
+    if (frame.type === 'error') throw new Error(frame.message);
+    if (frame.type === 'consume_result' && frame.delivery.id === delivery.id) return frame.message;
+  }
+}
+
+async function setWait(
+  client: ProtocolClient,
+  room: string,
+  self: string,
+  reason: 'reply' | 'mention' | 'any',
+  peers: string[],
+  untilTs: string,
+): Promise<void> {
+  client.send({ type: 'act', room, act: { act: 'wait_begin', reason, peers, until_ts: untilTs } });
+  for (;;) {
+    const frame = await client.next();
+    if (frame.type === 'error') throw new Error(frame.message);
+    if (frame.type === 'member' && frame.member.id === self && frame.member.waiting) return;
+  }
+}
+
+async function clearWait(client: ProtocolClient, room: string, self: string): Promise<void> {
+  client.send({ type: 'act', room, act: { act: 'wait_end' } });
+  for (;;) {
+    const frame = await client.next();
+    if (frame.type === 'error') throw new Error(frame.message);
+    if (frame.type === 'member' && frame.member.id === self && !frame.member.waiting) return;
+  }
+}
+
+async function waitForOwnDelivery(
+  client: ProtocolClient,
+  room: string,
+  initial: RoomSnapshot,
+  deadline: number,
+  matches: (message: Message) => boolean,
+): Promise<{ delivery: Delivery; message: Message } | undefined> {
+  let snapshot = initial;
+  const find = (): { delivery: Delivery; message: Message } | undefined => {
+    for (const delivery of ownQueuedDeliveries(snapshot)) {
+      const message = snapshot.messages.get(delivery.message_id);
+      if (message && matches(message)) return { delivery, message };
+    }
+    return undefined;
+  };
+  for (;;) {
+    const existing = find();
+    if (existing) return existing;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return undefined;
+    let frame: ServerFrame;
+    try {
+      frame = await client.next(remaining);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('timed out waiting for server frame')) {
+        return undefined;
+      }
+      throw error;
+    }
+    if (frame.type === 'error') throw new Error(frame.message);
+    if (frame.type === 'message') {
+      snapshot.messages.set(frame.message.id, frame.message);
+      if (matches(frame.message)) snapshot = await syncRoom(client, room);
+    } else if (frame.type === 'inbox') {
+      snapshot.deliveries.set(frame.delivery.id, frame.delivery);
+    } else if (frame.type === 'member') {
+      snapshot.members.set(frame.member.id, frame.member);
+    }
+  }
+}
+// harn:end cli-waits-consume-only-matching-deliveries
+
+// harn:assume cli-hook-inbox-is-silent-when-empty ref=hook-inbox-renderer
+const formatInboxMessage = (message: Message, author: string): string =>
+  `#${message.id} from @${author}\n${message.body}`;
+
+function renderHookInbox(messages: { message: Message; author: string }[]): string | undefined {
+  if (messages.length === 0) return undefined;
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: 'PostToolUse',
+      additionalContext: `Codor inbox:\n${messages
+        .map(({ message, author }) => formatInboxMessage(message, author))
+        .join('\n\n')}`,
+    },
+  });
+}
+// harn:end cli-hook-inbox-is-silent-when-empty
+
 export function createProgram(context: CliContext = {}): Command {
   const env = context.env ?? process.env;
   const out = context.stdout ?? ((line: string) => process.stdout.write(`${line}\n`));
@@ -103,22 +275,63 @@ export function createProgram(context: CliContext = {}): Command {
     .description('Operate local-first multi-agent channels')
     .option('--data-dir <path>', 'switchboard data directory', env.CODOR_DATA_DIR ?? join(homedir(), '.codor'))
     .option('--url <url>', 'remote switchboard URL')
-    .option('--token <token>', 'remote bearer token', env.CODOR_TOKEN);
+    .option('--token <token>', 'remote bearer token', env.CODOR_MEMBER_TOKEN ?? env.CODOR_TOKEN);
   // harn:end codor-runtime-identity-is-a-clean-break
 
   const connectionOptions = (): ProtocolClientOptions => {
     const options = program.opts<GlobalOptions>();
-    return { dataDir: options.dataDir, remoteUrl: options.url, token: options.token };
+    // harn:assume member-env-selects-narrow-cli-identity ref=member-connection-options
+    return {
+      dataDir: options.dataDir,
+      remoteUrl: options.url,
+      socketPath: options.url === undefined ? env.CODOR_SOCKET : undefined,
+      token: options.token,
+    };
+    // harn:end member-env-selects-narrow-cli-identity
   };
 
-  const withClient = async (fn: (client: ProtocolClient) => Promise<void>): Promise<void> => {
+  const withClient = async <T>(fn: (client: ProtocolClient) => Promise<T>): Promise<T> => {
     const client = await ProtocolClient.connect(connectionOptions());
     try {
-      await fn(client);
+      return await fn(client);
     } finally {
       await client.close();
     }
   };
+
+  const channel = (options: OptionalChannelOptions): string => {
+    const room = options.channel ?? env.CODOR_CHANNEL;
+    if (!room) throw new Error('--channel or CODOR_CHANNEL is required');
+    return room;
+  };
+
+  // harn:assume cli-observability-uses-scoped-rest ref=scoped-rest-client
+  const restUrl = (path: string): URL => {
+    const globals = program.opts<GlobalOptions>();
+    const raw = globals.url ?? env.CODOR_URL ?? 'http://127.0.0.1:8137';
+    const base = new URL(raw);
+    if (base.protocol === 'ws:') base.protocol = 'http:';
+    else if (base.protocol === 'wss:') base.protocol = 'https:';
+    if (base.protocol !== 'http:' && base.protocol !== 'https:') {
+      throw new Error('--url must use http(s) or ws(s)');
+    }
+    return new URL(path, `${base.origin}/`);
+  };
+
+  const fetchJson = async (url: URL): Promise<unknown> => {
+    const token = program.opts<GlobalOptions>().token;
+    if (!token) throw new Error('--token, CODOR_TOKEN, or CODOR_MEMBER_TOKEN is required');
+    const response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    const value = await response.json() as unknown;
+    if (!response.ok) {
+      const detail = typeof value === 'object' && value !== null && 'error' in value
+        ? String(value.error)
+        : `${response.status} ${response.statusText}`;
+      throw new Error(detail);
+    }
+    return value;
+  };
+  // harn:end cli-observability-uses-scoped-rest
 
   const withCrypto = <T>(fn: (crypto: CryptoVault) => T): T => {
     const crypto = new CryptoVault(program.opts<GlobalOptions>().dataDir);
@@ -273,36 +486,88 @@ export function createProgram(context: CliContext = {}): Command {
 
   program
     .command('post')
-    .requiredOption('-r, --channel <channel>', 'channel id')
+    .option('-r, --channel <channel>', 'channel id; defaults to CODOR_CHANNEL')
+    .option('--wait', 'wait for the first direct reply from an addressed member')
+    .option('--timeout <seconds>', 'wait timeout in seconds', (value) => parsePositiveNumber(value, '--timeout'), 300)
     .argument('<message>')
-    .action(async (message: string, options: ChannelOptions) => {
+    // harn:assume cli-waits-consume-only-matching-deliveries ref=post-wait-command
+    .action(async (message: string, options: OptionalChannelOptions & { wait?: boolean; timeout: number }) => {
       await withClient(async (client) => {
-        let lastMessageId = 0;
-        client.send({ type: 'subscribe', room: options.channel, since_seq: 0 });
+        const room = channel(options);
+        const initial = await syncRoom(client, room);
+        const lastMessageId = Math.max(0, ...initial.messages.keys());
+        client.send({
+          type: 'post',
+          room,
+          body: message,
+          ...(options.wait && { awaiting_reply: true }),
+        });
+        let posted: Message;
         for (;;) {
           const frame = await client.next();
-          if (frame.type === 'message') lastMessageId = Math.max(lastMessageId, frame.message.id);
           if (frame.type === 'error') throw new Error(frame.message);
-          if (frame.type === 'sync_complete') break;
+          if (
+            frame.type === 'message' &&
+            frame.message.id > lastMessageId &&
+            frame.message.author === initial.self &&
+            frame.message.body === message
+          ) {
+            posted = frame.message;
+            break;
+          }
         }
-        client.send({ type: 'post', room: options.channel, body: message });
-        for (;;) {
-          const frame = await client.next();
-          if (frame.type === 'error') throw new Error(frame.message);
-          if (frame.type === 'message' && frame.message.id > lastMessageId && frame.message.body === message) {
-            out(`posted #${frame.message.id}`);
+        out(`posted #${posted.id}`);
+        if (!options.wait) return;
+        if (!env.CODOR_MEMBER_TOKEN) throw new Error('post --wait requires CODOR_MEMBER_TOKEN');
+        const peers = [...new Set(posted.mentions.map((mention) => mention.member_id))]
+          .filter((id) => id !== initial.self && initial.members.get(id)?.removed_ts === undefined);
+        if (peers.length === 0) throw new Error('post --wait requires at least one addressed member');
+        const deadline = Date.now() + options.timeout * 1_000;
+        let registered = false;
+        try {
+          await setWait(client, room, initial.self, 'reply', peers, new Date(deadline).toISOString());
+          registered = true;
+          const reply = await waitForOwnDelivery(
+            client,
+            room,
+            await syncRoom(client, room),
+            deadline,
+            (candidate) =>
+              candidate.id > posted.id &&
+              peers.includes(candidate.author) &&
+              candidate.mentions.some((mention) => mention.member_id === initial.self),
+          );
+          if (!reply) {
+            out(`TIMEOUT after ${String(options.timeout)}s`);
             return;
           }
+          const consumed = await consumeDelivery(client, room, reply.delivery);
+          out(consumed.body);
+        } finally {
+          if (registered) await clearWait(client, room, initial.self);
         }
       });
     });
+  // harn:end cli-waits-consume-only-matching-deliveries
 
   program
     .command('tail')
-    .requiredOption('-r, --channel <channel>', 'channel id')
+    .option('-r, --channel <channel>', 'channel id; defaults to CODOR_CHANNEL')
     .option('--once', 'print current history and exit')
-    .action(async (options: ChannelOptions & { once?: boolean }) => {
+    .option('--follow', 'follow new channel messages')
+    .option('--until-mention <handle>', 'stop after consuming an own delivery directly mentioning handle')
+    .option('--until-any', 'stop after consuming any queued own delivery')
+    .option('--timeout <seconds>', 'until timeout in seconds', (value) => parsePositiveNumber(value, '--timeout'), 300)
+    // harn:assume cli-waits-consume-only-matching-deliveries ref=tail-wait-command
+    .action(async (options: OptionalChannelOptions & {
+      once?: boolean;
+      follow?: boolean;
+      untilMention?: string;
+      untilAny?: boolean;
+      timeout: number;
+    }) => {
       await withClient(async (client) => {
+        const room = channel(options);
         const members = new Map<string, Member>();
         const print = (frame: ServerFrame): void => {
           if (frame.type === 'member') members.set(frame.member.id, frame.member);
@@ -316,7 +581,65 @@ export function createProgram(context: CliContext = {}): Command {
             if (frame.message.body) out(frame.message.body);
           }
         };
-        client.send({ type: 'subscribe', room: options.channel, since_seq: 0 });
+        const until = options.untilMention !== undefined || options.untilAny === true;
+        if (options.untilMention !== undefined && options.untilAny) {
+          throw new Error('--until-mention and --until-any are mutually exclusive');
+        }
+        if (until && !options.follow) throw new Error('--until-* requires --follow');
+        if (until && options.once) throw new Error('--once cannot be combined with --until-*');
+        if (until) {
+          if (!env.CODOR_MEMBER_TOKEN) throw new Error('tail --until-* requires CODOR_MEMBER_TOKEN');
+          const snapshot = await syncRoom(client, room);
+          const self = snapshot.members.get(snapshot.self);
+          if (!self) throw new Error('authenticated member is absent from the channel');
+          let mentionedId: string | undefined;
+          if (options.untilMention !== undefined) {
+            const wanted = options.untilMention.replace(/^@/, '');
+            const mentioned = [...snapshot.members.values()].find(
+              (member) => member.id === options.untilMention || member.handle === wanted,
+            );
+            if (!mentioned) throw new Error(`no such member ${options.untilMention}`);
+            if (mentioned.id !== snapshot.self) {
+              throw new Error('--until-mention must name the authenticated member');
+            }
+            mentionedId = mentioned.id;
+          }
+          const peers = [...snapshot.members.values()]
+            .filter((member) => member.id !== snapshot.self && member.removed_ts === undefined && member.state !== 'dead')
+            .map((member) => member.id);
+          if (peers.length === 0) throw new Error('tail --until-* requires at least one active peer');
+          const deadline = Date.now() + options.timeout * 1_000;
+          let registered = false;
+          try {
+            await setWait(
+              client,
+              room,
+              snapshot.self,
+              options.untilAny ? 'any' : 'mention',
+              peers,
+              new Date(deadline).toISOString(),
+            );
+            registered = true;
+            const match = await waitForOwnDelivery(
+              client,
+              room,
+              await syncRoom(client, room),
+              deadline,
+              (message) => mentionedId === undefined ||
+                message.mentions.some((mention) => mention.member_id === mentionedId),
+            );
+            if (!match) {
+              out(`TIMEOUT after ${String(options.timeout)}s`);
+              return;
+            }
+            const consumed = await consumeDelivery(client, room, match.delivery);
+            out(consumed.body);
+            return;
+          } finally {
+            if (registered) await clearWait(client, room, snapshot.self);
+          }
+        }
+        client.send({ type: 'subscribe', room, since_seq: 0 });
         for (;;) {
           const frame = await client.next(24 * 60 * 60 * 1_000);
           if (frame.type === 'error') throw new Error(frame.message);
@@ -325,6 +648,112 @@ export function createProgram(context: CliContext = {}): Command {
         }
       });
     });
+  // harn:end cli-waits-consume-only-matching-deliveries
+
+  // harn:assume cli-hook-inbox-is-silent-when-empty ref=inbox-command
+  program
+    .command('inbox')
+    .option('-r, --channel <channel>', 'channel id; defaults to CODOR_CHANNEL')
+    .option('--new', 'show queued deliveries not yet consumed')
+    .option('--consume', 'consume every printed delivery')
+    .option('--format <format>', 'text or hook', 'text')
+    .action(async (options: OptionalChannelOptions & { new?: boolean; consume?: boolean; format: string }) => {
+      if (!options.new) throw new Error('inbox currently requires --new');
+      if (!env.CODOR_MEMBER_TOKEN) throw new Error('inbox requires CODOR_MEMBER_TOKEN');
+      if (options.format !== 'text' && options.format !== 'hook') {
+        throw new Error('--format must be text or hook');
+      }
+      await withClient(async (client) => {
+        const room = channel(options);
+        const snapshot = await syncRoom(client, room);
+        const rendered: { message: Message; author: string }[] = [];
+        for (const delivery of ownQueuedDeliveries(snapshot)) {
+          const message = options.consume
+            ? await consumeDelivery(client, room, delivery)
+            : snapshot.messages.get(delivery.message_id);
+          if (!message) continue;
+          rendered.push({
+            message,
+            author: snapshot.members.get(message.author)?.handle ?? message.author,
+          });
+        }
+        if (options.format === 'hook') {
+          const hook = renderHookInbox(rendered);
+          if (hook !== undefined) out(hook);
+          return;
+        }
+        for (const item of rendered) out(formatInboxMessage(item.message, item.author));
+      });
+    });
+  // harn:end cli-hook-inbox-is-silent-when-empty
+
+  // harn:assume cli-observability-uses-scoped-rest ref=status-command
+  program
+    .command('status')
+    .argument('<member>')
+    .option('-r, --channel <channel>', 'channel id; defaults to CODOR_CHANNEL')
+    .action(async (memberRef: string, options: OptionalChannelOptions) => {
+      await withClient(async (client) => {
+        const room = channel(options);
+        const snapshot = await syncRoom(client, room);
+        const wanted = memberRef.replace(/^@/, '');
+        const member = [...snapshot.members.values()].find(
+          (candidate) => candidate.id === memberRef || candidate.handle === wanted,
+        );
+        if (!member) throw new Error(`no such member ${memberRef}`);
+        const url = restUrl(
+          `/api/rooms/${encodeURIComponent(room)}/members/${encodeURIComponent(member.id)}/status`,
+        );
+        const status = MemberStatusResponseSchema.parse(await fetchJson(url));
+        const running = status.current_run ? ` (${formatElapsed(status.current_run.elapsed_ms)})` : '';
+        const waiting = status.member.waiting
+          ? `waiting for ${status.member.waiting.peers.map((peer) => `@${peer}`).join(', ')}`
+          : 'not waiting';
+        out(`@${status.member.handle} - ${status.member.state}${running}, ${waiting}`);
+        status.recent.forEach((item, index) => {
+          const clock = new Date(item.ts).toISOString().slice(11, 19);
+          out(
+            `  ${String(index + 1)}. ${item.kind} ${item.title} ${item.status ?? '-'} ` +
+            `${formatDuration(item.duration_ms)} ${clock}`,
+          );
+        });
+      });
+    });
+  // harn:end cli-observability-uses-scoped-rest
+
+  // harn:assume cli-observability-uses-scoped-rest ref=search-command
+  program
+    .command('search')
+    .argument('<query>')
+    .option('-r, --channel <channel>', 'channel id; defaults to CODOR_CHANNEL')
+    .option('--runs', 'include bounded projected run evidence')
+    .option('--limit <count>', 'result/run scan limit', (value) => parsePositiveInteger(value, '--limit'))
+    .action(async (query: string, options: OptionalChannelOptions & { runs?: boolean; limit?: number }) => {
+      await withClient(async (client) => {
+        const room = channel(options);
+        const snapshot = await syncRoom(client, room);
+        const url = restUrl(`/api/rooms/${encodeURIComponent(room)}/search`);
+        url.searchParams.set('q', query);
+        if (options.runs) url.searchParams.set('include', 'runs');
+        if (options.limit !== undefined) url.searchParams.set('limit', String(options.limit));
+        const raw = await fetchJson(url);
+        if (typeof raw !== 'object' || raw === null || !('messages' in raw) || !Array.isArray(raw.messages)) {
+          throw new Error('invalid search response');
+        }
+        const messages = raw.messages.map((message) => MessageSchema.parse(message));
+        const runs: RunSearchHit[] = 'runs' in raw && Array.isArray(raw.runs)
+          ? raw.runs.map((hit) => RunSearchHitSchema.parse(hit))
+          : [];
+        for (const message of messages) {
+          const author = snapshot.members.get(message.author)?.handle ?? message.author;
+          out(`#${message.id} @${author} ${message.kind} ${message.body}`);
+        }
+        for (const hit of runs) {
+          out(`#${hit.message_id}:${hit.item_index} ${hit.kind} ${hit.excerpt}`);
+        }
+      });
+    });
+  // harn:end cli-observability-uses-scoped-rest
 
   program
     .command('members')

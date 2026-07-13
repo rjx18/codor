@@ -12,7 +12,7 @@ import {
   startServer,
   type RunningServer,
 } from '@codor/switchboard';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createProgram,
@@ -73,6 +73,63 @@ const cli = (...args: string[]) =>
     stderr: (line) => output.push(line),
   });
 
+const memberCli = (env: NodeJS.ProcessEnv, ...args: string[]) =>
+  runCli(['node', 'codor', '--data-dir', dir, ...args], {
+    env,
+    stdout: (line) => output.push(line),
+    stderr: (line) => output.push(line),
+  });
+
+const credentialedAgent = (handle: string) => {
+  const originalSpawn = fake.spawn.bind(fake);
+  let session: ReturnType<typeof fake.spawn> | undefined;
+  const spy = vi.spyOn(fake, 'spawn').mockImplementation((options) => {
+    session = originalSpawn(options);
+    return session;
+  });
+  const cwd = join(dir, `${handle}-cwd`);
+  mkdirSync(cwd);
+  const member = daemon.spawnMember('eng', {
+    harness: 'fake',
+    handle,
+    cwd,
+  });
+  spy.mockRestore();
+  const memberToken = session?.env?.CODOR_MEMBER_TOKEN;
+  if (!memberToken) throw new Error('test member credential was not issued');
+  return {
+    member,
+    env: {
+      CODOR_SOCKET: join(dir, 'codor.sock'),
+      CODOR_CHANNEL: 'eng',
+      CODOR_MEMBER_ID: member.id,
+      CODOR_MEMBER_TOKEN: memberToken,
+      CODOR_TOKEN: 'cli-token',
+    },
+  };
+};
+
+const until = async <T>(read: () => T | undefined, timeoutMs = 2_000): Promise<T> => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = read();
+    if (value !== undefined) return value;
+    if (Date.now() >= deadline) throw new Error('test wait timed out');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+};
+
+const startLiveTurn = async (memberId: string) => {
+  fake.enqueue({
+    kind: 'complete',
+    final_text: '@richard test turn complete',
+    delay_ms: 300,
+  });
+  const member = daemon.store.getMember('eng', memberId)!;
+  daemon.postHumanMessage('eng', `@${member.handle} start the live test turn`);
+  await until(() => daemon.store.getMember('eng', memberId)?.state === 'running' ? true : undefined);
+};
+
 describe('@codor/cli', () => {
   // harn:assume human-facing-surfaces-call-rooms-channels ref=cli-channel-regression
   it('registers the complete M1 command surface', () => {
@@ -85,6 +142,9 @@ describe('@codor/cli', () => {
       'spawn',
       'post',
       'tail',
+      'inbox',
+      'status',
+      'search',
       'members',
       'join',
       'adopt',
@@ -402,6 +462,178 @@ describe('@codor/cli', () => {
     await cli('members', '-r', 'eng');
     expect(output.some((line) => line.startsWith('@reviewer\tidle\tfake'))).toBe(true);
   });
+
+  // harn:assume member-env-selects-narrow-cli-identity ref=member-identity-regression
+  it('uses member identity over an inherited owner token on Unix and URL transports', async () => {
+    const alpha = credentialedAgent('alpha');
+    await memberCli(alpha.env, 'post', 'unix member attribution');
+    expect(daemon.store.listMessages('eng', { limit: 10 }).at(-1)).toMatchObject({
+      author: alpha.member.id,
+      body: 'unix member attribution',
+    });
+
+    output = [];
+    await memberCli(
+      alpha.env,
+      '--url',
+      `http://127.0.0.1:${String(server.port)}`,
+      'post',
+      'remote member attribution',
+    );
+    expect(daemon.store.listMessages('eng', { limit: 10 }).at(-1)).toMatchObject({
+      author: alpha.member.id,
+      body: 'remote member attribution',
+    });
+  });
+  // harn:end member-env-selects-narrow-cli-identity
+
+  // harn:assume cli-waits-consume-only-matching-deliveries ref=wait-matrix-regression
+  it('post --wait ignores untagged traffic and accepts a direct reply from any addressed peer', async () => {
+    const alpha = credentialedAgent('alpha');
+    const beta = credentialedAgent('beta');
+    const gamma = credentialedAgent('gamma');
+    daemon.pauseMember('eng', gamma.member.id);
+    await startLiveTurn(alpha.member.id);
+    fake.enqueue({ kind: 'complete', final_text: 'untagged progress' });
+    setTimeout(() => daemon.postAgentMessage('eng', gamma.member.id, '@alpha direct answer'), 60);
+
+    await memberCli(alpha.env, 'post', '--wait', '--timeout', '1', '@beta @gamma question');
+    expect(output.at(-1)).toBe('@alpha direct answer');
+    expect(output).not.toContain('untagged progress');
+    const untagged = daemon.store.listMessages('eng', { limit: 20 })
+      .find((message) => message.body === 'untagged progress')!;
+    expect(untagged.mentions).toEqual([]);
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.member.id }))
+      .toContainEqual(expect.objectContaining({ message_id: untagged.id, state: 'queued' }));
+    const reply = daemon.store.listMessages('eng', { limit: 20 })
+      .find((message) => message.body === '@alpha direct answer')!;
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.member.id })
+      .find((delivery) => delivery.message_id === reply.id)?.state).toBe('consumed');
+    expect(daemon.sync('eng', 0).members.find((member) => member.id === alpha.member.id))
+      .not.toHaveProperty('waiting');
+
+    await daemon.settle();
+  });
+
+  it('post --wait reports timeout as control flow and ends the transient wait', async () => {
+    const alpha = credentialedAgent('alpha');
+    const beta = credentialedAgent('beta');
+    daemon.pauseMember('eng', beta.member.id);
+    await startLiveTurn(alpha.member.id);
+
+    await memberCli(alpha.env, 'post', '--wait', '--timeout', '0.05', '@beta no reply');
+    expect(output.at(-1)).toBe('TIMEOUT after 0.05s');
+    expect(daemon.sync('eng', 0).members.find((member) => member.id === alpha.member.id))
+      .not.toHaveProperty('waiting');
+
+    await daemon.settle();
+  });
+
+  it('tail --follow --until-mention consumes a direct own delivery', async () => {
+    const alpha = credentialedAgent('alpha');
+    const beta = credentialedAgent('beta');
+    await startLiveTurn(alpha.member.id);
+    setTimeout(() => daemon.postAgentMessage('eng', beta.member.id, '@alpha tail answer'), 30);
+
+    await memberCli(
+      alpha.env,
+      'tail',
+      '--follow',
+      '--until-mention',
+      'alpha',
+      '--timeout',
+      '1',
+    );
+    expect(output).toEqual(['@alpha tail answer']);
+    const reply = daemon.store.listMessages('eng', { limit: 20 })
+      .find((message) => message.body === '@alpha tail answer')!;
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.member.id })
+      .find((delivery) => delivery.message_id === reply.id)?.state).toBe('consumed');
+
+    await daemon.settle();
+  });
+
+  it('tail --follow --until-any consumes an untagged default-routed delivery', async () => {
+    const alpha = credentialedAgent('alpha');
+    credentialedAgent('beta');
+    fake.enqueue({ kind: 'complete', final_text: '@richard alpha is the default' });
+    daemon.postHumanMessage('eng', '@alpha establish the finalized default');
+    await daemon.settle();
+    await startLiveTurn(alpha.member.id);
+    setTimeout(() => daemon.postHumanMessage('eng', 'untagged tail answer'), 30);
+
+    await memberCli(alpha.env, 'tail', '--follow', '--until-any', '--timeout', '1');
+    expect(output).toEqual(['untagged tail answer']);
+    const reply = daemon.store.listMessages('eng', { limit: 20 })
+      .find((message) => message.body === 'untagged tail answer')!;
+    expect(reply.mentions).toEqual([]);
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.member.id })
+      .find((delivery) => delivery.message_id === reply.id)?.state).toBe('consumed');
+
+    await daemon.settle();
+  });
+  // harn:end cli-waits-consume-only-matching-deliveries
+
+  // harn:assume cli-hook-inbox-is-silent-when-empty ref=inbox-hook-regression
+  it('lists, consumes, formats, and then emits no hook stdout for an empty inbox', async () => {
+    const alpha = credentialedAgent('alpha');
+    const beta = credentialedAgent('beta');
+    daemon.pauseMember('eng', alpha.member.id);
+    daemon.postSystemMessage('eng', 'inbox fixture setup');
+    daemon.postAgentMessage('eng', beta.member.id, '@alpha direct answer');
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.member.id })).toContainEqual(
+      expect.objectContaining({ message_id: 2, state: 'queued' }),
+    );
+
+    await memberCli(alpha.env, 'inbox', '--new');
+    expect(output).toEqual(['#2 from @beta\n@alpha direct answer']);
+    output = [];
+    await memberCli(alpha.env, 'inbox', '--new', '--consume', '--format', 'hook');
+    expect(output).toEqual([
+      readFileSync(join(fileURLToPath(new URL('../fixtures/', import.meta.url)), 'live-inbox-hook.json'), 'utf8').trim(),
+    ]);
+    output = [];
+    await memberCli(alpha.env, 'inbox', '--new', '--consume', '--format', 'hook');
+    expect(output).toEqual([]);
+  });
+  // harn:end cli-hook-inbox-is-silent-when-empty
+
+  // harn:assume cli-observability-uses-scoped-rest ref=observability-cli-regression
+  it('renders scoped member status and bounded run evidence search', async () => {
+    const alpha = credentialedAgent('alpha');
+    fake.enqueue({
+      kind: 'complete',
+      final_text: '@richard checks complete',
+      items: [
+        {
+          type: 'run.item',
+          item_type: 'tool_call',
+          payload: { call_id: 'cli-call', tool: 'Bash', title: 'Run auth checks' },
+        },
+        {
+          type: 'run.item',
+          item_type: 'tool_result',
+          payload: {
+            call_id: 'cli-call', status: 'ok', output_text: 'bounded evidence needle', duration_ms: 125,
+          },
+        },
+      ],
+    });
+    daemon.postHumanMessage('eng', '@alpha inspect status evidence');
+    await daemon.settle();
+    const remote = ['--url', `http://127.0.0.1:${String(server.port)}`];
+
+    await memberCli(alpha.env, ...remote, 'status', 'alpha');
+    expect(output[0]).toBe('@alpha - idle, not waiting');
+    expect(output.some((line) => line.includes('tool Run auth checks ok 125ms'))).toBe(true);
+    output = [];
+    await memberCli(alpha.env, ...remote, 'search', '-r', 'eng', '--runs', '--limit', '5', 'Run auth checks');
+    expect(output.some((line) => /#2:\d+ tool_call Run auth checks/.test(line))).toBe(true);
+    await expect(memberCli(alpha.env, ...remote, 'status', 'missing')).rejects.toThrow(
+      'no such member missing',
+    );
+  });
+  // harn:end cli-observability-uses-scoped-rest
 
   it('changes only transport and token for a remote WebSocket', async () => {
     await runCli(

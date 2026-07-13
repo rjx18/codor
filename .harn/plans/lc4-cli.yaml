@@ -1,0 +1,170 @@
+id: lc4-cli
+title: LC4 - member-aware collaboration commands
+assumptions:
+  create:
+    - id: member-env-selects-narrow-cli-identity
+      title: Member environment selects the narrow CLI principal
+      statement: When CODOR_MEMBER_TOKEN is present the CLI must prefer it over
+        inherited CODOR_TOKEN, send it on both explicit Unix-socket and URL
+        connections, and default channel-scoped commands from CODOR_CHANNEL.
+      reason: Agent children inherit the operator service environment, so choosing the
+        owner token would silently turn every collaboration command into
+        privilege escalation.
+      depends_on:
+        - agent-network-authority-is-narrow
+        - adapter-children-inherit-session-env
+        - unix-socket-same-protocol
+    - id: cli-waits-consume-only-matching-deliveries
+      title: CLI waits consume only a matching own delivery
+      statement: post --wait must register addressed peers and complete only on the
+        first queued own delivery whose posted body directly mentions self and
+        whose author is addressed; tail until modes must register a transient
+        wait, consume only their requested own match, and always end the wait on
+        success or timeout, with timeout printed as successful control flow.
+      reason: E5-E8 require renewable visible waits without untagged replies,
+        unrelated room traffic, or process timeout losing queued work.
+      depends_on:
+        - live-delivery-consumption-is-idempotent
+        - live-agent-waits-are-transient
+        - interim-agent-posts-are-nonfinal-routing
+    - id: cli-hook-inbox-is-silent-when-empty
+      title: Hook inbox output is exact and silent when empty
+      statement: inbox --new must select only the authenticated member's queued
+        deliveries, optionally consume each through consume_delivery, and emit
+        Claude PostToolUse additional-context JSON only when at least one
+        message exists; hook format must write no stdout at all for an empty
+        inbox.
+      reason: E4 makes every-tool-call injection affordable only when a quiet inbox
+        adds zero context.
+      depends_on:
+        - live-delivery-consumption-is-idempotent
+        - live-inbox-capability-is-evidence-backed
+    - id: cli-observability-uses-scoped-rest
+      title: CLI status and search use scoped bounded REST projections
+      statement: status must resolve a room member then render the strict redacted
+        status projection, while search must request the chosen channel, query,
+        runs flag, and bounded limit and render stable message and run-evidence
+        ids; both must authenticate with the selected narrow token.
+      reason: L5 exposes LC2 observability without duplicating blob access, redaction,
+        bounds, or authorization in the CLI.
+      depends_on:
+        - member-status-is-bounded-and-identity-safe
+        - run-evidence-search-is-bounded-and-redacted
+        - member-env-selects-narrow-cli-identity
+  reviewed:
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: Unix and network WebSockets still carry the same frames; Unix now
+        optionally carries the same explicit token query as network connections.
+    - id: codor-runtime-identity-is-a-clean-break
+      outcome: unchanged
+      reason: New defaults use only CODOR_* member variables and preserve existing
+        operator variables and paths.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: Every new command and error calls rooms channels at the CLI surface.
+    - id: live-delivery-consumption-is-idempotent
+      outcome: unchanged
+      reason: CLI wait and inbox paths use the one existing consume_delivery act and
+        accept its loser-safe current-state result.
+    - id: live-agent-waits-are-transient
+      outcome: unchanged
+      reason: CLI commands register and clear the existing daemon-owned wait metadata
+        without persistence or renewal machinery.
+    - id: member-status-is-bounded-and-identity-safe
+      outcome: unchanged
+      reason: Status parses and renders the existing strict response rather than
+        deriving new evidence.
+    - id: run-evidence-search-is-bounded-and-redacted
+      outcome: unchanged
+      reason: Search delegates query bounds and projection to the existing REST
+        endpoint.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: CLI collaboration tests reuse the registered FakeAdapter but do not
+        change adapter discovery or composition.
+anchors:
+  member-env-selects-narrow-cli-identity:
+    member-connection-options:
+      action: change
+      reason: Prefer the member token, explicit socket, and member channel defaults.
+    explicit-token-unix-transport:
+      action: change
+      reason: Add the member token query to an explicit Unix WebSocket connection.
+    member-identity-regression:
+      action: change
+      reason: Prove inherited owner authority loses to member identity on Unix and URL
+        transports.
+  cli-waits-consume-only-matching-deliveries:
+    collaboration-room-sync:
+      action: change
+      reason: Hydrate self, members, messages, and own deliveries for matching and
+        consumption.
+    post-wait-command:
+      action: change
+      reason: Post with awaiting intent, register addressed peers, match direct
+        replies, consume, and clear.
+    tail-wait-command:
+      action: change
+      reason: Add follow/until controls using the same wait and consume path.
+    wait-matrix-regression:
+      action: change
+      reason: Prove direct success, untagged exclusion, timeout control flow, wait
+        clearing, and tail consumption.
+  cli-hook-inbox-is-silent-when-empty:
+    hook-inbox-renderer:
+      action: change
+      reason: Render stable text and exact PostToolUse additional-context JSON.
+    inbox-command:
+      action: change
+      reason: Select own queued deliveries and optionally consume them once.
+    inbox-hook-regression:
+      action: change
+      reason: Prove text listing, consumption, golden JSON, and truly empty stdout
+        when quiet.
+    hook-format-golden:
+      action: change
+      reason: Pin the exact one-line JSON contract consumed by Claude Code.
+  cli-observability-uses-scoped-rest:
+    scoped-rest-client:
+      action: change
+      reason: Build authenticated REST URLs without exposing tokens in output.
+    status-command:
+      action: change
+      reason: Resolve handles and render state, waits, current run, and recent actions.
+    search-command:
+      action: change
+      reason: Forward query, runs, and limit and render both result classes.
+    observability-cli-regression:
+      action: change
+      reason: Prove member-scoped status and bounded run search plus unknown-member
+        failure.
+  unix-socket-same-protocol:
+    cli-protocol-transport:
+      action: change
+      reason: Carry an optional explicit principal token on Unix without changing
+        frame protocol.
+  codor-runtime-identity-is-a-clean-break:
+    cli-runtime-identity:
+      action: change
+      reason: Add CODOR member defaults while preserving the clean runtime name.
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-terminology:
+      action: change
+      reason: Register inbox, status, and search beside the channel-scoped post and
+        tail controls.
+    cli-channel-regression:
+      action: change
+      reason: Update the exhaustive command surface with the new channel commands.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Account for the shared CLI integration file while its registry
+        composition regressions remain unchanged.
+files:
+  - packages/cli/src/connection.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+  - packages/cli/fixtures/live-inbox-hook.json
+applied:
+  applied_at: 2026-07-13T01:39:52.204Z

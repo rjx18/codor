@@ -1,0 +1,12 @@
+id: cli-hook-inbox-is-silent-when-empty
+hash: a-3783d81e4956
+title: Hook inbox output is exact and silent when empty
+state: active
+statement: inbox --new must select only the authenticated member's queued
+  deliveries, optionally consume each through consume_delivery, and emit Claude
+  PostToolUse additional-context JSON only when at least one message exists;
+  hook format must write no stdout at all for an empty inbox.
+depends_on:
+  - live-delivery-consumption-is-idempotent
+  - live-inbox-capability-is-evidence-backed
+created_by: lc4-cli

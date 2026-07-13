@@ -1,0 +1,13 @@
+id: cli-observability-uses-scoped-rest
+hash: a-d85894ede99d
+title: CLI status and search use scoped bounded REST projections
+state: active
+statement: status must resolve a room member then render the strict redacted
+  status projection, while search must request the chosen channel, query, runs
+  flag, and bounded limit and render stable message and run-evidence ids; both
+  must authenticate with the selected narrow token.
+depends_on:
+  - member-status-is-bounded-and-identity-safe
+  - run-evidence-search-is-bounded-and-redacted
+  - member-env-selects-narrow-cli-identity
+created_by: lc4-cli

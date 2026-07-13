@@ -1,0 +1,14 @@
+id: cli-waits-consume-only-matching-deliveries
+hash: a-1e8bc5463805
+title: CLI waits consume only a matching own delivery
+state: active
+statement: post --wait must register addressed peers and complete only on the
+  first queued own delivery whose posted body directly mentions self and whose
+  author is addressed; tail until modes must register a transient wait, consume
+  only their requested own match, and always end the wait on success or timeout,
+  with timeout printed as successful control flow.
+depends_on:
+  - live-delivery-consumption-is-idempotent
+  - live-agent-waits-are-transient
+  - interim-agent-posts-are-nonfinal-routing
+created_by: lc4-cli

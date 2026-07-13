@@ -10,6 +10,7 @@ import WebSocket from 'ws';
 
 export interface ProtocolClientOptions {
   dataDir: string;
+  socketPath?: string;
   remoteUrl?: string;
   token?: string;
   timeoutMs?: number;
@@ -17,8 +18,11 @@ export interface ProtocolClientOptions {
 
 function transportUrl(options: ProtocolClientOptions): string {
   if (options.remoteUrl === undefined) {
-    const socketPath = join(options.dataDir, 'codor.sock');
-    return `ws+unix://${socketPath}:/ws`;
+    const socketPath = options.socketPath ?? join(options.dataDir, 'codor.sock');
+    // harn:assume member-env-selects-narrow-cli-identity ref=explicit-token-unix-transport
+    const query = options.token === undefined ? '' : `?token=${encodeURIComponent(options.token)}`;
+    return `ws+unix://${socketPath}:/ws${query}`;
+    // harn:end member-env-selects-narrow-cli-identity
   }
   if (!options.token) throw new Error('--token or CODOR_TOKEN is required with --url');
   const url = new URL(options.remoteUrl);

@@ -1,0 +1,12 @@
+id: member-env-selects-narrow-cli-identity
+hash: a-c64de3f0f840
+title: Member environment selects the narrow CLI principal
+state: active
+statement: When CODOR_MEMBER_TOKEN is present the CLI must prefer it over
+  inherited CODOR_TOKEN, send it on both explicit Unix-socket and URL
+  connections, and default channel-scoped commands from CODOR_CHANNEL.
+depends_on:
+  - agent-network-authority-is-narrow
+  - adapter-children-inherit-session-env
+  - unix-socket-same-protocol
+created_by: lc4-cli
