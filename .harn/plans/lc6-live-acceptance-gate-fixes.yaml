@@ -1,0 +1,91 @@
+id: lc6-live-acceptance-gate-fixes
+title: LC6 live acceptance gate fixes - approved-tool waits and secret-free help
+assumptions:
+  create:
+    - id: answered-approval-tools-can-register-live-waits
+      title: An approved tool may wait before its interaction ack completes
+      statement: A member-credential command executing after its approval answer must
+        be allowed to begin and end a live wait while the member projection is
+        still awaiting_input, but only when every open interaction for that
+        member is already answered and the same member still has a running run
+        message.
+      reason: Claude acknowledges an approval only after the approved tool emits a
+        later stream event, so a blocking codor command executes inside a real
+        live turn before the durable member state can return to running.
+      depends_on:
+        - live-agent-waits-are-transient
+        - interaction-ack-requires-stream-progress
+    - id: cli-help-never-renders-selected-bearer
+      title: CLI help never prints an environment-selected bearer
+      statement: The token option may select CODOR_MEMBER_TOKEN or CODOR_TOKEN as its
+        runtime default, but help output must describe that default only as
+        redacted and must never render either raw value.
+      reason: Agent tool output is journaled, and Commander otherwise prints the
+        default credential verbatim when an agent invokes codor --help.
+      depends_on:
+        - member-env-selects-narrow-cli-identity
+        - agent-member-credentials-stay-secret
+  reviewed:
+    - id: live-agent-waits-are-transient
+      outcome: unchanged
+      reason: The native turn and running run message are still live; only the durable
+        member projection lags while stream-progress acknowledgement waits for
+        the approved blocking tool to return.
+    - id: interaction-ack-requires-stream-progress
+      outcome: unchanged
+      reason: Claude interaction acknowledgement continues to require a later stream
+        event and is not weakened to make waits work.
+    - id: member-env-selects-narrow-cli-identity
+      outcome: unchanged
+      reason: Runtime token precedence and transport remain identical; only the help
+        description of the selected default is redacted.
+    - id: agent-member-credentials-stay-secret
+      outcome: unchanged
+      reason: The fix removes a journal disclosure path without changing credential
+        issuance, hashing, rotation, or in-memory scope.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The CLI integration spec's broad registry-composition region shifts only
+        because the token-help regression is inserted earlier in the same file.
+anchors:
+  answered-approval-tools-can-register-live-waits:
+    approved-tool-wait-eligibility:
+      action: change
+      reason: Admit waits during the answered-but-unacked approval execution window.
+    approved-tool-wait-regression:
+      action: change
+      reason: Prove answered approval works and unresolved pending approval remains
+        denied.
+  cli-help-never-renders-selected-bearer:
+    redacted-token-option-default:
+      action: change
+      reason: Give Commander a redacted default description while retaining the value.
+    token-help-redaction-regression:
+      action: change
+      reason: Prove both owner and member environment values are absent from help.
+  live-agent-waits-are-transient:
+    transient-wait-registry:
+      action: change
+      reason: Refine live-turn eligibility for an approved tool executing before ack.
+    wait-daemon-regression:
+      action: change
+      reason: Extend the wait matrix with answered and pending approval states.
+  codor-runtime-identity-is-a-clean-break:
+    cli-runtime-identity:
+      action: change
+      reason: Construct the token option with a redacted Commander default description.
+    runtime-identity-regression:
+      action: change
+      reason: Pin secret-free help beside the existing environment default regression.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Account for the integration spec position shift without changing
+        registry behavior.
+files:
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+applied:
+  applied_at: 2026-07-13T02:53:14.770Z

@@ -170,10 +170,18 @@ describe('@codor/cli', () => {
     const cliPackage = JSON.parse(readFileSync(join(repoRoot, 'packages', 'cli', 'package.json'), 'utf8')) as {
       bin: Record<string, string>;
     };
-    const program = createProgram({ env: { CODOR_TOKEN: 'configured' } });
+    const program = createProgram({
+      env: { CODOR_MEMBER_TOKEN: 'member-secret', CODOR_TOKEN: 'owner-secret' },
+    });
     expect(program.name()).toBe('codor');
-    expect(program.opts()).toMatchObject({ token: 'configured' });
+    expect(program.opts()).toMatchObject({ token: 'member-secret' });
     expect(program.opts().dataDir).toMatch(/\.codor$/);
+    // harn:assume cli-help-never-renders-selected-bearer ref=token-help-redaction-regression
+    const help = program.helpInformation();
+    expect(help).toContain('<redacted>');
+    expect(help).not.toContain('member-secret');
+    expect(help).not.toContain('owner-secret');
+    // harn:end cli-help-never-renders-selected-bearer
     expect(cliPackage.bin).toEqual({ codor: './dist/index.js' });
     for (const file of [
       join(repoRoot, 'packaging', 'systemd', 'codor.service'),

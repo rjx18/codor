@@ -12,7 +12,7 @@ import {
   type RunSearchHit,
   type ServerFrame,
 } from '@codor/protocol';
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import {
   addRemoteLedgerNote,
   CryptoVault,
@@ -274,8 +274,13 @@ export function createProgram(context: CliContext = {}): Command {
     .name('codor')
     .description('Operate local-first multi-agent channels')
     .option('--data-dir <path>', 'switchboard data directory', env.CODOR_DATA_DIR ?? join(homedir(), '.codor'))
-    .option('--url <url>', 'remote switchboard URL')
-    .option('--token <token>', 'remote bearer token', env.CODOR_MEMBER_TOKEN ?? env.CODOR_TOKEN);
+    .option('--url <url>', 'remote switchboard URL');
+  // harn:assume cli-help-never-renders-selected-bearer ref=redacted-token-option-default
+  program.addOption(
+    new Option('--token <token>', 'remote bearer token')
+      .default(env.CODOR_MEMBER_TOKEN ?? env.CODOR_TOKEN, '<redacted>'),
+  );
+  // harn:end cli-help-never-renders-selected-bearer
   // harn:end codor-runtime-identity-is-a-clean-break
 
   const connectionOptions = (): ProtocolClientOptions => {

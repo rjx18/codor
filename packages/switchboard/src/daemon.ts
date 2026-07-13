@@ -1416,6 +1416,18 @@ export class Daemon {
   // harn:end agent-network-authority-is-narrow
 
   // harn:assume live-agent-waits-are-transient ref=transient-wait-registry
+  // harn:assume answered-approval-tools-can-register-live-waits ref=approved-tool-wait-eligibility
+  private canUseLiveWait(room: string, member: Member): boolean {
+    if (member.state === 'running') return true;
+    if (member.state !== 'awaiting_input') return false;
+    const openInteractions = this.store.listInteractions(room).filter((interaction) =>
+      interaction.member_id === member.id
+      && (interaction.state === 'pending' || interaction.state === 'answered'));
+    return openInteractions.length > 0
+      && openInteractions.every((interaction) => interaction.state === 'answered');
+  }
+  // harn:end answered-approval-tools-can-register-live-waits
+
   beginWait(
     room: string,
     memberId: string,
@@ -1430,7 +1442,7 @@ export class Daemon {
     if (!member || member.kind !== 'agent' || member.removed_ts !== undefined) {
       throw new Error(`no active agent member: ${memberId}`);
     }
-    if (member.state !== 'running') {
+    if (!this.canUseLiveWait(room, member)) {
       throw new Error(`member @${member.handle} cannot wait while ${member.state ?? 'inactive'}`);
     }
     const until = Date.parse(input.until_ts);
@@ -1467,9 +1479,14 @@ export class Daemon {
     if (!member || member.kind !== 'agent' || member.removed_ts !== undefined) {
       throw new Error(`no active agent member: ${memberId}`);
     }
-    if (member.state !== 'running') {
+    if (!this.canUseLiveWait(room, member)) {
       throw new Error(`member @${member.handle} cannot end a wait while ${member.state ?? 'inactive'}`);
     }
+    const run = this.store.listMessages(room, { limit: Number.MAX_SAFE_INTEGER })
+      .reverse()
+      .find((message) =>
+        message.kind === 'run' && message.author === memberId && message.run?.status === 'running');
+    if (!run) throw new Error(`member @${member.handle} has no running turn to end a wait in`);
     const changed = this.memberWaits.delete(memberId);
     if (changed) this.emitMember(room, member);
     return member;

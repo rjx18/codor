@@ -1,0 +1,11 @@
+id: cli-help-never-renders-selected-bearer
+hash: a-c38158e3b35f
+title: CLI help never prints an environment-selected bearer
+state: active
+statement: The token option may select CODOR_MEMBER_TOKEN or CODOR_TOKEN as its
+  runtime default, but help output must describe that default only as redacted
+  and must never render either raw value.
+depends_on:
+  - member-env-selects-narrow-cli-identity
+  - agent-member-credentials-stay-secret
+created_by: lc6-live-acceptance-gate-fixes

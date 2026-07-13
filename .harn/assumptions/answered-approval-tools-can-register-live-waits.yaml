@@ -1,0 +1,12 @@
+id: answered-approval-tools-can-register-live-waits
+hash: a-f1a3ba8a33b7
+title: An approved tool may wait before its interaction ack completes
+state: active
+statement: A member-credential command executing after its approval answer must
+  be allowed to begin and end a live wait while the member projection is still
+  awaiting_input, but only when every open interaction for that member is
+  already answered and the same member still has a running run message.
+depends_on:
+  - live-agent-waits-are-transient
+  - interaction-ack-requires-stream-progress
+created_by: lc6-live-acceptance-gate-fixes

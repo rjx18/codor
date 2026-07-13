@@ -201,6 +201,52 @@ describe('transient live waits', () => {
     return { agent, run };
   };
 
+  // harn:assume answered-approval-tools-can-register-live-waits ref=approved-tool-wait-regression
+  it('allows an approved tool to begin and end a wait before its stream ack', () => {
+    const beta = spawnAgent('approval-beta', testCwd('approval-beta'));
+    const { agent: alpha } = createRunningAgent('approval-alpha');
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const interactionId = 'approval-wait-window';
+    const card = daemon.store.postMessage('eng', {
+      author: alpha.id,
+      kind: 'ask',
+      body: 'Allow this collaboration command?',
+      ask: { interaction_id: interactionId, kind: 'approval', prompt: 'Run codor post --wait' },
+    });
+    const answered = daemon.store.upsertInteraction({
+      id: interactionId,
+      room: 'eng',
+      member_id: alpha.id,
+      message_id: card.id,
+      native_id: 'native-approval-wait-window',
+      kind: 'approval',
+      targets: [owner.id],
+      state: 'answered',
+      answer: 'yes',
+      answered_by: owner.id,
+      answered_ts: new Date().toISOString(),
+    });
+    daemon.store.updateMember('eng', alpha.id, { state: 'awaiting_input' });
+    const untilTs = new Date(Date.now() + 60_000).toISOString();
+
+    expect(daemon.beginWait('eng', alpha.id, {
+      reason: 'reply', peers: [beta.id], until_ts: untilTs,
+    })).toMatchObject({ waiting: { peers: [beta.id], reason: 'reply' } });
+    expect(daemon.endWait('eng', alpha.id)).not.toHaveProperty('waiting');
+
+    daemon.store.upsertInteraction({
+      ...answered,
+      state: 'pending',
+      answer: undefined,
+      answered_by: undefined,
+      answered_ts: undefined,
+    });
+    expect(() => daemon.beginWait('eng', alpha.id, {
+      reason: 'reply', peers: [beta.id], until_ts: untilTs,
+    })).toThrow('cannot wait while awaiting_input');
+  });
+  // harn:end answered-approval-tools-can-register-live-waits
+
   it('overlays waits, exempts only their live deadline, and clears on end, kill, and restart', async () => {
     const beta = spawnAgent('beta', testCwd('beta'));
     const { agent: alpha, run } = createRunningAgent('alpha');
