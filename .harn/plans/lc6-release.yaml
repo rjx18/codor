@@ -1,0 +1,82 @@
+id: lc6-release
+title: LC6 - live collaboration docs and release acceptance
+assumptions:
+  create:
+    - id: live-collaboration-contract-is-public
+      title: Operators can discover and reason about live collaboration
+      statement: Public docs must describe member-attributed interim and blocking
+        posts, direct-reply waits and renewal, consuming inbox hooks, transient
+        wait visibility, member status, and bounded redacted run-evidence
+        search, including the exact conventions trailer behavior agents receive.
+      reason: The live workflow crosses the CLI, adapter, switchboard, and web
+        surface; leaving any boundary implicit makes exactly-once behavior and
+        wait renewal impossible to operate confidently.
+      depends_on:
+        - collaboration-briefing-is-capability-aware
+        - cli-waits-consume-only-matching-deliveries
+        - run-evidence-search-is-bounded-and-redacted
+        - web-waits-are-visible-across-live-surfaces
+    - id: agent-member-credentials-are-defense-in-depth
+      title: A member credential narrows defaults but is not a process sandbox
+      statement: Documentation must state that a rotating room-scoped member
+        credential prevents accidental owner-authority use by default, but an
+        agent subprocess still runs as the operator's OS uid and may read the
+        owner token file and every filesystem or network resource that uid and
+        its harness policy permit; real containment requires an OS, VM, or
+        container boundary.
+      reason: A narrow type-enforced network matrix must not be presented as
+        protection against code already executing inside the trusted local
+        account boundary.
+      depends_on:
+        - member-session-masks-operator-token
+        - agent-network-authority-is-narrow
+  reviewed:
+    - id: collaboration-briefing-is-capability-aware
+      outcome: unchanged
+      reason: The shipped trailer already contains every LC10 rule and omits polling
+        only for live-inbox adapters; docs are aligned to that exact behavior.
+    - id: cli-waits-consume-only-matching-deliveries
+      outcome: unchanged
+      reason: Public examples describe the already-reviewed direct-match, consume,
+        timeout, and clear semantics without adding CLI behavior.
+    - id: run-evidence-search-is-bounded-and-redacted
+      outcome: unchanged
+      reason: Protocol docs publish the implemented newest-first default 50 and cap
+        200 projected run scan.
+    - id: member-session-masks-operator-token
+      outcome: unchanged
+      reason: Docs explain both the environment mask it guarantees and the same-uid
+        authority it deliberately cannot guarantee.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: The explicit one-channel member matrix remains the default network path.
+    - id: live-delivery-consumption-is-idempotent
+      outcome: unchanged
+      reason: Docs describe queued-only consumption and loser-safe turn admission.
+anchors:
+  live-collaboration-contract-is-public:
+    readme-live-collaboration:
+      action: change
+      reason: Add the operator-facing command loop and visible-state summary.
+    protocol-conventions-example:
+      action: change
+      reason: Align the documented payload trailer with the implemented LC10 text.
+    protocol-live-collaboration-contract:
+      action: change
+      reason: Publish credentials, consumption, waits, status, hook, and search bounds.
+  agent-member-credentials-are-defense-in-depth:
+    readme-agent-trust-boundary:
+      action: change
+      reason: State the concise same-uid caveat at the public entry point.
+    selfhost-agent-trust-boundary:
+      action: change
+      reason: Give operators the full credential and containment guidance.
+    protocol-agent-trust-boundary:
+      action: change
+      reason: Keep the wire authority contract honest about the local process boundary.
+files:
+  - README.md
+  - docs/SELF-HOST.md
+  - docs/PROTOCOL.md
+applied:
+  applied_at: 2026-07-13T02:25:06.046Z

@@ -226,6 +226,7 @@ Parsing rules, applied to `body` (fenced code blocks and inline code are skipped
 What actually lands in each recipient session's next turn — exact template (identical for every
 recipient of the message except the `you=` field):
 
+<!-- harn:assume live-collaboration-contract-is-public ref=protocol-conventions-example -->
 ```text
 [codor channel=traderjoe-eng msg=#93107 from=@richard (human)
  to=@codex @claude · you=@codex]
@@ -239,13 +240,21 @@ before submitting. (…full body verbatim…)
 --- end reference ---
 
 [conventions: your reply posts to the channel. Tag @claude / @richard to address
-them; an untagged reply goes to @richard. Reference messages as #N.]
+them; an untagged reply goes to @richard. Reference messages as #N. Cite ledger
+notes as [[name]]. Use codor post for interim updates and --wait when a direct
+reply is required; on timeout, check codor status and renew while the peer is
+active. During long tasks, check codor inbox --new. Use codor search --runs before
+asking about unseen referenced context. If no substantive reply is needed,
+respond with exactly <ACK_OK>.]
 ```
+<!-- harn:end live-collaboration-contract-is-public -->
 
 The conventions trailer is included on an agent's **first** delivery in a channel and thereafter
 only if it has misaddressed (posted an unresolvable mention). Both facts are persisted per
 member (`conventions_sent`, `misaddressed` flags), so restarts don't re-spam. Keep payloads
-lean — sessions pay tokens for every byte.
+lean — sessions pay tokens for every byte. For an adapter with `live_inbox: true`, the trailer
+omits only the inbox-polling sentence; every other collaboration and exact-acknowledgement rule
+remains.
 
 ### Queueing
 
@@ -262,6 +271,55 @@ delivery is `consumed` only when `run.completed` lands. On crash/restart, an in-
 delivery is reconciled against the run blob and the harness's native transcript: provably
 completed → finalize; provably never started (no events, clean spawn failure) → retry once;
 ambiguous → `held` with a system message for the operator to release or redeliver.
+
+<!-- harn:assume live-collaboration-contract-is-public ref=protocol-live-collaboration-contract -->
+### Live collaboration within a turn
+
+An owned agent session receives `CODOR_SOCKET`, `CODOR_CHANNEL`, `CODOR_MEMBER_ID`, and a rotating
+`CODOR_MEMBER_TOKEN`. `CODOR_TOKEN` is an alias of that same member token, masking any owner token
+inherited from the daemon. Only the SHA-256 digest is stored. The resulting principal is bound to
+one member and one channel, with a separate exact capability matrix: channel read/subscribe,
+self-attributed post, search, consume its own delivery, begin/end its own wait, and read member
+status. It has no channel or member management capability and cannot call `configure`.
+
+`codor post` from an agent whose run is live creates an ordinary flat `chat` message. It routes by
+the posted message's effective mentions but does not finalize or replace the run, change the
+latest-finalized-agent fallback, or gain acknowledgement semantics. `post --wait` also snapshots
+`awaiting_reply` into each delivery header, then registers the addressed peers and accepts only the
+first queued reply authored by one of them that directly mentions the sender. An untagged
+default-routed reply does not satisfy the wait.
+
+The consuming paths (`post --wait`, `tail --follow --until-*`, and `inbox --consume`) all use
+`consume_delivery`. It changes only the authenticated recipient's currently `queued` delivery to
+`consumed`; a retry or a race lost to turn admission returns the current state without changing it.
+The turn admission transaction never re-admits a consumed delivery, so CLI consumption and the
+turn pump have one winner and create no duplicate run.
+
+`wait_begin {reason: 'reply'|'mention'|'any', peers, until_ts}` and `wait_end` are accepted only
+from that member credential during its running turn. The daemon overlays
+`waiting {peers, reason, since_ts, until_ts}` on member frames without persisting it, exempts the
+run from stall evidence only until `until_ts`, and clears the wait on explicit end, turn end,
+interrupt, death, or restart. A timeout is control flow: inspect `codor status <member>` and renew
+with `tail` while the peer is still progressing.
+
+`GET /api/rooms/:room/members/:id/status` returns only the member handle/state/wait, a bounded live
+run summary, and at most five newest projected tool or post actions. Search adds
+`include=runs`: it scans projected run evidence newest-first, defaults to 50 runs, caps the request
+at 200, matches only tool-call titles and tool-result text, and returns at most 240 characters with
+the message id and event position. Redacted raw evidence cannot be detected through this endpoint.
+
+Claude Code declares `live_inbox: true` and runs
+`codor inbox --new --consume --format hook` after every tool call. A quiet inbox emits zero stdout
+and therefore injects no context. Other built-in adapters currently declare the capability false
+and receive the conventions sentence telling them to poll during long work.
+<!-- harn:end live-collaboration-contract-is-public -->
+
+<!-- harn:assume agent-member-credentials-are-defense-in-depth ref=protocol-agent-trust-boundary -->
+The member capability matrix narrows what an agent does **by default**; it is not a sandbox. The
+subprocess runs as the operator's OS uid and can read the owner-token file or any other resource
+that uid and the harness policy allow. Process containment requires a separate OS account, VM, or
+container boundary.
+<!-- harn:end agent-member-credentials-are-defense-in-depth -->
 
 ### Visibility and optional brakes
 

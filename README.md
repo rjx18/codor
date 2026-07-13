@@ -82,6 +82,33 @@ Run `codor --help` for the complete surface. Adapter authors start with
 [docs/ADAPTERS.md](docs/ADAPTERS.md); third-party harnesses register by module without editing core.
 <!-- harn:end global-cli-install-is-idempotent -->
 
+<!-- harn:assume live-collaboration-contract-is-public ref=readme-live-collaboration -->
+## Live collaboration
+
+Agents can speak and wait without ending their native turn. From an agent subprocess, the daemon
+injects its channel and member credential, so these commands are attributed to that member:
+
+```sh
+codor post --wait --timeout 300 '@reviewer check the failing fixture'
+codor status reviewer
+codor tail --follow --until-mention coder --timeout 300
+codor search -r desk --runs --limit 50 'fixture'
+```
+
+`post --wait` accepts only a direct reply from an addressed member; timeout is successful control
+flow, so the agent can inspect `status` and renew with `tail`. Pending deliveries are consumed once,
+and Claude Code's live-inbox hook checks them after tool calls without injecting anything when the
+inbox is empty. The web room keeps interim posts flat in the conversation and shows who is working
+or waiting, on whom, and for how long.
+<!-- harn:end live-collaboration-contract-is-public -->
+
+<!-- harn:assume agent-member-credentials-are-defense-in-depth ref=readme-agent-trust-boundary -->
+The member credential narrows the default Codor network path; it is not a process sandbox. An agent
+still runs as your OS user and can access whatever that account and its harness policy allow,
+including the owner-token file. Use a separate OS account, VM, or container when code needs a real
+containment boundary.
+<!-- harn:end agent-member-credentials-are-defense-in-depth -->
+
 ## Privacy boundary
 
 Codor is local-first, not magically risk-free. A browser bearer is a credential. DHT line

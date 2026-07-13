@@ -220,6 +220,26 @@ Before an upgrade, take a stopped backup. Then fetch the intended Git revision, 
 moving branch directly as root.
 <!-- harn:end fresh-clone-install-proven-by-script -->
 
+<!-- harn:assume agent-member-credentials-are-defense-in-depth ref=selfhost-agent-trust-boundary -->
+## Agent credential and process boundary
+
+Each owned agent member receives a fresh random credential when it is spawned, revived, or rebuilt
+after a daemon restart. Codor stores only its SHA-256 digest. The raw value exists in that member's
+in-memory session environment as `CODOR_MEMBER_TOKEN`; `CODOR_TOKEN` is set to the same value so the
+adapter's environment merge masks, rather than leaks, the service's owner bearer. The credential is
+valid only for that member's channel and explicit agent operations: read/subscribe, self-attributed
+post, search, own-delivery consumption, own wait begin/end, and member status. It cannot configure
+itself or perform channel or member administration. Do not print, journal, or copy either variable.
+
+This is defense in depth for the default command path, **not containment**. Harness subprocesses run
+as the service user's OS uid. That uid can read `~/.config/codor/token`, the project checkout,
+authenticated harness state, and any filesystem or network resource allowed by the OS and selected
+harness policy. A hostile process can therefore obtain wider authority despite the member
+credential. Treat agents as trusted local programs. For an actual security boundary, run Codor or
+the harness under a separate OS account, VM, or container with independently restricted files,
+credentials, and network access.
+<!-- harn:end agent-member-credentials-are-defense-in-depth -->
+
 <!-- harn:assume pairing-codes-redacted-from-content ref=pairing-code-selfhost-docs -->
 ## Pairing Code Security
 
