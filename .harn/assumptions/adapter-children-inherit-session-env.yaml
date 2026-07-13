@@ -1,0 +1,9 @@
+id: adapter-children-inherit-session-env
+hash: a-7f9f8fad8953
+title: Every adapter child inherits the member session environment
+state: active
+statement: Every first-party adapter subprocess must receive the inherited
+  process environment with session.env merged over it, so daemon-issued CODOR
+  member identity reaches the child without dropping ordinary runtime variables.
+depends_on: []
+created_by: lc3-adapters

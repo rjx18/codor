@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { OpenCodeAdapter } from './index.js';
 
+// harn:assume live-inbox-capability-is-evidence-backed ref=opencode-capability-snapshot
 describe('@codor/adapter-opencode barrel', () => {
   it('exposes only demonstrated capabilities', () => {
     const adapter = new OpenCodeAdapter();
@@ -14,6 +15,7 @@ describe('@codor/adapter-opencode barrel', () => {
       approvals: 'spawn-time',
       extensions: false,
       thinking: true,
+      live_inbox: false,
       // Only full-access is enforced; the other two defer to opencode's own rules.
       policies: {
         'read-only': null,
@@ -23,3 +25,4 @@ describe('@codor/adapter-opencode barrel', () => {
     });
   });
 });
+// harn:end live-inbox-capability-is-evidence-backed

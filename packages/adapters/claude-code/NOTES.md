@@ -179,3 +179,15 @@ dialog's `Custom…` escape, which the CLI accepts as "a model's full name".
 
 Thinking is supported (`thinking:true`), so the thinking row is enabled.
 <!-- harn:end adapters-own-their-model-catalog -->
+
+<!-- harn:assume live-inbox-capability-is-evidence-backed ref=claude-live-inbox-notes -->
+## Live inbox (LC3)
+
+Claude Code 2.1.207 was rechecked on 2026-07-13 without a model call. A local fake Anthropic
+SSE endpoint proved that a second stream-json user frame written while `Bash` was running is
+included beside the tool result in the next model request. Codor does not use that steering
+path in this round because its adapter contract has no live-delivery ingress or consumption
+acknowledgement. Instead, the generated settings add the specified `PostToolUse` command
+`codor inbox --new --consume --format hook`; the member environment inherited by the child
+authorizes that command. Therefore this adapter declares `live_inbox:true`.
+<!-- harn:end live-inbox-capability-is-evidence-backed -->

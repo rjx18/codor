@@ -1,0 +1,12 @@
+id: live-inbox-capability-is-evidence-backed
+hash: a-28aa9fdde97a
+title: Live inbox capability matches an adapter-owned delivery channel
+state: active
+statement: Claude Code alone must declare live_inbox true and generate an exact
+  PostToolUse command hook for codor inbox --new --consume --format hook; every
+  other first-party adapter must declare false and document the missing
+  first-party hook channel and probe date.
+depends_on:
+  - adapter-children-inherit-session-env
+  - extensions-hooks-authoritative
+created_by: lc3-adapters

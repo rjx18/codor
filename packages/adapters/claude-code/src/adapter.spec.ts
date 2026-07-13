@@ -114,6 +114,50 @@ describe('claude subprocess and interaction lifecycle', () => {
   });
 });
 
+// harn:assume adapter-children-inherit-session-env ref=claude-env-regression
+// harn:assume live-inbox-capability-is-evidence-backed ref=claude-live-inbox-regression
+describe('member environment and live inbox settings', () => {
+  it('merges the session environment and generates the exact PostToolUse hook', async () => {
+    const command = executable(`
+const fs = require('node:fs');
+const readline = require('node:readline');
+const args = process.argv.slice(2);
+const settings = JSON.parse(fs.readFileSync(args[args.indexOf('--settings') + 1], 'utf8'));
+readline.createInterface({input: process.stdin}).once('line', () => {
+  console.log(JSON.stringify({
+    type:'result',subtype:'success',is_error:false,
+    result:JSON.stringify({settings,home:process.env.HOME,path:process.env.PATH,member:process.env.CODOR_TEST_SESSION_ENV}),
+    usage:{input_tokens:1,output_tokens:1}
+  }));
+});
+`);
+    const adapter = new ClaudeCodeAdapter(command);
+    const session = adapter.spawn({ cwd: process.cwd() });
+    session.env = { HOME: '/codor/session-home', CODOR_TEST_SESSION_ENV: 'member-value' };
+    const events: WireEvent[] = [];
+    for await (const event of adapter.deliver(session, 'hello')) events.push(event);
+    const done = events.at(-1) as Extract<WireEvent, { type: 'run.completed' }>;
+    const detail = JSON.parse(done.final_text!);
+
+    expect(adapter.capabilities.live_inbox).toBe(true);
+    expect(detail).toMatchObject({
+      home: '/codor/session-home',
+      path: process.env.PATH,
+      member: 'member-value',
+      settings: {
+        hooks: {
+          PostToolUse: [{ hooks: [{
+            type: 'command',
+            command: 'codor inbox --new --consume --format hook',
+          }] }],
+        },
+      },
+    });
+  });
+});
+// harn:end live-inbox-capability-is-evidence-backed
+// harn:end adapter-children-inherit-session-env
+
 // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-regression
 describe('the declared policy mapping matches the arguments actually built', () => {
   it('declares exactly what --permission-mode receives', () => {

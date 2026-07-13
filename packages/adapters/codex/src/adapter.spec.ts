@@ -87,6 +87,30 @@ console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_t
   });
 });
 
+// harn:assume adapter-children-inherit-session-env ref=codex-env-regression
+describe('member environment inheritance', () => {
+  it('merges session values over the inherited process environment', async () => {
+    const command = executable(`
+const detail = JSON.stringify({home:process.env.HOME,path:process.env.PATH,member:process.env.CODOR_TEST_SESSION_ENV});
+console.log(JSON.stringify({type:'thread.started',thread_id:'11111111-1111-4111-8111-111111111111'}));
+console.log(JSON.stringify({type:'item.completed',item:{id:'item-1',type:'agent_message',text:detail}}));
+console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_tokens:1}}));
+`);
+    const adapter = new CodexAdapter(command);
+    const session = adapter.spawn({ cwd: process.cwd() });
+    session.env = { HOME: '/codor/session-home', CODOR_TEST_SESSION_ENV: 'member-value' };
+    const events: WireEvent[] = [];
+    for await (const event of adapter.deliver(session, 'hello')) events.push(event);
+    const done = events.at(-1) as Extract<WireEvent, { type: 'run.completed' }>;
+
+    expect(adapter.capabilities.live_inbox).toBe(false);
+    expect(JSON.parse(done.final_text!)).toEqual({
+      home: '/codor/session-home', path: process.env.PATH, member: 'member-value',
+    });
+  });
+});
+// harn:end adapter-children-inherit-session-env
+
 // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-regression
 describe('the declared policy mapping matches the arguments actually built', () => {
   it('declares exactly what --sandbox receives', () => {

@@ -110,6 +110,30 @@ console.log(JSON.stringify([{id:'ses_first'},{id:'ses_second'},{title:'missing i
   });
 });
 
+// harn:assume adapter-children-inherit-session-env ref=opencode-env-regression
+describe('member environment inheritance', () => {
+  it('merges session values over the inherited process environment', async () => {
+    const command = executable(`
+const detail = JSON.stringify({home:process.env.HOME,path:process.env.PATH,member:process.env.CODOR_TEST_SESSION_ENV});
+console.log(JSON.stringify({type:'step_start',sessionID:'ses_env',part:{type:'step-start'}}));
+console.log(JSON.stringify({type:'text',sessionID:'ses_env',part:{type:'text',text:detail,time:{start:1,end:2}}}));
+console.log(JSON.stringify({type:'step_finish',sessionID:'ses_env',part:{type:'step-finish',tokens:{input:1,output:1},cost:0}}));
+`);
+    const adapter = new OpenCodeAdapter(command);
+    const session = adapter.spawn({ cwd: process.cwd() });
+    session.env = { HOME: '/codor/session-home', CODOR_TEST_SESSION_ENV: 'member-value' };
+    const events: WireEvent[] = [];
+    for await (const event of adapter.deliver(session, 'hello')) events.push(event);
+    const done = events.at(-1) as Extract<WireEvent, { type: 'run.completed' }>;
+
+    expect(adapter.capabilities.live_inbox).toBe(false);
+    expect(JSON.parse(done.final_text!)).toEqual({
+      home: '/codor/session-home', path: process.env.PATH, member: 'member-value',
+    });
+  });
+});
+// harn:end adapter-children-inherit-session-env
+
 // harn:assume adapters-own-their-model-catalog ref=opencode-model-discovery
 describe('opencode model discovery', () => {
   const stub = (body: string): string => {

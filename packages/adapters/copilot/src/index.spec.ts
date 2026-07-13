@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { CopilotAdapter } from './index.js';
 
+// harn:assume live-inbox-capability-is-evidence-backed ref=copilot-capability-snapshot
 describe('@codor/adapter-copilot barrel', () => {
   it('exposes only documented and fixture-demonstrated capabilities', () => {
     const adapter = new CopilotAdapter();
@@ -14,6 +15,7 @@ describe('@codor/adapter-copilot barrel', () => {
       approvals: 'spawn-time',
       extensions: true,
       thinking: false,
+      live_inbox: false,
       // Only full-access is enforced; the other two defer to copilot's own rules.
       policies: {
         'read-only': null,
@@ -23,3 +25,4 @@ describe('@codor/adapter-copilot barrel', () => {
     });
   });
 });
+// harn:end live-inbox-capability-is-evidence-backed

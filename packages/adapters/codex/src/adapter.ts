@@ -58,6 +58,9 @@ export class CodexAdapter implements HarnessAdapter {
     approvals: 'spawn-time',
     extensions: false,
     thinking: true,
+    // harn:assume live-inbox-capability-is-evidence-backed ref=codex-live-inbox-capability
+    live_inbox: false,
+    // harn:end live-inbox-capability-is-evidence-backed
     // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-declarations
     // --sandbox <mode>; all three are distinct here.
     policies: {
@@ -121,6 +124,9 @@ export class CodexAdapter implements HarnessAdapter {
     const child = spawn(this.command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true, // own process group — signal the group, not the shim
+      // harn:assume adapter-children-inherit-session-env ref=codex-child-environment
+      env: { ...process.env, ...session.env },
+      // harn:end adapter-children-inherit-session-env
     });
     this.children.set(session, child);
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ClaudeCodeAdapter } from './index.js';
 
+// harn:assume live-inbox-capability-is-evidence-backed ref=claude-capability-snapshot
 describe('@codor/adapter-claude-code barrel', () => {
   it('exposes the adapter with its honest capabilities', () => {
     const adapter = new ClaudeCodeAdapter();
@@ -14,6 +15,7 @@ describe('@codor/adapter-claude-code barrel', () => {
       approvals: 'runtime',
       extensions: true,
       thinking: true,
+      live_inbox: true,
       policies: {
         'read-only': 'plan',
         'workspace-write': 'acceptEdits',
@@ -22,3 +24,4 @@ describe('@codor/adapter-claude-code barrel', () => {
     });
   });
 });
+// harn:end live-inbox-capability-is-evidence-backed

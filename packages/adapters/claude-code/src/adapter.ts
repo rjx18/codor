@@ -96,6 +96,9 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     approvals: 'runtime',
     extensions: true,
     thinking: true,
+    // harn:assume live-inbox-capability-is-evidence-backed ref=claude-live-inbox-capability
+    live_inbox: true,
+    // harn:end live-inbox-capability-is-evidence-backed
     // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-declarations
     // --permission-mode <mode>; all three are distinct here.
     policies: {
@@ -173,6 +176,12 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
       hooks: {
         SubagentStart: [{ hooks: [{ type: 'command', command }] }],
         SubagentStop: [{ hooks: [{ type: 'command', command }] }],
+        // harn:assume live-inbox-capability-is-evidence-backed ref=claude-post-tool-use-hook
+        PostToolUse: [{ hooks: [{
+          type: 'command',
+          command: 'codor inbox --new --consume --format hook',
+        }] }],
+        // harn:end live-inbox-capability-is-evidence-backed
       },
     };
     const settingsPath = join(
@@ -221,6 +230,9 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
       cwd: session.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: true, // own process group — signal the group
+      // harn:assume adapter-children-inherit-session-env ref=claude-child-environment
+      env: { ...process.env, ...session.env },
+      // harn:end adapter-children-inherit-session-env
     });
     state.child = child;
     this.turns.set(session, state);

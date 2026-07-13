@@ -53,6 +53,9 @@ export class OpenCodeAdapter implements HarnessAdapter {
     approvals: 'spawn-time',
     extensions: false,
     thinking: true,
+    // harn:assume live-inbox-capability-is-evidence-backed ref=opencode-live-inbox-capability
+    live_inbox: false,
+    // harn:end live-inbox-capability-is-evidence-backed
     // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-declarations
     // Only full-access emits a flag. read-only and workspace-write build IDENTICAL
     // arguments, so neither is enforced by us: both defer to opencode's own rules.
@@ -122,6 +125,9 @@ export class OpenCodeAdapter implements HarnessAdapter {
       cwd: session.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,
+      // harn:assume adapter-children-inherit-session-env ref=opencode-child-environment
+      env: { ...process.env, ...session.env },
+      // harn:end adapter-children-inherit-session-env
     });
     this.children.set(session, child);
 

@@ -1,0 +1,216 @@
+id: lc3-adapters
+title: LC3 - inherit member environment and declare live inbox truth
+assumptions:
+  create:
+    - id: adapter-children-inherit-session-env
+      title: Every adapter child inherits the member session environment
+      statement: Every first-party adapter subprocess must receive the inherited
+        process environment with session.env merged over it, so daemon-issued
+        CODOR member identity reaches the child without dropping ordinary
+        runtime variables.
+      reason: L1 makes member-scoped CLI calls possible while preserving the native
+        harness environment.
+    - id: live-inbox-capability-is-evidence-backed
+      title: Live inbox capability matches an adapter-owned delivery channel
+      statement: Claude Code alone must declare live_inbox true and generate an exact
+        PostToolUse command hook for codor inbox --new --consume --format hook;
+        every other first-party adapter must declare false and document the
+        missing first-party hook channel and probe date.
+      reason: L9 lets briefing and later acceptance distinguish automatic
+        tool-boundary delivery from adapters that require explicit polling.
+      depends_on:
+        - adapter-children-inherit-session-env
+        - extensions-hooks-authoritative
+  reviewed:
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Capability declarations and child environment composition do not alter
+        model, policy, or thinking validation and mapping.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: Each existing supervised child keeps the same argv, cwd, stdio, process
+        group, and exit handling; only its environment is composed.
+    - id: adapters-cli-only-no-sdk
+      outcome: unchanged
+      reason: Codex, Copilot, Gemini, and OpenCode remain direct CLI subprocess
+        drivers with no SDK or server integration.
+    - id: extensions-hooks-authoritative
+      outcome: unchanged
+      reason: SubagentStart and SubagentStop remain the authoritative extension hooks
+        while PostToolUse adds an independent inbox command.
+    - id: harness-declares-what-a-policy-becomes
+      outcome: unchanged
+      reason: Exhaustive capability snapshots gain live_inbox without changing any
+        native policy declaration.
+anchors:
+  adapter-children-inherit-session-env:
+    claude-child-environment:
+      action: change
+      reason: Merge session.env over process.env at the Claude child spawn.
+    codex-child-environment:
+      action: change
+      reason: Merge session.env over process.env at the Codex child spawn.
+    copilot-child-environment:
+      action: change
+      reason: Merge session.env over process.env at the Copilot child spawn.
+    gemini-child-environment:
+      action: change
+      reason: Merge session.env over process.env at the Gemini child spawn.
+    opencode-child-environment:
+      action: change
+      reason: Merge session.env over process.env at the OpenCode child spawn.
+    claude-env-regression:
+      action: change
+      reason: Prove session values override inherited values and unrelated process
+        variables survive.
+    codex-env-regression:
+      action: change
+      reason: Prove session values override inherited values and unrelated process
+        variables survive.
+    copilot-env-regression:
+      action: change
+      reason: Prove session values override inherited values and unrelated process
+        variables survive.
+    gemini-env-regression:
+      action: change
+      reason: Prove session values override inherited values and unrelated process
+        variables survive.
+    opencode-env-regression:
+      action: change
+      reason: Prove session values override inherited values and unrelated process
+        variables survive.
+  live-inbox-capability-is-evidence-backed:
+    claude-live-inbox-capability:
+      action: change
+      reason: Declare true only for the adapter with the generated hook.
+    claude-post-tool-use-hook:
+      action: change
+      reason: Add the exact consuming inbox command beside the generated extension
+        hooks.
+    claude-live-inbox-regression:
+      action: change
+      reason: Snapshot the exact settings hook and true capability through a fake
+        child.
+    codex-live-inbox-capability:
+      action: change
+      reason: Explicitly declare the missing automatic delivery channel.
+    copilot-live-inbox-capability:
+      action: change
+      reason: Explicitly declare the missing automatic delivery channel.
+    gemini-live-inbox-capability:
+      action: change
+      reason: Explicitly declare the missing automatic delivery channel.
+    opencode-live-inbox-capability:
+      action: change
+      reason: Explicitly declare the missing automatic delivery channel.
+    claude-capability-snapshot:
+      action: change
+      reason: Keep the exhaustive barrel contract aligned with the true capability.
+    codex-capability-snapshot:
+      action: change
+      reason: Keep the exhaustive barrel contract aligned with the false capability.
+    copilot-capability-snapshot:
+      action: change
+      reason: Keep the exhaustive barrel contract aligned with the false capability.
+    gemini-capability-snapshot:
+      action: change
+      reason: Keep the exhaustive barrel contract aligned with the false capability.
+    opencode-capability-snapshot:
+      action: change
+      reason: Keep the exhaustive barrel contract aligned with the false capability.
+    claude-live-inbox-notes:
+      action: change
+      reason: Record the no-spend steering probe and why the specified hook remains
+        the round contract.
+    codex-live-inbox-notes:
+      action: change
+      reason: Record the absent first-party hook channel and probe date.
+    copilot-live-inbox-notes:
+      action: change
+      reason: Record the absent first-party hook channel and probe date.
+    gemini-live-inbox-notes:
+      action: change
+      reason: Record the absent first-party hook channel and probe date.
+    opencode-live-inbox-notes:
+      action: change
+      reason: Record the absent first-party hook channel and probe date.
+  canonical-spawn-controls-enforced:
+    claude-spawn-control-mapping:
+      action: change
+      reason: Add the orthogonal live_inbox declaration inside the adapter capability
+        block.
+    codex-spawn-control-mapping:
+      action: change
+      reason: Add the orthogonal live_inbox declaration inside the adapter capability
+        block.
+    copilot-spawn-control-mapping:
+      action: change
+      reason: Add the orthogonal live_inbox declaration inside the adapter capability
+        block.
+    gemini-spawn-control-mapping:
+      action: change
+      reason: Add the orthogonal live_inbox declaration inside the adapter capability
+        block.
+    opencode-spawn-control-mapping:
+      action: change
+      reason: Add the orthogonal live_inbox declaration inside the adapter capability
+        block.
+  adapter-process-lifecycle-supervised:
+    cli-process-supervision:
+      action: change
+      reason: Compose child environments without changing supervision for Claude and
+        Codex.
+    copilot-cli-process-supervision:
+      action: change
+      reason: Compose the child environment without changing supervision.
+    gemini-cli-process-supervision:
+      action: change
+      reason: Compose the child environment without changing supervision.
+    opencode-cli-process-supervision:
+      action: change
+      reason: Compose the child environment without changing supervision.
+  adapters-cli-only-no-sdk:
+    cli-subprocess-driver:
+      action: change
+      reason: Keep Codex direct while composing its child environment.
+    copilot-cli-subprocess-driver:
+      action: change
+      reason: Keep Copilot direct while composing its child environment.
+    gemini-cli-subprocess-driver:
+      action: change
+      reason: Keep Gemini direct while composing its child environment.
+    opencode-cli-subprocess-driver:
+      action: change
+      reason: Keep OpenCode direct while composing its child environment.
+  extensions-hooks-authoritative:
+    hooks-endpoint-settings:
+      action: change
+      reason: Preserve extension hooks and add an independent PostToolUse inbox hook.
+  harness-declares-what-a-policy-becomes:
+    adapter-policy-declarations:
+      action: change
+      reason: Account for the exhaustive capability objects while native policy
+        mappings remain unchanged.
+files:
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/claude-code/src/adapter.spec.ts
+  - packages/adapters/claude-code/src/index.spec.ts
+  - packages/adapters/claude-code/NOTES.md
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/adapter.spec.ts
+  - packages/adapters/codex/src/index.spec.ts
+  - packages/adapters/codex/NOTES.md
+  - packages/adapters/copilot/src/adapter.ts
+  - packages/adapters/copilot/src/adapter.spec.ts
+  - packages/adapters/copilot/src/index.spec.ts
+  - packages/adapters/copilot/NOTES.md
+  - packages/adapters/gemini/src/adapter.ts
+  - packages/adapters/gemini/src/adapter.spec.ts
+  - packages/adapters/gemini/src/index.spec.ts
+  - packages/adapters/gemini/NOTES.md
+  - packages/adapters/opencode/src/adapter.ts
+  - packages/adapters/opencode/src/adapter.spec.ts
+  - packages/adapters/opencode/src/index.spec.ts
+  - packages/adapters/opencode/NOTES.md
+applied:
+  applied_at: 2026-07-13T00:52:51.631Z

@@ -119,6 +119,30 @@ console.log(JSON.stringify({type:'result',timestamp:new Date().toISOString(),sta
   });
 });
 
+// harn:assume adapter-children-inherit-session-env ref=gemini-env-regression
+describe('member environment inheritance', () => {
+  it('merges session values over the inherited process environment', async () => {
+    const command = executable(`
+const detail = JSON.stringify({home:process.env.HOME,path:process.env.PATH,member:process.env.CODOR_TEST_SESSION_ENV});
+console.log(JSON.stringify({type:'init',timestamp:new Date().toISOString(),session_id:'22222222-2222-4222-8222-222222222222',model:'gemini-test'}));
+console.log(JSON.stringify({type:'message',timestamp:new Date().toISOString(),role:'assistant',content:detail,delta:true}));
+console.log(JSON.stringify({type:'result',timestamp:new Date().toISOString(),status:'success',stats:{input_tokens:1,output_tokens:1}}));
+`);
+    const adapter = new GeminiAdapter(command);
+    const session = adapter.spawn({ cwd: process.cwd() });
+    session.env = { HOME: '/codor/session-home', CODOR_TEST_SESSION_ENV: 'member-value' };
+    const events: WireEvent[] = [];
+    for await (const event of adapter.deliver(session, 'hello')) events.push(event);
+    const done = events.at(-1) as Extract<WireEvent, { type: 'run.completed' }>;
+
+    expect(adapter.capabilities.live_inbox).toBe(false);
+    expect(JSON.parse(done.final_text!)).toEqual({
+      home: '/codor/session-home', path: process.env.PATH, member: 'member-value',
+    });
+  });
+});
+// harn:end adapter-children-inherit-session-env
+
 // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-regression
 describe('the declared policy mapping matches the arguments actually built', () => {
   it('declares exactly what --approval-mode receives', () => {

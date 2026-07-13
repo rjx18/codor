@@ -174,3 +174,12 @@ no ids. The catalog therefore cites the vendor model documentation at
 
 Thinking is supported and maps to `-c model_reasoning_effort=<low|medium|high>`.
 <!-- harn:end adapters-own-their-model-catalog -->
+
+<!-- harn:assume live-inbox-capability-is-evidence-backed ref=codex-live-inbox-notes -->
+## Live inbox (LC3)
+
+Rechecked 2026-07-13 with `codex exec --help`, without a model call. The CLI can load general
+configured hooks, but the documented `exec --json` surface exposes no PostToolUse-equivalent
+command-output channel that injects consumed inbox text into the running model turn. This
+adapter therefore declares `live_inbox:false`.
+<!-- harn:end live-inbox-capability-is-evidence-backed -->
