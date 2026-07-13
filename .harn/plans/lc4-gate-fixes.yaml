@@ -1,0 +1,95 @@
+id: lc4-gate-fixes
+title: LC4 gate fixes - preserve live state and hydrate own queued inbox
+assumptions:
+  create:
+    - id: inflight-member-state-survives-new-delivery
+      title: New work does not hide an inflight member state
+      statement: Routing a queued delivery to an agent with an inflight running or
+        awaiting-input turn must keep that live member state while the
+        one-inflight guard leaves the delivery queued for consumption or the
+        next batch.
+      reason: A live collaboration reply must not make wait_end fail or make the UI
+        claim the still-running process is merely queued.
+      depends_on:
+        - one-inflight-turn-per-member
+        - live-agent-waits-are-transient
+    - id: agent-sync-hydrates-only-own-queued-inbox
+      title: Agent sync includes only its own consumable queued inbox
+      statement: A room-scoped agent subscription must hydrate that authenticated
+        member's current queued deliveries in addition to ordinary change-log
+        inbox rows, and must never expose another agent's queued deliveries.
+      reason: consume_delivery requires a delivery id, but agent deliveries
+        intentionally do not enter the human/operator inbox change log.
+      depends_on:
+        - agent-network-authority-is-narrow
+        - live-delivery-consumption-is-idempotent
+        - sync-cursor-commits-after-hydration
+  reviewed:
+    - id: one-inflight-turn-per-member
+      outcome: unchanged
+      reason: The inflight guard still prevents a second turn; only the member
+        projection stays truthful while work queues.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Subscription hydration filters by the authenticated actor id and current
+        room.
+    - id: live-delivery-consumption-is-idempotent
+      outcome: unchanged
+      reason: Hydration reveals ids but all state transition remains in the same
+        recipient-bound consume act.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: Durable room sync remains transactional; principal-specific queued rows
+        are an authorization-filtered overlay at the socket boundary.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: Both network and Unix listeners share the same principal-filtered
+        subscribe implementation.
+anchors:
+  inflight-member-state-survives-new-delivery:
+    preserve-live-state-on-queue:
+      action: change
+      reason: Preserve running and awaiting_input alongside existing non-startable
+        states.
+    preserve-live-state-regression:
+      action: change
+      reason: Prove delivery arrival leaves a real inflight run running and queued
+        work unadmitted.
+  agent-sync-hydrates-only-own-queued-inbox:
+    agent-own-queued-sync-overlay:
+      action: change
+      reason: Overlay only the authenticated agent's current queued deliveries during
+        subscribe.
+    own-queued-sync-regression:
+      action: change
+      reason: Prove own queued hydration, other-agent exclusion, and consumability
+        over real WebSocket auth.
+  one-inflight-turn-per-member:
+    inflight-guard:
+      action: change
+      reason: Preserve visible live state without changing the one-turn admission
+        guard.
+  agent-network-authority-is-narrow:
+    agent-room-authorization:
+      action: change
+      reason: Filter the new hydration overlay by the authenticated room actor.
+  live-delivery-consumption-is-idempotent:
+    consume-act-dispatch:
+      action: keep
+      reason: The existing consume authorization and state transition must not change.
+  sync-cursor-commits-after-hydration:
+    consistent-sync-snapshot:
+      action: keep
+      reason: Store sync transaction and cursor remain unchanged.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Shared subscribe dispatch gains the same filtered overlay on both
+        listeners.
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+applied:
+  applied_at: 2026-07-13T01:21:39.920Z

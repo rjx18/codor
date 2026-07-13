@@ -1,0 +1,11 @@
+id: inflight-member-state-survives-new-delivery
+hash: a-925927a7cf7e
+title: New work does not hide an inflight member state
+state: active
+statement: Routing a queued delivery to an agent with an inflight running or
+  awaiting-input turn must keep that live member state while the one-inflight
+  guard leaves the delivery queued for consumption or the next batch.
+depends_on:
+  - one-inflight-turn-per-member
+  - live-agent-waits-are-transient
+created_by: lc4-gate-fixes

@@ -897,7 +897,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             send({ type: 'room', seq: hydrationCursor, room: sync.room });
             for (const member of sync.members) send({ type: 'member', seq: hydrationCursor, member });
             for (const message of sync.messages) send({ type: 'message', seq: hydrationCursor, message });
-            for (const delivery of sync.inbox) send({ type: 'inbox', seq: hydrationCursor, delivery });
+            // harn:assume agent-sync-hydrates-only-own-queued-inbox ref=agent-own-queued-sync-overlay
+            const inbox = principal.kind === 'agent'
+              ? new Map([
+                  ...sync.inbox
+                    .filter((delivery) => delivery.recipient === actor.id)
+                    .map((delivery) => [delivery.id, delivery] as const),
+                  ...daemon.store.listDeliveries(frame.room, {
+                    recipient: actor.id,
+                    state: 'queued',
+                  }).map((delivery) => [delivery.id, delivery] as const),
+                ]).values()
+              : sync.inbox;
+            for (const delivery of inbox) send({ type: 'inbox', seq: hydrationCursor, delivery });
+            // harn:end agent-sync-hydrates-only-own-queued-inbox
             for (const meter of sync.meters) send({ type: 'meter', seq: hydrationCursor, meter });
             send({ type: 'sync_complete', seq: sync.seq });
           } else if (frame.type === 'post') {

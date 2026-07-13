@@ -202,6 +202,49 @@ describe('agent member credential principal', () => {
 // harn:end agent-network-authority-is-narrow
 // harn:end agent-member-credentials-stay-secret
 
+// harn:assume agent-sync-hydrates-only-own-queued-inbox ref=own-queued-sync-regression
+describe('agent queued inbox hydration', () => {
+  it('sends only the authenticated agent own queued rows and leaves them consumable', async () => {
+    const alpha = spawnAgentWithToken('alpha');
+    const beta = spawnAgentWithToken('beta');
+    const gamma = spawnAgentWithToken('gamma');
+    daemon.pauseMember('eng', alpha.agent.id);
+    daemon.pauseMember('eng', gamma.agent.id);
+    const posted = daemon.postAgentMessage('eng', beta.agent.id, '@alpha own @gamma other');
+    const alphaDelivery = daemon.store.listDeliveries('eng', {
+      recipient: alpha.agent.id,
+      state: 'queued',
+    }).find((delivery) => delivery.message_id === posted.id)!;
+    const gammaDelivery = daemon.store.listDeliveries('eng', {
+      recipient: gamma.agent.id,
+      state: 'queued',
+    }).find((delivery) => delivery.message_id === posted.id)!;
+
+    const client = await connectAs(alpha.token);
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+    const inboxIds = client.frames
+      .filter((frame): frame is Extract<ServerFrame, { type: 'inbox' }> => frame.type === 'inbox')
+      .map((frame) => frame.delivery.id);
+    expect(inboxIds).toContain(alphaDelivery.id);
+    expect(inboxIds).not.toContain(gammaDelivery.id);
+
+    client.ws.send(JSON.stringify({
+      type: 'act',
+      room: 'eng',
+      act: { act: 'consume_delivery', delivery_id: alphaDelivery.id },
+    }));
+    expect(await client.next((frame) =>
+      frame.type === 'consume_result' && frame.delivery.id === alphaDelivery.id)).toMatchObject({
+      type: 'consume_result',
+      delivery: { id: alphaDelivery.id, state: 'consumed' },
+      message: { id: posted.id },
+    });
+    client.ws.close();
+  });
+});
+// harn:end agent-sync-hydrates-only-own-queued-inbox
+
 afterEach(async () => {
   await server.close();
   await daemon.close();

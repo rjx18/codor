@@ -1,0 +1,12 @@
+id: agent-sync-hydrates-only-own-queued-inbox
+hash: a-2b78027d278d
+title: Agent sync includes only its own consumable queued inbox
+state: active
+statement: A room-scoped agent subscription must hydrate that authenticated
+  member's current queued deliveries in addition to ordinary change-log inbox
+  rows, and must never expose another agent's queued deliveries.
+depends_on:
+  - agent-network-authority-is-narrow
+  - live-delivery-consumption-is-idempotent
+  - sync-cursor-commits-after-hydration
+created_by: lc4-gate-fixes

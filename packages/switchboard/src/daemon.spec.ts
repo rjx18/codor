@@ -288,6 +288,30 @@ describe('transient live waits', () => {
 });
 // harn:end live-agent-waits-are-transient
 
+// harn:assume inflight-member-state-survives-new-delivery ref=preserve-live-state-regression
+describe('queued work during a live turn', () => {
+  it('keeps the member running while the new delivery remains consumable', async () => {
+    const alpha = spawnAgent('alpha', testCwd('live-queue-alpha'));
+    const beta = spawnAgent('beta', testCwd('live-queue-beta'));
+    fake.enqueue({ kind: 'complete', final_text: '@richard original turn done', delay_ms: 100 });
+    daemon.postHumanMessage('eng', '@alpha start the live turn');
+    await until(() => daemon.store.getMember('eng', alpha.id)?.state === 'running' ? true : undefined);
+
+    const reply = daemon.postAgentMessage('eng', beta.id, '@alpha live reply');
+    const delivery = daemon.store.listDeliveries('eng', {
+      recipient: alpha.id,
+      state: 'queued',
+    }).find((candidate) => candidate.message_id === reply.id)!;
+    expect(daemon.store.getMember('eng', alpha.id)?.state).toBe('running');
+    expect(runMessages().filter((message) => message.author === alpha.id)).toHaveLength(1);
+
+    expect(daemon.consumeDelivery('eng', delivery.id, alpha.id).delivery.state).toBe('consumed');
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(1);
+  });
+});
+// harn:end inflight-member-state-survives-new-delivery
+
 // harn:assume fake-adapter-drives-live-collaboration ref=fake-live-step-regression
 // harn:assume interim-agent-posts-are-nonfinal-routing ref=interim-post-regression
 // harn:assume awaiting-reply-marker-is-delivery-context ref=awaiting-reply-daemon-regression

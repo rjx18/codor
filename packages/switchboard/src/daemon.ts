@@ -1684,10 +1684,15 @@ export class Daemon {
     const mirrored = recipient.custody === 'mirrored';
     const remoteUnreachable = this.isRemoteMember(recipient) &&
       !this.residency?.isReachable(recipient.host);
+    // harn:assume inflight-member-state-survives-new-delivery ref=preserve-live-state-on-queue
+    const hasLiveTurn = this.inflight.has(recipient.id) &&
+      (recipient.state === 'running' || recipient.state === 'awaiting_input');
     const preservesState =
+      hasLiveTurn ||
       recipient.state === 'paused' ||
       recipient.state === 'dead' ||
       recipient.state === 'custody_uncertain';
+    // harn:end inflight-member-state-survives-new-delivery
     const member = this.store.updateMember(room, recipient.id, {
       state: preservesState ? recipient.state : remoteUnreachable ? 'unreachable' : 'queued',
     });
