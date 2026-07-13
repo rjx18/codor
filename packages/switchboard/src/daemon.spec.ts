@@ -353,6 +353,71 @@ describe('scripted live collaboration', () => {
 // harn:end interim-agent-posts-are-nonfinal-routing
 // harn:end fake-adapter-drives-live-collaboration
 
+// harn:assume interim-agent-posts-are-nonfinal-routing ref=interim-routing-exclusion-review
+// harn:assume default-recipient-fallback-chain ref=interim-default-fallback-review
+describe('interim post routing exclusions', () => {
+  it('keeps the author run live and preserves only the later adapter final text', async () => {
+    const alpha = spawnAgent('alpha', testCwd('interim-final-alpha'));
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Finish the live turn?', options: [{ label: 'finish' }] },
+      reply: () => '@richard adapter final only',
+    });
+    daemon.postHumanMessage('eng', '@alpha begin the live turn');
+    const interaction = await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
+    );
+    const running = daemon.store.listRunMessages('eng', { author: alpha.id, limit: 1 })[0]!;
+
+    const interim = daemon.postAgentMessage('eng', alpha.id, '@richard interim progress only');
+    const during = daemon.store.getMessage('eng', running.id)!;
+    expect(interim).toMatchObject({ kind: 'chat', author: alpha.id });
+    expect(during).toMatchObject({ id: running.id, body: '', run: { status: 'running' } });
+    expect(during.run!.final_text).toBeUndefined();
+
+    await daemon.answerInteraction('eng', interaction.id, 'finish');
+    await daemon.settle();
+    expect(daemon.store.getMessage('eng', running.id)).toMatchObject({
+      id: running.id,
+      body: '@richard adapter final only',
+      run: { status: 'completed', final_text: '@richard adapter final only' },
+    });
+  });
+
+  it('does not let an interim author replace the latest finalized default', async () => {
+    const beta = spawnAgent('beta', testCwd('interim-default-beta'));
+    fake.enqueue({ kind: 'complete', final_text: '@richard beta remains the default' });
+    daemon.postHumanMessage('eng', '@beta establish the default');
+    await daemon.settle();
+    daemon.pauseMember('eng', beta.id);
+
+    const alpha = spawnAgent('alpha', testCwd('interim-default-alpha'));
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Finish alpha?', options: [{ label: 'finish' }] },
+      reply: () => '@richard alpha final',
+    });
+    daemon.postHumanMessage('eng', '@alpha start unrelated work');
+    const interaction = await until(() =>
+      daemon.store.listInteractions('eng', 'pending').find((item) => item.member_id === alpha.id),
+    );
+    daemon.postAgentMessage('eng', alpha.id, 'alpha interim without a recipient');
+
+    expect(daemon.store.latestFinalizedAgentAuthor('eng')).toBe(beta.id);
+    const untagged = daemon.postHumanMessage('eng', 'continue with the current default');
+    expect(daemon.store.listDeliveries('eng', { recipient: beta.id })).toContainEqual(
+      expect.objectContaining({ message_id: untagged.id, state: 'queued' }),
+    );
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id })
+      .some((delivery) => delivery.message_id === untagged.id)).toBe(false);
+
+    await daemon.answerInteraction('eng', interaction.id, 'finish');
+    await daemon.settle();
+  });
+});
+// harn:end default-recipient-fallback-chain
+// harn:end interim-agent-posts-are-nonfinal-routing
+
 // harn:assume member-status-is-bounded-and-identity-safe ref=status-daemon-regression
 describe('bounded member status', () => {
   it('merges projected latest-run tools and live posts without identity or raw payload fields', () => {

@@ -1,0 +1,37 @@
+id: lc2-review-fix
+title: LC2 review fix - pin interim-post routing exclusions
+assumptions:
+  reviewed:
+    - id: interim-agent-posts-are-nonfinal-routing
+      outcome: unchanged
+      reason: Add direct regressions for the already-correct nonfinal run lifecycle
+        and final text behavior.
+    - id: default-recipient-fallback-chain
+      outcome: unchanged
+      reason: Add direct regressions proving an interim agent chat cannot become the
+        latest finalized fallback or change effective default routing.
+    - id: agent-model-and-thinking-are-durable
+      outcome: unchanged
+      reason: The daemon test file shares its FakeAdapter fixture with durable
+        configuration coverage; the fixture and durable behavior remain
+        unchanged.
+anchors:
+  interim-agent-posts-are-nonfinal-routing:
+    interim-routing-exclusion-review:
+      action: change
+      reason: Assert the placeholder stays running and later completes with only the
+        adapter final text.
+  default-recipient-fallback-chain:
+    interim-default-fallback-review:
+      action: change
+      reason: Assert an interim agent chat leaves the latest finalized author and the
+        next untagged human route unchanged.
+  agent-model-and-thinking-are-durable:
+    durable-agent-config-regression:
+      action: change
+      reason: Account for Harn's shared-file mapping while the existing durable
+        configuration regression remains unchanged and green.
+files:
+  - packages/switchboard/src/daemon.spec.ts
+applied:
+  applied_at: 2026-07-13T00:33:38.228Z
