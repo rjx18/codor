@@ -5933,3 +5933,97 @@ textarea.wr-composer-control {
   flex-wrap: wrap;
 }
 /* harn:end controls-fit-the-surface-they-sit-on */
+
+/* harn:assume web-waits-are-visible-across-live-surfaces ref=live-collaboration-style */
+.wr-member-state[data-state='waiting'],
+.wr-member-waiting,
+.wr-run-heading.is-waiting .wr-run-status {
+  color: var(--wr-amber);
+}
+
+.wr-member-waiting {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wr-run-heading.is-waiting {
+  border-radius: 6px;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    color-mix(in srgb, var(--wr-amber) 7%, transparent),
+    transparent
+  );
+}
+
+.wr-run-heading.is-waiting .wr-run-status > svg {
+  flex: 0 0 auto;
+}
+
+.wr-live-activity {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--wr-faint);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.wr-live-activity::before,
+.wr-live-activity::after {
+  height: 1px;
+  min-width: 18px;
+  flex: 1 1 90px;
+  background: var(--wr-line);
+  content: '';
+}
+
+.wr-live-activity > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.wr-live-activity > span[data-live-state='waiting'] strong {
+  color: var(--wr-amber);
+}
+
+.wr-live-activity > span[data-live-state='working'] strong {
+  color: var(--wr-cyan);
+}
+
+.wr-live-activity i {
+  margin-right: 4px;
+  color: var(--wr-line-strong);
+  font-style: normal;
+}
+
+@media (max-width: 720px) {
+  .wr-live-activity {
+    flex-wrap: wrap;
+    padding: 3px 8px;
+  }
+
+  .wr-live-activity::before,
+  .wr-live-activity::after {
+    flex-basis: 30px;
+  }
+}
+/* harn:end web-waits-are-visible-across-live-surfaces */
+
+/* harn:assume posted-message-mentions-alone-look-effective ref=effective-mention-style */
+.wr-effective-mention {
+  color: var(--wr-cyan);
+  font-weight: 650;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--wr-cyan) 55%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+/* harn:end posted-message-mentions-alone-look-effective */

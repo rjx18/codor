@@ -1,0 +1,178 @@
+id: lc5-web
+title: LC5 - live collaboration presentation
+assumptions:
+  create:
+    - id: web-waits-are-visible-across-live-surfaces
+      title: Agent waits stay visible wherever live work is summarized
+      statement: While an agent has a running turn with wait metadata, its member card
+        must identify the peer and tick the elapsed wait, its run header must
+        replace the running shimmer with a static hourglass waiting treatment,
+        and the timeline foot must distinguish waiting agents from other working
+        agents.
+      reason: A renewable wait is deliberate progress with an external dependency, not
+        an idle or stalled turn, so operators need the distinction without
+        opening run evidence.
+      depends_on:
+        - live-agent-waits-are-transient
+        - web-motion-is-purposeful-and-reduced-motion-safe
+        - web-room-visual-hierarchy-matches-restrained-reference
+    - id: posted-message-mentions-alone-look-effective
+      title: Only routed mentions look effective in the conversation
+      statement: Posted message rendering must accent only the authoritative mention
+        spans stored on the message, while finalized run bodies and live run
+        prose must render at-sign text as ordinary text with no mention markup.
+      reason: Styling is a routing promise; highlighting inert model prose would tell
+        operators that a delivery happened when none did.
+      depends_on:
+        - interim-agent-posts-are-nonfinal-routing
+        - normalized-run-items-presented-live
+    - id: interim-posts-stay-flat-beside-their-live-run
+      title: Interim collaboration stays flat while the author keeps working
+      statement: An interim agent chat message must render as an ordinary timeline
+        message beside the same author's still-running run card, never nested
+        into or substituted for that run.
+      reason: Flat group-chat chronology keeps live coordination readable without
+        making the interim update look like turn completion.
+      depends_on:
+        - interim-agent-posts-are-nonfinal-routing
+        - fake-adapter-drives-live-collaboration
+  reviewed:
+    - id: live-agent-waits-are-transient
+      outcome: unchanged
+      reason: The web consumes the existing transient waiting projection and adds no
+        persistence or wait lifecycle.
+    - id: interim-agent-posts-are-nonfinal-routing
+      outcome: unchanged
+      reason: The browser renders the existing ordinary chat and running placeholder
+        without changing routing or finalization.
+    - id: fake-adapter-drives-live-collaboration
+      outcome: unchanged
+      reason: Browser acceptance uses the already-implemented interim_post and wait
+        script steps without extending harness vocabulary.
+    - id: web-motion-is-purposeful-and-reduced-motion-safe
+      outcome: unchanged
+      reason: Waiting replaces animated shimmer with a static sheen and hourglass;
+        working turns retain the existing reduced-motion-safe behavior.
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: Run prose and evidence remain structurally unchanged while the header
+        gains waiting context supplied by member state.
+    - id: extensions-not-addressable-v1
+      outcome: unchanged
+      reason: The parent run header changes inside the extension rendering component;
+        extension visibility and addressability remain untouched.
+    - id: live-run-event-cache-bounded
+      outcome: unchanged
+      reason: Waiting presentation does not change event collection, bounds, or
+        journal recovery.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: MemberCard still exposes the same lifecycle controls; its live-state
+        summary gains waiting detail only.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: The working line is an unframed compact timeline separator and adds no
+        decorative panel or card.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: Live member and run state remains in the existing bounded page memory.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: Mention and wait treatments use semantic tokens in both themes and do
+        not make blur, motion, or color the only state signal.
+    - id: timeline-rows-are-never-crushed
+      outcome: unchanged
+      reason: The new timeline-foot line is covered by the existing direct-child
+        shrink prohibition.
+    - id: playwright-spec-files-use-isolated-daemons
+      outcome: unchanged
+      reason: The new browser spec is discovered as its own fresh-daemon invocation.
+    - id: e2e-gate-covers-every-spec-file
+      outcome: unchanged
+      reason: The existing filename discovery automatically includes the new spec.
+anchors:
+  web-waits-are-visible-across-live-surfaces:
+    wait-elapsed-and-member-summary:
+      action: change
+      reason: Render a ticking peer-aware member waiting state.
+    waiting-run-header:
+      action: change
+      reason: Replace live shimmer with static waiting semantics and an hourglass.
+    live-collaboration-line:
+      action: change
+      reason: Summarize working and waiting agents at the timeline foot.
+    live-collaboration-placement:
+      action: change
+      reason: Feed authoritative member waits into run cards and the foot line.
+    live-collaboration-style:
+      action: change
+      reason: Fit waiting, working, and mention treatments across responsive themes.
+    wait-presentation-regression:
+      action: change
+      reason: Prove member, header, and foot copy from transient waiting state.
+    live-collaboration-browser-regression:
+      action: change
+      reason: Prove ticking waits and simultaneous work at 390, 768, and 1440 pixels.
+  posted-message-mentions-alone-look-effective:
+    effective-mention-segmentation:
+      action: change
+      reason: Render authoritative posted mention spans without disturbing ledger refs.
+    effective-mention-style:
+      action: change
+      reason: Give effective mentions a semantic link-like accent in both themes.
+    effective-mention-regression:
+      action: change
+      reason: Prove posted mentions are marked and run prose at-sign text is not.
+    effective-mention-browser-regression:
+      action: change
+      reason: Prove the effective/inert split at the real rendered DOM boundary.
+  interim-posts-stay-flat-beside-their-live-run:
+    interim-flat-browser-regression:
+      action: change
+      reason: Prove an interim message is a timeline sibling while its author run
+        stays live.
+  web-motion-is-purposeful-and-reduced-motion-safe:
+    motion-runtime-classes:
+      action: change
+      reason: Add the static waiting variant to MemberCard and RunMessageView.
+  normalized-run-items-presented-live:
+    live-run-message-surface:
+      action: change
+      reason: Add waiting context without changing live evidence rendering.
+  live-run-event-cache-bounded:
+    full-journal-recovery:
+      action: change
+      reason: The run view header changes inside the bounded recovery component.
+  extensions-not-addressable-v1:
+    extension-run-rendering:
+      action: change
+      reason: The waiting header changes inside the parent component that also renders
+        extensions.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    dead-member-replacement-controls:
+      action: change
+      reason: MemberCard waiting presentation changes inside the existing member rail
+        region.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: Add one compact unframed live-activity line to the conversation
+        hierarchy.
+  sw-caches-shell-only-no-message-data:
+    page-memory-message-cache:
+      action: change
+      reason: Derive waiting and working presentation from the existing in-memory
+        state.
+  timeline-rows-are-never-crushed:
+    timeline-row-crush-resistance:
+      action: keep
+      reason: Every added timeline child must remain protected by the global shrink
+        rule.
+files:
+  - packages/web/src/App.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/live-collab.e2e.spec.ts
+applied:
+  applied_at: 2026-07-13T02:10:22.996Z

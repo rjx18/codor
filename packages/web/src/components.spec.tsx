@@ -1,19 +1,24 @@
+// @vitest-environment happy-dom
 import { readdirSync, readFileSync } from 'node:fs';
 import ts from 'typescript';
 
 import type { Member, Message, WireEvent } from '@codor/protocol';
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   AskCardView,
   InboxPanel,
   draftRoutesToNobody,
   Header,
+  LiveActivityLine,
   MemberCard,
   MessageRow,
   extensionRunSummaries,
   ledgerTextSegments,
+  messageBodySegments,
   mentionMatchAtCaret,
   RunMessageView,
   RunStallBadge,
@@ -344,6 +349,152 @@ describe('MessageRow', () => {
     expect(html).toContain('[[risk-limits]]');
   });
 });
+
+// harn:assume posted-message-mentions-alone-look-effective ref=effective-mention-regression
+describe('effective posted mentions', () => {
+  it('marks only authoritative message spans while preserving ledger references', () => {
+    const chat: Message = {
+      ...finalizedRun,
+      kind: 'chat',
+      run: undefined,
+      body: '@richard honor [[risk-limits]] while `@alpha` stays inert',
+      mentions: [{ member_id: richard.id, start: 0, end: 8 }],
+      ledger_refs: ['risk-limits'],
+    };
+    expect(messageBodySegments(chat)).toEqual([
+      { kind: 'mention', memberId: richard.id, text: '@richard' },
+      { kind: 'text', text: ' honor ' },
+      { kind: 'ledger', name: 'risk-limits', text: '[[risk-limits]]' },
+      { kind: 'text', text: ' while `@alpha` stays inert' },
+    ]);
+    const html = renderToStaticMarkup(
+      <MessageRow message={chat} authorHandle="alpha" mine={false} />,
+    );
+    expect(html.match(/wr-effective-mention/g)).toHaveLength(1);
+    expect(html).toContain('data-member-id="01ARZ3NDEKTSV4RRFFQ69G5FAV"');
+    expect(html).toContain('data-testid="ledger-ref-risk-limits"');
+  });
+
+  it('keeps at-sign text in live run prose inert', () => {
+    const running: Message = {
+      ...finalizedRun,
+      body: '',
+      run: { ...finalizedRun.run!, status: 'running', ended_ts: undefined, final_text: undefined },
+    };
+    const html = renderToStaticMarkup(
+      <RunMessageView
+        message={running}
+        authorHandle="alpha"
+        liveEvents={{
+          dropped_count: 0,
+          events: [{ type: 'run.item', item_type: 'text_delta', payload: { text: 'Checking @richard now' } }],
+        }}
+        room="eng"
+        token="t"
+      />,
+    );
+    expect(html).toContain('Checking @richard now');
+    expect(html).not.toContain('wr-effective-mention');
+  });
+});
+// harn:end posted-message-mentions-alone-look-effective
+
+// harn:assume web-waits-are-visible-across-live-surfaces ref=wait-presentation-regression
+describe('live collaboration presentation', () => {
+  const beta: Member = {
+    ...alpha,
+    id: '01CX5ZZKBKACTAV9WEVGEMMVS0',
+    handle: 'beta',
+    display_name: 'Beta',
+    state: 'running',
+  };
+  const waitingAlpha: Member = {
+    ...alpha,
+    state: 'running',
+    waiting: {
+      peers: [beta.id],
+      reason: 'reply',
+      since_ts: TS,
+      until_ts: '2026-07-10T07:10:00.000Z',
+    },
+  };
+
+  it('shows the waiting peer on the member and pauses the run shimmer', () => {
+    const memberHtml = renderToStaticMarkup(
+      <MemberCard
+        member={waitingAlpha}
+        waitingPeerHandles={['beta']}
+        detail={undefined}
+        history={[]}
+        adapters={[]}
+        connection={noopConnection}
+      />,
+    );
+    expect(memberHtml).toContain('waiting for @beta');
+    expect(memberHtml).toContain('data-state="waiting"');
+
+    const runHtml = renderToStaticMarkup(
+      <RunMessageView
+        message={{
+          ...finalizedRun,
+          body: '',
+          run: { ...finalizedRun.run!, status: 'running', ended_ts: undefined, final_text: undefined },
+        }}
+        authorHandle="alpha"
+        waiting={waitingAlpha.waiting}
+        waitingPeerHandles={['beta']}
+        liveEvents={{ events: [], dropped_count: 0 }}
+        room="eng"
+        token="t"
+      />,
+    );
+    expect(runHtml).toContain('data-live-state="waiting"');
+    expect(runHtml).toContain('waiting for @beta');
+    expect(runHtml).toContain('wr-run-heading is-waiting');
+    expect(runHtml).not.toContain('wr-run-heading wr-shimmer');
+  });
+
+  it('summarizes working and waiting agents in one unframed line', () => {
+    const html = renderToStaticMarkup(
+      <LiveActivityLine
+        members={[richard, waitingAlpha, beta]}
+        activeMemberIds={[waitingAlpha.id, beta.id]}
+      />,
+    );
+    expect(html).toContain('@alpha</strong> is waiting for @beta');
+    expect(html).toContain('@beta</strong> is working');
+    expect(html).toContain('data-live-state="waiting"');
+    expect(html).toContain('data-live-state="working"');
+  });
+
+  it('ticks the member wait age once per second', async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(TS));
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(
+        <MemberCard
+          member={waitingAlpha}
+          waitingPeerHandles={['beta']}
+          detail={undefined}
+          history={[]}
+          adapters={[]}
+          connection={noopConnection}
+        />,
+      ));
+      expect(container.querySelector('[data-testid="member-alpha-wait-elapsed"]')?.textContent).toBe('0s');
+      await act(async () => vi.advanceTimersByTime(1_000));
+      expect(container.querySelector('[data-testid="member-alpha-wait-elapsed"]')?.textContent).toBe('1s');
+    } finally {
+      await act(async () => root.unmount());
+      vi.useRealTimers();
+      (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
+    }
+  });
+});
+// harn:end web-waits-are-visible-across-live-surfaces
 
 describe('Header', () => {
   it('shows an honest zero-state meter before the first usage frame', () => {

@@ -8,6 +8,7 @@ import {
   Composer,
   Header,
   HoldBanner,
+  LiveActivityLine,
   MessageRow,
   RunMessageView,
   RunStallBadge,
@@ -370,6 +371,15 @@ export function App(props: {
     () => [...messages].reverse().find((message) => message.kind === 'run'),
     [messages],
   );
+  // harn:assume web-waits-are-visible-across-live-surfaces ref=live-collaboration-placement
+  const liveMemberIds = useMemo(() => {
+    const active = new Set<string>();
+    for (const message of messages) {
+      if (message.kind === 'run' && message.run?.status === 'running') active.add(message.author);
+    }
+    return [...active];
+  }, [messages]);
+  // harn:end web-waits-are-visible-across-live-surfaces
   const selectedRun = messages.find((message) => message.id === selectedRunId) ?? latestRun;
   const selectedRunLiveEvents = selectedRun
     ? state.runEvents[selectedRun.id] ?? { events: [], dropped_count: 0 }
@@ -667,6 +677,8 @@ export function App(props: {
                     <RunMessageView
                       message={message}
                       authorHandle={handles(message.author)}
+                      waiting={state.members[message.author]?.waiting}
+                      waitingPeerHandles={state.members[message.author]?.waiting?.peers.map(handles)}
                       liveEvents={state.runEvents[message.id] ?? { events: [], dropped_count: 0 }}
                       room={ROOM}
                       token={accessToken()}
@@ -701,6 +713,7 @@ export function App(props: {
                 />
               );
             })}
+            <LiveActivityLine members={Object.values(state.members)} activeMemberIds={liveMemberIds} />
           </div>
           {/* harn:end sw-caches-shell-only-no-message-data */}
           {canPost ? (

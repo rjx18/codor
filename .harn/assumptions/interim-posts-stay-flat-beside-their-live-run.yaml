@@ -1,0 +1,11 @@
+id: interim-posts-stay-flat-beside-their-live-run
+hash: a-2cf14a32aa18
+title: Interim collaboration stays flat while the author keeps working
+state: active
+statement: An interim agent chat message must render as an ordinary timeline
+  message beside the same author's still-running run card, never nested into or
+  substituted for that run.
+depends_on:
+  - interim-agent-posts-are-nonfinal-routing
+  - fake-adapter-drives-live-collaboration
+created_by: lc5-web

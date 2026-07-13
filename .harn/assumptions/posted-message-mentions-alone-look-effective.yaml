@@ -1,0 +1,11 @@
+id: posted-message-mentions-alone-look-effective
+hash: a-f5e60dda6dd2
+title: Only routed mentions look effective in the conversation
+state: active
+statement: Posted message rendering must accent only the authoritative mention
+  spans stored on the message, while finalized run bodies and live run prose
+  must render at-sign text as ordinary text with no mention markup.
+depends_on:
+  - interim-agent-posts-are-nonfinal-routing
+  - normalized-run-items-presented-live
+created_by: lc5-web

@@ -26,6 +26,7 @@ import {
   FileText,
   Gauge,
   GitCommitHorizontal,
+  Hourglass,
   Inbox,
   Menu,
   Network,
@@ -106,6 +107,44 @@ export function ledgerTextSegments(body: string): LedgerTextSegment[] {
   return segments;
 }
 // harn:end permalink-ids-stable
+
+export type MessageBodySegment =
+  | LedgerTextSegment
+  | { kind: 'mention'; memberId: string; text: string };
+
+// harn:assume posted-message-mentions-alone-look-effective ref=effective-mention-segmentation
+export function messageBodySegments(message: Message): MessageBodySegment[] {
+  const result: MessageBodySegment[] = [];
+  let offset = 0;
+  for (const segment of ledgerTextSegments(message.body)) {
+    const start = offset;
+    const end = start + segment.text.length;
+    offset = end;
+    if (segment.kind === 'ledger') {
+      result.push(segment);
+      continue;
+    }
+    const mentions = message.mentions
+      .filter((mention) => mention.start >= start && mention.end <= end)
+      .sort((left, right) => left.start - right.start);
+    let cursor = start;
+    for (const mention of mentions) {
+      if (mention.start < cursor || mention.end > message.body.length) continue;
+      if (mention.start > cursor) {
+        result.push({ kind: 'text', text: message.body.slice(cursor, mention.start) });
+      }
+      result.push({
+        kind: 'mention',
+        memberId: mention.member_id,
+        text: message.body.slice(mention.start, mention.end),
+      });
+      cursor = mention.end;
+    }
+    if (cursor < end) result.push({ kind: 'text', text: message.body.slice(cursor, end) });
+  }
+  return result;
+}
+// harn:end posted-message-mentions-alone-look-effective
 
 // harn:assume bridged-room-wears-banner ref=bridged-room-banner
 export function BridgedRoomBanner() {
@@ -559,6 +598,7 @@ export function SpawnAgentDialog(props: {
 // harn:assume web-spawn-dialog-exposes-canonical-agent-controls ref=dead-member-replacement-controls
 export function MemberCard(props: {
   member: Member;
+  waitingPeerHandles?: string[];
   detail: MemberDetail | undefined;
   history: MemberStateObservation[];
   adapters: AdapterRegistration[];
@@ -573,6 +613,9 @@ export function MemberCard(props: {
   const [handle, setHandle] = useState(props.member.handle);
   const [displayName, setDisplayName] = useState(props.member.display_name);
   const state = props.member.state ?? 'idle';
+  const waiting = props.member.waiting;
+  const waitingPeers = props.waitingPeerHandles ?? waiting?.peers ?? [];
+  const displayedState = waiting ? 'waiting' : state;
   const tokens =
     (props.detail?.spend.input_tokens ?? 0) + (props.detail?.spend.output_tokens ?? 0);
   const expanded = props.expanded ?? true;
@@ -613,10 +656,25 @@ export function MemberCard(props: {
         <span className="wr-member-avatar" aria-hidden="true"><Bot size={17} /></span>
         <span className="wr-member-identity">
           <strong>@{props.member.handle}</strong>
-          <small>{props.member.harness ?? 'agent'} · {props.member.policy ?? 'default policy'}</small>
+          {waiting ? (
+            // harn:assume web-waits-are-visible-across-live-surfaces ref=wait-elapsed-and-member-summary
+            <small data-testid={`member-${props.member.handle}-waiting`} className="wr-member-waiting">
+              waiting for {waitingPeers.map((peer) => `@${peer}`).join(', ')} ·{' '}
+              <WaitElapsedTime
+                sinceTs={waiting.since_ts}
+                testId={`member-${props.member.handle}-wait-elapsed`}
+              />
+            </small>
+            // harn:end web-waits-are-visible-across-live-surfaces
+          ) : (
+            <small>{props.member.harness ?? 'agent'} · {props.member.policy ?? 'default policy'}</small>
+          )}
         </span>
-        <span className="wr-member-state" data-state={state}>
-          <i className={state === 'running' ? 'wr-shimmer' : undefined} aria-hidden="true" /> {state.replaceAll('_', ' ')}
+        <span className="wr-member-state" data-state={displayedState}>
+          {waiting
+            ? <Hourglass aria-hidden="true" size={13} />
+            : <i className={state === 'running' ? 'wr-shimmer' : undefined} aria-hidden="true" />}
+          {displayedState.replaceAll('_', ' ')}
         </span>
         {(props.detail?.queued_count ?? 0) > 0 && (
           <span
@@ -984,6 +1042,9 @@ export function MemberRail(props: {
             <MemberCard
               key={m.id}
               member={m}
+              waitingPeerHandles={m.waiting?.peers.map(
+                (peerId) => visibleMembers.find((candidate) => candidate.id === peerId)?.handle ?? peerId,
+              )}
               detail={props.details[m.id]}
               history={props.history[m.id] ?? []}
               adapters={props.adapters}
@@ -1008,6 +1069,21 @@ export interface ExtensionRunSummary {
   transcriptPath?: string;
   summary?: string;
   ended: boolean;
+}
+
+function WaitElapsedTime(props: { sinceTs: string; testId?: string }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return (
+    <span data-testid={props.testId}>
+      {formatRunDuration(now - Date.parse(props.sinceTs))}
+    </span>
+  );
 }
 
 function RunElapsedTime(props: { startedTs: string; endedTs?: string; running: boolean }) {
@@ -1119,6 +1195,8 @@ export function extensionRunSummaries(events: WireEvent[]): ExtensionRunSummary[
 export function RunMessageView(props: {
   message: Message;
   authorHandle: string;
+  waiting?: Member['waiting'];
+  waitingPeerHandles?: string[];
   liveEvents: RunEventBuffer;
   room: string;
   token: string;
@@ -1128,6 +1206,8 @@ export function RunMessageView(props: {
 }) {
   const run = props.message.run!;
   const running = run.status === 'running';
+  const waiting = running ? props.waiting : undefined;
+  const waitingPeers = props.waitingPeerHandles ?? waiting?.peers ?? [];
   const [expanded, setExpanded] = useState(running);
   const [renderEvents, setRenderEvents] = useState(running);
   const [journal, setJournal] = useState<WireEvent[] | undefined>(undefined);
@@ -1201,7 +1281,11 @@ export function RunMessageView(props: {
       data-run-status={run.status}
       className="wr-run-card scroll-mt-16"
     >
-      <div className={`wr-run-heading ${running ? 'wr-shimmer' : ''}`}>
+      {/* harn:assume web-waits-are-visible-across-live-surfaces ref=waiting-run-header */}
+      <div
+        className={`wr-run-heading ${waiting ? 'is-waiting' : running ? 'wr-shimmer' : ''}`}
+        data-live-state={waiting ? 'waiting' : running ? 'working' : undefined}
+      >
         <span className="wr-actor-mark wr-actor-agent" aria-hidden="true">
           <Bot size={18} />
         </span>
@@ -1225,10 +1309,20 @@ export function RunMessageView(props: {
             <strong>@{props.authorHandle}</strong>
           </span>
           <span className={`wr-run-status is-${run.status}`} data-testid={`run-${props.message.id}-status`}>
-            {running && <><span>running</span><span className="wr-run-separator" aria-hidden="true">·</span></>}
+            {waiting ? (
+              <>
+                <Hourglass aria-hidden="true" size={13} />
+                <span>waiting for {waitingPeers.map((peer) => `@${peer}`).join(', ')}</span>
+                <span className="wr-run-separator" aria-hidden="true">·</span>
+                <WaitElapsedTime
+                  sinceTs={waiting.since_ts}
+                  testId={`run-${String(props.message.id)}-wait-elapsed`}
+                />
+              </>
+            ) : running && <><span>running</span><span className="wr-run-separator" aria-hidden="true">·</span></>}
             {!running && run.status !== 'completed' && <><span>{run.status}</span><span className="wr-run-separator" aria-hidden="true">·</span></>}
-            <RunElapsedTime startedTs={run.started_ts} endedTs={run.ended_ts} running={running} />
-            {running && activeTool && <><span className="wr-run-separator" aria-hidden="true">·</span><span>{activeTool.title}</span></>}
+            {!waiting && <RunElapsedTime startedTs={run.started_ts} endedTs={run.ended_ts} running={running} />}
+            {running && !waiting && activeTool && <><span className="wr-run-separator" aria-hidden="true">·</span><span>{activeTool.title}</span></>}
             {!running && <><span className="wr-run-separator" aria-hidden="true">·</span><span>{String(run.tool_calls)} {run.tool_calls === 1 ? 'tool' : 'tools'}</span></>}
             {!running && <><span className="wr-run-separator" aria-hidden="true">·</span><span>{run.usage?.cost_usd === undefined ? 'cost not reported' : `$${run.usage.cost_usd.toFixed(2)}`}</span></>}
           </span>
@@ -1247,6 +1341,7 @@ export function RunMessageView(props: {
         )}
         <MessagePermalink id={props.message.id} />
       </div>
+      {/* harn:end web-waits-are-visible-across-live-surfaces */}
       {!running && props.message.body !== '' && (
         <p data-testid={`run-${props.message.id}-body`} className="wr-run-body">
           {props.message.body}
@@ -1330,6 +1425,32 @@ export function RunStallBadge(props: { message: Message }) {
     </span>
   );
 }
+
+// harn:assume web-waits-are-visible-across-live-surfaces ref=live-collaboration-line
+export function LiveActivityLine(props: { members: Member[]; activeMemberIds: string[] }) {
+  if (props.activeMemberIds.length === 0) return null;
+  const handles = new Map(props.members.map((member) => [member.id, member.handle]));
+  const active = props.activeMemberIds
+    .map((memberId) => props.members.find((member) => member.id === memberId))
+    .filter((member): member is Member => member !== undefined);
+  if (active.length === 0) return null;
+  return (
+    <div data-testid="live-activity" className="wr-live-activity" role="status">
+      {active.map((member, index) => (
+        <span key={member.id} data-live-state={member.waiting ? 'waiting' : 'working'}>
+          {index > 0 && <i aria-hidden="true">·</i>}
+          <strong>@{member.handle}</strong>{' '}
+          {member.waiting
+            ? `is waiting for ${member.waiting.peers
+              .map((peerId) => `@${handles.get(peerId) ?? peerId}`)
+              .join(', ')}`
+            : 'is working'}
+        </span>
+      ))}
+    </div>
+  );
+}
+// harn:end web-waits-are-visible-across-live-surfaces
 // harn:end web-motion-is-purposeful-and-reduced-motion-safe
 
 // harn:assume phone-first-interaction-cards ref=phone-ask-card
@@ -1769,8 +1890,16 @@ export function MessageRow(props: {
   }, [note, noteError]);
   const body = (
     <>
-      {ledgerTextSegments(message.body).map((segment, index) =>
-        segment.kind === 'text' ? segment.text : (
+      {messageBodySegments(message).map((segment, index) =>
+        segment.kind === 'text' ? segment.text : segment.kind === 'mention' ? (
+          <span
+            key={`${segment.memberId}-${String(index)}`}
+            className="wr-effective-mention"
+            data-member-id={segment.memberId}
+          >
+            {segment.text}
+          </span>
+        ) : (
           <button
             ref={ledgerTrigger}
             key={`${segment.name}-${String(index)}`}
