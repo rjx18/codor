@@ -166,7 +166,19 @@ assumptions:
       reason: >-
         Mention rendering is untouched. Two rules inside its style region spend a
         renamed pseudo-colour token, at the identical computed value.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: >-
+        The restrained visual hierarchy is untouched - no matte pane, glass surface or
+        pinned turn changes. Its regression opens with no stored theme and asserts the
+        drawer's dark glass material, which was correct only because dark was the
+        default; this phase makes light the default, so with nothing stored the drawer
+        now renders the light glass and the assertion fails on a colour it never meant
+        to pin. The regression is forced to dark before its first navigation, so it
+        keeps asserting the exact v4 material contract it was written for. The new light
+        default is owned and proven by light-first-theme-regression, not by this test.
 files:
+  - tmp/build/design/v5/support.js
   - packages/web/src/styles.css
   - packages/web/src/theme.ts
   - packages/web/src/SettingsPage.tsx
@@ -368,3 +380,12 @@ anchors:
     effective-mention-style:
       action: change
       reason: Two rules spend the renamed neutral token, at the identical computed value.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-regression:
+      action: change
+      reason: >-
+        Force the theme to dark before the regression's first navigation, so it asserts
+        the dark glass material it was written to check rather than whatever the default
+        now resolves to. The material contract - matte panes, sparse functional glass, a
+        pinned latest turn - is unchanged; only the test's implicit reliance on
+        dark-being-the-default is made explicit.
