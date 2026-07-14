@@ -1,0 +1,170 @@
+id: v5-p1-review-fixes
+title: >-
+  V5 Phase 1 review fixes - a real light prepaint, four isolated axe matrices, the two
+  regression anchors, and three leftover dev dependencies removed
+assumptions:
+  create: []
+  reviewed:
+    - id: web-first-run-color-mode-is-light
+      outcome: unchanged
+      reason: >-
+        The contract is unchanged and was not yet met. It requires the light palette to
+        be painted before React renders, but the only theme resolution ran in main.tsx,
+        an ES module that executes after first paint - so a dark-preferring browser
+        matched the prefers-color-scheme dark block and could paint dark before the
+        module set the attribute, and a stored choice opposite the OS could flash too. A
+        synchronous script in the head now resolves the stored choice before first paint:
+        missing, invalid or unreadable resolves to light; system removes the attribute so
+        the media query decides; explicit light or dark sets the matching attribute. The
+        regression is strengthened to prove this with the entry module blocked, since a
+        test that only reads after navigation cannot see a first-paint flash.
+    - id: web-theme-choice-stays-local-v5
+      outcome: unchanged
+      reason: >-
+        The storage contract is unchanged - the choice is still read from and written to
+        this browser alone, applied immediately, and purged on unpair. The prepaint
+        script reads that same key earlier and writes nothing, so it belongs to this
+        assumption as well as to the first-run one: both anchor the same script, because
+        the resolver both reads the local choice and decides the first colour from it.
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: >-
+        The token layer and its promises are unchanged. Two regressions the applied plan
+        declared were left without their anchor comments, so Harn recorded them as absent;
+        they are anchored now. While anchored they are also strengthened: the contrast
+        matrix parses the stylesheet into a declaration graph and rejects any text-color
+        property - color and its kin - that resolves to the decorative mark-faint role
+        whether directly or through an alias, not merely a local list that omits it, and
+        it asserts the two dark maps, the prefers-color-scheme one and the explicit
+        data-theme one, declare identical --cd-* values, since dark is authored twice and
+        could drift.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: >-
+        The accessibility contract and the token values are unchanged. Only the gate that
+        enforces them is made honest. In the applied plan one test enabled the bridge
+        before its loop, so every later baseline was actually bridged; light and dark
+        shared one harness, so a light mutation was visible to the dark sweep; hold and
+        bridge shared a harness, so a held message contaminated the bridged scan; and two
+        dialogs were left open over later scans because Escape does not close the inline
+        removal confirmation or the create dialog behind the folder picker. The gate is
+        split into four isolated matrices - light rooms, dark rooms, a held delivery, a
+        bridged channel - each its own spec file and therefore its own fresh daemon, and
+        every dialog is dismissed by its own control before the next scan. The shared
+        state-driving and scan logic lives in one guarded helper, not in thin callers.
+    - id: playwright-spec-files-use-isolated-daemons
+      outcome: unchanged
+      reason: >-
+        The isolation contract is unchanged and is exactly what the split relies on: the
+        runner already boots a fresh daemon per spec file on its own port trio, so putting
+        the light matrix, the dark matrix, the hold state and the bridged state in four
+        separate spec files is what gives each a pristine room. No port or daemon
+        behaviour changes.
+    - id: e2e-gate-covers-every-spec-file
+      outcome: unchanged
+      reason: >-
+        The runner still discovers and runs every *.e2e.spec.ts file, so the four new spec
+        files are covered automatically. The shared sweep helper is deliberately not named
+        .e2e.spec.ts, so it is imported rather than run as an empty spec.
+files:
+  - packages/web/index.html
+  - packages/web/src/tokens.spec.ts
+  - packages/web/src/contrast.spec.ts
+  - packages/web/tests/a11y.e2e.spec.ts
+  - packages/web/tests/a11y-shared.ts
+  - packages/web/tests/a11y-rooms-light.e2e.spec.ts
+  - packages/web/tests/a11y-rooms-dark.e2e.spec.ts
+  - packages/web/tests/a11y-hold.e2e.spec.ts
+  - packages/web/tests/a11y-bridged.e2e.spec.ts
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/package.json
+  - pnpm-lock.yaml
+anchors:
+  web-first-run-color-mode-is-light:
+    light-first-prepaint:
+      action: change
+      reason: >-
+        Add a synchronous script to the document head that resolves the stored theme
+        before first paint - light on missing, invalid or unreadable storage; no attribute
+        on system; the matching attribute on explicit light or dark - so the very first
+        frame agrees with the resolved choice on any OS preference. main.tsx keeps calling
+        applyThemeChoice for runtime changes and is byte-identical, so it is not in scope;
+        the head script is what removes the flash.
+    light-first-theme-regression:
+      action: change
+      reason: >-
+        Prove the resolved theme is on the html element with the entry module blocked or
+        delayed, across every resolver branch: missing choice on a dark OS resolves to
+        light; explicit dark on a light OS is dark; explicit light on a dark OS is light;
+        system on a dark OS carries no attribute and lands on the dark media result; and
+        invalid or throwing storage resolves to light.
+  web-theme-choice-stays-local-v5:
+    prepaint-reads-local:
+      action: change
+      reason: >-
+        The same head script reads this browser's stored choice - and only reads it, and
+        only this browser's - one frame earlier than before. It writes nothing and changes
+        no key, so the local-storage contract is unchanged; the anchor records that the
+        read now also happens here.
+    theme-choice-regression:
+      action: keep
+      reason: >-
+        The local-storage regression is unchanged; the prepaint script reads the same key
+        earlier and writes nothing.
+  web-theme-accessible-modes:
+    token-resolution-regression:
+      action: change
+      reason: >-
+        Anchor the token-resolution test that the applied plan declared but left without
+        its comment. The test is unchanged - every var() resolves through the declaration
+        graph or carries a fallback, structurally parsed so a commented or stringified
+        declaration cannot satisfy a reference.
+    theme-contrast-matrix:
+      action: change
+      reason: >-
+        Anchor the contrast matrix, and strengthen it. It already asserts every text and
+        status role holds AA on every legal surface in both themes. It now also builds the
+        stylesheet's declaration graph and asserts no text-color property resolves to
+        var(--cd-mark-faint), directly or through an alias chain such as
+        --x: var(--cd-mark-faint); color: var(--x), so the decorative role cannot reach
+        text by any path; and asserts the two dark --cd-* maps are identical value for
+        value.
+  web-glass-theme-accessible-modes:
+    axe-accessibility-gate:
+      action: remove
+      reason: >-
+        The single-file gate that mixed a bridged baseline, cross-theme mutation leakage,
+        a shared hold-and-bridge daemon and undismissed dialogs is removed from
+        a11y.e2e.spec.ts. Its coverage moves to four isolated spec files and a shared
+        helper. The single-state regressions in a11y.e2e.spec.ts keep their own anchors
+        and stay.
+    axe-room-matrix-shared:
+      action: change
+      reason: >-
+        The state-driving and scan logic lives here, in a11y-shared.ts, so it is guarded
+        rather than trusting thin callers: opening each read-only room, dialog, settings,
+        ledger and pairing state, dismissing every dialog by its own control - the removal
+        confirmation by Cancel, the create dialog and folder picker each closed - and
+        running axe after transitions settle. The caller supplies only the theme.
+    axe-room-matrix-light:
+      action: change
+      reason: >-
+        The read-only matrix scanned in light against a fresh daemon. It calls the shared
+        sweep with the light theme and asserts zero violations.
+    axe-room-matrix-dark:
+      action: change
+      reason: >-
+        The same matrix scanned in dark against its own fresh daemon, so no light mutation
+        is visible to it. It calls the same shared sweep with the dark theme.
+    axe-hold-state:
+      action: change
+      reason: >-
+        A held delivery scanned in both themes against a daemon that has held nothing else,
+        so no bridged banner and no prior history contaminate it. Its own spec file, its
+        own daemon.
+    axe-bridged-state:
+      action: change
+      reason: >-
+        A bridged channel scanned in both themes against a daemon that has never held a
+        delivery, so a sticky bridge banner cannot ride on top of leftover hold state. Its
+        own spec file, its own daemon.
