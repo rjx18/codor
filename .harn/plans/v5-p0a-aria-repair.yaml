@@ -1,7 +1,7 @@
 id: v5-p0a-aria-repair
 title: >-
-  V5 Phase 0a - fix the four accessibility defects an axe scan found in the shipped
-  UI, before an accessibility gate is installed over them
+  V5 Phase 0a - fix the six accessibility violation classes a full-state axe scan
+  found in the shipped UI, before an accessibility gate is installed over them
 assumptions:
   create: []
   reviewed:
@@ -44,6 +44,75 @@ assumptions:
         accessible name, so a screen-reader user cannot tell the channel rail from the
         context rail. Each gains a unique label. The navigation landmark keeps the name
         Channels, which the suite asserts.
+    - id: run-context-selects-and-follows-live-evidence
+      outcome: unchanged
+      reason: >-
+        Evidence selection and following are untouched. The context rail is one of
+        several complementary landmarks the shell renders with no accessible name, so
+        it gains one. Nothing about what it selects or follows changes.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: >-
+        Channel creation is untouched. Its dialog is a form carrying role=dialog, which
+        ARIA does not permit, so the modal announced itself as a form - the same defect
+        as the spawn dialog and repaired the same way, by moving the role, the modal
+        flag, the name, the test id and the focus-trap ref onto a wrapping element that
+        keeps the box the form owned.
+    - id: starting-agent-name-derives-one-valid-identity
+      outcome: unchanged
+      reason: >-
+        Handle derivation and its validation are untouched. The starting-agent control
+        sits inside the create-channel dialog whose wrapper changes, so the anchor moves
+        with it.
+    - id: removing-an-agent-is-one-deliberate-step
+      outcome: unchanged
+      reason: >-
+        Removal is still one deliberate step behind a confirmation. That confirmation is
+        an alertdialog with no accessible name, so a screen-reader user is told a
+        destructive dialog opened without being told what it destroys. It gains a name
+        that states the handle - which is precisely the deliberateness this assumption
+        exists to protect.
+    - id: graph-derived-from-vault-links-readonly
+      outcome: unchanged
+      reason: >-
+        The graph is still a read-only projection with no mutation path. Two ARIA
+        defects sit on it. The surface is role=img, which is atomic by definition, yet
+        it contains focusable node buttons - so every node is nested inside a role that
+        promises it has no interior; it becomes a group, which is allowed to have
+        interactive children and keeps its name. And the inspector is an aside taking
+        role=dialog in overlay mode, which ARIA does not permit; it becomes a section,
+        the one element that legally carries complementary when docked and dialog when
+        it overlays, so both modes stay valid without forking the markup.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: >-
+        Message ids are untouched. The mobile drawer sits inside this anchored region and
+        changes element only - an aside may not carry role=dialog; a section may.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: >-
+        Who may act, and on what, is untouched. The mobile drawer sits inside this
+        anchored region and changes element only.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: >-
+        The vocabulary is untouched - the drawer keeps the name Channels. Only the
+        element carrying the dialog role changes, from an aside to a section.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      outcome: unchanged
+      reason: >-
+        The restrained visual hierarchy is untouched. An aside becoming a section changes
+        no layout, no styling and no hierarchy: the class is unchanged, so every rule
+        that paints the drawer paints it identically.
+    - id: channel-create-dialog-uses-authoritative-result
+      outcome: unchanged
+      reason: >-
+        Creation still previews locally and trusts the authoritative server result. Its
+        dialog is a form carrying role=dialog, which ARIA forbids, so the role moves to a
+        wrapper that keeps the form's box - and the rule that makes the inner form draw
+        no box of its own sits beside .wr-channel-dialog, inside this assumption's style
+        region. The region is therefore not byte-identical and is declared rather than
+        omitted.
     - id: web-glass-theme-accessible-modes
       outcome: unchanged
       reason: >-
@@ -64,6 +133,8 @@ files:
   - packages/web/src/components.tsx
   - packages/web/src/components.spec.tsx
   - packages/web/src/shell.tsx
+  - packages/web/src/App.tsx
+  - packages/web/src/LedgerGraph.tsx
   - packages/web/src/styles.css
   - packages/web/tests/a11y.e2e.spec.ts
 anchors:
@@ -119,6 +190,11 @@ anchors:
         A browser regression proves the modal announces itself as a dialog, that the
         focus trap still cycles within it, that Escape still closes it, and that its
         position and size are unchanged.
+    dead-member-replacement-controls:
+      action: change
+      reason: >-
+        The member rail is a complementary landmark with no accessible name, and it sits
+        inside this anchored region. It gains one. No control changes.
   web-shell-responsive-three-pane:
     responsive-room-shell:
       action: change
@@ -130,6 +206,100 @@ anchors:
       reason: >-
         A browser regression proves every landmark is uniquely identifiable, and that
         the navigation landmark is still named Channels.
+    mobile-drawer-semantics:
+      action: change
+      reason: >-
+        This assumption is what promises a focus-managed navigation drawer on mobile, so
+        it owns the drawer's regression. It proves the drawer is a dialog on an element
+        allowed to carry the role, that focus is still managed inside it, and that it
+        still dismisses on Escape and on the scrim.
+  run-context-selects-and-follows-live-evidence:
+    selected-live-run-context:
+      action: change
+      reason: >-
+        The context rail is a complementary landmark with no accessible name. It gains
+        one. Selection and live-follow behaviour are untouched.
+  web-room-rail-creates-owner-room:
+    room-rail-create-action:
+      action: change
+      reason: >-
+        role=dialog, aria-modal, the name, the test id and the focus-trap ref move off
+        the create-channel form onto a wrapping element that keeps the form's box, so the
+        modal announces itself as a dialog and sits exactly where it did.
+    create-channel-semantics:
+      action: change
+      reason: >-
+        A browser regression proves the create-channel modal announces itself as a dialog
+        on an element allowed to carry the role, that the focus trap still cycles inside
+        it, that Escape still closes it, and that its position and size are unchanged.
+  starting-agent-name-derives-one-valid-identity:
+    starting-agent-name-control:
+      action: change
+      reason: >-
+        The starting-agent control sits inside the create-channel dialog whose wrapper
+        changes. The control itself, and the handle it derives, are untouched.
+  removing-an-agent-is-one-deliberate-step:
+    remove-member-control:
+      action: change
+      reason: >-
+        Name the removal alertdialog after the handle it is about to destroy, so a
+        screen-reader user hears what the confirmation is for rather than only that one
+        opened.
+    remove-member-regression:
+      action: change
+      reason: >-
+        The regression asserts the confirmation carries an accessible name that states
+        the handle.
+  graph-derived-from-vault-links-readonly:
+    ledger-graph-semantics:
+      action: change
+      reason: >-
+        A browser regression proves the graph surface exposes its nodes as reachable
+        interactive controls rather than burying them in an atomic image, that the docked
+        inspector is a complementary landmark, and that the overlay inspector is a dialog
+        with an accessible name.
+    ledger-graph-web:
+      action: change
+      reason: >-
+        The graph surface stops claiming role=img, which is atomic and may not contain
+        the focusable node buttons it does contain; it becomes a group, which may, and
+        keeps its name. The inspector stops being an aside that takes role=dialog in
+        overlay mode, which ARIA forbids; it becomes a section, which legally carries
+        complementary while docked and dialog while overlaying. The projection stays
+        read-only and both modes stay valid.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: >-
+        The mobile drawer sits inside this region. Its element changes from an aside,
+        which may not carry role=dialog, to a section, which may. Message ids are
+        untouched.
+  roles-gate-human-acts-not-agents:
+    role-aware-web-controls:
+      action: change
+      reason: >-
+        The mobile drawer sits inside this region; only its element and role change. Who
+        may act, and on what, is untouched.
+  human-facing-surfaces-call-rooms-channels:
+    web-channel-terminology:
+      action: change
+      reason: >-
+        The mobile drawer sits inside this region. It keeps the name Channels; only the
+        element carrying the dialog role changes.
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: change
+      reason: >-
+        The mobile drawer sits inside this region. An aside becoming a section changes no
+        layout, no styling and no visual hierarchy - the class, and therefore every rule
+        that paints it, is unchanged.
+  channel-create-dialog-uses-authoritative-result:
+    channel-create-style:
+      action: change
+      reason: >-
+        The create-channel dialog gains the rule that makes its inner form lay out as
+        display:contents, so the wrapper that now owns role=dialog keeps the exact box
+        the form owned. The rule sits beside .wr-channel-dialog, inside this region.
   web-glass-theme-accessible-modes:
     semantic-glass-theme:
       action: change

@@ -307,12 +307,20 @@ anchors:
     axe-accessibility-gate:
       action: change
       reason: >-
-        Install the axe scan over every route and major state, in both themes, as an
-        exact zero-violation gate with no waivers and no allowlist. It can be exact
-        because Phase 0a already repaired all four defects the read-only scan found -
-        the three ARIA and landmark errors, and the three token declarations whose
-        contrast failures produced the fourth. A gate that ships with a waiver teaches
-        the next contributor that the waiver list is where failures go.
+        Install the axe scan as an exact zero-violation gate with no waivers and no
+        allowlist, over the same twenty-five states in both themes that the read-only
+        inventory covered: the room at baseline, with history and a pending ask, offline,
+        read-only, searching, with the inbox open, and with the mention popup open; the
+        spawn, create-channel, folder-picker and remove-member dialogs; the mobile drawer
+        and the mobile context sheet; the ledger graph with a docked inspector, with an
+        overlay inspector, and with a note dialog; all six settings categories; pairing;
+        and finally the two states that mutate the room - a held delivery and a bridged
+        channel - each of which needs a fresh room to reach. The gate can be exact
+        because Phase 0a repaired all six violation classes that inventory found. A gate
+        that ships with a waiver teaches the next contributor that the waiver list is
+        where failures go, and a gate that only visits the states nobody broke is not a
+        gate at all: two of those six classes were invisible until the removal dialog and
+        the ledger graph were actually driven.
   sw-injectmanifest-owned-worker:
     vite-pwa-owned-worker:
       action: change
