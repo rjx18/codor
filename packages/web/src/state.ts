@@ -22,6 +22,7 @@ export interface RunEventBuffer {
   dropped_count: number;
 }
 
+// harn:assume history-cursor-tracks-only-the-contiguous-tail ref=contiguous-history-state
 export interface RoomState {
   connected: boolean;
   selfMemberId: string | undefined;
@@ -35,9 +36,11 @@ export interface RoomState {
   runEvents: Record<number, RunEventBuffer>;
   /** Full-hydration routing hint retained when visible history is paged down. */
   latestFinalizedAgentId: string | undefined;
+  /** Earliest id in the contiguous history range loaded from the newest message. */
+  historyCursor: number | undefined;
   errors: string[];
   applyFrame(frame: ServerFrame): void;
-  mergeHistory(messages: Message[]): void;
+  mergeHistoryPage(messages: Message[]): void;
   setConnected(connected: boolean): void;
   reset(): void;
 }
@@ -77,6 +80,7 @@ export const useRoomStore = create<RoomState>((set) => ({
   meter: undefined,
   runEvents: {},
   latestFinalizedAgentId: undefined,
+  historyCursor: undefined,
   errors: [],
 
   // harn:assume client-syncs-by-seq ref=store-upsert-in-place
@@ -93,8 +97,10 @@ export const useRoomStore = create<RoomState>((set) => ({
         case 'room':
           return { seq: bump, room: frame.room };
         case 'sync_complete': {
-          if (state.seq !== 0 || Object.keys(state.messages).length <= HISTORY_PAGE_SIZE) {
-            return { seq: bump };
+          if (state.seq !== 0) return { seq: bump };
+          const sorted = Object.values(state.messages).sort((a, b) => a.id - b.id);
+          if (sorted.length <= HISTORY_PAGE_SIZE) {
+            return { seq: bump, historyCursor: sorted[0]?.id };
           }
           // harn:assume the-inbox-badge-and-panel-are-one-truth ref=pending-survives-history-trim
           // An interaction still waiting on the operator is not history. Trimming it
@@ -108,14 +114,15 @@ export const useRoomStore = create<RoomState>((set) => ({
             (message.kind === 'ask' || message.kind === 'approval')
             && message.ask !== undefined
             && !answered.has(message.id);
-          const sorted = Object.values(state.messages).sort((a, b) => a.id - b.id);
-          const kept = new Map(sorted.slice(-HISTORY_PAGE_SIZE).map((m) => [m.id, m]));
+          const tail = sorted.slice(-HISTORY_PAGE_SIZE);
+          const kept = new Map(tail.map((m) => [m.id, m]));
           for (const message of sorted) if (isPending(message)) kept.set(message.id, message);
           const latest = [...kept.values()].sort((a, b) => a.id - b.id);
           // harn:end the-inbox-badge-and-panel-are-one-truth
           return {
             seq: bump,
             messages: Object.fromEntries(latest.map((message) => [message.id, message])),
+            historyCursor: tail[0]?.id,
           };
         }
         case 'member':
@@ -168,13 +175,24 @@ export const useRoomStore = create<RoomState>((set) => ({
           return {};
       }
     }),
-  mergeHistory: (messages) =>
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        ...Object.fromEntries(messages.map((message) => [message.id, message])),
-      },
-    })),
+  mergeHistoryPage: (messages) =>
+    set((state) => {
+      const earliest = messages.reduce<number | undefined>(
+        (minimum, message) => minimum === undefined ? message.id : Math.min(minimum, message.id),
+        undefined,
+      );
+      return {
+        messages: {
+          ...state.messages,
+          ...Object.fromEntries(messages.map((message) => [message.id, message])),
+        },
+        ...(earliest !== undefined && {
+          historyCursor: state.historyCursor === undefined
+            ? earliest
+            : Math.min(state.historyCursor, earliest),
+        }),
+      };
+    }),
   // harn:end permalink-ids-stable
   // harn:end client-syncs-by-seq
 
@@ -191,9 +209,11 @@ export const useRoomStore = create<RoomState>((set) => ({
       meter: undefined,
       runEvents: {},
       latestFinalizedAgentId: undefined,
+      historyCursor: undefined,
       errors: [],
     }),
 }));
+// harn:end history-cursor-tracks-only-the-contiguous-tail
 
 // ── pure selectors (unit-tested) ────────────────────────────────────────
 

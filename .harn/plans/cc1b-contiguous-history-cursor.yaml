@@ -1,0 +1,86 @@
+id: cc1b-contiguous-history-cursor
+title: Keep history pagination contiguous beside pinned interaction cards
+assumptions:
+  create:
+    - id: history-cursor-tracks-only-the-contiguous-tail
+      title: History pagination tracks the contiguous tail, not rendered outliers
+      statement: Initial hydration must record the first id of its retained contiguous
+        history tail separately from the sorted render cache, and each
+        successfully merged older page must advance only that cursor, while
+        pinned interactions and permalink or search outliers never move it;
+        load-earlier, automatic fill, reveal, and has-more initialization must
+        all page from this explicit cursor, because actionable old cards must
+        remain visible without making a present middle range permanently
+        unreachable.
+      reason: A pinned unresolved approval currently becomes messages[0], so the
+        browser asks for rows before that card and skips the entire range
+        between it and the retained latest page even though SQLite is
+        continuous.
+      depends_on:
+        - permalink-ids-stable
+        - client-syncs-by-seq
+        - the-inbox-badge-and-panel-are-one-truth
+  retire: []
+  reviewed:
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: History pages and reveal still merge by permanent message id; only the
+        pagination boundary stops being inferred from the sorted render cache.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: Live hydration still upserts by id and commits seq only at
+        sync_complete; the new history cursor is independent from the changelog
+        seq cursor.
+    - id: the-inbox-badge-and-panel-are-one-truth
+      outcome: unchanged
+      reason: Old pending interactions remain pinned and actionable; they simply no
+        longer redefine where contiguous history paging begins.
+    - id: the-inbox-opens-what-needs-you
+      outcome: unchanged
+      reason: Revealing an inbox card still locates and highlights its permanent id
+        while contiguous paging continues from its own boundary.
+anchors:
+  history-cursor-tracks-only-the-contiguous-tail:
+    contiguous-history-state:
+      action: change
+      reason: Store the explicit boundary, set it after initial trim, and advance it
+        only through contiguous page merges.
+    contiguous-history-state-regression:
+      action: change
+      reason: Pin
+    contiguous-history-app:
+      action: change
+      reason: Move load, reveal, automatic fill, and initial has-more checks off
+        messages[0].
+    contiguous-history-harness:
+      action: change
+      reason: Seed the exact continuous browser fixture plus an old actionable
+        approval.
+    contiguous-history-browser-regression:
+      action: change
+      reason: Repeatedly load the fixture and prove the pinned card and every middle
+        id coexist.
+  permalink-ids-stable:
+    paged-message-cache:
+      action: change
+      reason: Add an independent history boundary while retaining id-keyed upserts.
+    message-history-surface:
+      action: change
+      reason: Page and reveal from explicit contiguous history state.
+  client-syncs-by-seq:
+    store-upsert-in-place:
+      action: change
+      reason: Commit the initial history boundary alongside sync_complete without
+        changing the changelog seq semantics.
+  the-inbox-badge-and-panel-are-one-truth:
+    pending-survives-history-trim:
+      action: change
+      reason: Retain pending cards beside, rather than inside, the contiguous cursor.
+files:
+  - packages/web/src/state.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/App.tsx
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/e2e.spec.ts
+applied:
+  applied_at: 2026-07-14T10:30:58.642Z

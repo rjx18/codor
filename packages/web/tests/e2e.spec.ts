@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { CONTROL } from './ports.js';
 
@@ -21,14 +21,14 @@ declare global {
 }
 
 test('history pages, room search, and #N permalinks share stable message ids', async ({ page }) => {
-  const seeded = await control<{ first: number; last: number }>('/seed-history');
+  const seeded = await control<HistorySeed>('/seed-history');
   await page.goto('/?room=eng&token=e2e-token');
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
 
   await expect(page.getByTestId(`msg-${seeded.last}`)).toBeVisible();
   await expect(page.getByTestId(`msg-${seeded.first}`)).toHaveCount(0);
-  await page.getByTestId('load-history').dispatchEvent('click');
-  await expect(page.getByTestId(`msg-${seeded.first}`)).toBeVisible();
+  await expect(page.getByTestId(`card-${seeded.approval}`)).toBeVisible();
+  await loadCompleteHistory(page, seeded);
 
   await page.getByTestId('toggle-message-search').click();
   await page.locator('#room-search').fill('archive-entry-0001');
@@ -1518,3 +1518,22 @@ test('every option of the agent control fits inside the sidebar that holds it', 
   expect(fullAccess.x + fullAccess.width).toBeLessThanOrEqual(1440);
 });
 // harn:end controls-fit-the-surface-they-sit-on
+
+// harn:assume history-cursor-tracks-only-the-contiguous-tail ref=contiguous-history-browser-regression
+interface HistorySeed { first: number; last: number; approval: number; middle: number }
+
+async function loadCompleteHistory(page: Page, seeded: HistorySeed): Promise<void> {
+  await page.getByTestId('load-history').dispatchEvent('click');
+  await expect(page.getByTestId(`msg-${seeded.middle}`)).toBeVisible();
+  while (await page.getByTestId('load-history').count() > 0) {
+    await page.getByTestId('load-history').dispatchEvent('click');
+  }
+  await expect(page.getByTestId(`msg-${seeded.first}`)).toBeVisible();
+  const renderedIds = await page.getByTestId('timeline').locator('[id]').evaluateAll((elements) =>
+    elements
+      .map((element) => Number(element.id))
+      .filter((id) => Number.isSafeInteger(id) && id > 0)
+      .sort((left, right) => left - right));
+  expect(renderedIds).toEqual(Array.from({ length: 161 }, (_, index) => index + 1));
+}
+// harn:end history-cursor-tracks-only-the-contiguous-tail

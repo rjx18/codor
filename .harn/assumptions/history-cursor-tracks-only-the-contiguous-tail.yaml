@@ -1,0 +1,16 @@
+id: history-cursor-tracks-only-the-contiguous-tail
+hash: a-295698c2072e
+title: History pagination tracks the contiguous tail, not rendered outliers
+state: active
+statement: Initial hydration must record the first id of its retained contiguous
+  history tail separately from the sorted render cache, and each successfully
+  merged older page must advance only that cursor, while pinned interactions and
+  permalink or search outliers never move it; load-earlier, automatic fill,
+  reveal, and has-more initialization must all page from this explicit cursor,
+  because actionable old cards must remain visible without making a present
+  middle range permanently unreachable.
+depends_on:
+  - permalink-ids-stable
+  - client-syncs-by-seq
+  - the-inbox-badge-and-panel-are-one-truth
+created_by: cc1b-contiguous-history-cursor

@@ -84,7 +84,7 @@ describe('frame application (in-place, seq-cursored)', () => {
     let state = useRoomStore.getState();
     expect(Object.keys(state.messages)).toHaveLength(HISTORY_PAGE_SIZE);
     expect(sortedMessages(state.messages)[0]!.id).toBe(6);
-    state.mergeHistory([message({ id: 5, seq: 5 }), message({ id: 4, seq: 4 })]);
+    state.mergeHistoryPage([message({ id: 5, seq: 5 }), message({ id: 4, seq: 4 })]);
 
     state = useRoomStore.getState();
     expect(sortedMessages(state.messages).slice(0, 3).map((item) => item.id)).toEqual([4, 5, 6]);
@@ -425,3 +425,48 @@ describe('history trim', () => {
     expect(Object.keys(useRoomStore.getState().messages)).toHaveLength(HISTORY_PAGE_SIZE);
   });
 });
+
+// harn:assume history-cursor-tracks-only-the-contiguous-tail ref=contiguous-history-state-regression
+describe('contiguous history cursor', () => {
+  it('loads 1-161 exactly once while unresolved approval 10 stays pinned', () => {
+    const messages: Record<number, Message> = {};
+    for (let id = 1; id <= 161; id++) messages[id] = message({ id, seq: id });
+    messages[10] = {
+      ...messages[10]!,
+      kind: 'approval',
+      ask: {
+        interaction_id: 'approval-10',
+        kind: 'approval',
+        prompt: 'Allow it?',
+        options: [{ label: 'Allow' }],
+      },
+    };
+    useRoomStore.setState({ messages, seq: 0 });
+    useRoomStore.getState().applyFrame({ type: 'sync_complete', seq: 161 });
+
+    let state = useRoomStore.getState();
+    expect(state.historyCursor).toBe(112);
+    expect(sortedMessages(state.messages).map((item) => item.id)).toEqual([10, ...Array.from(
+      { length: 50 },
+      (_, index) => index + 112,
+    )]);
+
+    state.mergeHistoryPage(Array.from({ length: 50 }, (_, index) => messages[index + 62]!));
+    state = useRoomStore.getState();
+    expect(state.historyCursor).toBe(62);
+    expect(state.messages[111]).toBeDefined();
+
+    state.mergeHistoryPage(Array.from({ length: 50 }, (_, index) => messages[index + 12]!));
+    state.mergeHistoryPage(Array.from({ length: 11 }, (_, index) => messages[index + 1]!));
+    state.mergeHistoryPage([messages[1]!, messages[10]!]);
+    state = useRoomStore.getState();
+    expect(state.historyCursor).toBe(1);
+    expect(sortedMessages(state.messages).map((item) => item.id)).toEqual(
+      Array.from({ length: 161 }, (_, index) => index + 1),
+    );
+
+    state.applyFrame({ type: 'message', seq: 162, message: message({ id: 5, seq: 162 }) });
+    expect(useRoomStore.getState().historyCursor).toBe(1);
+  });
+});
+// harn:end history-cursor-tracks-only-the-contiguous-tail

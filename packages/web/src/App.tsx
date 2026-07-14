@@ -197,10 +197,11 @@ export function App(props: {
       : { act: 'mark_read', delivery_id: delivery.id });
   }, [connection, state.connected, state.inbox, state.seq]);
 
+  // harn:assume history-cursor-tracks-only-the-contiguous-tail ref=contiguous-history-app
   const loadOlder = useCallback(async () => {
-    const first = messages[0];
-    if (state.seq === 0 || historyBusyRef.current || !hasOlder || first === undefined) return;
-    if (first.id <= 1) {
+    const before = state.historyCursor;
+    if (state.seq === 0 || historyBusyRef.current || !hasOlder || before === undefined) return;
+    if (before <= 1) {
       setHasOlder(false);
       return;
     }
@@ -212,10 +213,10 @@ export function App(props: {
     try {
       const page = await fetchMessageHistory(
         ROOM,
-        { before: first.id, limit: HISTORY_PAGE_SIZE },
+        { before, limit: HISTORY_PAGE_SIZE },
         { token: accessToken() },
       );
-      state.mergeHistory(page.messages);
+      state.mergeHistoryPage(page.messages);
       setHasOlder(page.has_more);
     } catch {
       restoreScroll.current = undefined;
@@ -224,11 +225,11 @@ export function App(props: {
       historyBusyRef.current = false;
       setHistoryBusy(false);
     }
-  }, [ROOM, accessToken, hasOlder, messages, state.mergeHistory, state.seq]);
+  }, [ROOM, accessToken, hasOlder, state.historyCursor, state.mergeHistoryPage, state.seq]);
 
   const revealMessage = useCallback(async (id: number) => {
     let found = state.messages[id] !== undefined;
-    let before = messages[0]?.id ?? Number.MAX_SAFE_INTEGER;
+    let before = state.historyCursor ?? Number.MAX_SAFE_INTEGER;
     try {
       while (!found && before > id) {
         const page = await fetchMessageHistory(
@@ -237,7 +238,7 @@ export function App(props: {
           { token: accessToken() },
         );
         if (page.messages.length === 0) break;
-        state.mergeHistory(page.messages);
+        state.mergeHistoryPage(page.messages);
         found = page.messages.some((message) => message.id === id);
         const nextBefore = page.messages[0]!.id;
         setHasOlder(page.has_more);
@@ -256,7 +257,7 @@ export function App(props: {
         document.getElementById(String(id))?.scrollIntoView({ block: 'center' });
       });
     });
-  }, [ROOM, accessToken, messages, state.messages, state.mergeHistory]);
+  }, [ROOM, accessToken, state.historyCursor, state.messages, state.mergeHistoryPage]);
 
   useLayoutEffect(() => {
     const node = timeline.current;
@@ -296,11 +297,12 @@ export function App(props: {
     if (state.seq === 0) return;
     if (!historyReady.current) {
       historyReady.current = true;
-      setHasOlder((messages[0]?.id ?? 1) > 1);
+      setHasOlder((state.historyCursor ?? 1) > 1);
     }
     const node = timeline.current;
     if (hasOlder && node && node.scrollHeight <= node.clientHeight + 24) void loadOlder();
-  }, [hasOlder, loadOlder, messages, state.seq]);
+  }, [hasOlder, loadOlder, messages, state.historyCursor, state.seq]);
+  // harn:end history-cursor-tracks-only-the-contiguous-tail
 
   useEffect(() => {
     const followHash = (): void => {

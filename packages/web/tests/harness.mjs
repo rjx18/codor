@@ -236,16 +236,44 @@ createServer(async (req, res) => {
     } else if (url.pathname === '/seed-history') {
       const owner = daemon.ownerOf('eng');
       const messages = [];
-      for (let index = 1; index <= 75; index++) {
+      for (let index = 1; index <= 9; index++) {
         messages.push(daemon.store.postMessage('eng', {
           author: owner.id,
           kind: 'chat',
           body: `archive-entry-${String(index).padStart(4, '0')}`,
         }));
       }
+      // harn:assume history-cursor-tracks-only-the-contiguous-tail ref=contiguous-history-harness
+      const approval = daemon.store.postMessage('eng', {
+        author: alpha.id,
+        kind: 'approval',
+        body: 'Allow history regression?',
+        ask: {
+          interaction_id: 'history-regression-approval',
+          kind: 'approval',
+          prompt: 'Allow history regression?',
+          options: [{ label: 'Allow once' }, { label: 'Deny' }],
+        },
+      });
+      daemon.store.createDelivery('eng', {
+        message_id: approval.id,
+        recipient: admin.id,
+        state: 'consumed',
+      });
+      messages.push(approval);
+      for (let index = 11; index <= 161; index++) {
+        messages.push(daemon.store.postMessage('eng', {
+          author: owner.id,
+          kind: 'chat',
+          body: `archive-entry-${String(index).padStart(4, '0')}`,
+        }));
+      }
+      // harn:end history-cursor-tracks-only-the-contiguous-tail
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
         first: messages[0].id,
         last: messages.at(-1).id,
+        approval: approval.id,
+        middle: messages[110].id,
       }));
       return;
     } else if (url.pathname === '/pair-offer') {
