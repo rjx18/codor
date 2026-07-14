@@ -23,6 +23,8 @@ import {
   RunMessageView,
   RunStallBadge,
   SPAWN_PRESETS,
+  SpawnAgentDialog,
+  Composer,
   availableAgentHandle,
   defaultSpawnCwd,
 } from './components.js';
@@ -166,6 +168,44 @@ describe('spawn presets', () => {
   });
   // harn:end spawn-default-cwd-is-absolute-or-empty
 });
+describe('spawn dialog semantics', () => {
+  it('puts the dialog role on an element allowed to carry it, and keeps the focus-trap hook', () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() => {
+      root.render(
+        <SpawnAgentDialog
+          adapters={[{
+            id: 'fake',
+            capabilities: { resume: true, thinking: false, thinking_levels: [], policies: {} },
+            models: [],
+            models_source: 'curated',
+          }] as never}
+          members={[]}
+          connection={{ post: () => undefined } as unknown as Connection}
+        />,
+      );
+    });
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-testid="spawn-agent"]')?.click();
+    });
+
+    const dialog = container.querySelector('[data-testid="spawn-dialog"]');
+    // ARIA does not allow role=dialog on a form; the modal announced itself as a form.
+    expect(dialog?.tagName).toBe('DIV');
+    expect(dialog?.getAttribute('role')).toBe('dialog');
+    expect(dialog?.getAttribute('aria-modal')).toBe('true');
+    expect(dialog?.getAttribute('aria-label')).toBe('Spawn agent');
+    // The form survives inside it, so the dialog still submits.
+    expect(dialog?.querySelector('form.wr-spawn-form')).not.toBeNull();
+    // The focus trap queries within the test id; it must still find focusables.
+    expect(dialog?.querySelectorAll('button:not([disabled])').length).toBeGreaterThan(0);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+});
 // harn:end web-spawn-dialog-exposes-canonical-agent-controls
 
 // harn:assume literal-draft-effective-recipient-visible ref=composer-recipient-unit-regression
@@ -198,6 +238,35 @@ describe('mentionMatchAtCaret', () => {
       undefined,
       richard.id,
     )).toBe(true);
+  });
+});
+describe('composer autocomplete semantics', () => {
+  it('never puts aria-expanded on the textarea, and announces the suggestions instead', () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() => {
+      root.render(
+        <Composer
+          members={{ [richard.id]: richard, [alpha.id]: alpha }}
+          selfMemberId={richard.id}
+          connection={{ post: () => undefined } as unknown as Connection}
+        />,
+      );
+    });
+
+    const area = container.querySelector<HTMLTextAreaElement>('[data-testid="composer-input"]')!;
+    // A textarea may not take an explicit role, so it may not carry aria-expanded.
+    expect(area.hasAttribute('aria-expanded')).toBe(false);
+    expect(area.getAttribute('aria-autocomplete')).toBe('list');
+    // The open state belongs to the button, which is allowed to have it.
+    const button = container.querySelector('[data-testid="composer-mention"]');
+    expect(button?.getAttribute('aria-expanded')).toBe('false');
+    // Nothing is announced while the popup is closed.
+    expect(container.querySelector('[data-testid="composer-mention-status"]')?.textContent).toBe('');
+
+    act(() => root.unmount());
+    container.remove();
   });
 });
 // harn:end literal-draft-effective-recipient-visible
@@ -865,6 +934,36 @@ describe('removing an agent', () => {
     const html = render(live);
     expect(html).not.toContain('data-testid="remove-alpha-confirm"');
     expect(html).toContain('data-testid="remove-alpha"');
+  });
+
+  it('names what it is about to destroy, so the confirmation is not an anonymous alarm', () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() => {
+      root.render(
+        <MemberCard
+          member={live}
+          detail={undefined}
+          history={[]}
+          adapters={[]}
+          connection={noopConnection}
+          expanded
+          canManage
+        />,
+      );
+    });
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-testid="remove-alpha"]')?.click();
+    });
+
+    const confirm = container.querySelector('[data-testid="remove-alpha-confirm"]');
+    expect(confirm?.getAttribute('role')).toBe('alertdialog');
+    // Without this, a screen reader hears that a destructive dialog opened, but not for what.
+    expect(confirm?.getAttribute('aria-label')).toBe('Remove @alpha');
+
+    act(() => root.unmount());
+    container.remove();
   });
 });
 // harn:end removing-an-agent-is-one-deliberate-step

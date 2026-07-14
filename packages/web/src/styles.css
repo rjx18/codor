@@ -19,7 +19,7 @@
   --wr-line-strong: #44474f;
   --wr-text: #f2f2ef;
   --wr-muted: #a0a2a9;
-  --wr-faint: #7d8088;
+  --wr-faint: #8a8d93;
   --wr-cyan: #a0a2a9;
   --wr-emerald: #80c56d;
   --wr-amber: #d8b34d;
@@ -60,8 +60,8 @@
     --wr-muted: #66696f;
     --wr-faint: #62656a;
     --wr-cyan: #4e5156;
-    --wr-emerald: #397b31;
-    --wr-amber: #8a6500;
+    --wr-emerald: #31692a;
+    --wr-amber: #7d5b00;
     --wr-coral: #a73c36;
     --wr-violet: #4e5156;
     --wr-cyan-soft: rgba(78, 81, 86, 0.07);
@@ -93,8 +93,8 @@
   --wr-muted: #66696f;
   --wr-faint: #62656a;
   --wr-cyan: #4e5156;
-  --wr-emerald: #397b31;
-  --wr-amber: #8a6500;
+  --wr-emerald: #31692a;
+  --wr-amber: #7d5b00;
   --wr-coral: #a73c36;
   --wr-violet: #4e5156;
   --wr-cyan-soft: rgba(78, 81, 86, 0.07);
@@ -1871,6 +1871,12 @@ button:disabled {
   overflow-y: auto;
 }
 
+/* The dialog element owns the box; the form inside it is a submit container and
+   nothing more, so it must not introduce one of its own. */
+.wr-channel-form {
+  display: contents;
+}
+
 .wr-field-label small {
   color: var(--wr-faint);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -2025,6 +2031,12 @@ button:disabled {
   width: min(100%, 640px);
   max-height: min(92dvh, 760px);
   overflow-y: auto;
+}
+
+/* The dialog element owns the box; the form inside it is a submit container and
+   nothing more, so it must not introduce one of its own. */
+.wr-spawn-form {
+  display: contents;
 }
 
 .wr-preset-list {

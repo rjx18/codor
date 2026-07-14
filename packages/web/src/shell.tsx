@@ -172,7 +172,7 @@ export function RoomList(props: {
   const [createBusy, setCreateBusy] = useState(false);
   const firstCreateField = useRef<HTMLInputElement>(null);
   const createTrigger = useRef<HTMLButtonElement>(null);
-  const createDialog = useRef<HTMLFormElement>(null);
+  const createDialog = useRef<HTMLDivElement>(null);
   const selectedStartingHarness = startingHarness ?? props.adapters?.[0]?.id ?? '';
   const derivedStartingHandle = selectedStartingHarness === ''
     ? undefined
@@ -284,13 +284,19 @@ export function RoomList(props: {
             className="wr-layer-scrim"
             onClick={() => setCreating(false)}
           />
-          <form
+          {/* ARIA does not allow role=dialog on a form. The dialog is this element, and it
+              keeps the box the form owned - same classes, so the same width and placement.
+              The form inside lays out as display:contents and draws nothing. */}
+          <div
             ref={createDialog}
             role="dialog"
             aria-modal="true"
             aria-label="Create channel"
             data-testid="create-room-dialog"
             className="wr-channel-dialog wr-focused-glass relative z-10 w-full max-w-xl p-5"
+          >
+          <form
+            className="wr-channel-form"
             onSubmit={(event) => {
               event.preventDefault();
               setCreateError(undefined);
@@ -447,6 +453,7 @@ export function RoomList(props: {
               />
             )}
           </form>
+          </div>
         </div>
       )}
     </nav>
@@ -468,7 +475,7 @@ export function RoomRail(props: {
   canCreateRoom?: boolean;
 }) {
   return (
-    <aside data-testid="room-rail" className="wr-room-rail">
+    <aside data-testid="room-rail" aria-label="Channels" className="wr-room-rail">
       <div className="wr-brand">
         <span className="wr-brand-copy">
           <strong>Codor</strong>
@@ -645,7 +652,11 @@ export function ContextRail(props: {
     });
   };
   return (
-    <aside data-testid={props.testId ?? 'context-rail'} className={`wr-context-rail ${props.className ?? ''}`}>
+    <aside
+      data-testid={props.testId ?? 'context-rail'}
+      aria-label="Channel context"
+      className={`wr-context-rail ${props.className ?? ''}`}
+    >
       <div className="wr-context-tabs" role="tablist" aria-label="Channel context">
         <button
           id={membersTabId}

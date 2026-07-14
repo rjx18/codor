@@ -406,7 +406,7 @@ export function SpawnAgentDialog(props: {
   const [pending, setPending] = useState<{ handle: string; errorCount: number }>();
   const handleField = useRef<HTMLInputElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const dialog = useRef<HTMLFormElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
   const adapter = props.adapters.find((candidate) => candidate.id === harness);
 
   useEffect(() => {
@@ -508,17 +508,24 @@ export function SpawnAgentDialog(props: {
       </button>
       {open && (
         <div className="wr-modal-backdrop fixed inset-0 z-20 flex items-center justify-center p-4">
-          <form
+          {/* ARIA does not allow role=dialog on a form. The dialog is this element, and it
+              keeps the box the form used to own - same classes, so the same width, height
+              and centring. The form inside lays out as display:contents and draws nothing,
+              so the modal sits and animates exactly where it did. */}
+          <div
             ref={dialog}
             role="dialog"
             aria-modal="true"
             aria-label="Spawn agent"
             data-testid="spawn-dialog"
+            className="wr-spawn-dialog wr-focused-glass w-full p-5"
+          >
+          <form
+            className="wr-spawn-form"
             onSubmit={(event) => {
               event.preventDefault();
               submit();
             }}
-            className="wr-spawn-dialog wr-focused-glass w-full p-5"
           >
             <div className="wr-dialog-heading">
               <div>
@@ -613,6 +620,7 @@ export function SpawnAgentDialog(props: {
               </button>
             </div>
           </form>
+          </div>
         </div>
       )}
     </>
@@ -906,8 +914,15 @@ export function MemberCard(props: {
       ))}
 
       {/* harn:assume removing-an-agent-is-one-deliberate-step ref=remove-member-control */}
+      {/* An alertdialog with no name tells a screen reader that something destructive
+          opened, but never what it destroys. Name it after the handle. */}
       {props.canManage && removing && (
-        <div data-testid={`remove-${props.member.handle}-confirm`} className="wr-remove-confirm" role="alertdialog">
+        <div
+          data-testid={`remove-${props.member.handle}-confirm`}
+          className="wr-remove-confirm"
+          role="alertdialog"
+          aria-label={`Remove @${props.member.handle}`}
+        >
           <p>
             Remove <strong>@{props.member.handle}</strong>? Its running turn is interrupted and
             any work still queued for it is dropped. Its past messages keep its name.
@@ -1054,7 +1069,7 @@ export function MemberRail(props: {
   }, [firstAgentId, selectedMemberId, visibleMembers]);
 
   return (
-    <aside className={`wr-member-rail wr-member-rail-${variant} ${props.className ?? ''}`}>
+    <aside aria-label="Members" className={`wr-member-rail wr-member-rail-${variant} ${props.className ?? ''}`}>
       <div className="wr-member-rail-heading">
         <div className="wr-rail-label"><span>Members</span><span>{visibleMembers.filter((m) => m.kind !== 'system').length}</span></div>
         {(props.canManageAgents ?? true) && (
@@ -1767,6 +1782,9 @@ export function Composer(props: {
           data-testid="composer-mention"
           aria-label="Mention a member"
           title="Mention"
+          aria-haspopup="listbox"
+          aria-expanded={mention !== undefined}
+          aria-controls={mention ? 'composer-mentions' : undefined}
           onClick={insertMentionAffordance}
           className="wr-mention-button wr-composer-control shrink-0"
         >
@@ -1853,7 +1871,11 @@ export function Composer(props: {
             }}
             rows={2}
             aria-label="Message the channel"
-            aria-expanded={mention !== undefined}
+            // A textarea may not take an explicit role, so it cannot be a combobox and
+            // may not carry aria-expanded. The open state lives on the mention button;
+            // the list it controls and the option it highlights are announced from here,
+            // which a textbox is allowed to do.
+            aria-autocomplete="list"
             aria-controls={mention ? 'composer-mentions' : undefined}
             aria-activedescendant={mention?.candidates[activeMention]
               ? `mention-${mention.candidates[activeMention].id}`
@@ -1874,6 +1896,15 @@ export function Composer(props: {
           <Send aria-hidden="true" size={20} />
         </button>
       </div>
+      {/* The popup's open state is announced here rather than by aria-expanded, which
+          the textarea is not allowed to carry. Carries no row: it is visually hidden. */}
+      <p role="status" aria-live="polite" data-testid="composer-mention-status" className="sr-only">
+        {mention === undefined
+          ? ''
+          : mention.candidates.length === 0
+            ? 'No matching members'
+            : `${String(mention.candidates.length)} member suggestion${mention.candidates.length === 1 ? '' : 's'}`}
+      </p>
       {commentaryDraft && (
         <p role="status" data-testid="composer-commentary-hint" className="wr-composer-commentary-hint">
           no recipient — this posts to nobody

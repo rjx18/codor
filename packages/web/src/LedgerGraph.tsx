@@ -288,7 +288,11 @@ export function LedgerGraphPage(props: { token: string }) {
           ) : graph.nodes.length === 0 ? (
             <p role="status" className="wr-ledger-state">No ledger notes yet</p>
           ) : (
-            <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={`Read-only ledger graph for ${roomName || room}`}>
+            <svg
+              viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+              role="group"
+              aria-label={`Read-only ledger graph for ${roomName || room}`}
+            >
               <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
                 {layout.links.map((link) => {
                   const source = link.source as LayoutNode;
@@ -331,12 +335,12 @@ export function LedgerGraphPage(props: { token: string }) {
       {overlayMode && inspectorOpen && (
         <button type="button" className="wr-ledger-inspector-scrim" aria-label="Dismiss note inspector" onClick={closeInspector} />
       )}
-      <aside
+      <section
         ref={inspector}
         data-testid="ledger-inspector"
         className={`wr-ledger-inspector ${inspectorOpen ? 'is-open' : ''}`}
         aria-label="Selected ledger note"
-        role={overlayMode ? 'dialog' : undefined}
+        role={overlayMode ? 'dialog' : 'complementary'}
         aria-modal={overlayMode ? true : undefined}
       >
         <div className="wr-ledger-inspector-top">
@@ -363,7 +367,7 @@ export function LedgerGraphPage(props: { token: string }) {
             </section>
           </>
         ) : <p className="wr-ledger-state">Select a note</p>}
-      </aside>
+      </section>
     </div>
   );
 }

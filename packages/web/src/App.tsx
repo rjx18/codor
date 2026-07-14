@@ -790,7 +790,7 @@ export function App(props: {
             className="wr-layer-scrim"
             onClick={() => setDrawerOpen(false)}
           />
-          <aside
+          <section
             role="dialog"
             aria-modal="true"
             aria-label="Channels"
@@ -837,7 +837,7 @@ export function App(props: {
                 <Settings aria-hidden="true" size={18} />
               </a>
             </div>
-          </aside>
+          </section>
         </div>
       )}
 
