@@ -2324,21 +2324,36 @@ export class Daemon {
     if (!interaction.targets.includes(by)) {
       throw new Error(`interaction ${interactionId} is not addressed to member ${by}`);
     }
-    const answered = this.store.upsertInteraction({
-      ...interaction,
-      state: 'answered',
-      answer,
-      answered_by: by,
-      answered_ts: new Date().toISOString(),
-    });
-    // Audit reply on the card — reply_to a card NEVER routes (gate).
-    const audit = this.store.postMessage(room, {
-      author: by,
-      kind: 'chat',
-      body: typeof answer === 'string' ? answer : JSON.stringify(answer),
-      reply_to: interaction.message_id,
-    });
-    this.emitMessage(room, audit);
+    // harn:assume approval-answer-is-atomic-and-chatless ref=approval-answer-daemon
+    let answered: PendingInteraction;
+    if (interaction.kind === 'approval') {
+      const committed = this.store.answerApproval(
+        room,
+        interaction.id,
+        answer,
+        by,
+        new Date().toISOString(),
+      );
+      answered = committed.interaction;
+      for (const delivery of committed.deliveries) this.emitInbox(room, delivery);
+    } else {
+      answered = this.store.upsertInteraction({
+        ...interaction,
+        state: 'answered',
+        answer,
+        answered_by: by,
+        answered_ts: new Date().toISOString(),
+      });
+      // Question answers remain visible history. A reply to a card never routes.
+      const audit = this.store.postMessage(room, {
+        author: by,
+        kind: 'chat',
+        body: typeof answer === 'string' ? answer : JSON.stringify(answer),
+        reply_to: interaction.message_id,
+      });
+      this.emitMessage(room, audit);
+    }
+    // harn:end approval-answer-is-atomic-and-chatless
     await this.deliverAnswer(room, answered);
   }
 

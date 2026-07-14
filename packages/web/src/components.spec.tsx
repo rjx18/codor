@@ -295,7 +295,7 @@ describe('AskCardView', () => {
     },
   };
 
-  // harn:assume phone-first-interaction-cards ref=phone-ask-card-regression
+  // harn:assume interaction-cards-stay-readable-on-phone ref=phone-ask-card-regression
   it('leads with what is being asked and who is asking', () => {
     const approval: Message = {
       ...card,
@@ -335,7 +335,7 @@ describe('AskCardView', () => {
     expect(html).toContain('Which codeword?');
     expect(html).toContain('card-9-answered');
   });
-  // harn:end phone-first-interaction-cards
+  // harn:end interaction-cards-stay-readable-on-phone
 
   it('renders the prompt with an option button per choice', () => {
     const html = renderToStaticMarkup(
@@ -867,3 +867,47 @@ describe('removing an agent', () => {
   });
 });
 // harn:end removing-an-agent-is-one-deliberate-step
+
+// harn:assume approval-cards-follow-authoritative-inbox ref=approval-answer-component-regression
+describe('approval answer in flight', () => {
+  it('disables controls without declaring the approval durably answered', async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    const send = vi.fn();
+    const approval: Message = {
+      ...finalizedRun,
+      id: 91,
+      kind: 'approval',
+      run: undefined,
+      ask: {
+        interaction_id: 'native-91',
+        kind: 'approval',
+        prompt: 'Run it?',
+        options: [{ label: 'Allow once' }, { label: 'Deny' }],
+      },
+    };
+    try {
+      await act(async () => root.render(
+        <AskCardView
+          message={approval}
+          authorHandle="alpha"
+          answered={false}
+          connection={{ act: send } as unknown as Connection}
+        />,
+      ));
+      const allow = container.querySelector('[data-testid="card-91-option-Allow once"]') as HTMLButtonElement;
+      await act(async () => allow.click());
+
+      expect(send).toHaveBeenCalledWith({
+        act: 'answer_interaction', interaction_id: '91', answer: 'Allow once',
+      });
+      expect([...container.querySelectorAll('button')].every((button) => button.disabled)).toBe(true);
+      expect(container.querySelector('[data-testid="card-91-answered"]')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
+    }
+  });
+});
+// harn:end approval-cards-follow-authoritative-inbox

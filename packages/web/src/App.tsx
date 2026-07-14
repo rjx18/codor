@@ -340,6 +340,10 @@ export function App(props: {
   // Derived from the same messages the timeline renders, so an answer given in
   // another browser removes the item here without any extra plumbing.
   const pending = useMemo(() => pendingInteractions(state), [state]);
+  const pendingIds = useMemo(() => new Set(pending.map((message) => message.id)), [pending]);
+  const actionableApprovalIds = useMemo(() => new Set(Object.values(state.inbox)
+    .filter((delivery) => delivery.state === 'consumed' && delivery.read_ts === undefined)
+    .map((delivery) => delivery.message_id)), [state.inbox]);
   const inboxItems = useMemo<InboxItem[]>(() => {
     const now = Date.now();
     return pending.map((message) => ({
@@ -692,18 +696,22 @@ export function App(props: {
                 );
               }
               if (message.kind === 'ask' || message.kind === 'approval') {
+                // harn:assume approval-cards-follow-authoritative-inbox ref=actionable-approval-app
+                if (message.kind === 'approval' && !actionableApprovalIds.has(message.id)) return null;
                 return (
                   <AskCardView
                     key={message.id}
                     message={message}
                     authorHandle={handles(message.author)}
-                    answered={answeredCards.has(message.id)}
+                    answered={message.kind === 'ask' && answeredCards.has(message.id)}
                     connection={connection}
-                    canAnswer={canPost && self !== undefined && Object.values(state.inbox).some(
-                      (delivery) => delivery.message_id === message.id && delivery.recipient === self.id,
-                    )}
+                    canAnswer={canPost && self !== undefined && (message.kind === 'approval'
+                      ? pendingIds.has(message.id)
+                      : Object.values(state.inbox).some((delivery) =>
+                        delivery.message_id === message.id && delivery.recipient === self.id))}
                   />
                 );
+                // harn:end approval-cards-follow-authoritative-inbox
               }
               return (
                 <MessageRow

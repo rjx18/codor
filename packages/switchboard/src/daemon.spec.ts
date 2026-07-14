@@ -2964,3 +2964,122 @@ describe('the turn pump never resurrects consumed work', () => {
   });
 });
 // harn:end only-an-admissible-delivery-becomes-delivering
+
+// harn:assume approval-answer-is-atomic-and-chatless ref=approval-answer-daemon-regression
+describe('durable ephemeral approval answers', () => {
+  const raise = async (kind: 'ask' | 'approval', prompt: string) => {
+    const alpha = spawnAgent(`interaction-${kind}`);
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind, prompt, options: [{ label: 'Allow once' }, { label: 'Deny' }] },
+      reply: (answer) => `adapter received ${String(answer)}`,
+    });
+    daemon.postHumanMessage('eng', `@${alpha.handle} request permission`);
+    const interaction = await until(() => daemon.store.listInteractions('eng', 'pending')
+      .find((item) => item.member_id === alpha.id));
+    return { alpha, interaction };
+  };
+
+  it('reads every target inbox and emits committed frames without an approval chat', async () => {
+    const admin = daemon.store.addMember('eng', {
+      kind: 'human', handle: 'approval-admin', display_name: 'Approval Admin', role: 'admin',
+    });
+    const { interaction } = await raise('approval', 'Deploy to production?');
+    const owner = daemon.ownerOf('eng');
+    const targetDeliveries = daemon.store.listDeliveries('eng')
+      .filter((delivery) => delivery.message_id === interaction.message_id);
+    expect(targetDeliveries.map((delivery) => delivery.recipient).sort())
+      .toEqual([owner.id, admin.id].sort());
+    frames = [];
+
+    await daemon.answerInteraction('eng', interaction.id, 'Allow once', owner.id);
+    await daemon.settle();
+
+    expect(daemon.store.getInteraction(interaction.id)).toMatchObject({
+      state: 'acked', answer: 'Allow once', answered_by: owner.id,
+    });
+    expect(targetDeliveries.map((delivery) => daemon.store.getDelivery('eng', delivery.id)?.read_ts)
+      .every((readTs) => readTs !== undefined)).toBe(true);
+    expect(frames.filter(({ frame }) => frame.type === 'inbox'
+      && frame.delivery.message_id === interaction.message_id)
+      .map(({ frame }) => frame.type === 'inbox' ? frame.delivery.read_ts : undefined))
+      .toHaveLength(2);
+    expect(daemon.store.listMessages('eng', { limit: 100 })
+      .filter((message) => message.reply_to === interaction.message_id)).toEqual([]);
+    expect(fake.respondCalls.at(-1)).toEqual({
+      interaction_id: interaction.native_id, answer: 'Allow once',
+    });
+  });
+
+  it('preserves the visible reply audit for an ordinary question', async () => {
+    const { interaction } = await raise('ask', 'Which environment?');
+    await daemon.answerInteraction('eng', interaction.id, 'Allow once');
+    await daemon.settle();
+
+    expect(daemon.store.listMessages('eng', { limit: 100 })
+      .find((message) => message.reply_to === interaction.message_id)).toMatchObject({
+        kind: 'chat', body: 'Allow once',
+      });
+  });
+
+  it('surfaces acknowledgement failure after persisting answer and inbox reads', async () => {
+    const { interaction } = await raise('approval', 'Run the command?');
+    const deliveries = daemon.store.listDeliveries('eng')
+      .filter((delivery) => delivery.message_id === interaction.message_id);
+    fake.failNextResponse('stream closed before approval ack');
+
+    await expect(daemon.answerInteraction('eng', interaction.id, 'Allow once')).rejects.toThrow(
+      'stream closed before approval ack',
+    );
+    expect(daemon.store.getInteraction(interaction.id)).toMatchObject({ state: 'answered' });
+    expect(deliveries.map((delivery) => daemon.store.getDelivery('eng', delivery.id)?.read_ts)
+      .every((readTs) => readTs !== undefined)).toBe(true);
+    expect(daemon.store.listMessages('eng', { limit: 100 })
+      .some((message) => message.reply_to === interaction.message_id)).toBe(false);
+  });
+});
+// harn:end approval-answer-is-atomic-and-chatless
+
+// harn:assume approval-answer-is-atomic-and-chatless ref=approval-answer-recovery-regression
+describe('answered approval restart recovery', () => {
+  it('never resurrects the old read card and permits only a fresh native approval', async () => {
+    const alpha = spawnAgent('restart-approval');
+    const turn = {
+      kind: 'ask' as const,
+      card: {
+        kind: 'approval' as const,
+        prompt: 'Allow Bash?',
+        tool: 'Bash',
+        options: [{ label: 'Allow once' }, { label: 'Deny' }],
+      },
+      reply: (answer: unknown) => `approval ${String(answer)}`,
+    };
+    fake.enqueue(turn);
+    daemon.postHumanMessage('eng', '@restart-approval try a command');
+    const old = await until(() => daemon.store.listInteractions('eng', 'pending')
+      .find((item) => item.member_id === alpha.id));
+    fake.failNextResponse('lost approval acknowledgement');
+    await expect(daemon.answerInteraction('eng', old.id, 'Allow once')).rejects.toThrow(
+      'lost approval acknowledgement',
+    );
+    const oldDeliveries = daemon.store.listDeliveries('eng')
+      .filter((delivery) => delivery.message_id === old.message_id);
+    expect(oldDeliveries.every((delivery) => delivery.read_ts !== undefined)).toBe(true);
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    fake.enqueue(turn);
+    await daemon.reconcile();
+    const fresh = await until(() => daemon.store.listInteractions('eng', 'pending')
+      .find((item) => item.member_id === alpha.id));
+
+    expect(daemon.store.getInteraction(old.id)).toMatchObject({ state: 'orphaned' });
+    expect(fresh.id).not.toBe(old.id);
+    expect(oldDeliveries.map((delivery) => daemon.store.getDelivery('eng', delivery.id)?.read_ts)
+      .every((readTs) => readTs !== undefined)).toBe(true);
+    expect(daemon.store.listDeliveries('eng')
+      .filter((delivery) => delivery.message_id === fresh.message_id)
+      .every((delivery) => delivery.read_ts === undefined)).toBe(true);
+  });
+});
+// harn:end approval-answer-is-atomic-and-chatless

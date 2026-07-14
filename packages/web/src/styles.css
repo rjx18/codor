@@ -5595,7 +5595,7 @@ button:disabled {
   }
 }
 
-/* harn:assume phone-first-interaction-cards ref=phone-ask-card-style */
+/* harn:assume interaction-cards-stay-readable-on-phone ref=phone-ask-card-style */
 /* The operator answers approvals on the phone they carry, not at a desk. */
 .wr-ask-card {
   width: 100%;
@@ -5655,7 +5655,7 @@ button:disabled {
 }
 :root[data-theme='dark'] .wr-ask-heading > div > strong { color: #f6e7c1; }
 :root[data-theme='light'] .wr-ask-heading > div > strong { color: #3b2a05; }
-/* harn:end phone-first-interaction-cards */
+/* harn:end interaction-cards-stay-readable-on-phone */
 
 /* harn:assume compact-one-line-tool-rows ref=compact-run-row-style */
 /* R9's one line. The markup asks for a single ellipsised line and, for a command,

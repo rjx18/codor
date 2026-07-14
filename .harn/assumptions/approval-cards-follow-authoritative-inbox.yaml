@@ -1,0 +1,16 @@
+id: approval-cards-follow-authoritative-inbox
+hash: a-86c4e897ea39
+title: Answered approvals disappear from every connected browser
+state: active
+statement: The web must treat an approval as actionable only while its addressed
+  consumed inbox delivery is unread, disable its option controls immediately
+  while an answer act is in flight, and remove the card only after committed
+  inbox updates arrive, so all connected browsers and the shared inbox selector
+  converge without inferring approval state from a chat reply; question cards
+  retain their visible answered history.
+depends_on:
+  - approval-answer-is-atomic-and-chatless
+  - interaction-cards-stay-readable-on-phone
+  - the-inbox-badge-and-panel-are-one-truth
+  - client-syncs-by-seq
+created_by: cc1c-approval-disappears

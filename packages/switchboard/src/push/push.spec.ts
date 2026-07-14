@@ -309,6 +309,23 @@ describe('Daemon human push trigger allowlist', () => {
     await daemon.answerInteraction('push', pending.id, 'yes');
     await daemon.settle();
 
+    // harn:assume approval-answer-is-atomic-and-chatless ref=approval-answer-push-regression
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'approval', prompt: 'Allow deploy?', options: [{ label: 'Allow once' }] },
+      reply: () => '@richard deployed',
+    });
+    daemon.postHumanMessage('push', '@alpha deploy');
+    const approval = await waitFor(() => daemon.store.listInteractions('push', 'pending')
+      .find((interaction) => interaction.kind === 'approval'));
+    await waitFor(() => events.find((event) => event.kind === 'approval'));
+    await daemon.answerInteraction('push', approval.id, 'Allow once');
+    await daemon.settle();
+    expect(events.filter((event) => event.kind === 'approval')).toHaveLength(1);
+    expect(daemon.store.listDeliveries('push', { recipient: owner.id })
+      .find((delivery) => delivery.message_id === approval.message_id)?.read_ts).toBeDefined();
+    // harn:end approval-answer-is-atomic-and-chatless
+
     const heldMessage = daemon.store.postMessage('push', {
       author: owner.id, kind: 'chat', body: '@alpha held',
     });
@@ -336,7 +353,7 @@ describe('Daemon human push trigger allowlist', () => {
     await daemon.settle();
 
     expect(events.map((event) => event.kind)).toEqual([
-      'inbox', 'ask', 'inbox', 'hold', 'stall',
+      'inbox', 'ask', 'inbox', 'approval', 'inbox', 'hold', 'stall',
     ]);
     expect(events.find((event) => event.kind === 'hold')).toMatchObject({
       msg_id: heldMessage.id,

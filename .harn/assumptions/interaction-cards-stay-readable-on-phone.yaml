@@ -1,0 +1,13 @@
+id: interaction-cards-stay-readable-on-phone
+hash: a-601ee8cea31a
+title: Pending interaction cards remain readable and tappable on a phone
+state: active
+statement: Pending approval and question cards must fill the timeline width,
+  identify the interaction kind, asking agent, and tool, show untruncated
+  wrapped detail, and present forty-four-pixel option targets below the tablet
+  breakpoint while retaining the established desktop layout, because the
+  operator must be able to understand and answer an active interaction from the
+  device they carry.
+depends_on:
+  - interaction-state-machine-persisted
+created_by: cc1c-approval-disappears

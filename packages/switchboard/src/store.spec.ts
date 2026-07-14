@@ -994,3 +994,68 @@ describe('a consumed delivery is never resurrected into a turn', () => {
     expect(retried.deliveries[0]!.attempt_count).toBe(2);
   });
 });
+
+// harn:assume approval-answer-is-atomic-and-chatless ref=approval-answer-store-regression
+describe('atomic approval answers', () => {
+  const seedApproval = () => {
+    const { owner } = openRoom(store);
+    const admin = store.addMember('eng', {
+      kind: 'human', handle: 'review-admin', display_name: 'Review Admin', role: 'admin',
+    });
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'approver', display_name: 'Approver', state: 'awaiting_input',
+    });
+    const card = store.postMessage('eng', {
+      author: agent.id,
+      kind: 'approval',
+      body: 'Allow Bash?',
+      ask: {
+        interaction_id: 'native-approval',
+        kind: 'approval',
+        prompt: 'Allow Bash?',
+        options: [{ label: 'Allow once' }, { label: 'Deny' }],
+      },
+    });
+    store.upsertInteraction({
+      id: 'approval-1', room: 'eng', member_id: agent.id, message_id: card.id,
+      native_id: 'native-approval', kind: 'approval', targets: [owner.id, admin.id], state: 'pending',
+    });
+    const deliveries = [owner.id, admin.id].map((recipient) => store.createDelivery('eng', {
+      message_id: card.id, recipient, state: 'consumed',
+    }));
+    return { owner, card, deliveries };
+  };
+
+  it('commits the durable answer and every target-human read in one projection', () => {
+    const seeded = seedApproval();
+    const cursor = store.currentSeq('eng');
+    const answeredTs = '2026-07-14T10:00:00.000Z';
+
+    const result = store.answerApproval('eng', 'approval-1', 'Allow once', seeded.owner.id, answeredTs);
+
+    expect(result.interaction).toMatchObject({
+      state: 'answered', answer: 'Allow once', answered_by: seeded.owner.id, answered_ts: answeredTs,
+    });
+    expect(result.deliveries.map((delivery) => delivery.id)).toEqual(seeded.deliveries.map((item) => item.id));
+    expect(result.deliveries.every((delivery) => delivery.read_ts === answeredTs)).toBe(true);
+    expect(store.sync('eng', cursor).inbox).toEqual(result.deliveries);
+  });
+
+  it('rolls back the answer and all reads when a later delivery update fails', () => {
+    const seeded = seedApproval();
+    const blocker = new Database(join(dir, 'test.sqlite'));
+    blocker.exec(`CREATE TRIGGER reject_second_approval_read
+      BEFORE UPDATE OF read_ts ON deliveries
+      WHEN NEW.id = '${seeded.deliveries[1]!.id}'
+      BEGIN SELECT RAISE(ABORT, 'injected read failure'); END`);
+    blocker.close();
+
+    expect(() => store.answerApproval(
+      'eng', 'approval-1', 'Allow once', seeded.owner.id, '2026-07-14T10:00:00.000Z',
+    )).toThrow('injected read failure');
+    expect(store.getInteraction('approval-1')).toMatchObject({ state: 'pending' });
+    expect(seeded.deliveries.map((delivery) => store.getDelivery('eng', delivery.id)?.read_ts))
+      .toEqual([undefined, undefined]);
+  });
+});
+// harn:end approval-answer-is-atomic-and-chatless

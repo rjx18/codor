@@ -1628,6 +1628,42 @@ export class Store {
     return rows.map(interactionFromRow);
   }
 
+  // harn:assume approval-answer-is-atomic-and-chatless ref=approval-answer-transaction
+  answerApproval(
+    room: string,
+    interactionId: string,
+    answer: unknown,
+    answeredBy: string,
+    answeredTs: string,
+  ): { interaction: PendingInteraction; deliveries: Delivery[] } {
+    return this.db.transaction(() => {
+      const existing = this.getInteraction(interactionId);
+      if (!existing || existing.room !== room) throw new Error(`no such interaction ${interactionId}`);
+      if (existing.kind !== 'approval') throw new Error(`interaction ${interactionId} is not an approval`);
+      if (existing.state !== 'pending') throw new Error(`interaction ${interactionId} is ${existing.state}`);
+      if (!existing.targets.includes(answeredBy)) {
+        throw new Error(`interaction ${interactionId} is not addressed to member ${answeredBy}`);
+      }
+      const interaction = this.upsertInteraction({
+        ...existing,
+        state: 'answered',
+        answer,
+        answered_by: answeredBy,
+        answered_ts: answeredTs,
+      });
+      const targets = new Set(existing.targets);
+      const deliveries = this.listDeliveries(room)
+        .filter((delivery) => delivery.message_id === existing.message_id)
+        .filter((delivery) => targets.has(delivery.recipient))
+        .filter((delivery) => this.getMember(room, delivery.recipient)?.kind === 'human')
+        .map((delivery) => delivery.read_ts === undefined
+          ? this.updateDelivery(room, delivery.id, { read_ts: answeredTs })
+          : delivery);
+      return { interaction, deliveries };
+    })();
+  }
+  // harn:end approval-answer-is-atomic-and-chatless
+
   // ── meters ────────────────────────────────────────────────────────────
 
   // harn:assume spend-meter-always-on ref=meter-cost-and-token-accounting

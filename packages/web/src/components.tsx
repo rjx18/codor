@@ -1479,7 +1479,7 @@ export function LiveActivityLine(props: { members: Member[]; activeMemberIds: st
 // harn:end web-waits-are-visible-across-live-surfaces
 // harn:end web-motion-is-purposeful-and-reduced-motion-safe
 
-// harn:assume phone-first-interaction-cards ref=phone-ask-card
+// harn:assume interaction-cards-stay-readable-on-phone ref=phone-ask-card
 export function AskCardView(props: {
   message: Message;
   authorHandle: string;
@@ -1488,8 +1488,9 @@ export function AskCardView(props: {
   canAnswer?: boolean;
 }) {
   const ask = props.message.ask!;
-  const [sent, setSent] = useState(false);
-  const done = props.answered || sent;
+  // harn:assume approval-cards-follow-authoritative-inbox ref=approval-answer-inflight
+  const [inFlight, setInFlight] = useState(false);
+  const done = props.answered;
   const approval = ask.kind === 'approval';
   return (
     <div
@@ -1532,16 +1533,16 @@ export function AskCardView(props: {
             key={option.label}
             type="button"
             data-testid={`card-${props.message.id}-option-${option.label}`}
-            disabled={done}
+            disabled={done || inFlight}
             title={option.description}
             aria-describedby={descriptionId}
             onClick={() => {
+              setInFlight(true);
               props.connection.act({
                 act: 'answer_interaction',
                 interaction_id: String(props.message.id), // the card's #N — stable across re-raises
                 answer: option.label,
               });
-              setSent(true);
             }}
             className={`wr-ask-option min-h-11 px-4 text-sm disabled:opacity-40 ${destructive ? 'is-destructive' : ''} ${permission ? 'is-permission' : ''}`}
           >
@@ -1557,8 +1558,9 @@ export function AskCardView(props: {
       {done && <p data-testid={`card-${props.message.id}-answered`} className="wr-ask-answered">answered</p>}
     </div>
   );
+  // harn:end approval-cards-follow-authoritative-inbox
 }
-// harn:end phone-first-interaction-cards
+// harn:end interaction-cards-stay-readable-on-phone
 
 export function HoldBanner(props: {
   held: Delivery[];

@@ -1082,7 +1082,7 @@ const PRIOR_HISTORY = [
   ...Array.from({ length: 24 }, (_, index) => `Step ${String(index + 1)}: inspected the workspace and reported what it found.`),
 ].join('\n\n');
 
-// harn:assume phone-first-interaction-cards ref=phone-ask-card-browser-regression
+// harn:assume interaction-cards-stay-readable-on-phone ref=phone-ask-card-browser-regression
 test('an approval card is readable and answerable at phone width', async ({ page, request }) => {
   const room = `approve-${String(Date.now())}`;
   const authorization = { authorization: 'Bearer e2e-token' };
@@ -1160,10 +1160,10 @@ test('an approval card is readable and answerable at phone width', async ({ page
 
   // And the answer flow still works from the phone.
   await allow.click();
-  await expect(page.getByTestId(`card-${id}-answered`)).toBeVisible();
+  await expect(page.getByTestId(`card-${id}`)).toHaveCount(0);
   await expect(page.getByText('chose Allow')).toBeVisible();
 });
-// harn:end phone-first-interaction-cards
+// harn:end interaction-cards-stay-readable-on-phone
 
 // harn:assume timeline-rows-are-never-crushed ref=timeline-crush-browser-regression
 test('a scrolling timeline crushes no row, whatever overflow the row sets', async ({ page, request }) => {
@@ -1537,3 +1537,76 @@ async function loadCompleteHistory(page: Page, seeded: HistorySeed): Promise<voi
   expect(renderedIds).toEqual(Array.from({ length: 161 }, (_, index) => index + 1));
 }
 // harn:end history-cursor-tracks-only-the-contiguous-tail
+
+// harn:assume approval-cards-follow-authoritative-inbox ref=approval-two-browser-regression
+interface InteractionEvidence {
+  interaction: { state: string; answer?: unknown };
+  deliveries: Array<{ read_ts?: string }>;
+  audit_replies: Array<{ id: number }>;
+  respond_calls: Array<{ interaction_id: string; answer: unknown }>;
+}
+
+test('an approval answer disappears durably from two connected browsers', async ({ page, request }) => {
+  const room = `approval-sync-${String(Date.now())}`;
+  const created = await request.post('/api/rooms', {
+    headers: { authorization: 'Bearer e2e-token' },
+    data: {
+      id: room,
+      name: 'Approval sync',
+      cwd: process.cwd(),
+      owner: { handle: 'richard', display_name: 'Richard' },
+      starting_agent: { harness: 'fake', handle: 'reviewer' },
+    },
+  });
+  expect(created.ok()).toBe(true);
+  const peer = await page.context().newPage();
+  try {
+    await Promise.all([
+      page.goto(`/?room=${room}&token=e2e-token`),
+      peer.goto(`/?room=${room}&token=e2e-token`),
+    ]);
+    await Promise.all([
+      expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected'),
+      expect(peer.getByTestId('connection')).toHaveAttribute('title', 'connected'),
+    ]);
+    await control('/enqueue', {
+      turns: [{
+        kind: 'ask',
+        cardKind: 'approval',
+        prompt: 'Deploy this release?',
+        options: ['Allow once', 'Deny'],
+        replyPrefix: 'adapter received ',
+      }],
+    });
+    await page.getByTestId('composer-input').fill('@reviewer deploy');
+    await page.getByTestId('composer-send').click();
+
+    const allow = page.locator('[data-testid$="-option-Allow once"]').first();
+    await expect(allow).toBeVisible();
+    const card = allow.locator('xpath=ancestor::*[contains(@class, "wr-ask-card")]').first();
+    const id = Number(await card.getAttribute('id'));
+    await expect(peer.getByTestId(`card-${String(id)}`)).toBeVisible();
+    await expect(page.getByTestId('inbox-badge')).toContainText('1');
+    await expect(peer.getByTestId('inbox-badge')).toContainText('1');
+
+    await allow.click();
+    await expect(page.getByTestId(`card-${String(id)}`)).toHaveCount(0);
+    await expect(peer.getByTestId(`card-${String(id)}`)).toHaveCount(0);
+    await expect(page.getByTestId('inbox-badge')).toContainText('0');
+    await expect(peer.getByTestId('inbox-badge')).toContainText('0');
+    await expect(page.getByText('adapter received Allow once')).toBeVisible();
+
+    const evidence = await control<InteractionEvidence>('/interaction-state', {
+      room,
+      message_id: id,
+    });
+    expect(evidence.interaction).toMatchObject({ state: 'acked', answer: 'Allow once' });
+    expect(evidence.deliveries.length).toBeGreaterThan(0);
+    expect(evidence.deliveries.every((delivery) => delivery.read_ts !== undefined)).toBe(true);
+    expect(evidence.audit_replies).toEqual([]);
+    expect(evidence.respond_calls).toHaveLength(1);
+  } finally {
+    await peer.close();
+  }
+});
+// harn:end approval-cards-follow-authoritative-inbox

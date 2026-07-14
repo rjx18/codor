@@ -1,0 +1,16 @@
+id: approval-answer-is-atomic-and-chatless
+hash: a-2becd2458d01
+title: Approval state is the durable audit trail
+state: active
+statement: Accepting an approval must atomically move its persisted interaction
+  from pending to answered with answer, actor, and timestamp and mark every
+  target-human inbox delivery read before adapter acknowledgement; the daemon
+  must emit those committed inbox updates and must not create a human reply chat
+  for an approval, while questions keep their established reply-chat behavior
+  and acknowledgement failures leave the durable answered state available to
+  recovery.
+depends_on:
+  - interaction-state-machine-persisted
+  - changelog-covers-every-visible-entity
+  - sync-cursor-commits-after-hydration
+created_by: cc1c-approval-disappears

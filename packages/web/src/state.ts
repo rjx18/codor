@@ -113,7 +113,12 @@ export const useRoomStore = create<RoomState>((set) => ({
           const isPending = (message: Message): boolean =>
             (message.kind === 'ask' || message.kind === 'approval')
             && message.ask !== undefined
-            && !answered.has(message.id);
+            && (message.kind === 'approval'
+              ? Object.values(state.inbox).some((delivery) =>
+                delivery.message_id === message.id
+                && delivery.state === 'consumed'
+                && delivery.read_ts === undefined)
+              : !answered.has(message.id));
           const tail = sorted.slice(-HISTORY_PAGE_SIZE);
           const kept = new Map(tail.map((m) => [m.id, m]));
           for (const message of sorted) if (isPending(message)) kept.set(message.id, message);
@@ -286,14 +291,21 @@ export const pendingInteractions = (
   for (const message of Object.values(state.messages)) {
     if (message.reply_to !== undefined) answered.add(message.reply_to);
   }
+  // harn:assume approval-cards-follow-authoritative-inbox ref=actionable-approval-selector
   return Object.values(state.messages)
     .filter((message) =>
       (message.kind === 'ask' || message.kind === 'approval')
       && message.ask !== undefined
-      && !answered.has(message.id)
       && Object.values(state.inbox).some(
-        (delivery) => delivery.message_id === message.id && delivery.recipient === self.id,
-      ))
+        (delivery) => delivery.message_id === message.id
+          && delivery.recipient === self.id
+          && (message.kind !== 'approval' || (
+            delivery.state === 'consumed' && delivery.read_ts === undefined
+          )),
+      )
+      && (message.kind !== 'ask' || !answered.has(message.id))
+    )
     .sort((a, b) => a.id - b.id);
+  // harn:end approval-cards-follow-authoritative-inbox
 };
 // harn:end the-inbox-badge-and-panel-are-one-truth

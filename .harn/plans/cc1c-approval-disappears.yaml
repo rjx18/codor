@@ -1,0 +1,231 @@
+id: cc1c-approval-disappears
+title: Make approval answers durable, chatless, and ephemeral
+assumptions:
+  create:
+    - id: interaction-cards-stay-readable-on-phone
+      title: Pending interaction cards remain readable and tappable on a phone
+      statement: Pending approval and question cards must fill the timeline width,
+        identify the interaction kind, asking agent, and tool, show untruncated
+        wrapped detail, and present forty-four-pixel option targets below the
+        tablet breakpoint while retaining the established desktop layout,
+        because the operator must be able to understand and answer an active
+        interaction from the device they carry.
+      reason: The existing phone-card assumption combines the still-valid layout
+        contract with the now-invalid rule that every answered approval remains
+        visible, so the layout obligation needs its own replacement.
+      depends_on:
+        - interaction-state-machine-persisted
+    - id: approval-answer-is-atomic-and-chatless
+      title: Approval state is the durable audit trail
+      statement: Accepting an approval must atomically move its persisted interaction
+        from pending to answered with answer, actor, and timestamp and mark
+        every target-human inbox delivery read before adapter acknowledgement;
+        the daemon must emit those committed inbox updates and must not create a
+        human reply chat for an approval, while questions keep their established
+        reply-chat behavior and acknowledgement failures leave the durable
+        answered state available to recovery.
+      reason: The current daemon persists the interaction but then creates a raw
+        answer chat and leaves target deliveries unread, so browsers cannot use
+        authoritative durable state to retire the approval consistently.
+      depends_on:
+        - interaction-state-machine-persisted
+        - changelog-covers-every-visible-entity
+        - sync-cursor-commits-after-hydration
+    - id: approval-cards-follow-authoritative-inbox
+      title: Answered approvals disappear from every connected browser
+      statement: The web must treat an approval as actionable only while its addressed
+        consumed inbox delivery is unread, disable its option controls
+        immediately while an answer act is in flight, and remove the card only
+        after committed inbox updates arrive, so all connected browsers and the
+        shared inbox selector converge without inferring approval state from a
+        chat reply; question cards retain their visible answered history.
+      reason: Local sent state and reply-message inference currently mute an approval
+        forever in one timeline instead of removing it authoritatively across
+        browser sessions.
+      depends_on:
+        - approval-answer-is-atomic-and-chatless
+        - interaction-cards-stay-readable-on-phone
+        - the-inbox-badge-and-panel-are-one-truth
+        - client-syncs-by-seq
+  retire:
+    - id: phone-first-interaction-cards
+      reason: Its phone layout rules remain valid, but its requirement that an
+        answered approval stay visible and muted directly conflicts with the
+        operator-approved ephemeral approval lifecycle; replacement assumptions
+        separate layout from lifecycle.
+  reviewed:
+    - id: interaction-state-machine-persisted
+      outcome: unchanged
+      reason: The existing pending, answered, acked, and orphaned states already
+        contain the durable answer fields required by the atomic operation.
+    - id: interaction-ack-preserves-finalized-member-state
+      outcome: unchanged
+      reason: Adapter acknowledgement still follows durable answer persistence and
+        only returns a member to running while it remains awaiting input.
+    - id: the-inbox-badge-and-panel-are-one-truth
+      outcome: unchanged
+      reason: Badge and panel still share one pendingInteractions selector over
+        addressed unanswered work; approvals now establish unanswered status
+        from unread actionable delivery state while questions retain reply
+        inference.
+    - id: the-inbox-opens-what-needs-you
+      outcome: unchanged
+      reason: The panel still lists and reveals exactly what is waiting and now
+        converges across browsers from authoritative inbox frames.
+    - id: history-cursor-tracks-only-the-contiguous-tail
+      outcome: unchanged
+      reason: Initial trim still pins actionable interactions beside the contiguous
+        tail; authoritative inbox state now decides whether an approval is
+        active.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: Committed delivery reads continue to arrive as ordinary sequenced inbox
+        frames and sync_complete remains the only hydration cursor commit.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: The atomic store operation uses the existing delivery update path so
+        each client-visible read mutation appends its inbox changelog row inside
+        the same SQLite transaction.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: Reconnect hydration already deduplicates inbox entity ids and returns
+        their final committed read state before sync_complete.
+    - id: push-only-for-human-targeted-events
+      outcome: unchanged
+      reason: Emitting a read delivery produces no push because emitInbox already
+        limits pushes to consumed unread human deliveries.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: Approval visibility remains a bounded in-page projection and adds no
+        offline or runtime persistence.
+anchors:
+  phone-first-interaction-cards:
+    phone-ask-card:
+      action: remove
+      reason: Replace the combined layout and answered-history contract.
+    phone-ask-card-regression:
+      action: remove
+      reason: Re-anchor question history and approval layout under separate truths.
+    phone-ask-card-style:
+      action: remove
+      reason: Re-anchor the unchanged responsive rules under the layout-only truth.
+    phone-ask-card-browser-regression:
+      action: remove
+      reason: The phone approval regression must now expect authoritative removal.
+    phone-ask-card-harness:
+      action: remove
+      reason: Re-anchor its realistic detail fixture under the layout-only truth.
+  interaction-cards-stay-readable-on-phone:
+    phone-ask-card:
+      action: change
+      reason: Preserve responsive content and control layout independently of the
+        answered approval lifecycle.
+    phone-ask-card-regression:
+      action: change
+      reason: Keep component-level phone readability and question-history coverage.
+    phone-ask-card-style:
+      action: change
+      reason: Preserve the established width, wrapping, and tap-target rules.
+    phone-ask-card-browser-regression:
+      action: change
+      reason: Retain phone geometry assertions while expecting the approval to leave.
+    phone-ask-card-harness:
+      action: change
+      reason: Keep the realistic tool and command fixture for phone validation.
+  approval-answer-is-atomic-and-chatless:
+    approval-answer-transaction:
+      action: change
+      reason: Persist the answer and every target-human delivery read in one store
+        transaction and return the committed projection.
+    approval-answer-store-regression:
+      action: change
+      reason: Prove success, changelog hydration, and rollback of all writes when a
+        delivery update fails mid-transaction.
+    approval-answer-daemon:
+      action: change
+      reason: Split approval and question presentation, emit committed inbox reads,
+        omit approval audit chat, then retain external adapter acknowledgement.
+    approval-answer-daemon-regression:
+      action: change
+      reason: Prove target delivery reads, emitted frames, no audit chat, preserved
+        question replies, and durable acknowledgement failure behavior.
+    approval-answer-recovery-regression:
+      action: change
+      reason: Reopen an answered unacknowledged approval and prove the old read card
+        does not resurrect while a genuinely fresh native approval may appear.
+    approval-answer-push-regression:
+      action: change
+      reason: Prove committed read emissions do not create a second approval push.
+  approval-cards-follow-authoritative-inbox:
+    actionable-approval-selector:
+      action: change
+      reason: Derive approval actionability from addressed consumed unread delivery
+        state while retaining reply inference for questions and trim pinning.
+    actionable-approval-state-regression:
+      action: change
+      reason: Cover unread, read, foreign-recipient, question compatibility, and
+        pinned-history cases.
+    actionable-approval-app:
+      action: change
+      reason: Remove approval rows when the shared pending selector no longer contains
+        them while keeping answered questions in timeline history.
+    approval-answer-inflight:
+      action: change
+      reason: Disable option controls locally during the server round trip without
+        declaring the interaction answered before an authoritative frame.
+    approval-answer-component-regression:
+      action: change
+      reason: Distinguish in-flight control disabling from durable answered display.
+    approval-browser-harness:
+      action: change
+      reason: Expose read-only interaction, delivery, audit, and adapter-call evidence
+        for the browser acceptance fixture.
+    approval-two-browser-regression:
+      action: change
+      reason: Answer in browser A and prove both cards and inbox counts converge, no
+        raw answer chat exists, and the adapter receives the answer.
+  the-inbox-badge-and-panel-are-one-truth:
+    pending-survives-history-trim:
+      action: change
+      reason: Pin approvals only while some target delivery remains actionable and
+        retain the established unresolved-question behavior.
+    pending-interactions-selector:
+      action: change
+      reason: Move approval resolution from reply inference to unread addressed
+        delivery state without splitting badge and panel sources of truth.
+  the-inbox-opens-what-needs-you:
+    inbox-panel:
+      action: change
+      reason: Share the authoritative pending-id set with timeline approval rendering.
+  history-cursor-tracks-only-the-contiguous-tail:
+    contiguous-history-state:
+      action: change
+      reason: Preserve only genuinely actionable pinned approvals during hydration.
+    contiguous-history-state-regression:
+      action: change
+      reason: Give the pinned
+  client-syncs-by-seq:
+    store-upsert-in-place:
+      action: change
+      reason: Compute hydrated approval actionability from the inbox snapshot already
+        received before sync_complete.
+  sw-caches-shell-only-no-message-data:
+    page-memory-message-cache:
+      action: change
+      reason: Filter approval rows from the same bounded page-memory state only.
+files:
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/push/push.spec.ts
+  - packages/web/src/state.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/App.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/e2e.spec.ts
+applied:
+  applied_at: 2026-07-14T11:01:52.424Z

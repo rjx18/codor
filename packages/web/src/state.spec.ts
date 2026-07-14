@@ -364,7 +364,7 @@ describe('what needs the operator', () => {
   const base = (messages: Message[], recipient = 'me') => ({
     messages: Object.fromEntries(messages.map((m) => [m.id, m])),
     inbox: Object.fromEntries(messages.map((m) => [
-      `d-${String(m.id)}`, { message_id: m.id, recipient } as never,
+      `d-${String(m.id)}`, { message_id: m.id, recipient, state: 'consumed' } as never,
     ])),
     members: { me: { id: 'me', kind: 'human', handle: 'richard' } as never },
     selfMemberId: 'me',
@@ -379,9 +379,9 @@ describe('what needs the operator', () => {
     expect(pendingInteractions(base([ask(1)], 'someone-else'))).toEqual([]);
   });
 
-  it('does not list an ask that has been answered', () => {
+  it('does not list an approval whose addressed delivery is durably read', () => {
     const answered = { ...base([ask(1)]) };
-    answered.messages[2] = { id: 2, kind: 'chat', reply_to: 1 } as unknown as Message;
+    answered.inbox['d-1'] = { message_id: 1, recipient: 'me', state: 'consumed', read_ts: TS } as never;
     expect(pendingInteractions(answered)).toEqual([]);
   });
 });
@@ -403,7 +403,7 @@ describe('history trim', () => {
     for (let id = 2; id <= HISTORY_PAGE_SIZE + 10; id++) {
       messages[id] = message({ id, seq: id });
     }
-    useRoomStore.setState({ messages: messages as never, seq: 0 });
+    useRoomStore.setState({ messages: messages as never, inbox: { d1: { message_id: 1, recipient: 'me', state: 'consumed' } as never }, seq: 0 });
 
     applyFrame({ type: 'sync_complete', seq: HISTORY_PAGE_SIZE + 20 } as never);
 
@@ -441,7 +441,7 @@ describe('contiguous history cursor', () => {
         options: [{ label: 'Allow' }],
       },
     };
-    useRoomStore.setState({ messages, seq: 0 });
+    useRoomStore.setState({ messages, inbox: { d10: { message_id: 10, recipient: 'me', state: 'consumed' } as never }, seq: 0 });
     useRoomStore.getState().applyFrame({ type: 'sync_complete', seq: 161 });
 
     let state = useRoomStore.getState();
@@ -470,3 +470,37 @@ describe('contiguous history cursor', () => {
   });
 });
 // harn:end history-cursor-tracks-only-the-contiguous-tail
+
+// harn:assume approval-cards-follow-authoritative-inbox ref=actionable-approval-state-regression
+describe('authoritative approval visibility', () => {
+  const human = { id: 'me', kind: 'human', handle: 'richard' } as never;
+  const interaction = (id: number, kind: 'ask' | 'approval'): Message => ({
+    ...message({ id, seq: id }),
+    kind,
+    ask: { interaction_id: `i-${String(id)}`, kind, prompt: 'Continue?', options: [{ label: 'Yes' }] },
+  });
+  const stateFor = (item: Message, delivery: Record<string, unknown>, replies: Message[] = []) => ({
+    messages: Object.fromEntries([item, ...replies].map((entry) => [entry.id, entry])),
+    inbox: { delivery: { message_id: item.id, recipient: 'me', state: 'consumed', ...delivery } as never },
+    members: { me: human },
+    selfMemberId: 'me',
+  });
+
+  it('keeps an approval actionable only while its addressed consumed delivery is unread', () => {
+    const approval = interaction(10, 'approval');
+    expect(pendingInteractions(stateFor(approval, {})).map((item) => item.id)).toEqual([10]);
+    expect(pendingInteractions(stateFor(approval, { read_ts: TS }))).toEqual([]);
+    expect(pendingInteractions({
+      ...stateFor(approval, {}),
+      inbox: { delivery: { message_id: 10, recipient: 'someone-else', state: 'consumed' } as never },
+    })).toEqual([]);
+  });
+
+  it('keeps question reply history semantics independent from delivery read state', () => {
+    const question = interaction(20, 'ask');
+    expect(pendingInteractions(stateFor(question, { read_ts: TS })).map((item) => item.id)).toEqual([20]);
+    const reply = { ...message({ id: 21, seq: 21 }), reply_to: 20 };
+    expect(pendingInteractions(stateFor(question, {}, [reply]))).toEqual([]);
+  });
+});
+// harn:end approval-cards-follow-authoritative-inbox

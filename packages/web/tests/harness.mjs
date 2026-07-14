@@ -158,14 +158,14 @@ createServer(async (req, res) => {
           fake.enqueue({
             kind: 'ask',
             card: {
-              // harn:assume phone-first-interaction-cards ref=phone-ask-card-harness
+              // harn:assume interaction-cards-stay-readable-on-phone ref=phone-ask-card-harness
               kind: turn.cardKind ?? 'ask',
               prompt: turn.prompt,
               options: turn.options.map((label) => ({ label })),
               ...(turn.tool !== undefined && { tool: turn.tool }),
               // The command being approved is the card's whole point.
               ...(turn.detail !== undefined && { detail: turn.detail }),
-              // harn:end phone-first-interaction-cards
+              // harn:end interaction-cards-stay-readable-on-phone
             },
             reply: (answer) => `${turn.replyPrefix ?? ''}${String(answer)}`,
           });
@@ -324,6 +324,24 @@ createServer(async (req, res) => {
         message_id: posted.message.id,
       }));
       return;
+    // harn:assume approval-cards-follow-authoritative-inbox ref=approval-browser-harness
+    } else if (url.pathname === '/interaction-state') {
+      const room = body.room ?? 'eng';
+      const interaction = daemon.store.listInteractions(room)
+        .find((candidate) => candidate.message_id === body.message_id);
+      if (!interaction) throw new Error('no interaction for message');
+      const deliveries = daemon.store.listDeliveries(room)
+        .filter((delivery) => delivery.message_id === interaction.message_id);
+      const audit_replies = daemon.store.listMessages(room, { limit: 500 })
+        .filter((message) => message.reply_to === interaction.message_id);
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        interaction,
+        deliveries,
+        audit_replies,
+        respond_calls: fake.respondCalls.filter((call) => call.interaction_id === interaction.native_id),
+      }));
+      return;
+    // harn:end approval-cards-follow-authoritative-inbox
     } else if (url.pathname === '/ledger-direct') {
       const name = body.name ?? 'risk-limits';
       writeFileSync(
