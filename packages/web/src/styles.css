@@ -31,6 +31,15 @@
   --wr-coral-soft: rgba(216, 106, 100, 0.1);
   --wr-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   --wr-shadow-strong: 0 8px 24px rgba(0, 0, 0, 0.16);
+  /* Aliases, declared once. Each resolves against whichever theme block wins on
+     :root, so a light theme flows through without redeclaring any of them. */
+  --wr-accent: var(--wr-cyan);
+  --wr-gold: var(--wr-amber);
+  --wr-panel: var(--wr-surface-raised);
+  --wr-text-soft: var(--wr-muted);
+  --wr-text-muted: var(--wr-muted);
+  --wr-text-dim: var(--wr-muted);
+  --wr-text-faint: var(--wr-faint);
   background: var(--wr-canvas);
 }
 
@@ -1292,9 +1301,9 @@ button:disabled {
   display: grid;
   place-items: center;
   padding: 12px 20px max(12px, env(safe-area-inset-bottom));
-  border-top: 1px solid var(--glass-line);
-  background: color-mix(in srgb, var(--glass-panel-strong) 88%, transparent);
-  color: var(--text-muted);
+  border-top: 1px solid var(--wr-line);
+  background: color-mix(in srgb, var(--wr-glass-strong) 88%, transparent);
+  color: var(--wr-muted);
   font-size: 12px;
 }
 

@@ -1,0 +1,68 @@
+id: v5-p0-baseline-repair
+title: V5 Phase 0 - resolve the ten custom properties the stylesheet references
+  but never defines, and give the install surface a colour that exists
+assumptions:
+  create: []
+  reviewed:
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: The theme's obligations are untouched - AA-readable text, visible
+        keyboard focus, opaque fallbacks and reduced-motion safety all still
+        hold. This plan only makes the theme keep a promise it was already
+        making. Fourteen custom properties are referenced by rules inside this
+        contract but declared nowhere. Four of them always carry an explicit
+        fallback and therefore resolve; they are left exactly as they are. The
+        other ten resolve to nothing at computed-value time, and they are the
+        accessible modes this assumption guarantees. var(--wr-accent) with no
+        fallback is the focus and selection accent, so the pressed agent-policy
+        option, the pressed harness tile and the ask card the operator was just
+        sent to all render with no accent at all. Three unprefixed leftovers
+        from a design system this repo has already retired leave the
+        read-only-room banner's border, background and text dead. Nothing here
+        is a visual redesign; every change is the repair that makes this
+        assumption true.
+    - id: sw-injectmanifest-owned-worker
+      outcome: unchanged
+      reason: "The worker is still the one Vite owns and injects, and nothing about
+        its lifecycle or its precache manifest changes. Only the web app
+        manifest's background_color and theme_color change, from a stale #070b0d
+        that matches no token in either theme to the canvas the app actually
+        paints."
+files:
+  - packages/web/src/styles.css
+  - packages/web/index.html
+  - packages/web/vite.config.ts
+  - packages/web/src/tokens.spec.ts
+anchors:
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: Repair the ten genuinely unresolved names, and only those ten. Three are
+        unprefixed leftovers whose call sites are repointed at the real tokens,
+        because declaring --glass-line, --glass-panel-strong or --text-muted
+        would enshrine a vocabulary this repo has already retired - they become
+        var(--wr-line), var(--wr-glass-strong) and var(--wr-muted) at the three
+        read-only-room banner rules. The remaining seven are declared once in
+        the base token block as aliases onto tokens that already exist, so every
+        theme flows through them without duplication. --wr-accent becomes
+        var(--wr-cyan), which is not a guess - the stylesheet already spends
+        --wr-cyan as its emphasis accent in exactly these idioms, as the 2px
+        :focus-visible outline and as the color-mix source for selected borders,
+        and --wr-accent is reached for in the identical outline and color-mix
+        rules. --wr-gold becomes var(--wr-amber); --wr-panel becomes
+        var(--wr-surface-raised); --wr-text-soft, --wr-text-muted and
+        --wr-text-dim all become var(--wr-muted); --wr-text-faint becomes
+        var(--wr-faint). The four names that always carry a fallback -
+        --wr-ask-heading-text, --wr-bg, --wr-danger and --wr-mono - are
+        deliberately NOT promoted to tokens. They already resolve, promoting
+        them would widen a repair phase, and it would mint vocabulary that Phase
+        1 would only have to remove.
+  sw-injectmanifest-owned-worker:
+    vite-pwa-owned-worker:
+      action: change
+      reason: Correct the manifest's background_color and theme_color to the canvas
+        the dark theme actually paints. This is a visible change to browser
+        chrome and to the installed splash, and it is intended - a stale colour
+        that matches no token is not a colour the product ever had.
+applied:
+  applied_at: 2026-07-14T20:03:38.354Z
