@@ -123,9 +123,10 @@ assumptions:
         surface at 4.17. It is spent as a text colour in 33 rules; an axe scan confirmed
         two of them failing, and the rest are not confirmed failures but unprotected
         ones - whether they pass depends entirely on which surface they happen to land
-        on, and nothing holds them to a passing one. In light, --wr-emerald is 4.29:1
-        and --wr-amber is 4.41:1 as text on the surfaces they are drawn on; the emerald
-        failure was confirmed by the scan, the amber one had not rendered. The repair is
+        on, and nothing holds them to a passing one. In light, --wr-emerald is 4.29:1 and
+        --wr-amber is 4.41:1 as text on the surfaces they are drawn on. Both are
+        confirmed: emerald as the member state, and amber as the hold banner's attention
+        button, which the first narrow scan never rendered. The repair is
         made at the token declarations rather than at the call sites, because the call
         sites are not wrong - the values are. Nothing is renamed and no rule is
         rewritten.
