@@ -109,7 +109,12 @@ assumptions:
         The two grey pseudo-colour names are renamed to the neutral roles they actually
         fill. It also gains the axe gate: the accessibility contract that is live today
         is the one that should own the scan of the UI that is live today. Both the
-        assumption and the gate move to web-theme-accessible-modes in Phase 3.
+        assumption and the gate move to web-theme-accessible-modes in Phase 3. The visual
+        baseline for this phase is commit 95d6609 - Phase 0a, not Phase 0, because 0a
+        deliberately moved three token values to hold AA. Forcing light and forcing dark
+        must render pixel-identical to it, since this phase repoints no consumer; the only
+        two visual changes permitted are a fresh unstored profile resolving to light
+        instead of dark, and the browser chrome that follows it.
     - id: design-references-preserve-wireroom-semantics
       outcome: unchanged
       reason: >-
