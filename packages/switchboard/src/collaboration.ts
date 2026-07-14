@@ -92,7 +92,6 @@ export interface GroupRoundPayloadContext {
     messageId?: number;
     body?: string;
   }[];
-  routingInstruction?: string;
 }
 
 const minuteUtc = (ts: string): string => `${ts.slice(0, 16)}Z`;
@@ -111,6 +110,15 @@ const statusBody = (
 };
 
 // harn:assume group-round-payloads-share-one-ordered-view ref=group-round-payload-composer
+// harn:assume group-round-routing-instruction-is-always-on ref=group-routing-instruction
+const GROUP_ROUTING_INSTRUCTION =
+  '[group routing: all participants in this round run independently. Your normal final reply ' +
+  'posts to the channel immediately; peer agents receive all terminal results together only as ' +
+  'the next-round context after this round ends. Use codor post only for an immediate in-round ' +
+  'update, question, or answer. In your final reply, use @handle only when you genuinely intend ' +
+  "to invoke that member in the next round; write the member's plain name without @ when merely " +
+  'discussing them. If no substantive onward response is needed, respond with exactly <ACK_OK>.]';
+
 export function composeGroupRoundPayload(ctx: GroupRoundPayloadContext, you: string): string {
   let payload =
     `[codor group=${ctx.groupId} round=${ctx.roundNumber} channel=${ctx.room}\n` +
@@ -145,11 +153,10 @@ export function composeGroupRoundPayload(ctx: GroupRoundPayloadContext, you: str
       '--- end result ---\n';
   }
 
-  if (ctx.routingInstruction !== undefined) {
-    payload += `\n${ctx.routingInstruction}\n`;
-  }
+  payload += `\n${GROUP_ROUTING_INSTRUCTION}\n`;
   return payload;
 }
+// harn:end group-round-routing-instruction-is-always-on
 // harn:end group-round-payloads-share-one-ordered-view
 
 export type DeliveryBatchClass =

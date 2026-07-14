@@ -1,0 +1,168 @@
+id: cc3a-routing-context
+title: Teach explicit invocation and preserve context on grouped deliveries
+assumptions:
+  create:
+    - id: agent-briefings-distinguish-invocation-from-discussion
+      title: Agent briefings distinguish invocation from discussion
+      statement: First-delivery and misaddress briefings must state that a normal
+        final reply posts automatically, an @mention invokes and auto-sends to
+        that member, a plain member name discusses them without invocation, and
+        codor post is only for genuinely interim communication, because models
+        must not accidentally schedule work while referring to a collaborator.
+      reason: Models that use @handle as ordinary prose can create unintended paid
+        turns unless the delivery contract makes the invocation boundary
+        explicit.
+      depends_on:
+        - collaboration-briefing-is-capability-aware
+        - substantive-routing-excludes-acknowledgements
+    - id: group-round-routing-instruction-is-always-on
+      title: Every group round explains its routing boundary
+      statement: Every grouped-round payload must include a compact always-on
+        instruction that final replies post immediately but reach peer agents
+        only as one combined next-round context after the barrier, codor post is
+        the immediate in-round path, plain names do not invoke, @mentions
+        request next-round invocation, and exact ACK_OK ends non-substantive
+        onward work.
+      reason: Group routing differs deliberately from ordinary immediate fanout and
+        must remain understandable after first-delivery conventions have
+        expired.
+      depends_on:
+        - collaboration-round-release-is-one-barrier
+        - group-round-payloads-share-one-ordered-view
+        - interim-agent-posts-are-nonfinal-routing
+    - id: grouped-deliveries-retain-agent-briefings
+      title: Grouped deliveries retain roster and conventions briefings
+      statement: Delivery-time composition for grouped work must append the active
+        roster when the recipient roster is stale and the capability-aware
+        conventions on first delivery or after misaddress, then clear each flag
+        only after appending its block, while the immutable group root and
+        result bundle remains unchanged.
+      reason: Group snapshot isolation must not bypass the same agent orientation and
+        roster refresh guarantees as ordinary delivery.
+      depends_on:
+        - roster-briefing-refreshes-on-membership
+        - collaboration-briefing-is-capability-aware
+        - delivery-payload-snapshotted
+        - group-round-payloads-share-one-ordered-view
+  reviewed:
+    - id: collaboration-briefing-is-capability-aware
+      outcome: unchanged
+      reason: The existing capability-aware polling distinction and wait/search/ACK
+        briefing remain, with explicit invocation and automatic-final wording
+        added.
+    - id: roster-briefing-refreshes-on-membership
+      outcome: unchanged
+      reason: Shared trailer composition extends stale-roster delivery to group work
+        without changing membership transitions or once-per-stale-state
+        clearing.
+    - id: group-round-payloads-share-one-ordered-view
+      outcome: unchanged
+      reason: The immutable group composer still emits a byte-equivalent root and
+        ordinal prior-result core except for you; recipient-state briefings are
+        an additive delivery-time trailer outside that shared core.
+    - id: collaboration-round-release-is-one-barrier
+      outcome: unchanged
+      reason: Instruction and briefing trailers do not change terminality, recipient
+        union, release timing, or exactly-once round materialization.
+    - id: group-participant-terminality-commits-with-the-turn
+      outcome: unchanged
+      reason: Context assertions extend the existing barrier regression without
+        changing finalization or participant terminal commits.
+    - id: ledger-home-only-refs-travel
+      outcome: unchanged
+      reason: Extracting delivery briefings from ordinary payload composition leaves
+        root, explicit message reference, and explicit ledger-note behavior
+        intact.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: Group roots and prior results remain immutable snapshots; only the
+        already-dynamic roster and conventions state is composed at turn
+        admission.
+    - id: live-collaboration-contract-is-public
+      outcome: unchanged
+      reason: Protocol documentation is expanded to publish invocation semantics,
+        grouped barriers, immediate interim posts, and the complete bounded
+        context.
+anchors:
+  agent-briefings-distinguish-invocation-from-discussion:
+    explicit-invocation-conventions:
+      action: change
+      reason: Render automatic final posting, explicit @ invocation, plain-name
+        discussion, and interim-only codor post wording.
+    explicit-invocation-regression:
+      action: change
+      reason: Pin the invocation wording in exact and capability-aware payload tests.
+    protocol-explicit-invocation-contract:
+      action: change
+      reason: Publish the same invocation semantics in the delivery example.
+  group-round-routing-instruction-is-always-on:
+    group-routing-instruction:
+      action: change
+      reason: Append the compact instruction unconditionally in the group composer.
+    group-routing-instruction-regression:
+      action: change
+      reason: Pin the instruction on first and subsequent group rounds.
+    protocol-group-routing-contract:
+      action: change
+      reason: Document barriered final replies and immediate interim posts.
+  grouped-deliveries-retain-agent-briefings:
+    grouped-delivery-briefing:
+      action: change
+      reason: Apply delivery-time roster and conventions trailers to grouped snapshots
+        and consume the recipient flags only after composition.
+    grouped-delivery-briefing-regression:
+      action: change
+      reason: Prove first-delivery, stale-roster, misaddress, and shared-core behavior.
+  collaboration-briefing-is-capability-aware:
+    collaboration-conventions:
+      action: change
+      reason: Extract the reusable trailer and add explicit invocation wording while
+        preserving capability-sensitive inbox polling.
+    collaboration-capability-context:
+      action: change
+      reason: Reuse the same capability lookup for ordinary and grouped conventions.
+    collaboration-briefing-regression:
+      action: change
+      reason: Extend the existing phrase coverage to explicit invocation behavior.
+  roster-briefing-refreshes-on-membership:
+    roster-payload-block:
+      action: change
+      reason: Move roster rendering into the shared delivery briefing composer.
+  group-round-payloads-share-one-ordered-view:
+    group-round-payload-composer:
+      action: change
+      reason: Make the group routing instruction mandatory rather than caller-optional.
+    group-round-payload-goldens:
+      action: change
+      reason: Update exact group payloads and core byte-equivalence assertions.
+  collaboration-round-release-is-one-barrier:
+    collaboration-barrier-regression:
+      action: change
+      reason: Distinguish the shared immutable round bundle from recipient-state
+        briefing trailers and verify both are delivered correctly.
+  group-participant-terminality-commits-with-the-turn:
+    collaboration-finalization-regression:
+      action: change
+      reason: The same nested group regression gains delivery-context assertions.
+  ledger-home-only-refs-travel:
+    ledger-aware-payload:
+      action: change
+      reason: Ordinary payload composition delegates roster and conventions rendering
+        without changing explicit reference or ledger content.
+  live-collaboration-contract-is-public:
+    protocol-conventions-example:
+      action: change
+      reason: Refresh the byte-template example with explicit invocation wording.
+    protocol-live-collaboration-contract:
+      action: change
+      reason: Add group-round behavior and the complete bounded context boundary.
+files:
+  - packages/switchboard/src/router.ts
+  - packages/switchboard/src/router.spec.ts
+  - packages/switchboard/src/collaboration.ts
+  - packages/switchboard/src/collaboration.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - docs/PROTOCOL.md
+applied:
+  applied_at: 2026-07-14T13:34:26.713Z

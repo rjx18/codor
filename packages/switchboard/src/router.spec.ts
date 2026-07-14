@@ -436,7 +436,7 @@ describe('delivery payload template (byte-exact goldens)', () => {
       },
     ],
     ledgerRefs: [{ name: 'risk-limits', body: '---\nname: risk-limits\n---\nKeep exposure below 2%.\n' }],
-    conventions: { others: ['claude', 'richard'], untaggedGoesTo: 'richard', ledger: true },
+    conventions: { untaggedGoesTo: 'richard', ledger: true },
   };
 
   it('matches the PROTOCOL §3 example shape exactly', () => {
@@ -456,10 +456,11 @@ describe('delivery payload template (byte-exact goldens)', () => {
         '---\nname: risk-limits\n---\nKeep exposure below 2%.\n\n' +
         '--- end ledger note ---\n' +
         '\n' +
-        '[conventions: your reply posts to the channel. Tag @claude / @richard to address ' +
-        'them; an untagged reply goes to @richard. Reference messages as #N. ' +
-        'Cite ledger notes as [[name]]. Use codor post for interim updates and --wait when ' +
-        'a direct reply is required; on timeout, check codor status and renew while the peer ' +
+        '[conventions: your normal final reply posts to the channel automatically. An @mention ' +
+        "invokes that member and auto-sends your message; write the member's plain name without @ " +
+        'when merely discussing them. An untagged reply goes to @richard. Reference messages as ' +
+        '#N. Cite ledger notes as [[name]]. Use codor post only for interim updates and --wait ' +
+        'when a direct reply is required; on timeout, check codor status and renew while the peer ' +
         'is active. During long tasks, check codor inbox --new. Use codor search --runs before ' +
         'asking about unseen referenced context. If no substantive reply is needed, respond with ' +
         'exactly <ACK_OK>.]\n',
@@ -526,6 +527,7 @@ describe('delivery payload template (byte-exact goldens)', () => {
   // harn:end awaiting-reply-marker-is-delivery-context
 
   // harn:assume collaboration-briefing-is-capability-aware ref=collaboration-briefing-regression
+  // harn:assume agent-briefings-distinguish-invocation-from-discussion ref=explicit-invocation-regression
   it('omits polling only for a live-inbox adapter and retains every collaboration rule', () => {
     const polling = composePayload(payloadCtx, 'codex');
     const live = composePayload({
@@ -534,10 +536,20 @@ describe('delivery payload template (byte-exact goldens)', () => {
     }, 'codex');
     expect(polling).toContain('codor inbox --new');
     expect(live).not.toContain('codor inbox --new');
-    for (const phrase of ['codor post', '--wait', 'codor status', 'codor search --runs', '<ACK_OK>']) {
+    for (const phrase of [
+      'normal final reply posts',
+      '@mention invokes',
+      'plain name without @',
+      'codor post only for interim',
+      '--wait',
+      'codor status',
+      'codor search --runs',
+      '<ACK_OK>',
+    ]) {
       expect(live, phrase).toContain(phrase);
     }
   });
+  // harn:end agent-briefings-distinguish-invocation-from-discussion
   // harn:end collaboration-briefing-is-capability-aware
 });
 

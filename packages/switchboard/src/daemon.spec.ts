@@ -3087,6 +3087,7 @@ describe('durable ephemeral approval answers', () => {
 
 // harn:assume collaboration-round-release-is-one-barrier ref=collaboration-barrier-regression
 // harn:assume group-participant-terminality-commits-with-the-turn ref=collaboration-finalization-regression
+// harn:assume grouped-deliveries-retain-agent-briefings ref=grouped-delivery-briefing-regression
 describe('barriered collaboration rounds', () => {
   it('waits for every first-round result and releases one finish-order-independent bundle', async () => {
     const alpha = spawnAgent('group-alpha');
@@ -3126,12 +3127,61 @@ describe('barriered collaboration rounds', () => {
     expect(daemon.store.listCollaborationParticipants('eng', group.id, 2)
       .map((participant) => participant.member_id)).toEqual([gamma.id, alpha.id]);
 
+    const roundOnePayloads = fake.deliveries.slice(0, 2).map((delivery) => delivery.payload);
+    for (const payload of roundOnePayloads) {
+      expect(payload).toContain('[group routing:');
+      expect(payload).toContain('[roster:');
+      expect(payload).toContain('[conventions:');
+      expect(payload).toContain('@mention invokes');
+    }
+
     const roundTwoPayloads = fake.deliveries.slice(2).map((delivery) => delivery.payload);
     expect(roundTwoPayloads).toHaveLength(2);
-    expect(roundTwoPayloads[0]!.replace('you=@group-gamma', 'you=@recipient'))
-      .toBe(roundTwoPayloads[1]!.replace('you=@group-alpha', 'you=@recipient'));
+    const groupCore = (payload: string): string => {
+      const briefing = payload.search(/\n\[(?:roster|conventions):/);
+      return briefing === -1 ? payload : payload.slice(0, briefing);
+    };
+    expect(groupCore(roundTwoPayloads[0]!).replace('you=@group-gamma', 'you=@recipient'))
+      .toBe(groupCore(roundTwoPayloads[1]!).replace('you=@group-alpha', 'you=@recipient'));
     expect(roundTwoPayloads[0]!.indexOf('@group-alpha - completed'))
       .toBeLessThan(roundTwoPayloads[0]!.indexOf('@group-beta - completed'));
+    const gammaPayload = roundTwoPayloads.find((payload) => payload.includes('you=@group-gamma'))!;
+    const alphaPayload = roundTwoPayloads.find((payload) => payload.includes('you=@group-alpha'))!;
+    expect(gammaPayload).toContain('[conventions:');
+    expect(alphaPayload).not.toContain('[conventions:');
+  });
+
+  it('refreshes conventions after misaddress without changing the shared group core', async () => {
+    const alpha = spawnAgent('brief-alpha');
+    const beta = spawnAgent('brief-beta');
+    fake.enqueue({ kind: 'complete', final_text: '@missing-member could not be resolved' });
+    daemon.postHumanMessage('eng', '@brief-alpha establish ordinary context');
+    await daemon.settle();
+    expect(daemon.store.getMember('eng', alpha.id)?.misaddressed).toBe(true);
+
+    fake.enqueue({ kind: 'complete', final_text: '<ACK_OK>' });
+    daemon.postHumanMessage('eng', '@brief-beta establish ordinary context');
+    await daemon.settle();
+    expect(daemon.store.getMember('eng', beta.id)?.conventions_sent).toBe(true);
+
+    fake.enqueue(
+      { kind: 'complete', final_text: '<ACK_OK>' },
+      { kind: 'complete', final_text: '<ACK_OK>' },
+    );
+    daemon.postHumanMessage('eng', '@brief-alpha @brief-beta compare with refreshed context');
+    await daemon.settle();
+
+    const grouped = fake.deliveries.filter((delivery) =>
+      delivery.payload.includes('compare with refreshed context'));
+    const alphaPayload = grouped.find((delivery) =>
+      delivery.payload.includes('you=@brief-alpha'))!.payload;
+    const betaPayload = grouped.find((delivery) =>
+      delivery.payload.includes('you=@brief-beta'))!.payload;
+    expect(alphaPayload).toContain('[conventions:');
+    expect(betaPayload).not.toContain('[conventions:');
+    expect(alphaPayload).toContain('[group routing:');
+    expect(betaPayload).toContain('[group routing:');
+    expect(daemon.store.getMember('eng', alpha.id)?.misaddressed).toBe(false);
   });
 
   it('presents failed and acknowledged slots but routes only completed substantive mentions', async () => {
@@ -3165,7 +3215,7 @@ describe('barriered collaboration rounds', () => {
       delivery.payload.includes('you=@status-delta') && delivery.payload.includes('completed round 1'))!.payload;
     expect(deltaPayload).toContain('@status-alpha - failed');
     expect(deltaPayload).toContain('@status-beta - acknowledged');
-    expect(deltaPayload).not.toContain('<ACK_OK>');
+    expect(deltaPayload).not.toContain('\n<ACK_OK>\n');
     expect(daemon.store.getMessage(
       'eng',
       daemon.store.listCollaborationParticipants('eng', group.id, 1)[1]!.result_message_id!,
@@ -3174,6 +3224,7 @@ describe('barriered collaboration rounds', () => {
       .map((participant) => participant.member_id)).toEqual([alpha.id, beta.id, charlie.id]);
   });
 });
+// harn:end grouped-deliveries-retain-agent-briefings
 // harn:end group-participant-terminality-commits-with-the-turn
 // harn:end collaboration-round-release-is-one-barrier
 

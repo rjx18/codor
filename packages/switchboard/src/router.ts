@@ -172,7 +172,17 @@ export interface ResolvedRef {
   body: string; // run refs: final_text, never the event blob
 }
 
-export interface PayloadContext {
+export interface DeliveryBriefingContext {
+  /** Omitted for grouped rounds, where unmentioned final results close the group. */
+  conventions?: {
+    untaggedGoesTo?: string;
+    ledger?: boolean;
+    liveInbox?: boolean;
+  };
+  roster?: { handle: string; kind: Member['kind']; purpose?: string }[];
+}
+
+export interface PayloadContext extends DeliveryBriefingContext {
   room: string;
   message: Message;
   authorHandle: string;
@@ -184,19 +194,45 @@ export interface PayloadContext {
   awaitingReply?: boolean;
   /**
    * Conventions trailer, included on a member's FIRST delivery in a channel and
-   * again after it misaddressed. `others` = the other parties it can tag;
-   * `untaggedGoesTo` = its default reply target (the message author).
+   * again after it misaddressed. `untaggedGoesTo` is the ordinary default reply
+   * target; grouped rounds omit it because mentionless results close the group.
    */
-  conventions?: {
-    others: string[];
-    untaggedGoesTo: string;
-    ledger?: boolean;
-    liveInbox?: boolean;
-  };
-  roster?: { handle: string; kind: Member['kind']; purpose?: string }[];
 }
 
 const minuteUtc = (ts: string): string => `${ts.slice(0, 16)}Z`;
+
+// harn:assume roster-briefing-refreshes-on-membership ref=roster-payload-block
+export function composeDeliveryBriefing(ctx: DeliveryBriefingContext): string {
+  let payload = '';
+  if (ctx.roster) {
+    payload += '\n[roster:\n';
+    for (const member of ctx.roster) {
+      payload += `@${member.handle} (${member.kind}${member.purpose ? `, ${member.purpose}` : ''})\n`;
+    }
+    payload += ']\n';
+  }
+  if (ctx.conventions) {
+    // harn:assume collaboration-briefing-is-capability-aware ref=collaboration-conventions
+    // harn:assume agent-briefings-distinguish-invocation-from-discussion ref=explicit-invocation-conventions
+    const untagged = ctx.conventions.untaggedGoesTo === undefined
+      ? ''
+      : ` An untagged reply goes to @${ctx.conventions.untaggedGoesTo}.`;
+    payload +=
+      `\n[conventions: your normal final reply posts to the channel automatically. ` +
+      `An @mention invokes that member and auto-sends your message; write the member's ` +
+      `plain name without @ when merely discussing them.${untagged} ` +
+      `Reference messages as #N.${ctx.conventions.ledger ? ' Cite ledger notes as [[name]].' : ''} ` +
+      `Use codor post only for interim updates and --wait when a direct reply is required; ` +
+      `on timeout, check codor status and renew while the peer is active. ` +
+      `${ctx.conventions.liveInbox ? '' : 'During long tasks, check codor inbox --new. '}` +
+      `Use codor search --runs before asking about unseen referenced context. ` +
+      `If no substantive reply is needed, respond with exactly <ACK_OK>.]\n`;
+    // harn:end agent-briefings-distinguish-invocation-from-discussion
+    // harn:end collaboration-briefing-is-capability-aware
+  }
+  return payload;
+}
+// harn:end roster-briefing-refreshes-on-membership
 
 // harn:assume ledger-home-only-refs-travel ref=ledger-aware-payload
 /**
@@ -227,29 +263,7 @@ export function composePayload(ctx: PayloadContext, you: string): string {
       `${ref.body}\n` +
       `--- end ledger note ---\n`;
   }
-  // harn:assume roster-briefing-refreshes-on-membership ref=roster-payload-block
-  if (ctx.roster) {
-    payload += '\n[roster:\n';
-    for (const member of ctx.roster) {
-      payload += `@${member.handle} (${member.kind}${member.purpose ? `, ${member.purpose}` : ''})\n`;
-    }
-    payload += ']\n';
-  }
-  if (ctx.conventions) {
-    // harn:assume collaboration-briefing-is-capability-aware ref=collaboration-conventions
-    const tags = ctx.conventions.others.map((h) => `@${h}`).join(' / ');
-    payload +=
-      `\n[conventions: your reply posts to the channel. Tag ${tags} to address ` +
-      `them; an untagged reply goes to @${ctx.conventions.untaggedGoesTo}. ` +
-      `Reference messages as #N.${ctx.conventions.ledger ? ' Cite ledger notes as [[name]].' : ''} ` +
-      `Use codor post for interim updates and --wait when a direct reply is required; ` +
-      `on timeout, check codor status and renew while the peer is active. ` +
-      `${ctx.conventions.liveInbox ? '' : 'During long tasks, check codor inbox --new. '}` +
-      `Use codor search --runs before asking about unseen referenced context. ` +
-      `If no substantive reply is needed, respond with exactly <ACK_OK>.]\n`;
-    // harn:end collaboration-briefing-is-capability-aware
-  }
-  // harn:end roster-briefing-refreshes-on-membership
+  payload += composeDeliveryBriefing(ctx);
   return payload;
 }
 // harn:end ledger-home-only-refs-travel

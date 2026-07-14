@@ -1,0 +1,15 @@
+id: grouped-deliveries-retain-agent-briefings
+hash: a-9910374329b7
+title: Grouped deliveries retain roster and conventions briefings
+state: active
+statement: Delivery-time composition for grouped work must append the active
+  roster when the recipient roster is stale and the capability-aware conventions
+  on first delivery or after misaddress, then clear each flag only after
+  appending its block, while the immutable group root and result bundle remains
+  unchanged.
+depends_on:
+  - roster-briefing-refreshes-on-membership
+  - collaboration-briefing-is-capability-aware
+  - delivery-payload-snapshotted
+  - group-round-payloads-share-one-ordered-view
+created_by: cc3a-routing-context

@@ -1,0 +1,13 @@
+id: agent-briefings-distinguish-invocation-from-discussion
+hash: a-6df6104d91fd
+title: Agent briefings distinguish invocation from discussion
+state: active
+statement: First-delivery and misaddress briefings must state that a normal
+  final reply posts automatically, an @mention invokes and auto-sends to that
+  member, a plain member name discusses them without invocation, and codor post
+  is only for genuinely interim communication, because models must not
+  accidentally schedule work while referring to a collaborator.
+depends_on:
+  - collaboration-briefing-is-capability-aware
+  - substantive-routing-excludes-acknowledgements
+created_by: cc3a-routing-context

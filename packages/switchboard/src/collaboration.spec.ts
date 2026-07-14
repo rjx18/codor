@@ -22,6 +22,7 @@ const delivery = (
 });
 
 // harn:assume group-round-payloads-share-one-ordered-view ref=group-round-payload-goldens
+// harn:assume group-round-routing-instruction-is-always-on ref=group-routing-instruction-regression
 describe('group round payload composition', () => {
   const context = {
     groupId: 'group-1',
@@ -97,9 +98,15 @@ describe('group round payload composition', () => {
       '--- end result ---\n\n' +
       '--- completed round 1 result 5/5 - @echo - skipped ---\n' +
       '[No turn started. The member was removed or unavailable.]\n' +
-      '--- end result ---\n',
+      '--- end result ---\n\n' +
+      '[group routing: all participants in this round run independently. Your normal final reply ' +
+      'posts to the channel immediately; peer agents receive all terminal results together only as ' +
+      'the next-round context after this round ends. Use codor post only for an immediate in-round ' +
+      'update, question, or answer. In your final reply, use @handle only when you genuinely intend ' +
+      "to invoke that member in the next round; write the member's plain name without @ when merely " +
+      'discussing them. If no substantive onward response is needed, respond with exactly <ACK_OK>.]\n',
     );
-    expect(payload).not.toContain('<ACK_OK>');
+    expect(payload).not.toContain('\n<ACK_OK>\n');
   });
 
   it('changes composed bytes between recipients only at the you field', () => {
@@ -109,6 +116,7 @@ describe('group round payload composition', () => {
       .toBe(gamma.replace('you=@gamma', 'you=@recipient'));
   });
 });
+// harn:end group-round-routing-instruction-is-always-on
 // harn:end group-round-payloads-share-one-ordered-view
 
 // harn:assume grouped-deliveries-have-an-isolated-batch-class ref=group-delivery-batch-regression

@@ -47,6 +47,7 @@ import {
   remoteMemberSpec,
 } from './residency.js';
 import {
+  composeDeliveryBriefing,
   composePayload,
   evaluateBrakes,
   parseBody,
@@ -2208,10 +2209,41 @@ export class Daemon {
     const payloads: string[] = [];
     for (const delivery of batch) {
       const encoded = this.store.getDeliveryPayloadSnapshot(room, delivery.id);
+      const fresh = this.store.getMember(room, recipient.id)!;
+      const needsConventions = !fresh.conventions_sent || fresh.misaddressed;
+      const needsRoster = fresh.roster_stale;
+      // harn:assume grouped-deliveries-retain-agent-briefings ref=grouped-delivery-briefing
+      const roster = needsRoster
+        ? this.store.listMembers(room).map((member) => ({
+            handle: member.handle,
+            kind: member.kind,
+            ...(member.purpose !== undefined && { purpose: member.purpose }),
+          }))
+        : undefined;
+      const conventions = needsConventions
+        ? {
+            ledger: this.ledger?.isEnabled(room) ?? false,
+            // harn:assume collaboration-briefing-is-capability-aware ref=collaboration-capability-context
+            liveInbox: fresh.harness !== undefined &&
+              this.adapters.get(fresh.harness)?.capabilities.live_inbox === true,
+            // harn:end collaboration-briefing-is-capability-aware
+          }
+        : undefined;
       if (encoded !== undefined) {
         const candidate = JSON.parse(encoded) as DeliveryPayloadSnapshot | GroupDeliveryPayloadSnapshot;
         if ('kind' in candidate && candidate.kind === 'group') {
-          payloads.push(candidate.payload);
+          payloads.push(candidate.payload + composeDeliveryBriefing({ roster, conventions }));
+          if (needsRoster) this.store.clearAgentRosterStale(room, recipient.id);
+          if (needsConventions) {
+            this.emitMember(
+              room,
+              this.store.updateMember(room, recipient.id, {
+                conventions_sent: true,
+                misaddressed: false,
+              }),
+            );
+          }
+          // harn:end grouped-deliveries-retain-agent-briefings
           continue;
         }
       }
@@ -2225,32 +2257,13 @@ export class Daemon {
               [recipient],
             ),
           ) as DeliveryPayloadSnapshot);
-      const fresh = this.store.getMember(room, recipient.id)!;
-      const needsConventions = !fresh.conventions_sent || fresh.misaddressed;
-      const needsRoster = fresh.roster_stale;
       const ctx: PayloadContext = {
         ...snapshot.context,
-        roster: needsRoster
-          ? this.store.listMembers(room).map((member) => ({
-              handle: member.handle,
-              kind: member.kind,
-              ...(member.purpose !== undefined && { purpose: member.purpose }),
-            }))
-          : undefined,
+        roster,
         conventions: needsConventions
           ? {
-              others: [
-                ...new Set([
-                  ...snapshot.context.toHandles.filter((handle) => handle !== snapshot.you),
-                  snapshot.context.authorHandle,
-                ]),
-              ],
+              ...conventions,
               untaggedGoesTo: snapshot.context.authorHandle,
-              ledger: this.ledger?.isEnabled(room) ?? false,
-              // harn:assume collaboration-briefing-is-capability-aware ref=collaboration-capability-context
-              liveInbox: fresh.harness !== undefined &&
-                this.adapters.get(fresh.harness)?.capabilities.live_inbox === true,
-              // harn:end collaboration-briefing-is-capability-aware
             }
           : undefined,
       };

@@ -1,0 +1,14 @@
+id: group-round-routing-instruction-is-always-on
+hash: a-4740dee7713b
+title: Every group round explains its routing boundary
+state: active
+statement: Every grouped-round payload must include a compact always-on
+  instruction that final replies post immediately but reach peer agents only as
+  one combined next-round context after the barrier, codor post is the immediate
+  in-round path, plain names do not invoke, @mentions request next-round
+  invocation, and exact ACK_OK ends non-substantive onward work.
+depends_on:
+  - collaboration-round-release-is-one-barrier
+  - group-round-payloads-share-one-ordered-view
+  - interim-agent-posts-are-nonfinal-routing
+created_by: cc3a-routing-context

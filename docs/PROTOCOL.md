@@ -227,6 +227,7 @@ What actually lands in each recipient session's next turn — exact template (id
 recipient of the message except the `you=` field):
 
 <!-- harn:assume live-collaboration-contract-is-public ref=protocol-conventions-example -->
+<!-- harn:assume agent-briefings-distinguish-invocation-from-discussion ref=protocol-explicit-invocation-contract -->
 ```text
 [codor channel=traderjoe-eng msg=#93107 from=@richard (human)
  to=@codex @claude · you=@codex]
@@ -239,14 +240,16 @@ The rebalance path still used stale closes; phase 3 must gate on fresh marks
 before submitting. (…full body verbatim…)
 --- end reference ---
 
-[conventions: your reply posts to the channel. Tag @claude / @richard to address
-them; an untagged reply goes to @richard. Reference messages as #N. Cite ledger
-notes as [[name]]. Use codor post for interim updates and --wait when a direct
-reply is required; on timeout, check codor status and renew while the peer is
-active. During long tasks, check codor inbox --new. Use codor search --runs before
-asking about unseen referenced context. If no substantive reply is needed,
-respond with exactly <ACK_OK>.]
+[conventions: your normal final reply posts to the channel automatically. An
+@mention invokes that member and auto-sends your message; write the member's plain
+name without @ when merely discussing them. An untagged reply goes to @richard.
+Reference messages as #N. Cite ledger notes as [[name]]. Use codor post only for
+interim updates and --wait when a direct reply is required; on timeout, check codor
+status and renew while the peer is active. During long tasks, check codor inbox
+--new. Use codor search --runs before asking about unseen referenced context. If no
+substantive reply is needed, respond with exactly <ACK_OK>.]
 ```
+<!-- harn:end agent-briefings-distinguish-invocation-from-discussion -->
 <!-- harn:end live-collaboration-contract-is-public -->
 
 The conventions trailer is included on an agent's **first** delivery in a channel and thereafter
@@ -289,6 +292,24 @@ latest-finalized-agent fallback, or gain acknowledgement semantics. `post --wait
 first queued reply authored by one of them that directly mentions the sender. An untagged
 default-routed reply does not satisfy the wait.
 
+<!-- harn:assume group-round-routing-instruction-is-always-on ref=protocol-group-routing-contract -->
+When a finalized message invokes two or more agents, Codor creates a durable collaboration group.
+All participants in one round run independently. Their normal final replies appear in the channel
+as they finish, but no result routes immediately to another agent. Once every participant is
+terminal, Codor releases one next round whose recipients all receive the root request plus every
+prior-round result in stable participant order. A completed result's effective `@mentions` select
+that next round; a plain member name is discussion only, and no substantive mentions closes the
+group. Failed, interrupted, skipped, and exact-acknowledgement results remain visible in the bundle
+as statuses rather than silently disappearing or routing their body.
+
+Every grouped payload repeats this boundary. Use the normal final reply for the participant's
+authoritative result. Use `codor post` only when another participant needs an immediate in-round
+update, question, or answer; interim posts remain ordinary immediate messages and do not advance
+the barrier. A grouped `post --wait` also ends deterministically when every named same-round peer
+becomes terminal, reporting `peer finished; no direct reply` without treating a final result behind
+the barrier as a direct delivery.
+<!-- harn:end group-round-routing-instruction-is-always-on -->
+
 The consuming paths (`post --wait`, `tail --follow --until-*`, and `inbox --consume`) all use
 `consume_delivery`. It changes only the authenticated recipient's currently `queued` delivery to
 `consumed`; a retry or a race lost to turn admission returns the current state without changing it.
@@ -312,6 +333,16 @@ Claude Code declares `live_inbox: true` and runs
 `codor inbox --new --consume --format hook` after every tool call. A quiet inbox emits zero stdout
 and therefore injects no context. Other built-in adapters currently declare the capability false
 and receive the conventions sentence telling them to poll during long work.
+
+Codor-owned agent context is intentionally bounded to provider-native resumed history when the
+adapter supports it; the current immutable delivery payload and identity header; the full posted
+source body; explicit message and ledger references; a stale roster refresh; first-delivery or
+misaddress conventions; the always-on grouped-routing instruction; the group root and every
+terminal result from only the immediately prior round; live inbox injection where supported; and
+results the agent explicitly requests through `codor search`, `status`, `inbox`, or interim `post`.
+It does not inject the entire channel transcript, another agent's streamed reasoning, arbitrary
+unsent messages, or a hidden model-generated routing decision. This keeps ordinary context bounded
+while making every next-round group recipient share the same complete prior-round result bundle.
 <!-- harn:end live-collaboration-contract-is-public -->
 
 <!-- harn:assume agent-member-credentials-are-defense-in-depth ref=protocol-agent-trust-boundary -->
