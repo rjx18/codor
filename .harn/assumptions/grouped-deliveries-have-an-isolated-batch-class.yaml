@@ -1,0 +1,14 @@
+id: grouped-deliveries-have-an-isolated-batch-class
+hash: a-861e4db78185
+title: Group work cannot batch with another routing context
+state: active
+statement: Delivery batch classification must distinguish ordinary work from one
+  exact collaboration group and round, and batch selection must take only the
+  FIFO-contiguous prefix with the first delivery's class, so group work cannot
+  mix with unrelated work, another group, or another round while ordinary
+  compatible deliveries retain their batching.
+depends_on:
+  - collaboration-groups-are-durable-state
+  - delivery-fifo-has-durable-sequence
+  - one-inflight-turn-per-member
+created_by: cc2a-group-store-protocol

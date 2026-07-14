@@ -1,0 +1,169 @@
+id: cc2a-group-store-protocol
+title: Persist collaboration groups and compose deterministic round payloads
+assumptions:
+  create:
+    - id: collaboration-groups-are-durable-state
+      title: Collaboration groups and rounds survive every process boundary
+      statement: Collaboration groups, numbered rounds, and ordinal participant slots
+        must persist in SQLite with stable member and delivery identities,
+        terminal status and result fields, uniqueness for one recipient per
+        group round and one participant per delivery, and additive migration
+        from databases that predate group routing, because barrier ownership and
+        release evidence cannot depend on daemon memory.
+      reason: Parallel results cannot form an exactly-once barrier across restart
+        without durable group, round, participant, and delivery association
+        state.
+      depends_on:
+        - delivery-payload-snapshotted
+        - delivery-fifo-has-durable-sequence
+    - id: group-round-creation-is-atomic-and-idempotent
+      title: A collaboration round materializes once or not at all
+      statement: Creating a group or later numbered round must atomically insert its
+        round, deterministic participant ordinals, associated queued deliveries,
+        and immutable payload snapshots; a repeated creation of the same group
+        round must return the existing projection without adding a delivery,
+        while validation or a later insert failure must roll back every row from
+        that attempt.
+      reason: Duplicate release attempts and crashes at materialization must not
+        schedule duplicate paid turns or leave partial barriers.
+      depends_on:
+        - collaboration-groups-are-durable-state
+        - turn-start-transactional
+    - id: group-round-payloads-share-one-ordered-view
+      title: Every next-round recipient gets the same ordered peer results
+      statement: Group payload composition must include the stable group and round
+        header, original root request, and every immediately prior terminal
+        result in participant ordinal with explicit completed, acknowledged,
+        failed, interrupted, or skipped presentation; exact acknowledgements
+        must become a status line rather than literal ACK_OK text, and composed
+        bytes may differ between recipients only at the you field.
+      reason: The barrier is useful only if every next-round participant receives one
+        deterministic combined view rather than completion-order fragments.
+      depends_on:
+        - collaboration-groups-are-durable-state
+        - delivery-payload-snapshotted
+    - id: grouped-deliveries-have-an-isolated-batch-class
+      title: Group work cannot batch with another routing context
+      statement: Delivery batch classification must distinguish ordinary work from one
+        exact collaboration group and round, and batch selection must take only
+        the FIFO-contiguous prefix with the first delivery's class, so group
+        work cannot mix with unrelated work, another group, or another round
+        while ordinary compatible deliveries retain their batching.
+      reason: A run that consumes mixed group contexts cannot be attributed to one
+        participant slot or produce one authoritative barrier result.
+      depends_on:
+        - collaboration-groups-are-durable-state
+        - delivery-fifo-has-durable-sequence
+        - one-inflight-turn-per-member
+  reviewed:
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: Group deliveries extend the existing immutable per-delivery snapshot
+        contract with root and prior-round content rather than consulting
+        mutable messages when the recipient eventually starts.
+    - id: delivery-fifo-has-durable-sequence
+      outcome: unchanged
+      reason: Group batch classification consumes the existing queue_seq order and
+        does not introduce a competing timestamp or identifier order.
+    - id: turn-start-transactional
+      outcome: unchanged
+      reason: This sub-plan prepares group association and classification; the turn
+        admission transaction remains authoritative and is wired in CC2b.
+    - id: one-inflight-turn-per-member
+      outcome: unchanged
+      reason: Members may own slots in concurrent groups but still run one FIFO turn
+        at a time; the classifier preserves that execution boundary.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: Additive collaboration tables and delivery columns share the outer
+        schema anchor without changing attach lease persistence or custody.
+    - id: run-blobs-off-db
+      outcome: unchanged
+      reason: Group state stores message identifiers, terminal metadata, and immutable
+        prompt text only; run event journals remain external blobs.
+    - id: approval-deliveries-project-resolution-separately
+      outcome: unchanged
+      reason: The new optional group association fields preserve the independent
+        approval resolution timestamp and all existing delivery parsing.
+anchors:
+  collaboration-groups-are-durable-state:
+    collaboration-delivery-association-schema:
+      action: change
+      reason: Add optional group id and round fields to the delivery wire projection.
+    collaboration-delivery-association-regression:
+      action: change
+      reason: Prove associated and legacy delivery payloads both parse.
+    collaboration-store-schema:
+      action: change
+      reason: Add group, round, participant tables, constraints, indexes, and delivery
+        columns.
+    collaboration-store-migration:
+      action: change
+      reason: Add idempotent migration for pre-group databases.
+    collaboration-store-projection:
+      action: change
+      reason: Add typed row decoders and group/round/participant lookup APIs.
+    collaboration-store-reopen-regression:
+      action: change
+      reason: Drop the additive schema from a populated database, reopen, and prove
+        preservation and durable group projection.
+  group-round-creation-is-atomic-and-idempotent:
+    collaboration-round-materialization:
+      action: change
+      reason: Create group and later round participant deliveries transactionally with
+        uniqueness guards.
+    collaboration-round-materialization-regression:
+      action: change
+      reason: Prove rollback after a later insert failure and idempotent duplicate
+        round creation.
+  group-round-payloads-share-one-ordered-view:
+    group-round-payload-composer:
+      action: change
+      reason: Compose root plus ordered terminal results with acknowledgement
+        redaction.
+    group-round-payload-goldens:
+      action: change
+      reason: Pin completed, acknowledged, failed, interrupted, skipped, and
+        recipient-only byte differences.
+  grouped-deliveries-have-an-isolated-batch-class:
+    group-delivery-batch-classifier:
+      action: change
+      reason: Classify ordinary versus exact group-round work and select only a
+        FIFO-contiguous compatible prefix.
+    group-delivery-batch-regression:
+      action: change
+      reason: Prove ordinary batching and isolation across group and round boundaries.
+  attach-custody-lease-tracks-child-pid:
+    attach-lease-store:
+      action: change
+      reason: The outer schema anchor contains the additive collaboration schema.
+  run-blobs-off-db:
+    store-schema-no-blobs:
+      action: change
+      reason: The outer schema anchor contains new relational group metadata but no
+        run event payloads.
+  delivery-payload-snapshotted:
+    delivery-payload-storage:
+      action: change
+      reason: The migration retains immutable snapshots while adding their group
+        association.
+  delivery-fifo-has-durable-sequence:
+    delivery-queue-sequence:
+      action: change
+      reason: Group lookup additions retain queue_seq ordering and expose association
+        without changing FIFO.
+  approval-deliveries-project-resolution-separately:
+    approval-delivery-resolution-schema:
+      action: change
+      reason: The additive delivery schema gains group fields beside the unchanged
+        resolution field.
+files:
+  - packages/protocol/src/delivery.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/collaboration.ts
+  - packages/switchboard/src/collaboration.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/index.ts
+applied:
+  applied_at: 2026-07-14T12:38:23.261Z

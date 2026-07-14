@@ -1,6 +1,28 @@
 export { Store } from './store.js';
 export type { AtomicMirroredTurn, NewMember, NewMessage, SyncResult } from './store.js';
 export {
+  CollaborationGroupSchema,
+  CollaborationParticipantSchema,
+  CollaborationRoundSchema,
+  CollaborationTerminalStatusSchema,
+  composeGroupRoundPayload,
+  deliveryBatchClass,
+  selectDeliveryBatchPrefix,
+} from './collaboration.js';
+export type {
+  CollaborationGroup,
+  CollaborationGroupState,
+  CollaborationParticipant,
+  CollaborationRound,
+  CollaborationRoundParticipantInput,
+  CollaborationRoundProjection,
+  CollaborationRoundState,
+  CollaborationTerminalStatus,
+  DeliveryBatchClass,
+  GroupResultPresentationStatus,
+  GroupRoundPayloadContext,
+} from './collaboration.js';
+export {
   composeDeliveryPayloads,
   composePayload,
   evaluateBrakes,

@@ -1,0 +1,14 @@
+id: collaboration-groups-are-durable-state
+hash: a-605ba04d0455
+title: Collaboration groups and rounds survive every process boundary
+state: active
+statement: Collaboration groups, numbered rounds, and ordinal participant slots
+  must persist in SQLite with stable member and delivery identities, terminal
+  status and result fields, uniqueness for one recipient per group round and one
+  participant per delivery, and additive migration from databases that predate
+  group routing, because barrier ownership and release evidence cannot depend on
+  daemon memory.
+depends_on:
+  - delivery-payload-snapshotted
+  - delivery-fifo-has-durable-sequence
+created_by: cc2a-group-store-protocol

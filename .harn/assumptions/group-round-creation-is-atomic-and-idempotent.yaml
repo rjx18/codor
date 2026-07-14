@@ -1,0 +1,13 @@
+id: group-round-creation-is-atomic-and-idempotent
+hash: a-684be136c661
+title: A collaboration round materializes once or not at all
+state: active
+statement: Creating a group or later numbered round must atomically insert its
+  round, deterministic participant ordinals, associated queued deliveries, and
+  immutable payload snapshots; a repeated creation of the same group round must
+  return the existing projection without adding a delivery, while validation or
+  a later insert failure must roll back every row from that attempt.
+depends_on:
+  - collaboration-groups-are-durable-state
+  - turn-start-transactional
+created_by: cc2a-group-store-protocol

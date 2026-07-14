@@ -336,6 +336,28 @@ describe('deliveries', () => {
     });
   });
   // harn:end approval-deliveries-project-resolution-separately
+
+  // harn:assume collaboration-groups-are-durable-state ref=collaboration-delivery-association-regression
+  it('projects a group and round association as one additive pair', () => {
+    expect(DeliverySchema.parse({ ...base, state: 'queued' })).not.toHaveProperty('group_id');
+    expect(DeliverySchema.parse({
+      ...base,
+      state: 'queued',
+      group_id: 'group-1',
+      group_round: 2,
+    })).toMatchObject({ group_id: 'group-1', group_round: 2 });
+    expect(DeliverySchema.safeParse({
+      ...base,
+      state: 'queued',
+      group_id: 'group-1',
+    }).success).toBe(false);
+    expect(DeliverySchema.safeParse({
+      ...base,
+      state: 'queued',
+      group_round: 1,
+    }).success).toBe(false);
+  });
+  // harn:end collaboration-groups-are-durable-state
 });
 
 describe('change log', () => {

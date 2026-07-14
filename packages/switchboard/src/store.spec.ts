@@ -1155,3 +1155,187 @@ describe('approval delivery resolution migration', () => {
   });
 });
 // harn:end approval-deliveries-project-resolution-separately
+
+// harn:assume group-round-creation-is-atomic-and-idempotent ref=collaboration-round-materialization-regression
+describe('collaboration round materialization', () => {
+  const seed = () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'alpha', display_name: 'Alpha', state: 'idle',
+    });
+    const beta = store.addMember('eng', {
+      kind: 'agent', handle: 'beta', display_name: 'Beta', state: 'idle',
+    });
+    const root = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '@alpha @beta investigate',
+    });
+    return { alpha, beta, root };
+  };
+
+  it('creates each group round once with stable ordinals, snapshots, and associations', () => {
+    const { alpha, beta, root } = seed();
+    const roundOne = store.createCollaborationGroup('eng', {
+      groupId: 'group-1',
+      rootMessageId: root.id,
+      createdTs: '2026-07-14T12:00:00.000Z',
+      participants: [
+        { memberId: beta.id, payloadSnapshot: 'round one for beta' },
+        { memberId: alpha.id, payloadSnapshot: 'round one for alpha' },
+      ],
+    });
+
+    expect(roundOne.group).toMatchObject({
+      id: 'group-1', room: 'eng', root_message_id: root.id, state: 'open',
+    });
+    expect(roundOne.round).toMatchObject({ group_id: 'group-1', round_number: 1, state: 'collecting' });
+    expect(roundOne.participants.map((participant) => ({
+      ordinal: participant.ordinal,
+      member_id: participant.member_id,
+      delivery_id: participant.delivery_id,
+    }))).toEqual([
+      { ordinal: 0, member_id: beta.id, delivery_id: roundOne.deliveries[0]!.id },
+      { ordinal: 1, member_id: alpha.id, delivery_id: roundOne.deliveries[1]!.id },
+    ]);
+    expect(roundOne.deliveries.map((delivery) => ({
+      recipient: delivery.recipient,
+      group_id: delivery.group_id,
+      group_round: delivery.group_round,
+    }))).toEqual([
+      { recipient: beta.id, group_id: 'group-1', group_round: 1 },
+      { recipient: alpha.id, group_id: 'group-1', group_round: 1 },
+    ]);
+    expect(roundOne.deliveries.map((item) => store.getDeliveryPayloadSnapshot('eng', item.id)))
+      .toEqual(['round one for beta', 'round one for alpha']);
+
+    const retried = store.createCollaborationGroup('eng', {
+      groupId: 'ignored-on-idempotent-retry',
+      rootMessageId: root.id,
+      createdTs: '2026-07-14T12:01:00.000Z',
+      participants: [
+        { memberId: beta.id, payloadSnapshot: 'round one for beta' },
+        { memberId: alpha.id, payloadSnapshot: 'round one for alpha' },
+      ],
+    });
+    expect(retried.group.id).toBe('group-1');
+    expect(retried.deliveries.map((delivery) => delivery.id))
+      .toEqual(roundOne.deliveries.map((delivery) => delivery.id));
+
+    const roundTwo = store.createCollaborationRound('eng', {
+      groupId: 'group-1',
+      roundNumber: 2,
+      createdTs: '2026-07-14T12:02:00.000Z',
+      participants: [{ memberId: alpha.id, payloadSnapshot: 'combined prior round' }],
+    });
+    const roundTwoRetry = store.createCollaborationRound('eng', {
+      groupId: 'group-1',
+      roundNumber: 2,
+      participants: [{ memberId: alpha.id, payloadSnapshot: 'combined prior round' }],
+    });
+    expect(roundTwoRetry.deliveries.map((delivery) => delivery.id))
+      .toEqual(roundTwo.deliveries.map((delivery) => delivery.id));
+    expect(store.listDeliveries('eng')).toHaveLength(3);
+
+    expect(() => store.createCollaborationRound('eng', {
+      groupId: 'group-1',
+      roundNumber: 3,
+      participants: [
+        { memberId: alpha.id, payloadSnapshot: 'duplicate alpha one' },
+        { memberId: alpha.id, payloadSnapshot: 'duplicate alpha two' },
+      ],
+    })).toThrow(`duplicate collaboration participant: ${alpha.id}`);
+    expect(store.getCollaborationRound('eng', 'group-1', 3)).toBeUndefined();
+  });
+
+  it('rolls back a later round after a participant insert failure', () => {
+    const { alpha, beta, root } = seed();
+    store.createCollaborationGroup('eng', {
+      groupId: 'group-rollback',
+      rootMessageId: root.id,
+      participants: [
+        { memberId: alpha.id, payloadSnapshot: 'alpha r1' },
+        { memberId: beta.id, payloadSnapshot: 'beta r1' },
+      ],
+    });
+    const blocker = new Database(join(dir, 'test.sqlite'));
+    blocker.exec(`CREATE TRIGGER reject_second_round_participant
+      BEFORE INSERT ON collaboration_participants
+      WHEN NEW.group_id = 'group-rollback' AND NEW.round_number = 2 AND NEW.ordinal = 1
+      BEGIN SELECT RAISE(ABORT, 'injected participant failure'); END`);
+    blocker.close();
+
+    expect(() => store.createCollaborationRound('eng', {
+      groupId: 'group-rollback',
+      roundNumber: 2,
+      participants: [
+        { memberId: alpha.id, payloadSnapshot: 'alpha r2' },
+        { memberId: beta.id, payloadSnapshot: 'beta r2' },
+      ],
+    })).toThrow('injected participant failure');
+    expect(store.getCollaborationRound('eng', 'group-rollback', 2)).toBeUndefined();
+    expect(store.listDeliveries('eng')).toHaveLength(2);
+  });
+});
+// harn:end group-round-creation-is-atomic-and-idempotent
+
+// harn:assume collaboration-groups-are-durable-state ref=collaboration-store-reopen-regression
+describe('collaboration state migration and reopen', () => {
+  it('migrates a populated pre-group database and persists a complete projection', () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'alpha', display_name: 'Alpha', state: 'idle',
+    });
+    const beta = store.addMember('eng', {
+      kind: 'agent', handle: 'beta', display_name: 'Beta', state: 'idle',
+    });
+    const root = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '@alpha @beta preserve me',
+    });
+    const legacyDelivery = store.createDelivery('eng', {
+      message_id: root.id, recipient: alpha.id, payload_snapshot: 'legacy snapshot',
+    });
+    store.close();
+
+    const legacy = new Database(join(dir, 'test.sqlite'));
+    legacy.pragma('foreign_keys = OFF');
+    legacy.exec(`
+      DROP INDEX IF EXISTS delivery_group_round_recipient_unique;
+      DROP INDEX IF EXISTS delivery_group_round_lookup;
+      DROP TABLE IF EXISTS collaboration_participants;
+      DROP TABLE IF EXISTS collaboration_rounds;
+      DROP TABLE IF EXISTS collaboration_groups;
+      ALTER TABLE deliveries DROP COLUMN group_round;
+      ALTER TABLE deliveries DROP COLUMN group_id;
+    `);
+    legacy.close();
+
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getMessage('eng', root.id)?.body).toBe('@alpha @beta preserve me');
+    expect(store.getDelivery('eng', legacyDelivery.id)).toMatchObject({
+      id: legacyDelivery.id, group_id: undefined, group_round: undefined,
+    });
+    const created = store.createCollaborationGroup('eng', {
+      groupId: 'durable-group',
+      rootMessageId: root.id,
+      participants: [
+        { memberId: alpha.id, payloadSnapshot: 'alpha grouped' },
+        { memberId: beta.id, payloadSnapshot: 'beta grouped' },
+      ],
+    });
+    store.updateCollaborationParticipant('eng', 'durable-group', 1, alpha.id, {
+      terminal_status: 'completed',
+      result_message_id: root.id,
+      completed_ts: '2026-07-14T12:10:00.000Z',
+    });
+    const expected = store.getCollaborationRoundProjection('eng', 'durable-group', 1);
+    store.close();
+
+    store = new Store(join(dir, 'test.sqlite'));
+    const reopened = store.getCollaborationRoundProjection('eng', 'durable-group', 1);
+    expect(reopened).toEqual(expected);
+    expect(reopened?.deliveries.map((delivery) => delivery.id))
+      .toEqual(created.deliveries.map((delivery) => delivery.id));
+    expect(store.findCollaborationParticipantByDelivery('eng', created.deliveries[1]!.id))
+      .toEqual(created.participants[1]);
+  });
+});
+// harn:end collaboration-groups-are-durable-state

@@ -31,6 +31,18 @@ export const DeliverySchema = z.object({
   // Approval resolution is lifecycle state, not evidence that a notification was read.
   interaction_resolved_ts: TimestampSchema.optional(),
   // harn:end approval-deliveries-project-resolution-separately
+  // harn:assume collaboration-groups-are-durable-state ref=collaboration-delivery-association-schema
+  group_id: z.string().min(1).optional(),
+  group_round: z.number().int().positive().optional(),
+  // harn:end collaboration-groups-are-durable-state
   ts: TimestampSchema,
+}).superRefine((delivery, ctx) => {
+  if ((delivery.group_id === undefined) !== (delivery.group_round === undefined)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [delivery.group_id === undefined ? 'group_id' : 'group_round'],
+      message: 'group_id and group_round must be provided together',
+    });
+  }
 });
 export type Delivery = z.infer<typeof DeliverySchema>;

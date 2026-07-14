@@ -1,0 +1,14 @@
+id: group-round-payloads-share-one-ordered-view
+hash: a-8d65610c5331
+title: Every next-round recipient gets the same ordered peer results
+state: active
+statement: Group payload composition must include the stable group and round
+  header, original root request, and every immediately prior terminal result in
+  participant ordinal with explicit completed, acknowledged, failed,
+  interrupted, or skipped presentation; exact acknowledgements must become a
+  status line rather than literal ACK_OK text, and composed bytes may differ
+  between recipients only at the you field.
+depends_on:
+  - collaboration-groups-are-durable-state
+  - delivery-payload-snapshotted
+created_by: cc2a-group-store-protocol

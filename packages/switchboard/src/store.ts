@@ -28,6 +28,16 @@ import {
 } from '@codor/protocol';
 
 import { redactText } from './redact.js';
+import {
+  type CollaborationGroup,
+  CollaborationGroupSchema,
+  type CollaborationParticipant,
+  CollaborationParticipantSchema,
+  type CollaborationRound,
+  type CollaborationRoundParticipantInput,
+  type CollaborationRoundProjection,
+  CollaborationRoundSchema,
+} from './collaboration.js';
 
 // harn:assume run-blobs-off-db ref=store-schema-no-blobs
 // The DB persists pointers (RunSummary.events_ref) — never run event payloads.
@@ -35,6 +45,7 @@ import { redactText } from './redact.js';
 // no table or column for them, which keeps the DB small and makes
 // one-message-per-run structural.
 // harn:assume attach-custody-lease-tracks-child-pid ref=attach-lease-store
+// harn:assume collaboration-groups-are-durable-state ref=collaboration-store-schema
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
@@ -100,7 +111,43 @@ CREATE TABLE IF NOT EXISTS deliveries (
   process_id INTEGER,            -- bounded attempt evidence, never run event payloads
   process_group_id INTEGER,
   queue_seq INTEGER NOT NULL,    -- durable FIFO order; timestamps can tie
+  group_id TEXT,
+  group_round INTEGER,
   ts TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS collaboration_groups (
+  id TEXT PRIMARY KEY,
+  room TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  root_message_id INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('open', 'completed', 'cancelled')),
+  created_ts TEXT NOT NULL,
+  completed_ts TEXT,
+  UNIQUE (room, root_message_id),
+  FOREIGN KEY (room, root_message_id) REFERENCES messages(room, id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS collaboration_rounds (
+  group_id TEXT NOT NULL REFERENCES collaboration_groups(id) ON DELETE CASCADE,
+  round_number INTEGER NOT NULL CHECK (round_number > 0),
+  state TEXT NOT NULL CHECK (state IN ('collecting', 'released', 'closed')),
+  created_ts TEXT NOT NULL,
+  released_ts TEXT,
+  PRIMARY KEY (group_id, round_number)
+);
+CREATE TABLE IF NOT EXISTS collaboration_participants (
+  group_id TEXT NOT NULL,
+  round_number INTEGER NOT NULL,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+  member_id TEXT NOT NULL REFERENCES members(id),
+  delivery_id TEXT NOT NULL UNIQUE REFERENCES deliveries(id),
+  terminal_status TEXT CHECK (
+    terminal_status IS NULL OR terminal_status IN ('completed', 'failed', 'interrupted', 'skipped')
+  ),
+  result_message_id INTEGER,
+  completed_ts TEXT,
+  PRIMARY KEY (group_id, round_number, member_id),
+  UNIQUE (group_id, round_number, ordinal),
+  FOREIGN KEY (group_id, round_number)
+    REFERENCES collaboration_rounds(group_id, round_number) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS pending_interactions (
   id TEXT PRIMARY KEY,
@@ -148,6 +195,7 @@ CREATE TABLE IF NOT EXISTS changes (
   PRIMARY KEY (room_id, seq)
 );
 `;
+// harn:end collaboration-groups-are-durable-state
 // harn:end attach-custody-lease-tracks-child-pid
 // harn:end run-blobs-off-db
 
@@ -167,6 +215,27 @@ function migrateDeliveryPayloadSnapshot(db: Database.Database): void {
     db.exec('ALTER TABLE deliveries ADD COLUMN queue_seq INTEGER');
   }
   db.exec('UPDATE deliveries SET queue_seq = rowid WHERE queue_seq IS NULL');
+  // harn:assume collaboration-groups-are-durable-state ref=collaboration-store-migration
+  if (!columns.some((column) => column.name === 'group_id')) {
+    db.exec('ALTER TABLE deliveries ADD COLUMN group_id TEXT');
+  }
+  if (!columns.some((column) => column.name === 'group_round')) {
+    db.exec('ALTER TABLE deliveries ADD COLUMN group_round INTEGER');
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS collaboration_groups_room_state
+      ON collaboration_groups (room, state, created_ts);
+    CREATE INDEX IF NOT EXISTS collaboration_rounds_state
+      ON collaboration_rounds (group_id, state, round_number);
+    CREATE INDEX IF NOT EXISTS collaboration_participants_terminal
+      ON collaboration_participants (group_id, round_number, terminal_status, ordinal);
+    CREATE INDEX IF NOT EXISTS delivery_group_round_lookup
+      ON deliveries (room, group_id, group_round, state, queue_seq);
+    CREATE UNIQUE INDEX IF NOT EXISTS delivery_group_round_recipient_unique
+      ON deliveries (group_id, group_round, recipient)
+      WHERE group_id IS NOT NULL;
+  `);
+  // harn:end collaboration-groups-are-durable-state
 }
 // harn:end delivery-payload-snapshotted
 
@@ -414,7 +483,37 @@ interface DeliveryRow {
   process_group_id: number | null;
   hop_count: number;
   queue_seq: number;
+  group_id: string | null;
+  group_round: number | null;
   ts: string;
+}
+
+interface CollaborationGroupRow {
+  id: string;
+  room: string;
+  root_message_id: number;
+  state: string;
+  created_ts: string;
+  completed_ts: string | null;
+}
+
+interface CollaborationRoundRow {
+  group_id: string;
+  round_number: number;
+  state: string;
+  created_ts: string;
+  released_ts: string | null;
+}
+
+interface CollaborationParticipantRow {
+  group_id: string;
+  round_number: number;
+  ordinal: number;
+  member_id: string;
+  delivery_id: string;
+  terminal_status: string | null;
+  result_message_id: number | null;
+  completed_ts: string | null;
 }
 
 interface AttachLeaseRow {
@@ -517,7 +616,34 @@ function deliveryFromRow(row: DeliveryRow): Delivery {
     run_msg_id: row.run_msg_id ?? undefined,
     read_ts: row.read_ts ?? undefined,
     interaction_resolved_ts: row.interaction_resolved_ts ?? undefined,
+    group_id: row.group_id ?? undefined,
+    group_round: row.group_round ?? undefined,
     ts: row.ts,
+  });
+}
+
+function collaborationGroupFromRow(row: CollaborationGroupRow): CollaborationGroup {
+  return CollaborationGroupSchema.parse({
+    ...row,
+    completed_ts: row.completed_ts ?? undefined,
+  });
+}
+
+function collaborationRoundFromRow(row: CollaborationRoundRow): CollaborationRound {
+  return CollaborationRoundSchema.parse({
+    ...row,
+    released_ts: row.released_ts ?? undefined,
+  });
+}
+
+function collaborationParticipantFromRow(
+  row: CollaborationParticipantRow,
+): CollaborationParticipant {
+  return CollaborationParticipantSchema.parse({
+    ...row,
+    terminal_status: row.terminal_status ?? undefined,
+    result_message_id: row.result_message_id ?? undefined,
+    completed_ts: row.completed_ts ?? undefined,
   });
 }
 
@@ -1311,6 +1437,7 @@ export class Store {
 
   // ── deliveries ────────────────────────────────────────────────────────
 
+  // harn:assume collaboration-groups-are-durable-state ref=collaboration-store-projection
   createDelivery(
     room: string,
     delivery: {
@@ -1319,6 +1446,8 @@ export class Store {
       state?: Delivery['state'];
       payload_snapshot?: string;
       hop_count?: number;
+      group_id?: string;
+      group_round?: number;
     },
   ): Delivery {
     return this.db.transaction(() => {
@@ -1332,14 +1461,16 @@ export class Store {
         recipient: delivery.recipient,
         state: delivery.state ?? 'queued',
         hop_count: delivery.hop_count ?? 0,
+        group_id: delivery.group_id,
+        group_round: delivery.group_round,
         ts: new Date().toISOString(),
       });
       this.db
         .prepare(
           `INSERT INTO deliveries (id, room, message_id, recipient, state, attempt_count,
              batch_id, run_msg_id, read_ts, interaction_resolved_ts, payload_snapshot,
-             process_id, process_group_id, hop_count, queue_seq, ts)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             process_id, process_group_id, hop_count, queue_seq, group_id, group_round, ts)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           validated.id,
@@ -1357,6 +1488,8 @@ export class Store {
           null,
           validated.hop_count ?? 0,
           nextQueueSeq.seq,
+          orNull(validated.group_id),
+          orNull(validated.group_round),
           validated.ts,
         );
       // Human inbox records are client-visible; recipient kind decides.
@@ -1642,6 +1775,357 @@ export class Store {
     })();
   }
   // harn:end turn-finalization-transactional
+
+  getCollaborationGroup(room: string, groupId: string): CollaborationGroup | undefined {
+    const row = this.db.prepare(
+      'SELECT * FROM collaboration_groups WHERE room = ? AND id = ?',
+    ).get(room, groupId) as CollaborationGroupRow | undefined;
+    return row ? collaborationGroupFromRow(row) : undefined;
+  }
+
+  getCollaborationGroupByRoot(
+    room: string,
+    rootMessageId: number,
+  ): CollaborationGroup | undefined {
+    const row = this.db.prepare(
+      'SELECT * FROM collaboration_groups WHERE room = ? AND root_message_id = ?',
+    ).get(room, rootMessageId) as CollaborationGroupRow | undefined;
+    return row ? collaborationGroupFromRow(row) : undefined;
+  }
+
+  listCollaborationGroups(
+    room: string,
+    state?: CollaborationGroup['state'],
+  ): CollaborationGroup[] {
+    const rows = this.db.prepare(
+      `SELECT * FROM collaboration_groups
+       WHERE room = ? AND (? IS NULL OR state = ?)
+       ORDER BY created_ts, id`,
+    ).all(room, state ?? null, state ?? null) as CollaborationGroupRow[];
+    return rows.map(collaborationGroupFromRow);
+  }
+
+  getCollaborationRound(
+    room: string,
+    groupId: string,
+    roundNumber: number,
+  ): CollaborationRound | undefined {
+    const row = this.db.prepare(
+      `SELECT collaboration_rounds.* FROM collaboration_rounds
+       JOIN collaboration_groups ON collaboration_groups.id = collaboration_rounds.group_id
+       WHERE collaboration_groups.room = ?
+         AND collaboration_rounds.group_id = ?
+         AND collaboration_rounds.round_number = ?`,
+    ).get(room, groupId, roundNumber) as CollaborationRoundRow | undefined;
+    return row ? collaborationRoundFromRow(row) : undefined;
+  }
+
+  listCollaborationRounds(room: string, groupId: string): CollaborationRound[] {
+    const rows = this.db.prepare(
+      `SELECT collaboration_rounds.* FROM collaboration_rounds
+       JOIN collaboration_groups ON collaboration_groups.id = collaboration_rounds.group_id
+       WHERE collaboration_groups.room = ? AND collaboration_rounds.group_id = ?
+       ORDER BY collaboration_rounds.round_number`,
+    ).all(room, groupId) as CollaborationRoundRow[];
+    return rows.map(collaborationRoundFromRow);
+  }
+
+  listCollaborationParticipants(
+    room: string,
+    groupId: string,
+    roundNumber: number,
+  ): CollaborationParticipant[] {
+    const rows = this.db.prepare(
+      `SELECT collaboration_participants.* FROM collaboration_participants
+       JOIN collaboration_groups ON collaboration_groups.id = collaboration_participants.group_id
+       WHERE collaboration_groups.room = ?
+         AND collaboration_participants.group_id = ?
+         AND collaboration_participants.round_number = ?
+       ORDER BY collaboration_participants.ordinal`,
+    ).all(room, groupId, roundNumber) as CollaborationParticipantRow[];
+    return rows.map(collaborationParticipantFromRow);
+  }
+
+  findCollaborationParticipantByDelivery(
+    room: string,
+    deliveryId: string,
+  ): CollaborationParticipant | undefined {
+    const row = this.db.prepare(
+      `SELECT collaboration_participants.* FROM collaboration_participants
+       JOIN collaboration_groups ON collaboration_groups.id = collaboration_participants.group_id
+       WHERE collaboration_groups.room = ? AND collaboration_participants.delivery_id = ?`,
+    ).get(room, deliveryId) as CollaborationParticipantRow | undefined;
+    return row ? collaborationParticipantFromRow(row) : undefined;
+  }
+
+  getCollaborationRoundProjection(
+    room: string,
+    groupId: string,
+    roundNumber: number,
+  ): CollaborationRoundProjection | undefined {
+    const group = this.getCollaborationGroup(room, groupId);
+    const round = this.getCollaborationRound(room, groupId, roundNumber);
+    if (!group || !round) return undefined;
+    const participants = this.listCollaborationParticipants(room, groupId, roundNumber);
+    const deliveries = participants.map((participant) => {
+      const delivery = this.getDelivery(room, participant.delivery_id);
+      if (
+        !delivery ||
+        delivery.group_id !== groupId ||
+        delivery.group_round !== roundNumber ||
+        delivery.recipient !== participant.member_id
+      ) {
+        throw new Error(`invalid collaboration delivery association: ${participant.delivery_id}`);
+      }
+      return delivery;
+    });
+    return { group, round, participants, deliveries };
+  }
+
+  updateCollaborationGroup(
+    room: string,
+    groupId: string,
+    patch: Partial<Pick<CollaborationGroup, 'state' | 'completed_ts'>>,
+  ): CollaborationGroup {
+    const existing = this.getCollaborationGroup(room, groupId);
+    if (!existing) throw new Error(`no such collaboration group: ${groupId}`);
+    const merged = CollaborationGroupSchema.parse({ ...existing, ...patch });
+    this.db.prepare(
+      'UPDATE collaboration_groups SET state = ?, completed_ts = ? WHERE room = ? AND id = ?',
+    ).run(merged.state, orNull(merged.completed_ts), room, groupId);
+    return merged;
+  }
+
+  updateCollaborationRound(
+    room: string,
+    groupId: string,
+    roundNumber: number,
+    patch: Partial<Pick<CollaborationRound, 'state' | 'released_ts'>>,
+  ): CollaborationRound {
+    const existing = this.getCollaborationRound(room, groupId, roundNumber);
+    if (!existing) throw new Error(`no such collaboration round: ${groupId}/${roundNumber}`);
+    const merged = CollaborationRoundSchema.parse({ ...existing, ...patch });
+    this.db.prepare(
+      `UPDATE collaboration_rounds SET state = ?, released_ts = ?
+       WHERE group_id = ? AND round_number = ?`,
+    ).run(merged.state, orNull(merged.released_ts), groupId, roundNumber);
+    return merged;
+  }
+
+  updateCollaborationParticipant(
+    room: string,
+    groupId: string,
+    roundNumber: number,
+    memberId: string,
+    patch: Partial<Pick<CollaborationParticipant,
+      'terminal_status' | 'result_message_id' | 'completed_ts'>>,
+  ): CollaborationParticipant {
+    const existing = this.listCollaborationParticipants(room, groupId, roundNumber)
+      .find((participant) => participant.member_id === memberId);
+    if (!existing) {
+      throw new Error(`no such collaboration participant: ${groupId}/${roundNumber}/${memberId}`);
+    }
+    const merged = CollaborationParticipantSchema.parse({ ...existing, ...patch });
+    this.db.prepare(
+      `UPDATE collaboration_participants
+       SET terminal_status = ?, result_message_id = ?, completed_ts = ?
+       WHERE group_id = ? AND round_number = ? AND member_id = ?`,
+    ).run(
+      orNull(merged.terminal_status),
+      orNull(merged.result_message_id),
+      orNull(merged.completed_ts),
+      groupId,
+      roundNumber,
+      memberId,
+    );
+    return merged;
+  }
+
+  // harn:assume group-round-creation-is-atomic-and-idempotent ref=collaboration-round-materialization
+  private assertCollaborationParticipantInputShape(
+    participants: CollaborationRoundParticipantInput[],
+    minimum: number,
+  ): void {
+    if (participants.length < minimum) {
+      throw new Error(`collaboration round requires at least ${minimum} participant(s)`);
+    }
+    const seen = new Set<string>();
+    for (const participant of participants) {
+      if (seen.has(participant.memberId)) {
+        throw new Error(`duplicate collaboration participant: ${participant.memberId}`);
+      }
+      seen.add(participant.memberId);
+      if (participant.state !== undefined && participant.state !== 'queued' && participant.state !== 'held') {
+        throw new Error(`invalid initial collaboration delivery state: ${participant.state}`);
+      }
+    }
+  }
+
+  private assertActiveAgentParticipants(
+    room: string,
+    participants: CollaborationRoundParticipantInput[],
+  ): void {
+    for (const participant of participants) {
+      const member = this.getMember(room, participant.memberId);
+      if (!member || member.kind !== 'agent' || member.removed_ts !== undefined) {
+        throw new Error(`no active agent member: ${participant.memberId}`);
+      }
+    }
+  }
+
+  private assertExistingCollaborationRound(
+    projection: CollaborationRoundProjection,
+    requested: CollaborationRoundParticipantInput[],
+  ): CollaborationRoundProjection {
+    const sameMembers = projection.participants.length === requested.length &&
+      projection.participants.every(
+        (participant, index) => participant.member_id === requested[index]!.memberId,
+      );
+    const sameSnapshots = sameMembers && projection.deliveries.every(
+      (delivery, index) =>
+        this.getDeliveryPayloadSnapshot(delivery.room, delivery.id) === requested[index]!.payloadSnapshot,
+    );
+    if (!sameSnapshots) {
+      throw new Error(
+        `collaboration round ${projection.group.id}/${projection.round.round_number}` +
+        ' already exists with different participants or payloads',
+      );
+    }
+    return projection;
+  }
+
+  private materializeCollaborationRound(
+    room: string,
+    group: CollaborationGroup,
+    roundNumber: number,
+    createdTs: string,
+    participants: CollaborationRoundParticipantInput[],
+  ): CollaborationRoundProjection {
+    const round = CollaborationRoundSchema.parse({
+      group_id: group.id,
+      round_number: roundNumber,
+      state: 'collecting',
+      created_ts: createdTs,
+    });
+    this.db.prepare(
+      `INSERT INTO collaboration_rounds
+         (group_id, round_number, state, created_ts, released_ts)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(round.group_id, round.round_number, round.state, round.created_ts, null);
+
+    for (const [ordinal, input] of participants.entries()) {
+      const delivery = this.createDelivery(room, {
+        message_id: group.root_message_id,
+        recipient: input.memberId,
+        state: input.state,
+        payload_snapshot: input.payloadSnapshot,
+        hop_count: input.hopCount,
+        group_id: group.id,
+        group_round: roundNumber,
+      });
+      const participant = CollaborationParticipantSchema.parse({
+        group_id: group.id,
+        round_number: roundNumber,
+        ordinal,
+        member_id: input.memberId,
+        delivery_id: delivery.id,
+      });
+      this.db.prepare(
+        `INSERT INTO collaboration_participants
+           (group_id, round_number, ordinal, member_id, delivery_id,
+            terminal_status, result_message_id, completed_ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        participant.group_id,
+        participant.round_number,
+        participant.ordinal,
+        participant.member_id,
+        participant.delivery_id,
+        null,
+        null,
+        null,
+      );
+    }
+    return this.getCollaborationRoundProjection(room, group.id, roundNumber)!;
+  }
+
+  createCollaborationGroup(
+    room: string,
+    opts: {
+      groupId?: string;
+      rootMessageId: number;
+      participants: CollaborationRoundParticipantInput[];
+      createdTs?: string;
+    },
+  ): CollaborationRoundProjection {
+    return this.db.transaction(() => {
+      this.assertCollaborationParticipantInputShape(opts.participants, 2);
+      const existing = this.getCollaborationGroupByRoot(room, opts.rootMessageId);
+      if (existing) {
+        const projection = this.getCollaborationRoundProjection(room, existing.id, 1)!;
+        return this.assertExistingCollaborationRound(projection, opts.participants);
+      }
+      if (!this.getMessage(room, opts.rootMessageId)) {
+        throw new Error(`no such collaboration root message: #${opts.rootMessageId}`);
+      }
+      this.assertActiveAgentParticipants(room, opts.participants);
+      const createdTs = opts.createdTs ?? new Date().toISOString();
+      const group = CollaborationGroupSchema.parse({
+        id: opts.groupId ?? randomUUID(),
+        room,
+        root_message_id: opts.rootMessageId,
+        state: 'open',
+        created_ts: createdTs,
+      });
+      this.db.prepare(
+        `INSERT INTO collaboration_groups
+           (id, room, root_message_id, state, created_ts, completed_ts)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(group.id, group.room, group.root_message_id, group.state, group.created_ts, null);
+      return this.materializeCollaborationRound(
+        room,
+        group,
+        1,
+        createdTs,
+        opts.participants,
+      );
+    })();
+  }
+
+  createCollaborationRound(
+    room: string,
+    opts: {
+      groupId: string;
+      roundNumber: number;
+      participants: CollaborationRoundParticipantInput[];
+      createdTs?: string;
+    },
+  ): CollaborationRoundProjection {
+    return this.db.transaction(() => {
+      if (!Number.isInteger(opts.roundNumber) || opts.roundNumber < 2) {
+        throw new Error('later collaboration round number must be an integer of at least 2');
+      }
+      this.assertCollaborationParticipantInputShape(opts.participants, 1);
+      const existing = this.getCollaborationRoundProjection(room, opts.groupId, opts.roundNumber);
+      if (existing) return this.assertExistingCollaborationRound(existing, opts.participants);
+      const group = this.getCollaborationGroup(room, opts.groupId);
+      if (!group) throw new Error(`no such collaboration group: ${opts.groupId}`);
+      if (group.state !== 'open') throw new Error(`collaboration group ${opts.groupId} is ${group.state}`);
+      if (!this.getCollaborationRound(room, opts.groupId, opts.roundNumber - 1)) {
+        throw new Error(`collaboration round ${opts.groupId}/${opts.roundNumber - 1} does not exist`);
+      }
+      this.assertActiveAgentParticipants(room, opts.participants);
+      return this.materializeCollaborationRound(
+        room,
+        group,
+        opts.roundNumber,
+        opts.createdTs ?? new Date().toISOString(),
+        opts.participants,
+      );
+    })();
+  }
+  // harn:end group-round-creation-is-atomic-and-idempotent
+  // harn:end collaboration-groups-are-durable-state
 
   // ── pending interactions ──────────────────────────────────────────────
 
