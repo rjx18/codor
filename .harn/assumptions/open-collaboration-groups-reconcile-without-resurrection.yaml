@@ -1,0 +1,15 @@
+id: open-collaboration-groups-reconcile-without-resurrection
+hash: a-98b59f1ffc81
+title: Recovery repairs or releases groups without resurrecting work
+state: active
+statement: Runtime and boot reconciliation must recover terminal grouped runs
+  already committed, mark a removed or dead before-start participant skipped
+  while consuming its abandoned delivery, leave genuinely queued, delivering,
+  held, paused, unreachable, approval-blocked, or waiting work non-terminal, and
+  idempotently release every fully terminal round without ever re-admitting a
+  consumed delivery.
+depends_on:
+  - collaboration-round-release-is-one-barrier
+  - delivery-attempt-wal-reconcile
+  - only-an-admissible-delivery-becomes-delivering
+created_by: cc2b-group-round-engine

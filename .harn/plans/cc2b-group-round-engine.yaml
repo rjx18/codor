@@ -1,0 +1,362 @@
+id: cc2b-group-round-engine
+title: Route collaboration work through durable barriered rounds
+assumptions:
+  create:
+    - id: eligible-multi-agent-routing-starts-one-group
+      title: Eligible multi-agent routing creates one atomic group
+      statement: An eligible non-interim human, bridge, or finalized agent message
+        that resolves to at least two active agent identities must commit its
+        source message, round-one group state, ordinal participant slots,
+        immutable grouped payloads, and immediate human inbox deliveries in one
+        transaction, while one-agent routing stays ordinary and interim agent
+        posts always bypass group creation.
+      reason: A crash or store failure at ingress must not leave a visible root
+        without its participants, duplicate a group, or turn an explicit interim
+        exchange into a barriered paid round.
+      depends_on:
+        - collaboration-groups-are-durable-state
+        - group-round-creation-is-atomic-and-idempotent
+        - interim-agent-posts-are-nonfinal-routing
+    - id: group-participant-terminality-commits-with-the-turn
+      title: A grouped turn and its terminal slot are one durable fact
+      statement: Finalizing a grouped delivery must atomically finalize the run
+        message, consume its exact input delivery, update member and meter
+        state, and record that participant as completed, failed, or interrupted
+        with its result message; human fanout may commit immediately, but no
+        per-result agent delivery may be created outside the group release
+        authority.
+      reason: The barrier cannot safely decide completion if a crash can expose a
+        final result without a terminal slot, or if ordinary fanout races ahead
+        of the combined round view.
+      depends_on:
+        - collaboration-groups-are-durable-state
+        - turn-finalization-transactional
+        - reply-is-finalized-run-message
+    - id: collaboration-round-release-is-one-barrier
+      title: A complete round releases one deterministic next round
+      statement: Only a round whose every ordinal slot is durably terminal may
+        release; release must compute the ordered union of effective agent
+        mentions from completed substantive results, close the group when that
+        union is empty, or atomically freeze the current round and materialize
+        exactly one next round whose recipients receive the same root and
+        ordinal prior-result bundle except for the you field.
+      reason: Completion order, duplicate finalization, restart, and overlapping
+        groups must not change recipients, split peer context, or schedule a
+        paid turn twice.
+      depends_on:
+        - group-participant-terminality-commits-with-the-turn
+        - group-round-payloads-share-one-ordered-view
+        - group-round-creation-is-atomic-and-idempotent
+    - id: open-collaboration-groups-reconcile-without-resurrection
+      title: Recovery repairs or releases groups without resurrecting work
+      statement: Runtime and boot reconciliation must recover terminal grouped runs
+        already committed, mark a removed or dead before-start participant
+        skipped while consuming its abandoned delivery, leave genuinely queued,
+        delivering, held, paused, unreachable, approval-blocked, or waiting work
+        non-terminal, and idempotently release every fully terminal round
+        without ever re-admitting a consumed delivery.
+      reason: Group state spans process and member lifetimes, so every crash and
+        removal window needs one durable outcome rather than a wedged barrier or
+        duplicate provider call.
+      depends_on:
+        - collaboration-round-release-is-one-barrier
+        - delivery-attempt-wal-reconcile
+        - only-an-admissible-delivery-becomes-delivering
+    - id: same-round-terminal-peers-end-live-waits
+      title: Terminal same-round peers end a live wait as control flow
+      statement: A live wait registered by a grouped participant must remember its
+        exact group and round transiently, and must clear with an emitted
+        non-waiting member frame once every named peer has a terminal slot in
+        that same round; peers outside the round retain timeout behavior, the
+        clear creates no message or delivery and does not terminate the waiter,
+        and codor post --wait exits successfully with peer finished; no direct
+        reply instead of waiting for its deadline.
+      reason: A final response remains behind the barrier, so a waiting peer must
+        resume deterministically without mistaking a control wake-up for routed
+        conversation or requiring model judgment.
+      depends_on:
+        - collaboration-round-release-is-one-barrier
+        - live-agent-waits-are-transient
+  reviewed:
+    - id: collaboration-groups-are-durable-state
+      outcome: unchanged
+      reason: The engine consumes the durable identities and terminal fields
+        introduced by CC2a without weakening their schema or reopen contract.
+    - id: group-round-creation-is-atomic-and-idempotent
+      outcome: unchanged
+      reason: Ingress and release reuse the CC2a materializer inside larger
+        transactions and preserve its uniqueness and rollback guarantees.
+    - id: group-round-payloads-share-one-ordered-view
+      outcome: unchanged
+      reason: The engine supplies durable ordinal results to the existing exact
+        composer and stores its output before a recipient can start.
+    - id: grouped-deliveries-have-an-isolated-batch-class
+      outcome: unchanged
+      reason: The turn pump now applies the CC2a FIFO-prefix classifier rather than
+        redefining compatibility.
+    - id: turn-finalization-transactional
+      outcome: unchanged
+      reason: Participant terminality and optional group creation extend the existing
+        completion transaction rather than committing around it.
+    - id: mirrored-turn-commit-transactional
+      outcome: unchanged
+      reason: A mirrored finalized result that starts a group does so inside the
+        existing dedupe transaction.
+    - id: mirror-one-message-per-native-turn
+      outcome: unchanged
+      reason: Mirrored finalized output remains one deduplicated run message while its
+        multi-agent routing gains the same atomic group classification.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: Group payload envelopes remain immutable delivery snapshots and ordinary
+        legacy snapshots continue to parse unchanged.
+    - id: one-inflight-turn-per-member
+      outcome: unchanged
+      reason: Concurrent groups may queue slots for one member, but exact batch
+        selection retains one serialized member pump.
+    - id: only-an-admissible-delivery-becomes-delivering
+      outcome: unchanged
+      reason: Group association never widens the admission set or resurrects a
+        consumed delivery selected before a competing transition.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Bound run evidence remains authoritative and gains participant repair
+        and barrier release after its existing outcome classification.
+    - id: interim-agent-posts-are-nonfinal-routing
+      outcome: unchanged
+      reason: codor post remains immediate ordinary fanout even with several agent
+        recipients and never completes or advances a group participant.
+    - id: live-agent-waits-are-transient
+      outcome: unchanged
+      reason: Group and round wait context is daemon memory, emits through the
+        existing member overlay, and clears on turn end, kill, interrupt, or
+        restart.
+    - id: removing-an-agent-is-one-deliberate-step
+      outcome: unchanged
+      reason: Removal still drains queued work once, with grouped slots gaining an
+        atomic skipped outcome before their identity tombstone remains.
+    - id: reply-is-finalized-run-message
+      outcome: unchanged
+      reason: A participant result remains the one in-place finalized run row used
+        both for the human timeline and durable barrier evidence.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: Exact acknowledgements remain non-routable and are presented only as a
+        status entry in a later combined bundle.
+    - id: agent-chains-uninterrupted-by-default
+      outcome: unchanged
+      reason: Generated next-round deliveries pass through existing opt-in brake
+        evaluation; the barrier adds no default hold.
+    - id: bridge-enable-admin-or-owner
+      outcome: unchanged
+      reason: Bridge authentication, dedupe, and room configuration remain unchanged
+        while eligible bridge messages gain atomic group materialization.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Agent credentials still expose only the existing interim post API; the
+        shared commit path does not grant a management or finalization act.
+    - id: brakes-rechecked-at-turn-start
+      outcome: unchanged
+      reason: Group isolation changes the candidate batch, not the requirement that
+        current room brakes are re-evaluated immediately before admission.
+    - id: batched-human-resets-hop-count
+      outcome: unchanged
+      reason: Ordinary mixed batches retain their existing reset calculation, while a
+        grouped run is isolated to one exact routing context.
+    - id: cli-waits-consume-only-matching-deliveries
+      outcome: unchanged
+      reason: A direct reply still requires the same matching delivery; the new
+        peer-finished branch is explicit control flow and consumes no message.
+anchors:
+  eligible-multi-agent-routing-starts-one-group:
+    atomic-routed-message-commit:
+      action: change
+      reason: Commit a new chat root, optional group, and ordinary human fanout
+        together.
+    multi-agent-group-ingress:
+      action: change
+      reason: Classify eligible posts and finalized outside-group results without
+        grouping interim posts.
+    multi-agent-group-regression:
+      action: change
+      reason: Prove human, bridge, finalized-agent, one-agent, and interim routing
+        boundaries and rollback.
+  group-participant-terminality-commits-with-the-turn:
+    collaboration-turn-finalization:
+      action: change
+      reason: Extend the store completion transaction with one idempotent participant
+        terminal update.
+    collaboration-finalization-engine:
+      action: change
+      reason: Suppress grouped agent fanout while keeping final messages and human
+        inbox delivery immediate.
+    collaboration-finalization-regression:
+      action: change
+      reason: Prove completed, failed, interrupted, acknowledged, human-fanout, and
+        transaction rollback outcomes.
+  collaboration-round-release-is-one-barrier:
+    collaboration-round-release-transaction:
+      action: change
+      reason: Recheck terminality and atomically close or materialize one next round.
+    collaboration-round-release-store-regression:
+      action: change
+      reason: Prove pending, close, release, duplicate, and rollback states at the
+        store boundary.
+    collaboration-barrier-engine:
+      action: change
+      reason: Compute the ordinal mention union and deterministic shared payloads
+        after commit.
+    collaboration-barrier-regression:
+      action: change
+      reason: Prove finish-order independence, multi-round close, acknowledgements,
+        failures, and overlapping groups.
+    group-payload-snapshot-integration:
+      action: change
+      reason: Encode exact group payloads distinctly while preserving ordinary legacy
+        snapshot composition.
+  open-collaboration-groups-reconcile-without-resurrection:
+    collaboration-member-skip-transaction:
+      action: change
+      reason: Consume an abandoned before-start group delivery and mark its slot
+        skipped atomically.
+    collaboration-member-skip-engine:
+      action: change
+      reason: Reconcile dead and removed recipients without changing ordinary queue
+        behavior.
+    collaboration-reconciliation-engine:
+      action: change
+      reason: Repair open rounds from delivery and run evidence before draining queues
+        on boot.
+    collaboration-reconciliation-regression:
+      action: change
+      reason: Cover restart before and after the last result, release idempotence,
+        removal, and consumed admission races.
+  same-round-terminal-peers-end-live-waits:
+    collaboration-wait-context:
+      action: change
+      reason: Bind transient waits to the running grouped delivery and clear only
+        same-round terminal peer sets.
+    collaboration-wait-release-regression:
+      action: change
+      reason: Prove terminal-peer wake-up, out-of-round timeout preservation, interim
+        replies, and non-terminal waiter behavior.
+    collaboration-cli-wait-exit:
+      action: change
+      reason: Treat the authoritative cleared self-member frame as successful
+        peer-finished control flow.
+    collaboration-cli-wait-exit-regression:
+      action: change
+      reason: Prove post --wait prints the required success line and does not hang in
+        final cleanup.
+  grouped-deliveries-have-an-isolated-batch-class:
+    group-batch-pump-integration:
+      action: change
+      reason: Apply exact FIFO-prefix classification before brakes and turn admission.
+    group-batch-pump-regression:
+      action: change
+      reason: Prove ordinary work, other groups, and other rounds never enter one
+        grouped run.
+  collaboration-groups-are-durable-state:
+    collaboration-store-projection:
+      action: change
+      reason: Add terminal, release, skip, and atomic routed-message APIs over the
+        durable schema.
+  group-round-creation-is-atomic-and-idempotent:
+    collaboration-round-materialization:
+      action: change
+      reason: Reuse materialization within atomic ingress and guarded release
+        transactions.
+  mirrored-turn-commit-transactional:
+    atomic-mirrored-turn:
+      action: change
+      reason: Atomically start a group from an eligible mirrored finalized result.
+  mirror-one-message-per-native-turn:
+    mirrored-turn-dedupe-route:
+      action: change
+      reason: Classify an eligible mirrored final message for grouped routing inside
+        its existing one-message dedupe callback.
+  turn-finalization-transactional:
+    atomic-turn-finalization:
+      action: change
+      reason: Include participant terminality and optional outside-group creation in
+        completion.
+  bridge-enable-admin-or-owner:
+    bridge-daemon-ingress:
+      action: change
+      reason: Dispatch bridge-created group and human deliveries after its dedupe
+        transaction commits.
+  agent-network-authority-is-narrow:
+    agent-interim-post-ingress:
+      action: change
+      reason: Pass explicit interim classification into the shared atomic post path.
+  interim-agent-posts-are-nonfinal-routing:
+    interim-post-classification:
+      action: change
+      reason: Keep every agent network post outside collaboration group creation.
+    interim-post-regression:
+      action: change
+      reason: Extend the regression to multiple immediate recipients during a group
+        round.
+  live-agent-waits-are-transient:
+    transient-wait-registry:
+      action: change
+      reason: Maintain and clear the parallel transient group-round context.
+    wait-clears-on-turn-end:
+      action: change
+      reason: Clear group wait context wherever the existing wait overlay ends.
+    wait-daemon-regression:
+      action: change
+      reason: Retain all existing transient wait behavior beside automatic group
+        wake-up.
+  one-inflight-turn-per-member:
+    inflight-guard:
+      action: change
+      reason: Select one compatible FIFO prefix while keeping recursive serial drain.
+  brakes-rechecked-at-turn-start:
+    turn-start-brake-recheck:
+      action: change
+      reason: Evaluate only the selected compatible batch and atomically hold grouped
+        work.
+  reply-is-finalized-run-message:
+    finalize-and-route:
+      action: change
+      reason: Attach the one finalized row to participant evidence and barrier release.
+  substantive-routing-excludes-acknowledgements:
+    exact-ack-finalization:
+      action: change
+      reason: Record acknowledgement terminality without ordinary or group mention
+        routing.
+  batched-human-resets-hop-count:
+    batched-onward-hop-reset:
+      action: change
+      reason: Preserve ordinary hop logic while grouped next-round hops use the exact
+        participant batch.
+  agent-chains-uninterrupted-by-default:
+    delivery-hop-brake-dispatch:
+      action: change
+      reason: Reconcile dead grouped recipients while retaining the existing brake
+        decision.
+  delivery-attempt-wal-reconcile:
+    boot-reconcile:
+      action: change
+      reason: Repair and release durable group state around existing run WAL outcomes.
+  removing-an-agent-is-one-deliberate-step:
+    remove-drains-queued-work:
+      action: change
+      reason: Exclude already reconciled group deliveries from ordinary abandoned-work
+        draining.
+  cli-waits-consume-only-matching-deliveries:
+    post-wait-command:
+      action: change
+      reason: End successfully when the daemon clears the grouped wait without a reply
+        delivery.
+files:
+  - packages/switchboard/src/collaboration.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+applied:
+  applied_at: 2026-07-14T13:12:26.997Z

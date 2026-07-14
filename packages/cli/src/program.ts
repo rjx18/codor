@@ -204,18 +204,43 @@ async function clearWait(client: ProtocolClient, room: string, self: string): Pr
   }
 }
 
+// harn:assume same-round-terminal-peers-end-live-waits ref=collaboration-cli-wait-exit
+function waitForOwnDelivery(
+  client: ProtocolClient,
+  room: string,
+  initial: RoomSnapshot,
+  deadline: number,
+  matches: (message: Message) => boolean,
+): Promise<{ kind: 'delivery'; delivery: Delivery; message: Message } | undefined>;
+function waitForOwnDelivery(
+  client: ProtocolClient,
+  room: string,
+  initial: RoomSnapshot,
+  deadline: number,
+  matches: (message: Message) => boolean,
+  peerFinishedSelf: string,
+): Promise<
+  | { kind: 'delivery'; delivery: Delivery; message: Message }
+  | { kind: 'peer_finished' }
+  | undefined
+>;
 async function waitForOwnDelivery(
   client: ProtocolClient,
   room: string,
   initial: RoomSnapshot,
   deadline: number,
   matches: (message: Message) => boolean,
-): Promise<{ delivery: Delivery; message: Message } | undefined> {
+  peerFinishedSelf?: string,
+): Promise<
+  | { kind: 'delivery'; delivery: Delivery; message: Message }
+  | { kind: 'peer_finished' }
+  | undefined
+> {
   let snapshot = initial;
-  const find = (): { delivery: Delivery; message: Message } | undefined => {
+  const find = (): { kind: 'delivery'; delivery: Delivery; message: Message } | undefined => {
     for (const delivery of ownQueuedDeliveries(snapshot)) {
       const message = snapshot.messages.get(delivery.message_id);
-      if (message && matches(message)) return { delivery, message };
+      if (message && matches(message)) return { kind: 'delivery', delivery, message };
     }
     return undefined;
   };
@@ -241,9 +266,13 @@ async function waitForOwnDelivery(
       snapshot.deliveries.set(frame.delivery.id, frame.delivery);
     } else if (frame.type === 'member') {
       snapshot.members.set(frame.member.id, frame.member);
+      if (frame.member.id === peerFinishedSelf && frame.member.waiting === undefined) {
+        return { kind: 'peer_finished' };
+      }
     }
   }
 }
+// harn:end same-round-terminal-peers-end-live-waits
 // harn:end cli-waits-consume-only-matching-deliveries
 
 // harn:assume cli-hook-inbox-is-silent-when-empty ref=hook-inbox-renderer
@@ -541,9 +570,15 @@ export function createProgram(context: CliContext = {}): Command {
               candidate.id > posted.id &&
               peers.includes(candidate.author) &&
               candidate.mentions.some((mention) => mention.member_id === initial.self),
+            initial.self,
           );
           if (!reply) {
             out(`TIMEOUT after ${String(options.timeout)}s`);
+            return;
+          }
+          if (reply.kind === 'peer_finished') {
+            registered = false;
+            out('peer finished; no direct reply');
             return;
           }
           const consumed = await consumeDelivery(client, room, reply.delivery);

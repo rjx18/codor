@@ -1,0 +1,14 @@
+id: group-participant-terminality-commits-with-the-turn
+hash: a-aacc4b8fe6c5
+title: A grouped turn and its terminal slot are one durable fact
+state: active
+statement: Finalizing a grouped delivery must atomically finalize the run
+  message, consume its exact input delivery, update member and meter state, and
+  record that participant as completed, failed, or interrupted with its result
+  message; human fanout may commit immediately, but no per-result agent delivery
+  may be created outside the group release authority.
+depends_on:
+  - collaboration-groups-are-durable-state
+  - turn-finalization-transactional
+  - reply-is-finalized-run-message
+created_by: cc2b-group-round-engine

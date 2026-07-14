@@ -56,8 +56,16 @@ beforeEach(() => {
       peers,
       until_ts: new Date(Date.now() + Math.max(60_000, step.duration_ms + 1_000)).toISOString(),
     });
-    await new Promise((resolve) => setTimeout(resolve, step.duration_ms));
-    if (daemon.store.getMember(room, memberId)?.state === 'running') daemon.endWait(room, memberId);
+    const deadline = Date.now() + step.duration_ms;
+    while (Date.now() < deadline && daemon.memberStatus(room, memberId).member.waiting !== undefined) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    if (
+      daemon.store.getMember(room, memberId)?.state === 'running' &&
+      daemon.memberStatus(room, memberId).member.waiting !== undefined
+    ) {
+      daemon.endWait(room, memberId);
+    }
   });
   claudeFake = new FakeAdapter('claude-code', { extensions: true });
   codexFake = new FakeAdapter('codex');
@@ -3076,6 +3084,388 @@ describe('durable ephemeral approval answers', () => {
   // harn:end approval-deliveries-project-resolution-separately
 });
 // harn:end approval-answer-is-atomic-and-chatless
+
+// harn:assume collaboration-round-release-is-one-barrier ref=collaboration-barrier-regression
+// harn:assume group-participant-terminality-commits-with-the-turn ref=collaboration-finalization-regression
+describe('barriered collaboration rounds', () => {
+  it('waits for every first-round result and releases one finish-order-independent bundle', async () => {
+    const alpha = spawnAgent('group-alpha');
+    const beta = spawnAgent('group-beta');
+    const gamma = spawnAgent('group-gamma');
+    fake.enqueue(
+      { kind: 'complete', final_text: '@group-gamma alpha result', delay_ms: 80 },
+      { kind: 'complete', final_text: '@group-alpha @group-gamma beta result', delay_ms: 5 },
+      { kind: 'complete', final_text: 'gamma received the bundle' },
+      { kind: 'complete', final_text: 'alpha received the bundle' },
+    );
+
+    const root = daemon.postHumanMessage(
+      'eng',
+      '@group-alpha @group-beta compare the implementations',
+    );
+    await until(() => {
+      const betaRun = runMessages().find((message) => message.author === beta.id);
+      const alphaRun = runMessages().find((message) => message.author === alpha.id);
+      return betaRun?.run?.status === 'completed' && alphaRun?.run?.status === 'running'
+        ? true
+        : undefined;
+    });
+    expect(fake.deliveries).toHaveLength(2);
+    expect(daemon.store.getCollaborationGroupByRoot('eng', root.id)).toBeDefined();
+    expect(daemon.store.listCollaborationRounds(
+      'eng', daemon.store.getCollaborationGroupByRoot('eng', root.id)!.id,
+    )).toHaveLength(1);
+
+    await daemon.settle();
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    expect(group.state).toBe('completed');
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('released');
+    expect(daemon.store.getCollaborationRound('eng', group.id, 2)?.state).toBe('closed');
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 1)
+      .map((participant) => participant.member_id)).toEqual([alpha.id, beta.id]);
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 2)
+      .map((participant) => participant.member_id)).toEqual([gamma.id, alpha.id]);
+
+    const roundTwoPayloads = fake.deliveries.slice(2).map((delivery) => delivery.payload);
+    expect(roundTwoPayloads).toHaveLength(2);
+    expect(roundTwoPayloads[0]!.replace('you=@group-gamma', 'you=@recipient'))
+      .toBe(roundTwoPayloads[1]!.replace('you=@group-alpha', 'you=@recipient'));
+    expect(roundTwoPayloads[0]!.indexOf('@group-alpha - completed'))
+      .toBeLessThan(roundTwoPayloads[0]!.indexOf('@group-beta - completed'));
+  });
+
+  it('presents failed and acknowledged slots but routes only completed substantive mentions', async () => {
+    const alpha = spawnAgent('status-alpha');
+    const beta = spawnAgent('status-beta');
+    const charlie = spawnAgent('status-charlie');
+    const gamma = spawnAgent('status-gamma');
+    const delta = spawnAgent('status-delta');
+    fake.enqueue(
+      { kind: 'complete', status: 'failed', final_text: '@status-gamma failure text' },
+      { kind: 'complete', final_text: '<ACK_OK>' },
+      { kind: 'complete', final_text: '@status-delta inspect the combined result' },
+      { kind: 'complete', final_text: 'delta done' },
+    );
+
+    const root = daemon.postHumanMessage(
+      'eng',
+      '@status-alpha @status-beta @status-charlie compare status handling',
+    );
+    await daemon.settle();
+
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 1)
+      .map((participant) => participant.terminal_status)).toEqual([
+      'failed', 'completed', 'completed',
+    ]);
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 2)
+      .map((participant) => participant.member_id)).toEqual([delta.id]);
+    expect(daemon.store.listDeliveries('eng', { recipient: gamma.id })).toEqual([]);
+    const deltaPayload = fake.deliveries.find((delivery) =>
+      delivery.payload.includes('you=@status-delta') && delivery.payload.includes('completed round 1'))!.payload;
+    expect(deltaPayload).toContain('@status-alpha - failed');
+    expect(deltaPayload).toContain('@status-beta - acknowledged');
+    expect(deltaPayload).not.toContain('<ACK_OK>');
+    expect(daemon.store.getMessage(
+      'eng',
+      daemon.store.listCollaborationParticipants('eng', group.id, 1)[1]!.result_message_id!,
+    )?.ack).toBe(true);
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 1)
+      .map((participant) => participant.member_id)).toEqual([alpha.id, beta.id, charlie.id]);
+  });
+});
+// harn:end group-participant-terminality-commits-with-the-turn
+// harn:end collaboration-round-release-is-one-barrier
+
+// harn:assume eligible-multi-agent-routing-starts-one-group ref=multi-agent-group-regression
+// harn:assume interim-agent-posts-are-nonfinal-routing ref=interim-post-regression
+describe('collaboration ingress boundaries', () => {
+  it('keeps one-agent human routing ordinary', async () => {
+    const alpha = spawnAgent('single-alpha');
+    fake.enqueue({ kind: 'complete', final_text: '<ACK_OK>' });
+
+    const root = daemon.postHumanMessage('eng', '@single-alpha handle this directly');
+    await daemon.settle();
+
+    expect(daemon.store.getCollaborationGroupByRoot('eng', root.id)).toBeUndefined();
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id }))
+      .toEqual([expect.objectContaining({ message_id: root.id, group_id: undefined })]);
+  });
+
+  it('starts one retry-safe group from multi-agent bridge ingress', async () => {
+    const alpha = spawnAgent('bridge-alpha');
+    const beta = spawnAgent('bridge-beta');
+    const bridge = daemon.enableBridge('eng', 'slack', 'C-GROUP').member;
+    fake.enqueue(
+      { kind: 'complete', final_text: '<ACK_OK>' },
+      { kind: 'complete', final_text: '<ACK_OK>' },
+    );
+    const origin = { platform: 'slack', external_id: 'group-1', sender_name: 'Sarah' };
+
+    const first = daemon.postBridgeMessage(
+      'eng', bridge.id, '@bridge-alpha @bridge-beta compare this', origin,
+    );
+    const duplicate = daemon.postBridgeMessage(
+      'eng', bridge.id, '@bridge-alpha @bridge-beta duplicate', origin,
+    );
+    await daemon.settle();
+
+    const group = daemon.store.getCollaborationGroupByRoot('eng', first.message.id)!;
+    expect(duplicate).toMatchObject({ deduped: true, message: { id: first.message.id } });
+    expect(group.state).toBe('completed');
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 1)
+      .map((participant) => participant.member_id)).toEqual([alpha.id, beta.id]);
+    expect(daemon.store.listCollaborationGroups('eng')).toHaveLength(1);
+  });
+
+  it('starts a group from an ordinary finalized agent result with two recipients', async () => {
+    const alpha = spawnAgent('final-alpha');
+    const beta = spawnAgent('final-beta');
+    const gamma = spawnAgent('final-gamma');
+    fake.enqueue(
+      { kind: 'complete', final_text: '@final-beta @final-gamma compare my result' },
+      { kind: 'complete', final_text: '<ACK_OK>' },
+      { kind: 'complete', final_text: '<ACK_OK>' },
+    );
+
+    daemon.postHumanMessage('eng', '@final-alpha produce a result');
+    await daemon.settle();
+
+    const result = runMessages().find((message) => message.author === alpha.id)!;
+    const group = daemon.store.getCollaborationGroupByRoot('eng', result.id)!;
+    expect(group.state).toBe('completed');
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 1)
+      .map((participant) => participant.member_id)).toEqual([beta.id, gamma.id]);
+  });
+
+  it('starts and deduplicates a group from a mirrored finalized result', async () => {
+    const planner = daemon.joinMember('eng', {
+      harness: 'fake',
+      handle: 'mirror-planner',
+      session_ref: 'mirror-group-session',
+      cwd: testCwd('mirror-group'),
+    });
+    const beta = spawnAgent('mirror-beta');
+    const gamma = spawnAgent('mirror-gamma');
+    fake.enqueue(
+      { kind: 'complete', final_text: '<ACK_OK>' },
+      { kind: 'complete', final_text: '<ACK_OK>' },
+    );
+
+    const first = daemon.mirrorTurn({
+      harness: 'fake',
+      session_ref: 'mirror-group-session',
+      native_turn_id: 'mirror-group-turn',
+      body: '@mirror-beta @mirror-gamma review the mirrored result',
+    });
+    const duplicate = daemon.mirrorTurn({
+      harness: 'fake',
+      session_ref: 'mirror-group-session',
+      native_turn_id: 'mirror-group-turn',
+      body: 'duplicate must not route',
+    });
+    await daemon.settle();
+
+    const group = daemon.store.getCollaborationGroupByRoot('eng', first.message.id)!;
+    expect(first.message.author).toBe(planner.id);
+    expect(duplicate).toMatchObject({ deduped: true, message: { id: first.message.id } });
+    expect(group.state).toBe('completed');
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 1)
+      .map((participant) => participant.member_id)).toEqual([beta.id, gamma.id]);
+    expect(daemon.store.listCollaborationGroups('eng')).toHaveLength(1);
+  });
+
+  it('keeps a multi-recipient agent interim post immediate and outside any group', async () => {
+    const alpha = spawnAgent('interim-alpha');
+    const gamma = spawnAgent('interim-gamma');
+    const delta = spawnAgent('interim-delta');
+    fake.enqueue(
+      { kind: 'complete', final_text: '<ACK_OK>' },
+      { kind: 'complete', final_text: '<ACK_OK>' },
+    );
+
+    const interim = daemon.postAgentMessage(
+      'eng', alpha.id, '@interim-gamma @interim-delta immediate question',
+    );
+    await daemon.settle();
+
+    expect(daemon.store.getCollaborationGroupByRoot('eng', interim.id)).toBeUndefined();
+    expect(daemon.store.listDeliveries('eng', { recipient: gamma.id })).toHaveLength(1);
+    expect(daemon.store.listDeliveries('eng', { recipient: delta.id })).toHaveLength(1);
+  });
+});
+// harn:end interim-agent-posts-are-nonfinal-routing
+// harn:end eligible-multi-agent-routing-starts-one-group
+
+// harn:assume grouped-deliveries-have-an-isolated-batch-class ref=group-batch-pump-regression
+describe('concurrent collaboration group isolation', () => {
+  it('serializes one shared member without batching two queued groups together', async () => {
+    const alpha = spawnAgent('shared-alpha');
+    const beta = spawnAgent('shared-beta');
+    const gamma = spawnAgent('shared-gamma');
+    daemon.pauseMember('eng', alpha.id);
+    fake.enqueue(
+      { kind: 'complete', final_text: 'beta group one done' },
+      { kind: 'complete', final_text: 'gamma group two done' },
+    );
+
+    const first = daemon.postHumanMessage('eng', '@shared-alpha @shared-beta first group');
+    const second = daemon.postHumanMessage('eng', '@shared-alpha @shared-gamma second group');
+    await daemon.settle();
+    expect(daemon.store.getCollaborationGroupByRoot('eng', first.id)?.state).toBe('open');
+    expect(daemon.store.getCollaborationGroupByRoot('eng', second.id)?.state).toBe('open');
+
+    fake.enqueue(
+      { kind: 'complete', final_text: 'alpha group one done' },
+      { kind: 'complete', final_text: 'alpha group two done' },
+    );
+    daemon.unpauseMember('eng', alpha.id);
+    await daemon.settle();
+
+    expect(fake.deliveries.filter((delivery) => delivery.payload.includes('you=@shared-alpha')))
+      .toHaveLength(2);
+    expect(runMessages().filter((message) => message.author === alpha.id)).toHaveLength(2);
+    expect(daemon.store.getCollaborationGroupByRoot('eng', first.id)?.state).toBe('completed');
+    expect(daemon.store.getCollaborationGroupByRoot('eng', second.id)?.state).toBe('completed');
+  });
+});
+// harn:end grouped-deliveries-have-an-isolated-batch-class
+
+// harn:assume open-collaboration-groups-reconcile-without-resurrection ref=collaboration-reconciliation-regression
+describe('collaboration recovery and unavailable participants', () => {
+  it('marks a dead before-start participant skipped and lets its peer close the group', async () => {
+    const alpha = spawnAgent('dead-alpha');
+    const beta = spawnAgent('live-beta');
+    daemon.killMember('eng', alpha.id);
+    fake.enqueue({ kind: 'complete', final_text: 'beta finished without onward work' });
+
+    const root = daemon.postHumanMessage('eng', '@dead-alpha @live-beta compare availability');
+    await daemon.settle();
+
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    const participants = daemon.store.listCollaborationParticipants('eng', group.id, 1);
+    expect(participants.map((participant) => participant.terminal_status))
+      .toEqual(['skipped', 'completed']);
+    expect(daemon.store.getDelivery('eng', participants[0]!.delivery_id)?.state).toBe('consumed');
+    expect(group.state).toBe('completed');
+    expect(participants.map((participant) => participant.member_id)).toEqual([alpha.id, beta.id]);
+  });
+
+  it('releases a fully terminal round exactly once after restart', async () => {
+    const alpha = spawnAgent('restart-alpha');
+    const beta = spawnAgent('restart-beta');
+    const gamma = spawnAgent('restart-gamma');
+    daemon.pauseMember('eng', alpha.id);
+    daemon.pauseMember('eng', beta.id);
+    const root = daemon.postHumanMessage('eng', '@restart-alpha @restart-beta recover release');
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    const participants = daemon.store.listCollaborationParticipants('eng', group.id, 1);
+    const completedTs = '2026-07-14T13:30:00.000Z';
+    for (const [index, participant] of participants.entries()) {
+      const body = index === 0 ? '@restart-gamma inspect after restart' : 'beta done';
+      const result = daemon.store.postMessage('eng', {
+        author: participant.member_id,
+        kind: 'run',
+        body,
+        mentions: index === 0
+          ? [{ member_id: gamma.id, start: 0, end: '@restart-gamma'.length }]
+          : [],
+        run: {
+          status: 'completed',
+          started_ts: completedTs,
+          ended_ts: completedTs,
+          tool_calls: 0,
+          events_ref: `runs/restart-${String(index)}.jsonl`,
+          final_text: body,
+        },
+      });
+      daemon.store.updateDelivery('eng', participant.delivery_id, {
+        state: 'consumed', run_msg_id: result.id,
+      });
+      daemon.store.updateCollaborationParticipant('eng', group.id, 1, participant.member_id, {
+        terminal_status: 'completed', result_message_id: result.id, completed_ts: completedTs,
+      });
+    }
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    fake.enqueue({ kind: 'complete', final_text: 'gamma recovery done' });
+    await daemon.reconcile();
+    await daemon.settle();
+
+    expect(daemon.store.listCollaborationRounds('eng', group.id).map((round) => round.state))
+      .toEqual(['released', 'closed']);
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 2)
+      .map((participant) => participant.member_id)).toEqual([gamma.id]);
+    expect(fake.deliveries.filter((delivery) => delivery.payload.includes('round=2')))
+      .toHaveLength(1);
+  });
+});
+// harn:end open-collaboration-groups-reconcile-without-resurrection
+
+// harn:assume same-round-terminal-peers-end-live-waits ref=collaboration-wait-release-regression
+describe('group wait wake-up', () => {
+  it('clears a wait when every named same-round peer is terminal and lets the waiter finish', async () => {
+    const alpha = spawnAgent('wait-alpha');
+    const beta = spawnAgent('wait-beta');
+    fake.enqueue(
+      {
+        kind: 'complete',
+        final_text: 'alpha resumed after peer completion',
+        steps: [{ kind: 'wait', reason: 'reply', peers: ['wait-beta'], duration_ms: 300 }],
+      },
+      { kind: 'complete', final_text: '@wait-alpha beta final is barriered', delay_ms: 20 },
+      { kind: 'complete', final_text: 'alpha next round done' },
+    );
+
+    const started = Date.now();
+    const root = daemon.postHumanMessage('eng', '@wait-alpha @wait-beta coordinate');
+    await daemon.settle();
+
+    expect(Date.now() - started).toBeLessThan(250);
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    expect(group.state).toBe('completed');
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 1)
+      .find((participant) => participant.member_id === alpha.id)?.terminal_status).toBe('completed');
+    expect(daemon.sync('eng', 0).members.find((member) => member.id === alpha.id))
+      .not.toHaveProperty('waiting');
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 2)
+      .map((participant) => participant.member_id)).toEqual([alpha.id]);
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 1)
+      .map((participant) => participant.member_id)).toEqual([alpha.id, beta.id]);
+  });
+
+  it('does not auto-clear a grouped wait whose named peer is outside the round', async () => {
+    const alpha = spawnAgent('outside-wait-alpha');
+    spawnAgent('outside-wait-beta');
+    spawnAgent('outside-wait-gamma');
+    fake.enqueue(
+      {
+        kind: 'complete',
+        final_text: 'alpha finished after its own timeout',
+        steps: [{
+          kind: 'wait',
+          reason: 'reply',
+          peers: ['outside-wait-gamma'],
+          duration_ms: 120,
+        }],
+      },
+      { kind: 'complete', final_text: 'beta finished first', delay_ms: 10 },
+    );
+
+    const started = Date.now();
+    daemon.postHumanMessage(
+      'eng',
+      '@outside-wait-alpha @outside-wait-beta coordinate without gamma',
+    );
+    await daemon.settle();
+
+    expect(Date.now() - started).toBeGreaterThanOrEqual(100);
+    expect(daemon.sync('eng', 0).members.find((member) => member.id === alpha.id))
+      .not.toHaveProperty('waiting');
+  });
+});
+// harn:end same-round-terminal-peers-end-live-waits
 
 // harn:assume approval-answer-is-atomic-and-chatless ref=approval-answer-recovery-regression
 describe('answered approval restart recovery', () => {

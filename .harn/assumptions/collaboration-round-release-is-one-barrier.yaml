@@ -1,0 +1,15 @@
+id: collaboration-round-release-is-one-barrier
+hash: a-3800d8ad2f8b
+title: A complete round releases one deterministic next round
+state: active
+statement: Only a round whose every ordinal slot is durably terminal may
+  release; release must compute the ordered union of effective agent mentions
+  from completed substantive results, close the group when that union is empty,
+  or atomically freeze the current round and materialize exactly one next round
+  whose recipients receive the same root and ordinal prior-result bundle except
+  for the you field.
+depends_on:
+  - group-participant-terminality-commits-with-the-turn
+  - group-round-payloads-share-one-ordered-view
+  - group-round-creation-is-atomic-and-idempotent
+created_by: cc2b-group-round-engine

@@ -582,6 +582,42 @@ describe('@codor/cli', () => {
   });
   // harn:end cli-waits-consume-only-matching-deliveries
 
+  // harn:assume same-round-terminal-peers-end-live-waits ref=collaboration-cli-wait-exit-regression
+  it('post --wait exits when its addressed peer finishes the same collaboration round', async () => {
+    const alpha = credentialedAgent('group-wait-alpha');
+    credentialedAgent('group-wait-beta');
+    fake.enqueue(
+      { kind: 'complete', final_text: 'alpha group result', delay_ms: 300 },
+      { kind: 'complete', final_text: 'beta group result', delay_ms: 80 },
+      { kind: 'complete', final_text: '<ACK_OK>' },
+    );
+
+    daemon.postHumanMessage(
+      'eng',
+      '@group-wait-alpha @group-wait-beta compare the approaches',
+    );
+    await until(() => daemon.store.getMember('eng', alpha.member.id)?.state === 'running'
+      ? true
+      : undefined);
+
+    output = [];
+    await memberCli(
+      alpha.env,
+      'post',
+      '--wait',
+      '--timeout',
+      '1',
+      '@group-wait-beta question during the round',
+    );
+
+    expect(output.at(-1)).toBe('peer finished; no direct reply');
+    expect(output).not.toContain('TIMEOUT after 1s');
+    expect(daemon.sync('eng', 0).members.find((member) => member.id === alpha.member.id))
+      .not.toHaveProperty('waiting');
+    await daemon.settle();
+  });
+  // harn:end same-round-terminal-peers-end-live-waits
+
   // harn:assume cli-hook-inbox-is-silent-when-empty ref=inbox-hook-regression
   it('lists, consumes, formats, and then emits no hook stdout for an empty inbox', async () => {
     const alpha = credentialedAgent('alpha');

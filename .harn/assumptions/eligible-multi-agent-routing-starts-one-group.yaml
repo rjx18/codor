@@ -1,0 +1,15 @@
+id: eligible-multi-agent-routing-starts-one-group
+hash: a-ae10db32bdd7
+title: Eligible multi-agent routing creates one atomic group
+state: active
+statement: An eligible non-interim human, bridge, or finalized agent message
+  that resolves to at least two active agent identities must commit its source
+  message, round-one group state, ordinal participant slots, immutable grouped
+  payloads, and immediate human inbox deliveries in one transaction, while
+  one-agent routing stays ordinary and interim agent posts always bypass group
+  creation.
+depends_on:
+  - collaboration-groups-are-durable-state
+  - group-round-creation-is-atomic-and-idempotent
+  - interim-agent-posts-are-nonfinal-routing
+created_by: cc2b-group-round-engine

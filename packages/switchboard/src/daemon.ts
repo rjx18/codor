@@ -32,6 +32,11 @@ import {
 import { BlobStore } from './blobs.js';
 import { validateSpawnOptions } from './adapter-registry.js';
 import { roleAllows } from './authorization.js';
+import {
+  composeGroupRoundPayload,
+  selectDeliveryBatchPrefix,
+  type GroupRoundPayloadContext,
+} from './collaboration.js';
 import type { LedgerGraph, LedgerManager } from './ledger/watch.js';
 import type { LedgerNote, LedgerWrite } from './ledger/vault.js';
 import type { HumanPushKind, HumanPushNotifier } from './push/producer.js';
@@ -49,7 +54,7 @@ import {
   resolveRecipients,
   type ResolvedRef,
 } from './router.js';
-import { Store, type FanoutDelivery } from './store.js';
+import { Store, type FanoutDelivery, type RoutedMessagePlan } from './store.js';
 import { normalizeWorkingDirectory } from './working-directory.js';
 
 /**
@@ -110,6 +115,17 @@ interface RetryTurnRefusal {
 interface DeliveryPayloadSnapshot {
   context: Omit<PayloadContext, 'conventions' | 'roster'>;
   you: string;
+}
+
+interface GroupDeliveryPayloadSnapshot {
+  kind: 'group';
+  payload: string;
+}
+
+interface GroupWaitContext {
+  room: string;
+  groupId: string;
+  roundNumber: number;
 }
 
 const ULID_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -183,6 +199,7 @@ export class Daemon {
   private readonly releasedDeliveries = new Set<string>();
   private readonly operatorInterrupts = new Set<string>();
   private readonly memberWaits = new Map<string, NonNullable<Member['waiting']>>();
+  private readonly groupWaits = new Map<string, GroupWaitContext>();
   private readonly attachLeaseTimeoutMs: number;
   private readonly processProbe: (target: number) => boolean;
   private readonly attachLeaseTimer: NodeJS.Timeout;
@@ -590,10 +607,15 @@ export class Daemon {
       normalizedBody,
       origin,
       parsed,
+      (message) => {
+        const planned = this.planRoutedMessage(room, message, undefined, undefined, false, true);
+        return planned.plan;
+      },
     );
     if (!result.deduped) {
       this.emitMessage(room, result.message);
-      this.routeAndFanout(room, result.message);
+      if (result.member) this.emitMember(room, result.member);
+      this.dispatchCreatedDeliveries(room, result.deliveries);
     }
     return result;
   }
@@ -1224,8 +1246,18 @@ export class Daemon {
       }
     }
     this.memberWaits.delete(memberId);
+    this.groupWaits.delete(memberId);
     const member = this.store.updateMember(room, memberId, { state: 'dead' });
     this.emitMember(room, member);
+    for (const delivery of this.store.listDeliveries(room, { recipient: memberId })) {
+      if (
+        delivery.group_id !== undefined &&
+        delivery.run_msg_id === undefined &&
+        (delivery.state === 'queued' || delivery.state === 'held')
+      ) {
+        this.skipUnavailableGroupDelivery(room, delivery);
+      }
+    }
     this.postSystemMessage(
       room,
       member.session_ref
@@ -1313,7 +1345,8 @@ export class Daemon {
     // against a member the roster no longer shows.
     const abandoned = this.store.listDeliveries(room, { recipient: memberId, state: 'queued' });
     for (const delivery of abandoned) {
-      this.store.updateDelivery(room, delivery.id, { state: 'consumed' });
+      if (delivery.group_id !== undefined) this.skipUnavailableGroupDelivery(room, delivery);
+      else this.store.updateDelivery(room, delivery.id, { state: 'consumed' });
     }
     // harn:end removing-an-agent-is-one-deliberate-step
 
@@ -1381,20 +1414,33 @@ export class Daemon {
     authorId: string,
     replyTo?: number,
     awaitingReply = false,
+    interim = false,
   ): Message {
     const parsed = parseBody(body, this.store.listMembers(room));
-    const message = this.store.postMessage(room, {
-      author: authorId,
-      kind: 'chat',
-      body,
-      mentions: parsed.mentions,
-      refs: parsed.refs,
-      ledger_refs: parsed.ledger_refs,
-      reply_to: replyTo,
+    // harn:assume eligible-multi-agent-routing-starts-one-group ref=multi-agent-group-ingress
+    const committed = this.store.commitRoutedMessage(room, {
+      message: {
+        author: authorId,
+        kind: 'chat',
+        body,
+        mentions: parsed.mentions,
+        refs: parsed.refs,
+        ledger_refs: parsed.ledger_refs,
+        reply_to: replyTo,
+      },
+      plan: (message) => this.planRoutedMessage(
+        room,
+        message,
+        undefined,
+        undefined,
+        awaitingReply,
+        !interim,
+      ).plan,
     });
-    this.emitMessage(room, message);
-    this.routeAndFanout(room, message, undefined, awaitingReply);
-    return message;
+    this.emitMessage(room, committed.message);
+    if (committed.member) this.emitMember(room, committed.member);
+    this.dispatchCreatedDeliveries(room, committed.deliveries);
+    return committed.message;
   }
 
   postHumanMessage(room: string, body: string, opts: { author?: string; reply_to?: number } = {}): Message {
@@ -1422,7 +1468,7 @@ export class Daemon {
     const currentRun = this.store.listRunMessages(room, { author: memberId, limit: 1 })[0];
     if (currentRun?.run?.status === 'running') this.noteRunActivity(room, currentRun.id);
     // harn:end interim-agent-posts-are-nonfinal-routing
-    return this.postChatMessage(room, body, memberId, replyTo, awaitingReply);
+    return this.postChatMessage(room, body, memberId, replyTo, awaitingReply, true);
   }
   // harn:end agent-network-authority-is-narrow
 
@@ -1480,9 +1526,26 @@ export class Daemon {
       until_ts: input.until_ts,
     } satisfies NonNullable<Member['waiting']>;
     this.memberWaits.set(memberId, waiting);
+    // harn:assume same-round-terminal-peers-end-live-waits ref=collaboration-wait-context
+    const groupedDelivery = this.store.listDeliveries(room, { recipient: memberId })
+      .find((delivery) => delivery.run_msg_id === run.id && delivery.group_id !== undefined);
+    if (groupedDelivery?.group_id !== undefined && groupedDelivery.group_round !== undefined) {
+      this.groupWaits.set(memberId, {
+        room,
+        groupId: groupedDelivery.group_id,
+        roundNumber: groupedDelivery.group_round,
+      });
+    } else {
+      this.groupWaits.delete(memberId);
+    }
+    // harn:end same-round-terminal-peers-end-live-waits
     this.noteRunActivity(room, run.id);
     this.emitMember(room, member);
-    return { ...member, waiting };
+    const groupContext = this.groupWaits.get(memberId);
+    if (groupContext) {
+      this.clearSatisfiedGroupWaits(room, groupContext.groupId, groupContext.roundNumber);
+    }
+    return this.memberWaits.has(memberId) ? { ...member, waiting } : member;
   }
 
   endWait(room: string, memberId: string): Member {
@@ -1499,6 +1562,7 @@ export class Daemon {
         message.kind === 'run' && message.author === memberId && message.run?.status === 'running');
     if (!run) throw new Error(`member @${member.handle} has no running turn to end a wait in`);
     const changed = this.memberWaits.delete(memberId);
+    this.groupWaits.delete(memberId);
     if (changed) this.emitMember(room, member);
     return member;
   }
@@ -1556,12 +1620,20 @@ export class Daemon {
           },
         };
         const draft: Message = { ...placeholder, ...patch };
-        const { result, fanout } = this.planFanout(
+        const planned = this.planRoutedMessage(
           joined.room,
           draft,
           this.ownerOf(joined.room).id,
+          undefined,
+          false,
+          true,
         );
-        return { message: patch, fanout, markMisaddressed: result.misaddressed };
+        return {
+          message: patch,
+          fanout: planned.plan.fanout,
+          collaboration: planned.plan.collaboration,
+          markMisaddressed: planned.result.misaddressed,
+        };
       },
     });
     if (committed.deduped) return { message: committed.message, deduped: true };
@@ -1587,6 +1659,7 @@ export class Daemon {
     return { message: committed.message, deduped: false };
   }
   // harn:end mirror-one-message-per-native-turn
+  // harn:end eligible-multi-agent-routing-starts-one-group
 
   // harn:assume extension-lifecycle-from-hooks ref=switchboard-extension-lifecycle
   private startExtension(
@@ -1646,43 +1719,20 @@ export class Daemon {
     return this.store.latestFinalizedAgentAuthor(room);
   }
 
-  private routeAndFanout(
-    room: string,
-    message: Message,
-    triggerAuthor?: string,
-    awaitingReply = false,
-  ): void {
-    const { result, fanout } = this.planFanout(
-      room,
-      message,
-      triggerAuthor,
-      undefined,
-      awaitingReply,
-    );
-    if (!result.routable) return;
-
-    const author = this.store.getMember(room, message.author);
-    if (result.misaddressed && author) {
-      this.emitMember(room, this.store.updateMember(room, author.id, { misaddressed: true }));
-    }
-
-    const created = fanout.map((delivery) =>
-      this.store.createDelivery(room, {
-        message_id: message.id,
-        recipient: delivery.recipient,
-        state: delivery.state,
-        payload_snapshot: delivery.payload_snapshot,
-        hop_count: delivery.hop_count,
-      }),
-    );
-    this.dispatchCreatedDeliveries(room, created);
-  }
-
   private dispatchCreatedDeliveries(room: string, created: Delivery[]): void {
     for (const delivery of created) {
       const recipient = this.store.getMember(room, delivery.recipient);
       if (recipient?.kind === 'human') this.emitInbox(room, delivery);
-      else if (recipient?.kind === 'agent') this.dispatchAgentDelivery(room, delivery, recipient);
+      else if (recipient?.kind === 'agent') {
+        if (
+          delivery.group_id !== undefined &&
+          (recipient.state === 'dead' || recipient.removed_ts !== undefined)
+        ) {
+          this.skipUnavailableGroupDelivery(room, delivery);
+        } else {
+          this.dispatchAgentDelivery(room, delivery, recipient);
+        }
+      }
     }
   }
 
@@ -1775,6 +1825,87 @@ export class Daemon {
     ];
     return { result, fanout };
   }
+
+  private planRoutedMessage(
+    room: string,
+    message: Message,
+    triggerAuthor?: string,
+    agentHop?: number,
+    awaitingReply = false,
+    allowGroup = true,
+  ): { result: ReturnType<typeof resolveRecipients>; plan: RoutedMessagePlan } {
+    const planned = this.planFanout(room, message, triggerAuthor, agentHop, awaitingReply);
+    const base: RoutedMessagePlan = {
+      fanout: planned.fanout,
+      ...(planned.result.misaddressed && { markMisaddressed: true }),
+    };
+    if (!allowGroup || planned.result.agents.length < 2) {
+      return { result: planned.result, plan: base };
+    }
+
+    const groupId = ulid();
+    const context = this.groupPayloadContext(room, message, groupId, 1);
+    const humanIds = new Set(planned.result.humans.map((member) => member.id));
+    const agentFanout = new Map(
+      planned.fanout
+        .filter((delivery) => !humanIds.has(delivery.recipient))
+        .map((delivery) => [delivery.recipient, delivery]),
+    );
+    return {
+      result: planned.result,
+      plan: {
+        ...base,
+        fanout: planned.fanout.filter((delivery) => humanIds.has(delivery.recipient)),
+        collaboration: {
+          groupId,
+          participants: planned.result.agents.map((agent) => ({
+            memberId: agent.id,
+            payloadSnapshot: this.groupPayloadSnapshot(
+              composeGroupRoundPayload(context, agent.handle),
+            ),
+            state: 'queued',
+            hopCount: agentFanout.get(agent.id)?.hop_count,
+          })),
+        },
+      },
+    };
+  }
+
+  private groupPayloadContext(
+    room: string,
+    root: Message,
+    groupId: string,
+    roundNumber: number,
+  ): GroupRoundPayloadContext {
+    const author = this.store.getMember(room, root.author);
+    if (!author) throw new Error(`group root #${root.id} has no author`);
+    return {
+      groupId,
+      roundNumber,
+      room,
+      root: {
+        messageId: root.id,
+        authorHandle: author.handle,
+        body: root.body,
+      },
+      refs: root.refs
+        .map((id) => this.store.getMessage(room, id))
+        .filter((ref): ref is Message => ref !== undefined)
+        .map((ref) => ({
+          id: ref.id,
+          authorHandle: this.store.getMember(room, ref.author)?.handle ?? 'unknown',
+          ts: ref.ts,
+          body: ref.kind === 'run' ? (ref.run?.final_text ?? ref.body) : ref.body,
+        })),
+      ledgerRefs: this.ledger?.resolve(room, root.ledger_refs),
+    };
+  }
+
+  // harn:assume collaboration-round-release-is-one-barrier ref=group-payload-snapshot-integration
+  private groupPayloadSnapshot(payload: string): string {
+    return JSON.stringify({ kind: 'group', payload } satisfies GroupDeliveryPayloadSnapshot);
+  }
+  // harn:end collaboration-round-release-is-one-barrier
 
   // harn:assume delivery-payload-snapshotted ref=daemon-payload-snapshot
   private snapshotPayload(
@@ -1883,7 +2014,14 @@ export class Daemon {
     const member = eligible.member;
     const queued = this.store.listDeliveries(room, { recipient: memberId, state: 'queued' });
     if (queued.length === 0) return;
-    const batch = this.applyTurnStartBrakes(room, queued, false);
+    // harn:assume grouped-deliveries-have-an-isolated-batch-class ref=group-batch-pump-integration
+    const selected = selectDeliveryBatchPrefix(queued);
+    const batch = this.applyTurnStartBrakes(
+      room,
+      selected,
+      selected[0]?.group_id !== undefined,
+    );
+    // harn:end grouped-deliveries-have-an-isolated-batch-class
     if (batch.length === 0) {
       const current = this.store.getMember(room, memberId);
       if (current?.state === 'queued') this.emitMember(room, this.store.updateMember(room, memberId, { state: 'idle' }));
@@ -2070,6 +2208,13 @@ export class Daemon {
     const payloads: string[] = [];
     for (const delivery of batch) {
       const encoded = this.store.getDeliveryPayloadSnapshot(room, delivery.id);
+      if (encoded !== undefined) {
+        const candidate = JSON.parse(encoded) as DeliveryPayloadSnapshot | GroupDeliveryPayloadSnapshot;
+        if ('kind' in candidate && candidate.kind === 'group') {
+          payloads.push(candidate.payload);
+          continue;
+        }
+      }
       const snapshot = encoded
         ? (JSON.parse(encoded) as DeliveryPayloadSnapshot)
         : (JSON.parse(
@@ -2143,6 +2288,7 @@ export class Daemon {
     const parsed = ack
       ? { mentions: [], refs: [], ledger_refs: [], unresolved: [] }
       : parseBody(body, this.store.listMembers(room));
+    const endedTs = new Date().toISOString();
     const messagePatch = {
       body,
       ...(ack && { ack: true as const }),
@@ -2152,7 +2298,7 @@ export class Daemon {
       run: {
         ...runMsg.run!,
         status: completion.status,
-        ended_ts: new Date().toISOString(),
+        ended_ts: endedTs,
         stalled_since: undefined,
         tool_calls: toolCalls,
         usage: completion.usage,
@@ -2170,12 +2316,20 @@ export class Daemon {
       ? 1
       : Math.min(...batch.map((delivery) => delivery.hop_count ?? 0)) + 1;
     // harn:end batched-human-resets-hop-count
-    const { result, fanout } = this.planFanout(
+    // harn:assume group-participant-terminality-commits-with-the-turn ref=collaboration-finalization-engine
+    const groupedDelivery = batch.find((delivery) => delivery.group_id !== undefined);
+    const planned = this.planRoutedMessage(
       room,
       finalizedDraft,
       triggerAuthor,
       onwardHopCount,
+      false,
+      groupedDelivery === undefined,
     );
+    const humanIds = new Set(planned.result.humans.map((human) => human.id));
+    const fanout = groupedDelivery === undefined
+      ? planned.plan.fanout
+      : planned.plan.fanout.filter((delivery) => humanIds.has(delivery.recipient));
     const day = new Date().toISOString().slice(0, 10);
     const completed = this.store.completeTurn(room, {
       runMsgId,
@@ -2191,7 +2345,7 @@ export class Daemon {
               : this.store.getMember(room, memberId)?.state === 'paused'
                 ? 'paused'
                 : 'idle',
-        ...(result.misaddressed && { misaddressed: true }),
+        ...(planned.result.misaddressed && { misaddressed: true }),
       },
       meterDay: day,
       meterDelta: {
@@ -2205,9 +2359,21 @@ export class Daemon {
             : 0,
       },
       fanout,
+      ...(groupedDelivery !== undefined && {
+        participantTerminal: {
+          deliveryId: groupedDelivery.id,
+          status: completion.status,
+          completedTs: endedTs,
+        },
+      }),
+      ...(groupedDelivery === undefined && planned.plan.collaboration !== undefined && {
+        collaboration: planned.plan.collaboration,
+      }),
     });
+    // harn:end group-participant-terminality-commits-with-the-turn
     // harn:assume live-agent-waits-are-transient ref=wait-clears-on-turn-end
     this.memberWaits.delete(memberId);
+    this.groupWaits.delete(memberId);
     // harn:end live-agent-waits-are-transient
     this.emitMessage(room, completed.message);
     this.emitMember(room, completed.member);
@@ -2218,10 +2384,10 @@ export class Daemon {
     }
     // harn:end extensions-retire-with-parent-run
     this.emit(room, { type: 'meter', seq: this.store.currentSeq(room), meter: completed.meter });
-    for (const delivery of completed.deliveries) {
-      const recipient = this.store.getMember(room, delivery.recipient);
-      if (recipient?.kind === 'human') this.emitInbox(room, delivery);
-      else if (recipient?.kind === 'agent') this.dispatchAgentDelivery(room, delivery, recipient);
+    this.dispatchCreatedDeliveries(room, completed.deliveries);
+    if (groupedDelivery?.group_id !== undefined && groupedDelivery.group_round !== undefined) {
+      this.clearSatisfiedGroupWaits(room, groupedDelivery.group_id, groupedDelivery.group_round);
+      this.advanceCollaborationRound(room, groupedDelivery.group_id, groupedDelivery.group_round);
     }
     this.runActivity.delete(`${room}:${runMsgId}`);
     if (completion.status === 'failed') {
@@ -2234,6 +2400,111 @@ export class Daemon {
     }
   }
   // harn:end reply-is-finalized-run-message
+
+  // harn:assume collaboration-round-release-is-one-barrier ref=collaboration-barrier-engine
+  private advanceCollaborationRound(room: string, groupId: string, roundNumber: number): void {
+    const projection = this.store.getCollaborationRoundProjection(room, groupId, roundNumber);
+    if (!projection || projection.round.state !== 'collecting') return;
+    if (projection.participants.some((participant) => participant.terminal_status === undefined)) return;
+
+    const root = this.store.getMessage(room, projection.group.root_message_id);
+    if (!root) throw new Error(`collaboration group ${groupId} has no root message`);
+    const results: NonNullable<GroupRoundPayloadContext['results']> = [];
+    const nextMembers: Member[] = [];
+    const seen = new Set<string>();
+    for (const participant of projection.participants) {
+      const member = this.store.getMember(room, participant.member_id);
+      const result = participant.result_message_id === undefined
+        ? undefined
+        : this.store.getMessage(room, participant.result_message_id);
+      const status = participant.terminal_status === 'completed' && result?.ack === true
+        ? 'acknowledged'
+        : participant.terminal_status!;
+      results.push({
+        ordinal: participant.ordinal,
+        memberHandle: member?.handle ?? participant.member_id,
+        status,
+        ...(result !== undefined && result.ack !== true && {
+          messageId: result.id,
+          body: result.body,
+        }),
+      });
+
+      if (participant.terminal_status !== 'completed' || result?.ack === true) continue;
+      for (const mention of result?.mentions ?? []) {
+        if (mention.member_id === participant.member_id || seen.has(mention.member_id)) continue;
+        const recipient = this.store.getMember(room, mention.member_id);
+        if (
+          recipient?.kind !== 'agent' ||
+          recipient.removed_ts !== undefined
+        ) continue;
+        seen.add(recipient.id);
+        nextMembers.push(recipient);
+      }
+    }
+
+    const context: GroupRoundPayloadContext = {
+      ...this.groupPayloadContext(room, root, groupId, roundNumber + 1),
+      priorRoundNumber: roundNumber,
+      results,
+    };
+    const nextHop = Math.min(...projection.deliveries.map((delivery) => delivery.hop_count ?? 0)) + 1;
+    const release = this.store.releaseCollaborationRound(room, {
+      groupId,
+      roundNumber,
+      releasedTs: new Date().toISOString(),
+      nextParticipants: nextMembers.map((member) => ({
+        memberId: member.id,
+        payloadSnapshot: this.groupPayloadSnapshot(composeGroupRoundPayload(context, member.handle)),
+        state: 'queued',
+        hopCount: nextHop,
+      })),
+    });
+    if (release.status === 'released') {
+      this.dispatchCreatedDeliveries(room, release.deliveries);
+    }
+  }
+  // harn:end collaboration-round-release-is-one-barrier
+
+  private clearSatisfiedGroupWaits(room: string, groupId: string, roundNumber: number): void {
+    const participants = this.store.listCollaborationParticipants(room, groupId, roundNumber);
+    const terminal = new Set(
+      participants
+        .filter((participant) => participant.terminal_status !== undefined)
+        .map((participant) => participant.member_id),
+    );
+    const participantIds = new Set(participants.map((participant) => participant.member_id));
+    for (const [memberId, context] of this.groupWaits) {
+      if (
+        context.room !== room ||
+        context.groupId !== groupId ||
+        context.roundNumber !== roundNumber
+      ) continue;
+      const waiting = this.memberWaits.get(memberId);
+      if (
+        !waiting ||
+        !waiting.peers.every((peerId) => participantIds.has(peerId) && terminal.has(peerId))
+      ) continue;
+      this.memberWaits.delete(memberId);
+      this.groupWaits.delete(memberId);
+      const member = this.store.getMember(room, memberId);
+      if (member) this.emitMember(room, member);
+    }
+  }
+
+  // harn:assume open-collaboration-groups-reconcile-without-resurrection ref=collaboration-member-skip-engine
+  private skipUnavailableGroupDelivery(room: string, delivery: Delivery): void {
+    if (delivery.group_id === undefined || delivery.group_round === undefined) return;
+    const skipped = this.store.skipCollaborationParticipant(
+      room,
+      delivery.id,
+      new Date().toISOString(),
+    );
+    if (delivery.state === 'held') this.emitInbox(room, skipped.delivery);
+    this.clearSatisfiedGroupWaits(room, delivery.group_id, delivery.group_round);
+    this.advanceCollaborationRound(room, delivery.group_id, delivery.group_round);
+  }
+  // harn:end open-collaboration-groups-reconcile-without-resurrection
 
   // ── interactions (PROTOCOL §2 state machine) ──────────────────────────
 
@@ -2498,6 +2769,7 @@ export class Daemon {
           this.holdAmbiguousTurn(room.id, member, group, runMsgId);
         }
       }
+      this.reconcileCollaborationGroups(room.id);
       // drain anything still queued (tracked — a turn may block on an ask)
       for (const member of this.store.listMembers(room.id)) {
         if (member.kind === 'agent') this.track(this.maybeStartTurn(room.id, member.id));
@@ -2505,6 +2777,47 @@ export class Daemon {
     }
   }
   // harn:end delivery-attempt-wal-reconcile
+
+  // harn:assume open-collaboration-groups-reconcile-without-resurrection ref=collaboration-reconciliation-engine
+  private reconcileCollaborationGroups(room: string): void {
+    for (const group of this.store.listCollaborationGroups(room, 'open')) {
+      for (const round of this.store.listCollaborationRounds(room, group.id)) {
+        if (round.state !== 'collecting') continue;
+        for (const participant of this.store.listCollaborationParticipants(
+          room,
+          group.id,
+          round.round_number,
+        )) {
+          if (participant.terminal_status !== undefined) continue;
+          const delivery = this.store.getDelivery(room, participant.delivery_id);
+          const member = this.store.getMember(room, participant.member_id);
+          const result = delivery?.run_msg_id === undefined
+            ? undefined
+            : this.store.getMessage(room, delivery.run_msg_id);
+          if (result?.run && result.run.status !== 'running') {
+            this.store.recoverCollaborationParticipantTerminal(room, {
+              deliveryId: participant.delivery_id,
+              status: result.run.status,
+              resultMessageId: result.id,
+              completedTs: result.run.ended_ts ?? result.ts,
+            });
+          } else if (
+            delivery !== undefined &&
+            delivery.run_msg_id === undefined &&
+            (member?.state === 'dead' || member?.removed_ts !== undefined)
+          ) {
+            this.store.skipCollaborationParticipant(
+              room,
+              delivery.id,
+              new Date().toISOString(),
+            );
+          }
+        }
+        this.advanceCollaborationRound(room, group.id, round.round_number);
+      }
+    }
+  }
+  // harn:end open-collaboration-groups-reconcile-without-resurrection
 
   private processAlive(attempt: { pid?: number; process_group_id?: number }): boolean {
     const target = attempt.process_group_id !== undefined
@@ -2531,6 +2844,7 @@ export class Daemon {
     const current = this.store.getMember(room, member.id);
     // harn:assume live-agent-waits-are-transient ref=wait-clears-on-turn-end
     this.memberWaits.delete(member.id);
+    this.groupWaits.delete(member.id);
     // harn:end live-agent-waits-are-transient
     if (
       current?.custody === 'owned' &&

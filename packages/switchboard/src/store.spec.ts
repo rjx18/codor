@@ -1339,3 +1339,172 @@ describe('collaboration state migration and reopen', () => {
   });
 });
 // harn:end collaboration-groups-are-durable-state
+
+// harn:assume eligible-multi-agent-routing-starts-one-group ref=multi-agent-group-regression
+describe('atomic routed collaboration ingress', () => {
+  it('rolls the root message back when later group materialization fails', () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'alpha', display_name: 'Alpha', state: 'idle',
+    });
+    const beta = store.addMember('eng', {
+      kind: 'agent', handle: 'beta', display_name: 'Beta', state: 'idle',
+    });
+    const blocker = new Database(join(dir, 'test.sqlite'));
+    blocker.exec(`CREATE TRIGGER reject_atomic_group_second_participant
+      BEFORE INSERT ON collaboration_participants
+      WHEN NEW.group_id = 'atomic-group' AND NEW.ordinal = 1
+      BEGIN SELECT RAISE(ABORT, 'injected atomic group failure'); END`);
+    blocker.close();
+
+    expect(() => store.commitRoutedMessage('eng', {
+      message: {
+        author: owner.id,
+        kind: 'chat',
+        body: '@alpha @beta atomic root',
+      },
+      plan: (message) => ({
+        fanout: [],
+        collaboration: {
+          groupId: 'atomic-group',
+          participants: [
+            { memberId: alpha.id, payloadSnapshot: `alpha sees #${message.id}` },
+            { memberId: beta.id, payloadSnapshot: `beta sees #${message.id}` },
+          ],
+        },
+      }),
+    })).toThrow('injected atomic group failure');
+    expect(store.listMessages('eng')).toEqual([]);
+    expect(store.getCollaborationGroup('eng', 'atomic-group')).toBeUndefined();
+    expect(store.listDeliveries('eng')).toEqual([]);
+  });
+});
+// harn:end eligible-multi-agent-routing-starts-one-group
+
+// harn:assume collaboration-round-release-is-one-barrier ref=collaboration-round-release-store-regression
+describe('collaboration round release transaction', () => {
+  const seed = (groupId: string) => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: `${groupId}-alpha`, display_name: 'Alpha', state: 'idle',
+    });
+    const beta = store.addMember('eng', {
+      kind: 'agent', handle: `${groupId}-beta`, display_name: 'Beta', state: 'idle',
+    });
+    const root = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: `@${alpha.handle} @${beta.handle} release`,
+    });
+    const round = store.createCollaborationGroup('eng', {
+      groupId,
+      rootMessageId: root.id,
+      participants: [
+        { memberId: alpha.id, payloadSnapshot: 'alpha round one' },
+        { memberId: beta.id, payloadSnapshot: 'beta round one' },
+      ],
+    });
+    return { alpha, beta, root, round };
+  };
+
+  it('stays pending until every slot is terminal, then releases only once', () => {
+    const seeded = seed('release-group');
+    expect(store.releaseCollaborationRound('eng', {
+      groupId: 'release-group',
+      roundNumber: 1,
+      releasedTs: '2026-07-14T13:00:00.000Z',
+      nextParticipants: [{ memberId: seeded.alpha.id, payloadSnapshot: 'round two' }],
+    })).toMatchObject({ status: 'pending', deliveries: [] });
+
+    for (const participant of seeded.round.participants) {
+      store.updateCollaborationParticipant(
+        'eng',
+        'release-group',
+        1,
+        participant.member_id,
+        {
+          terminal_status: 'completed',
+          result_message_id: seeded.root.id,
+          completed_ts: '2026-07-14T12:59:00.000Z',
+        },
+      );
+    }
+    const released = store.releaseCollaborationRound('eng', {
+      groupId: 'release-group',
+      roundNumber: 1,
+      releasedTs: '2026-07-14T13:00:00.000Z',
+      nextParticipants: [{ memberId: seeded.alpha.id, payloadSnapshot: 'round two' }],
+    });
+    expect(released).toMatchObject({ status: 'released' });
+    expect(released.deliveries).toHaveLength(1);
+    expect(store.getCollaborationRound('eng', 'release-group', 1)?.state).toBe('released');
+
+    const duplicate = store.releaseCollaborationRound('eng', {
+      groupId: 'release-group',
+      roundNumber: 1,
+      releasedTs: '2026-07-14T13:01:00.000Z',
+      nextParticipants: [{ memberId: seeded.alpha.id, payloadSnapshot: 'round two' }],
+    });
+    expect(duplicate).toMatchObject({ status: 'already_released', deliveries: [] });
+    expect(store.listDeliveries('eng')).toHaveLength(3);
+  });
+
+  it('closes the round and group atomically when there is no next recipient', () => {
+    const seeded = seed('closed-group');
+    for (const participant of seeded.round.participants) {
+      store.updateCollaborationParticipant('eng', 'closed-group', 1, participant.member_id, {
+        terminal_status: 'completed',
+        result_message_id: seeded.root.id,
+        completed_ts: '2026-07-14T13:10:00.000Z',
+      });
+    }
+    expect(store.releaseCollaborationRound('eng', {
+      groupId: 'closed-group',
+      roundNumber: 1,
+      releasedTs: '2026-07-14T13:11:00.000Z',
+      nextParticipants: [],
+    })).toMatchObject({ status: 'closed', deliveries: [] });
+    expect(store.getCollaborationRound('eng', 'closed-group', 1)?.state).toBe('closed');
+    expect(store.getCollaborationGroup('eng', 'closed-group')).toMatchObject({
+      state: 'completed', completed_ts: '2026-07-14T13:11:00.000Z',
+    });
+  });
+});
+// harn:end collaboration-round-release-is-one-barrier
+
+// harn:assume open-collaboration-groups-reconcile-without-resurrection ref=collaboration-reconciliation-regression
+describe('atomic collaboration participant skipping', () => {
+  it('rolls back delivery consumption when the skipped-slot update fails', () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'skip-alpha', display_name: 'Alpha', state: 'dead',
+    });
+    const beta = store.addMember('eng', {
+      kind: 'agent', handle: 'skip-beta', display_name: 'Beta', state: 'idle',
+    });
+    const root = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '@skip-alpha @skip-beta skip',
+    });
+    const round = store.createCollaborationGroup('eng', {
+      groupId: 'skip-group',
+      rootMessageId: root.id,
+      participants: [
+        { memberId: alpha.id, payloadSnapshot: 'alpha' },
+        { memberId: beta.id, payloadSnapshot: 'beta' },
+      ],
+    });
+    const alphaDelivery = round.deliveries[0]!;
+    const blocker = new Database(join(dir, 'test.sqlite'));
+    blocker.exec(`CREATE TRIGGER reject_skipped_participant
+      BEFORE UPDATE OF terminal_status ON collaboration_participants
+      WHEN NEW.delivery_id = '${alphaDelivery.id}'
+      BEGIN SELECT RAISE(ABORT, 'injected skipped-slot failure'); END`);
+    blocker.close();
+
+    expect(() => store.skipCollaborationParticipant(
+      'eng', alphaDelivery.id, '2026-07-14T13:20:00.000Z',
+    )).toThrow('injected skipped-slot failure');
+    expect(store.getDelivery('eng', alphaDelivery.id)?.state).toBe('queued');
+    expect(store.findCollaborationParticipantByDelivery('eng', alphaDelivery.id)?.terminal_status)
+      .toBeUndefined();
+  });
+});
+// harn:end open-collaboration-groups-reconcile-without-resurrection

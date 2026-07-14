@@ -1,0 +1,15 @@
+id: same-round-terminal-peers-end-live-waits
+hash: a-da4a6d297b16
+title: Terminal same-round peers end a live wait as control flow
+state: active
+statement: A live wait registered by a grouped participant must remember its
+  exact group and round transiently, and must clear with an emitted non-waiting
+  member frame once every named peer has a terminal slot in that same round;
+  peers outside the round retain timeout behavior, the clear creates no message
+  or delivery and does not terminate the waiter, and codor post --wait exits
+  successfully with peer finished; no direct reply instead of waiting for its
+  deadline.
+depends_on:
+  - collaboration-round-release-is-one-barrier
+  - live-agent-waits-are-transient
+created_by: cc2b-group-round-engine

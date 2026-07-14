@@ -37,6 +37,7 @@ import {
   type CollaborationRoundParticipantInput,
   type CollaborationRoundProjection,
   CollaborationRoundSchema,
+  type CollaborationTerminalStatus,
 } from './collaboration.js';
 
 // harn:assume run-blobs-off-db ref=store-schema-no-blobs
@@ -741,14 +742,38 @@ export interface AtomicTurnCompletion {
   member: Member;
   meter: RoomMeter;
   deliveries: Delivery[];
+  collaboration?: CollaborationRoundProjection;
 }
 
 export interface AtomicMirroredTurn {
   message: Message;
   deliveries: Delivery[];
   member?: Member;
+  collaboration?: CollaborationRoundProjection;
   deduped: boolean;
 }
+
+export interface RoutedMessagePlan {
+  fanout: FanoutDelivery[];
+  collaboration?: {
+    groupId?: string;
+    participants: CollaborationRoundParticipantInput[];
+  };
+  markMisaddressed?: boolean;
+}
+
+export interface AtomicRoutedMessage {
+  message: Message;
+  deliveries: Delivery[];
+  member?: Member;
+  collaboration?: CollaborationRoundProjection;
+}
+
+export type CollaborationRoundRelease = {
+  status: 'pending' | 'released' | 'closed' | 'already_released';
+  deliveries: Delivery[];
+  projection?: CollaborationRoundProjection;
+};
 
 export interface DeliveryAttemptProcess {
   pid?: number;
@@ -1083,6 +1108,7 @@ export class Store {
       finalize(placeholder: Message): {
         message: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run'>>;
         fanout: FanoutDelivery[];
+        collaboration?: RoutedMessagePlan['collaboration'];
         markMisaddressed?: boolean;
       };
     },
@@ -1112,8 +1138,16 @@ export class Store {
         payload_snapshot: delivery.payload_snapshot,
         hop_count: delivery.hop_count,
       }));
+      const collaboration = finalized.collaboration === undefined
+        ? undefined
+        : this.createCollaborationGroup(room, {
+            groupId: finalized.collaboration.groupId,
+            rootMessageId: message.id,
+            participants: finalized.collaboration.participants,
+          });
+      if (collaboration) deliveries.push(...collaboration.deliveries);
       this.recordMirroredTurn(room, opts.memberId, opts.nativeTurnId, message.id);
-      return { message, deliveries, member, deduped: false };
+      return { message, deliveries, member, collaboration, deduped: false };
     })();
   }
   // harn:end mirrored-turn-commit-transactional
@@ -1254,13 +1288,48 @@ export class Store {
   }
   // harn:end message-id-txn-allocation
 
+  // harn:assume eligible-multi-agent-routing-starts-one-group ref=atomic-routed-message-commit
+  commitRoutedMessage(
+    room: string,
+    opts: {
+      message: NewMessage;
+      plan(message: Message): RoutedMessagePlan;
+    },
+  ): AtomicRoutedMessage {
+    return this.db.transaction(() => {
+      const message = this.postMessage(room, opts.message);
+      const plan = opts.plan(message);
+      const member = plan.markMisaddressed
+        ? this.updateMember(room, message.author, { misaddressed: true })
+        : undefined;
+      const deliveries = plan.fanout.map((delivery) => this.createDelivery(room, {
+        message_id: message.id,
+        recipient: delivery.recipient,
+        state: delivery.state,
+        payload_snapshot: delivery.payload_snapshot,
+        hop_count: delivery.hop_count,
+      }));
+      const collaboration = plan.collaboration === undefined
+        ? undefined
+        : this.createCollaborationGroup(room, {
+            groupId: plan.collaboration.groupId,
+            rootMessageId: message.id,
+            participants: plan.collaboration.participants,
+          });
+      if (collaboration) deliveries.push(...collaboration.deliveries);
+      return { message, deliveries, member, collaboration };
+    })();
+  }
+  // harn:end eligible-multi-agent-routing-starts-one-group
+
   postBridgeMessage(
     room: string,
     bridgeMemberId: string,
     body: string,
     origin: BridgeOrigin,
     parsed: Pick<Message, 'mentions' | 'refs' | 'ledger_refs'>,
-  ): { message: Message; deduped: boolean } {
+    plan?: (message: Message) => RoutedMessagePlan,
+  ): AtomicRoutedMessage & { deduped: boolean } {
     const member = this.getMember(room, bridgeMemberId);
     if (member?.kind !== 'bridge') throw new Error(`no such bridge member: ${bridgeMemberId}`);
     const validOrigin = BridgeOriginSchema.parse(origin);
@@ -1272,15 +1341,40 @@ export class Store {
            AND json_extract(origin, '$.external_id') = ?
          LIMIT 1`,
       ).get(room, bridgeMemberId, validOrigin.platform, validOrigin.external_id) as MessageRow | undefined;
-      if (existing) return { message: messageFromRow(existing), deduped: true };
+      if (existing) {
+        return { message: messageFromRow(existing), deliveries: [], deduped: true };
+      }
+      const message = this.postMessage(room, {
+        author: bridgeMemberId,
+        kind: 'chat',
+        body,
+        ...parsed,
+        origin: validOrigin,
+      });
+      const routed = plan?.(message);
+      const memberPatch = routed?.markMisaddressed
+        ? this.updateMember(room, bridgeMemberId, { misaddressed: true })
+        : undefined;
+      const deliveries = (routed?.fanout ?? []).map((delivery) => this.createDelivery(room, {
+        message_id: message.id,
+        recipient: delivery.recipient,
+        state: delivery.state,
+        payload_snapshot: delivery.payload_snapshot,
+        hop_count: delivery.hop_count,
+      }));
+      const collaboration = routed?.collaboration === undefined
+        ? undefined
+        : this.createCollaborationGroup(room, {
+            groupId: routed.collaboration.groupId,
+            rootMessageId: message.id,
+            participants: routed.collaboration.participants,
+          });
+      if (collaboration) deliveries.push(...collaboration.deliveries);
       return {
-        message: this.postMessage(room, {
-          author: bridgeMemberId,
-          kind: 'chat',
-          body,
-          ...parsed,
-          origin: validOrigin,
-        }),
+        message,
+        deliveries,
+        member: memberPatch,
+        collaboration,
         deduped: false,
       };
     })();
@@ -1753,6 +1847,12 @@ export class Store {
         uncosted_tokens?: number;
       };
       fanout: FanoutDelivery[];
+      participantTerminal?: {
+        deliveryId: string;
+        status: Exclude<CollaborationTerminalStatus, 'skipped'>;
+        completedTs: string;
+      };
+      collaboration?: RoutedMessagePlan['collaboration'];
     },
   ): AtomicTurnCompletion {
     return this.db.transaction(() => {
@@ -1771,7 +1871,23 @@ export class Store {
           hop_count: delivery.hop_count,
         }),
       );
-      return { message, member, meter, deliveries };
+      if (opts.participantTerminal !== undefined) {
+        this.recordCollaborationParticipantTerminal(room, {
+          deliveryId: opts.participantTerminal.deliveryId,
+          status: opts.participantTerminal.status,
+          resultMessageId: message.id,
+          completedTs: opts.participantTerminal.completedTs,
+        });
+      }
+      const collaboration = opts.collaboration === undefined
+        ? undefined
+        : this.createCollaborationGroup(room, {
+            groupId: opts.collaboration.groupId,
+            rootMessageId: message.id,
+            participants: opts.collaboration.participants,
+          });
+      if (collaboration) deliveries.push(...collaboration.deliveries);
+      return { message, member, meter, deliveries, collaboration };
     })();
   }
   // harn:end turn-finalization-transactional
@@ -1940,6 +2056,157 @@ export class Store {
     );
     return merged;
   }
+
+  // harn:assume group-participant-terminality-commits-with-the-turn ref=collaboration-turn-finalization
+  recordCollaborationParticipantTerminal(
+    room: string,
+    opts: {
+      deliveryId: string;
+      status: Exclude<CollaborationTerminalStatus, 'skipped'>;
+      resultMessageId: number;
+      completedTs: string;
+    },
+  ): CollaborationParticipant {
+    const participant = this.findCollaborationParticipantByDelivery(room, opts.deliveryId);
+    if (!participant) throw new Error(`delivery ${opts.deliveryId} is not a collaboration participant`);
+    if (participant.terminal_status !== undefined) {
+      if (
+        participant.terminal_status !== opts.status ||
+        participant.result_message_id !== opts.resultMessageId
+      ) {
+        throw new Error(`collaboration participant ${opts.deliveryId} already has a different result`);
+      }
+      return participant;
+    }
+    return this.updateCollaborationParticipant(
+      room,
+      participant.group_id,
+      participant.round_number,
+      participant.member_id,
+      {
+        terminal_status: opts.status,
+        result_message_id: opts.resultMessageId,
+        completed_ts: opts.completedTs,
+      },
+    );
+  }
+
+  recoverCollaborationParticipantTerminal(
+    room: string,
+    opts: {
+      deliveryId: string;
+      status: Exclude<CollaborationTerminalStatus, 'skipped'>;
+      resultMessageId: number;
+      completedTs: string;
+    },
+  ): { delivery: Delivery; participant: CollaborationParticipant } {
+    return this.db.transaction(() => {
+      const delivery = this.getDelivery(room, opts.deliveryId);
+      if (!delivery) throw new Error(`no such delivery: ${opts.deliveryId}`);
+      const consumed = delivery.state === 'consumed'
+        ? delivery
+        : this.updateDelivery(room, delivery.id, { state: 'consumed' });
+      const participant = this.recordCollaborationParticipantTerminal(room, opts);
+      return { delivery: consumed, participant };
+    })();
+  }
+  // harn:end group-participant-terminality-commits-with-the-turn
+
+  // harn:assume open-collaboration-groups-reconcile-without-resurrection ref=collaboration-member-skip-transaction
+  skipCollaborationParticipant(
+    room: string,
+    deliveryId: string,
+    completedTs: string,
+  ): { delivery: Delivery; participant: CollaborationParticipant } {
+    return this.db.transaction(() => {
+      const participant = this.findCollaborationParticipantByDelivery(room, deliveryId);
+      if (!participant) throw new Error(`delivery ${deliveryId} is not a collaboration participant`);
+      const delivery = this.getDelivery(room, deliveryId);
+      if (!delivery) throw new Error(`no such delivery: ${deliveryId}`);
+      if (participant.terminal_status !== undefined) return { delivery, participant };
+      if (
+        (delivery.state !== 'queued' && delivery.state !== 'held' && delivery.state !== 'consumed') ||
+        delivery.run_msg_id !== undefined
+      ) {
+        throw new Error(`collaboration delivery ${deliveryId} already started`);
+      }
+      const consumed = delivery.state === 'consumed'
+        ? delivery
+        : this.updateDelivery(room, deliveryId, { state: 'consumed' });
+      const skipped = this.updateCollaborationParticipant(
+        room,
+        participant.group_id,
+        participant.round_number,
+        participant.member_id,
+        { terminal_status: 'skipped', completed_ts: completedTs },
+      );
+      return { delivery: consumed, participant: skipped };
+    })();
+  }
+  // harn:end open-collaboration-groups-reconcile-without-resurrection
+
+  // harn:assume collaboration-round-release-is-one-barrier ref=collaboration-round-release-transaction
+  releaseCollaborationRound(
+    room: string,
+    opts: {
+      groupId: string;
+      roundNumber: number;
+      releasedTs: string;
+      nextParticipants: CollaborationRoundParticipantInput[];
+    },
+  ): CollaborationRoundRelease {
+    return this.db.transaction((): CollaborationRoundRelease => {
+      const projection = this.getCollaborationRoundProjection(
+        room,
+        opts.groupId,
+        opts.roundNumber,
+      );
+      if (!projection) {
+        throw new Error(`no such collaboration round: ${opts.groupId}/${opts.roundNumber}`);
+      }
+      if (projection.round.state !== 'collecting') {
+        return { status: 'already_released', deliveries: [], projection };
+      }
+      if (projection.participants.some((participant) => participant.terminal_status === undefined)) {
+        return { status: 'pending', deliveries: [], projection };
+      }
+      if (opts.nextParticipants.length === 0) {
+        this.updateCollaborationRound(room, opts.groupId, opts.roundNumber, {
+          state: 'closed',
+          released_ts: opts.releasedTs,
+        });
+        this.updateCollaborationGroup(room, opts.groupId, {
+          state: 'completed',
+          completed_ts: opts.releasedTs,
+        });
+        return {
+          status: 'closed',
+          deliveries: [],
+          projection: this.getCollaborationRoundProjection(
+            room,
+            opts.groupId,
+            opts.roundNumber,
+          )!,
+        };
+      }
+
+      this.assertCollaborationParticipantInputShape(opts.nextParticipants, 1);
+      this.assertActiveAgentParticipants(room, opts.nextParticipants);
+      const next = this.materializeCollaborationRound(
+        room,
+        projection.group,
+        opts.roundNumber + 1,
+        opts.releasedTs,
+        opts.nextParticipants,
+      );
+      this.updateCollaborationRound(room, opts.groupId, opts.roundNumber, {
+        state: 'released',
+        released_ts: opts.releasedTs,
+      });
+      return { status: 'released', deliveries: next.deliveries, projection: next };
+    })();
+  }
+  // harn:end collaboration-round-release-is-one-barrier
 
   // harn:assume group-round-creation-is-atomic-and-idempotent ref=collaboration-round-materialization
   private assertCollaborationParticipantInputShape(
