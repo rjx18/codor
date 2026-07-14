@@ -1,0 +1,90 @@
+id: cc3b-acceptance-release
+title: Pin collaboration acceptance edges before release review
+assumptions:
+  create:
+    - id: group-generated-deliveries-obey-existing-brakes
+      title: Generated group rounds obey existing delivery brakes
+      statement: A delivery materialized for a later collaboration round must pass the
+        same current turn and spend brake evaluation as ordinary generated agent
+        work, remain durably held without starting or completing its participant
+        slot when a configured brake trips, and resume exactly once through the
+        ordinary release operation.
+      reason: Barrier release must not bypass the operator's existing paid-turn
+        checkpoints merely because the next delivery was group-generated.
+      depends_on:
+        - collaboration-round-release-is-one-barrier
+        - agent-chains-uninterrupted-by-default
+        - brakes-rechecked-at-turn-start
+    - id: interim-group-replies-end-waits-without-advancing-the-barrier
+      title: Interim group replies end waits without advancing the barrier
+      statement: When one running group participant answers another through an interim
+        codor post, the addressed waiter may consume that ordinary reply and end
+        its wait immediately, but the post must not mark either group
+        participant terminal, release the collecting round, or replace either
+        participant's later authoritative final result.
+      reason: Immediate in-round coordination and durable next-round final-result
+        routing are separate paths and must not accidentally collapse into one.
+      depends_on:
+        - interim-agent-posts-are-nonfinal-routing
+        - same-round-terminal-peers-end-live-waits
+        - collaboration-round-release-is-one-barrier
+        - live-delivery-consumption-is-idempotent
+  reviewed:
+    - id: collaboration-round-release-is-one-barrier
+      outcome: unchanged
+      reason: Acceptance adds evidence that only terminal final results release a
+        round and generated deliveries retain their ordinary queued lifecycle.
+    - id: agent-chains-uninterrupted-by-default
+      outcome: unchanged
+      reason: Default-off behavior is untouched while an explicitly configured spend
+        brake is exercised against a generated second round.
+    - id: brakes-rechecked-at-turn-start
+      outcome: unchanged
+      reason: The new group fixture reaches the existing dispatch and admission checks
+        rather than adding a group-specific brake path.
+    - id: same-round-terminal-peers-end-live-waits
+      outcome: unchanged
+      reason: Terminal-peer control wake-up remains distinct from a direct interim
+        reply, which the client-style fixture consumes and ends normally.
+    - id: fake-adapter-drives-live-collaboration
+      outcome: unchanged
+      reason: The deterministic fake wait handler now mirrors CLI consumption of a
+        matching queued reply while preserving its scripted post/wait
+        vocabulary.
+    - id: interim-agent-posts-are-nonfinal-routing
+      outcome: unchanged
+      reason: Interim answers remain ordinary chat and do not finalize or advance
+        either grouped participant.
+    - id: live-delivery-consumption-is-idempotent
+      outcome: unchanged
+      reason: The fake client consumes only the matching queued delivery through the
+        existing authenticated-recipient operation.
+anchors:
+  group-generated-deliveries-obey-existing-brakes:
+    group-generated-brake-regression:
+      action: change
+      reason: Prove a spend-braked round-two delivery stays held and resumes exactly
+        once without prematurely completing the group.
+  interim-group-replies-end-waits-without-advancing-the-barrier:
+    fake-direct-reply-wait-consumption:
+      action: change
+      reason: Make the FakeAdapter integration handler emulate the CLI's matching
+        delivery consumption and explicit wait end.
+    interim-group-reply-regression:
+      action: change
+      reason: Prove the waiter resumes before the peer finalizes while the durable
+        round remains collecting and unreleased.
+  same-round-terminal-peers-end-live-waits:
+    collaboration-wait-release-regression:
+      action: change
+      reason: Add the complementary direct-interim-reply path beside terminal-peer
+        control wake-up and out-of-round timeout coverage.
+  fake-adapter-drives-live-collaboration:
+    fake-live-wait-consumption:
+      action: change
+      reason: Consume and end a scripted wait only for a queued direct reply from a
+        named peer, matching codor post --wait behavior.
+files:
+  - packages/switchboard/src/daemon.spec.ts
+applied:
+  applied_at: 2026-07-14T13:42:45.944Z

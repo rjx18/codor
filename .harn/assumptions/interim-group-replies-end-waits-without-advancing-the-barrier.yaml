@@ -1,0 +1,15 @@
+id: interim-group-replies-end-waits-without-advancing-the-barrier
+hash: a-f49db34c5876
+title: Interim group replies end waits without advancing the barrier
+state: active
+statement: When one running group participant answers another through an interim
+  codor post, the addressed waiter may consume that ordinary reply and end its
+  wait immediately, but the post must not mark either group participant
+  terminal, release the collecting round, or replace either participant's later
+  authoritative final result.
+depends_on:
+  - interim-agent-posts-are-nonfinal-routing
+  - same-round-terminal-peers-end-live-waits
+  - collaboration-round-release-is-one-barrier
+  - live-delivery-consumption-is-idempotent
+created_by: cc3b-acceptance-release

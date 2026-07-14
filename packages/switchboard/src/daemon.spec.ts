@@ -57,9 +57,26 @@ beforeEach(() => {
       until_ts: new Date(Date.now() + Math.max(60_000, step.duration_ms + 1_000)).toISOString(),
     });
     const deadline = Date.now() + step.duration_ms;
+    // harn:assume fake-adapter-drives-live-collaboration ref=fake-live-wait-consumption
+    // harn:assume interim-group-replies-end-waits-without-advancing-the-barrier ref=fake-direct-reply-wait-consumption
     while (Date.now() < deadline && daemon.memberStatus(room, memberId).member.waiting !== undefined) {
+      const directReply = daemon.store.listDeliveries(room, {
+        recipient: memberId,
+        state: 'queued',
+      }).find((delivery) => {
+        const message = daemon.store.getMessage(room, delivery.message_id);
+        return message !== undefined && peers.includes(message.author) &&
+          message.mentions.some((mention) => mention.member_id === memberId);
+      });
+      if (directReply) {
+        daemon.consumeDelivery(room, directReply.id, memberId);
+        daemon.endWait(room, memberId);
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
+    // harn:end interim-group-replies-end-waits-without-advancing-the-barrier
+    // harn:end fake-adapter-drives-live-collaboration
     if (
       daemon.store.getMember(room, memberId)?.state === 'running' &&
       daemon.memberStatus(room, memberId).member.waiting !== undefined
@@ -3228,6 +3245,44 @@ describe('barriered collaboration rounds', () => {
 // harn:end group-participant-terminality-commits-with-the-turn
 // harn:end collaboration-round-release-is-one-barrier
 
+// harn:assume group-generated-deliveries-obey-existing-brakes ref=group-generated-brake-regression
+describe('collaboration delivery brakes', () => {
+  it('holds a generated second round at the spend brake and releases it exactly once', async () => {
+    const alpha = spawnAgent('brake-alpha');
+    const beta = spawnAgent('brake-beta');
+    const gamma = spawnAgent('brake-gamma');
+    daemon.configureRoom('eng', { spend_brake_usd: 0.01 });
+    fake.enqueue(
+      { kind: 'complete', final_text: '@brake-gamma inspect the combined result' },
+      { kind: 'complete', final_text: 'beta result without another recipient' },
+    );
+
+    const root = daemon.postHumanMessage('eng', '@brake-alpha @brake-beta compare under brake');
+    await daemon.settle();
+
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    const held = daemon.store.listDeliveries('eng', { recipient: gamma.id, state: 'held' });
+    expect(held).toHaveLength(1);
+    expect(held[0]).toMatchObject({ group_id: group.id, group_round: 2, hop_count: 1 });
+    expect(fake.deliveries).toHaveLength(2);
+    expect(group.state).toBe('open');
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('released');
+    expect(daemon.store.getCollaborationRound('eng', group.id, 2)?.state).toBe('collecting');
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 2)[0]?.terminal_status)
+      .toBeUndefined();
+
+    fake.enqueue({ kind: 'complete', final_text: 'gamma finished after release' });
+    daemon.releaseHold('eng', held[0]!.id);
+    await daemon.settle();
+
+    expect(fake.deliveries).toHaveLength(3);
+    expect(daemon.store.getDelivery('eng', held[0]!.id)?.state).toBe('consumed');
+    expect(daemon.store.getCollaborationGroup('eng', group.id)?.state).toBe('completed');
+    expect(daemon.store.getCollaborationRound('eng', group.id, 2)?.state).toBe('closed');
+  });
+});
+// harn:end group-generated-deliveries-obey-existing-brakes
+
 // harn:assume eligible-multi-agent-routing-starts-one-group ref=multi-agent-group-regression
 // harn:assume interim-agent-posts-are-nonfinal-routing ref=interim-post-regression
 describe('collaboration ingress boundaries', () => {
@@ -3515,6 +3570,64 @@ describe('group wait wake-up', () => {
     expect(daemon.sync('eng', 0).members.find((member) => member.id === alpha.id))
       .not.toHaveProperty('waiting');
   });
+
+  // harn:assume interim-group-replies-end-waits-without-advancing-the-barrier ref=interim-group-reply-regression
+  it('consumes an interim peer answer immediately without advancing the collecting round', async () => {
+    const alpha = spawnAgent('interim-wait-alpha');
+    const beta = spawnAgent('interim-wait-beta');
+    fake.enqueue(
+      {
+        kind: 'complete',
+        final_text: 'alpha authoritative final after the interim answer',
+        steps: [{
+          kind: 'wait',
+          reason: 'reply',
+          peers: ['interim-wait-beta'],
+          duration_ms: 1_000,
+        }],
+      },
+      {
+        kind: 'complete',
+        final_text: 'beta authoritative final after its interim answer',
+        steps: [{
+          kind: 'interim_post',
+          body: '@interim-wait-alpha immediate in-round answer',
+        }],
+        delay_ms: 200,
+      },
+    );
+
+    const root = daemon.postHumanMessage(
+      'eng',
+      '@interim-wait-alpha @interim-wait-beta coordinate with an immediate answer',
+    );
+    const interim = await until(() => daemon.store.listMessages('eng', { limit: 100 })
+      .find((message) => message.kind === 'chat' && message.body.includes('immediate in-round')));
+    await until(() => {
+      const alphaRun = runMessages().find((message) => message.author === alpha.id);
+      const betaRun = runMessages().find((message) => message.author === beta.id);
+      return alphaRun?.run?.status === 'completed' && betaRun?.run?.status === 'running'
+        ? true
+        : undefined;
+    });
+
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    const roundOne = daemon.store.listCollaborationParticipants('eng', group.id, 1);
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('collecting');
+    expect(roundOne.find((participant) => participant.member_id === alpha.id)?.terminal_status)
+      .toBe('completed');
+    expect(roundOne.find((participant) => participant.member_id === beta.id)?.terminal_status)
+      .toBeUndefined();
+    expect(daemon.store.listCollaborationRounds('eng', group.id)).toHaveLength(1);
+    expect(daemon.memberStatus('eng', alpha.id).member).not.toHaveProperty('waiting');
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id })
+      .find((delivery) => delivery.message_id === interim.id)?.state).toBe('consumed');
+
+    await daemon.settle();
+    expect(daemon.store.getCollaborationGroup('eng', group.id)?.state).toBe('completed');
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('closed');
+  });
+  // harn:end interim-group-replies-end-waits-without-advancing-the-barrier
 });
 // harn:end same-round-terminal-peers-end-live-waits
 

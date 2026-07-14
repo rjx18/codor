@@ -1,0 +1,14 @@
+id: group-generated-deliveries-obey-existing-brakes
+hash: a-9f95e165af86
+title: Generated group rounds obey existing delivery brakes
+state: active
+statement: A delivery materialized for a later collaboration round must pass the
+  same current turn and spend brake evaluation as ordinary generated agent work,
+  remain durably held without starting or completing its participant slot when a
+  configured brake trips, and resume exactly once through the ordinary release
+  operation.
+depends_on:
+  - collaboration-round-release-is-one-barrier
+  - agent-chains-uninterrupted-by-default
+  - brakes-rechecked-at-turn-start
+created_by: cc3b-acceptance-release
