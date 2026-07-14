@@ -3000,6 +3000,9 @@ describe('durable ephemeral approval answers', () => {
     });
     expect(targetDeliveries.map((delivery) => daemon.store.getDelivery('eng', delivery.id)?.read_ts)
       .every((readTs) => readTs !== undefined)).toBe(true);
+    expect(targetDeliveries.map(
+      (delivery) => daemon.store.getDelivery('eng', delivery.id)?.interaction_resolved_ts,
+    ).every((resolvedTs) => resolvedTs !== undefined)).toBe(true);
     expect(frames.filter(({ frame }) => frame.type === 'inbox'
       && frame.delivery.message_id === interaction.message_id)
       .map(({ frame }) => frame.type === 'inbox' ? frame.delivery.read_ts : undefined))
@@ -3034,9 +3037,43 @@ describe('durable ephemeral approval answers', () => {
     expect(daemon.store.getInteraction(interaction.id)).toMatchObject({ state: 'answered' });
     expect(deliveries.map((delivery) => daemon.store.getDelivery('eng', delivery.id)?.read_ts)
       .every((readTs) => readTs !== undefined)).toBe(true);
+    expect(deliveries.map(
+      (delivery) => daemon.store.getDelivery('eng', delivery.id)?.interaction_resolved_ts,
+    ).every((resolvedTs) => resolvedTs !== undefined)).toBe(true);
     expect(daemon.store.listMessages('eng', { limit: 100 })
       .some((message) => message.reply_to === interaction.message_id)).toBe(false);
   });
+
+  // harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-daemon-regression
+  it('keeps a notification-read approval unresolved and answerable', async () => {
+    const { interaction } = await raise('approval', 'Approve after opening the notification?');
+    const owner = daemon.ownerOf('eng');
+    const delivery = daemon.store.listDeliveries('eng', { recipient: owner.id })
+      .find((candidate) => candidate.message_id === interaction.message_id)!;
+
+    const read = daemon.markRead('eng', delivery.id, owner.id);
+
+    expect(read.read_ts).toBeDefined();
+    expect(read.interaction_resolved_ts).toBeUndefined();
+    expect(daemon.store.getInteraction(interaction.id)).toMatchObject({ state: 'pending' });
+  });
+
+  it('resolves target deliveries when an unanswered approval becomes orphaned', async () => {
+    const { alpha, interaction } = await raise('approval', 'Approve before the agent is killed?');
+    const deliveries = daemon.store.listDeliveries('eng')
+      .filter((delivery) => delivery.message_id === interaction.message_id);
+    frames = [];
+
+    daemon.killMember('eng', alpha.id);
+
+    expect(daemon.store.getInteraction(interaction.id)).toMatchObject({ state: 'orphaned' });
+    expect(deliveries.map((delivery) => daemon.store.getDelivery('eng', delivery.id))
+      .every((delivery) => delivery?.read_ts !== undefined
+        && delivery.interaction_resolved_ts !== undefined)).toBe(true);
+    expect(frames.filter(({ frame }) => frame.type === 'inbox'
+      && frame.delivery.message_id === interaction.message_id)).toHaveLength(deliveries.length);
+  });
+  // harn:end approval-deliveries-project-resolution-separately
 });
 // harn:end approval-answer-is-atomic-and-chatless
 
@@ -3065,6 +3102,9 @@ describe('answered approval restart recovery', () => {
     const oldDeliveries = daemon.store.listDeliveries('eng')
       .filter((delivery) => delivery.message_id === old.message_id);
     expect(oldDeliveries.every((delivery) => delivery.read_ts !== undefined)).toBe(true);
+    expect(oldDeliveries.every(
+      (delivery) => delivery.interaction_resolved_ts !== undefined,
+    )).toBe(true);
 
     await daemon.close({ force: true });
     daemon = newDaemon();
@@ -3077,9 +3117,13 @@ describe('answered approval restart recovery', () => {
     expect(fresh.id).not.toBe(old.id);
     expect(oldDeliveries.map((delivery) => daemon.store.getDelivery('eng', delivery.id)?.read_ts)
       .every((readTs) => readTs !== undefined)).toBe(true);
+    expect(oldDeliveries.map(
+      (delivery) => daemon.store.getDelivery('eng', delivery.id)?.interaction_resolved_ts,
+    ).every((resolvedTs) => resolvedTs !== undefined)).toBe(true);
     expect(daemon.store.listDeliveries('eng')
       .filter((delivery) => delivery.message_id === fresh.message_id)
-      .every((delivery) => delivery.read_ts === undefined)).toBe(true);
+      .every((delivery) => delivery.read_ts === undefined
+        && delivery.interaction_resolved_ts === undefined)).toBe(true);
   });
 });
 // harn:end approval-answer-is-atomic-and-chatless

@@ -1,0 +1,11 @@
+id: room-action-errors-are-visible
+hash: a-bbb014cd9610
+title: Failed room actions are visible and recoverable
+state: active
+statement: A server error frame received by the room client must appear in a
+  dismissible in-room alert, and approval controls that are still mounted must
+  leave their in-flight disabled state when a later error frame arrives, so an
+  acknowledgement failure or rejected answer is never silent.
+depends_on:
+  - client-syncs-by-seq
+created_by: cc1-review-fix-v2

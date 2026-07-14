@@ -1538,15 +1538,15 @@ async function loadCompleteHistory(page: Page, seeded: HistorySeed): Promise<voi
 }
 // harn:end history-cursor-tracks-only-the-contiguous-tail
 
-// harn:assume approval-cards-follow-authoritative-inbox ref=approval-two-browser-regression
+// harn:assume approval-cards-follow-durable-resolution ref=approval-two-browser-regression
 interface InteractionEvidence {
   interaction: { state: string; answer?: unknown };
-  deliveries: Array<{ read_ts?: string }>;
+  deliveries: Array<{ id: string; read_ts?: string; interaction_resolved_ts?: string }>;
   audit_replies: Array<{ id: number }>;
   respond_calls: Array<{ interaction_id: string; answer: unknown }>;
 }
 
-test('an approval answer disappears durably from two connected browsers', async ({ page, request }) => {
+test('notification attention keeps an approval until its answer resolves every browser', async ({ page, request }) => {
   const room = `approval-sync-${String(Date.now())}`;
   const created = await request.post('/api/rooms', {
     headers: { authorization: 'Bearer e2e-token' },
@@ -1589,6 +1589,27 @@ test('an approval answer disappears durably from two connected browsers', async 
     await expect(page.getByTestId('inbox-badge')).toContainText('1');
     await expect(peer.getByTestId('inbox-badge')).toContainText('1');
 
+    const pendingEvidence = await control<InteractionEvidence>('/interaction-state', {
+      room,
+      message_id: id,
+    });
+    const delivery = pendingEvidence.deliveries[0]!;
+    await peer.goto(
+      `/?room=${room}&token=e2e-token&notification_action=mark_read&msg_id=${String(id)}` +
+      `&delivery_id=${encodeURIComponent(delivery.id)}#${String(id)}`,
+    );
+    await expect(peer.getByTestId('connection')).toHaveAttribute('title', 'connected');
+    await expect(peer.getByTestId(`card-${String(id)}`)).toBeVisible();
+    await expect(peer.getByTestId('inbox-badge')).toContainText('1');
+    await expect.poll(async () => {
+      const evidence = await control<InteractionEvidence>('/interaction-state', {
+        room,
+        message_id: id,
+      });
+      const current = evidence.deliveries[0];
+      return [current?.read_ts !== undefined, current?.interaction_resolved_ts !== undefined];
+    }).toEqual([true, false]);
+
     await allow.click();
     await expect(page.getByTestId(`card-${String(id)}`)).toHaveCount(0);
     await expect(peer.getByTestId(`card-${String(id)}`)).toHaveCount(0);
@@ -1603,10 +1624,63 @@ test('an approval answer disappears durably from two connected browsers', async 
     expect(evidence.interaction).toMatchObject({ state: 'acked', answer: 'Allow once' });
     expect(evidence.deliveries.length).toBeGreaterThan(0);
     expect(evidence.deliveries.every((delivery) => delivery.read_ts !== undefined)).toBe(true);
+    expect(evidence.deliveries.every(
+      (item) => item.interaction_resolved_ts !== undefined,
+    )).toBe(true);
     expect(evidence.audit_replies).toEqual([]);
     expect(evidence.respond_calls).toHaveLength(1);
   } finally {
     await peer.close();
   }
 });
-// harn:end approval-cards-follow-authoritative-inbox
+// harn:end approval-cards-follow-durable-resolution
+
+// harn:assume room-action-errors-are-visible ref=approval-error-browser-regression
+test('an approval acknowledgement failure is visible after durable resolution', async ({ page, request }) => {
+  const room = `approval-error-${String(Date.now())}`;
+  const created = await request.post('/api/rooms', {
+    headers: { authorization: 'Bearer e2e-token' },
+    data: {
+      id: room,
+      name: 'Approval error',
+      cwd: process.cwd(),
+      owner: { handle: 'richard', display_name: 'Richard' },
+      starting_agent: { harness: 'fake', handle: 'error-reviewer' },
+    },
+  });
+  expect(created.ok()).toBe(true);
+  await page.goto(`/?room=${room}&token=e2e-token`);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await control('/enqueue', {
+    turns: [{
+      kind: 'ask',
+      cardKind: 'approval',
+      prompt: 'Run the failing command?',
+      options: ['Allow once', 'Deny'],
+      failResponse: 'stream closed before approval acknowledgement',
+    }],
+  });
+  await page.getByTestId('composer-input').fill('@error-reviewer run it');
+  await page.getByTestId('composer-send').click();
+
+  const allow = page.locator('[data-testid$="-option-Allow once"]').first();
+  await expect(allow).toBeVisible();
+  const card = allow.locator('xpath=ancestor::*[contains(@class, "wr-ask-card")]').first();
+  const id = Number(await card.getAttribute('id'));
+  await allow.click();
+
+  await expect(page.getByTestId(`card-${String(id)}`)).toHaveCount(0);
+  await expect(page.getByTestId('room-action-error'))
+    .toContainText('stream closed before approval acknowledgement');
+  const evidence = await control<InteractionEvidence>('/interaction-state', {
+    room,
+    message_id: id,
+  });
+  expect(evidence.interaction).toMatchObject({ state: 'answered', answer: 'Allow once' });
+  expect(evidence.deliveries.every((item) => item.read_ts !== undefined
+    && item.interaction_resolved_ts !== undefined)).toBe(true);
+  expect(evidence.audit_replies).toEqual([]);
+  await page.getByRole('button', { name: 'Dismiss error' }).click();
+  await expect(page.getByTestId('room-action-error')).toHaveCount(0);
+});
+// harn:end room-action-errors-are-visible

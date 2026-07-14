@@ -86,6 +86,7 @@ export function App(props: {
   const [contextView, setContextView] = useState<'members' | 'run'>('members');
   const [selectedRunId, setSelectedRunId] = useState<number>();
   const [selectedRunEventIndex, setSelectedRunEventIndex] = useState<number>();
+  const [dismissedErrorCount, setDismissedErrorCount] = useState(0);
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const contextCloseRef = useRef<HTMLButtonElement>(null);
 
@@ -342,7 +343,8 @@ export function App(props: {
   const pending = useMemo(() => pendingInteractions(state), [state]);
   const pendingIds = useMemo(() => new Set(pending.map((message) => message.id)), [pending]);
   const actionableApprovalIds = useMemo(() => new Set(Object.values(state.inbox)
-    .filter((delivery) => delivery.state === 'consumed' && delivery.read_ts === undefined)
+    .filter((delivery) => delivery.state === 'consumed'
+      && delivery.interaction_resolved_ts === undefined)
     .map((delivery) => delivery.message_id)), [state.inbox]);
   const inboxItems = useMemo<InboxItem[]>(() => {
     const now = Date.now();
@@ -368,6 +370,13 @@ export function App(props: {
     document.getElementById(String(id))?.scrollIntoView({ block: 'center' });
   };
   // harn:end the-inbox-opens-what-needs-you
+
+  // harn:assume room-action-errors-are-visible ref=room-action-error-surface
+  useEffect(() => {
+    if (state.errors.length < dismissedErrorCount) setDismissedErrorCount(0);
+  }, [dismissedErrorCount, state.errors.length]);
+  const actionError = state.errors.length > dismissedErrorCount ? state.errors.at(-1) : undefined;
+  // harn:end room-action-errors-are-visible
 
   const roomItems = useMemo(
     () => rooms.length > 0 ? rooms : state.room ? [state.room] : [],
@@ -516,6 +525,21 @@ export function App(props: {
             />
           )}
           {state.room?.config.bridged && <BridgedRoomBanner />}
+          {/* harn:assume room-action-errors-are-visible ref=room-action-error-surface */}
+          {actionError && (
+            <div data-testid="room-action-error" className="wr-action-error" role="alert">
+              <span>{actionError}</span>
+              <button
+                type="button"
+                title="Dismiss error"
+                aria-label="Dismiss error"
+                onClick={() => setDismissedErrorCount(state.errors.length)}
+              >
+                <X aria-hidden="true" size={16} />
+              </button>
+            </div>
+          )}
+          {/* harn:end room-action-errors-are-visible */}
           {!state.connected && (
             <div role="status" data-testid="offline-banner" className="wr-offline-banner">
               Offline · channel history stays on your device
@@ -696,7 +720,7 @@ export function App(props: {
                 );
               }
               if (message.kind === 'ask' || message.kind === 'approval') {
-                // harn:assume approval-cards-follow-authoritative-inbox ref=actionable-approval-app
+                // harn:assume approval-cards-follow-durable-resolution ref=actionable-approval-app
                 if (message.kind === 'approval' && !actionableApprovalIds.has(message.id)) return null;
                 return (
                   <AskCardView
@@ -711,7 +735,7 @@ export function App(props: {
                         delivery.message_id === message.id && delivery.recipient === self.id))}
                   />
                 );
-                // harn:end approval-cards-follow-authoritative-inbox
+                // harn:end approval-cards-follow-durable-resolution
               }
               return (
                 <MessageRow

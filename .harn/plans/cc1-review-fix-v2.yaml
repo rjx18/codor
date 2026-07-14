@@ -1,0 +1,270 @@
+id: cc1-review-fix-v2
+title: Separate approval resolution from inbox attention and surface answer errors
+assumptions:
+  create:
+    - id: approval-deliveries-project-resolution-separately
+      title: Approval resolution is distinct from inbox attention
+      statement: Human approval deliveries must project durable interaction resolution
+        through an optional interaction_resolved_ts that is independent of
+        read_ts; answering or orphaning an approval must stamp and read every
+        target-human delivery in the same transaction, startup migration must
+        backfill resolved legacy approvals from persisted interaction state, and
+        the hot mutation path must query only deliveries for that card, so
+        opening a notification can record attention without resolving or hiding
+        work.
+      reason: CC1 review found that read_ts was overloaded as both an attention marker
+        and approval lifecycle state, resurrecting legacy approvals and allowing
+        notification navigation to hide a still-pending request.
+      depends_on:
+        - approval-answer-is-atomic-and-chatless
+        - interaction-state-machine-persisted
+        - changelog-covers-every-visible-entity
+    - id: approval-cards-follow-durable-resolution
+      title: Approval cards follow durable resolution, not read state
+      statement: The web must treat an approval as actionable while its addressed
+        consumed delivery has no interaction_resolved_ts regardless of read_ts,
+        pin any still-unresolved target approval through initial history
+        trimming, disable controls only during an answer request, and remove the
+        card after committed resolution frames arrive, while questions retain
+        reply-based answered history and badge and panel remain one
+        recipient-scoped selector.
+      reason: A pending approval remains work even after its push notification is
+        opened, while an answered or orphaned approval must disappear across all
+        connected browsers without relying on a visible audit reply.
+      depends_on:
+        - approval-deliveries-project-resolution-separately
+        - interaction-cards-stay-readable-on-phone
+        - the-inbox-badge-and-panel-are-one-truth
+        - client-syncs-by-seq
+    - id: room-action-errors-are-visible
+      title: Failed room actions are visible and recoverable
+      statement: A server error frame received by the room client must appear in a
+        dismissible in-room alert, and approval controls that are still mounted
+        must leave their in-flight disabled state when a later error frame
+        arrives, so an acknowledgement failure or rejected answer is never
+        silent.
+      reason: CC1 review found that acknowledgement failures were stored only in
+        state.errors, which the room did not render, while the submitting card
+        could remain locally disabled after a rejected action.
+      depends_on:
+        - client-syncs-by-seq
+  retire:
+    - id: approval-cards-follow-authoritative-inbox
+      reason: Its lifecycle rule incorrectly equates delivery read_ts with approval
+        resolution; replacements preserve authoritative cross-browser
+        convergence while separating durable resolution from notification
+        attention.
+  reviewed:
+    - id: approval-answer-is-atomic-and-chatless
+      outcome: unchanged
+      reason: Answers still persist interaction state and target-human reads before
+        adapter acknowledgement with no approval reply chat; the added
+        resolution projection is committed in that same transaction.
+    - id: interaction-state-machine-persisted
+      outcome: unchanged
+      reason: Pending, answered, acked, and orphaned remain the durable source used to
+        migrate and maintain the additive delivery projection.
+    - id: interaction-cards-stay-readable-on-phone
+      outcome: unchanged
+      reason: Phone geometry, wrapped detail, and tap targets remain unchanged while
+        pending notification-opened approvals stay available to answer.
+    - id: the-inbox-badge-and-panel-are-one-truth
+      outcome: unchanged
+      reason: Badge and panel still share pendingInteractions; only the approval
+        resolution predicate changes from read_ts to interaction_resolved_ts.
+    - id: the-inbox-opens-what-needs-you
+      outcome: unchanged
+      reason: The panel continues to reveal the exact recipient-scoped pending card
+        selected by the shared lifecycle predicate.
+    - id: history-cursor-tracks-only-the-contiguous-tail
+      outcome: unchanged
+      reason: The independent contiguous cursor remains unchanged while unresolved
+        approval pinning adopts the corrected durable predicate.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: The additive delivery field arrives through existing sequenced inbox
+        frames and initial hydration before sync_complete.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: Resolution stamps use updateDelivery inside the existing transaction, so
+        every visible delivery mutation appends its inbox change before commit.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: Reconnect hydration already returns the final delivery projection and
+        deduplicates by entity id before committing its cursor.
+    - id: push-decrypts-on-device-only
+      outcome: unchanged
+      reason: Push encryption, preview, and navigation remain unchanged; mark_read now
+        records attention without serving as approval resolution.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: The deliveries schema gains one nullable lifecycle projection beside
+        existing columns; attach lease storage and child-process custody are
+        unchanged.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: The room error surface and approval predicate do not alter message ids,
+        hashes, history retrieval, or reveal navigation.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: The error bar uses existing semantic surface and danger tokens and
+        remains readable in the established light, dark, and contrast modes.
+anchors:
+  approval-cards-follow-authoritative-inbox:
+    actionable-approval-selector:
+      action: remove
+      reason: Replace the read_ts lifecycle predicate with durable resolution.
+    actionable-approval-state-regression:
+      action: remove
+      reason: Replace tests that incorrectly expected read attention to hide work.
+    actionable-approval-app:
+      action: remove
+      reason: Move timeline actionability to the corrected projection.
+    approval-answer-inflight:
+      action: remove
+      reason: Re-anchor request disabling under the corrected lifecycle rule.
+    approval-answer-component-regression:
+      action: remove
+      reason: Re-anchor and add error recovery coverage.
+    approval-browser-harness:
+      action: remove
+      reason: Re-anchor browser evidence with resolution and failure controls.
+    approval-two-browser-regression:
+      action: remove
+      reason: Re-anchor and add notification-read coverage.
+  approval-deliveries-project-resolution-separately:
+    approval-delivery-resolution-schema:
+      action: change
+      reason: Add the optional interaction_resolved_ts delivery projection.
+    approval-delivery-resolution-protocol-regression:
+      action: change
+      reason: Prove the additive delivery field parses while old payloads remain valid.
+    approval-resolution-migration:
+      action: change
+      reason: Add the column and idempotently backfill nonpending legacy approvals.
+    approval-resolution-store:
+      action: change
+      reason: Stamp only target-human deliveries for the card inside answer and orphan
+        transactions.
+    approval-resolution-store-regression:
+      action: change
+      reason: Reopen a pre-column database and prove backfill, idempotence, atomic
+        writes, and bounded targets.
+    approval-resolution-orphan-daemon:
+      action: change
+      reason: Emit committed resolution inbox frames whenever production recovery
+        orphans an approval.
+    approval-resolution-daemon-regression:
+      action: change
+      reason: Prove mark_read does not resolve a pending approval and orphaning does.
+  approval-cards-follow-durable-resolution:
+    actionable-approval-selector:
+      action: change
+      reason: Select addressed unresolved approvals independently of read_ts.
+    actionable-approval-state-regression:
+      action: change
+      reason: Cover unread, notification-read, resolved, foreign-recipient, question,
+        and trim cases.
+    actionable-approval-app:
+      action: change
+      reason: Render timeline approval cards from any unresolved target projection.
+    approval-answer-inflight:
+      action: change
+      reason: Retain immediate request disabling without inferring durable completion.
+    approval-answer-component-regression:
+      action: change
+      reason: Preserve in-flight behavior while covering recovery after an error frame.
+    approval-browser-harness:
+      action: change
+      reason: Expose resolution evidence and deterministic adapter acknowledgement
+        failure.
+    approval-two-browser-regression:
+      action: change
+      reason: Prove notification attention keeps the card and a later answer removes
+        it everywhere.
+  room-action-errors-are-visible:
+    room-action-error-surface:
+      action: change
+      reason: Render the latest room error as a dismissible accessible alert.
+    room-action-error-style:
+      action: change
+      reason: Keep the alert readable and its icon control stable on desktop and phone.
+    approval-answer-error-reset:
+      action: change
+      reason: Re-enable a still-mounted card when its submitted action receives an
+        error.
+    approval-error-browser-harness:
+      action: change
+      reason: Let the fixture fail a single adapter acknowledgement without live
+        providers.
+    approval-error-browser-regression:
+      action: change
+      reason: Prove the durable card removal is accompanied by a visible failure alert.
+  approval-answer-is-atomic-and-chatless:
+    approval-answer-transaction:
+      action: change
+      reason: Commit resolution stamps alongside the answer and target reads with a
+        bounded query.
+    approval-answer-store-regression:
+      action: change
+      reason: Extend success and rollback assertions to the resolution field.
+    approval-answer-daemon:
+      action: change
+      reason: Emit the complete committed delivery projection before acknowledgement.
+    approval-answer-daemon-regression:
+      action: change
+      reason: Extend answer and failure evidence to the resolution stamp.
+    approval-answer-recovery-regression:
+      action: change
+      reason: Prove restart orphaning retains the resolved old card projection.
+  the-inbox-badge-and-panel-are-one-truth:
+    pending-survives-history-trim:
+      action: change
+      reason: Pin approvals from unresolved delivery state regardless of read
+        attention.
+    pending-interactions-selector:
+      action: change
+      reason: Keep badge and panel shared while correcting approval lifecycle state.
+  the-inbox-opens-what-needs-you:
+    inbox-panel:
+      action: change
+      reason: Share the corrected pending id set with timeline rendering.
+  history-cursor-tracks-only-the-contiguous-tail:
+    contiguous-history-state:
+      action: change
+      reason: Preserve unresolved approvals beside the unchanged contiguous tail.
+  client-syncs-by-seq:
+    store-upsert-in-place:
+      action: change
+      reason: Hydrate and upsert the additive delivery projection before selection.
+  attach-custody-lease-tracks-child-pid:
+    attach-lease-store:
+      action: change
+      reason: The outer schema anchor contains the additive delivery column; attach
+        lease behavior is unchanged.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: The outer App anchor contains the error state and approval rendering
+        changes without changing permalinks.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: The outer theme anchor contains the semantic error-bar styles.
+files:
+  - packages/protocol/src/delivery.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web/src/state.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/App.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/harness.mjs
+  - packages/web/tests/e2e.spec.ts
+applied:
+  applied_at: 2026-07-14T12:10:17.832Z

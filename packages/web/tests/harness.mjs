@@ -169,6 +169,9 @@ createServer(async (req, res) => {
             },
             reply: (answer) => `${turn.replyPrefix ?? ''}${String(answer)}`,
           });
+          // harn:assume room-action-errors-are-visible ref=approval-error-browser-harness
+          if (turn.failResponse !== undefined) fake.failNextResponse(turn.failResponse);
+          // harn:end room-action-errors-are-visible
         } else {
           fake.enqueue(turn);
         }
@@ -324,7 +327,7 @@ createServer(async (req, res) => {
         message_id: posted.message.id,
       }));
       return;
-    // harn:assume approval-cards-follow-authoritative-inbox ref=approval-browser-harness
+    // harn:assume approval-cards-follow-durable-resolution ref=approval-browser-harness
     } else if (url.pathname === '/interaction-state') {
       const room = body.room ?? 'eng';
       const interaction = daemon.store.listInteractions(room)
@@ -341,7 +344,7 @@ createServer(async (req, res) => {
         respond_calls: fake.respondCalls.filter((call) => call.interaction_id === interaction.native_id),
       }));
       return;
-    // harn:end approval-cards-follow-authoritative-inbox
+    // harn:end approval-cards-follow-durable-resolution
     } else if (url.pathname === '/ledger-direct') {
       const name = body.name ?? 'risk-limits';
       writeFileSync(

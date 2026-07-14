@@ -379,10 +379,20 @@ describe('what needs the operator', () => {
     expect(pendingInteractions(base([ask(1)], 'someone-else'))).toEqual([]);
   });
 
-  it('does not list an approval whose addressed delivery is durably read', () => {
-    const answered = { ...base([ask(1)]) };
-    answered.inbox['d-1'] = { message_id: 1, recipient: 'me', state: 'consumed', read_ts: TS } as never;
-    expect(pendingInteractions(answered)).toEqual([]);
+  it('keeps a read approval pending until its interaction is durably resolved', () => {
+    const pending = { ...base([ask(1)]) };
+    pending.inbox['d-1'] = {
+      message_id: 1, recipient: 'me', state: 'consumed', read_ts: TS,
+    } as never;
+    expect(pendingInteractions(pending).map((message) => message.id)).toEqual([1]);
+    pending.inbox['d-1'] = {
+      message_id: 1,
+      recipient: 'me',
+      state: 'consumed',
+      read_ts: TS,
+      interaction_resolved_ts: TS,
+    } as never;
+    expect(pendingInteractions(pending)).toEqual([]);
   });
 });
 
@@ -403,7 +413,11 @@ describe('history trim', () => {
     for (let id = 2; id <= HISTORY_PAGE_SIZE + 10; id++) {
       messages[id] = message({ id, seq: id });
     }
-    useRoomStore.setState({ messages: messages as never, inbox: { d1: { message_id: 1, recipient: 'me', state: 'consumed' } as never }, seq: 0 });
+    useRoomStore.setState({
+      messages: messages as never,
+      inbox: { d1: { message_id: 1, recipient: 'me', state: 'consumed', read_ts: TS } as never },
+      seq: 0,
+    });
 
     applyFrame({ type: 'sync_complete', seq: HISTORY_PAGE_SIZE + 20 } as never);
 
@@ -471,8 +485,8 @@ describe('contiguous history cursor', () => {
 });
 // harn:end history-cursor-tracks-only-the-contiguous-tail
 
-// harn:assume approval-cards-follow-authoritative-inbox ref=actionable-approval-state-regression
-describe('authoritative approval visibility', () => {
+// harn:assume approval-cards-follow-durable-resolution ref=actionable-approval-state-regression
+describe('durable approval visibility', () => {
   const human = { id: 'me', kind: 'human', handle: 'richard' } as never;
   const interaction = (id: number, kind: 'ask' | 'approval'): Message => ({
     ...message({ id, seq: id }),
@@ -486,10 +500,14 @@ describe('authoritative approval visibility', () => {
     selfMemberId: 'me',
   });
 
-  it('keeps an approval actionable only while its addressed consumed delivery is unread', () => {
+  it('keeps an approval actionable until resolution regardless of read attention', () => {
     const approval = interaction(10, 'approval');
     expect(pendingInteractions(stateFor(approval, {})).map((item) => item.id)).toEqual([10]);
-    expect(pendingInteractions(stateFor(approval, { read_ts: TS }))).toEqual([]);
+    expect(pendingInteractions(stateFor(approval, { read_ts: TS })).map((item) => item.id)).toEqual([10]);
+    expect(pendingInteractions(stateFor(approval, {
+      read_ts: TS,
+      interaction_resolved_ts: TS,
+    }))).toEqual([]);
     expect(pendingInteractions({
       ...stateFor(approval, {}),
       inbox: { delivery: { message_id: 10, recipient: 'someone-else', state: 'consumed' } as never },
@@ -503,4 +521,4 @@ describe('authoritative approval visibility', () => {
     expect(pendingInteractions(stateFor(question, {}, [reply]))).toEqual([]);
   });
 });
-// harn:end approval-cards-follow-authoritative-inbox
+// harn:end approval-cards-follow-durable-resolution

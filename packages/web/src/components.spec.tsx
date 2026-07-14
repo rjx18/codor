@@ -26,6 +26,7 @@ import {
   availableAgentHandle,
   defaultSpawnCwd,
 } from './components.js';
+import { useRoomStore } from './state.js';
 import type { Connection } from './ws.js';
 
 const ULID_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
@@ -868,9 +869,9 @@ describe('removing an agent', () => {
 });
 // harn:end removing-an-agent-is-one-deliberate-step
 
-// harn:assume approval-cards-follow-authoritative-inbox ref=approval-answer-component-regression
+// harn:assume approval-cards-follow-durable-resolution ref=approval-answer-component-regression
 describe('approval answer in flight', () => {
-  it('disables controls without declaring the approval durably answered', async () => {
+  it('disables controls without declaring the approval durably answered and recovers on error', async () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const container = document.createElement('div');
     const root = createRoot(container);
@@ -904,10 +905,18 @@ describe('approval answer in flight', () => {
       });
       expect([...container.querySelectorAll('button')].every((button) => button.disabled)).toBe(true);
       expect(container.querySelector('[data-testid="card-91-answered"]')).toBeNull();
+
+      // harn:assume room-action-errors-are-visible ref=approval-answer-error-reset
+      await act(async () => useRoomStore.getState().applyFrame({
+        type: 'error', message: 'Error: approval acknowledgement failed', ref: 'answer_interaction',
+      }));
+      expect([...container.querySelectorAll('button')].every((button) => !button.disabled)).toBe(true);
+      // harn:end room-action-errors-are-visible
     } finally {
       await act(async () => root.unmount());
+      useRoomStore.getState().reset();
       (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
     }
   });
 });
-// harn:end approval-cards-follow-authoritative-inbox
+// harn:end approval-cards-follow-durable-resolution

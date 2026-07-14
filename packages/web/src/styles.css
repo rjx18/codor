@@ -609,6 +609,39 @@ button:disabled {
   box-shadow: inset 3px 0 var(--wr-amber);
 }
 
+/* harn:assume room-action-errors-are-visible ref=room-action-error-style */
+.wr-action-error {
+  z-index: 3;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 12px 6px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--wr-danger, #b3403a) 38%, transparent);
+  background: color-mix(in srgb, var(--wr-danger, #b3403a) 8%, var(--wr-surface));
+  color: var(--wr-danger, #b3403a);
+  font-size: 12px;
+}
+
+.wr-action-error span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wr-action-error button {
+  display: inline-grid;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: currentColor;
+}
+/* harn:end room-action-errors-are-visible */
+
 .wr-hold-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;

@@ -1220,7 +1220,7 @@ export class Daemon {
         interaction.member_id === memberId &&
         (interaction.state === 'pending' || interaction.state === 'answered')
       ) {
-        this.store.upsertInteraction({ ...interaction, state: 'orphaned' });
+        this.orphanInteraction(room, interaction);
       }
     }
     this.memberWaits.delete(memberId);
@@ -2237,6 +2237,18 @@ export class Daemon {
 
   // ── interactions (PROTOCOL §2 state machine) ──────────────────────────
 
+  // harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-orphan-daemon
+  private orphanInteraction(room: string, interaction: PendingInteraction): PendingInteraction {
+    const orphaned = this.store.orphanInteraction(
+      room,
+      interaction.id,
+      new Date().toISOString(),
+    );
+    for (const delivery of orphaned.deliveries) this.emitInbox(room, delivery);
+    return orphaned.interaction;
+  }
+  // harn:end approval-deliveries-project-resolution-separately
+
   private handleInteractionRaised(room: string, member: Member, card: AskCard, kind: 'ask' | 'approval'): void {
     const key = interactionKey(kind, card);
     const open = this.store
@@ -2256,7 +2268,7 @@ export class Daemon {
           void this.deliverAnswer(room, updated).catch(() => undefined);
         } else {
           // NEVER auto-resend an approval: orphan it and raise a fresh card.
-          this.store.upsertInteraction({ ...updated, state: 'orphaned' });
+          this.orphanInteraction(room, updated);
           this.postSystemMessage(
             room,
             `approval card #${updated.message_id} expired (answered before a restart; approvals are never auto-resent)`,
@@ -2565,7 +2577,7 @@ export class Daemon {
     for (const interaction of this.store.listInteractions(room)) {
       if (interaction.member_id !== memberId) continue;
       if (interaction.state !== 'pending' && interaction.state !== 'answered') continue;
-      this.store.upsertInteraction({ ...interaction, state: 'orphaned' });
+      this.orphanInteraction(room, interaction);
       this.postSystemMessage(
         room,
         `${interaction.kind} card #${interaction.message_id} expired (could not be re-correlated after restart) — redeliver to retry`,

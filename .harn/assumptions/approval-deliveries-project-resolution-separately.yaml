@@ -1,0 +1,16 @@
+id: approval-deliveries-project-resolution-separately
+hash: a-07aeae2a9a2a
+title: Approval resolution is distinct from inbox attention
+state: active
+statement: Human approval deliveries must project durable interaction resolution
+  through an optional interaction_resolved_ts that is independent of read_ts;
+  answering or orphaning an approval must stamp and read every target-human
+  delivery in the same transaction, startup migration must backfill resolved
+  legacy approvals from persisted interaction state, and the hot mutation path
+  must query only deliveries for that card, so opening a notification can record
+  attention without resolving or hiding work.
+depends_on:
+  - approval-answer-is-atomic-and-chatless
+  - interaction-state-machine-persisted
+  - changelog-covers-every-visible-entity
+created_by: cc1-review-fix-v2

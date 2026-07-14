@@ -320,6 +320,22 @@ describe('deliveries', () => {
       DeliverySchema.parse({ ...base, state: 'consumed', read_ts: TS }).read_ts,
     ).toBe(TS);
   });
+
+  // harn:assume approval-deliveries-project-resolution-separately ref=approval-delivery-resolution-protocol-regression
+  it('projects interaction resolution independently while remaining additive', () => {
+    expect(DeliverySchema.parse({ ...base, state: 'consumed' }).interaction_resolved_ts)
+      .toBeUndefined();
+    expect(DeliverySchema.parse({
+      ...base,
+      state: 'consumed',
+      read_ts: '2026-07-10T06:00:00.000Z',
+      interaction_resolved_ts: TS,
+    })).toMatchObject({
+      read_ts: '2026-07-10T06:00:00.000Z',
+      interaction_resolved_ts: TS,
+    });
+  });
+  // harn:end approval-deliveries-project-resolution-separately
 });
 
 describe('change log', () => {

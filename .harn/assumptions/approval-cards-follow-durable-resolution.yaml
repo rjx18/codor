@@ -1,0 +1,16 @@
+id: approval-cards-follow-durable-resolution
+hash: a-8d795ff0438a
+title: Approval cards follow durable resolution, not read state
+state: active
+statement: The web must treat an approval as actionable while its addressed
+  consumed delivery has no interaction_resolved_ts regardless of read_ts, pin
+  any still-unresolved target approval through initial history trimming, disable
+  controls only during an answer request, and remove the card after committed
+  resolution frames arrive, while questions retain reply-based answered history
+  and badge and panel remain one recipient-scoped selector.
+depends_on:
+  - approval-deliveries-project-resolution-separately
+  - interaction-cards-stay-readable-on-phone
+  - the-inbox-badge-and-panel-are-one-truth
+  - client-syncs-by-seq
+created_by: cc1-review-fix-v2

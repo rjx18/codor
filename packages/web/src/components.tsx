@@ -1488,8 +1488,19 @@ export function AskCardView(props: {
   canAnswer?: boolean;
 }) {
   const ask = props.message.ask!;
-  // harn:assume approval-cards-follow-authoritative-inbox ref=approval-answer-inflight
+  // harn:assume approval-cards-follow-durable-resolution ref=approval-answer-inflight
   const [inFlight, setInFlight] = useState(false);
+  // harn:assume room-action-errors-are-visible ref=approval-answer-error-reset
+  const errorCount = useRoomStore((state) => state.errors.length);
+  const submittedAtErrorCount = useRef<number>();
+  useEffect(() => {
+    if (inFlight && submittedAtErrorCount.current !== undefined
+      && errorCount > submittedAtErrorCount.current) {
+      submittedAtErrorCount.current = undefined;
+      setInFlight(false);
+    }
+  }, [errorCount, inFlight]);
+  // harn:end room-action-errors-are-visible
   const done = props.answered;
   const approval = ask.kind === 'approval';
   return (
@@ -1537,6 +1548,7 @@ export function AskCardView(props: {
             title={option.description}
             aria-describedby={descriptionId}
             onClick={() => {
+              submittedAtErrorCount.current = errorCount;
               setInFlight(true);
               props.connection.act({
                 act: 'answer_interaction',
@@ -1558,7 +1570,7 @@ export function AskCardView(props: {
       {done && <p data-testid={`card-${props.message.id}-answered`} className="wr-ask-answered">answered</p>}
     </div>
   );
-  // harn:end approval-cards-follow-authoritative-inbox
+  // harn:end approval-cards-follow-durable-resolution
 }
 // harn:end interaction-cards-stay-readable-on-phone
 

@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
   batch_id TEXT,
   run_msg_id INTEGER,
   read_ts TEXT,
+  interaction_resolved_ts TEXT,
   payload_snapshot TEXT,        -- immutable routed prompt context; never run events
   process_id INTEGER,            -- bounded attempt evidence, never run event payloads
   process_group_id INTEGER,
@@ -266,6 +267,62 @@ function migrateMessageAck(db: Database.Database): void {
   }
 }
 
+// harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-migration
+function migrateApprovalDeliveryResolution(db: Database.Database): void {
+  const columns = db.pragma('table_info(deliveries)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'interaction_resolved_ts')) {
+    db.exec('ALTER TABLE deliveries ADD COLUMN interaction_resolved_ts TEXT');
+  }
+  db.exec(`
+    UPDATE deliveries
+    SET interaction_resolved_ts = COALESCE(
+          interaction_resolved_ts,
+          (
+            SELECT interaction.answered_ts
+            FROM pending_interactions AS interaction
+            WHERE interaction.room = deliveries.room
+              AND interaction.message_id = deliveries.message_id
+              AND interaction.kind = 'approval'
+              AND interaction.state <> 'pending'
+            LIMIT 1
+          ),
+          read_ts,
+          ts
+        ),
+        read_ts = COALESCE(
+          read_ts,
+          (
+            SELECT interaction.answered_ts
+            FROM pending_interactions AS interaction
+            WHERE interaction.room = deliveries.room
+              AND interaction.message_id = deliveries.message_id
+              AND interaction.kind = 'approval'
+              AND interaction.state <> 'pending'
+            LIMIT 1
+          ),
+          ts
+        )
+    WHERE (interaction_resolved_ts IS NULL OR read_ts IS NULL)
+      AND EXISTS (
+        SELECT 1
+        FROM pending_interactions AS interaction
+        JOIN members AS recipient
+          ON recipient.room = interaction.room
+         AND recipient.id = deliveries.recipient
+         AND recipient.kind = 'human'
+        WHERE interaction.room = deliveries.room
+          AND interaction.message_id = deliveries.message_id
+          AND interaction.kind = 'approval'
+          AND interaction.state <> 'pending'
+          AND EXISTS (
+            SELECT 1 FROM json_each(interaction.targets) AS target
+            WHERE target.value = deliveries.recipient
+          )
+      )
+  `);
+}
+// harn:end approval-deliveries-project-resolution-separately
+
 function migrateDeliveryHopCount(db: Database.Database): void {
   const columns = db.pragma('table_info(deliveries)') as { name: string }[];
   if (!columns.some((column) => column.name === 'hop_count')) {
@@ -351,6 +408,7 @@ interface DeliveryRow {
   batch_id: string | null;
   run_msg_id: number | null;
   read_ts: string | null;
+  interaction_resolved_ts: string | null;
   payload_snapshot: string | null;
   process_id: number | null;
   process_group_id: number | null;
@@ -458,6 +516,7 @@ function deliveryFromRow(row: DeliveryRow): Delivery {
     batch_id: row.batch_id ?? undefined,
     run_msg_id: row.run_msg_id ?? undefined,
     read_ts: row.read_ts ?? undefined,
+    interaction_resolved_ts: row.interaction_resolved_ts ?? undefined,
     ts: row.ts,
   });
 }
@@ -592,6 +651,7 @@ export class Store {
     migrateMemberAgentConfig(this.db);
     migrateMemberCredential(this.db);
     migrateMessageAck(this.db);
+    migrateApprovalDeliveryResolution(this.db);
     migrateDeliveryHopCount(this.db);
     migrateMeterUncostedTokens(this.db);
     migrateBridgeOriginUniqueness(this.db);
@@ -1277,9 +1337,9 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO deliveries (id, room, message_id, recipient, state, attempt_count,
-             batch_id, run_msg_id, read_ts, payload_snapshot, process_id, process_group_id,
-             hop_count, queue_seq, ts)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             batch_id, run_msg_id, read_ts, interaction_resolved_ts, payload_snapshot,
+             process_id, process_group_id, hop_count, queue_seq, ts)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           validated.id,
@@ -1291,6 +1351,7 @@ export class Store {
           orNull(validated.batch_id),
           orNull(validated.run_msg_id),
           orNull(validated.read_ts),
+          orNull(validated.interaction_resolved_ts),
           orNull(delivery.payload_snapshot),
           null,
           null,
@@ -1310,7 +1371,8 @@ export class Store {
   updateDelivery(
     room: string,
     deliveryId: string,
-    patch: Partial<Pick<Delivery, 'state' | 'attempt_count' | 'batch_id' | 'run_msg_id' | 'read_ts'>>,
+    patch: Partial<Pick<Delivery,
+      'state' | 'attempt_count' | 'batch_id' | 'run_msg_id' | 'read_ts' | 'interaction_resolved_ts'>>,
   ): Delivery {
     return this.db.transaction(() => {
       const existing = this.getDelivery(room, deliveryId);
@@ -1319,7 +1381,7 @@ export class Store {
       this.db
         .prepare(
           `UPDATE deliveries SET state = ?, attempt_count = ?, batch_id = ?,
-             run_msg_id = ?, read_ts = ?
+             run_msg_id = ?, read_ts = ?, interaction_resolved_ts = ?
            WHERE room = ? AND id = ?`,
         )
         .run(
@@ -1328,6 +1390,7 @@ export class Store {
           orNull(merged.batch_id),
           orNull(merged.run_msg_id),
           orNull(merged.read_ts),
+          orNull(merged.interaction_resolved_ts),
           room,
           deliveryId,
         );
@@ -1628,6 +1691,54 @@ export class Store {
     return rows.map(interactionFromRow);
   }
 
+  // harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-store
+  private resolveApprovalDeliveries(
+    interaction: PendingInteraction,
+    resolvedTs: string,
+  ): Delivery[] {
+    const targets = new Set(interaction.targets);
+    const rows = this.db.prepare(
+      `SELECT deliveries.* FROM deliveries
+       JOIN members
+         ON members.room = deliveries.room
+        AND members.id = deliveries.recipient
+        AND members.kind = 'human'
+       WHERE deliveries.room = ? AND deliveries.message_id = ?
+       ORDER BY deliveries.queue_seq, deliveries.id`,
+    ).all(interaction.room, interaction.message_id) as DeliveryRow[];
+    return rows
+      .map(deliveryFromRow)
+      .filter((delivery) => targets.has(delivery.recipient))
+      .map((delivery) => (
+        delivery.read_ts !== undefined && delivery.interaction_resolved_ts !== undefined
+          ? delivery
+          : this.updateDelivery(interaction.room, delivery.id, {
+              read_ts: delivery.read_ts ?? resolvedTs,
+              interaction_resolved_ts: delivery.interaction_resolved_ts ?? resolvedTs,
+            })
+      ));
+  }
+
+  orphanInteraction(
+    room: string,
+    interactionId: string,
+    orphanedTs: string,
+  ): { interaction: PendingInteraction; deliveries: Delivery[] } {
+    return this.db.transaction(() => {
+      const existing = this.getInteraction(interactionId);
+      if (!existing || existing.room !== room) throw new Error(`no such interaction ${interactionId}`);
+      if (existing.state !== 'pending' && existing.state !== 'answered') {
+        throw new Error(`interaction ${interactionId} is ${existing.state}`);
+      }
+      const interaction = this.upsertInteraction({ ...existing, state: 'orphaned' });
+      const deliveries = interaction.kind === 'approval'
+        ? this.resolveApprovalDeliveries(interaction, orphanedTs)
+        : [];
+      return { interaction, deliveries };
+    })();
+  }
+  // harn:end approval-deliveries-project-resolution-separately
+
   // harn:assume approval-answer-is-atomic-and-chatless ref=approval-answer-transaction
   answerApproval(
     room: string,
@@ -1651,14 +1762,7 @@ export class Store {
         answered_by: answeredBy,
         answered_ts: answeredTs,
       });
-      const targets = new Set(existing.targets);
-      const deliveries = this.listDeliveries(room)
-        .filter((delivery) => delivery.message_id === existing.message_id)
-        .filter((delivery) => targets.has(delivery.recipient))
-        .filter((delivery) => this.getMember(room, delivery.recipient)?.kind === 'human')
-        .map((delivery) => delivery.read_ts === undefined
-          ? this.updateDelivery(room, delivery.id, { read_ts: answeredTs })
-          : delivery);
+      const deliveries = this.resolveApprovalDeliveries(interaction, answeredTs);
       return { interaction, deliveries };
     })();
   }

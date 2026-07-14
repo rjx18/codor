@@ -1038,6 +1038,9 @@ describe('atomic approval answers', () => {
     });
     expect(result.deliveries.map((delivery) => delivery.id)).toEqual(seeded.deliveries.map((item) => item.id));
     expect(result.deliveries.every((delivery) => delivery.read_ts === answeredTs)).toBe(true);
+    expect(result.deliveries.every(
+      (delivery) => delivery.interaction_resolved_ts === answeredTs,
+    )).toBe(true);
     expect(store.sync('eng', cursor).inbox).toEqual(result.deliveries);
   });
 
@@ -1056,6 +1059,99 @@ describe('atomic approval answers', () => {
     expect(store.getInteraction('approval-1')).toMatchObject({ state: 'pending' });
     expect(seeded.deliveries.map((delivery) => store.getDelivery('eng', delivery.id)?.read_ts))
       .toEqual([undefined, undefined]);
+    expect(seeded.deliveries.map(
+      (delivery) => store.getDelivery('eng', delivery.id)?.interaction_resolved_ts,
+    )).toEqual([undefined, undefined]);
   });
 });
 // harn:end approval-answer-is-atomic-and-chatless
+
+// harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-store-regression
+describe('approval delivery resolution migration', () => {
+  it('backfills a pre-column answered approval and remains idempotent on reopen', () => {
+    const { owner } = openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'legacy-approver', display_name: 'Legacy Approver', state: 'awaiting_input',
+    });
+    const card = store.postMessage('eng', {
+      author: agent.id,
+      kind: 'approval',
+      body: 'Allow legacy command?',
+      ask: {
+        interaction_id: 'legacy-native',
+        kind: 'approval',
+        prompt: 'Allow legacy command?',
+        options: [{ label: 'Allow once' }],
+      },
+    });
+    store.upsertInteraction({
+      id: 'legacy-approval', room: 'eng', member_id: agent.id, message_id: card.id,
+      native_id: 'legacy-native', kind: 'approval', targets: [owner.id], state: 'pending',
+    });
+    const delivery = store.createDelivery('eng', {
+      message_id: card.id, recipient: owner.id, state: 'consumed',
+    });
+    const answeredTs = '2026-07-14T09:30:00.000Z';
+    store.close();
+
+    const legacy = new Database(join(dir, 'test.sqlite'));
+    legacy.prepare(
+      `UPDATE pending_interactions
+       SET state = 'acked', answer = '"Allow once"', answered_by = ?, answered_ts = ?
+       WHERE id = 'legacy-approval'`,
+    ).run(owner.id, answeredTs);
+    legacy.prepare('UPDATE deliveries SET read_ts = NULL WHERE id = ?').run(delivery.id);
+    legacy.exec('ALTER TABLE deliveries DROP COLUMN interaction_resolved_ts');
+    legacy.close();
+
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getDelivery('eng', delivery.id)).toMatchObject({
+      read_ts: answeredTs,
+      interaction_resolved_ts: answeredTs,
+    });
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getDelivery('eng', delivery.id)).toMatchObject({
+      read_ts: answeredTs,
+      interaction_resolved_ts: answeredTs,
+    });
+  });
+
+  it('resolves only target humans on the approval card', () => {
+    const { owner } = openRoom(store);
+    const outsider = store.addMember('eng', {
+      kind: 'human', handle: 'outsider', display_name: 'Outsider', role: 'member',
+    });
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'targeted-approver', display_name: 'Targeted Approver', state: 'awaiting_input',
+    });
+    const card = store.postMessage('eng', {
+      author: agent.id,
+      kind: 'approval',
+      body: 'Allow targeted command?',
+      ask: { interaction_id: 'targeted-native', kind: 'approval', prompt: 'Allow targeted command?' },
+    });
+    store.upsertInteraction({
+      id: 'targeted-approval', room: 'eng', member_id: agent.id, message_id: card.id,
+      native_id: 'targeted-native', kind: 'approval', targets: [owner.id], state: 'pending',
+    });
+    const target = store.createDelivery('eng', {
+      message_id: card.id, recipient: owner.id, state: 'consumed',
+    });
+    const unrelated = store.createDelivery('eng', {
+      message_id: card.id, recipient: outsider.id, state: 'consumed',
+    });
+
+    const resolved = store.answerApproval(
+      'eng', 'targeted-approval', 'Allow once', owner.id, '2026-07-14T10:00:00.000Z',
+    );
+
+    expect(resolved.deliveries.map((item) => item.id)).toEqual([target.id]);
+    expect(store.getDelivery('eng', unrelated.id)).toMatchObject({
+      read_ts: undefined,
+      interaction_resolved_ts: undefined,
+    });
+  });
+});
+// harn:end approval-deliveries-project-resolution-separately
