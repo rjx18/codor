@@ -41,6 +41,21 @@ export const AssignableHandleSchema = HandleSchema.refine(
   (handle) => !(RESERVED_HANDLES as readonly string[]).includes(handle),
   { message: 'handle is reserved' },
 );
+
+// harn:assume starting-agent-name-derives-one-valid-identity ref=starting-agent-handle-derivation
+/** Derives the strict member handle shown beneath a friendly starting-agent name. */
+export function deriveAssignableHandle(name: string): string | undefined {
+  const ascii = name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const bounded = ascii.slice(0, 31).replace(/-+$/g, '');
+  const candidate = bounded.length >= 2 ? bounded : 'agent';
+  return AssignableHandleSchema.safeParse(candidate).success ? candidate : undefined;
+}
+// harn:end starting-agent-name-derives-one-valid-identity
 // harn:end reserved-handles-rejected
 
 export const MemberSchema = z

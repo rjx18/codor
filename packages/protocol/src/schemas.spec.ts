@@ -8,6 +8,7 @@ import {
   CommitPayloadSchema,
   CreateRoomRequestSchema,
   DeliverySchema,
+  deriveAssignableHandle,
   deriveRoomId,
   FileChangePayloadSchema,
   HandleSchema,
@@ -78,6 +79,19 @@ describe('handles', () => {
   it.each(['codex', 'red-team', 'a1', 'x'.repeat(31)])('accepts %s', (handle) => {
     expect(HandleSchema.safeParse(handle).success).toBe(true);
   });
+
+  // harn:assume starting-agent-name-derives-one-valid-identity ref=starting-agent-identity-regression
+  it('derives assignable handles from friendly starting-agent names', () => {
+    expect(deriveAssignableHandle('Review Lead')).toBe('review-lead');
+    expect(deriveAssignableHandle('  Release / QA !!! ')).toBe('release-qa');
+    expect(deriveAssignableHandle('Crème BRÛLÉE')).toBe('creme-brulee');
+    expect(deriveAssignableHandle('日本語')).toBe('agent');
+    expect(deriveAssignableHandle('A')).toBe('agent');
+    expect(deriveAssignableHandle('x'.repeat(80))).toBe('x'.repeat(31));
+    expect(deriveAssignableHandle('switchboard')).toBeUndefined();
+    expect(deriveAssignableHandle('ALL')).toBeUndefined();
+  });
+  // harn:end starting-agent-name-derives-one-valid-identity
 
   it.each([
     'Codex', // uppercase
@@ -367,9 +381,25 @@ describe('room config', () => {
       CreateRoomRequestSchema.parse({
         ...base,
         id: 'demo',
-        starting_agent: { harness: 'claude-code', handle: 'codor', model: 'haiku', thinking: 'high' },
+        starting_agent: {
+          harness: 'claude-code',
+          handle: 'review-lead',
+          display_name: 'Review Lead',
+          model: 'haiku',
+          thinking: 'high',
+        },
       }).starting_agent,
-    ).toEqual({ harness: 'claude-code', handle: 'codor', model: 'haiku', thinking: 'high' });
+    ).toEqual({
+      harness: 'claude-code',
+      handle: 'review-lead',
+      display_name: 'Review Lead',
+      model: 'haiku',
+      thinking: 'high',
+    });
+    expect(CreateRoomRequestSchema.parse({
+      ...base,
+      starting_agent: { harness: 'claude-code', handle: 'codor' },
+    }).starting_agent?.display_name).toBeUndefined();
     // harn:assume one-control-chooses-an-agent-everywhere ref=starting-agent-policy
     // The contract is where this actually bites: zod STRIPS a key the schema does not
     // declare, so before this field existed a create request carrying a policy lost it

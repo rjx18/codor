@@ -31,12 +31,32 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   await expect(page.getByTestId('create-room-model-custom-input')).toHaveCount(0);
   await expect(page.getByTestId('create-room-thinking-default')).toBeVisible();
   // harn:end agent-controls-shared-by-both-dialogs
-  await expect(page.getByTestId('create-room-agent-name')).toHaveValue('codor');
+  // harn:assume starting-agent-name-derives-one-valid-identity ref=starting-agent-browser-regression
+  await page.getByTestId('create-room-agent-name').fill('switchboard');
+  await expect(page.getByTestId('create-room-agent-handle')).toHaveCount(0);
+  await page.getByTestId('create-room-submit').click();
+  await expect(dialog.getByRole('alert')).toContainText('reserved agent handle');
+
+  await page.getByTestId('create-room-agent-name').fill('Richard');
+  await page.getByTestId('create-room-submit').click();
+  await expect(dialog.getByRole('alert')).toContainText('@richard is already in use');
+
+  await page.getByTestId('create-room-agent-name').fill('Review Lead');
+  await expect(page.getByTestId('create-room-agent-handle')).toHaveText('@review-lead');
   await page.getByTestId('create-room-submit').click();
 
   await expect(page).toHaveURL(/\?room=demo-site$/);
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
-  await expect(page.getByTestId('member-codor')).toBeVisible();
+  await expect(page.getByTestId('member-review-lead')).toBeVisible();
+  const detailResponse = await page.request.get('/api/rooms/demo-site/members', {
+    headers: { authorization: 'Bearer e2e-token' },
+  });
+  expect(detailResponse.ok()).toBe(true);
+  const details = await detailResponse.json() as { members: { member: { handle: string; display_name: string } }[] };
+  expect(details.members.map((detail) => detail.member)).toContainEqual(
+    expect.objectContaining({ handle: 'review-lead', display_name: 'Review Lead' }),
+  );
+  // harn:end starting-agent-name-derives-one-valid-identity
   await expect(page.getByTestId('room-color-demo-site')).toBeVisible();
   await expect(page.getByTestId('header-room-color')).toBeVisible();
   expect(await page.getByTestId('header-room-color').evaluate(
@@ -51,6 +71,11 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   await expect(page).toHaveURL(/\?room=demo-site-2$/);
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await expect(page.getByTestId('room-color-demo-site-2')).toBeVisible();
+  // harn:assume spawn-default-cwd-is-absolute-or-empty ref=spawn-cwd-browser-regression
+  await page.getByTestId('spawn-agent').click();
+  await expect(page.getByTestId('spawn-cwd')).not.toHaveValue('.');
+  await expect(page.getByTestId('spawn-cwd')).toHaveValue(/^\//);
+  // harn:end spawn-default-cwd-is-absolute-or-empty
   expect(await page.getByTestId('header-room-color').evaluate(
     (element) => getComputedStyle(element).backgroundColor,
   )).toBe('rgb(103, 183, 199)');

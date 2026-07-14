@@ -1,0 +1,181 @@
+id: cc1a-starting-agent-identity-cwd
+title: Friendly starting-agent identity and absolute channel cwd inheritance
+assumptions:
+  create:
+    - id: starting-agent-name-derives-one-valid-identity
+      title: A friendly starting-agent name derives one authoritative identity
+      statement: A channel's optional starting-agent name must be preserved as
+        display_name while one shared protocol helper derives the lowercase
+        ASCII assignable handle preview and request value; unsupported runs
+        become separators, length is bounded, empty or too-short derivations use
+        a stable valid fallback, reserved output is rejected, and identity
+        errors are shown at the name field before any room is created, because a
+        human-facing Name control must not leak the strict handle grammar or
+        blame the project folder.
+      reason: The current dialog sends friendly text directly as the strict handle, so
+        changing the default name makes channel creation fail opaquely.
+      depends_on:
+        - reserved-handles-rejected
+        - channel-create-request-contract
+        - channel-creation-derived-and-seeded
+        - channel-create-dialog-uses-authoritative-result
+    - id: spawn-default-cwd-is-absolute-or-empty
+      title: Spawn defaults inherit an absolute persisted channel working directory
+      statement: Creating a channel with a starting agent must resolve and persist
+        that agent's absolute working directory even when the request omitted
+        cwd, and the spawn dialog must choose room config cwd, then the
+        configured live starting agent cwd, then another live local agent cwd in
+        stable member order, otherwise blank; it must never invent a relative
+        fallback, because every submitted spawn cwd must be a deliberate value
+        the server can validate.
+      reason: The initial agent currently receives process.cwd without the room
+        recording it, after which the web invents dot and the server correctly
+        rejects that relative path.
+      depends_on:
+        - channel-starting-agent-handle-persisted
+        - working-directories-validated-before-spawn
+        - web-spawn-dialog-exposes-canonical-agent-controls
+  retire: []
+  reviewed:
+    - id: reserved-handles-rejected
+      outcome: unchanged
+      reason: The strict assignable schema remains authoritative; the new helper
+        derives candidates and explicitly refuses reserved output rather than
+        weakening member identity validation.
+    - id: channel-create-request-contract
+      outcome: unchanged
+      reason: Optional starting-agent display_name is an additive request field and
+        existing handle-only clients remain valid.
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: Valid requests still seed a usable room and preserve it on harness
+        startup failure; request identity conflicts are validated before
+        mutation and implicit starting cwd is now persisted with the room
+        metadata.
+    - id: channel-starting-agent-handle-persisted
+      outcome: unchanged
+      reason: The derived requested handle is still recorded before the spawn attempt.
+    - id: channel-create-dialog-uses-authoritative-result
+      outcome: unchanged
+      reason: The dialog adds an authoritative handle preview and precise server
+        diagnostics while continuing to navigate with the returned
+        collision-safe id.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: The dialog keeps all canonical controls and server validation while
+        replacing only its invalid cwd fallback with durable inheritance
+        precedence.
+    - id: working-directories-validated-before-spawn
+      outcome: unchanged
+      reason: The server remains the normalization and existence authority for every
+        supplied cwd, including user-entered home shorthand.
+    - id: agent-controls-shared-by-both-dialogs
+      outcome: unchanged
+      reason: Friendly identity and cwd defaults do not fork the shared harness,
+        model, thinking, or policy controls.
+anchors:
+  starting-agent-name-derives-one-valid-identity:
+    starting-agent-handle-derivation:
+      action: change
+      reason: Define and export the shared deterministic friendly-name helper.
+    starting-agent-identity-contract:
+      action: change
+      reason: Add backward-compatible display_name and keep handle authoritative.
+    starting-agent-identity-regression:
+      action: change
+      reason: Pin derivation goldens, reserved rejection, compatibility, and display.
+    starting-agent-create-validation:
+      action: change
+      reason: Reject owner collisions before room mutation and pass display_name to
+        spawn.
+    starting-agent-create-regression:
+      action: change
+      reason: Prove friendly identity persists and invalid identity does not create a
+        room.
+    actionable-rest-errors:
+      action: change
+      reason: Preserve structured server diagnostics in client errors.
+    actionable-rest-error-regression:
+      action: change
+      reason: Prove create callers receive the server's useful error text.
+    starting-agent-name-control:
+      action: change
+      reason: Derive and preview the handle and place identity errors at this field.
+    starting-agent-browser-regression:
+      action: change
+      reason: Create Review Lead end to end and prove the displayed name and handle.
+  spawn-default-cwd-is-absolute-or-empty:
+    implicit-starting-agent-cwd:
+      action: change
+      reason: Resolve the implicit cwd once and persist it in room config before spawn.
+    implicit-starting-agent-cwd-regression:
+      action: change
+      reason: Prove omitted cwd becomes absolute room and member state.
+    spawn-cwd-inheritance:
+      action: change
+      reason: Implement the approved room, starting-agent, live-agent, blank
+        precedence.
+    spawn-cwd-inheritance-regression:
+      action: change
+      reason: Pin precedence, stable live-agent ordering, and empty fallback.
+    spawn-cwd-browser-regression:
+      action: change
+      reason: Prove a no-folder channel seeds an absolute spawn default and an edited
+        absolute directory reaches the new member.
+  reserved-handles-rejected:
+    handle-schema:
+      action: change
+      reason: Add derivation beside the unchanged assignable-handle authority.
+  channel-create-request-contract:
+    channel-create-request-schema:
+      action: change
+      reason: Add optional starting-agent display_name without breaking handle-only
+        clients.
+  channel-starting-agent-handle-persisted:
+    starting-agent-config-regression:
+      action: change
+      reason: Extend persisted starting identity and implicit cwd coverage.
+    starting-agent-creation-record:
+      action: change
+      reason: Persist the derived identity and resolved cwd before spawning.
+  channel-creation-derived-and-seeded:
+    derived-channel-creation:
+      action: change
+      reason: Validate identity conflicts and persist the implicit starting cwd.
+  channel-create-dialog-uses-authoritative-result:
+    authoritative-channel-client:
+      action: change
+      reason: Surface the server diagnostic instead of replacing it with a folder
+        error.
+    channel-create-dialog:
+      action: change
+      reason: Submit display_name plus derived handle and show field-level feedback.
+    channel-create-browser-regression:
+      action: change
+      reason: Cover friendly identity and no-folder channel creation end to end.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    spawn-dialog-controls:
+      action: change
+      reason: Replace dot with the approved absolute-or-empty cwd inheritance.
+    spawn-dialog-unit-regression:
+      action: change
+      reason: Unit-test cwd precedence independently of the browser fixture.
+    spawn-dialog-browser-regression:
+      action: change
+      reason: Cover inherited and explicitly changed absolute spawn directories.
+files:
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/index.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web/src/api.ts
+  - packages/web/src/api.spec.ts
+  - packages/web/src/shell.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/tests/channel-create.e2e.spec.ts
+  - packages/web/tests/e2e.spec.ts
+applied:
+  applied_at: 2026-07-14T10:15:06.746Z

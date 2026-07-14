@@ -2276,6 +2276,34 @@ describe('Phase 3 usability core', () => {
     expect(daemon.store.listMessages('still-useful', { limit: 10 }).at(-1)?.body)
       .toContain("no adapter registered for harness 'missing'");
   });
+
+  // harn:assume starting-agent-name-derives-one-valid-identity ref=starting-agent-create-regression
+  // harn:assume spawn-default-cwd-is-absolute-or-empty ref=implicit-starting-agent-cwd-regression
+  it('persists friendly starting identity and an implicit absolute channel cwd', () => {
+    const created = daemon.createRoom({
+      name: 'Review Room',
+      owner: { handle: 'owner-review', display_name: 'Owner Review' },
+      starting_agent: {
+        harness: 'fake',
+        handle: 'review-lead',
+        display_name: 'Review Lead',
+      },
+    });
+    expect(created.room.config.cwd).toBe(process.cwd());
+    expect(daemon.store.getMemberByHandle(created.room.id, 'review-lead')).toMatchObject({
+      display_name: 'Review Lead',
+      cwd: process.cwd(),
+    });
+
+    expect(() => daemon.createRoom({
+      name: 'Duplicate Owner Agent',
+      owner: { handle: 'same-name', display_name: 'Same Name' },
+      starting_agent: { harness: 'fake', handle: 'same-name', display_name: 'Same Name' },
+    })).toThrow('starting agent handle @same-name is already in use by the channel owner');
+    expect(daemon.store.getRoom('duplicate-owner-agent')).toBeUndefined();
+  });
+  // harn:end spawn-default-cwd-is-absolute-or-empty
+  // harn:end starting-agent-name-derives-one-valid-identity
   // harn:end channel-starting-agent-handle-persisted
 
   it('normalizes cwd inputs before every local member or adapter mutation', () => {

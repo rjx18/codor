@@ -88,12 +88,24 @@ export interface PairingOffer {
   switchboard_sign_pub: string;
 }
 
+// harn:assume starting-agent-name-derives-one-valid-identity ref=actionable-rest-errors
+async function requestError(response: Response): Promise<Error> {
+  try {
+    const body = await response.json() as { error?: unknown };
+    if (typeof body.error === 'string' && body.error.trim() !== '') return new Error(body.error);
+  } catch {
+    // The status fallback remains useful for non-JSON proxies and older servers.
+  }
+  return new Error(`request failed: ${String(response.status)}`);
+}
+// harn:end starting-agent-name-derives-one-valid-identity
+
 async function fetchJson<T>(path: string, options: ApiOptions): Promise<T> {
   const origin = options.origin ?? window.location.origin;
   const res = await fetch(`${origin}${path}`, {
     headers: { authorization: `Bearer ${options.token}` },
   });
-  if (!res.ok) throw new Error(`request failed: ${res.status}`);
+  if (!res.ok) throw await requestError(res);
   return (await res.json()) as T;
 }
 
@@ -112,7 +124,7 @@ async function sendJson<T>(
     },
     ...(body !== undefined && { body: JSON.stringify(body) }),
   });
-  if (!response.ok) throw new Error(`request failed: ${response.status}`);
+  if (!response.ok) throw await requestError(response);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }

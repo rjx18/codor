@@ -1,4 +1,5 @@
 import {
+  deriveAssignableHandle,
   deriveRoomId,
   type Member,
   type Message,
@@ -143,6 +144,7 @@ function FolderPicker(props: {
 // harn:end channel-create-dialog-uses-authoritative-result
 
 // harn:assume web-room-rail-creates-owner-room ref=room-rail-create-action
+// harn:assume starting-agent-name-derives-one-valid-identity ref=starting-agent-name-control
 export function RoomList(props: {
   rooms: Room[];
   currentRoom: string;
@@ -161,16 +163,20 @@ export function RoomList(props: {
   const [cwd, setCwd] = useState('');
   const [pickingFolder, setPickingFolder] = useState(false);
   const [startingHarness, setStartingHarness] = useState<string>();
-  const [startingHandle, setStartingHandle] = useState('codor');
+  const [startingName, setStartingName] = useState('codor');
   const [startingModel, setStartingModel] = useState('');
   const [startingThinking, setStartingThinking] = useState<ThinkingLevel | ''>('');
   const [startingPolicy, setStartingPolicy] = useState<Policy>('read-only');
   const [createError, setCreateError] = useState<string>();
+  const [startingNameError, setStartingNameError] = useState<string>();
   const [createBusy, setCreateBusy] = useState(false);
   const firstCreateField = useRef<HTMLInputElement>(null);
   const createTrigger = useRef<HTMLButtonElement>(null);
   const createDialog = useRef<HTMLFormElement>(null);
   const selectedStartingHarness = startingHarness ?? props.adapters?.[0]?.id ?? '';
+  const derivedStartingHandle = selectedStartingHarness === ''
+    ? undefined
+    : deriveAssignableHandle(startingName);
 
   useEffect(() => {
     if (!creating) return;
@@ -218,6 +224,7 @@ export function RoomList(props: {
             className="wr-rail-action"
             onClick={() => {
               setCreateError(undefined);
+              setStartingNameError(undefined);
               setStartingHarness(undefined);
               setCreating(true);
             }}
@@ -287,6 +294,19 @@ export function RoomList(props: {
             onSubmit={(event) => {
               event.preventDefault();
               setCreateError(undefined);
+              setStartingNameError(undefined);
+              if (selectedStartingHarness !== '') {
+                if (derivedStartingHandle === undefined) {
+                  setStartingNameError('This name resolves to a reserved agent handle. Choose another name.');
+                  return;
+                }
+                if (derivedStartingHandle === props.owner!.handle) {
+                  setStartingNameError(
+                    `@${derivedStartingHandle} is already in use by the channel owner.`,
+                  );
+                  return;
+                }
+              }
               setCreateBusy(true);
               void createRoom({
                 name: roomName,
@@ -296,7 +316,8 @@ export function RoomList(props: {
                 ...(selectedStartingHarness !== '' && {
                   starting_agent: {
                     harness: selectedStartingHarness,
-                    handle: startingHandle.trim() || 'codor',
+                    handle: derivedStartingHandle!,
+                    display_name: startingName.trim() || 'Agent',
                     ...(startingModel.trim() !== '' && { model: startingModel.trim() }),
                     ...(startingThinking !== '' && { thinking: startingThinking }),
                     // F11: a channel-seeded agent used to spawn with NO policy at all.
@@ -305,7 +326,11 @@ export function RoomList(props: {
                 }),
               }, { token: props.token! }).then(
                 (room) => window.location.assign(roomHref(room.id)),
-                () => setCreateError('Channel could not be created. Check the folder and try again.'),
+                (error: unknown) => {
+                  const message = error instanceof Error ? error.message : String(error);
+                  if (/starting agent|handle/i.test(message)) setStartingNameError(message);
+                  else setCreateError(message);
+                },
               ).finally(() => setCreateBusy(false));
             }}
           >
@@ -390,11 +415,18 @@ export function RoomList(props: {
                 Name
                 <input
                   data-testid="create-room-agent-name"
-                  value={startingHandle}
-                  onChange={(event) => setStartingHandle(event.target.value)}
+                  value={startingName}
+                  onChange={(event) => {
+                    setStartingName(event.target.value);
+                    setStartingNameError(undefined);
+                  }}
                   disabled={selectedStartingHarness === ''}
                   className="wr-input min-h-11 px-3 disabled:opacity-50"
                 />
+                {selectedStartingHarness !== '' && derivedStartingHandle !== undefined && (
+                  <small data-testid="create-room-agent-handle">@{derivedStartingHandle}</small>
+                )}
+                {startingNameError && <small role="alert" className="wr-form-error">{startingNameError}</small>}
               </label>
             </div>
             {createError && <p role="alert" className="wr-form-error">{createError}</p>}
@@ -420,6 +452,7 @@ export function RoomList(props: {
     </nav>
   );
 }
+// harn:end starting-agent-name-derives-one-valid-identity
 // harn:end web-room-rail-creates-owner-room
 
 // harn:assume web-shell-responsive-three-pane ref=responsive-room-shell

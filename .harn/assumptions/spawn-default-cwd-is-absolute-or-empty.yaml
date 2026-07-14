@@ -1,0 +1,15 @@
+id: spawn-default-cwd-is-absolute-or-empty
+hash: a-2bff040c9a39
+title: Spawn defaults inherit an absolute persisted channel working directory
+state: active
+statement: Creating a channel with a starting agent must resolve and persist
+  that agent's absolute working directory even when the request omitted cwd, and
+  the spawn dialog must choose room config cwd, then the configured live
+  starting agent cwd, then another live local agent cwd in stable member order,
+  otherwise blank; it must never invent a relative fallback, because every
+  submitted spawn cwd must be a deliberate value the server can validate.
+depends_on:
+  - channel-starting-agent-handle-persisted
+  - working-directories-validated-before-spawn
+  - web-spawn-dialog-exposes-canonical-agent-controls
+created_by: cc1a-starting-agent-identity-cwd

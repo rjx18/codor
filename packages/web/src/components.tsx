@@ -6,6 +6,7 @@ import {
   type Member,
   type Message,
   type Policy,
+  type Room,
   type RoomMeter,
   type ThinkingLevel,
   type WireEvent,
@@ -361,6 +362,30 @@ export function availableAgentHandle(requested: string, members: Member[]): stri
   }
 }
 
+const isAbsoluteCwd = (cwd: string | undefined): cwd is string =>
+  cwd !== undefined && (cwd.startsWith('/') || /^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith('\\\\'));
+
+// harn:assume spawn-default-cwd-is-absolute-or-empty ref=spawn-cwd-inheritance
+export function defaultSpawnCwd(room: Room | undefined, members: Member[]): string {
+  if (isAbsoluteCwd(room?.config.cwd)) return room.config.cwd;
+  const liveLocalAgents = members
+    .filter((member) =>
+      member.kind === 'agent'
+      && member.removed_ts === undefined
+      && member.state !== 'dead'
+      && member.state !== 'unreachable'
+      && member.custody !== 'mirrored'
+      && isAbsoluteCwd(member.cwd))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const starting = room?.config.starting_agent_handle;
+  if (starting !== undefined) {
+    const startingMember = liveLocalAgents.find((member) => member.handle === starting);
+    if (startingMember?.cwd !== undefined) return startingMember.cwd;
+  }
+  return liveLocalAgents[0]?.cwd ?? '';
+}
+// harn:end spawn-default-cwd-is-absolute-or-empty
+
 export function SpawnAgentDialog(props: {
   adapters: AdapterRegistration[];
   members: Member[];
@@ -369,7 +394,8 @@ export function SpawnAgentDialog(props: {
   const [open, setOpen] = useState(false);
   const [harness, setHarness] = useState('');
   const [handle, setHandle] = useState('');
-  const roomCwd = useRoomStore((state) => state.room?.config.cwd ?? '.');
+  const room = useRoomStore((state) => state.room);
+  const roomCwd = defaultSpawnCwd(room, props.members);
   const errors = useRoomStore((state) => state.errors);
   const [cwd, setCwd] = useState(roomCwd);
   const [model, setModel] = useState('');

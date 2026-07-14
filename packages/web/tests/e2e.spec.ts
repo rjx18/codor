@@ -318,8 +318,17 @@ test('spawn dialog presets canonical controls and replaces removed agents', asyn
   await expect(page.getByTestId('spawn-approval-hint')).toHaveCount(0);
 
   await page.getByTestId('spawn-policy-workspace-write').click();
+  await page.getByTestId('spawn-cwd').fill('/tmp');
   await page.getByTestId('spawn-submit').click();
   await expect(page.getByTestId('member-tester')).toBeVisible();
+  const testerDetails = await request.get(`/api/rooms/${room}/members`, {
+    headers: { authorization: 'Bearer e2e-token' },
+  });
+  expect(testerDetails.ok()).toBe(true);
+  const testerMembers = await testerDetails.json() as {
+    members: { member: { handle: string; cwd?: string } }[];
+  };
+  expect(testerMembers.members.find((item) => item.member.handle === 'tester')?.member.cwd).toBe('/tmp');
 
   await page.getByTestId('spawn-agent').click();
   await page.getByTestId('spawn-preset-tester').click();

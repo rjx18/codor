@@ -454,14 +454,25 @@ export class Daemon {
 
   // harn:assume channel-creation-derived-and-seeded ref=derived-channel-creation
   createRoom(opts: CreateRoomRequest): ReturnType<Store['createRoom']> {
+    // harn:assume starting-agent-name-derives-one-valid-identity ref=starting-agent-create-validation
+    if (opts.starting_agent?.handle === opts.owner.handle) {
+      throw new Error(
+        `starting agent handle @${opts.starting_agent.handle} is already in use by the channel owner`,
+      );
+    }
+    // harn:end starting-agent-name-derives-one-valid-identity
     const baseId = opts.id ?? deriveRoomId(opts.name);
     let id = baseId;
     if (opts.id === undefined) {
       for (let suffix = 2; this.store.getRoom(id); suffix++) id = `${baseId}-${String(suffix)}`;
     }
-    const cwd = opts.cwd === undefined
-      ? undefined
-      : normalizeWorkingDirectory(opts.cwd, this.homeDir);
+    // harn:assume spawn-default-cwd-is-absolute-or-empty ref=implicit-starting-agent-cwd
+    const cwd = opts.cwd !== undefined
+      ? normalizeWorkingDirectory(opts.cwd, this.homeDir)
+      : opts.starting_agent !== undefined
+        ? normalizeWorkingDirectory(process.cwd(), this.homeDir)
+        : undefined;
+    // harn:end spawn-default-cwd-is-absolute-or-empty
     const created = this.store.createRoom({
       id,
       name: opts.name,
@@ -480,7 +491,7 @@ export class Daemon {
       try {
         this.spawnMember(id, {
           ...opts.starting_agent,
-          cwd: cwd ?? normalizeWorkingDirectory(process.cwd(), this.homeDir),
+          cwd: cwd!,
         });
       } catch (error) {
         this.postSystemMessage(

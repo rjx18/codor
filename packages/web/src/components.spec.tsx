@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import ts from 'typescript';
 
-import type { Member, Message, WireEvent } from '@codor/protocol';
+import type { Member, Message, Room, WireEvent } from '@codor/protocol';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -24,6 +24,7 @@ import {
   RunStallBadge,
   SPAWN_PRESETS,
   availableAgentHandle,
+  defaultSpawnCwd,
 } from './components.js';
 import type { Connection } from './ws.js';
 
@@ -124,6 +125,45 @@ describe('spawn presets', () => {
     expect(availableAgentHandle('tester', [richard, tester, tester2])).toBe('tester-3');
     expect(availableAgentHandle('tester', [richard, { ...tester, removed_ts: TS }])).toBe('tester');
   });
+
+  // harn:assume spawn-default-cwd-is-absolute-or-empty ref=spawn-cwd-inheritance-regression
+  it('inherits only an absolute cwd using the stable approved precedence', () => {
+    const room = (config: Partial<Room['config']>): Room => ({
+      id: 'eng',
+      name: 'Eng',
+      created_ts: TS,
+      config: {
+        turn_brake: null,
+        spend_brake_usd: null,
+        stall_minutes: 30,
+        redaction_enabled: true,
+        bridged: false,
+        ...config,
+      },
+    });
+    const agent = (patch: Partial<Member>): Member => ({
+      ...alpha,
+      cwd: '/work/alpha',
+      state: 'idle',
+      custody: 'owned',
+      ...patch,
+    });
+
+    expect(defaultSpawnCwd(room({ cwd: '/work/room' }), [agent({})])).toBe('/work/room');
+    expect(defaultSpawnCwd(room({ starting_agent_handle: 'starter' }), [
+      agent({ id: 'z', handle: 'other', cwd: '/work/other' }),
+      agent({ id: 'y', handle: 'starter', cwd: '/work/starter' }),
+    ])).toBe('/work/starter');
+    expect(defaultSpawnCwd(room({}), [
+      agent({ id: 'z', handle: 'zeta', cwd: '/work/zeta' }),
+      agent({ id: 'a', handle: 'alpha', cwd: '/work/alpha' }),
+      agent({ id: 'b', handle: 'dead', cwd: '/work/dead', state: 'dead' }),
+      agent({ id: 'c', handle: 'remote', cwd: '/work/remote', custody: 'mirrored' }),
+    ])).toBe('/work/alpha');
+    expect(defaultSpawnCwd(room({ cwd: '.' }), [agent({ cwd: 'relative' })])).toBe('');
+    expect(defaultSpawnCwd(undefined, [])).toBe('');
+  });
+  // harn:end spawn-default-cwd-is-absolute-or-empty
 });
 // harn:end web-spawn-dialog-exposes-canonical-agent-controls
 

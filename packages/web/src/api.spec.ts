@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { fetchAdapters } from './api.js';
+import { createRoom, fetchAdapters } from './api.js';
 
 // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-regression
 describe('adapter listing', () => {
@@ -39,3 +39,27 @@ describe('adapter listing', () => {
     expect((await fetchAdapters({ token: 't' })).discovering).toBe(false);
   });
 });
+
+// harn:assume starting-agent-name-derives-one-valid-identity ref=actionable-rest-error-regression
+describe('actionable REST errors', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('preserves the server diagnostic for a rejected channel identity', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({
+        error: 'starting agent handle @richard is already in use by the channel owner',
+      }),
+    } as Response));
+
+    await expect(createRoom({
+      name: 'Review Room',
+      owner: { handle: 'richard', display_name: 'Richard' },
+      starting_agent: { harness: 'fake', handle: 'richard', display_name: 'Richard' },
+    }, { token: 't' })).rejects.toThrow(
+      'starting agent handle @richard is already in use by the channel owner',
+    );
+  });
+});
+// harn:end starting-agent-name-derives-one-valid-identity
