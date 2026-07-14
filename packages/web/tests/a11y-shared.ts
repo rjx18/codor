@@ -1,0 +1,165 @@
+import { expect, type Page } from '@playwright/test';
+
+import { CONTROL } from './ports.js';
+
+export const ROOM = '/?room=eng&token=e2e-token';
+
+export async function control(path: string, body: unknown = {}): Promise<void> {
+  const res = await fetch(`${CONTROL}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${path} failed: ${await res.text()}`);
+}
+
+// harn:assume web-glass-theme-accessible-modes ref=axe-room-matrix-shared
+// The real gate behaviour lives here, guarded, rather than in the thin per-file callers:
+// how each state is reached, how every dialog is dismissed before the next scan, and how
+// axe runs once transitions have settled. Each spec file supplies only its theme, against
+// its own fresh daemon, so nothing durable crosses a matrix.
+
+export async function scan(page: Page): Promise<string[]> {
+  // Let transitions settle. axe composites what it sees, so a panel caught mid-fade reports
+  // the blend as a contrast failure the settled surface does not have.
+  await page.waitForTimeout(350);
+  const { default: AxeBuilder } = await import('@axe-core/playwright');
+  const { violations } = await new AxeBuilder({ page }).analyze();
+  return violations.map(
+    (v) => `${v.id} [${String(v.impact)}] ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`,
+  );
+}
+
+async function open(page: Page, theme: string, url = ROOM): Promise<void> {
+  await page.addInitScript((t) => {
+    localStorage.setItem('codor-theme', t);
+  }, theme);
+  await page.goto(url);
+}
+
+/**
+ * Scans every read-only room, dialog, settings, ledger and pairing state in one theme,
+ * dismissing each dialog by its own control - never leaning on Escape, which does not
+ * close the removal confirmation or the create dialog behind the folder picker. Returns
+ * every violation found, tagged by state.
+ */
+export async function sweepRoomStates(page: Page, theme: string): Promise<string[]> {
+  const found: string[] = [];
+  const record = async (state: string): Promise<void> => {
+    for (const v of await scan(page)) found.push(`${theme}/${state}: ${v}`);
+  };
+
+  await open(page, theme);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await record('room:baseline');
+
+  await page.getByTestId('toggle-message-search').click();
+  await expect(page.getByTestId('message-search')).toBeVisible();
+  await record('room:search');
+  await page.getByTestId('toggle-message-search').click();
+  await expect(page.getByTestId('message-search')).toHaveCount(0);
+
+  await page.getByTestId('composer-input').fill('@a');
+  await expect(page.getByTestId('mention-popup')).toBeVisible();
+  await record('room:mention-popup');
+  await page.getByTestId('composer-input').fill('');
+  await expect(page.getByTestId('mention-popup')).toHaveCount(0);
+
+  await page.getByTestId('spawn-agent').click();
+  await expect(page.getByTestId('spawn-dialog')).toBeVisible();
+  await record('dlg:spawn');
+
+  // Spawn, kill and offer to remove - the only path to the removal alertdialog. The
+  // handle is theme-unique so a collision cannot suffix and break the flow.
+  const handle = `t${theme}`;
+  await page.getByTestId('spawn-handle').fill(handle);
+  await page.getByTestId('spawn-submit').click();
+  await expect(page.getByTestId(`member-${handle}`)).toBeVisible();
+  await page.getByTestId(`member-${handle}-toggle`).click();
+  await page.getByTestId(`kill-${handle}`).click();
+  await page.getByTestId(`remove-${handle}`).click();
+  const removeConfirm = page.getByTestId(`remove-${handle}-confirm`);
+  await expect(removeConfirm).toBeVisible();
+  await record('dlg:remove-member');
+  // Escape does NOT close this confirmation; dismiss it by its own Cancel button.
+  await removeConfirm.getByRole('button', { name: 'Cancel' }).click();
+  await expect(removeConfirm).toHaveCount(0);
+
+  await page.getByTestId('create-room').click();
+  await expect(page.getByTestId('create-room-dialog')).toBeVisible();
+  await record('dlg:create-channel');
+  await page.getByTestId('browse-folders').click();
+  await expect(page.getByTestId('folder-picker')).toBeVisible();
+  await record('dlg:folder-picker');
+  // One Escape closes only the folder picker, leaving the create dialog open. Close each.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('folder-picker')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('create-room-dialog')).toHaveCount(0);
+
+  await page.evaluate(() => window.__codor.disconnect());
+  await record('room:offline');
+  await page.evaluate(() => window.__codor.reconnect());
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  await open(page, theme, '/?room=eng&token=e2e-observer-token');
+  await expect(page.getByTestId('read-only-room')).toBeVisible();
+  await record('room:read-only');
+
+  // Mobile.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, theme);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await page.getByTestId('open-room-drawer').click();
+  await expect(page.getByTestId('room-drawer')).toBeVisible();
+  await record('mob:drawer');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('room-drawer')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open channel context' }).click();
+  await expect(page.getByTestId('context-sheet')).toBeVisible();
+  await record('mob:context-sheet');
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  // Ledger: docked inspector, overlay inspector, and the note dialog.
+  await control('/ledger-graph-init');
+  await open(page, theme, '/ledger?room=eng&token=e2e-token');
+  await expect(page.getByTestId('ledger-graph-surface')).toBeVisible();
+  await page.getByTestId('ledger-node-launch-plan').click();
+  await record('ledger:docked');
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.reload();
+  await page.getByTestId('ledger-node-launch-plan').click();
+  await record('ledger:overlay');
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  await control('/ledger-init');
+  await open(page, theme);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await page.getByTestId('ledger-ref-risk-limits').first().click();
+  await expect(page.getByTestId('ledger-note-dialog')).toBeVisible();
+  await record('ledger:note-dialog');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('ledger-note-dialog')).toHaveCount(0);
+
+  // The inbox needs something waiting in it.
+  await control('/seed-history');
+  await open(page, theme);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await record('room:history+ask');
+  await page.getByTestId('inbox-badge').click();
+  await expect(page.getByTestId('inbox-panel')).toBeVisible();
+  await record('room:inbox');
+
+  for (const section of ['appearance', 'notifications', 'brakes', 'relay', 'devices', 'privacy']) {
+    await open(page, theme, `/settings?room=eng&token=e2e-token#${section}`);
+    await expect(page.getByTestId('settings-page')).toBeVisible();
+    await record(`settings:${section}`);
+  }
+
+  await open(page, theme, '/pair');
+  await expect(page.getByTestId('pairing-page')).toBeVisible();
+  await record('pairing');
+
+  return found;
+}
+// harn:end web-glass-theme-accessible-modes

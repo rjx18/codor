@@ -2,14 +2,16 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import postcss from 'postcss';
+import valueParser from 'postcss-value-parser';
 import { describe, expect, it } from 'vitest';
 
 const STYLESHEET = fileURLToPath(new URL('./styles.css', import.meta.url));
+const CSS = readFileSync(STYLESHEET, 'utf8');
 
 /** Reads the --cd-* declarations out of a theme's selector block. */
 function tokensFor(selector: string): Map<string, string> {
   const found = new Map<string, string>();
-  postcss.parse(readFileSync(STYLESHEET, 'utf8')).walkRules((rule) => {
+  postcss.parse(CSS).walkRules((rule) => {
     if (rule.selector !== selector) return;
     rule.walkDecls(/^--cd-/, (decl) => {
       found.set(decl.prop, decl.value.trim());
@@ -17,6 +19,25 @@ function tokensFor(selector: string): Map<string, string> {
   });
   return found;
 }
+
+/** The custom-property names a value references through var(). */
+function varRefs(value: string): string[] {
+  const names: string[] = [];
+  valueParser(value).walk((node) => {
+    if (node.type !== 'function' || node.value !== 'var') return;
+    const first = node.nodes[0];
+    if (first?.type === 'word' && first.value.startsWith('--')) names.push(first.value);
+  });
+  return names;
+}
+
+/** Every declaration in the stylesheet a text colour can legally reach. */
+const TEXT_COLOR_PROPS = new Set([
+  'color',
+  'caret-color',
+  'text-decoration-color',
+  '-webkit-text-fill-color',
+]);
 
 function luminance(hex: string): number {
   const channels = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255);
@@ -40,6 +61,7 @@ const STATUS_ROLES: Record<string, string> = {
   '--cd-agent': '--cd-agent-tint',
 };
 
+// harn:assume web-theme-accessible-modes ref=theme-contrast-matrix
 describe.each([
   ['light', ':root'],
   ['dark', ":root[data-theme='dark']"],
@@ -85,3 +107,52 @@ describe.each([
     expect(TEXT_ROLES).not.toContain('--cd-mark-faint');
   });
 });
+
+describe('the v5 token layer, structurally', () => {
+  it('never lets a text colour reach mark-faint, directly or through an alias', () => {
+    // Build the alias graph: every custom property, and the custom properties its value
+    // references. A direct search for `color: var(--cd-mark-faint)` would miss
+    // `--x: var(--cd-mark-faint); color: var(--x)`, so resolve transitively.
+    const refs = new Map<string, string[]>();
+    const textColorUses: { prop: string; value: string; root: string }[] = [];
+    postcss.parse(CSS).walkDecls((decl) => {
+      if (decl.prop.startsWith('--')) {
+        refs.set(decl.prop, [...(refs.get(decl.prop) ?? []), ...varRefs(decl.value)]);
+      }
+      if (TEXT_COLOR_PROPS.has(decl.prop)) {
+        for (const name of varRefs(decl.value)) {
+          textColorUses.push({ prop: decl.prop, value: decl.value.trim(), root: name });
+        }
+      }
+    });
+
+    const reachesMarkFaint = (name: string, seen = new Set<string>()): boolean => {
+      if (name === '--cd-mark-faint') return true;
+      if (seen.has(name)) return false;
+      seen.add(name);
+      return (refs.get(name) ?? []).some((next) => reachesMarkFaint(next, seen));
+    };
+
+    const offenders = textColorUses.filter((use) => reachesMarkFaint(use.root));
+    expect(offenders, offenders.map((o) => `${o.prop}: ${o.value}`).join('\n')).toEqual([]);
+  });
+
+  it('declares identical dark maps for the media query and the explicit choice', () => {
+    // Dark is authored twice - @media (prefers-color-scheme: dark) and [data-theme='dark'].
+    // If they drift, a system-dark browser and an explicitly-dark one disagree.
+    const explicitDark = tokensFor(":root[data-theme='dark']");
+    const mediaDark = new Map<string, string>();
+    postcss.parse(CSS).walkAtRules('media', (atRule) => {
+      if (!atRule.params.includes('prefers-color-scheme: dark')) return;
+      atRule.walkDecls(/^--cd-/, (decl) => {
+        mediaDark.set(decl.prop, decl.value.trim());
+      });
+    });
+
+    expect(mediaDark.size).toBeGreaterThan(0);
+    expect(Object.fromEntries([...mediaDark].sort())).toEqual(
+      Object.fromEntries([...explicitDark].sort()),
+    );
+  });
+});
+// harn:end web-theme-accessible-modes

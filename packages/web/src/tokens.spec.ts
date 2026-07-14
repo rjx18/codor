@@ -60,6 +60,7 @@ export function unresolvedReferences(css: string): string[] {
   return [...unresolved].sort();
 }
 
+// harn:assume web-theme-accessible-modes ref=token-resolution-regression
 describe('custom property references', () => {
   it('every reference in the stylesheet either resolves or carries a fallback', () => {
     expect(unresolvedReferences(readFileSync(STYLESHEET, 'utf8'))).toEqual([]);
@@ -110,3 +111,4 @@ describe('the v5 token layer', () => {
     expect(unresolved).toEqual([]);
   });
 });
+// harn:end web-theme-accessible-modes

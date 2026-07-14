@@ -649,31 +649,59 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
 // harn:end web-room-visual-hierarchy-matches-restrained-reference
 
 // harn:assume web-first-run-color-mode-is-light ref=light-first-theme-regression
-test('a fresh browser opens light, painting light before React runs', async ({ page }) => {
-  // Even on a dark-preferring host: with nothing stored, v5 opens in light.
+test('the head script resolves the theme before the entry module runs, on every branch', async ({ page }) => {
+  // Block the entry module entirely, so what we observe is the FIRST paint - the head
+  // script alone. If the head script were absent, main.tsx would never run here and the
+  // attribute would depend only on the CSS media query, catching any prepaint flash.
+  await page.route('**/src/main.tsx', (route) => route.abort());
+  await page.route('**/assets/*.js', (route) => route.abort());
+
+  // Each branch: seed storage + OS preference before navigation, read the html attribute
+  // and the resolved colour-scheme at first paint.
+  const resolve = async (
+    stored: string | null,
+    os: 'dark' | 'light',
+  ): Promise<{ attr: string | null; scheme: string }> => {
+    await page.emulateMedia({ colorScheme: os });
+    await page.addInitScript((value) => {
+      try {
+        if (value === null) localStorage.removeItem('codor-theme');
+        else localStorage.setItem('codor-theme', value);
+      } catch {
+        /* the throwing-storage branch drives this from the page instead */
+      }
+    }, stored);
+    await page.goto('/?room=eng&token=e2e-token');
+    return page.evaluate(() => ({
+      attr: document.documentElement.getAttribute('data-theme'),
+      scheme: getComputedStyle(document.documentElement).colorScheme,
+    }));
+  };
+
+  // Missing choice on a dark OS resolves to light.
+  expect(await resolve(null, 'dark')).toEqual({ attr: 'light', scheme: 'light' });
+  // Explicit dark on a light OS is dark.
+  expect(await resolve('dark', 'light')).toMatchObject({ attr: 'dark' });
+  // Explicit light on a dark OS is light.
+  expect(await resolve('light', 'dark')).toMatchObject({ attr: 'light' });
+  // System on a dark OS carries no attribute and lands on the dark media result.
+  expect(await resolve('system', 'dark')).toEqual({ attr: null, scheme: 'dark' });
+  // Invalid stored value on a dark OS resolves to light.
+  expect(await resolve('chartreuse', 'dark')).toEqual({ attr: 'light', scheme: 'light' });
+
+  // Throwing storage resolves to light: make getItem throw before the head script runs.
   await page.emulateMedia({ colorScheme: 'dark' });
-  await page.goto('/settings?room=eng&token=e2e-token');
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await expect(page.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
-  expect(await page.evaluate(() => localStorage.getItem('codor-theme'))).toBeNull();
-
-  // The stylesheet's base block is light, so the first paint is already light. If dark
-  // were still the base, every load would flash dark before React resolved the choice.
-  expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toContain('light');
-
-  // An explicit dark choice still wins, and still persists.
-  await page.getByTestId('theme-dark').click();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  expect(await page.evaluate(() => localStorage.getItem('codor-theme'))).toBe('dark');
-
-  // And system still follows the host, in both directions.
-  await page.getByTestId('theme-system').click();
-  await expect(page.locator('html')).not.toHaveAttribute('data-theme');
-  expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toContain('dark');
-  await page.emulateMedia({ colorScheme: 'light' });
-  expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toContain('light');
-  await page.reload();
-  await expect(page.locator('html')).not.toHaveAttribute('data-theme');
+  await page.addInitScript(() => {
+    const proto = Object.getPrototypeOf(window.localStorage) as Storage;
+    Object.defineProperty(proto, 'getItem', {
+      configurable: true,
+      value: () => {
+        throw new Error('storage unavailable');
+      },
+    });
+  });
+  await page.goto('/?room=eng&token=e2e-token');
+  expect(await page.evaluate(() => document.documentElement.getAttribute('data-theme'))).toBe('light');
 });
 // harn:end web-first-run-color-mode-is-light
 

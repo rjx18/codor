@@ -8,6 +8,29 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="/codor-192.png" />
     <title>Codor</title>
+    <!-- harn:assume web-theme-choice-stays-local-v5 ref=prepaint-reads-local -->
+    <!-- harn:assume web-first-run-color-mode-is-light ref=light-first-prepaint -->
+    <!-- Resolve the stored theme before first paint. The module that also does this runs
+         after paint, so without this a dark-preferring browser flashes dark, and a stored
+         choice opposite the OS flashes the OS colour first. Mirrors readThemeChoice /
+         applyThemeChoice in theme.ts: unstored/invalid/unreadable -> light; system -> no
+         attribute (the media query decides); explicit light/dark -> that attribute. -->
+    <script>
+      (function () {
+        try {
+          var choice = localStorage.getItem('codor-theme');
+          if (choice === 'dark' || choice === 'light') {
+            document.documentElement.dataset.theme = choice;
+          } else if (choice !== 'system') {
+            document.documentElement.dataset.theme = 'light';
+          }
+        } catch (e) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
+    <!-- harn:end web-first-run-color-mode-is-light -->
+    <!-- harn:end web-theme-choice-stays-local-v5 -->
   </head>
   <body>
     <div id="root"></div>
