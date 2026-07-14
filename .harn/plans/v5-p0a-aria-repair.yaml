@@ -1,0 +1,151 @@
+id: v5-p0a-aria-repair
+title: >-
+  V5 Phase 0a - fix the four accessibility defects an axe scan found in the shipped
+  UI, before an accessibility gate is installed over them
+assumptions:
+  create: []
+  reviewed:
+    - id: literal-draft-effective-recipient-visible
+      outcome: unchanged
+      reason: >-
+        The composer still materializes the effective recipient and still shows the
+        mention popup; what it inserts, and when, is untouched. The textarea carried
+        aria-expanded, which ARIA in HTML does not permit on a textarea, so the open
+        state of the mention popup was announced to nobody. The textarea keeps its
+        implicit textbox role - a textarea may not take an explicit role, so it cannot
+        become a combobox - and instead gains aria-autocomplete=list plus the
+        aria-controls and aria-activedescendant that a textbox legitimately supports.
+        The open state moves to the mention button, which may own aria-expanded, and a
+        visually hidden live region announces how many suggestions appeared. This is
+        the editable-suggestion shape of the WAI combobox pattern, expressed with the
+        roles a textarea is actually allowed to have.
+    - id: the-composer-is-one-row
+      outcome: unchanged
+      reason: >-
+        The composer is still one row plus its padding. Roles, ARIA attributes and a
+        visually hidden live region carry no layout.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: >-
+        The dialog still exposes the canonical agent controls, and the form is still
+        visually unchanged. ARIA does not allow role=dialog on a form element, so the
+        modal announced itself as a form. The dialog role, aria-modal, the accessible
+        name, the data-testid and the focus-trap ref all move together onto a wrapping
+        element, so the local focus trap keeps finding its focusables and App.tsx keeps
+        finding the test id it uses to suppress the drawer's Escape handler. The
+        wrapper becomes a new direct child of the centring flex backdrop, so it must
+        carry the width and centring behaviour the form had, or it will silently change
+        how the dialog sits and animates.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: >-
+        The three-pane responsive behaviour is untouched - no layout, breakpoint or
+        focus change. The shell renders more than one complementary landmark with no
+        accessible name, so a screen-reader user cannot tell the channel rail from the
+        context rail. Each gains a unique label. The navigation landmark keeps the name
+        Channels, which the suite asserts.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: >-
+        This assumption promises AA-readable text in both modes, and three token values
+        cannot keep that promise across the surface ramp they are drawn on. Dark
+        --wr-faint is #7d8088, which clears 4.5:1 on the canvas at 4.78 and on the base
+        surface at 4.66, but fails on the raised surface at 4.45 and on the selected
+        surface at 4.17. It is spent as a text colour in 33 rules; an axe scan confirmed
+        two of them failing, and the rest are not confirmed failures but unprotected
+        ones - whether they pass depends entirely on which surface they happen to land
+        on, and nothing holds them to a passing one. In light, --wr-emerald is 4.29:1
+        and --wr-amber is 4.41:1 as text on the surfaces they are drawn on; the emerald
+        failure was confirmed by the scan, the amber one had not rendered. The repair is
+        made at the token declarations rather than at the call sites, because the call
+        sites are not wrong - the values are. Nothing is renamed and no rule is
+        rewritten.
+files:
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/shell.tsx
+  - packages/web/src/styles.css
+  - packages/web/tests/a11y.e2e.spec.ts
+anchors:
+  literal-draft-effective-recipient-visible:
+    composer-literal-recipient:
+      action: change
+      reason: >-
+        Drop aria-expanded from the textarea, which may not carry it, and keep the
+        implicit textbox role. Add aria-autocomplete=list, aria-controls and
+        aria-activedescendant, which a textbox does support, and announce the
+        suggestion count through a visually hidden live region. The mention button
+        takes aria-expanded and aria-controls.
+    composer-recipient-unit-regression:
+      action: change
+      reason: >-
+        The unit regression asserts the new ARIA wiring - no aria-expanded on the
+        textarea, an active descendant that tracks the highlighted mention, and a live
+        region that announces the suggestions.
+    composer-autocomplete-semantics:
+      action: change
+      reason: >-
+        A browser regression proves the composer's autocomplete semantics are legal and
+        announced - the textarea carries no attribute its role forbids, the popup is
+        referenced by aria-controls, the highlighted option is the active descendant,
+        and the live region states how many suggestions appeared.
+  the-composer-is-one-row:
+    composer-single-row:
+      action: change
+      reason: >-
+        The visually hidden live region sits inside the composer without adding a row;
+        the single-row geometry is asserted unchanged.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    spawn-dialog-controls:
+      action: change
+      reason: >-
+        role=dialog, aria-modal, the accessible name, the data-testid and the focus-trap
+        ref move off the form and onto a wrapping element, so the modal announces itself
+        as a dialog. The form remains a form, inside, styled exactly as before.
+    spawn-dialog-style:
+      action: change
+      reason: >-
+        The wrapper is a new direct child of the centring flex backdrop. It must inherit
+        the width and centring the form had, so the dialog sits and animates exactly
+        where it did; without that, a wrapper silently changes the modal's geometry.
+    spawn-dialog-unit-regression:
+      action: change
+      reason: >-
+        The unit regression asserts the dialog role now sits on an element allowed to
+        carry it, and that the focus trap and the test id still resolve.
+    spawn-dialog-semantics:
+      action: change
+      reason: >-
+        A browser regression proves the modal announces itself as a dialog, that the
+        focus trap still cycles within it, that Escape still closes it, and that its
+        position and size are unchanged.
+  web-shell-responsive-three-pane:
+    responsive-room-shell:
+      action: change
+      reason: >-
+        Give each complementary landmark in the shell a unique accessible name so the
+        channel rail and the context rail are distinguishable. Layout is untouched.
+    unique-landmark-names:
+      action: change
+      reason: >-
+        A browser regression proves every landmark is uniquely identifiable, and that
+        the navigation landmark is still named Channels.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: >-
+        Repair the three token roles that cannot hold AA across the surface ramp they
+        are drawn on, at five declaration sites. Dark --wr-faint moves from #7d8088 to
+        #8a8d93 in the base block, clearing 4.96 to 5.67 across every dark surface
+        rather than failing on two of them. Light --wr-emerald moves from #397b31 to
+        #31692a and light --wr-amber from #8a6500 to #7d5b00 - each in BOTH light
+        blocks, the prefers-color-scheme one and the explicit data-theme='light' one,
+        because the light palette is authored twice in this file and editing one would
+        silently split the two paths apart. Dark emerald, amber and coral, and light
+        coral and faint, already clear AA and are left alone.
+    theme-contrast-values:
+      action: change
+      reason: >-
+        A browser regression proves every text role clears 4.5:1 against every surface
+        it is drawn on, in both themes, and that the two light paths - system
+        preference and explicit choice - resolve to identical values.

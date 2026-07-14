@@ -1,0 +1,357 @@
+id: v5-p1-token-layer
+title: >-
+  V5 Phase 1 - stand up the soft-editorial token layer and open a fresh browser in
+  light, without restyling a single consumer
+assumptions:
+  create:
+    - id: soft-editorial-design-system-guides-responsive-surfaces
+      title: Surfaces migrated to v5 derive from the soft-editorial design system
+      statement: >-
+        Every Codor web surface or forward-looking native concept migrated to v5 must
+        derive its visual hierarchy, semantic colour, typography,
+        spacing, radius, elevation, responsive layout, accessibility and motion from
+        the v5 soft-editorial design system and the tracked contract that states it,
+        because the product must read as a calm editorial tool - warm, rounded,
+        generous with type, content before chrome - and a direction that lives only
+        in a mockup is a direction the next contributor cannot follow. Surfaces and
+        concepts not yet migrated continue to derive from the v4 restrained system, so
+        the two foundations coexist for the length of the migration and nothing answers
+        to both at once.
+      reason: >-
+        Scoped to migrated surfaces on purpose. A blanket claim that the app derives
+        from v5 would be false the moment it was created - Phase 1 restyles nothing,
+        and the restrained foundation stays active until Phase 6, by which time the
+        last surface that depends on it has moved. The v4 contract forbids exactly
+        what v5 requires - it rules out floating cards and mandates full-height matte
+        panes and compact system type - so the foundation is replaced rather than
+        amended, but the replacement takes effect surface by surface.
+      depends_on: []
+    - id: web-theme-accessible-modes
+      title: The theme layer offers accessible light and dark modes
+      statement: >-
+        The web theme layer must offer semantic light and dark tokens that hold
+        AA-readable contrast for every text and status role on every surface that role
+        is legal on, keep keyboard focus visible, fall back to opaque colour wherever
+        transparency is unavailable or reduced, and disable nonessential movement for
+        reduced-motion users, because accessibility must be a property of the token
+        layer itself rather than something each surface is trusted to rediscover. A
+        role reserved for decoration is not a text role and carries no contrast
+        promise; it must never be spent on text.
+      reason: >-
+        Replaces web-glass-theme-accessible-modes, whose statement requires "glass
+        tokens" - a material v5 does not use. Its four obligations carry forward
+        unchanged; only the material and the vocabulary move. The statement says the
+        layer OFFERS accessible tokens because Phase 1 is inert and no surface consumes
+        them yet; consumption becomes true in Phase 3 and is reviewed there. The final
+        clause exists because v5 keeps exactly one decorative role, --cd-mark-faint, for
+        separator rules, disabled glyphs and ornamental borders. An axe scan of the
+        shipped v4 UI found contrast failures of exactly two kinds, and both are the
+        same underlying mistake - a colour spent as text on a surface it cannot hold
+        4.5:1 against. The faint neutral was one; a semantic status colour, light
+        emerald, was the other. Both are repaired at the token in Phase 0a, and v5
+        prevents the recurrence structurally by making every text and status role clear
+        4.5 on every surface it is legal on, and by reserving exactly one role for
+        decoration that may never be spent on text.
+      depends_on:
+        - soft-editorial-design-system-guides-responsive-surfaces
+    - id: web-theme-choice-stays-local-v5
+      title: A theme choice never leaves the browser that made it
+      statement: >-
+        A theme choice must be stored on the browser that made it, applied immediately,
+        survive reload, be offered in Settings as system, light or dark, and be purged
+        with the rest of this browser's state when the browser is unpaired, because the
+        theme is a preference of the device in front of the operator and never an
+        account fact the product keeps about them.
+      reason: >-
+        Replaces web-theme-choice-stays-local, unchanged in substance. It moves only
+        because its dependency does - it hung off the glass theme, retired in Phase 3 -
+        and Harn has no rewrite action. Its non-design dependency on
+        unpair-purges-all-browser-state is preserved.
+      depends_on:
+        - web-theme-accessible-modes
+        - unpair-purges-all-browser-state
+    - id: web-first-run-color-mode-is-light
+      title: A fresh browser opens Codor in light
+      statement: >-
+        A browser with no stored theme choice must paint the light palette before React
+        renders, while an explicit system or dark choice remains local, immediate,
+        persistent and available in Settings, because the v5 identity is a warm
+        editorial surface that reads as paper rather than as a control room - and
+        because a first paint that disagrees with the resolved choice is a flash the
+        operator sees every single time they open the app.
+      reason: >-
+        Replaces web-first-run-color-mode-is-dark. Dark-first was part of the v4
+        identity; v5 leads in light, and Richard chose light-first explicitly. Control
+        is not removed - system and dark remain, and the choice stays local. Painting
+        before React renders is why the stylesheet's base :root block becomes the light
+        palette, with dark moving to an explicit prefers-color-scheme block and the
+        data-theme='dark' block; today :root is dark, so a light default would flash
+        dark then light on every load.
+      depends_on:
+        - web-theme-choice-stays-local-v5
+  retire:
+    - id: web-first-run-color-mode-is-dark
+      reason: >-
+        Superseded by web-first-run-color-mode-is-light. Nothing depends on it.
+    - id: web-theme-choice-stays-local
+      reason: >-
+        Superseded by web-theme-choice-stays-local-v5, which carries the same statement
+        and preserves unpair-purges-all-browser-state. Its only dependent,
+        web-first-run-color-mode-is-dark, is retired in this same plan.
+  reviewed:
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: >-
+        Still true and still active - every surface still consumes the glass tokens,
+        because this phase repoints no consumer. Its token block gains the --cd-* layer
+        beside the existing tokens and is restructured so the base block is light
+        rather than dark, with every existing token keeping its value in every theme.
+        The two grey pseudo-colour names are renamed to the neutral roles they actually
+        fill. It also gains the axe gate: the accessibility contract that is live today
+        is the one that should own the scan of the UI that is live today. Both the
+        assumption and the gate move to web-theme-accessible-modes in Phase 3.
+    - id: design-references-preserve-wireroom-semantics
+      outcome: unchanged
+      reason: >-
+        Unchanged and deliberately not retired - it binds the v5 references exactly as
+        it binds the v4 ones. It gains an anchor over the new v5 contract, so the
+        tracked references must keep depicting the real one-member run model, permanent
+        message ids, visible meters, recipient preview, role and brake rules, the
+        accountless local product, the browser privacy boundary and stateless push,
+        without inventing orchestration, retention, account or relay behaviour.
+    - id: sw-injectmanifest-owned-worker
+      outcome: unchanged
+      reason: >-
+        The worker is still the one Vite owns and injects. Two font assets enter its
+        precache so the installed app renders its own typeface with no network, and the
+        manifest colours move to the light canvas now that a fresh browser opens light.
+        Nothing about the worker's lifecycle or ownership changes.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: >-
+        The spawn dialog is untouched. One rule inside its style region spends a renamed
+        pseudo-colour token, at the identical computed value.
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: >-
+        Run presentation is untouched. Two rules inside its style region spend a renamed
+        pseudo-colour token, at the identical computed value.
+    - id: normalized-run-evidence-inspector
+      outcome: unchanged
+      reason: >-
+        The evidence inspector is untouched. Two rules inside its style region spend a
+        renamed pseudo-colour token, at the identical computed value.
+    - id: web-motion-is-purposeful-and-reduced-motion-safe
+      outcome: unchanged
+      reason: >-
+        Motion is untouched. One rule inside its style region spends a renamed
+        pseudo-colour token, at the identical computed value.
+    - id: pairing-code-enrollment-surfaces
+      outcome: unchanged
+      reason: >-
+        Pairing enrollment is untouched. Two rules inside its style region spend a
+        renamed pseudo-colour token, at the identical computed value.
+    - id: web-waits-are-visible-across-live-surfaces
+      outcome: unchanged
+      reason: >-
+        Live waits are untouched. One rule inside its style region spends a renamed
+        pseudo-colour token, at the identical computed value.
+    - id: posted-message-mentions-alone-look-effective
+      outcome: unchanged
+      reason: >-
+        Mention rendering is untouched. Two rules inside its style region spend a
+        renamed pseudo-colour token, at the identical computed value.
+files:
+  - packages/web/src/styles.css
+  - packages/web/src/theme.ts
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/tokens.spec.ts
+  - packages/web/src/contrast.spec.ts
+  - packages/web/index.html
+  - packages/web/vite.config.ts
+  - packages/web/package.json
+  - packages/web/public/fonts/Geist-Variable.woff2
+  - packages/web/public/fonts/GeistMono-Variable.woff2
+  - packages/web/public/fonts/LICENSE.txt
+  - packages/web/tests/a11y.e2e.spec.ts
+  - packages/web/tests/pwa.e2e.spec.ts
+  - packages/web/tests/e2e.spec.ts
+  - tmp/build/design/v5/DESIGN-SYSTEM.md
+  - tmp/build/design/v5/codor-design-system.dc.html
+  - tmp/build/design/v5/codor-screens.dc.html
+  - tmp/build/design/v5/desktop-room-light.png
+  - tmp/build/design/v5/desktop-room-dark.png
+  - tmp/build/design/v5/iphone-room.png
+  - pnpm-lock.yaml
+anchors:
+  web-first-run-color-mode-is-dark:
+    dark-first-theme-choice:
+      action: remove
+      reason: >-
+        The dark-first default goes with the assumption; theme.ts resolves an unstored
+        choice to light under the replacement's anchor.
+    dark-first-theme-regression:
+      action: remove
+      reason: >-
+        The regression proving a fresh browser opens dark is replaced by one proving it
+        opens light, under the replacement's anchor in the same file.
+  web-theme-choice-stays-local:
+    local-theme-preference:
+      action: remove
+      reason: >-
+        Storage and apply behaviour is unchanged; the anchor moves onto
+        web-theme-choice-stays-local-v5 over the same region of theme.ts.
+    settings-theme-control:
+      action: remove
+      reason: >-
+        Settings still offers system, light and dark; only the assumption it hangs off
+        is replaced. The anchor moves to the replacement.
+    theme-choice-regression:
+      action: remove
+      reason: >-
+        The regression is unchanged; its anchor moves to the replacement.
+  soft-editorial-design-system-guides-responsive-surfaces:
+    soft-editorial-responsive-contract:
+      action: change
+      reason: >-
+        The v5 contract states the system every later phase derives from - surfaces, the
+        four-step text ramp, the decorative-only mark-faint role, one semantic token per
+        role per theme with its measured ratio, radius, type, elevation, spacing,
+        breakpoints, motion, the mobile exceptions and the channel-accent projection
+        rule. It is tracked under tmp/build/design/v5 beside the v4 contract, which is
+        force tracked despite tmp being ignored, because a design contract that is not
+        in the repository cannot be Harn truth.
+  design-references-preserve-wireroom-semantics:
+    v5-product-fidelity:
+      action: change
+      reason: >-
+        The product-fidelity constraint that governs the v4 references is placed over
+        the v5 ones. The tracked references must depict the protocol the product
+        actually has, and must not invent orchestration, retention, account or relay
+        behaviour that a mockup can make look real.
+  web-theme-accessible-modes:
+    soft-editorial-token-layer:
+      action: change
+      reason: >-
+        Declare the v5 token layer - radius, spacing, type scale, font, elevation,
+        z-index and both semantic palettes - beside the existing tokens, consumed by
+        nothing. Every text and status role clears 4.5:1 on every surface it is legal
+        on, including each role's own tinted fill; because 4.5 implies 3, those roles
+        need no separate mark token. The single exception is --cd-mark-faint, which is
+        decorative only - separator rules, disabled glyphs, ornamental borders - carries
+        no contrast promise and must never be spent on text. Declaring the layer without
+        repointing a consumer is what lets this phase restyle nothing.
+    token-resolution-regression:
+      action: change
+      reason: >-
+        Replace the regex CSS scan with structured parsing - postcss for the stylesheet
+        and postcss-value-parser for values, both added as direct devDependencies rather
+        than borrowed transitively - so a declaration inside a comment or a string can no
+        longer satisfy a reference. Every var() must resolve through the declaration and
+        alias graph or carry a fallback, walked transitively so a dead or recursive alias
+        fails. Fixtures cover the commented-out declaration and the in-string declaration
+        that the regex scan would have accepted.
+    theme-contrast-matrix:
+      action: change
+      reason: >-
+        Assert the measured contract: every v5 text and status role against every surface
+        it is legal on, in both themes, including tinted fills - and assert that
+        --cd-mark-faint is never spent as a text colour.
+  web-first-run-color-mode-is-light:
+    light-first-theme-choice:
+      action: change
+      reason: >-
+        A browser with no stored choice resolves to light. The base :root block becomes
+        the light palette so the first paint is light before React runs, with dark moving
+        to an explicit prefers-color-scheme block and the data-theme='dark' block. A
+        system choice still follows the operating system in both directions.
+    light-first-theme-regression:
+      action: change
+      reason: >-
+        Prove a fresh profile paints light, that the paint precedes React rather than
+        flashing, and that an explicit dark or system choice still wins.
+  web-theme-choice-stays-local-v5:
+    local-theme-preference:
+      action: change
+      reason: >-
+        The choice is read from and written to this browser's storage and applied by
+        setting data-theme, unchanged in substance. The anchor moves off the retired
+        assumption onto its replacement.
+    settings-theme-control:
+      action: change
+      reason: >-
+        Settings still offers system, light and dark, unchanged. The anchor moves onto
+        the replacement.
+    theme-choice-regression:
+      action: change
+      reason: >-
+        The regression that the choice is stored locally, applied immediately, survives
+        reload and is purged on unpair is unchanged. Its anchor moves onto the
+        replacement.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: change
+      reason: >-
+        The existing token block gains the --cd-* layer beside it and is restructured so
+        the base block is light rather than dark; every existing token keeps its value in
+        every theme. The two grey pseudo-colour names are renamed to the neutral roles
+        they actually fill. --wr-cyan and --wr-violet are both #a0a2a9 in dark and
+        #4e5156 in light - the same neutral, never a hue - so both collapse into
+        --wr-neutral-strong, and --wr-cyan-soft becomes --wr-neutral-soft. That is 61
+        cyan and 4 violet exact references, 9 soft references, and 6 primary and 3 soft
+        declarations. Renaming now, while nothing else moves, is what keeps the Phase 3
+        diff readable: 61 call sites quietly rely on --wr-cyan being neutral and would
+        light up the moment it was given a hue. A grep gate asserts no legacy
+        pseudo-colour name survives anywhere in the package. Every token keeps the value
+        Phase 0a left it with.
+    axe-accessibility-gate:
+      action: change
+      reason: >-
+        Install the axe scan over every route and major state, in both themes, as an
+        exact zero-violation gate with no waivers and no allowlist. It can be exact
+        because Phase 0a already repaired all four defects the read-only scan found -
+        the three ARIA and landmark errors, and the three token declarations whose
+        contrast failures produced the fourth. A gate that ships with a waiver teaches
+        the next contributor that the waiver list is where failures go.
+  sw-injectmanifest-owned-worker:
+    vite-pwa-owned-worker:
+      action: change
+      reason: >-
+        Precache Geist-Variable.woff2 and GeistMono-Variable.woff2 so the installed app
+        renders its own typeface with no network, and move the manifest colours to the
+        light canvas now that a fresh browser opens light.
+    offline-font-regression:
+      action: change
+      reason: >-
+        Prove both font assets are present in CacheStorage, that document.fonts.load
+        resolves for Geist and Geist Mono with the network offline, and that the
+        FontFaceSet holds loaded faces for both families - cache presence alone would not
+        prove the @font-face rules point at the precached assets.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    spawn-dialog-style:
+      action: change
+      reason: One rule spends the renamed neutral token, at the identical computed value.
+  normalized-run-items-presented-live:
+    run-stream-responsive-style:
+      action: change
+      reason: Two rules spend the renamed neutral token, at the identical computed value.
+  normalized-run-evidence-inspector:
+    inspector-contained-scroll:
+      action: change
+      reason: Two rules spend the renamed neutral token, at the identical computed value.
+  web-motion-is-purposeful-and-reduced-motion-safe:
+    motion-token-style:
+      action: change
+      reason: One rule spends the renamed neutral token, at the identical computed value.
+  pairing-code-enrollment-surfaces:
+    pairing-code-surface-style:
+      action: change
+      reason: Two rules spend the renamed neutral token, at the identical computed value.
+  web-waits-are-visible-across-live-surfaces:
+    live-collaboration-style:
+      action: change
+      reason: One rule spends the renamed neutral token, at the identical computed value.
+  posted-message-mentions-alone-look-effective:
+    effective-mention-style:
+      action: change
+      reason: Two rules spend the renamed neutral token, at the identical computed value.
