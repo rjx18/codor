@@ -26,8 +26,8 @@ export default defineConfig({
         scope: '/',
         display: 'standalone',
         orientation: 'any',
-        background_color: '#101114',
-        theme_color: '#101114',
+        background_color: '#e9e9e6',
+        theme_color: '#e9e9e6',
         categories: ['productivity', 'utilities'],
         icons: [
           { src: '/codor-192.png', sizes: '192x192', type: 'image/png' },

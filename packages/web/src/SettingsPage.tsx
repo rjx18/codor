@@ -259,7 +259,7 @@ export function SettingsPage(props: {
                 <Palette aria-hidden="true" size={18} />
                 <div><h2>Appearance</h2><p>Local to this browser.</p></div>
               </div>
-              {/* harn:assume web-theme-choice-stays-local ref=settings-theme-control */}
+              {/* harn:assume web-theme-choice-stays-local-v5 ref=settings-theme-control */}
               <div className="wr-setting-row">
                 <div className="wr-setting-copy">
                   <strong>Theme</strong>
@@ -295,7 +295,7 @@ export function SettingsPage(props: {
                   ))}
                 </div>
               </div>
-              {/* harn:end web-theme-choice-stays-local */}
+              {/* harn:end web-theme-choice-stays-local-v5 */}
             </section>
 
             {canOwner && <section id="notifications" data-testid="settings-section-notifications" data-active={visibleActiveSection === 'notifications'} className="wr-settings-section">

@@ -506,6 +506,10 @@ test('desktop channel keeps channels, conversation, and context in stable non-ov
 // harn:assume web-room-visual-hierarchy-matches-restrained-reference ref=restrained-room-visual-regression
 test('restrained room keeps matte panes, sparse glass, and a pinned latest turn across reflow', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
+  // This asserts the dark glass material. The default is now light, so pin dark
+  // explicitly rather than lean on it being the default; the light default is proven by
+  // the light-first regression, not here.
+  await page.addInitScript(() => localStorage.setItem('codor-theme', 'dark'));
   await page.goto('/?room=eng&token=e2e-token');
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
 
@@ -644,22 +648,34 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
 });
 // harn:end web-room-visual-hierarchy-matches-restrained-reference
 
-// harn:assume web-first-run-color-mode-is-dark ref=dark-first-theme-regression
-test('a new light-host browser opens dark before an explicit system choice', async ({ page }) => {
-  await page.emulateMedia({ colorScheme: 'light' });
+// harn:assume web-first-run-color-mode-is-light ref=light-first-theme-regression
+test('a fresh browser opens light, painting light before React runs', async ({ page }) => {
+  // Even on a dark-preferring host: with nothing stored, v5 opens in light.
+  await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('/settings?room=eng&token=e2e-token');
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect(page.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(page.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
   expect(await page.evaluate(() => localStorage.getItem('codor-theme'))).toBeNull();
 
+  // The stylesheet's base block is light, so the first paint is already light. If dark
+  // were still the base, every load would flash dark before React resolved the choice.
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toContain('light');
+
+  // An explicit dark choice still wins, and still persists.
+  await page.getByTestId('theme-dark').click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  expect(await page.evaluate(() => localStorage.getItem('codor-theme'))).toBe('dark');
+
+  // And system still follows the host, in both directions.
   await page.getByTestId('theme-system').click();
   await expect(page.locator('html')).not.toHaveAttribute('data-theme');
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toContain('dark');
+  await page.emulateMedia({ colorScheme: 'light' });
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toContain('light');
-  expect(await page.evaluate(() => localStorage.getItem('codor-theme'))).toBe('system');
   await page.reload();
   await expect(page.locator('html')).not.toHaveAttribute('data-theme');
 });
-// harn:end web-first-run-color-mode-is-dark
+// harn:end web-first-run-color-mode-is-light
 
 // harn:assume run-context-selects-and-follows-live-evidence ref=selected-live-run-context-regression
 test('intermediate context sheet follows a selected run through live completion', async ({ page }) => {
@@ -985,7 +1001,7 @@ test('restrained settings keep row-based desktop focus, mobile fit, and honest r
 });
 // harn:end web-settings-controls-preserve-product-truth
 
-// harn:assume web-theme-choice-stays-local ref=theme-choice-regression
+// harn:assume web-theme-choice-stays-local-v5 ref=theme-choice-regression
 test('theme choice applies immediately, survives a tokenless launch, and returns to system', async ({ page }) => {
   await page.goto('/settings?room=eng&token=e2e-token');
   const mutatingApiRequests: string[] = [];
@@ -1018,7 +1034,7 @@ test('theme choice applies immediately, survives a tokenless launch, and returns
   expect(await page.evaluate(() => localStorage.getItem('codor-theme'))).toBe('system');
   expect(mutatingApiRequests).toEqual([]);
 });
-// harn:end web-theme-choice-stays-local
+// harn:end web-theme-choice-stays-local-v5
 
 test('authenticated roles remove commands the local matrix does not allow', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

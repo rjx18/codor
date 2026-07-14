@@ -1,0 +1,16 @@
+id: soft-editorial-design-system-guides-responsive-surfaces
+hash: a-f22f1c79a521
+title: Surfaces migrated to v5 derive from the soft-editorial design system
+state: active
+statement: Every Codor web surface or forward-looking native concept migrated to
+  v5 must derive its visual hierarchy, semantic colour, typography, spacing,
+  radius, elevation, responsive layout, accessibility and motion from the v5
+  soft-editorial design system and the tracked contract that states it, because
+  the product must read as a calm editorial tool - warm, rounded, generous with
+  type, content before chrome - and a direction that lives only in a mockup is a
+  direction the next contributor cannot follow. Surfaces and concepts not yet
+  migrated continue to derive from the v4 restrained system, so the two
+  foundations coexist for the length of the migration and nothing answers to
+  both at once.
+depends_on: []
+created_by: v5-p1-token-layer

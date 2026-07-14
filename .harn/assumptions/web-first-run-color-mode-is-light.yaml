@@ -1,0 +1,13 @@
+id: web-first-run-color-mode-is-light
+hash: a-a1f3d30e4fd7
+title: A fresh browser opens Codor in light
+state: active
+statement: A browser with no stored theme choice must paint the light palette
+  before React renders, while an explicit system or dark choice remains local,
+  immediate, persistent and available in Settings, because the v5 identity is a
+  warm editorial surface that reads as paper rather than as a control room - and
+  because a first paint that disagrees with the resolved choice is a flash the
+  operator sees every single time they open the app.
+depends_on:
+  - web-theme-choice-stays-local-v5
+created_by: v5-p1-token-layer

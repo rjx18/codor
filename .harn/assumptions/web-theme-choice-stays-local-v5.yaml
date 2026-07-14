@@ -1,0 +1,13 @@
+id: web-theme-choice-stays-local-v5
+hash: a-5fe10cfa6651
+title: A theme choice never leaves the browser that made it
+state: active
+statement: A theme choice must be stored on the browser that made it, applied
+  immediately, survive reload, be offered in Settings as system, light or dark,
+  and be purged with the rest of this browser's state when the browser is
+  unpaired, because the theme is a preference of the device in front of the
+  operator and never an account fact the product keeps about them.
+depends_on:
+  - web-theme-accessible-modes
+  - unpair-purges-all-browser-state
+created_by: v5-p1-token-layer

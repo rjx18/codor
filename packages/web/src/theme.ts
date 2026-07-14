@@ -6,14 +6,14 @@ function isThemeChoice(value: string | null): value is ThemeChoice {
   return value === 'system' || value === 'dark' || value === 'light';
 }
 
-// harn:assume web-theme-choice-stays-local ref=local-theme-preference
-// harn:assume web-first-run-color-mode-is-dark ref=dark-first-theme-choice
+// harn:assume web-theme-choice-stays-local-v5 ref=local-theme-preference
+// harn:assume web-first-run-color-mode-is-light ref=light-first-theme-choice
 export function readThemeChoice(): ThemeChoice {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    return isThemeChoice(stored) ? stored : 'dark';
+    return isThemeChoice(stored) ? stored : 'light';
   } catch {
-    return 'dark';
+    return 'light';
   }
 }
 
@@ -30,5 +30,5 @@ export function storeThemeChoice(choice: ThemeChoice): void {
   }
   applyThemeChoice(choice);
 }
-// harn:end web-first-run-color-mode-is-dark
-// harn:end web-theme-choice-stays-local
+// harn:end web-first-run-color-mode-is-light
+// harn:end web-theme-choice-stays-local-v5

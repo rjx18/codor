@@ -109,3 +109,39 @@ test('manifest is installable and the owned worker caches only the offline shell
   await expect(page.getByTestId('offline-banner')).toBeVisible();
   await expect(page.getByText('pwa-dynamic-payload')).toHaveCount(0);
 });
+
+// harn:assume sw-injectmanifest-owned-worker ref=offline-font-regression
+test('the installed app renders its own typeface with no network', async ({ page }) => {
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await page.reload();
+
+  // Cache presence alone would not prove the @font-face rules point at these assets...
+  const cached = await page.evaluate(async () => {
+    const names = await caches.keys();
+    const urls: string[] = [];
+    for (const name of names) {
+      const keys = await (await caches.open(name)).keys();
+      urls.push(...keys.map((r) => new URL(r.url).pathname));
+    }
+    return urls;
+  });
+  expect(cached.some((u) => u.includes('Geist-Variable.woff2'))).toBe(true);
+  expect(cached.some((u) => u.includes('GeistMono-Variable.woff2'))).toBe(true);
+
+  // ...so load them with the network cut, and assert the FontFaceSet actually holds them.
+  await page.context().setOffline(true);
+  await page.reload();
+  const loaded = await page.evaluate(async () => {
+    await document.fonts.load('16px Geist');
+    await document.fonts.load('16px "Geist Mono"');
+    return [...document.fonts]
+      .filter((f) => f.status === 'loaded')
+      .map((f) => f.family.replace(/"/g, ''));
+  });
+  expect(loaded).toContain('Geist');
+  expect(loaded).toContain('Geist Mono');
+  await page.context().setOffline(false);
+});
+// harn:end sw-injectmanifest-owned-worker

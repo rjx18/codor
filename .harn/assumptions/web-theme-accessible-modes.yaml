@@ -1,0 +1,15 @@
+id: web-theme-accessible-modes
+hash: a-846e79daf3b7
+title: The theme layer offers accessible light and dark modes
+state: active
+statement: The web theme layer must offer semantic light and dark tokens that
+  hold AA-readable contrast for every text and status role on every surface that
+  role is legal on, keep keyboard focus visible, fall back to opaque colour
+  wherever transparency is unavailable or reduced, and disable nonessential
+  movement for reduced-motion users, because accessibility must be a property of
+  the token layer itself rather than something each surface is trusted to
+  rediscover. A role reserved for decoration is not a text role and carries no
+  contrast promise; it must never be spent on text.
+depends_on:
+  - soft-editorial-design-system-guides-responsive-surfaces
+created_by: v5-p1-token-layer
