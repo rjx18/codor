@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import type { WireEvent } from '@codor/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { OpenCodeAdapter, openCodeArgs, openCodeAutoApprove } from './adapter.js';
+import {
+  OPENCODE_THINKING_LEVELS,
+  OpenCodeAdapter,
+  openCodeArgs,
+  openCodeAutoApprove,
+} from './adapter.js';
 
 const dirs: string[] = [];
 
@@ -38,17 +43,22 @@ describe('OpenCode subprocess and capability conformance', () => {
     expect(() => openCodeAutoApprove('auto')).toThrow('valid policies');
   });
 
-  it('maps canonical policies and thinking levels to documented argv', () => {
+  // harn:assume harness-declares-supported-thinking-levels ref=opencode-thinking-level-regression
+  it('maps canonical policies and its declared thinking levels to documented argv', () => {
     const base = { harness: 'opencode', cwd: '/work' };
     expect(openCodeArgs({ ...base, policy: 'read-only' }, 'go')).not.toContain('--auto');
     expect(openCodeArgs({ ...base, policy: 'workspace-write' }, 'go')).not.toContain('--auto');
     expect(openCodeArgs({ ...base, policy: 'full-access' }, 'go')).toContain('--auto');
-    for (const thinking of ['low', 'medium', 'high'] as const) {
+    for (const thinking of OPENCODE_THINKING_LEVELS) {
       expect(openCodeArgs({ ...base, thinking }, 'go')).toEqual(
         expect.arrayContaining(['--variant', thinking]),
       );
     }
+    expect(() => openCodeArgs({ ...base, thinking: 'xhigh' }, 'go')).toThrow(
+      "adapter 'opencode' does not support thinking level 'xhigh'",
+    );
   });
+  // harn:end harness-declares-supported-thinking-levels
 
   it('passes JSON, model, auto, resume, payload, and cwd without stdin', async () => {
     const command = executable(`

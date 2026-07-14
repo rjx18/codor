@@ -123,9 +123,9 @@ describe('members', () => {
 
   // harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-schema
   it('carries the model and thinking level as member state, not spawn-time arguments', () => {
-    const parsed = MemberSchema.parse({ ...agent, model: 'opus-4.8', thinking: 'high' });
+    const parsed = MemberSchema.parse({ ...agent, model: 'opus-4.8', thinking: 'ultracode' });
     expect(parsed.model).toBe('opus-4.8');
-    expect(parsed.thinking).toBe('high');
+    expect(parsed.thinking).toBe('ultracode');
   });
 
   it('treats an absent model or thinking level as the harness default', () => {
@@ -521,13 +521,17 @@ describe('spawn control vocabularies', () => {
     expect(PolicySchema.safeParse('danger-full-access').success).toBe(false);
   });
 
-  it('keeps SpawnOpts thinking optional and constrains declared levels', () => {
+  // harn:assume harness-declares-supported-thinking-levels ref=protocol-thinking-level-regression
+  it('keeps SpawnOpts thinking optional and accepts the cross-harness wire union', () => {
     const withoutThinking: SpawnOpts = { cwd: '/work' };
-    const withThinking: SpawnOpts = { cwd: '/work', thinking: 'high' };
     expect(withoutThinking.thinking).toBeUndefined();
-    expect(ThinkingLevelSchema.parse(withThinking.thinking)).toBe('high');
+    for (const thinking of ['low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const) {
+      const withThinking: SpawnOpts = { cwd: '/work', thinking };
+      expect(ThinkingLevelSchema.parse(withThinking.thinking)).toBe(thinking);
+    }
     expect(ThinkingLevelSchema.safeParse('extreme').success).toBe(false);
   });
+  // harn:end harness-declares-supported-thinking-levels
 });
 
 describe('wire events', () => {

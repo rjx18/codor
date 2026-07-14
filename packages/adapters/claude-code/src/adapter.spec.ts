@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { WireEvent } from '@codor/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { ClaudeCodeAdapter, claudeArgs } from './adapter.js';
+import { CLAUDE_THINKING_LEVELS, ClaudeCodeAdapter, claudeArgs } from './adapter.js';
 
 const dirs: string[] = [];
 
@@ -44,20 +44,25 @@ afterEach(() => {
 });
 
 describe('claude subprocess and interaction lifecycle', () => {
+  // harn:assume harness-declares-supported-thinking-levels ref=claude-thinking-level-regression
   it('maps every canonical policy and thinking level to documented argv', () => {
     const base = { harness: 'claude-code', cwd: '/work' };
     expect(claudeArgs({ ...base, policy: 'read-only' }, '/settings')).toContain('plan');
     expect(claudeArgs({ ...base, policy: 'workspace-write' }, '/settings')).toContain('acceptEdits');
     expect(claudeArgs({ ...base, policy: 'full-access' }, '/settings')).toContain('bypassPermissions');
-    for (const thinking of ['low', 'medium', 'high'] as const) {
+    for (const thinking of CLAUDE_THINKING_LEVELS) {
       expect(claudeArgs({ ...base, thinking }, '/settings')).toEqual(
         expect.arrayContaining(['--effort', thinking]),
       );
     }
+    expect(() => claudeArgs({ ...base, thinking: 'ultra' }, '/settings')).toThrow(
+      "adapter 'claude-code' does not support thinking level 'ultra'",
+    );
     expect(() => claudeArgs({ ...base, policy: 'yolo' }, '/settings')).toThrow(
       'valid policies: read-only, workspace-write, full-access',
     );
   });
+  // harn:end harness-declares-supported-thinking-levels
 
   it('turns a missing CLI into a failed run instead of an unhandled child error', async () => {
     const settingsBefore = hookSettings();

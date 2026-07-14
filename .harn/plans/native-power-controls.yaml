@@ -1,0 +1,187 @@
+id: native-power-controls
+title: Expose each harness's real power controls
+assumptions:
+  create:
+    - id: harness-declares-supported-thinking-levels
+      title: Thinking choices come from the harness that will receive them
+      statement: A thinking-capable adapter may declare its exact accepted
+        thinking_levels, the registry must validate and enforce that
+        declaration, and the shared agent controls must render only those
+        declared levels. Codex must declare low, medium, high, xhigh, max, and
+        ultra; Claude Code must declare low, medium, high, xhigh, max, and
+        ultracode; OpenCode must declare low, medium, and high. An older
+        third-party adapter that declares thinking true without thinking_levels
+        must retain the legacy low, medium, and high choices, because adding
+        truthful first-party controls must not break the published adapter
+        contract.
+      reason: A global low-medium-high row hides native high-effort modes and cannot
+        safely add harness-specific values without offering invalid
+        combinations.
+      depends_on:
+        - canonical-spawn-controls-enforced
+        - adapter-registry-sole-harness-source
+        - agent-controls-shared-by-both-dialogs
+  retire: []
+  reviewed:
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Canonical policy and thinking values are still rejected before process
+        launch; validation becomes stricter by also checking the selected
+        harness.
+    - id: harness-declares-what-a-policy-becomes
+      outcome: unchanged
+      reason: Codex Full access now truthfully declares and emits its actual
+        no-approval, no-sandbox mode instead of only disabling the filesystem
+        sandbox.
+    - id: agent-controls-shared-by-both-dialogs
+      outcome: unchanged
+      reason: The same shared component still serves create, spawn, and configure, now
+        from adapter-declared thinking choices.
+    - id: agent-model-and-thinking-are-durable
+      outcome: unchanged
+      reason: Expanded validated values continue through the existing member schema
+        and persistence paths without changing their durable representation.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: Claude's argument and capability declarations shift line positions
+        before its supervised deliver region without changing subprocess
+        lifecycle behavior.
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: Codex model ids and discovery ownership do not change; its adjacent
+        thinking note is corrected to match the expanded native levels.
+    - id: the-adapter-doc-is-the-contract-it-enforces
+      outcome: unchanged
+      reason: The published third-party contract documents the optional declaration
+        and its backward-compatible default.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Adapter capabilities remain the sole source returned by the registry and
+        adapters endpoint.
+    - id: live-inbox-capability-is-evidence-backed
+      outcome: unchanged
+      reason: Capability snapshots gain thinking-level declarations without changing
+        live inbox truth.
+anchors:
+  harness-declares-supported-thinking-levels:
+    adapter-thinking-level-contract:
+      action: change
+      reason: Define the union, legacy default, and optional adapter declaration.
+    adapter-thinking-level-registry:
+      action: change
+      reason: Validate declarations and reject a level the selected harness does not
+        take.
+    codex-thinking-level-declaration:
+      action: change
+      reason: Declare and enforce low through ultra for Codex.
+    claude-thinking-level-declaration:
+      action: change
+      reason: Declare and enforce Claude's levels including ultracode.
+    opencode-thinking-level-declaration:
+      action: change
+      reason: Keep OpenCode on the three variants its adapter maps.
+    agent-thinking-level-options:
+      action: change
+      reason: Render only the selected adapter's accepted levels and clear stale
+        choices.
+    adapter-thinking-level-doc:
+      action: change
+      reason: Publish the additive capability and fallback for third-party authors.
+    protocol-thinking-level-regression:
+      action: change
+      reason: Pin the expanded wire-level union.
+    registry-thinking-level-regression:
+      action: change
+      reason: Pin declarations, fallback compatibility, and harness-specific rejection.
+    codex-thinking-level-regression:
+      action: change
+      reason: Pin all Codex effort arguments and reject Claude-only ultracode.
+    claude-thinking-level-regression:
+      action: change
+      reason: Pin all Claude effort arguments and reject Codex-only ultra.
+    opencode-thinking-level-regression:
+      action: change
+      reason: Pin OpenCode's narrower accepted variants.
+    agent-thinking-level-regression:
+      action: change
+      reason: Prove the UI shows only native levels and clears incompatible selections.
+  canonical-spawn-controls-enforced:
+    canonical-policy-thinking-enforcement:
+      action: change
+      reason: Expand the protocol union and capability shape.
+    registry-spawn-control-validation:
+      action: change
+      reason: Add per-adapter thinking validation.
+    codex-spawn-control-mapping:
+      action: change
+      reason: Map Full access to YOLO and enforce Codex effort choices.
+    claude-spawn-control-mapping:
+      action: change
+      reason: Enforce Claude effort choices.
+    opencode-spawn-control-mapping:
+      action: change
+      reason: Enforce OpenCode effort choices.
+  harness-declares-what-a-policy-becomes:
+    adapter-policy-declarations:
+      action: change
+      reason: Codex Full access becomes --yolo in both declaration and argv.
+  agent-controls-shared-by-both-dialogs:
+    agent-controls-component:
+      action: change
+      reason: Read thinking choices from the selected adapter.
+    agent-controls-unit-regression:
+      action: change
+      reason: Cover advanced native choices and harness switching.
+  agent-model-and-thinking-are-durable:
+    durable-agent-config-schema:
+      action: change
+      reason: Prove advanced values survive the member schema.
+  adapter-process-lifecycle-supervised:
+    cli-process-supervision:
+      action: change
+      reason: Account for the Claude source shift Harn attributes to the later
+        supervised process region; no lifecycle statements or behavior change.
+  adapters-own-their-model-catalog:
+    codex-model-catalog-notes:
+      action: change
+      reason: Correct the adjacent Codex thinking note without changing its model
+        catalog.
+  the-adapter-doc-is-the-contract-it-enforces:
+    published-adapter-contract:
+      action: change
+      reason: Document the optional thinking_levels capability.
+  adapter-registry-sole-harness-source:
+    adapter-registration-contract:
+      action: change
+      reason: Keep the published adapter interface aligned with runtime capabilities.
+  live-inbox-capability-is-evidence-backed:
+    codex-capability-snapshot:
+      action: change
+      reason: Include Codex's exact thinking levels and corrected Full access mapping.
+    claude-capability-snapshot:
+      action: change
+      reason: Include Claude's exact thinking levels.
+    opencode-capability-snapshot:
+      action: change
+      reason: Include OpenCode's exact thinking levels.
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/adapter.spec.ts
+  - packages/adapters/codex/src/index.spec.ts
+  - packages/adapters/codex/NOTES.md
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/claude-code/src/adapter.spec.ts
+  - packages/adapters/claude-code/src/index.spec.ts
+  - packages/adapters/claude-code/NOTES.md
+  - packages/adapters/opencode/src/adapter.ts
+  - packages/adapters/opencode/src/adapter.spec.ts
+  - packages/adapters/opencode/src/index.spec.ts
+  - packages/web/src/agent-controls.tsx
+  - packages/web/src/agent-controls.spec.tsx
+  - docs/ADAPTERS.md
+applied:
+  applied_at: 2026-07-14T09:45:54.201Z

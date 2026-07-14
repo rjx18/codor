@@ -8,6 +8,7 @@ import { GeminiAdapter } from '@codor/adapter-gemini';
 import { OpenCodeAdapter } from '@codor/adapter-opencode';
 import {
   type AdapterCapabilities,
+  DEFAULT_THINKING_LEVELS,
   type HarnessAdapter,
   PolicySchema,
   type SpawnOpts,
@@ -54,6 +55,15 @@ export function resolveAdapterModuleSpecifier(specifier: string, baseDir: string
   return specifier;
 }
 
+// harn:assume harness-declares-supported-thinking-levels ref=adapter-thinking-level-registry
+function validThinkingLevels(capabilities: Partial<AdapterCapabilities>): boolean {
+  const levels = (capabilities as { thinking_levels?: unknown }).thinking_levels;
+  if (levels === undefined) return true;
+  if (!capabilities.thinking || !Array.isArray(levels) || levels.length === 0) return false;
+  return new Set(levels).size === levels.length &&
+    levels.every((level) => ThinkingLevelSchema.safeParse(level).success);
+}
+
 function validCapabilities(value: unknown): value is AdapterCapabilities {
   if (typeof value !== 'object' || value === null) return false;
   const capabilities = value as Partial<AdapterCapabilities>;
@@ -64,6 +74,7 @@ function validCapabilities(value: unknown): value is AdapterCapabilities {
     (capabilities.approvals === 'runtime' || capabilities.approvals === 'spawn-time') &&
     typeof capabilities.extensions === 'boolean' &&
     typeof capabilities.thinking === 'boolean' &&
+    validThinkingLevels(capabilities) &&
     validPolicyMap(capabilities.policies);
 }
 
@@ -94,7 +105,17 @@ export function validateSpawnOptions(adapter: HarnessAdapter, opts: SpawnOpts): 
   if (opts.thinking !== undefined && !adapter.capabilities.thinking) {
     throw new Error(`adapter '${adapter.id}' does not support thinking levels`);
   }
+  if (opts.thinking !== undefined) {
+    const supported = adapter.capabilities.thinking_levels ?? DEFAULT_THINKING_LEVELS;
+    if (!supported.includes(opts.thinking)) {
+      throw new Error(
+        `adapter '${adapter.id}' does not support thinking level '${opts.thinking}'; ` +
+        `valid levels: ${supported.join(', ')}`,
+      );
+    }
+  }
 }
+// harn:end harness-declares-supported-thinking-levels
 
 // harn:assume canonical-spawn-controls-enforced ref=registry-spawn-control-validation
 function withSpawnValidation(adapter: HarnessAdapter): HarnessAdapter {

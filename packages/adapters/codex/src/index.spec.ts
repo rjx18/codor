@@ -15,11 +15,12 @@ describe('@codor/adapter-codex barrel', () => {
       approvals: 'spawn-time',
       extensions: false,
       thinking: true,
+      thinking_levels: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       live_inbox: false,
       policies: {
         'read-only': 'read-only',
         'workspace-write': 'workspace-write',
-        'full-access': 'danger-full-access',
+        'full-access': '--yolo',
       },
     });
   });

@@ -17,9 +17,23 @@ const adapters = [
   // A harness that reported a short curated list.
   {
     id: 'claude-code',
-    capabilities: { resume: true, thinking: true, policies: DISTINCT },
+    capabilities: {
+      resume: true,
+      thinking: true,
+      thinking_levels: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+      policies: DISTINCT,
+    },
     models: ['haiku', 'sonnet', 'opus'],
     models_source: 'curated',
+  },
+  {
+    id: 'codex',
+    capabilities: {
+      resume: true,
+      thinking: true,
+      thinking_levels: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+      policies: { ...DISTINCT, 'full-access': '--yolo' },
+    },
   },
   // A harness that reported nothing at all.
   { id: 'gemini', capabilities: { resume: true, thinking: false, policies: DISTINCT } },
@@ -27,7 +41,12 @@ const adapters = [
   // cannot enforce either of the two lower permission levels.
   {
     id: 'opencode',
-    capabilities: { resume: true, thinking: true, policies: DEFERS },
+    capabilities: {
+      resume: true,
+      thinking: true,
+      thinking_levels: ['low', 'medium', 'high'],
+      policies: DEFERS,
+    },
     models: Array.from({ length: 40 }, (_, index) => `openai/model-${String(index)}`),
     models_source: 'discovered',
   },
@@ -141,6 +160,28 @@ describe('agent controls', () => {
     click('t-harness-gemini');
     expect(latest.model).toBe('');
   });
+
+  // harn:assume harness-declares-supported-thinking-levels ref=agent-thinking-level-regression
+  it('offers only the selected harness native thinking levels', () => {
+    render();
+    for (const level of ['xhigh', 'max', 'ultracode']) {
+      expect(at(`t-thinking-${level}`), `Claude should offer ${level}`).not.toBeNull();
+    }
+    expect(at('t-thinking-ultra')).toBeNull();
+
+    click('t-thinking-ultracode');
+    expect(latest.thinking).toBe('ultracode');
+    click('t-harness-opencode');
+    expect(latest.thinking).toBe('');
+    expect(at('t-thinking-xhigh')).toBeNull();
+
+    click('t-harness-codex');
+    for (const level of ['xhigh', 'max', 'ultra']) {
+      expect(at(`t-thinking-${level}`), `Codex should offer ${level}`).not.toBeNull();
+    }
+    expect(at('t-thinking-ultracode')).toBeNull();
+  });
+  // harn:end harness-declares-supported-thinking-levels
 
   it('strands no thinking level on a harness that cannot accept one', () => {
     render();

@@ -25,9 +25,32 @@ import {
 
 const SESSION_FILE_RE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/;
 
+// harn:assume harness-declares-supported-thinking-levels ref=claude-thinking-level-declaration
+export const CLAUDE_THINKING_LEVELS = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultracode',
+] as const satisfies readonly import('@codor/protocol').ThinkingLevel[];
+
 function invalidPolicy(policy: string): Error {
   return new Error(`unknown policy '${policy}'; valid policies: ${PolicySchema.options.join(', ')}`);
 }
+
+function assertThinkingLevel(
+  thinking: import('@codor/protocol').ThinkingLevel | undefined,
+): void {
+  if (thinking === undefined) return;
+  if (!(CLAUDE_THINKING_LEVELS as readonly string[]).includes(thinking)) {
+    throw new Error(
+      `adapter 'claude-code' does not support thinking level '${thinking}'; ` +
+      `valid levels: ${CLAUDE_THINKING_LEVELS.join(', ')}`,
+    );
+  }
+}
+// harn:end harness-declares-supported-thinking-levels
 
 // harn:assume canonical-spawn-controls-enforced ref=claude-spawn-control-mapping
 export function claudePermissionMode(policy: string | undefined): string | undefined {
@@ -58,6 +81,7 @@ export function claudeArgs(session: Session, settingsPath: string): string[] {
   if (permissionMode !== undefined) args.push('--permission-mode', permissionMode);
   if (session.thinking !== undefined) {
     ThinkingLevelSchema.parse(session.thinking);
+    assertThinkingLevel(session.thinking);
     args.push('--effort', session.thinking);
   }
   if (session.session_ref !== undefined) args.push('--resume', session.session_ref);
@@ -96,6 +120,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     approvals: 'runtime',
     extensions: true,
     thinking: true,
+    thinking_levels: CLAUDE_THINKING_LEVELS,
     // harn:assume live-inbox-capability-is-evidence-backed ref=claude-live-inbox-capability
     live_inbox: true,
     // harn:end live-inbox-capability-is-evidence-backed
@@ -115,7 +140,10 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
 
   spawn(opts: SpawnOpts): Session {
     claudePermissionMode(opts.policy);
-    if (opts.thinking !== undefined) ThinkingLevelSchema.parse(opts.thinking);
+    if (opts.thinking !== undefined) {
+      ThinkingLevelSchema.parse(opts.thinking);
+      assertThinkingLevel(opts.thinking);
+    }
     return {
       harness: this.id,
       cwd: opts.cwd,

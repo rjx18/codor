@@ -6,7 +6,16 @@ import type { WireEvent } from './events.js';
 export const PolicySchema = z.enum(['read-only', 'workspace-write', 'full-access']);
 export type Policy = z.infer<typeof PolicySchema>;
 
-export const ThinkingLevelSchema = z.enum(['low', 'medium', 'high']);
+// harn:assume harness-declares-supported-thinking-levels ref=adapter-thinking-level-contract
+/** Legacy choices for thinking-capable third-party adapters without an exact declaration. */
+export const DEFAULT_THINKING_LEVELS = ['low', 'medium', 'high'] as const;
+export const ThinkingLevelSchema = z.enum([
+  ...DEFAULT_THINKING_LEVELS,
+  'xhigh',
+  'max',
+  'ultra',
+  'ultracode',
+]);
 export type ThinkingLevel = z.infer<typeof ThinkingLevelSchema>;
 
 /** Harness-native session/rollout id — the resume token and identity anchor. */
@@ -53,6 +62,9 @@ export interface AdapterCapabilities {
   approvals: 'runtime' | 'spawn-time';
   extensions: boolean; // reports subagents (extension.*)
   thinking: boolean;
+  /** Exact accepted values. Absent preserves low/medium/high for older adapters. */
+  thinking_levels?: readonly ThinkingLevel[];
+  // harn:end harness-declares-supported-thinking-levels
   // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-capability
   // What each canonical policy ACTUALLY becomes for this harness — the native mode it
   // maps to, or null where the harness does not distinguish it at all.

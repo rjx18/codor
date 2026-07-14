@@ -1,0 +1,18 @@
+id: harness-declares-supported-thinking-levels
+hash: a-d7f66babc6c1
+title: Thinking choices come from the harness that will receive them
+state: active
+statement: A thinking-capable adapter may declare its exact accepted
+  thinking_levels, the registry must validate and enforce that declaration, and
+  the shared agent controls must render only those declared levels. Codex must
+  declare low, medium, high, xhigh, max, and ultra; Claude Code must declare
+  low, medium, high, xhigh, max, and ultracode; OpenCode must declare low,
+  medium, and high. An older third-party adapter that declares thinking true
+  without thinking_levels must retain the legacy low, medium, and high choices,
+  because adding truthful first-party controls must not break the published
+  adapter contract.
+depends_on:
+  - canonical-spawn-controls-enforced
+  - adapter-registry-sole-harness-source
+  - agent-controls-shared-by-both-dialogs
+created_by: native-power-controls

@@ -1,4 +1,4 @@
-# Codex CLI — behavioral spec (probed 2026-07-10, codex-cli 0.144.0)
+# Codex CLI — behavioral spec (probed 2026-07-10, codex-cli 0.144.1)
 
 Everything below was observed live against the installed CLI. The JSONL files under
 `fixtures/` are raw scrubbed captures of these probes (paths/usernames replaced, structure
@@ -8,21 +8,22 @@ must be re-probed against the CLI — never hand-edited into the fixtures.
 ## Invocation
 
 ```sh
-codex exec --json [--sandbox <read-only|workspace-write|danger-full-access>] \
-  [-c model_reasoning_effort=<low|medium|high>] [--ignore-user-config] \
+codex exec --json [--sandbox <read-only|workspace-write> | --yolo] \
+  [-c model_reasoning_effort=<low|medium|high|xhigh|max|ultra>] [--ignore-user-config] \
   --skip-git-repo-check -C <cwd> "<prompt>"                                  # new thread
 codex exec --json … resume <thread_id> "<prompt>"                             # resume
 ```
 
-### Canonical spawn controls (rechecked 2026-07-11)
+### Canonical spawn controls (rechecked 2026-07-14)
 
 Codex CLI 0.144.1 `exec --help`, the first-party
 [CLI reference](https://developers.openai.com/codex/cli/reference/), and
 [configuration reference](https://developers.openai.com/codex/config-reference/)
-document the sandbox vocabulary and `model_reasoning_effort`. Codor maps
-`read-only` and `workspace-write` directly, maps `full-access` to
-`danger-full-access`, and passes thinking `low`, `medium`, or `high` as
-`-c model_reasoning_effort=<level>`. The adapter declares `thinking:true`;
+document the sandbox vocabulary, approval bypass, and `model_reasoning_effort`. Codor maps
+`read-only` and `workspace-write` directly and maps `full-access` to `--yolo`, which bypasses
+both approvals and sandboxing rather than merely selecting the `danger-full-access` sandbox.
+It passes thinking `low`, `medium`, `high`, `xhigh`, `max`, or `ultra` as
+`-c model_reasoning_effort=<level>`. The adapter declares those exact levels;
 provider/model support for a requested effort is not guaranteed, and a CLI
 error becomes an ordinary failed turn. Phase 2 used only help/config probes,
 with no model call.
@@ -146,8 +147,9 @@ silently resumed alongside a possibly orphaned native engine.
 ## Capabilities (for P0.6)
 
 `{resume: true, discover: true, interactiveAttach: true, ask: false, approvals: 'spawn-time',
-extensions: false, thinking: true}` — no ask/approval control protocol exists in `exec` mode (sandbox policy
-is fixed at spawn); no subagent events observed or documented.
+extensions: false, thinking: true, thinking_levels: ['low', 'medium', 'high', 'xhigh', 'max',
+'ultra']}` — no ask/approval control protocol exists in `exec` mode (policy is fixed at spawn);
+no subagent events observed or documented.
 
 ## Probe log (spend discipline)
 
@@ -172,7 +174,7 @@ no ids. The catalog therefore cites the vendor model documentation at
 | Sol | `gpt-5.6-sol` |
 | GPT-5.5 | `gpt-5.5` |
 
-Thinking is supported and maps to `-c model_reasoning_effort=<low|medium|high>`.
+Thinking maps to `-c model_reasoning_effort=<low|medium|high|xhigh|max|ultra>`.
 <!-- harn:end adapters-own-their-model-catalog -->
 
 <!-- harn:assume live-inbox-capability-is-evidence-backed ref=codex-live-inbox-notes -->

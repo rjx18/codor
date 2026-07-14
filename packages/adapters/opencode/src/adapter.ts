@@ -8,6 +8,7 @@ import type {
   Session,
   SessionRef,
   SpawnOpts,
+  ThinkingLevel,
   WireEvent,
 } from '@codor/protocol';
 import { PolicySchema, ThinkingLevelSchema } from '@codor/protocol';
@@ -17,9 +18,27 @@ import { createTurnTranslator } from './translate.js';
 const DISCOVER_QUERY =
   'SELECT id FROM session WHERE parent_id IS NULL ORDER BY time_updated DESC';
 
+// harn:assume harness-declares-supported-thinking-levels ref=opencode-thinking-level-declaration
+export const OPENCODE_THINKING_LEVELS = [
+  'low',
+  'medium',
+  'high',
+] as const satisfies readonly ThinkingLevel[];
+
 function invalidPolicy(policy: string): Error {
   return new Error(`unknown policy '${policy}'; valid policies: ${PolicySchema.options.join(', ')}`);
 }
+
+function assertThinkingLevel(thinking: ThinkingLevel | undefined): void {
+  if (thinking === undefined) return;
+  if (!(OPENCODE_THINKING_LEVELS as readonly string[]).includes(thinking)) {
+    throw new Error(
+      `adapter 'opencode' does not support thinking level '${thinking}'; ` +
+      `valid levels: ${OPENCODE_THINKING_LEVELS.join(', ')}`,
+    );
+  }
+}
+// harn:end harness-declares-supported-thinking-levels
 
 export function openCodeAutoApprove(policy: string | undefined): boolean {
   if (policy === undefined) return false;
@@ -35,6 +54,7 @@ export function openCodeArgs(session: Session, payload: string): string[] {
   if (autoApprove) args.push('--auto');
   if (session.thinking !== undefined) {
     ThinkingLevelSchema.parse(session.thinking);
+    assertThinkingLevel(session.thinking);
     args.push('--variant', session.thinking);
   }
   if (session.session_ref !== undefined) args.push('--session', session.session_ref);
@@ -53,6 +73,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
     approvals: 'spawn-time',
     extensions: false,
     thinking: true,
+    thinking_levels: OPENCODE_THINKING_LEVELS,
     // harn:assume live-inbox-capability-is-evidence-backed ref=opencode-live-inbox-capability
     live_inbox: false,
     // harn:end live-inbox-capability-is-evidence-backed
@@ -75,7 +96,10 @@ export class OpenCodeAdapter implements HarnessAdapter {
     if (opts.policy !== undefined && !PolicySchema.safeParse(opts.policy).success) {
       throw invalidPolicy(opts.policy);
     }
-    if (opts.thinking !== undefined) ThinkingLevelSchema.parse(opts.thinking);
+    if (opts.thinking !== undefined) {
+      ThinkingLevelSchema.parse(opts.thinking);
+      assertThinkingLevel(opts.thinking);
+    }
     return {
       harness: this.id,
       cwd: opts.cwd,

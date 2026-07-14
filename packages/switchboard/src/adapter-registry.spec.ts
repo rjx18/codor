@@ -2,19 +2,28 @@ import { readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
-import { BUILTIN_ADAPTER_IDS, loadAdapterRegistry } from './adapter-registry.js';
+import {
+  BUILTIN_ADAPTER_IDS,
+  loadAdapterRegistry,
+  validateSpawnOptions,
+} from './adapter-registry.js';
 import { FakeAdapter } from './fake-adapter.js';
 
+// harn:assume harness-declares-supported-thinking-levels ref=registry-thinking-level-regression
 describe('adapter registry spawn controls', () => {
-  it('requires every built-in to declare thinking support explicitly', async () => {
+  it('reports each built-in thinking capability and exact accepted levels', async () => {
     const adapters = await loadAdapterRegistry();
     expect(adapters.map((adapter) => adapter.id)).toEqual(BUILTIN_ADAPTER_IDS);
-    expect(adapters.map((adapter) => [adapter.id, adapter.capabilities.thinking])).toEqual([
-      ['claude-code', true],
-      ['codex', true],
-      ['copilot', false],
-      ['gemini', false],
-      ['opencode', true],
+    expect(adapters.map((adapter) => [
+      adapter.id,
+      adapter.capabilities.thinking,
+      adapter.capabilities.thinking_levels,
+    ])).toEqual([
+      ['claude-code', true, ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']],
+      ['codex', true, ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']],
+      ['copilot', false, undefined],
+      ['gemini', false, undefined],
+      ['opencode', true, ['low', 'medium', 'high']],
     ]);
   });
 
@@ -26,7 +35,7 @@ describe('adapter registry spawn controls', () => {
     expect(() => adapter!.spawn({
       cwd: '/work',
       thinking: 'extreme' as 'high',
-    })).toThrow('valid levels: low, medium, high');
+    })).toThrow('valid levels: low, medium, high, xhigh, max, ultra, ultracode');
   });
 
   it('rejects thinking before delegating to unsupported adapters', async () => {
@@ -38,7 +47,32 @@ describe('adapter registry spawn controls', () => {
       );
     }
   });
+
+  it('rejects globally valid levels that the selected harness does not accept', async () => {
+    const adapters = await loadAdapterRegistry();
+    const codex = adapters.find((adapter) => adapter.id === 'codex')!;
+    const claude = adapters.find((adapter) => adapter.id === 'claude-code')!;
+    const opencode = adapters.find((adapter) => adapter.id === 'opencode')!;
+    expect(() => codex.spawn({ cwd: '/work', thinking: 'ultracode' })).toThrow(
+      "adapter 'codex' does not support thinking level 'ultracode'",
+    );
+    expect(() => claude.spawn({ cwd: '/work', thinking: 'ultra' })).toThrow(
+      "adapter 'claude-code' does not support thinking level 'ultra'",
+    );
+    expect(() => opencode.spawn({ cwd: '/work', thinking: 'xhigh' })).toThrow(
+      "adapter 'opencode' does not support thinking level 'xhigh'",
+    );
+  });
+
+  it('preserves low, medium, and high for older thinking-capable adapters', () => {
+    const legacy = new FakeAdapter('legacy', { thinking: true });
+    expect(() => validateSpawnOptions(legacy, { cwd: '/work', thinking: 'high' })).not.toThrow();
+    expect(() => validateSpawnOptions(legacy, { cwd: '/work', thinking: 'xhigh' })).toThrow(
+      "adapter 'legacy' does not support thinking level 'xhigh'; valid levels: low, medium, high",
+    );
+  });
 });
+// harn:end harness-declares-supported-thinking-levels
 
 // harn:assume adapter-wrappers-preserve-the-whole-contract ref=registry-wrapper-regression
 describe('the registry wrapper preserves the whole adapter contract', () => {

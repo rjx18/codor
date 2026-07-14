@@ -15,10 +15,11 @@ the same routing, persistence, run journal, interaction, and crash handling as e
 Implement the `HarnessAdapter` exported by `@codor/protocol`:
 
 <!-- harn:assume the-adapter-doc-is-the-contract-it-enforces ref=published-adapter-contract -->
+<!-- harn:assume harness-declares-supported-thinking-levels ref=adapter-thinking-level-doc -->
 
 ```ts
 type Policy = 'read-only' | 'workspace-write' | 'full-access';
-type ThinkingLevel = 'low' | 'medium' | 'high';
+type ThinkingLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | 'ultracode';
 
 interface HarnessAdapter {
   id: string;
@@ -30,6 +31,8 @@ interface HarnessAdapter {
     approvals: 'runtime' | 'spawn-time';
     extensions: boolean;
     thinking: boolean;
+    /** Optional exact accepted values; omitted means low, medium, and high. */
+    thinking_levels?: readonly ThinkingLevel[];
     policies: Record<Policy, string | null>;
     /** Optional. Can this harness deliver a message INTO a turn already running? */
     live_inbox?: boolean;
@@ -50,9 +53,16 @@ interface HarnessAdapter {
 }
 ```
 
-**Every field above is required, and the registry refuses an adapter that omits one.**
-`thinking` says whether the harness takes a reasoning-effort setting at all; a spawn that
-asks for one from a harness that declares `false` is rejected rather than quietly ignored.
+Every capability above is required except the two explicitly marked optional, and the registry
+refuses an adapter that omits a required field. `thinking` says whether the harness takes a
+reasoning-effort setting at all; a spawn that asks for one from a harness that declares `false`
+is rejected rather than quietly ignored. A thinking-capable adapter should publish its exact,
+non-empty `thinking_levels` list so the UI offers only values the harness accepts and the registry
+rejects other wire values before launch. Omitting the list preserves `low`, `medium`, and `high`
+for adapters written against the earlier contract. A false `thinking` capability cannot declare
+thinking levels.
+
+<!-- harn:end harness-declares-supported-thinking-levels -->
 
 ### `policies` — declare what each permission tier actually becomes
 

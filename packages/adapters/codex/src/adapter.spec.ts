@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { WireEvent } from '@codor/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { CodexAdapter, codexArgs } from './adapter.js';
+import { CODEX_THINKING_LEVELS, CodexAdapter, codexArgs } from './adapter.js';
 
 const dirs: string[] = [];
 
@@ -31,6 +31,7 @@ afterEach(() => {
 });
 
 describe('codex subprocess lifecycle', () => {
+  // harn:assume harness-declares-supported-thinking-levels ref=codex-thinking-level-regression
   it('maps every canonical policy and thinking level to documented argv', () => {
     const base = { harness: 'codex', cwd: '/work' };
     expect(codexArgs({ ...base, policy: 'read-only' }, 'go')).toEqual(
@@ -39,18 +40,22 @@ describe('codex subprocess lifecycle', () => {
     expect(codexArgs({ ...base, policy: 'workspace-write' }, 'go')).toEqual(
       expect.arrayContaining(['--sandbox', 'workspace-write']),
     );
-    expect(codexArgs({ ...base, policy: 'full-access' }, 'go')).toEqual(
-      expect.arrayContaining(['--sandbox', 'danger-full-access']),
-    );
-    for (const thinking of ['low', 'medium', 'high'] as const) {
+    const fullAccess = codexArgs({ ...base, policy: 'full-access' }, 'go');
+    expect(fullAccess).toContain('--yolo');
+    expect(fullAccess).not.toContain('--sandbox');
+    for (const thinking of CODEX_THINKING_LEVELS) {
       expect(codexArgs({ ...base, thinking }, 'go')).toEqual(
         expect.arrayContaining(['-c', `model_reasoning_effort=${thinking}`]),
       );
     }
+    expect(() => codexArgs({ ...base, thinking: 'ultracode' }, 'go')).toThrow(
+      "adapter 'codex' does not support thinking level 'ultracode'",
+    );
     expect(() => codexArgs({ ...base, policy: 'danger-full-access' }, 'go')).toThrow(
       'valid policies: read-only, workspace-write, full-access',
     );
   });
+  // harn:end harness-declares-supported-thinking-levels
 
   it('turns a missing CLI into a failed run instead of an unhandled child error', async () => {
     const events = await collect(new CodexAdapter('/definitely/missing/codor-codex'));
@@ -113,11 +118,12 @@ console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_t
 
 // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-regression
 describe('the declared policy mapping matches the arguments actually built', () => {
-  it('declares exactly what --sandbox receives', () => {
+  it('declares exactly what each policy adds to argv', () => {
     const { policies } = new CodexAdapter().capabilities;
     for (const [policy, native] of Object.entries(policies)) {
       const args = codexArgs({ harness: 'codex', cwd: '/work', policy }, 'go');
-      expect(args[args.indexOf('--sandbox') + 1], policy).toBe(native);
+      if (policy === 'full-access') expect(args, policy).toContain(native);
+      else expect(args[args.indexOf('--sandbox') + 1], policy).toBe(native);
     }
   });
 });

@@ -15,6 +15,7 @@ describe('@codor/adapter-claude-code barrel', () => {
       approvals: 'runtime',
       extensions: true,
       thinking: true,
+      thinking_levels: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
       live_inbox: true,
       policies: {
         'read-only': 'plan',

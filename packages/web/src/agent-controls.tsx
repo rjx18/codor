@@ -1,4 +1,4 @@
-import { PolicySchema, ThinkingLevelSchema, type Policy, type ThinkingLevel } from '@codor/protocol';
+import { DEFAULT_THINKING_LEVELS, PolicySchema, type Policy, type ThinkingLevel } from '@codor/protocol';
 import { Bot, Box, Cat, Sparkles, SquareTerminal, Terminal, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 
@@ -56,10 +56,14 @@ export function AgentControls(props: {
   lockHarness?: boolean;
 }) {
   const { adapters, value, onChange, idPrefix } = props;
+  // harn:assume harness-declares-supported-thinking-levels ref=agent-thinking-level-options
   const [customOpen, setCustomOpen] = useState(false);
   const adapter = adapters.find((candidate) => candidate.id === value.harness);
   const models = adapter?.models ?? [];
   const thinkingSupported = adapter?.capabilities.thinking === true;
+  const thinkingLevels = thinkingSupported
+    ? (adapter.capabilities.thinking_levels ?? DEFAULT_THINKING_LEVELS)
+    : DEFAULT_THINKING_LEVELS;
   // Warn on EITHER deferred level, not just read-only: on a harness that emits a flag
   // only for full-access, workspace-write is no more enforced than read-only is, and
   // implying otherwise would trade one false promise for another.
@@ -166,7 +170,7 @@ export function AgentControls(props: {
           >
             Default
           </button>
-          {ThinkingLevelSchema.options.map((level) => (
+          {thinkingLevels.map((level) => (
             <button
               key={level}
               type="button"
@@ -272,10 +276,15 @@ export function AgentControls(props: {
                   // A model only means anything to the harness it was chosen under,
                   // and a thinking level the new harness rejects would strand the
                   // form: its buttons are disabled, so nothing could clear it.
+                  const candidateLevels = candidate.capabilities.thinking === true
+                    ? (candidate.capabilities.thinking_levels ?? DEFAULT_THINKING_LEVELS)
+                    : [];
                   reset({
                     harness: candidate.id,
                     model: '',
-                    ...(candidate.capabilities.thinking === true ? {} : { thinking: '' }),
+                    ...(value.thinking === '' || candidateLevels.includes(value.thinking)
+                      ? {}
+                      : { thinking: '' }),
                   });
                 }}
               >
@@ -291,5 +300,6 @@ export function AgentControls(props: {
       {fields}
     </div>
   );
+  // harn:end harness-declares-supported-thinking-levels
 }
 // harn:end agent-controls-shared-by-both-dialogs

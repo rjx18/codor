@@ -11,6 +11,7 @@ import type {
   Session,
   SessionRef,
   SpawnOpts,
+  ThinkingLevel,
   WireEvent,
 } from '@codor/protocol';
 import { PolicySchema, ThinkingLevelSchema } from '@codor/protocol';
@@ -18,6 +19,16 @@ import { PolicySchema, ThinkingLevelSchema } from '@codor/protocol';
 import { createTurnTranslator } from './translate.js';
 
 const ROLLOUT_RE = /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/;
+
+// harn:assume harness-declares-supported-thinking-levels ref=codex-thinking-level-declaration
+export const CODEX_THINKING_LEVELS = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultra',
+] as const satisfies readonly ThinkingLevel[];
 
 function codexHome(): string {
   return process.env.CODEX_HOME ?? join(homedir(), '.codex');
@@ -27,15 +38,28 @@ function invalidPolicy(policy: string): Error {
   return new Error(`unknown policy '${policy}'; valid policies: ${PolicySchema.options.join(', ')}`);
 }
 
+function assertThinkingLevel(thinking: ThinkingLevel | undefined): void {
+  if (thinking === undefined) return;
+  if (!(CODEX_THINKING_LEVELS as readonly string[]).includes(thinking)) {
+    throw new Error(
+      `adapter 'codex' does not support thinking level '${thinking}'; ` +
+      `valid levels: ${CODEX_THINKING_LEVELS.join(', ')}`,
+    );
+  }
+}
+// harn:end harness-declares-supported-thinking-levels
+
 // harn:assume canonical-spawn-controls-enforced ref=codex-spawn-control-mapping
 export function codexArgs(session: Session, payload: string): string[] {
   const policy = session.policy ?? 'read-only';
   if (!PolicySchema.safeParse(policy).success) throw invalidPolicy(policy);
-  const sandbox = policy === 'full-access' ? 'danger-full-access' : policy;
-  const args = ['exec', '--json', '--skip-git-repo-check', '-C', session.cwd, '--sandbox', sandbox];
+  const args = ['exec', '--json', '--skip-git-repo-check', '-C', session.cwd];
+  if (policy === 'full-access') args.push('--yolo');
+  else args.push('--sandbox', policy);
   if (session.model !== undefined) args.push('-m', session.model);
   if (session.thinking !== undefined) {
     ThinkingLevelSchema.parse(session.thinking);
+    assertThinkingLevel(session.thinking);
     args.push('-c', `model_reasoning_effort=${session.thinking}`);
   }
   if (session.session_ref !== undefined) args.push('resume', session.session_ref);
@@ -58,15 +82,16 @@ export class CodexAdapter implements HarnessAdapter {
     approvals: 'spawn-time',
     extensions: false,
     thinking: true,
+    thinking_levels: CODEX_THINKING_LEVELS,
     // harn:assume live-inbox-capability-is-evidence-backed ref=codex-live-inbox-capability
     live_inbox: false,
     // harn:end live-inbox-capability-is-evidence-backed
     // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-declarations
-    // --sandbox <mode>; all three are distinct here.
+    // Full access uses Codex's no-approval, no-sandbox mode; all three are distinct.
     policies: {
       'read-only': 'read-only',
       'workspace-write': 'workspace-write',
-      'full-access': 'danger-full-access',
+      'full-access': '--yolo',
     },
     // harn:end harness-declares-what-a-policy-becomes
   } as const;
@@ -79,7 +104,10 @@ export class CodexAdapter implements HarnessAdapter {
     if (opts.policy !== undefined && !PolicySchema.safeParse(opts.policy).success) {
       throw invalidPolicy(opts.policy);
     }
-    if (opts.thinking !== undefined) ThinkingLevelSchema.parse(opts.thinking);
+    if (opts.thinking !== undefined) {
+      ThinkingLevelSchema.parse(opts.thinking);
+      assertThinkingLevel(opts.thinking);
+    }
     return {
       harness: this.id,
       cwd: opts.cwd,

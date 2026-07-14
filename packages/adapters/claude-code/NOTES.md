@@ -1,4 +1,4 @@
-# Claude Code CLI — behavioral spec (probed 2026-07-10, claude 2.1.206)
+# Claude Code CLI — behavioral spec (probed 2026-07-10, claude 2.1.209)
 
 Everything below was observed live against the installed CLI. The JSONL files under
 `fixtures/` are raw scrubbed captures (paths/usernames replaced, structure untouched) and are
@@ -14,18 +14,18 @@ claude -p --output-format stream-json --input-format stream-json --verbose \
   [--resume <session_id>] [--settings <abs-path.json>]
 ```
 
-### Canonical spawn controls (rechecked 2026-07-11)
+### Canonical spawn controls (rechecked 2026-07-14)
 
 Claude Code 2.1.207 `--help` and the first-party
 [CLI reference](https://code.claude.com/docs/en/cli-usage) document both
 `--permission-mode` and `--effort`. Codor maps `read-only` to `plan`,
 `workspace-write` to `acceptEdits`, and `full-access` to
-`bypassPermissions`. It maps thinking `low`, `medium`, and `high` directly
-to `--effort low|medium|high`; the adapter therefore declares
-`thinking:true`. Whether a particular provider/model honors an effort level
-is model-dependent. No model call was made for this Phase 2 verification, so
-unsupported-model behavior remains unverified and any CLI rejection is
-surfaced as a normal failed turn.
+`bypassPermissions`. It maps thinking `low`, `medium`, `high`, `xhigh`, `max`, and
+`ultracode` directly to `--effort <level>`; `ultracode` is the CLI's xhigh plus dynamic
+workflow-orchestration mode and requires workflows plus an xhigh-capable model. The adapter
+declares those exact choices. Whether a particular provider/model or organization honors an
+effort level is configuration-dependent. No model call was made for this verification, so a
+native rejection is surfaced as a normal failed turn.
 
 - `--verbose` is REQUIRED for stream-json output in print mode.
 - **`--permission-prompt-tool stdio` is the control-protocol enabler, not a fallback.**
@@ -151,7 +151,8 @@ documented interaction re-correlation path applies after that process is known d
 ## Capabilities (for P0.7)
 
 `{resume: true, discover: true, interactiveAttach: true, ask: true, approvals: 'runtime',
-extensions: true, thinking: true}`.
+extensions: true, thinking: true, thinking_levels: ['low', 'medium', 'high', 'xhigh', 'max',
+'ultracode']}`.
 
 ## Probe log (spend discipline)
 

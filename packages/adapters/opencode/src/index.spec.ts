@@ -15,6 +15,7 @@ describe('@codor/adapter-opencode barrel', () => {
       approvals: 'spawn-time',
       extensions: false,
       thinking: true,
+      thinking_levels: ['low', 'medium', 'high'],
       live_inbox: false,
       // Only full-access is enforced; the other two defer to opencode's own rules.
       policies: {
