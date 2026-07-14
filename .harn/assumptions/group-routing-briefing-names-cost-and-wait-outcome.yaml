@@ -1,0 +1,12 @@
+id: group-routing-briefing-names-cost-and-wait-outcome
+hash: a-85acbbe224ca
+title: Group routing briefings name cost and automatic wait outcome
+state: active
+statement: The always-on grouped-round instruction must tell an agent that
+  invoking a member from its final response starts another paid group round and
+  that Codor automatically ends its in-round wait when every awaited peer
+  finishes without an interim reply.
+depends_on:
+  - group-round-routing-instruction-is-always-on
+  - same-round-terminal-peers-end-live-waits
+created_by: cc3-review-fix

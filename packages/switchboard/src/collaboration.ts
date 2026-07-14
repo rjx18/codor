@@ -111,13 +111,17 @@ const statusBody = (
 
 // harn:assume group-round-payloads-share-one-ordered-view ref=group-round-payload-composer
 // harn:assume group-round-routing-instruction-is-always-on ref=group-routing-instruction
+// harn:assume group-routing-briefing-names-cost-and-wait-outcome ref=group-routing-cost-wait-guidance
 const GROUP_ROUTING_INSTRUCTION =
   '[group routing: all participants in this round run independently. Your normal final reply ' +
   'posts to the channel immediately; peer agents receive all terminal results together only as ' +
   'the next-round context after this round ends. Use codor post only for an immediate in-round ' +
-  'update, question, or answer. In your final reply, use @handle only when you genuinely intend ' +
-  "to invoke that member in the next round; write the member's plain name without @ when merely " +
-  'discussing them. If no substantive onward response is needed, respond with exactly <ACK_OK>.]';
+  'update, question, or answer. An @mention in your final response starts another paid group ' +
+  "round, so use one only when you genuinely intend to invoke that member; write the member's " +
+  'plain name without @ when merely discussing them. If every peer you are waiting on finishes ' +
+  'without an interim reply, Codor ends the wait automatically. If no substantive onward ' +
+  'response is needed, respond with exactly <ACK_OK>.]';
+// harn:end group-routing-briefing-names-cost-and-wait-outcome
 
 export function composeGroupRoundPayload(ctx: GroupRoundPayloadContext, you: string): string {
   let payload =

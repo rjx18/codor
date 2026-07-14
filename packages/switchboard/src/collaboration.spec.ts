@@ -102,12 +102,22 @@ describe('group round payload composition', () => {
       '[group routing: all participants in this round run independently. Your normal final reply ' +
       'posts to the channel immediately; peer agents receive all terminal results together only as ' +
       'the next-round context after this round ends. Use codor post only for an immediate in-round ' +
-      'update, question, or answer. In your final reply, use @handle only when you genuinely intend ' +
-      "to invoke that member in the next round; write the member's plain name without @ when merely " +
-      'discussing them. If no substantive onward response is needed, respond with exactly <ACK_OK>.]\n',
+      'update, question, or answer. An @mention in your final response starts another paid group ' +
+      "round, so use one only when you genuinely intend to invoke that member; write the member's " +
+      'plain name without @ when merely discussing them. If every peer you are waiting on finishes ' +
+      'without an interim reply, Codor ends the wait automatically. If no substantive onward ' +
+      'response is needed, respond with exactly <ACK_OK>.]\n',
     );
     expect(payload).not.toContain('\n<ACK_OK>\n');
   });
+
+  // harn:assume group-routing-briefing-names-cost-and-wait-outcome ref=group-routing-cost-wait-regression
+  it('names the paid next round and automatic terminal-peer wait outcome', () => {
+    const payload = composeGroupRoundPayload(context, 'gamma');
+    expect(payload).toContain('starts another paid group round');
+    expect(payload).toContain('Codor ends the wait automatically');
+  });
+  // harn:end group-routing-briefing-names-cost-and-wait-outcome
 
   it('changes composed bytes between recipients only at the you field', () => {
     const alpha = composeGroupRoundPayload(context, 'alpha');

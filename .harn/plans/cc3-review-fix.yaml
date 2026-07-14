@@ -1,0 +1,57 @@
+id: cc3-review-fix
+title: Add group-round cost and automatic-wait guidance
+assumptions:
+  create:
+    - id: group-routing-briefing-names-cost-and-wait-outcome
+      title: Group routing briefings name cost and automatic wait outcome
+      statement: The always-on grouped-round instruction must tell an agent that
+        invoking a member from its final response starts another paid group
+        round and that Codor automatically ends its in-round wait when every
+        awaited peer finishes without an interim reply.
+      reason: Agents need the cost consequence before creating another round and the
+        terminal-peer control outcome before relying on codor post --wait.
+      depends_on:
+        - group-round-routing-instruction-is-always-on
+        - same-round-terminal-peers-end-live-waits
+  reviewed:
+    - id: group-round-routing-instruction-is-always-on
+      outcome: unchanged
+      reason: The existing routing boundary remains intact and gains the two
+        operator-approved operational consequences identified in CC3 review.
+    - id: group-round-payloads-share-one-ordered-view
+      outcome: unchanged
+      reason: Every recipient receives the same expanded immutable instruction; root,
+        result ordering, acknowledgement presentation, and you-only core
+        variation are unchanged.
+    - id: same-round-terminal-peers-end-live-waits
+      outcome: unchanged
+      reason: This change teaches the already-tested automatic terminal-peer wait exit
+        without changing its daemon or CLI behavior.
+anchors:
+  group-routing-briefing-names-cost-and-wait-outcome:
+    group-routing-cost-wait-guidance:
+      action: change
+      reason: Add paid-round and automatic all-peers-finished wait wording to the
+        mandatory group instruction.
+    group-routing-cost-wait-regression:
+      action: change
+      reason: Pin both operational consequences in the exact group payload golden.
+  group-round-routing-instruction-is-always-on:
+    group-routing-instruction:
+      action: change
+      reason: Expand the compact instruction without changing when it is emitted.
+    group-routing-instruction-regression:
+      action: change
+      reason: Update the byte-exact expected instruction.
+  group-round-payloads-share-one-ordered-view:
+    group-round-payload-composer:
+      action: change
+      reason: The shared core gains identical instruction bytes for every recipient.
+    group-round-payload-goldens:
+      action: change
+      reason: The exact shared-core golden gains the reviewed sentences.
+files:
+  - packages/switchboard/src/collaboration.ts
+  - packages/switchboard/src/collaboration.spec.ts
+applied:
+  applied_at: 2026-07-14T13:56:04.589Z
