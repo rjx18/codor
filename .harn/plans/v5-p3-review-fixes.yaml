@@ -1,0 +1,484 @@
+id: v5-p3-review-fixes
+title: V5 Phase 3 review fixes - one accessible accent union with an explicit
+  theme input, real v5 primitive adoption with every Tailwind utility migrated
+  across the room's anchored controls, a structurally-closed room-token guard,
+  the real 390 axe matrix, a dedicated 44x44 room-target invariant, the mobile
+  run with its tool rows collapsed behind a summary, one shared viewport
+  listener, and the 34px avatar the contract names.
+notes: >-
+  Closes the review blockers against the applied v5-p3-room. The Harn contracts
+  are unchanged; the implementation and its tests are corrected to actually meet
+  them - several tests asserted weaker substitutes. No codor.service restart;
+  isolated e2e daemons only. Gate, in order, all green: build -> test (0 act
+  warnings) -> e2e (expanded axe/target matrix) -> harn check.
+
+  1. ACCENT UNION: projectAccent takes ONE ordered union of every adjacent
+     background plus an explicit `theme` input on ProjectAccentInput (fallback no
+     longer doubles as theme); the same opaque colour renders on the rail dot,
+     header chip and selected picker candidate. The unit regression compares all
+     three surfaces across explicit and system theme change; channel-create.e2e
+     compares the three in the browser.
+  2. PRIMITIVE ADOPTION: the room imports and consumes v5/primitives.tsx per an
+     adoption matrix - IconButton for the header/rail icon controls and message
+     Copy, Button for the member-card actions and spawn/create controls, Input
+     for the message and search fields, SegmentedTabs for the context Members/Run
+     tabs, CodeChip for the attach hint, Badge/Pill for status chips, Avatar for
+     the member-rail avatar (the 34px MESSAGE avatar is a room element, NOT the
+     primitive Avatar, so the 38px primitive is unchanged); TypingIndicator for
+     announcing the existing truthful active-member working state (e.g. "@alpha is
+     working") - NOT an invented typing protocol. Input gains a forwardable ref +
+     caller id; SegmentedTabs gains per-tab id, aria-controls and a disabled tab.
+     Every Tailwind utility (px-3, text-xs, gap-2, p-5, scroll-mt-16, ...) is
+     removed from App.tsx, shell.tsx and components.tsx - 0 of any kind remain.
+  3. CLOSED GUARD: room-style.spec.ts names the exact migrated Harn CSS regions,
+     asserts each marker exists exactly once, and parses only those regions with
+     PostCSS/value-parser, rejecting raw colour/type/spacing/line-height/
+     letter-spacing/radius/shadow, and explicitly EXCLUDING the v4 pairing region.
+     The TSX guard is an AST with a CLOSED allowed-class policy - only wr-*, cd-*,
+     sr-only and explicitly named semantic state classes; NEVER a Tailwind utility
+     - rejecting any other class and any non-literal style prop.
+  4. 390 AXE MATRIX: both-theme 390 scans for baseline/history (speaker grouping
+     + collapsed tools), pending ask, hold, drawer, context sheet.
+  5. 44x44 TARGET: a NEW dedicated assumption; a rendered-DOM sweep asserts
+  every
+     interactive room target (search, mention popup, inbox, spawn, create-channel,
+     folder-picker, ask, hold, drawer, context, removal, meter, swatches, message
+     actions, composer) has a >=44x44 hit box on the phone; the 30px swatch keeps
+     its visual size but gains a 44px hit box.
+  6. MOBILE RUN: the run card unframes on mobile like a message; the running
+  turn
+     and non-tool live prose stay EXPANDED, but the tool rows are inert behind one
+     summary line until tapped. Spec: initial mobile, tap-to-reveal, desktop
+     expansion, live 719/720 reflow.
+  7. ONE LISTENER: room-presentation.ts uses a module-level subscriber store - N
+     mounted surfaces share one native resize listener, removed after the last.
+  8. AVATAR: the desktop message avatar is 34px (CSS corrected from 38px).
+
+  Also removes the dead [class~='bg-zinc-*'] utility-bridge selectors. Refreshes
+  the six captures.
+assumptions:
+  create:
+    - id: web-room-targets-meet-minimum-hit-size
+      title: Every interactive room target meets the 44x44 minimum on a phone
+      statement: Every interactive target in the room - the header and rail icon
+        buttons, the search, inbox, network and settings triggers, the channel
+        create and folder-picker controls, the colour swatches, the mention
+        control, the composer field and send, the message Copy and permalink,
+        the member-card actions, the spawn and removal controls, the ask and
+        hold actions, the drawer and context triggers, and the spend meter -
+        must present a hit box of at least 44 by 44 CSS pixels on the installed
+        phone, even where its visible mark is smaller, so a 30px colour swatch
+        keeps its visual size but carries a 44px target; because a touch target
+        below 44px fails the mobile accessibility contract, and this must be
+        proven by a rendered-DOM sweep over every enumerated mobile room state
+        rather than isolated assertions for a few controls.
+      reason: The applied room shipped a keyboard-focusable spend meter at 362x28 and
+        30px colour swatches, so a target-size invariant distinct from
+        controls-fit-the-surface (which governs containment, not hit size) is
+        needed, checked by a rendered sweep that no isolated per-control
+        assertion can substitute for.
+      depends_on:
+        - web-room-visual-hierarchy-matches-soft-editorial-reference
+        - controls-fit-the-surface-they-sit-on
+  reviewed:
+    - id: channel-create-dialog-renders-an-accessible-accent
+      outcome: unchanged
+      reason: The projection contract is unchanged and now holds - one opaque colour
+        per channel per theme computed from a single ordered union of every
+        adjacent background with an explicit theme input, reused byte-identical
+        on the rail dot, header chip and selected swatch, compared on all three
+        across explicit and system theme change in unit and browser.
+    - id: web-room-visual-hierarchy-matches-soft-editorial-reference
+      outcome: unchanged
+      reason: The soft-editorial contract is unchanged; the room is brought into line
+        - it adopts the v5 primitives, the desktop message avatar is 34px,
+        mobile run cards unframe with tool rows collapsed behind a summary, and
+        the live width hook shares one listener.
+    - id: web-v5-primitives-consume-only-tokens
+      outcome: unchanged
+      reason: The primitive contract is unchanged; the room now imports and consumes
+        the library per the adoption matrix. Input gains a forwardable ref and a
+        caller id (to keep the fixed room-search id), and SegmentedTabs gains
+        per-tab id, aria-controls and a disabled tab (for the disabled Run tab);
+        these are additive, tokenised APIs. The 38px primitive Avatar geometry
+        is untouched - the 34px message avatar is a distinct room element - and
+        TypingIndicator announces the existing truthful active-member working
+        state, not an invented typing protocol.
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: The theme contract is unchanged; the real both-theme 390 axe matrix is
+        implemented over every enumerated mobile state.
+    - id: controls-fit-the-surface-they-sit-on
+      outcome: unchanged
+      reason: Containment is unchanged; the narrow-surface controls now also satisfy
+        the new explicit 44x44 target invariant.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: The meter stays always on; it becomes a 44x44 target rather than 362x28.
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: Run items still stream live; the mobile run unframes and its tool rows
+        collapse behind a summary while the running prose stays expanded.
+    - id: compact-one-line-tool-rows
+      outcome: unchanged
+      reason: Tool rows stay one line; on mobile they collapse behind a single summary
+        line until tapped.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: The spawn controls keep their canonical form while their utilities
+        migrate to primitives and tokens.
+    - id: member-config-is-changed-not-respawned
+      outcome: unchanged
+      reason: Member config stays a change; its control utilities migrate to
+        primitives and tokens.
+    - id: removing-an-agent-is-one-deliberate-step
+      outcome: unchanged
+      reason: Removal stays one deliberate step; its control utilities migrate.
+    - id: custody-uncertain-never-double-writes
+      outcome: unchanged
+      reason: The custody hint is unchanged; its utilities migrate to tokens and the
+        attach hint adopts the code chip.
+    - id: the-composer-is-one-row
+      outcome: unchanged
+      reason: The composer stays one row; its utilities migrate and it adopts the
+        primitives.
+    - id: run-context-selects-and-follows-live-evidence
+      outcome: unchanged
+      reason: Evidence selection is unchanged; the context control utilities migrate.
+    - id: starting-agent-name-derives-one-valid-identity-v5
+      outcome: unchanged
+      reason: The identity control is unchanged in behaviour; its utilities migrate to
+        primitives and tokens.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: The owner-only create action is unchanged; its utilities migrate.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: The responsive shell is unchanged; its utilities migrate to tokens.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Permalink ids are unchanged; the history and permalink control utilities
+        migrate and the message Copy adopts the icon button.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Role gating is unchanged; the role-aware control utilities migrate.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: Channel terminology is unchanged; its surface utilities migrate.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: The service worker still caches shell only; the page-memory surface
+        utilities migrate.
+    - id: approval-cards-follow-durable-resolution
+      outcome: unchanged
+      reason: Approval resolution is unchanged; the approval control utilities migrate.
+    - id: web-motion-is-purposeful-and-reduced-motion-safe-v5
+      outcome: unchanged
+      reason: Motion is unchanged; the runtime motion class utilities migrate to
+        tokens.
+    - id: live-run-event-cache-bounded
+      outcome: unchanged
+      reason: The bounded cache is unchanged; the recovery surface utilities migrate.
+    - id: interaction-cards-stay-readable-on-phone
+      outcome: unchanged
+      reason: The ask card stays framed and readable; its utilities and its phone
+        ask-card style tokenise.
+    - id: extensions-not-addressable-v1
+      outcome: unchanged
+      reason: Extension rows stay non-addressable; the scroll-mt utility in the
+        extension render migrates to a token.
+    - id: acknowledgement-marker-protocol
+      outcome: unchanged
+      reason: The acknowledgement marker is unchanged; its render utilities migrate.
+    - id: literal-draft-effective-recipient-visible
+      outcome: unchanged
+      reason: The effective recipient stays visible; the composer recipient utilities
+        and the composer popup style tokenise.
+    - id: normalized-run-evidence-inspector
+      outcome: unchanged
+      reason: The inspector is unchanged; its contained-scroll style tokenises.
+    - id: empty-and-offline-are-shown-not-blank
+      outcome: unchanged
+      reason: Empty and offline states stay shown; their timeline style tokenises.
+    - id: the-inbox-opens-what-needs-you
+      outcome: unchanged
+      reason: The inbox is unchanged; its panel style tokenises.
+    - id: every-channel-has-a-visible-accent
+      outcome: unchanged
+      reason: The accent stays a filled mark; its rail style tokenises.
+    - id: one-control-chooses-an-agent-everywhere
+      outcome: unchanged
+      reason: One shared agent control stays canonical; its style tokenises.
+    - id: posted-message-mentions-alone-look-effective
+      outcome: unchanged
+      reason: Effective mentions keep their look; their style tokenises.
+    - id: room-action-errors-are-visible
+      outcome: unchanged
+      reason: Room-action errors stay visible; their style tokenises.
+    - id: web-waits-are-visible-across-live-surfaces-v5
+      outcome: unchanged
+      reason: Wait visibility is unchanged; the live-collaboration style tokenises.
+files:
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/shell.tsx
+  - packages/web/src/App.tsx
+  - packages/web/src/styles.css
+  - packages/web/src/room-color.ts
+  - packages/web/src/room-color.spec.ts
+  - packages/web/src/room-presentation.ts
+  - packages/web/src/room-presentation.spec.tsx
+  - packages/web/src/room-style.spec.ts
+  - packages/web/src/v5/primitives.tsx
+  - packages/web/src/v5/primitives.css
+  - packages/web/src/v5/primitives.spec.tsx
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/channel-create.e2e.spec.ts
+  - packages/web/tests/a11y.e2e.spec.ts
+  - packages/web/tests/a11y-bridged.e2e.spec.ts
+  - packages/web/tests/a11y-hold.e2e.spec.ts
+  - packages/web/tests/a11y-rooms-dark.e2e.spec.ts
+  - packages/web/tests/a11y-rooms-light.e2e.spec.ts
+  - packages/web/tests/a11y-shared.ts
+  - tmp/build/design/v5/room-1440-light.png
+  - tmp/build/design/v5/room-1440-dark.png
+  - tmp/build/design/v5/room-1024-light.png
+  - tmp/build/design/v5/room-1024-dark.png
+  - tmp/build/design/v5/room-390-light.png
+  - tmp/build/design/v5/room-390-dark.png
+anchors:
+  web-room-targets-meet-minimum-hit-size:
+    room-target-size-sweep:
+      action: change
+      reason: A rendered-DOM sweep over every enumerated mobile room state asserts
+        each interactive target has a >=44x44 hit box.
+  channel-create-dialog-renders-an-accessible-accent:
+    room-color-projection:
+      action: change
+      reason: One ordered background union plus an explicit theme input; one opaque
+        colour reused on all three surfaces.
+    room-color-projection-regression:
+      action: change
+      reason: Compare rail/header/swatch across explicit and system theme change.
+    channel-color-identity:
+      action: change
+      reason: The header chip renders from the shared union projection.
+    channel-create-dialog:
+      action: change
+      reason: The picker and rail render from the shared union projection; utilities
+        migrate to primitives.
+    channel-create-browser-regression:
+      action: change
+      reason: The browser regression compares the projected accent on rail, header and
+        selected swatch.
+    channel-create-style:
+      action: change
+      reason: Tokenise the create dialog styles.
+  web-room-visual-hierarchy-matches-soft-editorial-reference:
+    soft-editorial-room-visual-hierarchy:
+      action: change
+      reason: Adopt the v5 primitives per the matrix; 34px desktop avatar; running run
+        collapses its tool rows behind a summary.
+    soft-editorial-room-style:
+      action: change
+      reason: Tokenise every remaining raw value in the room stylesheet, set the
+        avatar to 34px, unframe the mobile run card, and give sub-44px controls
+        a 44px box.
+    soft-editorial-room-token-discipline:
+      action: change
+      reason: Name the exact migrated Harn CSS regions and parse only them; AST TSX
+        guard with a closed allowed-class policy and no non-literal styles.
+    soft-editorial-responsive-adoption:
+      action: change
+      reason: Module-level subscriber store so N surfaces share one native listener.
+    soft-editorial-message-presentation-regression:
+      action: change
+      reason: Exercise a running run (tool rows collapsed while prose expanded), the
+        mobile run unframe, tap-to-reveal, and desktop expansion.
+    soft-editorial-room-visual-regression:
+      action: change
+      reason: Corrected avatar/geometry assertions and the mobile run/reflow coverage.
+  web-v5-primitives-consume-only-tokens:
+    v5-primitive-components:
+      action: change
+      reason: The room imports and consumes the primitive library; Input gains a
+        forwardable ref and a caller-supplied id so it can keep the fixed
+        room-search id, and SegmentedTabs gains per-tab id, aria-controls and a
+        disabled tab so it can express the disabled Run tab; TypingIndicator
+        announces the existing truthful active-member working state, not an
+        invented typing protocol.
+    v5-primitive-styles:
+      action: change
+      reason: Any tokenised style the adapted Input and SegmentedTabs need stays in
+        the primitive stylesheet under the --cd-* contract.
+    v5-primitive-render-regression:
+      action: change
+      reason: Cover the forwarded ref and fixed id on Input, the disabled tab and
+        aria-controls on SegmentedTabs, and the active-member announcement.
+  web-theme-accessible-modes:
+    axe-bridged-state:
+      action: change
+      reason: Scan the bridged state at 390 in both themes.
+    axe-hold-state:
+      action: change
+      reason: Scan the hold state at 390 in both themes.
+    axe-room-matrix-dark:
+      action: change
+      reason: The real 390 dark matrix - baseline/history with grouping and collapsed
+        tools, pending ask, drawer, context sheet.
+    axe-room-matrix-light:
+      action: change
+      reason: The real 390 light matrix - the same enumerated states.
+    axe-room-matrix-shared:
+      action: change
+      reason: The shared harness enumerates the full 390 mobile state matrix.
+  controls-fit-the-surface-they-sit-on:
+    control-fits-narrow-surface:
+      action: change
+      reason: The narrow-surface controls also satisfy the 44x44 target invariant.
+  spend-meter-always-on:
+    meter-settings-surface:
+      action: change
+      reason: The meter becomes a 44x44 target while staying always on.
+  normalized-run-items-presented-live:
+    live-run-message-surface:
+      action: change
+      reason: The mobile run unframes; the running prose stays expanded while tool
+        rows collapse behind a summary.
+    run-stream-responsive-style:
+      action: change
+      reason: Re-derive the mobile run styles so the run card unframes like a message.
+  compact-one-line-tool-rows:
+    compact-run-row-style:
+      action: change
+      reason: The one-line tool rows collapse behind a single summary line on mobile.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    spawn-dialog-controls:
+      action: change
+      reason: Migrate the spawn control utilities to primitives and tokens.
+    dead-member-replacement-controls:
+      action: change
+      reason: Migrate the replacement control utilities.
+    spawn-dialog-style:
+      action: change
+      reason: Tokenise the spawn dialog styles.
+  member-config-is-changed-not-respawned:
+    member-card-settings:
+      action: change
+      reason: Migrate the member-card control utilities to primitives and tokens.
+  removing-an-agent-is-one-deliberate-step:
+    remove-member-control:
+      action: change
+      reason: Migrate the removal control utilities.
+  custody-uncertain-never-double-writes:
+    attach-custody-web-hint:
+      action: change
+      reason: Migrate the custody hint utilities and adopt the code chip.
+  the-composer-is-one-row:
+    composer-single-row:
+      action: change
+      reason: Migrate the composer utilities and adopt the primitives.
+  run-context-selects-and-follows-live-evidence:
+    selected-live-run-context:
+      action: change
+      reason: Migrate the context control utilities.
+  starting-agent-name-derives-one-valid-identity-v5:
+    starting-agent-name-control:
+      action: change
+      reason: Migrate the name-control utilities to primitives and tokens.
+  web-room-rail-creates-owner-room:
+    room-rail-create-action:
+      action: change
+      reason: Migrate the rail create-action utilities.
+  web-shell-responsive-three-pane:
+    responsive-room-shell:
+      action: change
+      reason: Migrate the shell utilities to tokens.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: Migrate the history surface utilities.
+    message-permalink-rendering:
+      action: change
+      reason: Migrate the permalink utilities and adopt the icon button for Copy.
+  roles-gate-human-acts-not-agents:
+    role-aware-web-controls:
+      action: change
+      reason: Migrate the role-aware control utilities.
+  human-facing-surfaces-call-rooms-channels:
+    web-channel-terminology:
+      action: change
+      reason: Migrate the channel-terminology surface utilities.
+  sw-caches-shell-only-no-message-data:
+    page-memory-message-cache:
+      action: change
+      reason: Migrate the page-memory surface utilities.
+  approval-cards-follow-durable-resolution:
+    approval-answer-inflight:
+      action: change
+      reason: Migrate the approval control utilities to primitives.
+  web-motion-is-purposeful-and-reduced-motion-safe-v5:
+    motion-runtime-classes:
+      action: change
+      reason: Migrate the runtime motion class utilities to tokens.
+    motion-token-style:
+      action: change
+      reason: Tokenise the motion token styles.
+  live-run-event-cache-bounded:
+    full-journal-recovery:
+      action: change
+      reason: Migrate the recovery surface utilities.
+  interaction-cards-stay-readable-on-phone:
+    phone-ask-card:
+      action: change
+      reason: Migrate the ask-card utilities.
+    phone-ask-card-style:
+      action: change
+      reason: Tokenise the phone ask-card styles.
+  extensions-not-addressable-v1:
+    extension-run-rendering:
+      action: change
+      reason: Migrate the scroll-mt utility in the extension render to a token.
+  acknowledgement-marker-protocol:
+    ack-web-marker:
+      action: change
+      reason: Migrate the acknowledgement marker render utilities.
+  literal-draft-effective-recipient-visible:
+    composer-literal-recipient:
+      action: change
+      reason: Migrate the composer recipient render utilities.
+    composer-popup-style:
+      action: change
+      reason: Tokenise the composer popup styles.
+  normalized-run-evidence-inspector:
+    inspector-contained-scroll:
+      action: change
+      reason: Tokenise the inspector contained-scroll styles.
+  empty-and-offline-are-shown-not-blank:
+    timeline-empty-and-offline-states:
+      action: change
+      reason: Tokenise the empty and offline timeline styles.
+  the-inbox-opens-what-needs-you:
+    inbox-panel:
+      action: change
+      reason: Tokenise the inbox panel styles.
+  every-channel-has-a-visible-accent:
+    channel-accent-rail:
+      action: change
+      reason: Tokenise the rail accent styles.
+  one-control-chooses-an-agent-everywhere:
+    shared-policy-control:
+      action: change
+      reason: Tokenise the shared agent control styles.
+  posted-message-mentions-alone-look-effective:
+    effective-mention-style:
+      action: change
+      reason: Tokenise the effective mention styles.
+  room-action-errors-are-visible:
+    room-action-error-style:
+      action: change
+      reason: Tokenise the room-action error styles.
+  web-waits-are-visible-across-live-surfaces-v5:
+    live-collaboration-style:
+      action: change
+      reason: Tokenise the live-collaboration styles.
