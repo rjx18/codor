@@ -10,12 +10,30 @@
   align-items: center;
   justify-content: center;
   gap: var(--cd-space-2);
+  min-width: 44px;
   min-height: 44px;
   padding: var(--cd-space-2) var(--cd-space-4);
   border: 1px solid transparent;
   border-radius: var(--cd-radius-control);
   font: var(--cd-text-ui);
   cursor: pointer;
+}
+.cd-button:focus-visible,
+.cd-input:focus-visible,
+.cd-tab:focus-visible {
+  outline: 2px solid var(--cd-agent);
+  outline-offset: 2px;
+}
+/* Hover only on the variants with a transparent or light base, so it never clobbers a
+   coloured variant's background. */
+.cd-button-secondary:hover,
+.cd-button-ghost:hover,
+.cd-button-icon:hover {
+  background: var(--cd-surface-muted);
+}
+.cd-button:disabled {
+  color: var(--cd-text-muted);
+  cursor: not-allowed;
 }
 .cd-button-primary {
   background: var(--cd-text-strong);
@@ -51,6 +69,7 @@
 
 /* Input -------------------------------------------------------------------- */
 .cd-input {
+  min-width: 44px;
   min-height: 44px;
   padding: var(--cd-space-2) var(--cd-space-3);
   background: var(--cd-surface-muted);
@@ -102,7 +121,7 @@
   background: var(--cd-live);
 }
 .cd-status-idle {
-  background: var(--cd-mark-faint);
+  background: var(--cd-text-muted);
 }
 .cd-status-error {
   background: var(--cd-error);
@@ -117,6 +136,7 @@
   border-radius: var(--cd-radius-card);
 }
 .cd-tab {
+  min-width: 44px;
   min-height: 44px;
   padding: var(--cd-space-2) var(--cd-space-4);
   background: transparent;

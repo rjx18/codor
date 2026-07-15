@@ -4,61 +4,86 @@
 // are Lucide components at allowlisted sizes with currentColor paint. No live surface
 // imports this yet; the room phase adopts it.
 import type { LucideIcon } from 'lucide-react';
-import { useId, useRef, type ReactNode } from 'react';
+import {
+  useId,
+  useRef,
+  type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from 'react';
 
 import './primitives.css';
 
+// A caller may forward any native attribute a room surface needs - data-testid, aria-*,
+// name, title, disabled - but never `style` (presentation flows through the anchored
+// class) nor `className` (the primitive controls it). Stripping them at the type level and
+// again at runtime means a caller cannot smuggle in an inline style or override the class.
+type NativeButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'style' | 'className'>;
+type NativeInputProps = Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  'style' | 'className' | 'id' | 'value' | 'onChange'
+>;
+
+function stripControlled<T extends Record<string, unknown>>(props: T): T {
+  const { style: _style, className: _className, ...safe } = props as Record<string, unknown>;
+  return safe as T;
+}
+
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'revive' | 'remove';
 
-export function Button(props: {
-  variant: ButtonVariant;
-  onClick?: () => void;
-  disabled?: boolean;
-  type?: 'button' | 'submit';
-  children: ReactNode;
-}): JSX.Element {
+export function Button({
+  variant,
+  type,
+  children,
+  ...rest
+}: NativeButtonProps & { variant: ButtonVariant; children: ReactNode }): JSX.Element {
   return (
-    <button
-      type={props.type ?? 'button'}
-      disabled={props.disabled}
-      onClick={props.onClick}
-      className={`cd-button cd-button-${props.variant}`}
-    >
-      {props.children}
+    <button {...stripControlled(rest)} type={type ?? 'button'} className={`cd-button cd-button-${variant}`}>
+      {children}
     </button>
   );
 }
 
-export function IconButton(props: {
-  icon: LucideIcon;
-  label: string;
-  onClick?: () => void;
-}): JSX.Element {
-  const Icon = props.icon;
+export function IconButton({
+  icon,
+  label,
+  type,
+  ...rest
+}: NativeButtonProps & { icon: LucideIcon; label: string }): JSX.Element {
+  const Icon = icon;
   return (
-    <button type="button" aria-label={props.label} onClick={props.onClick} className="cd-button-icon">
+    <button
+      {...stripControlled(rest)}
+      type={type ?? 'button'}
+      aria-label={label}
+      className="cd-button cd-button-icon"
+    >
       <Icon aria-hidden size={17} />
     </button>
   );
 }
 
-export function Input(props: {
+export function Input({
+  label,
+  onChange,
+  value,
+  ...rest
+}: NativeInputProps & {
   label: string;
   value?: string;
-  placeholder?: string;
   onChange?: (value: string) => void;
 }): JSX.Element {
   const id = useId();
   return (
     <>
       <label htmlFor={id} className="sr-only">
-        {props.label}
+        {label}
       </label>
       <input
+        {...stripControlled(rest)}
         id={id}
-        value={props.value}
-        placeholder={props.placeholder}
-        onChange={(event) => props.onChange?.(event.target.value)}
+        value={value}
+        onChange={(event) => onChange?.(event.target.value)}
         className="cd-input"
       />
     </>

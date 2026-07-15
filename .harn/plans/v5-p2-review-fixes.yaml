@@ -1,37 +1,38 @@
 id: v5-p2-review-fixes
-title: >-
-  V5 Phase 2 review fixes - an AA idle dot, a real 44x44 contract, a structural guard
-  that cannot be bypassed, and primitive APIs ready for adoption
+title: V5 Phase 2 review fixes - an AA idle dot, a real 44x44 contract, a
+  structural guard that cannot be bypassed, and primitive APIs ready for
+  adoption
 assumptions:
   create: []
   reviewed:
     - id: web-v5-primitives-consume-only-tokens
       outcome: unchanged
-      reason: >-
-        The contract is unchanged and is now actually enforced. The 44x44 promise was
-        half-true - only the icon button declared a min-width, and the test checked only
-        heights - so a short or empty button could be narrower than 44px; every
-        interactive selector now declares both min-width and min-height, the icon button
-        gains the base cd-button class it was missing, and the test asserts both dimensions
-        for each. The structural guard was weaker than claimed - it found token
-        declarations by regex a comment could satisfy, let oklch, named colours,
-        border-radius:50% and unitless line-height through, shared one size set across
-        avatars, dots and icons, allowed border-radius:1px because it only checked the
-        border prefix, and used an incomplete palette regex - so both stylesheets are now
-        parsed with PostCSS, geometry is validated per exact property and selector, colour
-        detection covers every functional and named form, and synthetic negative fixtures
-        prove each former bypass fails. The primitives also could not forward the native
-        attributes a room surface needs; they now spread safe native props while omitting
-        style and the controlled classes, and gain tokenised focus-visible, hover and
-        disabled states.
+      reason: The contract is unchanged and is now actually enforced. The 44x44
+        promise was half-true - only the icon button declared a min-width, and
+        the test checked only heights - so a short or empty button could be
+        narrower than 44px; every interactive selector now declares both
+        min-width and min-height, the icon button gains the base cd-button class
+        it was missing, and the test asserts both dimensions for each. The
+        structural guard was weaker than claimed - it found token declarations
+        by regex a comment could satisfy, let oklch, named colours,
+        border-radius:50% and unitless line-height through, shared one size set
+        across avatars, dots and icons, allowed border-radius:1px because it
+        only checked the border prefix, and used an incomplete palette regex -
+        so both stylesheets are now parsed with PostCSS, geometry is validated
+        per exact property and selector, colour detection covers every
+        functional and named form, and synthetic negative fixtures prove each
+        former bypass fails. The primitives also could not forward the native
+        attributes a room surface needs; they now spread safe native props while
+        omitting style and the controlled classes, and gain tokenised
+        focus-visible, hover and disabled states.
     - id: web-theme-accessible-modes
       outcome: unchanged
-      reason: >-
-        The token layer and its promises are unchanged; the primitives stop violating one.
-        The idle status dot spent the decorative --cd-mark-faint, which is 2.26:1 on the
-        light avatar tint - below the 3:1 a sole graphical state signal needs - so it moves
-        to the AA-safe --cd-text-muted, which clears 5.20:1 in light and 6.34:1 in dark on
-        that tint, and a test asserts every status dot holds at least 3:1 against the
+      reason: The token layer and its promises are unchanged; the primitives stop
+        violating one. The idle status dot spent the decorative --cd-mark-faint,
+        which is 2.26:1 on the light avatar tint - below the 3:1 a sole
+        graphical state signal needs - so it moves to the AA-safe
+        --cd-text-muted, which clears 5.20:1 in light and 6.34:1 in dark on that
+        tint, and a test asserts every status dot holds at least 3:1 against the
         avatar background it sits on, in both themes. No token value changes.
 files:
   - packages/web/src/v5/primitives.tsx
@@ -41,39 +42,41 @@ anchors:
   web-v5-primitives-consume-only-tokens:
     v5-primitive-components:
       action: change
-      reason: >-
-        The icon button gains the base cd-button class it dropped, so it keeps the flex
-        centring, hairline border, font and pointer behaviour. The button, icon button and
-        input each spread the safe native props a room surface will need - data-testid,
-        aria-* including aria-expanded and aria-controls, name, type, title, disabled and
-        the like - while explicitly omitting style and the classes the primitive controls,
-        so a caller cannot smuggle in an inline style or override the anchored class. The
-        icon button is the primitive most likely to need this passthrough during room
-        adoption.
+      reason: The icon button gains the base cd-button class it dropped, so it keeps
+        the flex centring, hairline border, font and pointer behaviour. The
+        button, icon button and input each spread the safe native props a room
+        surface will need - data-testid, aria-* including aria-expanded and
+        aria-controls, name, type, title, disabled and the like - while
+        explicitly omitting style and the classes the primitive controls, so a
+        caller cannot smuggle in an inline style or override the anchored class.
+        The icon button is the primitive most likely to need this passthrough
+        during room adoption.
     v5-primitive-styles:
       action: change
-      reason: >-
-        The idle status dot moves from the decorative --cd-mark-faint to the AA-safe
-        --cd-text-muted. Every interactive selector - button, icon button, input and tab -
-        declares both min-width and min-height of 44px. Tokenised focus-visible, hover and
-        disabled states are added, each drawing only from the --cd-* layer.
+      reason: The idle status dot moves from the decorative --cd-mark-faint to the
+        AA-safe --cd-text-muted. Every interactive selector - button, icon
+        button, input and tab - declares both min-width and min-height of 44px.
+        Tokenised focus-visible, hover and disabled states are added, each
+        drawing only from the --cd-* layer.
     v5-primitive-token-discipline:
       action: change
-      reason: >-
-        Both stylesheets are parsed with PostCSS rather than regex, so a token declared
-        only inside a comment cannot satisfy a reference. Colour detection rejects oklch,
-        lab, lch, color() and every named colour, not just hex and rgb; border-radius is
-        checked as its own property so border-radius:50% and border-radius:1px fail; and
-        line-height must be a token, so a raw unitless value fails. Geometry is validated
-        per exact property and per selector - an avatar may use only an avatar size, a dot
-        only a dot size, an icon only an icon size - and the interactive-target check
-        asserts both dimensions. Synthetic negative fixtures prove each former bypass now
-        fails, and a contrast test asserts every status dot clears 3:1 against its avatar
-        background in both themes.
+      reason: Both stylesheets are parsed with PostCSS rather than regex, so a token
+        declared only inside a comment cannot satisfy a reference. Colour
+        detection rejects oklch, lab, lch, color() and every named colour, not
+        just hex and rgb; border-radius is checked as its own property so
+        border-radius:50% and border-radius:1px fail; and line-height must be a
+        token, so a raw unitless value fails. Geometry is validated per exact
+        property and per selector - an avatar may use only an avatar size, a dot
+        only a dot size, an icon only an icon size - and the interactive-target
+        check asserts both dimensions. Synthetic negative fixtures prove each
+        former bypass now fails, and a contrast test asserts every status dot
+        clears 3:1 against its avatar background in both themes.
     v5-primitive-render-regression:
       action: change
-      reason: >-
-        The suite sets IS_REACT_ACT_ENVIRONMENT so React stops warning, and adds coverage
-        that the button, icon button and input each forward a data-testid and a disabled
-        state and drop a passed style prop - the icon button also forwarding aria-expanded
-        - and that the idle status dot carries its readable text.
+      reason: The suite sets IS_REACT_ACT_ENVIRONMENT so React stops warning, and adds
+        coverage that the button, icon button and input each forward a
+        data-testid and a disabled state and drop a passed style prop - the icon
+        button also forwarding aria-expanded - and that the idle status dot
+        carries its readable text.
+applied:
+  applied_at: 2026-07-15T01:23:52.403Z
