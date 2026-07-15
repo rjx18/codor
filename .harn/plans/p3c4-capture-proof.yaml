@@ -26,6 +26,12 @@ notes: |-
   editorial-reference - so the build-then-serve-then-verify guarantee is a durably
   checked contract, not an untracked convenience.
 
+  BUILD-WARNING REPAIR: the fresh production build exposed a malformed comment
+  inside soft-editorial-room-style: the prose `wr-*/is-*` accidentally contains
+  the CSS comment terminator. Replace it with wording that cannot terminate the
+  comment early. This is a comment-only source correction, but it is required so
+  the capture proof begins from a warning-free CSS build.
+
   PROOF: regenerate all six captures against the fresh build and verify they are no
   longer byte-identical to the 50e04c1 set - the 1440/1024 desktop shots show the
   34px message avatar and the 390 shots show the 2a header + pill composer.
@@ -46,6 +52,7 @@ assumptions:
 files:
   - packages/web/tests/capture-room.mjs
   - packages/web/package.json
+  - packages/web/src/styles.css
   - tmp/build/design/v5/room-1440-light.png
   - tmp/build/design/v5/room-1440-dark.png
   - tmp/build/design/v5/room-1024-light.png
@@ -54,9 +61,12 @@ files:
   - tmp/build/design/v5/room-390-dark.png
 anchors:
   web-room-visual-hierarchy-matches-soft-editorial-reference:
+    soft-editorial-room-style:
+      action: change
+      reason: Repair the malformed wr-/is- class comment that prematurely closes
+        and produces a CSS optimizer warning in the fresh production build.
     soft-editorial-room-capture-proof:
       action: change
       reason: The new tracked capture pipeline builds dist first, serves it on
         isolated ports, writes all six images, and asserts each was written by the
         current run, is nonempty, and decodes to the expected dimensions.
-
