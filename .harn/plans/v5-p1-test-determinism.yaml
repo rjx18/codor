@@ -1,0 +1,73 @@
+id: v5-p1-test-determinism
+title: >-
+  V5 Phase 1 test determinism - stop init scripts accumulating across branches, and
+  assert the rendered theme before every scan
+assumptions:
+  create: []
+  reviewed:
+    - id: web-first-run-color-mode-is-light
+      outcome: unchanged
+      reason: >-
+        The contract and the production prepaint script are unchanged; only its
+        regression is made deterministic. The test added one init script per branch to
+        the same page, and Playwright leaves the evaluation order of accumulated init
+        scripts undefined, so a later branch ran alongside every earlier storage setter
+        and only happened to pass under today's order. Each branch now runs in its own
+        fresh context - no inherited init script, no inherited storage - and asserts the
+        resolved data-theme it claims, so every branch proves itself rather than the last
+        writer.
+    - id: web-glass-theme-accessible-modes
+      outcome: unchanged
+      reason: >-
+        The accessibility contract, the token values and the four-matrix split are
+        unchanged; only the harness lifecycle is corrected. The hold and bridged specs
+        added a light init script and then a dark one to the same page, so the dark scan
+        ran with both installed and its label came from the loop variable rather than the
+        rendered document; each theme now runs in its own fresh context. The shared room
+        sweep added its theme init script on every navigation; it now installs it once and
+        lets same-origin storage persist. Every scan first asserts the document actually
+        carries the theme it is being recorded under, so a mislabelled or wrong-theme scan
+        fails instead of passing quietly.
+files:
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/a11y-shared.ts
+  - packages/web/tests/a11y-hold.e2e.spec.ts
+  - packages/web/tests/a11y-bridged.e2e.spec.ts
+anchors:
+  web-first-run-color-mode-is-light:
+    light-first-theme-regression:
+      action: change
+      reason: >-
+        Each resolver branch runs in a fresh browser context created with its own
+        colour-scheme, seeded with only its own stored value, and asserts the resulting
+        data-theme before the context is closed - so no branch inherits another branch's
+        init script or storage, and each proves its own claim rather than relying on
+        undefined init-script order. A fresh context inherits no Playwright fixture
+        options, so it is created with baseURL: BASE, or navigates the absolute URL, and
+        with the 1440x900 viewport explicit rather than falling back to the 1280x720
+        default.
+  web-glass-theme-accessible-modes:
+    axe-room-matrix-shared:
+      action: change
+      reason: >-
+        The theme init script is installed once, before the first navigation, and
+        same-origin localStorage persists across the sweep rather than a new script being
+        added on every open. Each state asserts the document carries the expected theme
+        before axe runs, so a scan can no longer be recorded under a theme the page is not
+        actually in.
+    axe-hold-state:
+      action: change
+      reason: >-
+        Each theme is scanned in its own fresh context, so the dark scan cannot run with
+        the light setter still installed, and each scan asserts the rendered data-theme
+        before running axe. A fresh context inherits no fixture options, so it is created
+        with baseURL: BASE and the explicit 1440x900 viewport. The hold is recreated per
+        theme because it is a daemon-side delivery consumed once seen, not context state.
+    axe-bridged-state:
+      action: change
+      reason: >-
+        The bridge is daemon state, not context state, so it is enabled once for the
+        spec's daemon, before either theme. Each theme is then scanned in its own fresh
+        context - created with baseURL: BASE and the explicit 1440x900 viewport - so no
+        light setter survives into the dark scan, and each scan asserts the rendered
+        data-theme before running axe.
