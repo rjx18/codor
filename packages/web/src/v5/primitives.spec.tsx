@@ -63,78 +63,166 @@ function contrast(a: string, b: string): number {
   return (hi! + 0.05) / (lo! + 0.05);
 }
 
+// Property-scoped geometry allowlist the token layer cannot express.
 const AVATAR_SIZES = new Set([32, 34, 38, 40]);
 const DOT_SIZES = new Set([6, 7, 9, 12]);
 const BORDER_WIDTHS = new Set([1, 2]);
-const NAMED_COLOURS = new Set([
-  'white', 'black', 'red', 'green', 'blue', 'gray', 'grey', 'silver', 'orange', 'yellow',
-  'purple', 'pink', 'brown', 'cyan', 'magenta', 'teal', 'navy', 'gold', 'rebeccapurple',
-  'aqua', 'lime', 'maroon', 'olive', 'fuchsia', 'coral', 'salmon', 'khaki', 'indigo',
+const ICON_SIZES = [14, 15, 17, 18];
+
+// Any colour-producing function is forbidden as a literal paint.
+const COLOUR_FNS = /^(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)$/i;
+
+// Paint-bearing properties: their colour component must be a --cd-* token or a safe keyword,
+// so a named colour, a CSS system colour, a hex or a colour function is rejected without
+// enumerating a colour list. The border and outline shorthands (and their side longhands) are
+// included, since they carry a colour alongside a width and a style.
+const PAINT_PROPS = new Set([
+  'color', 'background', 'background-color', 'border-color', 'outline-color', 'fill', 'stroke',
+  'border', 'outline',
+  'border-top', 'border-right', 'border-bottom', 'border-left',
+  'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
 ]);
-const COLOUR_FNS = /^(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color)$/i;
-const COLOUR_PROPS = new Set(['color', 'background', 'background-color', 'border-color', 'outline-color', 'fill', 'stroke']);
+// Words allowed in a paint value besides a var() token: the paint keywords and the border
+// styles that ride in a border/outline shorthand. A width literal is judged by the geometry pass.
+const PAINT_KEYWORDS = new Set([
+  'transparent', 'currentcolor', 'inherit', 'initial', 'unset', 'revert', 'none',
+  'solid', 'dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset', 'hidden',
+]);
+
+// Any raw length or percentage literal — px is only sometimes allowed, every other unit never.
+const LENGTH = /^-?\d*\.?\d+(px|rem|em|ex|ch|vh|vw|vmin|vmax|pt|pc|cm|mm|in|q|%)$/i;
 
 /** Every discipline violation in a stylesheet, given the tokens the layer declares. */
 export function cssOffenders(css: string, declared: Set<string>): string[] {
   const out: string[] = [];
   postcss.parse(css).walkRules((rule) => {
-    // Which literal width/height sizes this selector may use.
     const sel = rule.selector;
-    const sizeSet = sel.includes('.cd-avatar')
+    // Exact class membership, not substring: `.cd-avatar-x` yields class `cd-avatar-x`, so it
+    // cannot borrow the avatar size set.
+    const classes = new Set([...sel.matchAll(/\.([\w-]+)/g)].map((m) => m[1]!));
+    const sizeSet = classes.has('cd-avatar')
       ? AVATAR_SIZES
-      : sel.includes('.cd-status-dot') || sel.includes('.cd-typing-dot')
+      : classes.has('cd-status-dot') || classes.has('cd-typing-dot')
         ? DOT_SIZES
         : null;
 
     rule.walkDecls((decl) => {
       if (decl.prop.startsWith('--cd-')) out.push(`${sel}: declares local token ${decl.prop}`);
       const prop = decl.prop.toLowerCase();
-      const parsed = valueParser(decl.value);
-
-      // Colour: no functional or named colour anywhere; colour props must be a token or keyword.
-      parsed.walk((node) => {
-        if (node.type === 'function' && COLOUR_FNS.test(node.value)) {
-          out.push(`${prop}: ${decl.value} (colour function ${node.value})`);
-        }
-        if (node.type === 'word') {
-          if (/^#[0-9a-f]{3,8}$/i.test(node.value)) out.push(`${prop}: ${decl.value} (hex)`);
-          else if (NAMED_COLOURS.has(node.value.toLowerCase())) out.push(`${prop}: ${decl.value} (named colour)`);
-        }
-      });
+      const value = decl.value.trim();
+      const parsed = valueParser(value);
 
       // Token references must be declared by the layer.
-      for (const [, name] of decl.value.matchAll(/var\(\s*(--cd-[\w-]+)/g)) {
+      for (const [, name] of value.matchAll(/var\(\s*(--cd-[\w-]+)/g)) {
         if (!declared.has(name!)) out.push(`${prop}: consumes undeclared ${name!}`);
       }
 
-      // border-radius must be a token: any px or % literal is a raw radius.
-      if (prop === 'border-radius' && !/^var\(--cd-radius-[\w-]+\)$/.test(decl.value.trim())) {
-        out.push(`${prop}: ${decl.value} (raw radius)`);
-      }
-      // line-height must be a token when set standalone.
-      if (prop === 'line-height' && !/^var\(--cd-/.test(decl.value.trim())) {
-        out.push(`${prop}: ${decl.value} (raw line-height)`);
+      // No colour function or hex literal on any property.
+      parsed.walk((node) => {
+        if (node.type === 'function' && COLOUR_FNS.test(node.value)) {
+          out.push(`${prop}: ${value} (colour function ${node.value})`);
+        }
+        if (node.type === 'word' && /^#[0-9a-f]{3,8}$/i.test(node.value)) {
+          out.push(`${prop}: ${value} (hex)`);
+        }
+      });
+
+      // Paint-bearing properties: every bare word must be a safe keyword or a length (the width
+      // component); the colour itself must arrive through a var() token. A stray identifier —
+      // aliceblue, CanvasText — is a raw colour.
+      if (PAINT_PROPS.has(prop)) {
+        parsed.walk((node) => {
+          if (node.type === 'function') return false; // var()/colour-fn already judged; skip its args
+          if (node.type !== 'word') return undefined;
+          const w = node.value.toLowerCase();
+          if (PAINT_KEYWORDS.has(w) || LENGTH.test(node.value) || /^-?\d*\.?\d+$/.test(node.value)) {
+            return undefined;
+          }
+          out.push(`${prop}: ${value} (raw paint "${node.value}")`);
+          return undefined;
+        });
       }
 
-      // Geometry literals, property- and selector-scoped.
+      // font and every font-* longhand, and both shadows, must be a single --cd-* token.
+      if (prop === 'font' || prop.startsWith('font-')) {
+        if (!/^var\(--cd-[\w-]+\)$/.test(value)) out.push(`${prop}: ${value} (raw font)`);
+      }
+      if (prop === 'box-shadow' || prop === 'text-shadow') {
+        if (!/^var\(--cd-[\w-]+\)$/.test(value)) out.push(`${prop}: ${value} (raw shadow)`);
+      }
+      // border-radius must be a token: any px or % literal is a raw radius.
+      if (prop === 'border-radius' && !/^var\(--cd-radius-[\w-]+\)$/.test(value)) {
+        out.push(`${prop}: ${value} (raw radius)`);
+      }
+      // line-height must be a token when set standalone.
+      if (prop === 'line-height' && !/^var\(--cd-/.test(value)) {
+        out.push(`${prop}: ${value} (raw line-height)`);
+      }
+
+      // Geometry: any raw length literal must be an allowlisted px for this exact property.
       parsed.walk((node) => {
-        if (node.type !== 'word') return;
+        if (node.type !== 'word' || !LENGTH.test(node.value)) return;
         const px = /^(\d+)px$/.exec(node.value);
-        if (!px) return;
-        const v = Number(px[1]);
+        const v = px ? Number(px[1]) : Number.NaN;
         const ok =
-          (prop === 'width' || prop === 'height')
+          prop === 'width' || prop === 'height'
             ? sizeSet !== null && sizeSet.has(v)
-            : (prop === 'min-width' || prop === 'min-height')
-              ? v >= 44
-              : (prop === 'border-width' || prop === 'outline-width' || prop === 'border' || prop === 'outline' || prop === 'outline-offset')
+            : prop === 'min-width' || prop === 'min-height'
+              ? Number.isFinite(v) && v >= 44
+              : prop === 'border-width' || prop === 'outline-width' || prop === 'border' || prop === 'outline'
                 ? BORDER_WIDTHS.has(v)
                 : false;
-        if (!ok) out.push(`${prop}: ${decl.value} (${String(v)}px not allowed here)`);
+        if (!ok) out.push(`${prop}: ${value} (${node.value} not allowed here)`);
       });
     });
   });
   return out;
+}
+
+/** Every component-discipline violation in the primitives TSX source. */
+export function tsxOffenders(tsx: string): string[] {
+  const source = ts.createSourceFile('primitives.tsx', tsx, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const offenders: string[] = [];
+  // Tailwind palette utilities: a numbered colour ramp, or the suffixless white/black.
+  const PALETTE =
+    /\b(?:text|bg|border|ring|from|via|to|fill|stroke|decoration|divide|placeholder|caret|accent|shadow|outline)-(?:white|black|(?:slate|gray|grey|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3})\b/;
+  const literalSize = (attr: ts.JsxAttribute): number | null => {
+    const init = attr.initializer;
+    return init && ts.isJsxExpression(init) && init.expression && ts.isNumericLiteral(init.expression)
+      ? Number(init.expression.text)
+      : null;
+  };
+  const walk = (node: ts.Node): void => {
+    if (ts.isJsxAttribute(node) && node.name.getText(source) === 'style') offenders.push('inline style prop');
+    if (
+      (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+      node.tagName.getText(source) === 'svg'
+    ) {
+      offenders.push('hand-authored <svg>');
+    }
+    // Every Lucide icon render — aliased to <Icon> in this module — must carry an allowlisted
+    // numeric-literal size; a missing size silently restores Lucide's 24px default.
+    if (
+      (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+      node.tagName.getText(source) === 'Icon'
+    ) {
+      const sizeAttr = node.attributes.properties.find(
+        (p): p is ts.JsxAttribute => ts.isJsxAttribute(p) && p.name.getText(source) === 'size',
+      );
+      if (!sizeAttr) offenders.push('<Icon> without a size');
+      else {
+        const size = literalSize(sizeAttr);
+        if (size === null) offenders.push('<Icon> with a non-literal size');
+        else if (!ICON_SIZES.includes(size)) offenders.push(`icon size ${String(size)}`);
+      }
+    }
+    if (ts.isStringLiteralLike(node) && PALETTE.test(node.text)) {
+      offenders.push(`palette utility "${node.text}"`);
+    }
+    ts.forEachChild(node, walk);
+  };
+  walk(source);
+  return offenders;
 }
 
 // harn:assume web-v5-primitives-consume-only-tokens ref=v5-primitive-token-discipline
@@ -165,16 +253,32 @@ describe('primitive stylesheet discipline', () => {
     }
   });
 
-  it('rejects each former bypass — proven with synthetic fixtures', () => {
+  it('rejects each former CSS bypass — proven with synthetic fixtures', () => {
     const cases: [string, string][] = [
       ['oklch', '.x { color: oklch(0.7 0.1 200); }'],
+      ['color-mix', '.x { background: color-mix(in srgb, red, blue); }'],
       ['named colour', '.x { color: rebeccapurple; }'],
+      ['aliceblue (off-blacklist named colour)', '.x { color: aliceblue; }'],
+      ['system colour', '.x { color: CanvasText; }'],
+      ['hex', '.x { color: #abcdef; }'],
+      ['border shorthand with a named colour', '.x { border: 1px solid aliceblue; }'],
+      ['outline shorthand with a system colour', '.x { outline: 2px solid CanvasText; }'],
+      ['border-color longhand named colour', '.x { border-color: aliceblue; }'],
+      ['raw font shorthand', '.x { font: 14px/1.5 sans-serif; }'],
+      ['raw font-family', '.x { font-family: Arial; }'],
+      ['raw font-weight', '.x { font-weight: 700; }'],
+      ['raw box-shadow', '.x { box-shadow: 0 1px 2px #000; }'],
+      ['raw text-shadow', '.x { text-shadow: 0 1px 2px black; }'],
       ['border-radius percent', '.x { border-radius: 50%; }'],
       ['border-radius px', '.x { border-radius: 1px; }'],
       ['raw line-height', '.x { line-height: 1.5; }'],
+      ['rem spacing', '.x { padding: 1rem; }'],
+      ['em spacing', '.x { gap: 2em; }'],
       ['avatar using a dot size', '.cd-avatar { width: 6px; }'],
+      ['near-miss avatar class cannot borrow an avatar size', '.cd-avatar-x { width: 38px; }'],
       ['padding literal', '.x { padding: 14px; }'],
       ['gap literal', '.x { gap: 44px; }'],
+      ['outline-offset literal', '.x { outline-offset: 2px; }'],
       ['undeclared token', '.x { color: var(--cd-nonexistent); }'],
     ];
     for (const [name, css] of cases) {
@@ -186,52 +290,53 @@ describe('primitive stylesheet discipline', () => {
   });
 
   it('keeps every status dot at least 3:1 against the avatar background, in both themes', () => {
-    const dotToken: Record<string, string> = {
-      live: '--cd-live',
-      idle: '--cd-text-muted',
-      error: '--cd-error',
-    };
+    // Read the status → token mapping straight from the stylesheet, so a regression there — say
+    // reverting .cd-status-idle to a decorative token — fails here rather than a hardcoded map.
+    const statusBg = new Map<string, string>();
+    postcss.parse(CSS).walkRules((rule) => {
+      const m = /^\.cd-status-(live|idle|error)$/.exec(rule.selector.trim());
+      if (!m) return;
+      rule.walkDecls('background', (d) => {
+        const ref = /^var\(\s*(--cd-[\w-]+)\s*\)$/.exec(d.value.trim());
+        if (ref) statusBg.set(m[1]!, ref[1]!);
+      });
+    });
+    expect([...statusBg.keys()].sort()).toEqual(['error', 'idle', 'live']);
+
     for (const [theme, selector] of [
       ['light', ':root'],
       ['dark', ":root[data-theme='dark']"],
     ] as const) {
       const t = themeTokens(selector);
       const bg = t.get('--cd-agent-tint')!;
-      for (const [state, token] of Object.entries(dotToken)) {
-        const dot = t.get(token)!;
-        const ratio = contrast(dot, bg);
-        expect(ratio, `${state} dot on avatar in ${theme} = ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(3);
+      for (const [state, token] of statusBg) {
+        const ratio = contrast(t.get(token)!, bg);
+        expect(ratio, `${state} dot (${token}) on avatar in ${theme} = ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(3);
       }
     }
   });
 });
 
 describe('primitive component discipline', () => {
-  it('carries no inline style, no palette utility, no hand-authored svg, and only allowlisted icon sizes', () => {
-    const source = ts.createSourceFile('primitives.tsx', TSX, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-    const offenders: string[] = [];
-    const walk = (node: ts.Node): void => {
-      if (ts.isJsxAttribute(node) && node.name.getText(source) === 'style') offenders.push('inline style prop');
-      if (
-        (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
-        node.tagName.getText(source) === 'svg'
-      ) {
-        offenders.push('hand-authored <svg>');
-      }
-      if (ts.isJsxAttribute(node) && node.name.getText(source) === 'size') {
-        const init = node.initializer;
-        if (init && ts.isJsxExpression(init) && init.expression && ts.isNumericLiteral(init.expression)) {
-          const size = Number(init.expression.text);
-          if (![14, 15, 17, 18].includes(size)) offenders.push(`icon size ${String(size)}`);
-        }
-      }
-      if (ts.isStringLiteralLike(node) && /\b(zinc|sky|emerald|red|slate|gray|grey|neutral|stone|blue|green|amber|yellow|orange|rose|pink|purple|violet|indigo|cyan|teal|lime|fuchsia)-\d{2,3}\b/.test(node.text)) {
-        offenders.push(`palette utility "${node.text}"`);
-      }
-      ts.forEachChild(node, walk);
-    };
-    walk(source);
+  it('carries no inline style, no palette utility, no hand-authored svg, and gives every icon an allowlisted size', () => {
+    const offenders = tsxOffenders(TSX);
     expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  it('rejects each former TSX bypass — proven with synthetic fixtures', () => {
+    const cases: [string, string][] = [
+      ['inline style', 'const A = () => <button style={{ color: "red" }} />;'],
+      ['hand-authored svg', 'const A = () => <svg viewBox="0 0 1 1" />;'],
+      ['text-white utility', 'const A = () => <span className="text-white" />;'],
+      ['bg-black utility', 'const A = () => <span className="bg-black" />;'],
+      ['numbered palette utility', 'const A = () => <span className="text-zinc-500" />;'],
+      ['missing icon size', 'const A = () => <Icon aria-hidden />;'],
+      ['non-literal icon size', 'const A = () => <Icon size={n} />;'],
+      ['off-allowlist icon size', 'const A = () => <Icon size={24} />;'],
+    ];
+    for (const [name, tsx] of cases) {
+      expect(tsxOffenders(tsx).length, `${name} should be rejected`).toBeGreaterThan(0);
+    }
   });
 });
 // harn:end web-v5-primitives-consume-only-tokens

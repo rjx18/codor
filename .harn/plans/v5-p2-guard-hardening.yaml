@@ -1,0 +1,81 @@
+id: v5-p2-guard-hardening
+title: V5 Phase 2 guard hardening - the structural CSS/TSX guard enforces the
+  token contract by property-scoped policy rather than a partial blacklist, the
+  status-contrast regression reads the actual stylesheet, and outline-offset is
+  token-derived
+assumptions:
+  create: []
+  reviewed:
+    - id: web-v5-primitives-consume-only-tokens
+      outcome: unchanged
+      reason: The contract is unchanged; the guard meant to enforce it was still
+        bypassable and the status-contrast regression was disconnected from the
+        stylesheet, so both are rebuilt to actually hold. The colour check moves
+        from an incomplete hand-written named-colour blacklist - which let
+        aliceblue, the CSS system colours, raw font and shadow, and rem or em
+        spacing through - to property-scoped policies. Every paint-bearing
+        property, the colour longhands (color, background, background-color,
+        border-color, outline-color, fill, stroke) and the border and outline
+        shorthands and their side longhands alike, may hold only a --cd-* token
+        or a safe keyword, so border:1px solid aliceblue and outline:2px solid
+        CanvasText are rejected without enumerating a colour list. font and
+        every font-* longhand must be a --cd-* token, and both box-shadow and
+        text-shadow must be tokens, so font-family:Arial, font-weight:700 and a
+        raw text-shadow all fail. Any raw length unit outside the
+        property-scoped px allowlist - rem, em, percent and the rest, not only
+        px - is rejected. Selector-to-size classification becomes exact class
+        matching rather than substring, so a .cd-avatar-x cannot borrow an
+        avatar size. The TSX guard gains the suffixless palette utilities
+        (text-white, bg-black) and requires every Lucide <Icon> render to carry
+        an allowlisted numeric-literal size, so a non-literal size expression
+        and a missing size - which would silently restore Lucide's 24px default
+        - both fail. outline-offset leaves the outline-width allowlist, since
+        the statement permits an outline width literal and not an offset, and is
+        token-derived in the stylesheet, so a raw outline-offset literal is now
+        a violation. The status-contrast test stops hardcoding idle to
+        --cd-text-muted and instead parses each .cd-status-* background token
+        from primitives.css before resolving and measuring it, so reverting the
+        stylesheet to a below-3:1 token turns the test red. Synthetic negative
+        fixtures prove each newly-closed bypass fails. No token value and no
+        component API changes.
+files:
+  - packages/web/src/v5/primitives.spec.tsx
+  - packages/web/src/v5/primitives.css
+anchors:
+  web-v5-primitives-consume-only-tokens:
+    v5-primitive-token-discipline:
+      action: change
+      reason: The structural guard is rebuilt from a partial blacklist into
+        property-scoped policies. Every paint-bearing property - the colour
+        longhands (color, background, background-color, border-color,
+        outline-color, fill, stroke) and the border and outline shorthands and
+        their side longhands - may hold only a --cd-* token or a safe keyword
+        (transparent, currentColor, inherit, none, and the border-style
+        keywords), so every named colour (aliceblue and the CSS system colours
+        included), every hex and every colour function is rejected without
+        enumerating them, and border:1px solid aliceblue / outline:2px solid
+        CanvasText no longer pass. font and every font-* longhand must be a
+        --cd-* token; box-shadow and text-shadow must be tokens. Any raw length
+        literal - rem, em, percent, not only px - is rejected unless it is an
+        allowlisted px for that exact property. Selector-to-size classification
+        is exact class matching, not substring. outline-offset is removed from
+        the outline-width allowlist so a raw offset literal is a violation. The
+        TSX guard adds the suffixless palette utilities (text-white, bg-black)
+        and requires every Lucide <Icon> render to carry an allowlisted
+        numeric-literal size, failing a non-literal size expression and a
+        missing size alike. The status-contrast test parses each .cd-status-*
+        background token straight from primitives.css instead of a hardcoded
+        map, so it fails if the stylesheet regresses to a below-3:1 token. New
+        negative fixtures cover raw font, font-weight, box-shadow, text-shadow,
+        rem spacing, aliceblue, a system colour, a border shorthand with a named
+        colour, an outline-offset literal, a suffixless palette utility, a
+        non-literal icon size and a missing icon size.
+    v5-primitive-styles:
+      action: change
+      reason: outline-offset moves from a raw 2px literal - which the token layer's
+        geometry allowlist does not cover, since the statement permits an
+        outline width literal and not an offset - to var(--cd-space-1), so the
+        focus-ring offset is token-derived like every other spacing value in the
+        sheet. No colour, radius, font or shadow changes.
+applied:
+  applied_at: 2026-07-15T02:01:20.862Z
