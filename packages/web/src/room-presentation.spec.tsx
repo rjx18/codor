@@ -94,5 +94,44 @@ describe('live room presentation adoption', () => {
     expect(renders).toBe(rendersAtMount);
     container.remove();
   });
+
+  it('shares ONE native resize listener across many mounted surfaces, and zero after all unmount', () => {
+    // Count only the native window resize listeners the store attaches, ignoring React's own.
+    let native = 0;
+    const realAdd = window.addEventListener.bind(window);
+    const realRemove = window.removeEventListener.bind(window);
+    (window as unknown as { addEventListener: typeof window.addEventListener }).addEventListener = ((
+      type: string,
+      ...args: unknown[]
+    ) => {
+      if (type === 'resize') native += 1;
+      return (realAdd as unknown as (...a: unknown[]) => void)(type, ...args);
+    }) as typeof window.addEventListener;
+    (window as unknown as { removeEventListener: typeof window.removeEventListener }).removeEventListener = ((
+      type: string,
+      ...args: unknown[]
+    ) => {
+      if (type === 'resize') native -= 1;
+      return (realRemove as unknown as (...a: unknown[]) => void)(type, ...args);
+    }) as typeof window.removeEventListener;
+
+    try {
+      setWidth(1440);
+      // Eight surfaces, all subscribing to the same store.
+      const surfaces = (['message', 'run', 'tool', 'ask', 'hold', 'composer', 'member', 'channel-row'] as const)
+        .map((surface) => mountSurface(surface));
+      // However many surfaces mount, exactly one native resize listener is attached.
+      expect(native).toBe(1);
+      // Tearing down all but one keeps the single shared listener alive.
+      for (const surface of surfaces.slice(1)) surface.cleanup();
+      expect(native).toBe(1);
+      // Removing the last subscriber removes the native listener: nothing leaks.
+      surfaces[0]!.cleanup();
+      expect(native).toBe(0);
+    } finally {
+      (window as unknown as { addEventListener: typeof window.addEventListener }).addEventListener = realAdd;
+      (window as unknown as { removeEventListener: typeof window.removeEventListener }).removeEventListener = realRemove;
+    }
+  });
 });
 // harn:end web-room-visual-hierarchy-matches-soft-editorial-reference

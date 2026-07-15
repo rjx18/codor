@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 
 import postcss from 'postcss';
 import valueParser from 'postcss-value-parser';
-import { act, createElement, useState } from 'react';
+import { act, createElement, createRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import ts from 'typescript';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -452,6 +452,24 @@ describe('primitive semantics', () => {
     cleanup();
   });
 
+  it('keeps a caller-supplied id on the input and binds its label to it', () => {
+    // The room search field must keep the fixed `room-search` id the toggle's aria-controls
+    // and the Escape-focus target reference; a generated id would break those links.
+    const { container, cleanup } = mount(<Input label="Search messages" id="room-search" />);
+    const input = container.querySelector('input')!;
+    expect(input.id).toBe('room-search');
+    expect(container.querySelector('label')!.getAttribute('for')).toBe('room-search');
+    cleanup();
+  });
+
+  it('forwards a ref to the underlying input element', () => {
+    const ref = createRef<HTMLInputElement>();
+    const { cleanup } = mount(<Input label="Search messages" ref={ref} />);
+    expect(ref.current).toBeInstanceOf(HTMLInputElement);
+    expect(ref.current?.tagName).toBe('INPUT');
+    cleanup();
+  });
+
   it('exposes a tablist whose selected tab is marked and moves under arrow keys', () => {
     function Harness(): JSX.Element {
       const tabs = [
@@ -475,10 +493,38 @@ describe('primitive semantics', () => {
     cleanup();
   });
 
-  it('announces the typing indicator through a status role', () => {
-    const { container, cleanup } = mount(<TypingIndicator who="@reviewer" />);
+  it('carries per-tab id and aria-controls, and a disabled tab that cannot be selected', () => {
+    // The context tablist gives each tab a caller id so the panel can be labelled by it, an
+    // aria-controls to its panel, and disables the Run tab until a run is selected.
+    function Harness(): JSX.Element {
+      const tabs = [
+        { id: 'members', label: 'Members', tabId: 'ctx-members-tab', controls: 'ctx-members-panel' },
+        { id: 'run', label: 'Run', tabId: 'ctx-run-tab', controls: 'ctx-run-panel', disabled: true },
+      ] as const;
+      const [selected, setSelected] = useState<(typeof tabs)[number]['id']>('members');
+      return <SegmentedTabs label="Channel context" tabs={tabs} selected={selected} onSelect={setSelected} />;
+    }
+    const { container, cleanup } = mount(<Harness />);
+    const members = container.querySelector('#ctx-members-tab')!;
+    const run = container.querySelector('#ctx-run-tab')! as HTMLButtonElement;
+    expect(members.getAttribute('aria-controls')).toBe('ctx-members-panel');
+    expect(run.getAttribute('aria-controls')).toBe('ctx-run-panel');
+    expect(run.disabled).toBe(true);
+    // Arrow-right from the only enabled tab stays on it: the disabled Run tab is skipped.
+    act(() => {
+      members.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    });
+    expect(container.querySelector('#ctx-members-tab')!.getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector('#ctx-run-tab')!.getAttribute('aria-selected')).toBe('false');
+    cleanup();
+  });
+
+  it('announces the active member working state through a status role', () => {
+    // Not a typing protocol: the room passes the handle of a member whose turn is running, and
+    // the indicator reads the truthful "@alpha is working".
+    const { container, cleanup } = mount(<TypingIndicator who="@alpha" />);
     const status = container.querySelector('[role="status"]')!;
-    expect(status.textContent).toContain('@reviewer is typing');
+    expect(status.textContent).toContain('@alpha is working');
     cleanup();
   });
 

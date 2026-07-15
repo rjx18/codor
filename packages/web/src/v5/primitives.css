@@ -86,7 +86,13 @@
   gap: var(--cd-space-1);
   padding: var(--cd-space-1) var(--cd-space-3);
   border-radius: var(--cd-radius-pill);
+  background: var(--cd-surface-muted);
+  color: var(--cd-text-secondary);
   font: var(--cd-text-caption);
+}
+.cd-badge-attention {
+  background: var(--cd-warn-tint);
+  color: var(--cd-warn);
 }
 .cd-pill {
   display: inline-flex;

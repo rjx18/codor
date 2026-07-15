@@ -1,16 +1,35 @@
 // harn:assume web-room-visual-hierarchy-matches-soft-editorial-reference ref=soft-editorial-responsive-adoption
 // The live adoption of the pure presentation model. The eight adopted room surfaces resolve
 // their frame from the current viewport width, re-resolving when the width crosses the 720
-// content breakpoint. Width is read through useSyncExternalStore, so the single resize listener
-// is attached after mount and removed automatically when the last subscriber unmounts - there is
-// no listener to leak.
+// content breakpoint. Width is read through useSyncExternalStore over a module-level subscriber
+// store: however many surfaces are mounted, they share ONE native resize listener, attached when
+// the first subscribes and removed after the last unsubscribes - so N surfaces never attach N
+// listeners and there is nothing to leak.
 import { useSyncExternalStore } from 'react';
 
 import { resolvePresentation, type PresentationMode, type Surface } from './v5/presentation.js';
 
+// The single native listener and the set of React store callbacks it fans out to.
+const subscribers = new Set<() => void>();
+let nativeListenerAttached = false;
+
+function handleResize(): void {
+  for (const notify of [...subscribers]) notify();
+}
+
 function subscribe(onStoreChange: () => void): () => void {
-  window.addEventListener('resize', onStoreChange);
-  return () => window.removeEventListener('resize', onStoreChange);
+  subscribers.add(onStoreChange);
+  if (!nativeListenerAttached) {
+    window.addEventListener('resize', handleResize);
+    nativeListenerAttached = true;
+  }
+  return () => {
+    subscribers.delete(onStoreChange);
+    if (subscribers.size === 0 && nativeListenerAttached) {
+      window.removeEventListener('resize', handleResize);
+      nativeListenerAttached = false;
+    }
+  };
 }
 
 function getWidthSnapshot(): number {

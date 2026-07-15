@@ -25,6 +25,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 
 import { AgentControls } from './agent-controls.js';
+import { Button, IconButton, SegmentedTabs } from './v5/primitives.js';
 
 import {
   createRoom,
@@ -37,8 +38,7 @@ import {
 import {
   MemberRail,
   useAccentProjector,
-  PICKER_BACKGROUNDS,
-  RAIL_DOT_BACKGROUNDS,
+  ACCENT_UNION_BACKGROUNDS,
 } from './components.js';
 import { useRoomPresentation } from './room-presentation.js';
 import { formatRunDuration, mergeRunEvents, presentRunEvents, type RunRow } from './run-presenter.js';
@@ -130,16 +130,15 @@ function FolderPicker(props: {
         {!busy && !error && listing?.dirs.length === 0 && <p>No child folders</p>}
       </div>
       <div className="wr-dialog-actions">
-        <button type="button" className="wr-secondary-button min-h-11 px-4" onClick={props.onClose}>Cancel</button>
-        <button
-          type="button"
+        <Button variant="secondary" onClick={props.onClose}>Cancel</Button>
+        <Button
+          variant="primary"
           data-testid="folder-use"
-          className="wr-primary-button min-h-11 px-4"
           disabled={!listing}
           onClick={() => listing && props.onSelect(listing.path)}
         >
           Use this folder
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -221,22 +220,19 @@ export function RoomList(props: {
       <div className="wr-rail-label">
         <span>Channels</span>
         {props.token && props.owner && (props.canCreateRoom ?? true) ? (
-          <button
+          <IconButton
             ref={createTrigger}
-            type="button"
+            icon={Plus}
             data-testid="create-room"
-            aria-label="Create channel"
+            label="Create channel"
             title="Create channel"
-            className="wr-rail-action"
             onClick={() => {
               setCreateError(undefined);
               setStartingNameError(undefined);
               setStartingHarness(undefined);
               setCreating(true);
             }}
-          >
-            <Plus aria-hidden="true" size={16} />
-          </button>
+          />
         ) : <span>{props.rooms.length}</span>}
       </div>
       <ul>
@@ -248,7 +244,7 @@ export function RoomList(props: {
           const dotColor = projectAccentColor(
             room.config.color ?? deriveRoomColor(room.id),
             room.id,
-            RAIL_DOT_BACKGROUNDS,
+            ACCENT_UNION_BACKGROUNDS,
           );
           return (
             <li key={room.id}>
@@ -292,7 +288,7 @@ export function RoomList(props: {
         })}
       </ul>
       {creating && props.token && props.owner && (props.canCreateRoom ?? true) && (
-        <div className="wr-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="wr-modal-backdrop">
           <button
             type="button"
             aria-label="Close create channel"
@@ -308,7 +304,7 @@ export function RoomList(props: {
             aria-modal="true"
             aria-label="Create channel"
             data-testid="create-room-dialog"
-            className="wr-channel-dialog wr-focused-glass relative z-10 w-full max-w-xl p-5"
+            className="wr-channel-dialog wr-focused-glass"
           >
           <form
             className="wr-channel-form"
@@ -373,7 +369,7 @@ export function RoomList(props: {
                 onChange={(event) => setRoomName(event.target.value)}
                 placeholder="Release train"
                 required
-                className="wr-input min-h-11 px-3"
+                className="wr-input"
               />
               <small data-testid="create-room-id">id: {deriveRoomId(roomName)}</small>
             </label>
@@ -384,7 +380,7 @@ export function RoomList(props: {
                   const label = ACCENT_LABELS[index]!;
                   // The swatch shows the accessible PROJECTION so what the operator picks is
                   // what the rail and header render; the RAW value is what setColor persists.
-                  const swatch = projectAccentColor(value, deriveRoomId(roomName), PICKER_BACKGROUNDS);
+                  const swatch = projectAccentColor(value, deriveRoomId(roomName), ACCENT_UNION_BACKGROUNDS);
                   return (
                     <button
                       key={value}
@@ -393,9 +389,12 @@ export function RoomList(props: {
                       aria-label={`${label} channel color`}
                       aria-pressed={color === value}
                       title={label}
-                      style={{ backgroundColor: swatch }}
                       onClick={() => setColor(value)}
-                    />
+                    >
+                      {/* The 30px swatch keeps its visual size; the button carries a 44x44 hit box
+                          around it so the target clears the mobile minimum. */}
+                      <span className="wr-swatch-fill" style={{ backgroundColor: swatch }} aria-hidden="true" />
+                    </button>
                   );
                 })}
               </div>
@@ -408,16 +407,15 @@ export function RoomList(props: {
                   value={cwd}
                   onChange={(event) => setCwd(event.target.value)}
                   placeholder="~/git/demo"
-                  className="wr-input min-h-11 px-3"
+                  className="wr-input"
                 />
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
                   data-testid="browse-folders"
-                  className="wr-secondary-button min-h-11 px-3"
                   onClick={() => setPickingFolder(true)}
                 >
                   <Folder aria-hidden="true" size={16} /> Browse
-                </button>
+                </Button>
               </span>
             </label>
             <div className="wr-starting-agent">
@@ -448,7 +446,7 @@ export function RoomList(props: {
                     setStartingNameError(undefined);
                   }}
                   disabled={selectedStartingHarness === ''}
-                  className="wr-input min-h-11 px-3 disabled:opacity-50"
+                  className="wr-input"
                 />
                 {selectedStartingHarness !== '' && derivedStartingHandle !== undefined && (
                   <small data-testid="create-room-agent-handle">@{derivedStartingHandle}</small>
@@ -458,10 +456,10 @@ export function RoomList(props: {
             </div>
             {createError && <p role="alert" className="wr-form-error">{createError}</p>}
             <div className="wr-dialog-actions">
-              <button type="button" className="wr-secondary-button min-h-11 px-4" onClick={() => setCreating(false)}>Cancel</button>
-              <button type="submit" data-testid="create-room-submit" disabled={createBusy} className="wr-primary-button min-h-11 px-4">
+              <Button variant="secondary" onClick={() => setCreating(false)}>Cancel</Button>
+              <Button variant="primary" type="submit" data-testid="create-room-submit" disabled={createBusy}>
                 {createBusy ? 'Creating' : 'Create channel'}
-              </button>
+              </Button>
             </div>
             {pickingFolder && (
               <FolderPicker
@@ -606,7 +604,7 @@ function RunContext(props: {
     .find((row) => row.eventIndex === props.selectedEventIndex);
 
   return (
-    <section className="wr-run-context h-full min-h-0 overflow-y-auto" aria-label={`Run ${String(props.message.id)} context`}>
+    <section className="wr-run-context wr-fill-height" aria-label={`Run ${String(props.message.id)} context`}>
       <div className="wr-context-heading">
         <span className="wr-run-symbol" aria-hidden="true"><Activity size={17} /></span>
         <div>
@@ -664,53 +662,36 @@ export function ContextRail(props: {
   const membersPanelId = `${idPrefix}-members-panel`;
   const runTabId = `${idPrefix}-run-tab`;
   const runPanelId = `${idPrefix}-run-panel`;
-  const selectTab = (direction: -1 | 1): void => {
-    if (!props.selectedRun) return;
-    props.onView(props.view === 'members' ? 'run' : 'members');
-    requestAnimationFrame(() => {
-      const target = direction > 0 ? runTabId : membersTabId;
-      document.getElementById(target)?.focus();
-    });
-  };
   return (
     <aside
       data-testid={props.testId ?? 'context-rail'}
       aria-label="Channel context"
       className={`wr-context-rail ${props.className ?? ''}`}
     >
-      <div className="wr-context-tabs" role="tablist" aria-label="Channel context">
-        <button
-          id={membersTabId}
-          type="button"
-          role="tab"
-          aria-selected={props.view === 'members'}
-          aria-controls={membersPanelId}
-          tabIndex={props.view === 'members' ? 0 : -1}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowRight') selectTab(1);
-          }}
-          onClick={() => props.onView('members')}
-        >
-          <Users aria-hidden="true" size={16} /> Members
-        </button>
-        <button
-          id={runTabId}
-          type="button"
-          role="tab"
-          aria-selected={props.view === 'run'}
-          aria-controls={runPanelId}
-          tabIndex={props.view === 'run' ? 0 : -1}
-          disabled={!props.selectedRun}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowLeft') selectTab(-1);
-          }}
-          onClick={() => props.onView('run')}
-        >
-          <Activity aria-hidden="true" size={16} /> Run
-        </button>
+      <div className="wr-context-tabs">
+        <SegmentedTabs
+          label="Channel context"
+          selected={props.view}
+          onSelect={props.onView}
+          tabs={[
+            {
+              id: 'members',
+              tabId: membersTabId,
+              controls: membersPanelId,
+              label: <><Users aria-hidden="true" size={16} /> Members</>,
+            },
+            {
+              id: 'run',
+              tabId: runTabId,
+              controls: runPanelId,
+              disabled: !props.selectedRun,
+              label: <><Activity aria-hidden="true" size={16} /> Run</>,
+            },
+          ]}
+        />
       </div>
       {props.view === 'members' || !props.selectedRun ? (
-        <div id={membersPanelId} role="tabpanel" aria-labelledby={membersTabId} className="min-h-0 flex-1">
+        <div id={membersPanelId} role="tabpanel" aria-labelledby={membersTabId} className="wr-context-panel">
           <MemberRail
             members={props.members}
             details={props.details}
@@ -718,12 +699,12 @@ export function ContextRail(props: {
             adapters={props.adapters}
             connection={props.connection}
             variant="context"
-            className="h-full min-h-0"
+            className="wr-fill-height"
             canManageAgents={props.canManageAgents}
           />
         </div>
       ) : (
-        <div id={runPanelId} role="tabpanel" aria-labelledby={runTabId} className="h-full min-h-0 flex-1 overflow-hidden">
+        <div id={runPanelId} role="tabpanel" aria-labelledby={runTabId} className="wr-context-panel wr-context-panel-run">
           <RunContext
             message={props.selectedRun}
             authorHandle={props.selectedRunAuthor}

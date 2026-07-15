@@ -20,10 +20,23 @@ export interface ProjectAccentInput {
   raw: string;
   /** Channel id, for the unparseable fallback through deriveRoomColor. */
   roomId: string;
-  /** Every opaque background the accent meets across the three surfaces and their hover/selected states. */
+  /**
+   * The ONE ordered union of every opaque background the accent meets across all three
+   * surfaces - the rail dot, the header chip and the selected picker candidate - together with
+   * their hover, selected and ring states, resolved for the active theme. Because a single
+   * union governs the projection, the one colour it yields clears every surface at once, so a
+   * channel renders byte-identically on the rail, the header and the picker.
+   */
   backgrounds: readonly string[];
   /** The opaque --cd-agent token value, the final fallback when the lightness bounds exhaust. */
   fallback: string;
+  /**
+   * The active theme name, an explicit input so the projection is theme-keyed at the contract
+   * level rather than inferred from a theme-shaped fallback. The union above is resolved for
+   * this theme, so a theme change re-projects and no stale colour survives; the fallback no
+   * longer doubles as the theme signal.
+   */
+  theme: string;
 }
 
 type Rgb = { mode: 'rgb'; r: number; g: number; b: number; alpha?: number };

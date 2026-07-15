@@ -2,6 +2,8 @@ import type { Message, Room } from '@codor/protocol';
 import { Search, Settings, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
+import { Button, IconButton, Input } from './v5/primitives.js';
+
 import {
   AskCardView,
   BridgedRoomBanner,
@@ -570,29 +572,25 @@ export function App(props: {
               }}
             >
               <Search aria-hidden="true" size={17} />
-              <label htmlFor="room-search" className="sr-only">Search messages</label>
-              <input
+              <Input
+                label="Search messages"
                 id="room-search"
                 type="search"
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={setSearchQuery}
                 placeholder="Search channel history"
-                className="wr-search-input"
                 autoFocus
               />
-              <button
-                type="submit"
-                aria-label="Search"
+              <IconButton
+                icon={Search}
+                label={searching ? 'Searching' : 'Search'}
                 title="Search"
+                type="submit"
                 disabled={searching || searchQuery.trim() === ''}
-                className="wr-icon-button"
-              >
-                <Search aria-hidden="true" size={16} />
-                <span className="sr-only">{searching ? 'Searching' : 'Search'}</span>
-              </button>
-              <button
-                type="button"
-                aria-label="Close message search"
+              />
+              <IconButton
+                icon={X}
+                label="Close message search"
                 title="Close search"
                 onClick={() => {
                   setSearchOpen(false);
@@ -601,10 +599,7 @@ export function App(props: {
                   setSearched(false);
                   requestAnimationFrame(() => document.getElementById('room-search-toggle')?.focus());
                 }}
-                className="wr-icon-button"
-              >
-                <X aria-hidden="true" size={16} />
-              </button>
+              />
             </form>
           )}
           {searched && (
@@ -661,15 +656,14 @@ export function App(props: {
           >
             <div className="wr-history-control">
               {hasOlder && (
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
                   data-testid="load-history"
                   disabled={historyBusy}
                   onClick={() => void loadOlder()}
-                  className="wr-secondary-button min-h-11 px-3 text-xs disabled:opacity-50"
                 >
                   {historyBusy ? 'Loading' : 'Load earlier'}
-                </button>
+                </Button>
               )}
               {historyError && <span role="status">History unavailable</span>}
             </div>
@@ -882,7 +876,7 @@ export function App(props: {
               room={ROOM}
               token={accessToken()}
               testId="context-sheet"
-              className="min-h-0 flex-1"
+              className="wr-context-panel"
               canManageAgents={canManageAgents}
             />
           </section>

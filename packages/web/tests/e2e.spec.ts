@@ -1382,6 +1382,11 @@ test('tool rows say what the tool did, on one line, at every width', async ({ pa
   await page.getByTestId('composer-send').click();
   await expect(page.getByText('@richard rows rendered')).toBeVisible();
 
+  // A completed run collapses its evidence; expand it to inspect the compact one-line tool rows.
+  const runToggle = page.locator('.wr-run-toggle').first();
+  await expect(runToggle).toHaveAttribute('aria-expanded', 'false');
+  await runToggle.click();
+
   // The row shows the command, the file, and the diffstat — not "Bash", "Read", "Edit".
   await expect(page.getByText('pnpm test --filter', { exact: false })).toBeVisible();
   await expect(page.getByText('Explored App.tsx')).toBeVisible();
@@ -1768,3 +1773,124 @@ test('an approval acknowledgement failure is visible after durable resolution', 
   await expect(page.getByTestId('room-action-error')).toHaveCount(0);
 });
 // harn:end room-action-errors-are-visible
+
+// harn:assume web-room-targets-meet-minimum-hit-size ref=room-target-size-sweep
+test('every interactive room target clears the 44x44 minimum on a phone', async ({ page }) => {
+  test.slow();
+  const MIN = 44 - 0.5; // tolerate sub-pixel rounding just under 44
+  const hit = async (locator: ReturnType<Page['locator']>, label: string): Promise<void> => {
+    const box = await locator.boundingBox();
+    expect(box, `${label}: rendered`).not.toBeNull();
+    expect(box!.width, `${label} width ${String(box!.width)}`).toBeGreaterThanOrEqual(MIN);
+    expect(box!.height, `${label} height ${String(box!.height)}`).toBeGreaterThanOrEqual(MIN);
+  };
+  const hitAll = async (locator: ReturnType<Page['locator']>, label: string): Promise<void> => {
+    const count = await locator.count();
+    expect(count, `${label}: present`).toBeGreaterThan(0);
+    for (let index = 0; index < count; index++) {
+      const item = locator.nth(index);
+      if (await item.isVisible()) await hit(item, `${label}[${String(index)}]`);
+    }
+  };
+  const hitVisible = async (locator: ReturnType<Page['locator']>, label: string): Promise<void> => {
+    if (await locator.first().isVisible().catch(() => false)) await hit(locator.first(), label);
+  };
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  // Hit-size is a property of the settled layout, not of a frame mid-animation. The modal
+  // entrance scales from 0.98, so a target measured while it plays reads ~2% short; reduced
+  // motion disables that animation (and is a real a11y mode), so every box is measured at rest.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  // A live run, an answerable ask, and a held delivery, so those targets are on screen.
+  await page.getByTestId('composer-input').fill('@alpha which codeword');
+  await control('/enqueue', {
+    turns: [{ kind: 'ask', prompt: 'Which codeword?', options: ['ALPHA', 'BETA'], replyPrefix: 'chose ' }],
+  });
+  await page.getByTestId('composer-send').click();
+  await expect(page.locator('[data-testid$="-option-ALPHA"]')).toBeVisible();
+  await control('/enqueue', { turns: [{ kind: 'complete', final_text: 'released' }] });
+  await control('/hold', {});
+  await expect(page.getByTestId('hold-banner')).toBeVisible();
+
+  // Header + meter + composer + message + ask + hold, in the phone timeline.
+  await hitVisible(page.getByTestId('open-room-drawer'), 'drawer trigger');
+  await hitVisible(page.getByTestId('toggle-message-search'), 'search toggle');
+  await hitVisible(page.getByRole('button', { name: 'Open channel context' }), 'context trigger');
+  await hitVisible(page.getByTestId('open-ledger-graph'), 'ledger trigger');
+  await hitVisible(page.getByTestId('room-settings'), 'settings trigger');
+  await hitVisible(page.getByTestId('inbox-badge'), 'inbox trigger');
+  await hit(page.getByTestId('meter'), 'spend meter');
+  await hit(page.getByTestId('composer-mention'), 'composer mention');
+  await hit(page.getByTestId('composer-input'), 'composer field');
+  await hit(page.getByTestId('composer-send'), 'composer send');
+  await hitVisible(page.locator('[data-testid$="-copy"]'), 'message copy');
+  await hitVisible(page.locator('[data-testid^="run-"][data-testid$="-inspect"]'), 'run inspect');
+  await hitAll(page.locator('[data-testid$="-option-ALPHA"], [data-testid$="-option-BETA"]'), 'ask option');
+  await hitVisible(page.locator('[data-testid^="release-"]'), 'hold release');
+  await hitVisible(page.locator('[data-testid^="redeliver-"], .wr-hold-row .wr-secondary-button'), 'hold redeliver');
+
+  // Search field + submit + close.
+  await page.getByTestId('toggle-message-search').click();
+  await expect(page.getByTestId('message-search')).toBeVisible();
+  await hit(page.locator('#room-search'), 'search field');
+  await hit(page.getByRole('button', { name: 'Search', exact: true }), 'search submit');
+  await hit(page.getByRole('button', { name: 'Close message search' }), 'search close');
+  await page.getByTestId('toggle-message-search').click();
+
+  // Drawer: channel create trigger, settings link, room links.
+  await page.getByTestId('open-room-drawer').click();
+  await expect(page.getByTestId('room-drawer')).toBeVisible();
+  await hit(page.getByTestId('room-drawer').getByTestId('create-room'), 'drawer create channel');
+  await hitAll(page.locator('[data-testid^="room-link-"]'), 'drawer room link');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('room-drawer')).toHaveCount(0);
+
+  // Context sheet: the segmented tabs, the spawn trigger, and the member card actions.
+  await page.getByRole('button', { name: 'Open channel context' }).click();
+  await expect(page.getByTestId('context-sheet')).toBeVisible();
+  // The phone renders the members inside this sheet while the desktop rail stays mounted
+  // (CSS-hidden), so every member target is scoped to the sheet to stay unambiguous.
+  const sheet = page.getByTestId('context-sheet');
+  await hitAll(sheet.getByRole('tab'), 'context tab');
+  await hit(sheet.getByTestId('spawn-agent'), 'spawn trigger');
+  // The sole agent's card is expanded by default, so its actions are already on screen —
+  // measure the summary toggle in place rather than tapping it shut.
+  await hit(sheet.getByTestId('member-alpha-toggle'), 'member toggle');
+  await hit(sheet.getByTestId('rename-alpha'), 'member rename');
+  await hit(sheet.getByTestId('kill-alpha'), 'member kill');
+  await hit(sheet.getByTestId('remove-alpha'), 'member remove');
+  // Removal confirmation is a destructive, deliberate step.
+  await sheet.getByTestId('remove-alpha').click();
+  await expect(sheet.getByTestId('remove-alpha-confirm')).toBeVisible();
+  await hit(sheet.getByTestId('remove-alpha-confirmed'), 'removal confirm');
+  await sheet.getByTestId('remove-alpha-confirm').getByRole('button', { name: 'Cancel' }).click();
+
+  // Spawn dialog controls and fields.
+  await sheet.getByTestId('spawn-agent').click();
+  await expect(page.getByTestId('spawn-dialog')).toBeVisible();
+  await hit(page.getByTestId('spawn-handle'), 'spawn handle field');
+  await hit(page.getByTestId('spawn-cwd'), 'spawn cwd field');
+  await hit(page.getByTestId('spawn-submit'), 'spawn submit');
+  await page.getByTestId('spawn-dialog').getByRole('button', { name: 'Cancel' }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('context-sheet')).toHaveCount(0);
+
+  // Create dialog: on a phone the trigger lives in the drawer (the rail is hidden), so open
+  // the drawer to reach it. Then fields, the colour swatches, browse, submit, and the picker.
+  await page.getByTestId('open-room-drawer').click();
+  await expect(page.getByTestId('room-drawer')).toBeVisible();
+  await page.getByTestId('room-drawer').getByTestId('create-room').click();
+  await expect(page.getByTestId('create-room-dialog')).toBeVisible();
+  await hit(page.getByTestId('create-room-name'), 'create name field');
+  await hitAll(page.locator('[data-testid^="channel-color-"]'), 'colour swatch');
+  await hit(page.getByTestId('browse-folders'), 'browse folders');
+  await hit(page.getByTestId('create-room-submit'), 'create submit');
+  await page.getByTestId('browse-folders').click();
+  await expect(page.getByTestId('folder-picker')).toBeVisible();
+  await hit(page.getByTestId('folder-use'), 'folder use');
+  await hit(page.getByTestId('folder-picker').getByRole('button', { name: 'Cancel' }), 'folder cancel');
+});
+// harn:end web-room-targets-meet-minimum-hit-size

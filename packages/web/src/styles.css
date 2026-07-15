@@ -683,6 +683,9 @@ button:disabled {
   grid-area: meter;
   display: flex;
   min-width: 0;
+  /* The meter is keyboard-focusable, so it must carry a 44x44 hit box, not the 28px strip it
+     used to be; its width already exceeds 44 as it fills the header centre. */
+  min-height: 44px;
   align-items: center;
   gap: 0;
   overflow-x: auto;
@@ -1009,7 +1012,7 @@ button:disabled {
 
 .wr-message {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: 34px minmax(0, 1fr);
   align-items: flex-start;
   gap: var(--cd-space-3);
   padding: var(--cd-space-1) var(--cd-space-1);
@@ -1046,6 +1049,14 @@ button:disabled {
 
 .wr-actor-agent {
   color: var(--cd-text-secondary);
+}
+
+/* The desktop message avatar is 34px - a touch smaller than the 38px run/ask actor mark, per
+   the soft-editorial reference. On a phone the message unframes and drops its avatar entirely. */
+.wr-message .wr-actor-mark {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
 }
 
 .wr-message-content {
@@ -1493,12 +1504,20 @@ button:disabled {
   gap: var(--cd-space-2);
 }
 
+/* .wr-input carries all its box + height + type here, grouped with .wr-code-field.
+   Do NOT split the 44px min-height/padding into a separate bare `.wr-input { ... }` rule:
+   Tailwind v4's Lightning CSS pass factors the shared box props and then drops the bare
+   remainder entirely, so the 44px min-height silently never ships and every text field
+   collapses to its ~18px line box in the built app (the sweep test guards this). */
 .wr-input,
 .wr-code-field {
   border: 1px solid var(--cd-line-strong);
   border-radius: var(--cd-radius-control);
   background: var(--cd-surface-muted);
   color: var(--cd-text-strong);
+  min-height: 44px;
+  padding: var(--cd-space-2) var(--cd-space-3);
+  font: var(--cd-text-body);
 }
 
 .wr-composer-input {
@@ -2027,7 +2046,10 @@ button:disabled {
 
 /* harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-create-style */
 .wr-channel-dialog {
+  width: 100%;
+  max-width: 640px;
   max-height: min(90dvh, 760px);
+  padding: var(--cd-space-5);
   overflow-y: auto;
 }
 
@@ -2057,14 +2079,27 @@ button:disabled {
 }
 
 .wr-channel-colors button {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.wr-swatch-fill {
   width: 30px;
   height: 30px;
-  flex: 0 0 30px;
   border: 2px solid transparent;
   border-radius: 50%;
 }
 
-.wr-channel-colors button[aria-pressed='true'] {
+.wr-channel-colors button[aria-pressed='true'] .wr-swatch-fill {
   border-color: var(--cd-text-strong);
   box-shadow: 0 0 0 2px var(--cd-canvas);
 }
@@ -2087,9 +2122,12 @@ button:disabled {
   gap: var(--cd-space-2);
 }
 
+/* The shared AgentControls block (harness + model + thinking + permission) needs the
+   full dialog width — its 3-up permission row overflows a half column and paints over
+   any sibling. So the starting-agent form stacks: controls, then the Name field. */
 .wr-starting-agent {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 
@@ -2187,8 +2225,10 @@ button:disabled {
 
 /* harn:assume web-spawn-dialog-exposes-canonical-agent-controls ref=spawn-dialog-style */
 .wr-spawn-dialog {
-  width: min(100%, 640px);
+  width: 100%;
+  max-width: 640px;
   max-height: min(92dvh, 760px);
+  padding: var(--cd-space-5);
   overflow-y: auto;
 }
 
@@ -2376,6 +2416,169 @@ button:disabled {
   background: transparent;
   box-shadow: none;
   padding: var(--cd-space-2) 0;
+}
+
+/* --- Migrated from Tailwind utilities ------------------------------------------
+   The layout the room used to carry on Tailwind utility classes (min-h-11, px-3,
+   flex, truncate, scroll-mt-16, fixed inset-0 ...) now lives on the room's own
+   wr-*/is-* classes, so every className token is a wr-*, cd-*, sr-only or is-*
+   class and no Tailwind utility survives on any room surface. */
+
+.wr-composer-input {
+  min-width: 0;
+  resize: none;
+}
+/* The search field is the adopted Input primitive; inside the search bar it runs flush and
+   grows to fill, so it reads as one pill rather than a boxed control. */
+.wr-search .cd-input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+}
+
+/* The room's own action buttons that stay wr-* (hold, ask option): the flex box,
+   44px target, padding and type the utilities used to add. */
+.wr-secondary-button,
+.wr-attention-button,
+.wr-ask-option,
+.wr-primary-button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--cd-space-2);
+  padding: var(--cd-space-2) var(--cd-space-3);
+  font: var(--cd-text-ui);
+  cursor: pointer;
+}
+.wr-ask-option:disabled,
+.wr-send-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.wr-input:disabled {
+  opacity: 0.5;
+}
+.wr-send-button,
+.wr-mention-button {
+  flex-shrink: 0;
+}
+
+/* Member surfaces: the truncation, auto margin and mono type the utilities added. */
+.wr-member-human-handle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wr-member-role {
+  margin-left: auto;
+}
+.wr-member-history {
+  margin-top: var(--cd-space-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wr-member-facts dd.is-mono {
+  font: var(--cd-text-mono);
+}
+.wr-member-attach {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--cd-space-2);
+  margin-top: var(--cd-space-2);
+}
+.wr-member-attach .cd-button {
+  flex-shrink: 0;
+}
+.wr-member-attach .cd-code {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wr-member-list {
+  margin-top: var(--cd-space-3);
+}
+.wr-rename-form {
+  display: grid;
+  gap: var(--cd-space-2);
+  margin-top: var(--cd-space-2);
+}
+.wr-rename-actions {
+  display: flex;
+  gap: var(--cd-space-2);
+}
+.wr-member-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cd-space-1);
+  margin-top: var(--cd-space-2);
+}
+.wr-ledger-note-body {
+  margin-top: var(--cd-space-4);
+  white-space: pre-wrap;
+}
+.wr-run-working {
+  margin: var(--cd-space-2) 0 0;
+}
+
+/* Context panes that must fill their flex parent. */
+.wr-context-panel {
+  min-height: 0;
+  flex: 1;
+}
+.wr-context-panel-run {
+  height: 100%;
+  overflow: hidden;
+}
+.wr-fill-height {
+  height: 100%;
+  min-height: 0;
+}
+.wr-run-context {
+  height: 100%;
+}
+
+/* Permalink-anchored surfaces keep clear of the sticky header when scrolled to. */
+.wr-message,
+.wr-run-card,
+.wr-ask-card,
+.wr-system-message,
+.wr-ack-line {
+  scroll-margin-top: 64px;
+}
+
+/* Centred modal backdrops and their dialog boxes: the fixed full-bleed overlay and
+   the box width/padding the utilities used to add. */
+.wr-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--cd-space-4);
+}
+.wr-channel-dialog {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 576px;
+  padding: var(--cd-space-5);
+}
+.wr-spawn-dialog {
+  width: 100%;
+  padding: var(--cd-space-5);
+}
+.wr-ledger-note-dialog {
+  width: 100%;
+  max-width: 672px;
+  padding: var(--cd-space-5);
+  overflow: auto;
 }
 /* harn:end web-room-visual-hierarchy-matches-soft-editorial-reference */
 
@@ -3200,19 +3403,6 @@ button:disabled {
   border-left: 1px solid var(--wr-line);
 }
 
-[class~='bg-zinc-950'],
-[class~='bg-zinc-950/95'] {
-  background-color: var(--cd-surface-raised);
-}
-
-[class~='bg-zinc-900'] {
-  background-color: var(--cd-surface-muted);
-}
-
-[class~='bg-zinc-800'] {
-  background-color: var(--cd-surface-muted);
-}
-
 [class~='text-zinc-100'],
 [class~='text-zinc-200'] {
   color: var(--cd-text-strong);
@@ -4021,7 +4211,7 @@ button:disabled {
   justify-content: flex-end;
   gap: 5px;
   color: var(--cd-text-muted);
-  font-size: 11px;
+  font: var(--cd-text-caption);
   white-space: nowrap;
 }
 
@@ -4047,8 +4237,7 @@ button:disabled {
   max-width: 760px;
   margin: 0;
   color: var(--cd-text-strong);
-  font-size: 13px;
-  line-height: 20px;
+  font: var(--cd-text-body);
   white-space: pre-wrap;
 }
 
@@ -4058,7 +4247,7 @@ button:disabled {
   align-items: center;
   margin-bottom: 4px;
   color: var(--cd-text-secondary);
-  font-size: 11px;
+  font: var(--cd-text-caption);
 }
 /* harn:end normalized-run-items-presented-live */
 
@@ -4109,9 +4298,7 @@ button:disabled {
   margin: 0;
   overflow: auto;
   color: var(--cd-text-strong);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  line-height: 17px;
+  font: var(--cd-text-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -4130,7 +4317,7 @@ button:disabled {
   gap: 8px;
   padding-bottom: 10px;
   color: var(--cd-text-secondary);
-  font-size: 11px;
+  font: var(--cd-text-caption);
 }
 
 .wr-inspector-evidence-heading strong {
@@ -4378,7 +4565,7 @@ button:disabled {
 }
 
 .wr-mention-popup button strong {
-  font-size: 12px;
+  font: var(--cd-text-ui);
 }
 
 .wr-mention-popup button span,
@@ -4386,7 +4573,7 @@ button:disabled {
   margin: 0;
   overflow: hidden;
   color: var(--cd-text-secondary);
-  font-size: 11px;
+  font: var(--cd-text-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4398,8 +4585,7 @@ button:disabled {
 .wr-composer-commentary-hint {
   margin: 6px 2px 0;
   color: var(--cd-text-secondary);
-  font-size: 11px;
-  line-height: 1.3;
+  font: var(--cd-text-caption);
 }
 /* harn:end literal-draft-effective-recipient-visible */
 
@@ -5610,7 +5796,7 @@ button:disabled {
   padding: 8px 16px;
   border-bottom: 1px solid color-mix(in srgb, var(--cd-line) 72%, transparent);
   color: var(--cd-text-secondary);
-  font-size: 12px;
+  font: var(--cd-text-caption);
 }
 
 .wr-ack-line > svg {
@@ -5633,7 +5819,7 @@ button:disabled {
 
 .wr-manual-pairing code {
   color: var(--cd-text-strong);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--cd-font-mono);
 }
 
 .wr-manual-pairing button {
@@ -5866,14 +6052,12 @@ button:disabled {
   box-sizing: border-box;
 }
 .wr-ask-heading > div > strong {
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font: var(--cd-text-eyebrow);
   /* WCAG AA against the amber card in both themes. */
   color: var(--cd-warn);
 }
 .wr-ask-tool {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--cd-font-mono);
 }
 /* The command is the visual centre: wrapped, never truncated, never shrunk. */
 .wr-ask-detail {
@@ -5887,16 +6071,16 @@ button:disabled {
   margin-top: 0.5rem;
   padding: 0.6rem 0.7rem;
   border-radius: 0.5rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.875rem; /* 14px floor — readable on a phone */
-  line-height: 1.45;
+  /* The command is body-readable but monospace; the composite gives it a >=14px floor. */
+  font: var(--cd-text-body);
+  font-family: var(--cd-font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   background: rgb(0 0 0 / 0.18);
 }
 .wr-ask-answered {
   margin-top: 0.4rem;
-  font-size: 0.75rem;
+  font: var(--cd-text-caption);
   opacity: 0.75;
 }
 .wr-ask-card.is-answered {
@@ -5934,8 +6118,7 @@ button:disabled {
   white-space: nowrap;
 }
 .wr-run-row-copy.is-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
+  font: var(--cd-text-mono);
 }
 @media (max-width: 767px) {
   .wr-run-row-button {
@@ -6021,13 +6204,13 @@ textarea.wr-composer-control {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.78rem;
+  font: var(--cd-text-caption);
 }
 .wr-inbox-item-prompt {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.8rem;
+  font: var(--cd-text-caption);
   color: var(--cd-text-secondary);
 }
 /* The card the operator was sent to must be obvious when they land on it. */
@@ -6044,7 +6227,7 @@ textarea.wr-composer-control {
   height: 0.6rem;
   flex: none;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--cd-radius-full);
   background: var(--cd-line);
 }
 /* Every channel now has an accent, and the inline colour fills the dot — so the
@@ -6102,21 +6285,18 @@ textarea.wr-composer-control {
 }
 
 .wr-policy-option strong {
-  font-size: 0.82rem;
-  font-weight: 600;
+  font: var(--cd-text-ui);
 }
 
 .wr-policy-option small {
   color: var(--cd-text-secondary);
-  font-size: 0.72rem;
+  font: var(--cd-text-caption);
 }
 
 /* What the level ACTUALLY becomes on this harness — the operator's ground truth. */
 .wr-policy-option em {
   color: var(--cd-text-muted);
-  font-family: var(--cd-font-mono);
-  font-size: 0.68rem;
-  font-style: normal;
+  font: var(--cd-text-mono);
 }
 
 .wr-policy-option.is-deferred em {
@@ -6127,7 +6307,6 @@ textarea.wr-composer-control {
   display: block;
   margin-top: 8px;
   color: var(--cd-warn);
-  line-height: 1.45;
 }
 /* harn:end one-control-chooses-an-agent-everywhere */
 
@@ -6145,13 +6324,12 @@ textarea.wr-composer-control {
 /* What cannot change, and what happens when you save: both are the operator's business. */
 .wr-settings-note {
   color: var(--cd-text-secondary);
-  font-size: 0.72rem;
-  line-height: 1.45;
+  font: var(--cd-text-caption);
 }
 
 .wr-control-fixed {
   color: var(--cd-text-secondary);
-  font-size: 0.75rem;
+  font: var(--cd-text-caption);
 }
 
 .wr-control-fixed strong {
@@ -6172,8 +6350,7 @@ textarea.wr-composer-control {
 }
 
 .wr-remove-confirm p {
-  font-size: 0.75rem;
-  line-height: 1.5;
+  font: var(--cd-text-caption);
 }
 /* harn:end removing-an-agent-is-one-deliberate-step */
 
@@ -6233,8 +6410,7 @@ textarea.wr-composer-control {
   justify-content: center;
   gap: 7px;
   color: var(--cd-text-muted);
-  font-size: 11px;
-  line-height: 16px;
+  font: var(--cd-text-caption);
   text-align: center;
 }
 
@@ -6284,7 +6460,6 @@ textarea.wr-composer-control {
 /* harn:assume posted-message-mentions-alone-look-effective ref=effective-mention-style */
 .wr-effective-mention {
   color: var(--cd-text-secondary);
-  font-weight: 650;
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--cd-text-secondary) 55%, transparent);
   text-decoration-thickness: 1px;

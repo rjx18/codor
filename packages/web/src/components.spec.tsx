@@ -30,7 +30,15 @@ import {
   defaultSpawnCwd,
 } from './components.js';
 import { useRoomStore } from './state.js';
+import type { RunEventBuffer } from './state.js';
 import type { Connection } from './ws.js';
+
+// A running run fetches its full journal when it expands; stub it so the mobile-run tests can
+// exercise the live expansion without a real network call reintroducing act warnings.
+vi.mock('./api.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./api.js')>()),
+  fetchRunEvents: vi.fn().mockResolvedValue([]),
+}));
 
 const ULID_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
 const ULID_B = '01BX5ZZKBKACTAV9WEVGEMMVRZ';
@@ -1084,23 +1092,63 @@ describe('soft-editorial message presentation', () => {
     cont.cleanup();
   });
 
-  it('collapses run tool calls to one tappable line on a phone', () => {
-    // A COMPLETED run keeps the mount side-effect-free (no journal fetch), so the collapse is
-    // observed without a network call reintroducing act warnings.
+  // A running run carrying one prose row and one tool row, used to prove the mobile split.
+  const runningRun: Message = {
+    ...finalizedRun,
+    run: { ...finalizedRun.run!, status: 'running', ended_ts: undefined, final_text: undefined },
+  };
+  const liveMix: RunEventBuffer = {
+    dropped_count: 0,
+    events: [
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'applying the fix' } },
+      { type: 'run.item', item_type: 'tool_call', payload: { call_id: 'b1', tool: 'Bash', title: 'pnpm test' } },
+    ],
+  };
+
+  it('keeps a RUNNING run expanded with its prose visible but its tool rows withheld on a phone', async () => {
     const { container, cleanup } = mount(390,
-      <RunMessageView
-        message={finalizedRun}
-        authorHandle="alpha"
-        liveEvents={{ dropped_count: 0, events: [
-          { type: 'run.item', item_type: 'tool_call', payload: { call_id: 'b1', tool: 'Bash', title: 'pnpm test' } },
-          { type: 'run.item', item_type: 'tool_call', payload: { call_id: 'b2', tool: 'Bash', title: 'pnpm build' } },
-        ] }}
-        room="eng"
-        token="t"
-      />);
-    const collapsed = container.querySelector('[data-testid="run-7-tools-collapsed"]');
-    expect(collapsed).not.toBeNull();
-    expect(collapsed!.textContent).toContain('2 tool calls');
+      <RunMessageView message={runningRun} authorHandle="alpha" liveEvents={liveMix} room="eng" token="t" />);
+    await flush();
+    // The live prose stays visible so the running turn is never blank.
+    expect(container.querySelector('[data-row-kind="prose"]')).not.toBeNull();
+    // The tool rows are genuinely absent from the DOM, not merely hidden, until tapped.
+    expect(container.querySelector('[data-row-kind="tool"]')).toBeNull();
+    // One summary line stands in for them.
+    expect(container.querySelector('[data-testid="run-7-tools-collapsed"]')?.textContent).toContain('1 tool call');
+    cleanup();
+  });
+
+  it('reveals the withheld tool rows when the phone summary is tapped', async () => {
+    const { container, cleanup } = mount(390,
+      <RunMessageView message={runningRun} authorHandle="alpha" liveEvents={liveMix} room="eng" token="t" />);
+    await flush();
+    expect(container.querySelector('[data-row-kind="tool"]')).toBeNull();
+    const summary = container.querySelector('[data-testid="run-7-tools-collapsed"]') as HTMLButtonElement;
+    act(() => summary.click());
+    await flush();
+    expect(container.querySelector('[data-row-kind="tool"]')).not.toBeNull();
+    cleanup();
+  });
+
+  it('shows a RUNNING run\'s tool rows inline on the desktop, with no summary line', async () => {
+    const { container, cleanup } = mount(1440,
+      <RunMessageView message={runningRun} authorHandle="alpha" liveEvents={liveMix} room="eng" token="t" />);
+    await flush();
+    expect(container.querySelector('[data-row-kind="tool"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="run-7-tools-collapsed"]')).toBeNull();
+    cleanup();
+  });
+
+  it('reflows a running run live as the width crosses 720, at 719 then 720', async () => {
+    const { container, cleanup } = mount(719,
+      <RunMessageView message={runningRun} authorHandle="alpha" liveEvents={liveMix} room="eng" token="t" />);
+    await flush();
+    const card = (): Element => container.querySelector('[data-testid="run-7"]')!;
+    expect(card().getAttribute('data-presentation')).toBe('unframed-mobile');
+    act(() => setWidth(720));
+    expect(card().getAttribute('data-presentation')).toBe('framed-desktop');
+    act(() => setWidth(719));
+    expect(card().getAttribute('data-presentation')).toBe('unframed-mobile');
     cleanup();
   });
 

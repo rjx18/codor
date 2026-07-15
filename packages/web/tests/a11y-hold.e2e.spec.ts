@@ -14,7 +14,7 @@ test('a held delivery is axe-clean in both themes', async ({ browser }) => {
     await control('/hold', { body: '@alpha resume the pocket flow' });
     const context = await browser.newContext({
       baseURL: BASE,
-      viewport: { width: 1440, height: 900 },
+      viewport: { width: 390, height: 844 },
     });
     const page = await context.newPage();
     await page.addInitScript((t) => localStorage.setItem('codor-theme', t), theme);

@@ -56,6 +56,7 @@ import {
 
 import { AgentControls } from './agent-controls.js';
 import type { AgentControlsValue } from './agent-controls.js';
+import { Avatar, Badge, Button, CodeChip, IconButton, Pill, TypingIndicator } from './v5/primitives.js';
 import { fetchLedgerNote, fetchRunEvents } from './api.js';
 import type { AdapterRegistration, LedgerNote, MemberDetail } from './api.js';
 import { currentBrowserAccessToken } from './crypto.js';
@@ -130,7 +131,7 @@ export function useProjectedAccent(
   return useMemo(() => {
     const backgrounds = backgroundVars.map(readToken).filter((value) => value !== '');
     const fallback = readToken('--cd-agent') || '#4338ca';
-    return projectAccent({ raw: raw ?? '', roomId, backgrounds, fallback });
+    return projectAccent({ raw: raw ?? '', roomId, backgrounds, fallback, theme });
     // theme is a dependency: a theme change re-resolves the token values below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raw, roomId, theme, backgroundVars]);
@@ -149,19 +150,24 @@ export function useAccentProjector(): (
 ) => string {
   const theme = useActiveTheme();
   return useMemo(() => {
-    void theme;
     return (raw, roomId, backgroundVars) => {
       const backgrounds = backgroundVars.map(readToken).filter((value) => value !== '');
       const fallback = readToken('--cd-agent') || '#4338ca';
-      return projectAccent({ raw: raw ?? '', roomId, backgrounds, fallback });
+      return projectAccent({ raw: raw ?? '', roomId, backgrounds, fallback, theme });
     };
   }, [theme]);
 }
 
-// The opaque backgrounds the accent meets on each surface, as --cd-* token names.
-export const RAIL_DOT_BACKGROUNDS = ['--cd-surface', '--cd-surface-muted', '--cd-surface-raised'] as const;
-export const HEADER_CHIP_BACKGROUNDS = ['--cd-surface', '--cd-surface-raised'] as const;
-export const PICKER_BACKGROUNDS = ['--cd-surface', '--cd-surface-muted', '--cd-surface-raised'] as const;
+// The ONE ordered union of every opaque background the accent meets across all three surfaces
+// and their hover/selected/ring states, as --cd-* token names: the rail dot sits on the surface
+// and muted list, the header chip on the surface, and the selected picker swatch is ringed by
+// the canvas. Every surface passes THIS union, so a channel projects to one identical colour.
+export const ACCENT_UNION_BACKGROUNDS = [
+  '--cd-surface',
+  '--cd-surface-muted',
+  '--cd-surface-raised',
+  '--cd-canvas',
+] as const;
 // harn:end channel-create-dialog-renders-an-accessible-accent
 
 const stateDot: Record<string, string> = {
@@ -263,7 +269,7 @@ export function BridgedRoomBanner() {
 // The header chip renders the SAME accessible projection the rail dot and picker use, so a
 // channel is one colour across every surface and never a stale inline value after a theme flip.
 function HeaderColorChip(props: { roomColor: string; roomId: string }) {
-  const accent = useProjectedAccent(props.roomColor, props.roomId, HEADER_CHIP_BACKGROUNDS);
+  const accent = useProjectedAccent(props.roomColor, props.roomId, ACCENT_UNION_BACKGROUNDS);
   return (
     <span
       data-testid="header-room-color"
@@ -357,20 +363,17 @@ export function Header(props: {
       </div>
       <div className="wr-header-actions">
         {props.onToggleSearch && (
-          <button
+          <IconButton
+            icon={Search}
             id="room-search-toggle"
-            type="button"
             data-testid="toggle-message-search"
-            aria-label={props.searchOpen ? 'Close message search' : 'Search messages'}
+            label={props.searchOpen ? 'Close search' : 'Search messages'}
             aria-expanded={props.searchOpen}
             aria-controls="room-message-search"
             aria-pressed={props.searchOpen}
             title={props.searchOpen ? 'Close search' : 'Search messages'}
             onClick={props.onToggleSearch}
-            className="wr-icon-button"
-          >
-            <Search aria-hidden="true" size={18} />
-          </button>
+          />
         )}
         {props.onOpenContext && (
           <button
@@ -598,11 +601,11 @@ export function SpawnAgentDialog(props: {
 
   return (
     <>
-      <button
+      <IconButton
         ref={trigger}
-        type="button"
+        icon={Plus}
         data-testid="spawn-agent"
-        aria-label="Spawn agent"
+        label="Spawn agent"
         title="Spawn agent"
         onClick={() => {
           setCwd(roomCwd);
@@ -610,13 +613,9 @@ export function SpawnAgentDialog(props: {
           setPending(undefined);
           setOpen(true);
         }}
-        className="wr-spawn-button"
-      >
-        <Plus aria-hidden="true" size={17} />
-        <span className="sr-only">Spawn agent</span>
-      </button>
+      />
       {open && (
-        <div className="wr-modal-backdrop fixed inset-0 z-20 flex items-center justify-center p-4">
+        <div className="wr-modal-backdrop">
           {/* ARIA does not allow role=dialog on a form. The dialog is this element, and it
               keeps the box the form used to own - same classes, so the same width, height
               and centring. The form inside lays out as display:contents and draws nothing,
@@ -627,7 +626,7 @@ export function SpawnAgentDialog(props: {
             aria-modal="true"
             aria-label="Spawn agent"
             data-testid="spawn-dialog"
-            className="wr-spawn-dialog wr-focused-glass w-full p-5"
+            className="wr-spawn-dialog wr-focused-glass"
           >
           <form
             className="wr-spawn-form"
@@ -681,7 +680,7 @@ export function SpawnAgentDialog(props: {
                   onChange={(event) => setHandle(event.target.value)}
                   pattern="[a-z0-9][a-z0-9-]{1,30}"
                   required
-                  className="wr-input min-h-11 w-full px-3 text-sm"
+                  className="wr-input"
                 />
               </label>
               <label className="wr-field-label">
@@ -691,7 +690,7 @@ export function SpawnAgentDialog(props: {
                   value={cwd}
                   onChange={(event) => setCwd(event.target.value)}
                   required
-                  className="wr-input min-h-11 w-full px-3 text-sm"
+                  className="wr-input"
                 />
               </label>
             </div>
@@ -702,7 +701,7 @@ export function SpawnAgentDialog(props: {
                 value={purpose}
                 onChange={(event) => setPurpose(event.target.value)}
                 rows={3}
-                className="wr-input w-full px-3 py-2 text-sm"
+                className="wr-input"
               />
             </label>
             {adapter?.capabilities.approvals === 'spawn-time' && (
@@ -712,21 +711,17 @@ export function SpawnAgentDialog(props: {
             )}
             {submitError && <p role="alert" className="wr-form-error">{submitError}</p>}
             <div className="wr-dialog-actions">
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="wr-secondary-button min-h-11 px-4 text-sm"
-              >
+              <Button variant="secondary" onClick={() => setOpen(false)}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
                 type="submit"
                 data-testid="spawn-submit"
                 disabled={props.adapters.length === 0 || pending !== undefined}
-                className="wr-primary-button min-h-11 px-4 text-sm disabled:opacity-40"
               >
                 {pending ? 'Spawning' : 'Spawn'}
-              </button>
+              </Button>
             </div>
           </form>
           </div>
@@ -780,8 +775,8 @@ export function MemberCard(props: {
             <i aria-hidden="true" /> {props.member.state.replaceAll('_', ' ')}
           </span>
         ) : <UserRound aria-hidden="true" size={17} />}
-        <span className="wr-member-human-handle min-w-0 truncate">@{props.member.handle}</span>
-        <span className="wr-member-role ml-auto">{props.member.role ?? props.member.kind}</span>
+        <span className="wr-member-human-handle">@{props.member.handle}</span>
+        <span className="wr-member-role">{props.member.role ?? props.member.kind}</span>
       </li>
     );
   }
@@ -800,7 +795,7 @@ export function MemberCard(props: {
         onClick={props.onToggle}
         className="wr-member-summary"
       >
-        <span className="wr-member-avatar" aria-hidden="true"><Bot size={17} /></span>
+        <Avatar initials={props.member.handle.slice(0, 2)} />
         <span className="wr-member-identity">
           <strong>@{props.member.handle}</strong>
           {waiting ? (
@@ -824,27 +819,24 @@ export function MemberCard(props: {
           {displayedState.replaceAll('_', ' ')}
         </span>
         {(props.detail?.queued_count ?? 0) > 0 && (
-          <span
-            data-testid={`member-${props.member.handle}-queued`}
-            className="wr-count wr-count-attention"
-          >
+          <Badge tone="attention" data-testid={`member-${props.member.handle}-queued`}>
             {props.detail!.queued_count} queued
-          </span>
+          </Badge>
         )}
         <ChevronRight className="wr-member-chevron" aria-hidden="true" size={15} />
       </button>
       {expanded && <div id={`member-${props.member.id}-detail`} className="wr-member-detail">
       <dl className="wr-member-facts">
         <dt>Harness</dt>
-        <dd className="truncate">{props.member.harness ?? '-'}</dd>
+        <dd>{props.member.harness ?? '-'}</dd>
         <dt>Custody</dt>
-        <dd className="truncate">{props.member.custody ?? 'owned'}</dd>
+        <dd>{props.member.custody ?? 'owned'}</dd>
         <dt>Session</dt>
-        <dd className="truncate font-mono" title={props.member.session_ref}>
+        <dd className="is-mono" title={props.member.session_ref}>
           {props.member.session_ref ?? 'pending'}
         </dd>
         <dt>Cwd</dt>
-        <dd className="truncate font-mono" title={props.member.cwd}>
+        <dd className="is-mono" title={props.member.cwd}>
           {props.member.cwd ?? '-'}
         </dd>
         <dt>Spend</dt>
@@ -855,42 +847,36 @@ export function MemberCard(props: {
         </dd>
       </dl>
       {props.member.policy && (
-        <span className="wr-policy-chip">
-          {props.member.policy}
-        </span>
+        <Pill>{props.member.policy}</Pill>
       )}
       {/* harn:assume custody-uncertain-never-double-writes ref=attach-custody-web-hint */}
       {canManage && props.member.session_ref && props.member.custody !== 'mirrored' && state !== 'dead' && (
-        <div className="wr-member-attach mt-2 flex min-w-0 items-center gap-2">
-          <code
-            data-testid={`attach-command-${props.member.handle}`}
-            className="wr-code-field min-w-0 flex-1 truncate"
-          >
+        <div className="wr-member-attach">
+          <CodeChip data-testid={`attach-command-${props.member.handle}`}>
             codor attach @{props.member.handle}
-          </code>
-          <button
-            type="button"
+          </CodeChip>
+          <Button
+            variant="secondary"
             title="Copy attach command"
             onClick={() =>
               void navigator.clipboard?.writeText(`codor attach @${props.member.handle}`)
             }
-            className="wr-secondary-button min-h-11 shrink-0 px-3"
           >
             Copy
-          </button>
+          </Button>
         </div>
       )}
       {/* harn:end custody-uncertain-never-double-writes */}
       <p
         data-testid={`member-${props.member.handle}-history`}
-        className="wr-member-history mt-2 truncate"
+        className="wr-member-history"
         title={props.history.map((item) => `${item.ts} ${item.state}`).join('\n')}
       >
         {props.history.map((item) => item.state).join(' > ') || state}
       </p>
       {canManage && (renaming ? (
         <form
-          className="mt-2 grid gap-2"
+          className="wr-rename-form"
           onSubmit={(event) => {
             event.preventDefault();
             props.connection.act({
@@ -908,109 +894,90 @@ export function MemberCard(props: {
             onChange={(event) => setHandle(event.target.value)}
             pattern="[a-z0-9][a-z0-9-]{1,30}"
             required
-            className="wr-input min-h-11 px-2 text-xs"
+            className="wr-input"
           />
           <input
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
             required
-            className="wr-input min-h-11 px-2 text-xs"
+            className="wr-input"
           />
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              data-testid={`rename-${props.member.handle}-submit`}
-              className="wr-primary-button min-h-11 px-3 text-xs"
-            >
+          <div className="wr-rename-actions">
+            <Button variant="primary" type="submit" data-testid={`rename-${props.member.handle}-submit`}>
               Save
-            </button>
-            <button
-              type="button"
-              onClick={() => setRenaming(false)}
-              className="wr-secondary-button min-h-11 px-3 text-xs"
-            >
+            </Button>
+            <Button variant="secondary" onClick={() => setRenaming(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </form>
       ) : (
-        <div className="mt-2 flex flex-wrap gap-1">
-          <button
-            type="button"
-            data-testid={`rename-${props.member.handle}`}
-            onClick={() => setRenaming(true)}
-            className="wr-secondary-button min-h-11 px-3 text-xs"
-          >
+        <div className="wr-member-actions">
+          <Button variant="secondary" data-testid={`rename-${props.member.handle}`} onClick={() => setRenaming(true)}>
             Rename
-          </button>
+          </Button>
           {props.member.kind === 'agent' && props.member.custody !== 'mirrored' && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               data-testid={`configure-${props.member.handle}`}
               onClick={() => setConfiguring((open) => !open)}
               aria-expanded={configuring}
-              className="wr-secondary-button min-h-11 px-3 text-xs"
             >
               Settings
-            </button>
+            </Button>
           )}
           {props.member.custody === 'mirrored' ? (
-            <button
-              type="button"
+            <Button
+              variant="revive"
               data-testid={`adopt-${props.member.handle}`}
               onClick={() => props.connection.act({ act: 'adopt', member_id: props.member.id })}
-              className="wr-revive-button min-h-11 px-3 text-xs"
             >
               Adopt
-            </button>
+            </Button>
           ) : state === 'dead' ? (
             <>
-              <button
-                type="button"
+              <Button
+                variant="revive"
                 data-testid={`revive-${props.member.handle}`}
                 disabled={!props.member.session_ref}
                 onClick={() => props.connection.act({ act: 'revive', member_id: props.member.id })}
-                className="wr-revive-button min-h-11 px-3 text-xs disabled:opacity-40"
               >
                 Revive
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="remove"
                 data-testid={`remove-${props.member.handle}`}
                 onClick={() => setRemoving(true)}
-                className="wr-danger-button min-h-11 px-3 text-xs"
               >
                 Remove
-              </button>
+              </Button>
             </>
           ) : (
             <>
-              <button
-                type="button"
+              <Button
+                variant="remove"
                 data-testid={`kill-${props.member.handle}`}
                 onClick={() => props.connection.act({ act: 'kill', member_id: props.member.id })}
-                className="wr-danger-button min-h-11 px-3 text-xs"
               >
                 Kill
-              </button>
+              </Button>
               {/* harn:assume removing-an-agent-is-one-deliberate-step ref=remove-member-control */}
               {/* Removing an agent was a ritual: kill it, then find the button that only
                   appears once it is dead. It is one act now — and a destructive one, so it
                   names what it is about to destroy before it does anything. */}
-              <button
-                type="button"
+              <Button
+                variant="remove"
                 data-testid={`remove-${props.member.handle}`}
                 onClick={() => setRemoving(true)}
-                className="wr-danger-outline-button min-h-11 px-3 text-xs"
               >
                 Remove
-              </button>
+              </Button>
               {/* harn:end removing-an-agent-is-one-deliberate-step */}
             </>
           )}
           {state !== 'dead' && props.member.custody !== 'mirrored' && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               data-testid={`${state === 'paused' ? 'unpause' : 'pause'}-${props.member.handle}`}
               onClick={() =>
                 props.connection.act({
@@ -1018,10 +985,9 @@ export function MemberCard(props: {
                   member_id: props.member.id,
                 })
               }
-              className="wr-secondary-button min-h-11 px-3 text-xs"
             >
               {state === 'paused' ? 'Unpause' : 'Pause'}
-            </button>
+            </Button>
           )}
         </div>
       ))}
@@ -1041,24 +1007,19 @@ export function MemberCard(props: {
             any work still queued for it is dropped. Its past messages keep its name.
           </p>
           <div className="wr-dialog-actions">
-            <button
-              type="button"
-              onClick={() => setRemoving(false)}
-              className="wr-secondary-button min-h-11 px-3 text-xs"
-            >
+            <Button variant="secondary" onClick={() => setRemoving(false)}>
               Cancel
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="remove"
               data-testid={`remove-${props.member.handle}-confirmed`}
               onClick={() => {
                 props.connection.act({ act: 'remove', member_id: props.member.id });
                 setRemoving(false);
               }}
-              className="wr-danger-button min-h-11 px-3 text-xs"
             >
               Remove @{props.member.handle}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -1138,16 +1099,12 @@ function MemberSettings(props: {
           : 'Applies to the next turn. The conversation is kept.'}
       </p>
       <div className="wr-dialog-actions">
-        <button type="button" onClick={props.onDone} className="wr-secondary-button min-h-11 px-3 text-xs">
+        <Button variant="secondary" onClick={props.onDone}>
           Cancel
-        </button>
-        <button
-          type="submit"
-          data-testid={`settings-${props.member.handle}-save`}
-          className="wr-primary-button min-h-11 px-3 text-xs"
-        >
+        </Button>
+        <Button variant="primary" type="submit" data-testid={`settings-${props.member.handle}-save`}>
           Save
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -1189,7 +1146,7 @@ export function MemberRail(props: {
           <SpawnAgentDialog adapters={props.adapters} members={visibleMembers} connection={props.connection} />
         )}
       </div>
-      <ul className="mt-3">
+      <ul className="wr-member-list">
         {visibleMembers
           .filter((m) => m.kind !== 'system')
           .map((m) => (
@@ -1368,6 +1325,10 @@ export function RunMessageView(props: {
   const toolPresentation = useRoomPresentation('tool');
   const unframed = runPresentation === 'unframed-mobile';
   const [expanded, setExpanded] = useState(running);
+  // On a phone the tool rows are collapsed behind one summary line even while the run stays
+  // expanded and its live prose is visible; tapping the summary reveals them. Off the phone this
+  // stays false and never gates anything, so tool rows show inline with the rest of the reveal.
+  const [toolsRevealed, setToolsRevealed] = useState(false);
   const [renderEvents, setRenderEvents] = useState(running);
   const [journal, setJournal] = useState<WireEvent[] | undefined>(undefined);
   const [journalFailed, setJournalFailed] = useState(false);
@@ -1378,7 +1339,9 @@ export function RunMessageView(props: {
   );
   const rows = useMemo(() => presentRunEvents(evidence), [evidence]);
   const toolRows = rows.filter((row) => row.kind === 'tool');
-  const collapseTools = toolPresentation === 'unframed-mobile' && toolRows.length > 0;
+  // Only a RUNNING run collapses its tool rows behind a summary on the phone; a completed run
+  // keeps its compact one-line rows visible at every width (the compact-tool-rows contract).
+  const collapseTools = running && toolPresentation === 'unframed-mobile' && toolRows.length > 0;
   const extensions = extensionRunSummaries(evidence.map((item) => item.event));
   const activeTool = [...rows].reverse().find((row) => row.kind === 'tool' && row.status === 'running');
   const missingEarlier = props.liveEvents.dropped_count > 0 &&
@@ -1424,7 +1387,7 @@ export function RunMessageView(props: {
   // harn:assume acknowledgement-marker-protocol ref=ack-web-marker
   if (props.message.ack === true) {
     return (
-      <div id={String(props.message.id)} data-testid={`ack-${props.authorHandle}`} className="wr-ack-line scroll-mt-16">
+      <div id={String(props.message.id)} data-testid={`ack-${props.authorHandle}`} className="wr-ack-line">
         <CircleCheck aria-hidden="true" size={15} />
         <span>@{props.authorHandle} acknowledged</span>
         <MessagePermalink id={props.message.id} />
@@ -1441,7 +1404,7 @@ export function RunMessageView(props: {
       data-testid={`run-${props.message.id}`}
       data-run-status={run.status}
       data-presentation={runPresentation}
-      className={`wr-run-card scroll-mt-16${unframed ? ' is-unframed' : ''}`}
+      className={`wr-run-card${unframed ? ' is-unframed' : ''}`}
     >
       {/* harn:assume web-waits-are-visible-across-live-surfaces-v5 ref=waiting-run-header */}
       <div
@@ -1504,6 +1467,14 @@ export function RunMessageView(props: {
         <MessagePermalink id={props.message.id} />
       </div>
       {/* harn:end web-waits-are-visible-across-live-surfaces-v5 */}
+      {/* The truthful active-member indicator: while this member's turn is actually running
+          (and not parked on a wait), the v5 TypingIndicator announces "@handle is working".
+          It is the live run state the room already tracks, not an invented typing signal. */}
+      {running && !waiting && (
+        <p className="wr-run-working" data-testid={`run-${props.message.id}-working`}>
+          <TypingIndicator who={`@${props.authorHandle}`} />
+        </p>
+      )}
       {!running && props.message.body !== '' && (
         <p data-testid={`run-${props.message.id}-body`} className="wr-run-body">
           {props.message.body}
@@ -1514,14 +1485,15 @@ export function RunMessageView(props: {
           type="button"
           data-testid={`run-${props.message.id}-tools-collapsed`}
           className="wr-run-tools-collapsed"
-          aria-expanded={expanded}
+          aria-expanded={toolsRevealed}
           onClick={() => {
-            if (expanded) {
-              setExpanded(false);
-              return;
+            // Reveal the tool rows in place. If the run itself is collapsed (a finished run on a
+            // phone), open its reveal too so the now-visible tool rows have somewhere to render.
+            if (!toolsRevealed && !expanded) {
+              setRenderEvents(true);
+              requestAnimationFrame(() => setExpanded(true));
             }
-            setRenderEvents(true);
-            requestAnimationFrame(() => setExpanded(true));
+            setToolsRevealed((revealed) => !revealed);
           }}
         >
           {toolRows.length} tool {toolRows.length === 1 ? 'call' : 'calls'}
@@ -1572,15 +1544,19 @@ export function RunMessageView(props: {
             </div>
           )}
               <ol className="wr-run-event-list">
-                {rows.map((row) => (
-                  <RunEvidenceRow
-                    key={row.id}
-                    row={row}
-                    running={running}
-                    selected={props.selectedEventIndex === row.eventIndex}
-                    onSelect={props.onInspectRow}
-                  />
-                ))}
+                {rows
+                  // On a phone the tool rows are genuinely withheld from the DOM until the summary
+                  // is tapped; the live prose rows stay visible so a running turn is never blank.
+                  .filter((row) => !collapseTools || row.kind === 'prose' || toolsRevealed)
+                  .map((row) => (
+                    <RunEvidenceRow
+                      key={row.id}
+                      row={row}
+                      running={running}
+                      selected={props.selectedEventIndex === row.eventIndex}
+                      onSelect={props.onInspectRow}
+                    />
+                  ))}
                 {journalFailed && rows.length === 0 && <li role="status">Evidence unavailable</li>}
               </ol>
             </div>
@@ -1664,7 +1640,7 @@ export function AskCardView(props: {
       id={String(props.message.id)}
       data-testid={`card-${props.message.id}`}
       data-presentation={presentation}
-      className={`wr-ask-card scroll-mt-16${done ? ' is-answered' : ''}`}
+      className={`wr-ask-card${done ? ' is-answered' : ''}`}
     >
       <div className="wr-ask-heading">
         <span className="wr-ask-symbol" aria-hidden="true">
@@ -1713,7 +1689,7 @@ export function AskCardView(props: {
                 answer: option.label,
               });
             }}
-            className={`wr-ask-option min-h-11 px-4 text-sm disabled:opacity-40 ${destructive ? 'is-destructive' : ''} ${permission ? 'is-permission' : ''}`}
+            className={`wr-ask-option ${destructive ? 'is-destructive' : ''} ${permission ? 'is-permission' : ''}`}
           >
             {destructive ? <CircleX aria-hidden="true" size={17} /> : permission ? <CircleCheck aria-hidden="true" size={17} /> : null}
             <span className="wr-option-copy">
@@ -1754,14 +1730,14 @@ export function HoldBanner(props: {
             type="button"
             data-testid={`release-${delivery.id}`}
             onClick={() => props.connection.act({ act: 'release_hold', delivery_id: delivery.id })}
-            className="wr-attention-button min-h-11 px-3 text-xs"
+            className="wr-attention-button"
           >
             <Play aria-hidden="true" size={15} /> Release
           </button>}
           {(props.canRedeliver ?? true) && <button
             type="button"
             onClick={() => props.connection.act({ act: 'redeliver', delivery_id: delivery.id })}
-            className="wr-secondary-button min-h-11 px-3 text-xs"
+            className="wr-secondary-button"
           >
             <RotateCcw aria-hidden="true" size={15} /> Redeliver
           </button>}
@@ -1932,7 +1908,7 @@ export function Composer(props: {
           aria-expanded={mention !== undefined}
           aria-controls={mention ? 'composer-mentions' : undefined}
           onClick={insertMentionAffordance}
-          className="wr-mention-button wr-composer-control shrink-0"
+          className="wr-mention-button wr-composer-control"
         >
           <AtSign aria-hidden="true" size={19} />
         </button>
@@ -2027,7 +2003,7 @@ export function Composer(props: {
               ? `mention-${mention.candidates[activeMention].id}`
               : undefined}
             placeholder="Message the channel"
-            className="wr-input wr-composer-input wr-composer-control min-w-0 resize-none px-3 py-2 text-base sm:text-sm"
+            className="wr-input wr-composer-input wr-composer-control"
           />
         </div>
         <button
@@ -2037,7 +2013,7 @@ export function Composer(props: {
           title="Send message"
           onClick={send}
           disabled={draft.trim() === ''}
-          className="wr-send-button wr-composer-control shrink-0 disabled:opacity-40"
+          className="wr-send-button wr-composer-control"
         >
           <Send aria-hidden="true" size={20} />
         </button>
@@ -2163,14 +2139,14 @@ export function MessageRow(props: {
     </>
   );
   const viewer = note || noteError ? (
-    <div className="wr-modal-backdrop fixed inset-0 z-30 flex items-center justify-center p-4">
+    <div className="wr-modal-backdrop">
       <section
         ref={ledgerDialog}
         role="dialog"
         aria-modal="true"
         aria-label={note ? `Ledger note ${note.name}` : 'Ledger note unavailable'}
         data-testid="ledger-note-dialog"
-        className="wr-focused-glass wr-ledger-note-dialog w-full max-w-2xl overflow-auto p-5"
+        className="wr-focused-glass wr-ledger-note-dialog"
       >
         <div className="wr-dialog-heading">
           <div>
@@ -2190,7 +2166,7 @@ export function MessageRow(props: {
             <X aria-hidden="true" size={18} />
           </button>
         </div>
-        {note && <pre className="wr-ledger-note-body mt-4 whitespace-pre-wrap">{note.body}</pre>}
+        {note && <pre className="wr-ledger-note-body">{note.body}</pre>}
       </section>
     </div>
   ) : null;
@@ -2200,7 +2176,7 @@ export function MessageRow(props: {
         <p
           id={String(message.id)}
           data-testid={`msg-${message.id}`}
-        className="wr-system-message scroll-mt-16"
+        className="wr-system-message"
         >
           {body} <MessagePermalink id={message.id} />
         </p>
@@ -2214,7 +2190,7 @@ export function MessageRow(props: {
         id={String(message.id)}
         data-testid={`msg-${message.id}`}
         data-presentation={presentation}
-        className={`wr-message scroll-mt-16 ${props.mine ? 'is-mine' : ''}${unframed ? ' is-unframed' : ''}${grouped ? ' is-grouped' : ''}`}
+        className={`wr-message ${props.mine ? 'is-mine' : ''}${unframed ? ' is-unframed' : ''}${grouped ? ' is-grouped' : ''}`}
       >
         <span className="wr-actor-mark wr-actor-human" aria-hidden="true">
           {message.origin ? <Cable size={17} /> : <UserRound size={17} />}
@@ -2233,18 +2209,15 @@ export function MessageRow(props: {
             </span>
             <time dateTime={message.ts}>{new Date(message.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
             <MessagePermalink id={message.id} />
-            <button
-              type="button"
+            <IconButton
+              icon={Copy}
               data-testid={`msg-${message.id}-copy`}
-              aria-label="Copy message"
+              label="Copy message"
               title="Copy message"
-              className="wr-message-copy"
               onClick={copyBody}
-            >
-              <Copy aria-hidden="true" size={14} />
-            </button>
+            />
           </div>
-          <p className="wr-message-body whitespace-pre-wrap">{body}</p>
+          <p className="wr-message-body">{body}</p>
         </div>
         <span
           role="status"

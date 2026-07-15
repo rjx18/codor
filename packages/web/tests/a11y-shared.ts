@@ -159,6 +159,26 @@ export async function sweepRoomStates(page: Page, theme: 'light' | 'dark'): Prom
   await expect(page.getByTestId('inbox-panel')).toBeVisible();
   await record('room:inbox');
 
+  // The real 390 mobile matrix, in this theme: the history timeline (speaker grouping + the
+  // collapsed run tools), the pending ask card, and a held delivery all render on the phone, then
+  // the drawer and the context sheet - not scanned back at 1440, but genuinely on a phone.
+  await control('/hold', { body: '@alpha resume the pocket flow' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await expect(page.getByTestId('hold-banner')).toBeVisible();
+  await record('mob:history+ask+hold');
+  await page.getByTestId('open-room-drawer').click();
+  await expect(page.getByTestId('room-drawer')).toBeVisible();
+  await record('mob:drawer+history');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('room-drawer')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open channel context' }).click();
+  await expect(page.getByTestId('context-sheet')).toBeVisible();
+  await record('mob:context+history');
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1440, height: 900 });
+
   for (const section of ['appearance', 'notifications', 'brakes', 'relay', 'devices', 'privacy']) {
     await open(page, `/settings?room=eng&token=e2e-token#${section}`);
     await expect(page.getByTestId('settings-page')).toBeVisible();

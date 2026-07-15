@@ -1,0 +1,20 @@
+id: web-room-targets-meet-minimum-hit-size
+hash: a-cb06f3160350
+title: Every interactive room target meets the 44x44 minimum on a phone
+state: active
+statement: Every interactive target in the room - the header and rail icon
+  buttons, the search, inbox, network and settings triggers, the channel create
+  and folder-picker controls, the colour swatches, the mention control, the
+  composer field and send, the message Copy and permalink, the member-card
+  actions, the spawn and removal controls, the ask and hold actions, the drawer
+  and context triggers, and the spend meter - must present a hit box of at least
+  44 by 44 CSS pixels on the installed phone, even where its visible mark is
+  smaller, so a 30px colour swatch keeps its visual size but carries a 44px
+  target; because a touch target below 44px fails the mobile accessibility
+  contract, and this must be proven by a rendered-DOM sweep over every
+  enumerated mobile room state rather than isolated assertions for a few
+  controls.
+depends_on:
+  - web-room-visual-hierarchy-matches-soft-editorial-reference
+  - controls-fit-the-surface-they-sit-on
+created_by: v5-p3-review-fixes

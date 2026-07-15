@@ -352,6 +352,11 @@ anchors:
     compact-run-row-style:
       action: change
       reason: The one-line tool rows collapse behind a single summary line on mobile.
+    compact-run-row-browser-regression:
+      action: change
+      reason: A completed run now collapses to its final text and tool/spend facts, so
+        the browser regression test must expand the run before asserting the
+        compact one-line evidence rows' content and one-line geometry.
   web-spawn-dialog-exposes-canonical-agent-controls:
     spawn-dialog-controls:
       action: change
@@ -482,3 +487,5 @@ anchors:
     live-collaboration-style:
       action: change
       reason: Tokenise the live-collaboration styles.
+applied:
+  applied_at: 2026-07-15T13:31:13.410Z

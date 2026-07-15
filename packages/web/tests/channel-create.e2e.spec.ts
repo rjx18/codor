@@ -12,6 +12,13 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   await page.getByTestId('create-room-name').fill('Demo Site');
   await expect(page.getByTestId('create-room-id')).toHaveText('id: demo-site');
   await page.getByTestId('channel-color-coral').click();
+  // The selected picker swatch renders the SAME accessible projection the rail dot and header
+  // chip will show once the channel exists. Capture it here to compare all three surfaces.
+  await expect(page.getByTestId('channel-color-coral')).toHaveAttribute('aria-pressed', 'true');
+  const coralSwatch = await page.getByTestId('channel-color-coral').locator('.wr-swatch-fill').evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  expect(coralSwatch).not.toBe('rgba(0, 0, 0, 0)');
 
   await page.getByTestId('browse-folders').click();
   const picker = page.getByTestId('folder-picker');
@@ -59,14 +66,25 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   // harn:end starting-agent-name-derives-one-valid-identity-v5
   await expect(page.getByTestId('room-color-demo-site')).toBeVisible();
   await expect(page.getByTestId('header-room-color')).toBeVisible();
-  expect(await page.getByTestId('header-room-color').evaluate(
+  // One projected accent, byte-identical on the picker swatch, the rail dot and the header chip.
+  const railCoral = await page.getByTestId('room-color-demo-site').evaluate(
     (element) => getComputedStyle(element).backgroundColor,
-  )).toBe('rgb(216, 106, 100)');
+  );
+  const headerCoral = await page.getByTestId('header-room-color').evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  expect(railCoral, 'rail dot equals the selected swatch').toBe(coralSwatch);
+  expect(headerCoral, 'header chip equals the selected swatch').toBe(coralSwatch);
 
   await page.getByTestId('create-room').click();
   await page.getByTestId('create-room-name').fill('Demo Site');
   await expect(page.getByTestId('create-room-id')).toHaveText('id: demo-site');
   await page.getByTestId('channel-color-cyan').click();
+  await expect(page.getByTestId('channel-color-cyan')).toHaveAttribute('aria-pressed', 'true');
+  const cyanSwatch = await page.getByTestId('channel-color-cyan').locator('.wr-swatch-fill').evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  expect(cyanSwatch).not.toBe('rgba(0, 0, 0, 0)');
   await page.getByTestId('create-room-submit').click();
   await expect(page).toHaveURL(/\?room=demo-site-2$/);
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
@@ -76,9 +94,14 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   await expect(page.getByTestId('spawn-cwd')).not.toHaveValue('.');
   await expect(page.getByTestId('spawn-cwd')).toHaveValue(/^\//);
   // harn:end spawn-default-cwd-is-absolute-or-empty
-  expect(await page.getByTestId('header-room-color').evaluate(
+  const railCyan = await page.getByTestId('room-color-demo-site-2').evaluate(
     (element) => getComputedStyle(element).backgroundColor,
-  )).toBe('rgb(74, 155, 170)');
+  );
+  const headerCyan = await page.getByTestId('header-room-color').evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  expect(railCyan, 'rail dot equals the selected swatch').toBe(cyanSwatch);
+  expect(headerCyan, 'header chip equals the selected swatch').toBe(cyanSwatch);
 });
 
 test('channel creation stays available when no starting adapters are installed', async ({ page }) => {
