@@ -1,52 +1,111 @@
 id: p3c4-capture-proof
 title: V5 P3 closure 4/4 - a tracked build-then-serve capture pipeline and six
   genuinely rebuilt room captures that reflect the current build.
-notes: |-
+notes: >-
   Last of four review-closure plans. Closes the capture trust issue: the six
-  tmp/build/design/v5/room-*.png were byte-identical to the 50e04c1 set because the
-  only capture script lived untracked under tmp/ and served a stale gitignored dist
-  without rebuilding (and used fixed ports a lingering harness could hold). No CSS
+
+  tmp/build/design/v5/room-*.png were byte-identical to the 50e04c1 set because
+  the
+
+  only capture script lived untracked under tmp/ and served a stale gitignored
+  dist
+
+  without rebuilding (and used fixed ports a lingering harness could hold). No
+  CSS
+
   change is needed - the 34px .wr-message .wr-actor-mark rule is correct and
-  survives minification. Depends on p3c1..p3c3 (so the rebuilt captures reflect the
+
+  survives minification. Depends on p3c1..p3c3 (so the rebuilt captures reflect
+  the
+
   tokenised CSS and the new 2a mobile header + pill composer). No codor.service
+
   restart; isolated e2e daemons only.
 
-  PIPELINE: a new tracked packages/web/tests/capture-room.mjs owns the guarantee -
-  it (1) runs pnpm --filter @codor/web build and verifies dist/index.html exists,
-  exiting non-zero before any server starts; (2) probes a free contiguous port trio
+
+  PIPELINE: a new tracked packages/web/tests/capture-room.mjs owns the guarantee
+  -
+
+  it (1) runs pnpm --filter @codor/web build and verifies dist/index.html
+  exists,
+
+  exiting non-zero before any server starts; (2) probes a free contiguous port
+  trio
+
   using the same isFree/selectBasePort pattern as run-e2e.mjs (honouring
-  CODOR_E2E_PORT_BASE) instead of fixed ports; (3) spawns tests/harness.mjs on those
-  ports so it serves the freshly built dist; (4) waits health, seeds history; (5)
-  screenshots the three viewports x two themes; (6) asserts, after the run, that all
-  six output files were (re)written by THIS run (mtime at/after the run's start),
+
+  CODOR_E2E_PORT_BASE) instead of fixed ports; (3) spawns tests/harness.mjs on
+  those
+
+  ports so it serves the freshly built dist; (4) waits health, seeds history;
+  (5)
+
+  screenshots the three viewports x two themes; (6) asserts, after the run, that
+  all
+
+  six output files were (re)written by THIS run (mtime at/after the run's
+  start),
+
   are nonempty, and decode to the expected pixel dimensions (1440x900, 1024x820,
+
   390x844), exiting non-zero otherwise; (7) tears the harness down in a finally.
+
   package.json gains a "capture" script. The pipeline carries a Harn anchor -
-  soft-editorial-room-capture-proof under web-room-visual-hierarchy-matches-soft-
-  editorial-reference - so the build-then-serve-then-verify guarantee is a durably
+
+  soft-editorial-room-capture-proof under
+  web-room-visual-hierarchy-matches-soft-
+
+  editorial-reference - so the build-then-serve-then-verify guarantee is a
+  durably
+
   checked contract, not an untracked convenience.
 
+
   BUILD-WARNING REPAIR: the fresh production build exposed a malformed comment
+
   inside soft-editorial-room-style: the prose `wr-*/is-*` accidentally contains
+
   the CSS comment terminator. Replace it with wording that cannot terminate the
+
   comment early. This is a comment-only source correction, but it is required so
+
   the capture proof begins from a warning-free CSS build.
 
+
   HISTORY-GATE REPAIR: the full browser gate exposed a deterministic race in
+
   loadCompleteHistory. The helper dispatches an asynchronous history load and
+
   immediately checks for the trigger again, so the trigger can disappear between
-  count() and the next dispatchEvent(), leaving Playwright waiting for an element
-  that correctly vanished. Await each load's settled state (trigger enabled again
+
+  count() and the next dispatchEvent(), leaving Playwright waiting for an
+  element
+
+  that correctly vanished. Await each load's settled state (trigger enabled
+  again
+
   or absent) before the next loop iteration; the contiguous-cursor behavior and
+
   expected 161 rendered ids remain unchanged.
 
-  PROOF: regenerate all six captures against the fresh build and verify they are no
-  longer byte-identical to the 50e04c1 set - the 1440/1024 desktop shots show the
+
+  PROOF: regenerate all six captures against the fresh build and verify they are
+  no
+
+  longer byte-identical to the 50e04c1 set - the 1440/1024 desktop shots show
+  the
+
   34px message avatar and the 390 shots show the 2a header + pill composer.
 
-  Gate: build -> test -> e2e -> pnpm --filter @codor/web capture (writes and verifies
+
+  Gate: build -> test -> e2e -> pnpm --filter @codor/web capture (writes and
+  verifies
+
   the six images) -> harn check. The one anchored region is
-  soft-editorial-room-capture-proof (new, in capture-room.mjs); package.json and the
+
+  soft-editorial-room-capture-proof (new, in capture-room.mjs); package.json and
+  the
+
   PNG artifacts carry no anchors.
 assumptions:
   create: []
@@ -76,15 +135,17 @@ anchors:
   history-cursor-tracks-only-the-contiguous-tail:
     contiguous-history-browser-regression:
       action: change
-      reason: Make loadCompleteHistory await each page load settling before it
-        checks whether another history trigger remains.
+      reason: Make loadCompleteHistory await each page load settling before it checks
+        whether another history trigger remains.
   web-room-visual-hierarchy-matches-soft-editorial-reference:
     soft-editorial-room-style:
       action: change
-      reason: Repair the malformed wr-/is- class comment that prematurely closes
-        and produces a CSS optimizer warning in the fresh production build.
+      reason: Repair the malformed wr-/is- class comment that prematurely closes and
+        produces a CSS optimizer warning in the fresh production build.
     soft-editorial-room-capture-proof:
       action: change
       reason: The new tracked capture pipeline builds dist first, serves it on
-        isolated ports, writes all six images, and asserts each was written by the
-        current run, is nonempty, and decodes to the expected dimensions.
+        isolated ports, writes all six images, and asserts each was written by
+        the current run, is nonempty, and decodes to the expected dimensions.
+applied:
+  applied_at: 2026-07-15T19:30:03.153Z

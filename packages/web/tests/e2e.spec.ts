@@ -1645,11 +1645,21 @@ test('every option of the agent control fits inside the sidebar that holds it', 
 // harn:assume history-cursor-tracks-only-the-contiguous-tail ref=contiguous-history-browser-regression
 interface HistorySeed { first: number; last: number; approval: number; middle: number }
 
+async function loadHistoryPage(page: Page): Promise<void> {
+  const trigger = page.getByTestId('load-history');
+  await expect(trigger).toBeEnabled();
+  await trigger.click();
+  await page.waitForFunction(() => {
+    const current = document.querySelector('[data-testid="load-history"]');
+    return current === null || (current instanceof HTMLButtonElement && !current.disabled);
+  });
+}
+
 async function loadCompleteHistory(page: Page, seeded: HistorySeed): Promise<void> {
-  await page.getByTestId('load-history').dispatchEvent('click');
+  await loadHistoryPage(page);
   await expect(page.getByTestId(`msg-${seeded.middle}`)).toBeVisible();
   while (await page.getByTestId('load-history').count() > 0) {
-    await page.getByTestId('load-history').dispatchEvent('click');
+    await loadHistoryPage(page);
   }
   await expect(page.getByTestId(`msg-${seeded.first}`)).toBeVisible();
   const renderedIds = await page.getByTestId('timeline').locator('[id]').evaluateAll((elements) =>

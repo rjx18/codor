@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "test": "vitest run",
-    "e2e": "node tests/run-e2e.mjs"
+    "e2e": "node tests/run-e2e.mjs",
+    "capture": "node tests/capture-room.mjs"
   },
   "dependencies": {
     "@codor/protocol": "workspace:*",

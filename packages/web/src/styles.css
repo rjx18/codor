@@ -2483,7 +2483,7 @@ button:disabled {
 /* --- Migrated from Tailwind utilities ------------------------------------------
    The layout the room used to carry on Tailwind utility classes (min-h-11, px-3,
    flex, truncate, scroll-mt-16, fixed inset-0 ...) now lives on the room's own
-   wr-*/is-* classes, so every className token is a wr-*, cd-*, sr-only or is-*
+   wr- and is- prefixed classes, so every className token is a wr-*, cd-*, sr-only or is-*
    class and no Tailwind utility survives on any room surface. */
 
 .wr-composer-input {
