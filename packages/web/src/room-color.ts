@@ -1,4 +1,4 @@
-// harn:assume channel-create-dialog-renders-an-accessible-accent ref=room-color-projection
+// harn:assume channel-accent-projects-accessibly-across-themes ref=room-color-projection
 // The accessible accent projection. A channel's stored room.config.color may be any non-empty
 // string - invalid CSS and alpha-bearing values included - and it is what persists. This module
 // is render-only: it derives ONE opaque sRGB colour per channel per theme that clears at least
@@ -30,13 +30,6 @@ export interface ProjectAccentInput {
   backgrounds: readonly string[];
   /** The opaque --cd-agent token value, the final fallback when the lightness bounds exhaust. */
   fallback: string;
-  /**
-   * The active theme name, an explicit input so the projection is theme-keyed at the contract
-   * level rather than inferred from a theme-shaped fallback. The union above is resolved for
-   * this theme, so a theme change re-projects and no stale colour survives; the fallback no
-   * longer doubles as the theme signal.
-   */
-  theme: string;
 }
 
 type Rgb = { mode: 'rgb'; r: number; g: number; b: number; alpha?: number };
@@ -102,4 +95,4 @@ export function projectAccent(input: ProjectAccentInput): string {
   }
   return input.fallback;
 }
-// harn:end channel-create-dialog-renders-an-accessible-accent
+// harn:end channel-accent-projects-accessibly-across-themes

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { MIN_ACCENT_CONTRAST, projectAccent } from './room-color.js';
 
-// harn:assume channel-create-dialog-renders-an-accessible-accent ref=room-color-projection-regression
+// harn:assume channel-accent-projects-accessibly-across-themes ref=room-color-projection-regression
 // The real --cd-* surface, raised, muted and canvas token values in each theme. The three
 // surfaces the accent renders on each sit on a subset of these: the rail dot on the surface,
 // muted list and raised rail; the header chip on the surface; the selected picker swatch on the
@@ -42,14 +42,13 @@ const project = (
   backgrounds: readonly string[],
   fallback: string,
   roomId = 'room-x',
-  theme: Theme = 'light',
-): string => projectAccent({ raw, roomId, backgrounds, fallback, theme });
+): string => projectAccent({ raw, roomId, backgrounds, fallback });
 
 describe('accessible accent projection', () => {
   it('projects all six protocol accents to at least 3:1 in both themes', () => {
     for (const accent of CHANNEL_ACCENTS) {
-      expect(clears(project(accent, LIGHT, AGENT_LIGHT, 'room-x', 'light'), LIGHT), `${accent} on light`).toBe(true);
-      expect(clears(project(accent, DARK, AGENT_DARK, 'room-x', 'dark'), DARK), `${accent} on dark`).toBe(true);
+      expect(clears(project(accent, LIGHT, AGENT_LIGHT, 'room-x'), LIGHT), `${accent} on light`).toBe(true);
+      expect(clears(project(accent, DARK, AGENT_DARK, 'room-x'), DARK), `${accent} on dark`).toBe(true);
     }
   });
 
@@ -62,7 +61,7 @@ describe('accessible accent projection', () => {
   it('rescues a colour that fails on the dark backgrounds', () => {
     const nearBlack = '#101820'; // near-black navy, well under 3:1 on the dark canvas
     expect(clears(nearBlack, DARK)).toBe(false);
-    expect(clears(project(nearBlack, DARK, AGENT_DARK, 'room-x', 'dark'), DARK)).toBe(true);
+    expect(clears(project(nearBlack, DARK, AGENT_DARK, 'room-x'), DARK)).toBe(true);
   });
 
   it('handles an alpha-bearing value by projecting an opaque colour that clears', () => {
@@ -84,7 +83,7 @@ describe('accessible accent projection', () => {
   });
 
   it('is render-only: it returns a projection distinct from the raw value and never mutates input', () => {
-    const input = { raw: '#f2eeb0', roomId: 'room-x', backgrounds: LIGHT, fallback: AGENT_LIGHT, theme: 'light' as Theme };
+    const input = { raw: '#f2eeb0', roomId: 'room-x', backgrounds: LIGHT, fallback: AGENT_LIGHT };
     const projected = projectAccent(input);
     expect(projected.toLowerCase()).not.toBe(input.raw.toLowerCase());
     expect(input.raw).toBe('#f2eeb0'); // the stored value is untouched; persistence is separate
@@ -101,9 +100,9 @@ describe('accessible accent projection', () => {
       const fallback = AGENT[theme];
       for (const accent of CHANNEL_ACCENTS) {
         // All three surfaces are fed the SAME union, so the projection is identical across them.
-        const rail = project(accent, union(theme), fallback, 'room-x', theme);
-        const header = project(accent, union(theme), fallback, 'room-x', theme);
-        const swatch = project(accent, union(theme), fallback, 'room-x', theme);
+        const rail = project(accent, union(theme), fallback, 'room-x');
+        const header = project(accent, union(theme), fallback, 'room-x');
+        const swatch = project(accent, union(theme), fallback, 'room-x');
         expect(rail, `${accent}/${theme}: rail vs header`).toBe(header);
         expect(header, `${accent}/${theme}: header vs swatch`).toBe(swatch);
         // And that one colour clears every surface's own backgrounds.
@@ -118,8 +117,8 @@ describe('accessible accent projection', () => {
     // An explicit data-theme flip hands the projection the dark union and theme; the same channel
     // must land on a different, still-accessible colour rather than keep the light one.
     const raw = '#67b7c7';
-    const light = project(raw, union('light'), AGENT.light, 'room-7', 'light');
-    const dark = project(raw, union('dark'), AGENT.dark, 'room-7', 'dark');
+    const light = project(raw, union('light'), AGENT.light, 'room-7');
+    const dark = project(raw, union('dark'), AGENT.dark, 'room-7');
     expect(light).not.toBe(dark);
     expect(clears(light, union('light'))).toBe(true);
     expect(clears(dark, union('dark'))).toBe(true);
@@ -129,8 +128,8 @@ describe('accessible accent projection', () => {
     // No data-theme is set; the system preference flips from light to dark. The surfaces re-read
     // the union for the new theme, so the projection tracks the flip on all three surfaces alike.
     const raw = deriveRoomColor('room-system');
-    const systemLight = project(raw, union('light'), AGENT.light, 'room-system', 'light');
-    const systemDark = project(raw, union('dark'), AGENT.dark, 'room-system', 'dark');
+    const systemLight = project(raw, union('light'), AGENT.light, 'room-system');
+    const systemDark = project(raw, union('dark'), AGENT.dark, 'room-system');
     expect(systemLight).not.toBe(systemDark);
     for (const surface of [railBackgrounds, headerBackgrounds, swatchBackgrounds]) {
       expect(clears(systemLight, surface('light'))).toBe(true);
@@ -139,9 +138,9 @@ describe('accessible accent projection', () => {
   });
 
   it('is deterministic within a theme, so a re-render yields the same projected colour', () => {
-    const a = project('#8c86d7', union('light'), AGENT.light, 'room-7', 'light');
-    const b = project('#8c86d7', union('light'), AGENT.light, 'room-7', 'light');
+    const a = project('#8c86d7', union('light'), AGENT.light, 'room-7');
+    const b = project('#8c86d7', union('light'), AGENT.light, 'room-7');
     expect(a).toBe(b);
   });
 });
-// harn:end channel-create-dialog-renders-an-accessible-accent
+// harn:end channel-accent-projects-accessibly-across-themes

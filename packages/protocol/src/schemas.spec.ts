@@ -80,7 +80,7 @@ describe('handles', () => {
     expect(HandleSchema.safeParse(handle).success).toBe(true);
   });
 
-  // harn:assume starting-agent-name-derives-one-valid-identity-v5 ref=starting-agent-identity-regression
+  // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-identity-regression
   it('derives assignable handles from friendly starting-agent names', () => {
     expect(deriveAssignableHandle('Review Lead')).toBe('review-lead');
     expect(deriveAssignableHandle('  Release / QA !!! ')).toBe('release-qa');
@@ -91,7 +91,7 @@ describe('handles', () => {
     expect(deriveAssignableHandle('switchboard')).toBeUndefined();
     expect(deriveAssignableHandle('ALL')).toBeUndefined();
   });
-  // harn:end starting-agent-name-derives-one-valid-identity-v5
+  // harn:end starting-agent-name-derives-one-valid-identity-v6
 
   it.each([
     'Codex', // uppercase

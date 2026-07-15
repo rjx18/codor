@@ -5,13 +5,14 @@ import { BASE, CONTROL } from './ports.js';
 export { BASE };
 export const ROOM = '/?room=eng&token=e2e-token';
 
-export async function control(path: string, body: unknown = {}): Promise<void> {
+export async function control(path: string, body: unknown = {}): Promise<Record<string, unknown>> {
   const res = await fetch(`${CONTROL}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${path} failed: ${await res.text()}`);
+  return await res.json() as Record<string, unknown>;
 }
 
 // harn:assume web-theme-accessible-modes ref=axe-room-matrix-shared
@@ -159,23 +160,65 @@ export async function sweepRoomStates(page: Page, theme: 'light' | 'dark'): Prom
   await expect(page.getByTestId('inbox-panel')).toBeVisible();
   await record('room:inbox');
 
-  // The real 390 mobile matrix, in this theme: the history timeline (speaker grouping + the
-  // collapsed run tools), the pending ask card, and a held delivery all render on the phone, then
-  // the drawer and the context sheet - not scanned back at 1440, but genuinely on a phone.
-  await control('/hold', { body: '@alpha resume the pocket flow' });
+  // The real 390 mobile matrix, in this theme: each distinct state is driven and asserted to
+  // exist before axe composites it, rather than collapsing several into one scan. History speaker
+  // grouping, a pending ask card, a seeded running run whose tool rows collapse behind a summary,
+  // a held delivery, then the drawer and the context sheet - genuinely on a phone, not scanned
+  // back at 1440.
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page);
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  // harn:assume web-room-visual-hierarchy-matches-soft-editorial-reference ref=soft-editorial-speaker-grouping-390
+  // The unframed mobile prose timeline groups a run of same-speaker messages: a continuation row
+  // must exist before axe scans the history state.
+  await expect(page.locator('.wr-message.is-grouped').first()).toBeVisible();
+  // harn:end web-room-visual-hierarchy-matches-soft-editorial-reference
+  await record('mob:history');
+
+  // A genuinely pending ask card at the tail: enqueue an ask and trigger it from the phone
+  // composer while the agent is idle, then leave it unanswered so the card stays on the phone.
+  await control('/enqueue', {
+    turns: [{
+      kind: 'ask',
+      prompt: 'Approve the pocket deploy?',
+      options: ['Allow once', 'Deny'],
+      replyPrefix: 'answered ',
+    }],
+  });
+  await page.getByTestId('composer-input').fill('@alpha approve the pocket deploy');
+  await page.getByTestId('composer-send').click();
+  await expect(page.locator('.wr-ask-card')).toBeVisible();
+  await record('mob:ask');
+
+  // A seeded running run whose tool rows collapse behind a summary; it re-hydrates on the reload.
+  const seeded = await control('/seed-running-run');
+  const runId = String(seeded.run);
+  await control('/hold', { body: '@alpha resume the pocket flow' });
+  await open(page);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  // harn:assume normalized-run-items-presented-live ref=live-run-prose-390
+  // A running run keeps its live prose visible on the phone even while its tools are collapsed.
+  await expect(page.getByTestId(`run-${runId}`)).toContainText('Tracing the pocket flow');
+  // harn:end normalized-run-items-presented-live
+  // harn:assume normalized-run-items-presented-live ref=collapsed-run-tools-390
+  // ...and those tool rows are collapsed behind one summary line, not a framed evidence list.
+  await expect(page.getByTestId(`run-${runId}-tools-collapsed`)).toBeVisible();
+  // harn:end normalized-run-items-presented-live
+  await record('mob:running-run');
+
   await expect(page.getByTestId('hold-banner')).toBeVisible();
-  await record('mob:history+ask+hold');
+  await record('mob:hold');
+
   await page.getByTestId('open-room-drawer').click();
   await expect(page.getByTestId('room-drawer')).toBeVisible();
-  await record('mob:drawer+history');
+  await record('mob:drawer');
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('room-drawer')).toHaveCount(0);
   await page.getByRole('button', { name: 'Open channel context' }).click();
   await expect(page.getByTestId('context-sheet')).toBeVisible();
-  await record('mob:context+history');
+  await record('mob:context');
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1440, height: 900 });
 

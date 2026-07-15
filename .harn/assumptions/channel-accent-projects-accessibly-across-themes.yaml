@@ -1,0 +1,40 @@
+id: channel-accent-projects-accessibly-across-themes
+hash: a-df754ce51c4e
+title: The channel accent projects accessibly across theme changes
+state: active
+statement: "The channel create dialog, the room rail and the room header must
+  render an accessible projection of a channel's accent. The projection is one
+  pure function of the raw stored room.config.color string, the channel roomId,
+  an explicit fallback colour, and the ordered set of opaque background colours
+  the accent meets in the active theme (the rail row background and its hover
+  and selected states, the header chip background, and the picker candidate
+  background and its hover and selected states); the active theme is not a
+  separate argument - theme-sensitivity enters only through that theme-specific
+  background union and fallback, which the live hook resolves. The stored value
+  accepts any non-empty string, invalid CSS and alpha-bearing values such as
+  transparent included, and it is the value that persists; the projection is
+  render-only and tested separately from persistence. The function derives a
+  seed colour: the parsed value, or - when unparseable - deriveRoomColor(roomId)
+  with its CHANNEL_ACCENTS palette imported from the protocol package, never a
+  duplicated hash; and when the parsed value carries alpha the seed is that
+  value composited over the worst-contrast background in the set, retaining the
+  source alpha only for that composite. Holding the seed's OKLCH hue and chroma,
+  it walks lightness outward in fixed steps, gamut-clamps each candidate to an
+  opaque sRGB colour, re-measures contrast on the emitted opaque colour, and
+  accepts the first whose contrast is at least 3:1 against every background in
+  the set; ties resolve toward the darker candidate, and if the bounds exhaust
+  it falls back to the fallback colour, which itself clears the set. The single
+  accepted opaque colour is reused on the rail dot, the header chip and the
+  selected picker candidate - per-surface normalization is forbidden. The live
+  hook, not the pure function, owns theme reactivity: it subscribes to explicit
+  theme changes and live system prefers-color-scheme changes, re-reads the
+  theme's --cd-* backgrounds, and recomputes the projection so no stale inline
+  colour survives; the selected swatch, the rail dot and the header chip always
+  match."
+depends_on:
+  - channel-creation-derived-and-seeded
+  - local-directory-listing-home-contained
+  - web-room-rail-creates-owner-room
+  - web-theme-accessible-modes
+  - every-channel-has-a-visible-accent
+created_by: p3c3-a11y-and-accent

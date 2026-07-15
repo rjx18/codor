@@ -2106,7 +2106,7 @@ button:disabled {
   margin-top: var(--cd-space-4);
 }
 
-/* harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-create-style */
+/* harn:assume channel-accent-projects-accessibly-across-themes ref=channel-create-style */
 .wr-channel-dialog {
   width: 100%;
   max-width: 640px;
@@ -2283,7 +2283,7 @@ button:disabled {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-/* harn:end channel-create-dialog-renders-an-accessible-accent */
+/* harn:end channel-accent-projects-accessibly-across-themes */
 
 /* harn:assume web-spawn-dialog-exposes-canonical-agent-controls ref=spawn-dialog-style */
 .wr-spawn-dialog {

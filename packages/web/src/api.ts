@@ -88,7 +88,7 @@ export interface PairingOffer {
   switchboard_sign_pub: string;
 }
 
-// harn:assume starting-agent-name-derives-one-valid-identity-v5 ref=actionable-rest-errors
+// harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=actionable-rest-errors
 async function requestError(response: Response): Promise<Error> {
   try {
     const body = await response.json() as { error?: unknown };
@@ -98,7 +98,7 @@ async function requestError(response: Response): Promise<Error> {
   }
   return new Error(`request failed: ${String(response.status)}`);
 }
-// harn:end starting-agent-name-derives-one-valid-identity-v5
+// harn:end starting-agent-name-derives-one-valid-identity-v6
 
 async function fetchJson<T>(path: string, options: ApiOptions): Promise<T> {
   const origin = options.origin ?? window.location.origin;
@@ -151,7 +151,7 @@ export async function fetchRooms(options: ApiOptions): Promise<Room[]> {
 }
 
 // harn:assume web-room-rail-creates-owner-room ref=authenticated-room-create-client
-// harn:assume channel-create-dialog-renders-an-accessible-accent ref=authoritative-channel-client
+// harn:assume channel-accent-projects-accessibly-across-themes ref=authoritative-channel-client
 export async function createRoom(
   input: CreateRoomRequest,
   options: ApiOptions,
@@ -159,7 +159,7 @@ export async function createRoom(
   const created = await sendJson<{ room: Room }>('/api/rooms', 'POST', input, options);
   return created.room;
 }
-// harn:end channel-create-dialog-renders-an-accessible-accent
+// harn:end channel-accent-projects-accessibly-across-themes
 // harn:end web-room-rail-creates-owner-room
 
 export async function fetchLocalDirectories(

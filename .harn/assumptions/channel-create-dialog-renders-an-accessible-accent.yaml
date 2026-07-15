@@ -1,7 +1,7 @@
 id: channel-create-dialog-renders-an-accessible-accent
 hash: a-b6adb77494db
 title: The channel create dialog and rail render an accessible accent projection
-state: active
+state: retired
 statement: "The channel create dialog, the room rail and the room header must
   render an accessible projection of a channel's accent computed by one pure
   function of four inputs: the raw stored room.config.color string, the channel
@@ -38,3 +38,4 @@ depends_on:
   - web-theme-accessible-modes
   - every-channel-has-a-visible-accent
 created_by: v5-p3-room
+retired_by: p3c3-a11y-and-accent

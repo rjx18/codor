@@ -78,7 +78,7 @@ import {
 } from './state.js';
 import type { Connection } from './ws.js';
 
-// harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-color-identity
+// harn:assume channel-accent-projects-accessibly-across-themes ref=channel-color-identity
 // The live consumption of the pure accent projection. The rail, header and picker read the
 // REAL --cd-* token values for the opaque backgrounds the accent meets in the active theme,
 // and re-project whenever the theme changes explicitly (data-theme) or the system preference
@@ -132,8 +132,9 @@ export function useProjectedAccent(
   return useMemo(() => {
     const backgrounds = backgroundVars.map(readToken).filter((value) => value !== '');
     const fallback = readToken('--cd-agent') || '#4338ca';
-    return projectAccent({ raw: raw ?? '', roomId, backgrounds, fallback, theme });
-    // theme is a dependency: a theme change re-resolves the token values below.
+    return projectAccent({ raw: raw ?? '', roomId, backgrounds, fallback });
+    // theme stays a dependency so a change re-resolves the --cd-* token values above; the pure
+    // projectAccent no longer takes the theme - theme-sensitivity is only the resolved backgrounds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raw, roomId, theme, backgroundVars]);
 }
@@ -154,8 +155,11 @@ export function useAccentProjector(): (
     return (raw, roomId, backgroundVars) => {
       const backgrounds = backgroundVars.map(readToken).filter((value) => value !== '');
       const fallback = readToken('--cd-agent') || '#4338ca';
-      return projectAccent({ raw: raw ?? '', roomId, backgrounds, fallback, theme });
+      return projectAccent({ raw: raw ?? '', roomId, backgrounds, fallback });
     };
+    // theme drives the projector's identity: a change re-reads the live --cd-* tokens above, so a
+    // stale projection cannot survive a theme flip even though projectAccent no longer takes it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme]);
 }
 
@@ -169,7 +173,7 @@ export const ACCENT_UNION_BACKGROUNDS = [
   '--cd-surface-raised',
   '--cd-canvas',
 ] as const;
-// harn:end channel-create-dialog-renders-an-accessible-accent
+// harn:end channel-accent-projects-accessibly-across-themes
 
 const stateDot: Record<string, string> = {
   idle: 'wr-state-idle',
@@ -266,7 +270,7 @@ export function BridgedRoomBanner() {
 }
 // harn:end bridged-room-wears-banner-v5
 
-// harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-color-identity
+// harn:assume channel-accent-projects-accessibly-across-themes ref=channel-color-identity
 // The header chip renders the SAME accessible projection the rail dot and picker use, so a
 // channel is one colour across every surface and never a stale inline value after a theme flip.
 function HeaderColorChip(props: { roomColor: string; roomId: string }) {
@@ -280,7 +284,7 @@ function HeaderColorChip(props: { roomColor: string; roomId: string }) {
     />
   );
 }
-// harn:end channel-create-dialog-renders-an-accessible-accent
+// harn:end channel-accent-projects-accessibly-across-themes
 
 // harn:assume spend-meter-always-on ref=meter-settings-surface
 // Below the phone content breakpoint the header collapses to the minimal 2a IA: the meter
@@ -460,11 +464,11 @@ export function Header(props: {
           </button>
         )}
         <span className="wr-room-glyph wr-header-glyph" aria-hidden="true">#</span>
-        {/* harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-color-identity */}
+        {/* harn:assume channel-accent-projects-accessibly-across-themes ref=channel-color-identity */}
         {props.roomColor && (
           <HeaderColorChip roomColor={props.roomColor} roomId={props.roomId} />
         )}
-        {/* harn:end channel-create-dialog-renders-an-accessible-accent */}
+        {/* harn:end channel-accent-projects-accessibly-across-themes */}
         <div className="wr-room-title">
           <h1 title={props.roomName}>{props.roomName}</h1>
           <span>

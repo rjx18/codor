@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-// harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-create-browser-regression
+// harn:assume channel-accent-projects-accessibly-across-themes ref=channel-create-browser-regression
 test('channel dialog uses contained folders, starting agents, colors, and authoritative collision ids', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?room=eng&token=e2e-token');
@@ -38,7 +38,7 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   await expect(page.getByTestId('create-room-model-custom-input')).toHaveCount(0);
   await expect(page.getByTestId('create-room-thinking-default')).toBeVisible();
   // harn:end agent-controls-shared-by-both-dialogs
-  // harn:assume starting-agent-name-derives-one-valid-identity-v5 ref=starting-agent-browser-regression
+  // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-browser-regression
   await page.getByTestId('create-room-agent-name').fill('switchboard');
   await expect(page.getByTestId('create-room-agent-handle')).toHaveCount(0);
   await page.getByTestId('create-room-submit').click();
@@ -63,7 +63,7 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   expect(details.members.map((detail) => detail.member)).toContainEqual(
     expect.objectContaining({ handle: 'review-lead', display_name: 'Review Lead' }),
   );
-  // harn:end starting-agent-name-derives-one-valid-identity-v5
+  // harn:end starting-agent-name-derives-one-valid-identity-v6
   await expect(page.getByTestId('room-color-demo-site')).toBeVisible();
   await expect(page.getByTestId('header-room-color')).toBeVisible();
   // One projected accent, byte-identical on the picker swatch, the rail dot and the header chip.
@@ -75,6 +75,72 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   );
   expect(railCoral, 'rail dot equals the selected swatch').toBe(coralSwatch);
   expect(headerCoral, 'header chip equals the selected swatch').toBe(coralSwatch);
+
+  // The accent re-reads the live --cd-* backgrounds on every theme change, so the picker swatch,
+  // the rail dot and the header chip must move together and never keep a stale inline colour.
+  // Re-open the picker so all three surfaces are mounted at once, then flip the theme explicitly
+  // and via a live system preference and re-read each after both.
+  await page.getByTestId('create-room').click();
+  await page.getByTestId('create-room-name').fill('Theme Probe');
+  await page.getByTestId('channel-color-coral').click();
+  await expect(page.getByTestId('channel-color-coral')).toHaveAttribute('aria-pressed', 'true');
+  const readTriple = async (): Promise<[string, string, string]> => [
+    await page.getByTestId('channel-color-coral').locator('.wr-swatch-fill').evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    ),
+    await page.getByTestId('room-color-demo-site').evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    ),
+    await page.getByTestId('header-room-color').evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    ),
+  ];
+  const unitedColour = (triple: [string, string, string], label: string): string => {
+    expect(triple[1], `${label}: rail dot equals the selected swatch`).toBe(triple[0]);
+    expect(triple[2], `${label}: header chip equals the selected swatch`).toBe(triple[0]);
+    return triple[0];
+  };
+
+  const lightColour = unitedColour(await readTriple(), 'light');
+
+  // (a) An explicit data-theme flip to dark: all three re-project to a new, still-united colour.
+  await page.evaluate(() => {
+    localStorage.setItem('codor-theme', 'dark');
+    document.documentElement.dataset.theme = 'dark';
+  });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect.poll(async () => (await readTriple())[1]).not.toBe(lightColour);
+  const darkColour = unitedColour(await readTriple(), 'explicit dark');
+  expect(darkColour, 'an explicit theme change re-projects the accent').not.toBe(lightColour);
+
+  // Return to an explicit light baseline before the live system flip.
+  await page.evaluate(() => {
+    localStorage.setItem('codor-theme', 'light');
+    document.documentElement.dataset.theme = 'light';
+  });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect.poll(async () => (await readTriple())[1]).not.toBe(darkColour);
+  const relitColour = unitedColour(await readTriple(), 'relit light');
+
+  // (b) A LIVE system change: no explicit choice, the OS preference flips to dark. The surfaces
+  // re-read the theme's backgrounds through the media query and re-project together.
+  await page.evaluate(() => {
+    localStorage.setItem('codor-theme', 'system');
+    delete document.documentElement.dataset.theme;
+  });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect.poll(async () => (await readTriple())[1]).not.toBe(relitColour);
+  const systemDarkColour = unitedColour(await readTriple(), 'system dark');
+  expect(systemDarkColour, 'a live system theme change re-projects the accent').not.toBe(relitColour);
+
+  // Restore the light default and dismiss the probe dialog before the collision-id flow reopens it.
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.evaluate(() => {
+    localStorage.setItem('codor-theme', 'light');
+    document.documentElement.dataset.theme = 'light';
+  });
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('create-room-dialog')).toHaveCount(0);
 
   await page.getByTestId('create-room').click();
   await page.getByTestId('create-room-name').fill('Demo Site');
@@ -124,4 +190,4 @@ test('channel creation stays available when no starting adapters are installed',
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await expect(page.getByTestId('member-codor')).toHaveCount(0);
 });
-// harn:end channel-create-dialog-renders-an-accessible-accent
+// harn:end channel-accent-projects-accessibly-across-themes

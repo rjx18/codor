@@ -279,6 +279,44 @@ createServer(async (req, res) => {
         middle: messages[110].id,
       }));
       return;
+    // harn:assume normalized-run-items-presented-live ref=seeded-running-run-harness
+    } else if (url.pathname === '/seed-running-run') {
+      // A deterministic RUNNING run whose journal carries live prose plus tool calls, written
+      // straight to the blob so no live attempt drives it and it has no delivery for reconcile to
+      // touch. On a phone the tool rows collapse behind one summary line (status running + tool
+      // rows present) while the live prose row stays visible.
+      const runMessage = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+      const eventsRef = daemon.blobs.ref(runMessage.id);
+      daemon.store.updateMessage('eng', runMessage.id, {
+        run: {
+          status: 'running',
+          started_ts: new Date().toISOString(),
+          tool_calls: 2,
+          events_ref: eventsRef,
+        },
+      });
+      daemon.blobs.append('eng', eventsRef, {
+        type: 'run.item',
+        item_type: 'text_delta',
+        payload: { text: 'Tracing the pocket flow before the next hop.' },
+      });
+      daemon.blobs.append('eng', eventsRef, {
+        type: 'run.item',
+        item_type: 'tool_call',
+        payload: { call_id: 'seed-call-1', tool: 'Bash', title: 'ls packages/web/src' },
+        ts: new Date().toISOString(),
+      });
+      daemon.blobs.append('eng', eventsRef, {
+        type: 'run.item',
+        item_type: 'tool_call',
+        payload: { call_id: 'seed-call-2', tool: 'Read', title: 'open room-color.ts' },
+        ts: new Date().toISOString(),
+      });
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        run: runMessage.id,
+      }));
+      return;
+    // harn:end normalized-run-items-presented-live
     } else if (url.pathname === '/pair-offer') {
       // harn:assume pairing-code-enrollment-surfaces ref=pairing-code-browser-harness
       const offer = crypto.pairing.issue(`http://127.0.0.1:${String(API_PORT)}`);

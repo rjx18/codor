@@ -1,66 +1,155 @@
 id: p3c3-a11y-and-accent
-title: V5 P3 closure 3/4 - the real both-theme 390 axe matrix over distinct mobile
-  states, and the B2 accent migration that retires the dead-theme accent assumption
-  for an honest pure-projector/live-hook split and repoints the starting-agent
-  identity closure onto the replacement.
-notes: |-
-  Third of four review-closure plans. Closes review blocker 4 (the 390 axe matrix)
-  and review blocker 5 (the channel accent), the latter as the reviewer-decided
-  retire+create (option B2). No codor.service restart; isolated e2e daemons only.
+title: V5 P3 closure 3/4 - the real both-theme 390 axe matrix over distinct
+  mobile states, and the B2 accent migration that retires the dead-theme accent
+  assumption for an honest pure-projector/live-hook split and repoints the
+  starting-agent identity closure onto the replacement.
+notes: >-
+  Third of four review-closure plans. Closes review blocker 4 (the 390 axe
+  matrix)
 
-  AXE MATRIX: the both-theme 390 axe scan stops collapsing several states into one
-  and becomes distinct verified states in light and dark - baseline/history (which
+  and review blocker 5 (the channel accent), the latter as the reviewer-decided
+
+  retire+create (option B2). No codor.service restart; isolated e2e daemons
+  only.
+
+
+  AXE MATRIX: the both-theme 390 axe scan stops collapsing several states into
+  one
+
+  and becomes distinct verified states in light and dark - baseline/history
+  (which
+
   asserts speaker grouping), a pending ask, a SEEDED running run whose tool rows
+
   are collapsed behind a summary line (driven by a new deterministic harness
+
   fixture), a hold, a drawer, and a context sheet. axe-room-matrix-shared
-  enumerates the states, and the light and dark specs each run the full enumerated
+
+  enumerates the states, and the light and dark specs each run the full
+  enumerated
+
   set. The behavioral state-existence assertions get their real owners as nested
+
   test anchors inside the matrix: soft-editorial-speaker-grouping-390 under
+
   web-room-visual-hierarchy-matches-soft-editorial-reference (the is-grouped
+
   continuation row), and live-run-prose-390 + collapsed-run-tools-390 under
-  normalized-run-items-presented-live (the running run's live prose and its tools
+
+  normalized-run-items-presented-live (the running run's live prose and its
+  tools
+
   collapsed behind a summary), with a new seeded-running-run-harness control in
+
   harness.mjs owned by that same assumption. web-theme-accessible-modes,
+
   web-room-visual-hierarchy-matches-soft-editorial-reference and
-  normalized-run-items-presented-live are all reviewed unchanged - only the coverage
+
+  normalized-run-items-presented-live are all reviewed unchanged - only the
+  coverage
+
   is made real.
 
-  B2 ACCENT MIGRATION: projectAccent never reads the active theme it was declared
+
+  B2 ACCENT MIGRATION: projectAccent never reads the active theme it was
+  declared
+
   to take, so channel-create-dialog-renders-an-accessible-accent is retired for
+
   channel-accent-projects-accessibly-across-themes, which honestly separates the
-  pure projector (raw stored colour, roomId, an explicit fallback colour, and the
+
+  pure projector (raw stored colour, roomId, an explicit fallback colour, and
+  the
+
   theme-specific ordered background union) from the live hook that owns explicit
+
   and live system prefers-color-scheme subscription and recomputation. The dead
+
   theme argument is removed from projectAccent; the same single accepted opaque
+
   colour still renders on the rail dot, the header chip and the selected picker
+
   candidate; and browser coverage compares rail/header/swatch after an explicit
+
   theme change and after a live system theme change. Because
-  starting-agent-name-derives-one-valid-identity-v5 depends_on the retired accent
+
+  starting-agent-name-derives-one-valid-identity-v5 depends_on the retired
+  accent
+
   assumption, dependency closure requires it be retired for
-  starting-agent-name-derives-one-valid-identity-v6, whose meaning is unchanged and
+
+  starting-agent-name-derives-one-valid-identity-v6, whose meaning is unchanged
+  and
+
   which only repoints depends_on onto the replacement (nothing depends on it, so
-  the cascade ends there). The starting-agent closure renames its anchor comments
+
+  the cascade ends there). The starting-agent closure renames its anchor
+  comments
+
   from the -v5 id to the -v6 id across packages/protocol (member/room/schemas),
-  packages/switchboard (daemon/daemon.spec) and packages/web (api/api.spec/shell/
+
+  packages/switchboard (daemon/daemon.spec) and packages/web
+  (api/api.spec/shell/
+
   channel-create e2e); the accent closure renames its anchor comments from the
+
   retired accent id to the new id across packages/web (room-color, components,
-  shell, styles, api, channel-create e2e). Runtime behaviour of both identity and
-  accent is unchanged except for dropping the unused theme argument and adding the
+
+  shell, styles, api, channel-create e2e). Runtime behaviour of both identity
+  and
+
+  accent is unchanged except for dropping the unused theme argument and adding
+  the
+
   live-hook browser coverage.
 
+
   Gate, in order, all green: build -> test (0 act warnings) -> e2e (the expanded
-  both-theme axe matrix and the theme-change accent comparison) -> harn check. This
+
+  both-theme axe matrix and the theme-change accent comparison) -> harn check.
+  This
+
   plan is p3c3 of the p3c1..p3c4 closure sequence.
 assumptions:
   create:
     - id: channel-accent-projects-accessibly-across-themes
       title: The channel accent projects accessibly across theme changes
-      statement: "The channel create dialog, the room rail and the room header must render an accessible projection of a channel's accent. The projection is one pure function of the raw stored room.config.color string, the channel roomId, an explicit fallback colour, and the ordered set of opaque background colours the accent meets in the active theme (the rail row background and its hover and selected states, the header chip background, and the picker candidate background and its hover and selected states); the active theme is not a separate argument - theme-sensitivity enters only through that theme-specific background union and fallback, which the live hook resolves. The stored value accepts any non-empty string, invalid CSS and alpha-bearing values such as transparent included, and it is the value that persists; the projection is render-only and tested separately from persistence. The function derives a seed colour: the parsed value, or - when unparseable - deriveRoomColor(roomId) with its CHANNEL_ACCENTS palette imported from the protocol package, never a duplicated hash; and when the parsed value carries alpha the seed is that value composited over the worst-contrast background in the set, retaining the source alpha only for that composite. Holding the seed's OKLCH hue and chroma, it walks lightness outward in fixed steps, gamut-clamps each candidate to an opaque sRGB colour, re-measures contrast on the emitted opaque colour, and accepts the first whose contrast is at least 3:1 against every background in the set; ties resolve toward the darker candidate, and if the bounds exhaust it falls back to the fallback colour, which itself clears the set. The single accepted opaque colour is reused on the rail dot, the header chip and the selected picker candidate - per-surface normalization is forbidden. The live hook, not the pure function, owns theme reactivity: it subscribes to explicit theme changes and live system prefers-color-scheme changes, re-reads the theme's --cd-* backgrounds, and recomputes the projection so no stale inline colour survives; the selected swatch, the rail dot and the header chip always match."
+      statement: "The channel create dialog, the room rail and the room header must
+        render an accessible projection of a channel's accent. The projection is
+        one pure function of the raw stored room.config.color string, the
+        channel roomId, an explicit fallback colour, and the ordered set of
+        opaque background colours the accent meets in the active theme (the rail
+        row background and its hover and selected states, the header chip
+        background, and the picker candidate background and its hover and
+        selected states); the active theme is not a separate argument -
+        theme-sensitivity enters only through that theme-specific background
+        union and fallback, which the live hook resolves. The stored value
+        accepts any non-empty string, invalid CSS and alpha-bearing values such
+        as transparent included, and it is the value that persists; the
+        projection is render-only and tested separately from persistence. The
+        function derives a seed colour: the parsed value, or - when unparseable
+        - deriveRoomColor(roomId) with its CHANNEL_ACCENTS palette imported from
+        the protocol package, never a duplicated hash; and when the parsed value
+        carries alpha the seed is that value composited over the worst-contrast
+        background in the set, retaining the source alpha only for that
+        composite. Holding the seed's OKLCH hue and chroma, it walks lightness
+        outward in fixed steps, gamut-clamps each candidate to an opaque sRGB
+        colour, re-measures contrast on the emitted opaque colour, and accepts
+        the first whose contrast is at least 3:1 against every background in the
+        set; ties resolve toward the darker candidate, and if the bounds exhaust
+        it falls back to the fallback colour, which itself clears the set. The
+        single accepted opaque colour is reused on the rail dot, the header chip
+        and the selected picker candidate - per-surface normalization is
+        forbidden. The live hook, not the pure function, owns theme reactivity:
+        it subscribes to explicit theme changes and live system
+        prefers-color-scheme changes, re-reads the theme's --cd-* backgrounds,
+        and recomputes the projection so no stale inline colour survives; the
+        selected swatch, the rail dot and the header chip always match."
       reason: The old assumption listed the active theme as a pure-function input, but
-        projectAccent never consumed it; this honestly separates the pure projector
-        (raw/roomId/fallback/theme-specific background union) from the live hook that
-        owns explicit and system theme subscription and recomputation, and adds real
-        browser coverage of both theme paths.
+        projectAccent never consumed it; this honestly separates the pure
+        projector (raw/roomId/fallback/theme-specific background union) from the
+        live hook that owns explicit and system theme subscription and
+        recomputation, and adds real browser coverage of both theme paths.
       depends_on:
         - channel-creation-derived-and-seeded
         - local-directory-listing-home-contained
@@ -69,7 +158,14 @@ assumptions:
         - every-channel-has-a-visible-accent
     - id: starting-agent-name-derives-one-valid-identity-v6
       title: A channel's starting-agent name derives exactly one valid identity
-      statement: "A channel's optional starting-agent name must be preserved as display_name while one shared protocol helper derives the lowercase ASCII assignable handle preview and request value; unsupported runs become separators, length is bounded, empty or too-short derivations use a stable valid fallback, reserved output is rejected, and identity errors are shown at the name field before any room is created, because a human-facing Name control must not leak the strict handle grammar or blame the project folder."
+      statement: A channel's optional starting-agent name must be preserved as
+        display_name while one shared protocol helper derives the lowercase
+        ASCII assignable handle preview and request value; unsupported runs
+        become separators, length is bounded, empty or too-short derivations use
+        a stable valid fallback, reserved output is rejected, and identity
+        errors are shown at the name field before any room is created, because a
+        human-facing Name control must not leak the strict handle grammar or
+        blame the project folder.
       reason: Meaning unchanged; retired and recreated only to repoint its depends_on
         from the retired accent assumption to
         channel-accent-projects-accessibly-across-themes.
@@ -81,19 +177,20 @@ assumptions:
   retire:
     - id: channel-create-dialog-renders-an-accessible-accent
       reason: Replaced by channel-accent-projects-accessibly-across-themes, an honest
-        projector/hook separation that drops the dead theme argument (projectAccent
-        never reads it today); its anchor comments migrate unchanged in runtime.
+        projector/hook separation that drops the dead theme argument
+        (projectAccent never reads it today); its anchor comments migrate
+        unchanged in runtime.
     - id: starting-agent-name-derives-one-valid-identity-v5
-      reason: Required dependency-closure - it depends_on the retired accent assumption
-        and must repoint to the replacement; recreated verbatim as
-        starting-agent-name-derives-one-valid-identity-v6 (nothing depends on it, so
-        the cascade ends here).
+      reason: Required dependency-closure - it depends_on the retired accent
+        assumption and must repoint to the replacement; recreated verbatim as
+        starting-agent-name-derives-one-valid-identity-v6 (nothing depends on
+        it, so the cascade ends here).
   reviewed:
     - id: web-theme-accessible-modes
       outcome: unchanged
-      reason: The token layer contract is unchanged; the 390 axe matrix becomes distinct
-        both-theme verified states including a seeded running run with collapsed tool
-        rows, so only the coverage is made real.
+      reason: The token layer contract is unchanged; the 390 axe matrix becomes
+        distinct both-theme verified states including a seeded running run with
+        collapsed tool rows, so only the coverage is made real.
     - id: web-room-visual-hierarchy-matches-soft-editorial-reference
       outcome: unchanged
       reason: The contract is untouched; the 390 axe matrix now asserts the
@@ -102,8 +199,8 @@ assumptions:
     - id: normalized-run-items-presented-live
       outcome: unchanged
       reason: The contract is untouched; the matrix now asserts a running run renders
-        live prose with its tool rows collapsed behind a summary before axe, driven
-        by a new deterministic seed.
+        live prose with its tool rows collapsed behind a summary before axe,
+        driven by a new deterministic seed.
 files:
   - packages/web/src/room-color.ts
   - packages/web/src/room-color.spec.ts
@@ -130,8 +227,8 @@ anchors:
         and drop the dead theme argument.
     room-color-projection-regression:
       action: change
-      reason: Migrate the unit regression; compare rail/header/swatch across explicit and
-        system theme change.
+      reason: Migrate the unit regression; compare rail/header/swatch across explicit
+        and system theme change.
     channel-color-identity:
       action: change
       reason: Migrate the header chip identity render onto the replacement assumption.
@@ -160,7 +257,8 @@ anchors:
       reason: Migrate the identity contract onto the -v6 assumption; runtime unchanged.
     starting-agent-identity-regression:
       action: change
-      reason: Migrate the identity regression onto the -v6 assumption; runtime unchanged.
+      reason: Migrate the identity regression onto the -v6 assumption; runtime
+        unchanged.
     starting-agent-create-regression:
       action: change
       reason: Migrate the create regression onto the -v6 assumption; runtime unchanged.
@@ -177,11 +275,12 @@ anchors:
         unchanged.
     starting-agent-name-control:
       action: change
-      reason: Migrate the name control onto the -v6 assumption; identity errors stay at
-        the field before create.
+      reason: Migrate the name control onto the -v6 assumption; identity errors stay
+        at the field before create.
     starting-agent-browser-regression:
       action: change
-      reason: Migrate the browser regression onto the -v6 assumption; runtime unchanged.
+      reason: Migrate the browser regression onto the -v6 assumption; runtime
+        unchanged.
   channel-create-dialog-renders-an-accessible-accent:
     room-color-projection:
       action: remove
@@ -239,7 +338,8 @@ anchors:
         matrix, including a seeded running run with collapsed tool rows.
     axe-room-matrix-light:
       action: change
-      reason: The real 390 light matrix runs the full enumerated set of distinct states.
+      reason: The real 390 light matrix runs the full enumerated set of distinct
+        states.
     axe-room-matrix-dark:
       action: change
       reason: The real 390 dark matrix runs the full enumerated set of distinct states.
@@ -261,3 +361,5 @@ anchors:
       action: change
       reason: New deterministic running-run seed control in harness.mjs that drives
         the collapsed-tools running state for the matrix.
+applied:
+  applied_at: 2026-07-15T18:45:55.090Z

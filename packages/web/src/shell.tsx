@@ -53,7 +53,7 @@ function roomHref(room: string): string {
 // the human-facing labels stay here, aligned to CHANNEL_ACCENTS by index.
 const ACCENT_LABELS = ['Green', 'Cyan', 'Violet', 'Amber', 'Coral', 'Blue'] as const;
 
-// harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-create-dialog
+// harn:assume channel-accent-projects-accessibly-across-themes ref=channel-create-dialog
 function FolderPicker(props: {
   token: string;
   onSelect(path: string): void;
@@ -143,10 +143,10 @@ function FolderPicker(props: {
     </div>
   );
 }
-// harn:end channel-create-dialog-renders-an-accessible-accent
+// harn:end channel-accent-projects-accessibly-across-themes
 
 // harn:assume web-room-rail-creates-owner-room ref=room-rail-create-action
-// harn:assume starting-agent-name-derives-one-valid-identity-v5 ref=starting-agent-name-control
+// harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-name-control
 export function RoomList(props: {
   rooms: Room[];
   currentRoom: string;
@@ -478,7 +478,7 @@ export function RoomList(props: {
     </nav>
   );
 }
-// harn:end starting-agent-name-derives-one-valid-identity-v5
+// harn:end starting-agent-name-derives-one-valid-identity-v6
 // harn:end web-room-rail-creates-owner-room
 
 // harn:assume web-shell-responsive-three-pane ref=responsive-room-shell

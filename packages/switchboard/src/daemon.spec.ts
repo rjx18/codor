@@ -2302,7 +2302,7 @@ describe('Phase 3 usability core', () => {
       .toContain("no adapter registered for harness 'missing'");
   });
 
-  // harn:assume starting-agent-name-derives-one-valid-identity-v5 ref=starting-agent-create-regression
+  // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-create-regression
   // harn:assume spawn-default-cwd-is-absolute-or-empty ref=implicit-starting-agent-cwd-regression
   it('persists friendly starting identity and an implicit absolute channel cwd', () => {
     const created = daemon.createRoom({
@@ -2328,7 +2328,7 @@ describe('Phase 3 usability core', () => {
     expect(daemon.store.getRoom('duplicate-owner-agent')).toBeUndefined();
   });
   // harn:end spawn-default-cwd-is-absolute-or-empty
-  // harn:end starting-agent-name-derives-one-valid-identity-v5
+  // harn:end starting-agent-name-derives-one-valid-identity-v6
   // harn:end channel-starting-agent-handle-persisted
 
   it('normalizes cwd inputs before every local member or adapter mutation', () => {

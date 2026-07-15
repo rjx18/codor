@@ -472,13 +472,13 @@ export class Daemon {
 
   // harn:assume channel-creation-derived-and-seeded ref=derived-channel-creation
   createRoom(opts: CreateRoomRequest): ReturnType<Store['createRoom']> {
-    // harn:assume starting-agent-name-derives-one-valid-identity-v5 ref=starting-agent-create-validation
+    // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-create-validation
     if (opts.starting_agent?.handle === opts.owner.handle) {
       throw new Error(
         `starting agent handle @${opts.starting_agent.handle} is already in use by the channel owner`,
       );
     }
-    // harn:end starting-agent-name-derives-one-valid-identity-v5
+    // harn:end starting-agent-name-derives-one-valid-identity-v6
     const baseId = opts.id ?? deriveRoomId(opts.name);
     let id = baseId;
     if (opts.id === undefined) {
