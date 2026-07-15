@@ -69,111 +69,151 @@ const DOT_SIZES = new Set([6, 7, 9, 12]);
 const BORDER_WIDTHS = new Set([1, 2]);
 const ICON_SIZES = [14, 15, 17, 18];
 
-// Any colour-producing function is forbidden as a literal paint.
-const COLOUR_FNS = /^(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)$/i;
+// A closed classification of every property the primitive stylesheet may declare. A property
+// with no policy is itself a violation, so a raw colour cannot ride in on a property the guard
+// never considered — background-image, caret-color, border-inline-color and the like.
+type Policy = 'keyword' | 'space' | 'geometry' | 'paint' | 'paint-shorthand' | 'font' | 'shadow' | 'radius' | 'line-height';
+function classify(prop: string): Policy | null {
+  switch (prop) {
+    case 'display':
+    case 'align-items':
+    case 'justify-content':
+    case 'cursor':
+      return 'keyword';
+    case 'gap':
+    case 'padding':
+    case 'margin':
+    case 'outline-offset':
+      return 'space';
+    case 'width':
+    case 'height':
+    case 'min-width':
+    case 'min-height':
+      return 'geometry';
+    case 'color':
+    case 'background':
+    case 'background-color':
+    case 'border-color':
+    case 'outline-color':
+    case 'fill':
+    case 'stroke':
+      return 'paint';
+    case 'border':
+    case 'outline':
+      return 'paint-shorthand';
+    case 'box-shadow':
+    case 'text-shadow':
+      return 'shadow';
+    case 'border-radius':
+      return 'radius';
+    case 'line-height':
+      return 'line-height';
+    default:
+      return prop === 'font' || prop.startsWith('font-') ? 'font' : null;
+  }
+}
 
-// Paint-bearing properties: their colour component must be a --cd-* token or a safe keyword,
-// so a named colour, a CSS system colour, a hex or a colour function is rejected without
-// enumerating a colour list. The border and outline shorthands (and their side longhands) are
-// included, since they carry a colour alongside a width and a style.
-const PAINT_PROPS = new Set([
-  'color', 'background', 'background-color', 'border-color', 'outline-color', 'fill', 'stroke',
-  'border', 'outline',
-  'border-top', 'border-right', 'border-bottom', 'border-left',
-  'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
-]);
-// Words allowed in a paint value besides a var() token: the paint keywords and the border
-// styles that ride in a border/outline shorthand. A width literal is judged by the geometry pass.
-const PAINT_KEYWORDS = new Set([
-  'transparent', 'currentcolor', 'inherit', 'initial', 'unset', 'revert', 'none',
-  'solid', 'dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset', 'hidden',
-]);
+// The single-token-family policies: the whole value must be one declared token of the right family.
+const TOKEN_FAMILY: Partial<Record<Policy, RegExp>> = {
+  font: /^var\(--cd-[\w-]+\)$/,
+  shadow: /^var\(--cd-[\w-]+\)$/,
+  radius: /^var\(--cd-radius-[\w-]+\)$/,
+  'line-height': /^var\(--cd-[\w-]+\)$/,
+};
+// Paint keywords admissible without a token; the border styles ride alongside in a shorthand.
+const PAINT_KEYWORDS = new Set(['transparent', 'currentcolor', 'inherit', 'initial', 'unset', 'revert', 'none']);
+const BORDER_STYLES = new Set(['solid', 'dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset', 'hidden', 'none']);
 
-// Any raw length or percentage literal — px is only sometimes allowed, every other unit never.
-const LENGTH = /^-?\d*\.?\d+(px|rem|em|ex|ch|vh|vw|vmin|vmax|pt|pc|cm|mm|in|q|%)$/i;
+/** True when a value node is a var(--cd-*) reference — the only token form a paint may consume. */
+function isVarToken(node: valueParser.Node): boolean {
+  if (node.type !== 'function' || node.value !== 'var') return false;
+  const first = (node as valueParser.FunctionNode).nodes[0];
+  return first?.type === 'word' && first.value.startsWith('--cd-');
+}
 
 /** Every discipline violation in a stylesheet, given the tokens the layer declares. */
 export function cssOffenders(css: string, declared: Set<string>): string[] {
   const out: string[] = [];
   postcss.parse(css).walkRules((rule) => {
-    const sel = rule.selector;
-    // Exact class membership, not substring: `.cd-avatar-x` yields class `cd-avatar-x`, so it
-    // cannot borrow the avatar size set.
-    const classes = new Set([...sel.matchAll(/\.([\w-]+)/g)].map((m) => m[1]!));
-    const sizeSet = classes.has('cd-avatar')
-      ? AVATAR_SIZES
-      : classes.has('cd-status-dot') || classes.has('cd-typing-dot')
-        ? DOT_SIZES
-        : null;
+    // Each comma-separated selector must independently justify a geometry literal, keyed on its
+    // rightmost compound, so a descendant or grouped selector cannot borrow the avatar allowance.
+    const selectors = rule.selector.split(',').map((s) => s.trim()).filter(Boolean);
+    const sizeSetFor = (selector: string): Set<number> | null => {
+      const key = selector.split(/[\s>+~]+/).filter(Boolean).at(-1) ?? '';
+      const cls = new Set([...key.matchAll(/\.([\w-]+)/g)].map((m) => m[1]!));
+      return cls.has('cd-avatar') ? AVATAR_SIZES : cls.has('cd-status-dot') || cls.has('cd-typing-dot') ? DOT_SIZES : null;
+    };
+    // A width/height literal is legal only if every listed selector's target class permits it.
+    const geometryOk = (v: number): boolean => selectors.every((s) => sizeSetFor(s)?.has(v) ?? false);
 
     rule.walkDecls((decl) => {
-      if (decl.prop.startsWith('--cd-')) out.push(`${sel}: declares local token ${decl.prop}`);
       const prop = decl.prop.toLowerCase();
       const value = decl.value.trim();
-      const parsed = valueParser(value);
+      const flag = (why: string): void => void out.push(`${prop}: ${value} (${why})`);
 
-      // Token references must be declared by the layer.
+      // A primitive consumes tokens; it never declares its own custom property.
+      if (prop.startsWith('--')) {
+        out.push(`${rule.selector}: declares local property ${decl.prop}`);
+        return;
+      }
+      // Every --cd-* reference must be a token the layer declares.
       for (const [, name] of value.matchAll(/var\(\s*(--cd-[\w-]+)/g)) {
         if (!declared.has(name!)) out.push(`${prop}: consumes undeclared ${name!}`);
       }
 
-      // No colour function or hex literal on any property.
-      parsed.walk((node) => {
-        if (node.type === 'function' && COLOUR_FNS.test(node.value)) {
-          out.push(`${prop}: ${value} (colour function ${node.value})`);
-        }
-        if (node.type === 'word' && /^#[0-9a-f]{3,8}$/i.test(node.value)) {
-          out.push(`${prop}: ${value} (hex)`);
-        }
-      });
-
-      // Paint-bearing properties: every bare word must be a safe keyword or a length (the width
-      // component); the colour itself must arrive through a var() token. A stray identifier —
-      // aliceblue, CanvasText — is a raw colour.
-      if (PAINT_PROPS.has(prop)) {
-        parsed.walk((node) => {
-          if (node.type === 'function') return false; // var()/colour-fn already judged; skip its args
-          if (node.type !== 'word') return undefined;
-          const w = node.value.toLowerCase();
-          if (PAINT_KEYWORDS.has(w) || LENGTH.test(node.value) || /^-?\d*\.?\d+$/.test(node.value)) {
-            return undefined;
-          }
-          out.push(`${prop}: ${value} (raw paint "${node.value}")`);
-          return undefined;
-        });
+      const policy = classify(prop);
+      if (policy === null) {
+        out.push(`${prop}: unclassified property`);
+        return;
+      }
+      // Single-token-family policies: the entire value is one token of the right family.
+      const family = TOKEN_FAMILY[policy];
+      if (family) {
+        if (!family.test(value)) flag(`raw ${policy}`);
+        return;
       }
 
-      // font and every font-* longhand, and both shadows, must be a single --cd-* token.
-      if (prop === 'font' || prop.startsWith('font-')) {
-        if (!/^var\(--cd-[\w-]+\)$/.test(value)) out.push(`${prop}: ${value} (raw font)`);
-      }
-      if (prop === 'box-shadow' || prop === 'text-shadow') {
-        if (!/^var\(--cd-[\w-]+\)$/.test(value)) out.push(`${prop}: ${value} (raw shadow)`);
-      }
-      // border-radius must be a token: any px or % literal is a raw radius.
-      if (prop === 'border-radius' && !/^var\(--cd-radius-[\w-]+\)$/.test(value)) {
-        out.push(`${prop}: ${value} (raw radius)`);
-      }
-      // line-height must be a token when set standalone.
-      if (prop === 'line-height' && !/^var\(--cd-/.test(value)) {
-        out.push(`${prop}: ${value} (raw line-height)`);
-      }
-
-      // Geometry: any raw length literal must be an allowlisted px for this exact property.
-      parsed.walk((node) => {
-        if (node.type !== 'word' || !LENGTH.test(node.value)) return;
-        const px = /^(\d+)px$/.exec(node.value);
-        const v = px ? Number(px[1]) : Number.NaN;
-        const ok =
-          prop === 'width' || prop === 'height'
-            ? sizeSet !== null && sizeSet.has(v)
-            : prop === 'min-width' || prop === 'min-height'
-              ? Number.isFinite(v) && v >= 44
-              : prop === 'border-width' || prop === 'outline-width' || prop === 'border' || prop === 'outline'
-                ? BORDER_WIDTHS.has(v)
+      // Node-by-node policies. A declared --cd-* token is universally allowed; everything else is
+      // judged against the property's policy.
+      for (const node of valueParser(value).nodes) {
+        if (node.type === 'space' || node.type === 'div') continue;
+        if (isVarToken(node)) continue;
+        const word = node.type === 'word' ? node.value : '';
+        const dim = node.type === 'word' ? valueParser.unit(word) : false;
+        switch (policy) {
+          case 'keyword':
+            if (node.type === 'function') flag(`function ${node.value}`);
+            else if (/^#/.test(word) || dim) flag(`raw value ${node.value}`);
+            break;
+          case 'space':
+            flag(`raw spacing ${node.value}`);
+            break;
+          case 'geometry': {
+            const ok =
+              dim && dim.unit === 'px'
+                ? prop === 'min-width' || prop === 'min-height'
+                  ? Number(dim.number) >= 44
+                  : geometryOk(Number(dim.number))
                 : false;
-        if (!ok) out.push(`${prop}: ${value} (${node.value} not allowed here)`);
-      });
+            if (!ok) flag(`${node.value} not allowed here`);
+            break;
+          }
+          case 'paint':
+            if (node.type === 'function') flag(`function ${node.value}`);
+            else if (!PAINT_KEYWORDS.has(word.toLowerCase())) flag(`raw paint ${node.value}`);
+            break;
+          case 'paint-shorthand': {
+            if (node.type === 'function') {
+              flag(`function ${node.value}`);
+              break;
+            }
+            const w = word.toLowerCase();
+            const okWidth = dim && dim.unit === 'px' && BORDER_WIDTHS.has(Number(dim.number));
+            if (!BORDER_STYLES.has(w) && !PAINT_KEYWORDS.has(w) && !okWidth) flag(`raw ${node.value}`);
+            break;
+          }
+        }
+      }
     });
   });
   return out;
@@ -218,6 +258,19 @@ export function tsxOffenders(tsx: string): string[] {
     }
     if (ts.isStringLiteralLike(node) && PALETTE.test(node.text)) {
       offenders.push(`palette utility "${node.text}"`);
+    }
+    // Icon paint must be currentColor: a literal color/fill/stroke attribute — whether color="red"
+    // or color={"red"} — is a raw paint unless it is currentColor or none.
+    if (ts.isJsxAttribute(node) && ['color', 'fill', 'stroke'].includes(node.name.getText(source))) {
+      const init = node.initializer;
+      const literal = init && ts.isStringLiteral(init)
+        ? init.text
+        : init && ts.isJsxExpression(init) && init.expression && ts.isStringLiteralLike(init.expression)
+          ? init.expression.text
+          : null;
+      if (literal !== null && !['currentcolor', 'none'].includes(literal.toLowerCase())) {
+        offenders.push(`literal ${node.name.getText(source)} "${literal}"`);
+      }
     }
     ts.forEachChild(node, walk);
   };
@@ -276,6 +329,13 @@ describe('primitive stylesheet discipline', () => {
       ['em spacing', '.x { gap: 2em; }'],
       ['avatar using a dot size', '.cd-avatar { width: 6px; }'],
       ['near-miss avatar class cannot borrow an avatar size', '.cd-avatar-x { width: 38px; }'],
+      ['descendant selector cannot borrow an avatar size', '.cd-avatar .cd-status-dot { width: 38px; }'],
+      ['grouped selector cannot borrow an avatar size', '.cd-avatar, .x { width: 38px; }'],
+      ['gradient paint', '.x { background: linear-gradient(red, blue); }'],
+      ['unclassified paint property', '.x { background-image: url(x); }'],
+      ['caret-color', '.x { caret-color: red; }'],
+      ['border-inline-color', '.x { border-inline-color: red; }'],
+      ['1dvh dimension', '.x { padding: 1dvh; }'],
       ['padding literal', '.x { padding: 14px; }'],
       ['gap literal', '.x { gap: 44px; }'],
       ['outline-offset literal', '.x { outline-offset: 2px; }'],
@@ -303,12 +363,23 @@ describe('primitive stylesheet discipline', () => {
     });
     expect([...statusBg.keys()].sort()).toEqual(['error', 'idle', 'live']);
 
+    // Parse the avatar's own background token too, so a change there is measured, not assumed.
+    let avatarBgToken = '';
+    postcss.parse(CSS).walkRules((rule) => {
+      if (rule.selector.trim() !== '.cd-avatar') return;
+      rule.walkDecls('background', (d) => {
+        const ref = /^var\(\s*(--cd-[\w-]+)\s*\)$/.exec(d.value.trim());
+        if (ref) avatarBgToken = ref[1]!;
+      });
+    });
+    expect(avatarBgToken, 'avatar background must be a --cd-* token').not.toBe('');
+
     for (const [theme, selector] of [
       ['light', ':root'],
       ['dark', ":root[data-theme='dark']"],
     ] as const) {
       const t = themeTokens(selector);
-      const bg = t.get('--cd-agent-tint')!;
+      const bg = t.get(avatarBgToken)!;
       for (const [state, token] of statusBg) {
         const ratio = contrast(t.get(token)!, bg);
         expect(ratio, `${state} dot (${token}) on avatar in ${theme} = ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(3);
@@ -333,10 +404,15 @@ describe('primitive component discipline', () => {
       ['missing icon size', 'const A = () => <Icon aria-hidden />;'],
       ['non-literal icon size', 'const A = () => <Icon size={n} />;'],
       ['off-allowlist icon size', 'const A = () => <Icon size={24} />;'],
+      ['coloured icon attribute (string)', 'const A = () => <Icon size={17} color="red" />;'],
+      ['coloured icon attribute (expression)', 'const A = () => <Icon size={17} color={"red"} />;'],
+      ['literal fill', 'const A = () => <Icon size={17} fill="#fff" />;'],
     ];
     for (const [name, tsx] of cases) {
       expect(tsxOffenders(tsx).length, `${name} should be rejected`).toBeGreaterThan(0);
     }
+    // currentColor and none are the permitted icon paints.
+    expect(tsxOffenders('const A = () => <Icon size={17} color="currentColor" />;')).toEqual([]);
   });
 });
 // harn:end web-v5-primitives-consume-only-tokens

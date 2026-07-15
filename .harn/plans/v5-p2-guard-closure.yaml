@@ -1,0 +1,62 @@
+id: v5-p2-guard-closure
+title: V5 Phase 2 guard closure - the structural guard becomes a closed property
+  policy (unknown property fails, paint admits only var and keywords and border
+  syntax), dimensions and selectors are parsed generically, and the currentColor
+  and avatar-background clauses are enforced
+assumptions:
+  create: []
+  reviewed:
+    - id: web-v5-primitives-consume-only-tokens
+      outcome: unchanged
+      reason: "The contract is unchanged; the guard is closed so it can no longer be
+        walked around by naming something the enumerations forgot. Colour
+        detection stops depending on a known-function list and a known-property
+        list: every declared property is classified by a closed policy, and an
+        unclassified property - background-image, caret-color,
+        border-inline-color and the like - is itself a violation, so a raw
+        colour cannot ride in on a property the guard never considered. A paint
+        value may contain only a var() token, a safe keyword, or - for the
+        border and outline shorthands - a border-style keyword and an
+        allowlisted width, so a non-var function such as linear-gradient(red,
+        blue) is rejected rather than skipped. Dimensions are parsed generically
+        rather than matched against a unit list, so 1dvh fails like 1rem.
+        Selector-to-size classification validates each comma-separated selector
+        independently and keys on the rightmost compound, so .cd-avatar
+        .cd-status-dot and .cd-avatar, .x can no longer borrow the avatar
+        allowance. The status-contrast test parses the avatar's own background
+        token from primitives.css instead of hardcoding --cd-agent-tint. The TSX
+        guard enforces the statement's currentColor clause: a literal color,
+        fill or stroke attribute is rejected unless it is currentColor or none.
+        Synthetic negative fixtures prove each remaining bypass fails. No
+        stylesheet, no token value and no component API changes."
+files:
+  - packages/web/src/v5/primitives.spec.tsx
+anchors:
+  web-v5-primitives-consume-only-tokens:
+    v5-primitive-token-discipline:
+      action: change
+      reason: The CSS guard is rebuilt from open policies with escape hatches into a
+        closed property policy. Each declared property is mapped to exactly one
+        policy - keyword, spacing (var tokens only), geometry (a var token or an
+        allowlisted px for that exact property and selector), paint, the border
+        and outline paint-and-width shorthands, font, shadow, radius or
+        line-height - and any property with no mapping is a violation pending
+        classification, so background-image, caret-color and border-inline-color
+        no longer accept a raw colour. A paint value admits only a var() token
+        and the safe keywords, plus border-style keywords and an allowlisted
+        width for the shorthands, so linear-gradient() and every other non-var
+        function is rejected instead of having its arguments skipped. Dimensions
+        are read with the value parser's generic unit detection, so 1dvh and any
+        other unit outside the property-scoped px allowlist fail. Selector
+        classification splits the comma list and keys on each selector's
+        rightmost compound, requiring every listed selector's target class to
+        justify a geometry literal, so a descendant or grouped selector cannot
+        borrow the avatar size. The status-contrast test parses .cd-avatar's own
+        background token from the stylesheet rather than hardcoding it. The TSX
+        guard rejects a literal color, fill or stroke attribute unless it is
+        currentColor or none. New negative fixtures cover a gradient paint, an
+        unclassified paint property, a caret-color, a border-inline-color, a
+        1dvh dimension, a descendant selector borrowing an avatar size, a
+        grouped selector doing the same, and a coloured icon attribute.
+applied:
+  applied_at: 2026-07-15T02:19:56.702Z
