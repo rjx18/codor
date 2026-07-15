@@ -726,6 +726,9 @@ anchors:
     room-action-error-surface:
       action: change
       reason: Restyle the room-action error placement while keeping it visible.
+    approval-answer-error-reset:
+      action: change
+      reason: The file-level React act-environment cleanup removes this test's per-test IS_REACT_ACT_ENVIRONMENT toggles so the full unit run is quiet; no behavioural change.
   empty-and-offline-are-shown-not-blank:
     timeline-empty-and-offline-states:
       action: change
@@ -857,6 +860,9 @@ anchors:
     approval-answer-inflight:
       action: change
       reason: Restyle the in-flight approval answer to a rounded card.
+    approval-answer-component-regression:
+      action: change
+      reason: The file-level React act-environment cleanup removes this test's per-test IS_REACT_ACT_ENVIRONMENT toggles so the full unit run is quiet; no behavioural change.
   model-catalogs-reach-a-browser-that-arrives-early:
     adapter-catalog-client-refresh:
       action: change
