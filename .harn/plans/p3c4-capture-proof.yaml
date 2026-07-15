@@ -32,6 +32,14 @@ notes: |-
   comment early. This is a comment-only source correction, but it is required so
   the capture proof begins from a warning-free CSS build.
 
+  HISTORY-GATE REPAIR: the full browser gate exposed a deterministic race in
+  loadCompleteHistory. The helper dispatches an asynchronous history load and
+  immediately checks for the trigger again, so the trigger can disappear between
+  count() and the next dispatchEvent(), leaving Playwright waiting for an element
+  that correctly vanished. Await each load's settled state (trigger enabled again
+  or absent) before the next loop iteration; the contiguous-cursor behavior and
+  expected 161 rendered ids remain unchanged.
+
   PROOF: regenerate all six captures against the fresh build and verify they are no
   longer byte-identical to the 50e04c1 set - the 1440/1024 desktop shots show the
   34px message avatar and the 390 shots show the 2a header + pill composer.
@@ -49,10 +57,15 @@ assumptions:
       reason: The six captures are genuinely rebuilt against the current dist and
         confirm the soft-editorial room (34px avatar, 2a mobile header, pill
         composer); the contract holds.
+    - id: history-cursor-tracks-only-the-contiguous-tail
+      outcome: unchanged
+      reason: The browser helper now awaits each asynchronous page load before
+        checking for another trigger; contiguous cursor behavior is unchanged.
 files:
   - packages/web/tests/capture-room.mjs
   - packages/web/package.json
   - packages/web/src/styles.css
+  - packages/web/tests/e2e.spec.ts
   - tmp/build/design/v5/room-1440-light.png
   - tmp/build/design/v5/room-1440-dark.png
   - tmp/build/design/v5/room-1024-light.png
@@ -60,6 +73,11 @@ files:
   - tmp/build/design/v5/room-390-light.png
   - tmp/build/design/v5/room-390-dark.png
 anchors:
+  history-cursor-tracks-only-the-contiguous-tail:
+    contiguous-history-browser-regression:
+      action: change
+      reason: Make loadCompleteHistory await each page load settling before it
+        checks whether another history trigger remains.
   web-room-visual-hierarchy-matches-soft-editorial-reference:
     soft-editorial-room-style:
       action: change
