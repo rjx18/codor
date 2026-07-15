@@ -1,69 +1,76 @@
 id: v5-p2-primitives
-title: >-
-  V5 Phase 2 - a tokenised primitive library and a pure presentation model, both inert:
-  new modules, machine-checked contracts, nothing wired to a live surface
+title: "V5 Phase 2 - a tokenised primitive library and a pure presentation
+  model, both inert: new modules, machine-checked contracts, nothing wired to a
+  live surface"
 assumptions:
   create:
     - id: web-v5-primitives-consume-only-tokens
-      title: The v5 primitive library presents only through tokenised classes and stays thumb-safe
-      statement: >-
-        The v5 primitive library - buttons in each variant (primary, secondary, ghost,
-        revive, remove, icon), inputs, badges and pills, avatars with status dots,
-        segmented tabs, the typing indicator and code chips - must present entirely through
-        anchored CSS classes: its TSX may carry no inline style with a colour or background
-        literal, no Tailwind palette utility class, and no literal paint on an SVG, though
-        it may use Lucide icons whose paint is currentColor and whose size comes from the
-        icon component. Its stylesheet must take every colour, radius, spacing, font,
-        line-height and shadow from the --cd-* token layer and never a raw hex, rgb, hsl,
-        named colour, raw radius, raw shadow, raw font or off-token palette utility; every
-        --cd-* token it consumes must be one styles.css actually declares, and it may not
-        invent a local --cd-* token of its own. The only literal geometry it may carry is a
-        closed, property-scoped allowlist the token layer cannot express - avatar width and
-        height of 32, 34, 38 or 40px; status-dot width and height of 6, 7, 9 or 12px; icon
-        width and height of 14, 15, 17 or 18px; a border or outline width of 1 or 2px; and a
-        min-width or min-height of at least 44px - so that a literal is legal only for the
-        property it belongs to and never for padding, gap, margin or position. Every
-        interactive primitive must present at least a 44 by 44 pixel hit target. This holds
-        because the surfaces that adopt these primitives in later phases must inherit
-        accessible, fully tokenised building blocks rather than re-deriving colour, type and
-        touch size one component at a time.
-      reason: >-
-        Phase 3 rebuilds the room out of these primitives; anchoring their contract now,
-        while nothing consumes them, is what lets that phase be composition rather than
-        invention, and machine-checks that no raw colour reaches text through CSS or TSX,
-        no undeclared token is consumed, and no sub-44px control ships. The token layer
-        genuinely cannot express an icon or a status-dot size, so those literals are an
-        explicit, property-scoped allowlist rather than a global px pass that would also
-        wave through padding:14px or gap:44px.
+      title: The v5 primitive library presents only through tokenised classes and
+        stays thumb-safe
+      statement: "The v5 primitive library - buttons in each variant (primary,
+        secondary, ghost, revive, remove, icon), inputs, badges and pills,
+        avatars with status dots, segmented tabs, the typing indicator and code
+        chips - must present entirely through anchored CSS classes: its TSX may
+        carry no inline style with a colour or background literal, no Tailwind
+        palette utility class, and no literal paint on an SVG, though it may use
+        Lucide icons whose paint is currentColor and whose size comes from the
+        icon component. Its stylesheet must take every colour, radius, spacing,
+        font, line-height and shadow from the --cd-* token layer and never a raw
+        hex, rgb, hsl, named colour, raw radius, raw shadow, raw font or
+        off-token palette utility; every --cd-* token it consumes must be one
+        styles.css actually declares, and it may not invent a local --cd-* token
+        of its own. The only literal geometry it may carry is a closed,
+        property-scoped allowlist the token layer cannot express - avatar width
+        and height of 32, 34, 38 or 40px; status-dot width and height of 6, 7, 9
+        or 12px; icon width and height of 14, 15, 17 or 18px; a border or
+        outline width of 1 or 2px; and a min-width or min-height of at least
+        44px - so that a literal is legal only for the property it belongs to
+        and never for padding, gap, margin or position. Every interactive
+        primitive must present at least a 44 by 44 pixel hit target. This holds
+        because the surfaces that adopt these primitives in later phases must
+        inherit accessible, fully tokenised building blocks rather than
+        re-deriving colour, type and touch size one component at a time."
+      reason: Phase 3 rebuilds the room out of these primitives; anchoring their
+        contract now, while nothing consumes them, is what lets that phase be
+        composition rather than invention, and machine-checks that no raw colour
+        reaches text through CSS or TSX, no undeclared token is consumed, and no
+        sub-44px control ships. The token layer genuinely cannot express an icon
+        or a status-dot size, so those literals are an explicit, property-scoped
+        allowlist rather than a global px pass that would also wave through
+        padding:14px or gap:44px.
       depends_on:
         - web-theme-accessible-modes
         - soft-editorial-design-system-guides-responsive-surfaces
     - id: web-presentation-model-defaults-to-v4-until-adopted
-      title: The presentation model is a pure per-surface derivation that defaults to v4 until adopted
-      statement: >-
-        The presentation model must be a pure function of a room surface, a viewport width
-        and an adoption flag, over the surface union message, run, tool, ask, hold,
-        composer, member and channel-row, returning exactly one of three modes - framed-v4,
-        framed-desktop or unframed-mobile. A surface that has not opted in (adopted false)
-        always resolves to framed-v4, so introducing the derivation changes no rendered
-        pixel. For an adopted surface the mode is a per-surface matrix, not a single rule:
-        only message, run and tool - the ordinary message and tool presentation the master
-        unframes on a phone - resolve to unframed-mobile below the 720px content breakpoint
-        and framed-desktop at 720px and above; ask, hold, composer, member and channel-row
-        stay framed-desktop at every width, because an approval and a held delivery remain
-        actionable cards, the composer is a framed pill, and members and channel rows keep
-        their framed avatar treatment. The 720px boundary this model uses governs content
-        unframing only; the shell's collapse to a single column is a separate 1024px
-        concern that belongs to the shell, not to this model. Phase 2 ships only this pure
-        derivation; no responsive hook, media-query listener or subscription is introduced
-        here, so the phase stays free of lifecycle to test or leak.
-      reason: >-
-        The mobile minimal information design unframes only ordinary messages and tool
-        presentation - a generic below-720 rule would wrongly unframe the pill composer,
-        the framed member cards and the channel rows, contradicting the reference. Encoding
-        the exact per-surface matrix, pure and inert and defaulting to today's framed
-        output, is what makes the atomic room phase a wiring step rather than a rewrite, and
-        keeps this phase provably pixel-identical to Phase 1 with no lifecycle to get wrong.
+      title: The presentation model is a pure per-surface derivation that defaults to
+        v4 until adopted
+      statement: "The presentation model must be a pure function of a room surface, a
+        viewport width and an adoption flag, over the surface union message,
+        run, tool, ask, hold, composer, member and channel-row, returning
+        exactly one of three modes - framed-v4, framed-desktop or
+        unframed-mobile. A surface that has not opted in (adopted false) always
+        resolves to framed-v4, so introducing the derivation changes no rendered
+        pixel. For an adopted surface the mode is a per-surface matrix, not a
+        single rule: only message, run and tool - the ordinary message and tool
+        presentation the master unframes on a phone - resolve to unframed-mobile
+        below the 720px content breakpoint and framed-desktop at 720px and
+        above; ask, hold, composer, member and channel-row stay framed-desktop
+        at every width, because an approval and a held delivery remain
+        actionable cards, the composer is a framed pill, and members and channel
+        rows keep their framed avatar treatment. The 720px boundary this model
+        uses governs content unframing only; the shell's collapse to a single
+        column is a separate 1024px concern that belongs to the shell, not to
+        this model. Phase 2 ships only this pure derivation; no responsive hook,
+        media-query listener or subscription is introduced here, so the phase
+        stays free of lifecycle to test or leak."
+      reason: The mobile minimal information design unframes only ordinary messages
+        and tool presentation - a generic below-720 rule would wrongly unframe
+        the pill composer, the framed member cards and the channel rows,
+        contradicting the reference. Encoding the exact per-surface matrix, pure
+        and inert and defaulting to today's framed output, is what makes the
+        atomic room phase a wiring step rather than a rewrite, and keeps this
+        phase provably pixel-identical to Phase 1 with no lifecycle to get
+        wrong.
       depends_on:
         - soft-editorial-design-system-guides-responsive-surfaces
   retire: []
@@ -78,52 +85,55 @@ anchors:
   web-v5-primitives-consume-only-tokens:
     v5-primitive-components:
       action: change
-      reason: >-
-        The primitive components in a new v5 module that no live surface imports. Each is a
-        thin presentational element carrying only its anchored class and its accessible
-        wiring - icon buttons named, inputs labelled, the tablist and tabs given their roles
-        and selection state, the typing indicator its status semantics, avatars their status
-        text - with no inline colour style, no palette utility and no literal SVG paint.
+      reason: The primitive components in a new v5 module that no live surface
+        imports. Each is a thin presentational element carrying only its
+        anchored class and its accessible wiring - icon buttons named, inputs
+        labelled, the tablist and tabs given their roles and selection state,
+        the typing indicator its status semantics, avatars their status text -
+        with no inline colour style, no palette utility and no literal SVG
+        paint.
     v5-primitive-styles:
       action: change
-      reason: >-
-        The primitive stylesheet, anchored in its own right so a CSS edit triggers review
-        directly rather than hiding behind the component anchor. Every colour, radius,
-        space, font and shadow is a declared --cd-* token; the only literals are the
-        property-scoped geometry allowlist the token layer cannot express.
+      reason: The primitive stylesheet, anchored in its own right so a CSS edit
+        triggers review directly rather than hiding behind the component anchor.
+        Every colour, radius, space, font and shadow is a declared --cd-* token;
+        the only literals are the property-scoped geometry allowlist the token
+        layer cannot express.
     v5-primitive-token-discipline:
       action: change
-      reason: >-
-        Two structural tests. One parses primitives.css per property and fails on any raw
-        hex, rgb, hsl or named colour, any raw radius, shadow, font or line-height, any
-        off-token palette utility, any consumed --cd-* token that styles.css does not
-        declare, any local --cd-* token invented only here, and any literal px outside the
-        property-scoped allowlist; it asserts every interactive primitive declares
-        min-height and min-width of at least 44px. The other parses primitives.tsx as an AST
-        and fails on any inline style carrying a colour or background literal, any Tailwind
-        palette utility class, and any SVG paint that is a literal rather than currentColor
-        or none - so presentation must flow through the anchored classes, with Lucide and
-        currentColor explicitly allowed.
+      reason: Two structural tests. One parses primitives.css per property and fails
+        on any raw hex, rgb, hsl or named colour, any raw radius, shadow, font
+        or line-height, any off-token palette utility, any consumed --cd-* token
+        that styles.css does not declare, any local --cd-* token invented only
+        here, and any literal px outside the property-scoped allowlist; it
+        asserts every interactive primitive declares min-height and min-width of
+        at least 44px. The other parses primitives.tsx as an AST and fails on
+        any inline style carrying a colour or background literal, any Tailwind
+        palette utility class, and any SVG paint that is a literal rather than
+        currentColor or none - so presentation must flow through the anchored
+        classes, with Lucide and currentColor explicitly allowed.
     v5-primitive-render-regression:
       action: change
-      reason: >-
-        Component tests that assert behaviour, not only class names: an icon button exposes
-        an accessible name, an input is programmatically labelled, the segmented tablist
-        exposes role=tablist with tabs whose selected one carries aria-selected and which
-        move selection under arrow keys, the typing indicator announces through a status
-        role, and an avatar's status dot carries text a screen reader can read.
+      reason: "Component tests that assert behaviour, not only class names: an icon
+        button exposes an accessible name, an input is programmatically
+        labelled, the segmented tablist exposes role=tablist with tabs whose
+        selected one carries aria-selected and which move selection under arrow
+        keys, the typing indicator announces through a status role, and an
+        avatar's status dot carries text a screen reader can read."
   web-presentation-model-defaults-to-v4-until-adopted:
     v5-presentation-model:
       action: change
-      reason: >-
-        The pure resolvePresentation function - surface, width and adopted in, one of
-        framed-v4, framed-desktop, unframed-mobile out, over the per-surface matrix - in a
-        new module no live surface imports. No hook, no listener; purity is the point.
+      reason: The pure resolvePresentation function - surface, width and adopted in,
+        one of framed-v4, framed-desktop, unframed-mobile out, over the
+        per-surface matrix - in a new module no live surface imports. No hook,
+        no listener; purity is the point.
     v5-presentation-default-regression:
       action: change
-      reason: >-
-        Tests that an unadopted surface resolves to framed-v4 at every width across the
-        whole union; that adopted message, run and tool resolve unframed-mobile below 720px
-        and framed-desktop at and above it, checking the boundary at 719 and 720; that
-        adopted ask, hold, composer, member and channel-row resolve framed-desktop at every
-        width including 390; and that the default is what keeps this phase inert.
+      reason: Tests that an unadopted surface resolves to framed-v4 at every width
+        across the whole union; that adopted message, run and tool resolve
+        unframed-mobile below 720px and framed-desktop at and above it, checking
+        the boundary at 719 and 720; that adopted ask, hold, composer, member
+        and channel-row resolve framed-desktop at every width including 390; and
+        that the default is what keeps this phase inert.
+applied:
+  applied_at: 2026-07-15T01:04:38.538Z

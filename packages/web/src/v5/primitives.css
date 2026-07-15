@@ -1,0 +1,160 @@
+/* harn:assume web-v5-primitives-consume-only-tokens ref=v5-primitive-styles */
+/* The v5 primitive stylesheet. Every colour, radius, space, font and shadow is a declared
+   --cd-* token; the only literals are the property-scoped geometry allowlist the token
+   layer cannot express (44px targets, 1-2px hairlines, icon/avatar/dot sizes). No live
+   surface imports this yet - it is loaded only by the primitive components in this module. */
+
+/* Buttons ------------------------------------------------------------------ */
+.cd-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--cd-space-2);
+  min-height: 44px;
+  padding: var(--cd-space-2) var(--cd-space-4);
+  border: 1px solid transparent;
+  border-radius: var(--cd-radius-control);
+  font: var(--cd-text-ui);
+  cursor: pointer;
+}
+.cd-button-primary {
+  background: var(--cd-text-strong);
+  color: var(--cd-surface);
+}
+.cd-button-secondary {
+  background: var(--cd-surface);
+  border-color: var(--cd-line);
+  color: var(--cd-text-body-color);
+}
+.cd-button-ghost {
+  background: transparent;
+  color: var(--cd-text-secondary);
+}
+.cd-button-revive {
+  background: var(--cd-live);
+  color: var(--cd-surface);
+}
+.cd-button-remove {
+  background: var(--cd-error-tint);
+  border-color: var(--cd-error);
+  color: var(--cd-error);
+}
+.cd-button-icon {
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--cd-space-2);
+  background: var(--cd-surface);
+  border-color: var(--cd-line);
+  border-radius: var(--cd-radius-control);
+  color: var(--cd-text-muted);
+}
+
+/* Input -------------------------------------------------------------------- */
+.cd-input {
+  min-height: 44px;
+  padding: var(--cd-space-2) var(--cd-space-3);
+  background: var(--cd-surface-muted);
+  border: 1px solid var(--cd-line);
+  border-radius: var(--cd-radius-control);
+  color: var(--cd-text-body-color);
+  font: var(--cd-text-body);
+}
+
+/* Badges & pills ----------------------------------------------------------- */
+.cd-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cd-space-1);
+  padding: var(--cd-space-1) var(--cd-space-3);
+  border-radius: var(--cd-radius-pill);
+  font: var(--cd-text-caption);
+}
+.cd-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cd-space-1);
+  padding: var(--cd-space-1) var(--cd-space-2);
+  background: var(--cd-surface-muted);
+  border: 1px solid var(--cd-line);
+  border-radius: var(--cd-radius-full);
+  color: var(--cd-text-secondary);
+  font: var(--cd-text-caption);
+}
+
+/* Avatar & status dot ------------------------------------------------------ */
+.cd-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--cd-radius-control);
+  background: var(--cd-agent-tint);
+  color: var(--cd-agent);
+  font: var(--cd-text-ui);
+}
+.cd-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--cd-radius-full);
+}
+.cd-status-live {
+  background: var(--cd-live);
+}
+.cd-status-idle {
+  background: var(--cd-mark-faint);
+}
+.cd-status-error {
+  background: var(--cd-error);
+}
+
+/* Segmented tabs ----------------------------------------------------------- */
+.cd-segmented {
+  display: inline-flex;
+  gap: var(--cd-space-1);
+  padding: var(--cd-space-1);
+  background: var(--cd-surface-muted);
+  border-radius: var(--cd-radius-card);
+}
+.cd-tab {
+  min-height: 44px;
+  padding: var(--cd-space-2) var(--cd-space-4);
+  background: transparent;
+  border: none;
+  border-radius: var(--cd-radius-control);
+  color: var(--cd-text-muted);
+  font: var(--cd-text-ui);
+  cursor: pointer;
+}
+.cd-tab[aria-selected='true'] {
+  background: var(--cd-surface);
+  color: var(--cd-text-strong);
+  box-shadow: var(--cd-elevate-panel);
+}
+
+/* Typing indicator --------------------------------------------------------- */
+.cd-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cd-space-1);
+  padding: var(--cd-space-2) var(--cd-space-3);
+  background: var(--cd-surface-muted);
+  border-radius: var(--cd-radius-full);
+}
+.cd-typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--cd-radius-full);
+  background: var(--cd-mark-faint);
+}
+
+/* Code chip ---------------------------------------------------------------- */
+.cd-code {
+  padding: var(--cd-space-1) var(--cd-space-2);
+  background: var(--cd-surface-muted);
+  border: 1px solid var(--cd-line);
+  border-radius: var(--cd-radius-pill);
+  color: var(--cd-text-secondary);
+  font: var(--cd-text-mono);
+}
+/* harn:end web-v5-primitives-consume-only-tokens */

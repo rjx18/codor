@@ -1,0 +1,31 @@
+id: web-v5-primitives-consume-only-tokens
+hash: a-9bdf54019777
+title: The v5 primitive library presents only through tokenised classes and
+  stays thumb-safe
+state: active
+statement: "The v5 primitive library - buttons in each variant (primary,
+  secondary, ghost, revive, remove, icon), inputs, badges and pills, avatars
+  with status dots, segmented tabs, the typing indicator and code chips - must
+  present entirely through anchored CSS classes: its TSX may carry no inline
+  style with a colour or background literal, no Tailwind palette utility class,
+  and no literal paint on an SVG, though it may use Lucide icons whose paint is
+  currentColor and whose size comes from the icon component. Its stylesheet must
+  take every colour, radius, spacing, font, line-height and shadow from the
+  --cd-* token layer and never a raw hex, rgb, hsl, named colour, raw radius,
+  raw shadow, raw font or off-token palette utility; every --cd-* token it
+  consumes must be one styles.css actually declares, and it may not invent a
+  local --cd-* token of its own. The only literal geometry it may carry is a
+  closed, property-scoped allowlist the token layer cannot express - avatar
+  width and height of 32, 34, 38 or 40px; status-dot width and height of 6, 7, 9
+  or 12px; icon width and height of 14, 15, 17 or 18px; a border or outline
+  width of 1 or 2px; and a min-width or min-height of at least 44px - so that a
+  literal is legal only for the property it belongs to and never for padding,
+  gap, margin or position. Every interactive primitive must present at least a
+  44 by 44 pixel hit target. This holds because the surfaces that adopt these
+  primitives in later phases must inherit accessible, fully tokenised building
+  blocks rather than re-deriving colour, type and touch size one component at a
+  time."
+depends_on:
+  - web-theme-accessible-modes
+  - soft-editorial-design-system-guides-responsive-surfaces
+created_by: v5-p2-primitives

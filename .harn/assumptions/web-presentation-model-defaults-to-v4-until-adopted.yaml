@@ -1,0 +1,26 @@
+id: web-presentation-model-defaults-to-v4-until-adopted
+hash: a-02db44144c21
+title: The presentation model is a pure per-surface derivation that defaults to
+  v4 until adopted
+state: active
+statement: "The presentation model must be a pure function of a room surface, a
+  viewport width and an adoption flag, over the surface union message, run,
+  tool, ask, hold, composer, member and channel-row, returning exactly one of
+  three modes - framed-v4, framed-desktop or unframed-mobile. A surface that has
+  not opted in (adopted false) always resolves to framed-v4, so introducing the
+  derivation changes no rendered pixel. For an adopted surface the mode is a
+  per-surface matrix, not a single rule: only message, run and tool - the
+  ordinary message and tool presentation the master unframes on a phone -
+  resolve to unframed-mobile below the 720px content breakpoint and
+  framed-desktop at 720px and above; ask, hold, composer, member and channel-row
+  stay framed-desktop at every width, because an approval and a held delivery
+  remain actionable cards, the composer is a framed pill, and members and
+  channel rows keep their framed avatar treatment. The 720px boundary this model
+  uses governs content unframing only; the shell's collapse to a single column
+  is a separate 1024px concern that belongs to the shell, not to this model.
+  Phase 2 ships only this pure derivation; no responsive hook, media-query
+  listener or subscription is introduced here, so the phase stays free of
+  lifecycle to test or leak."
+depends_on:
+  - soft-editorial-design-system-guides-responsive-surfaces
+created_by: v5-p2-primitives
