@@ -6,10 +6,11 @@ import type { Member, Message, Room, WireEvent } from '@codor/protocol';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
   AskCardView,
+  HoldBanner,
   InboxPanel,
   draftRoutesToNobody,
   Header,
@@ -84,6 +85,19 @@ const noopConnection: Connection = {
   disconnect: () => undefined,
   reconnect: () => undefined,
 };
+
+// Configure the React act environment once for the whole file, and RESTORE the prior value on
+// teardown (never hard-set it back to false, which is what leaked act warnings into later
+// tests). Every createRoot render below is acted, so the full unit run emits zero act warnings.
+const actEnv = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+let priorActEnv: boolean | undefined;
+beforeAll(() => {
+  priorActEnv = actEnv.IS_REACT_ACT_ENVIRONMENT;
+  actEnv.IS_REACT_ACT_ENVIRONMENT = true;
+});
+afterAll(() => {
+  actEnv.IS_REACT_ACT_ENVIRONMENT = priorActEnv;
+});
 
 // harn:assume web-spawn-dialog-exposes-canonical-agent-controls ref=spawn-dialog-unit-regression
 describe('spawn presets', () => {
@@ -509,7 +523,7 @@ describe('effective posted mentions', () => {
 });
 // harn:end posted-message-mentions-alone-look-effective
 
-// harn:assume web-waits-are-visible-across-live-surfaces ref=wait-presentation-regression
+// harn:assume web-waits-are-visible-across-live-surfaces-v5 ref=wait-presentation-regression
 describe('live collaboration presentation', () => {
   const beta: Member = {
     ...alpha,
@@ -578,7 +592,6 @@ describe('live collaboration presentation', () => {
   });
 
   it('ticks the member wait age once per second', async () => {
-    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers();
     vi.setSystemTime(new Date(TS));
     const container = document.createElement('div');
@@ -600,11 +613,10 @@ describe('live collaboration presentation', () => {
     } finally {
       await act(async () => root.unmount());
       vi.useRealTimers();
-      (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
     }
   });
 });
-// harn:end web-waits-are-visible-across-live-surfaces
+// harn:end web-waits-are-visible-across-live-surfaces-v5
 
 describe('Header', () => {
   it('shows an honest zero-state meter before the first usage frame', () => {
@@ -828,7 +840,7 @@ describe('InboxPanel', () => {
   });
 });
 
-// harn:assume timeline-rows-are-never-crushed ref=timeline-crush-unit-gate
+// harn:assume timeline-rows-are-never-crushed-v5 ref=timeline-crush-unit-gate
 describe('timeline rows are content, not flexible space', () => {
   // Layout itself is asserted in the browser, where there is a real flex algorithm.
   // This gate guards the RULE: it must exist, and nothing may quietly hand a timeline
@@ -971,7 +983,6 @@ describe('removing an agent', () => {
 // harn:assume approval-cards-follow-durable-resolution ref=approval-answer-component-regression
 describe('approval answer in flight', () => {
   it('disables controls without declaring the approval durably answered and recovers on error', async () => {
-    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const container = document.createElement('div');
     const root = createRoot(container);
     const send = vi.fn();
@@ -1014,8 +1025,129 @@ describe('approval answer in flight', () => {
     } finally {
       await act(async () => root.unmount());
       useRoomStore.getState().reset();
-      (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
     }
   });
 });
 // harn:end approval-cards-follow-durable-resolution
+
+// harn:assume web-room-visual-hierarchy-matches-soft-editorial-reference ref=soft-editorial-message-presentation-regression
+describe('soft-editorial message presentation', () => {
+  const setWidth = (width: number): void => {
+    (window as unknown as { innerWidth: number }).innerWidth = width;
+    window.dispatchEvent(new Event('resize'));
+  };
+  const mount = (width: number, element: JSX.Element): { container: HTMLElement; cleanup: () => void } => {
+    setWidth(width);
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() => root.render(element));
+    return {
+      container,
+      cleanup: () => {
+        act(() => root.unmount());
+        container.remove();
+        setWidth(1440);
+      },
+    };
+  };
+  const flush = (): Promise<void> => act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const chat: Message = { ...finalizedRun, kind: 'chat', run: undefined, body: 'hello there' };
+
+  it('frames an ordinary message on the desktop, with an avatar', () => {
+    const { container, cleanup } = mount(1440, <MessageRow message={chat} authorHandle="alpha" mine={false} />);
+    const row = container.querySelector('[data-testid="msg-7"]')!;
+    expect(row.getAttribute('data-presentation')).toBe('framed-desktop');
+    expect(row.classList.contains('is-unframed')).toBe(false);
+    expect(row.querySelector('.wr-actor-mark')).not.toBeNull();
+    cleanup();
+  });
+
+  it('unframes an ordinary message on a phone', () => {
+    const { container, cleanup } = mount(390, <MessageRow message={chat} authorHandle="alpha" mine={false} />);
+    const row = container.querySelector('[data-testid="msg-7"]')!;
+    expect(row.getAttribute('data-presentation')).toBe('unframed-mobile');
+    expect(row.classList.contains('is-unframed')).toBe(true);
+    cleanup();
+  });
+
+  it('groups a same-speaker continuation on a phone but not a speaker change', () => {
+    const change = mount(390, <MessageRow message={chat} authorHandle="alpha" mine={false} precededBySameAuthor={false} />);
+    expect(change.container.querySelector('[data-testid="msg-7"]')!.classList.contains('is-grouped')).toBe(false);
+    expect(change.container.querySelector('.wr-message-author')).not.toBeNull();
+    change.cleanup();
+    const cont = mount(390, <MessageRow message={chat} authorHandle="alpha" mine={false} precededBySameAuthor />);
+    expect(cont.container.querySelector('[data-testid="msg-7"]')!.classList.contains('is-grouped')).toBe(true);
+    cont.cleanup();
+  });
+
+  it('collapses run tool calls to one tappable line on a phone', () => {
+    // A COMPLETED run keeps the mount side-effect-free (no journal fetch), so the collapse is
+    // observed without a network call reintroducing act warnings.
+    const { container, cleanup } = mount(390,
+      <RunMessageView
+        message={finalizedRun}
+        authorHandle="alpha"
+        liveEvents={{ dropped_count: 0, events: [
+          { type: 'run.item', item_type: 'tool_call', payload: { call_id: 'b1', tool: 'Bash', title: 'pnpm test' } },
+          { type: 'run.item', item_type: 'tool_call', payload: { call_id: 'b2', tool: 'Bash', title: 'pnpm build' } },
+        ] }}
+        room="eng"
+        token="t"
+      />);
+    const collapsed = container.querySelector('[data-testid="run-7-tools-collapsed"]');
+    expect(collapsed).not.toBeNull();
+    expect(collapsed!.textContent).toContain('2 tool calls');
+    cleanup();
+  });
+
+  it('keeps the ask card framed on a phone', () => {
+    const askMessage: Message = {
+      ...finalizedRun,
+      id: 9,
+      kind: 'ask',
+      run: undefined,
+      ask: { interaction_id: 'n', kind: 'ask', prompt: 'Which?', options: [{ label: 'A' }] },
+    };
+    const { container, cleanup } = mount(390,
+      <AskCardView message={askMessage} authorHandle="alpha" answered={false} connection={noopConnection} />);
+    expect(container.querySelector('[data-testid="card-9"]')!.getAttribute('data-presentation')).toBe('framed-desktop');
+    cleanup();
+  });
+
+  it('keeps the hold banner framed on a phone', () => {
+    const held = [{ id: 'd1', message_id: 5, recipient: ULID_B, state: 'held' }] as unknown as
+      Parameters<typeof HoldBanner>[0]['held'];
+    const { container, cleanup } = mount(390,
+      <HoldBanner held={held} handleOf={() => 'alpha'} connection={noopConnection} />);
+    expect(container.querySelector('[data-testid="hold-banner"]')!.getAttribute('data-presentation')).toBe('framed-desktop');
+    cleanup();
+  });
+
+  it('copies the message BODY and announces success, and announces a clipboard failure', async () => {
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
+    const original = (navigator as { clipboard?: unknown }).clipboard;
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const { container, cleanup } = mount(1440, <MessageRow message={chat} authorHandle="alpha" mine={false} />);
+    const copy = container.querySelector('[data-testid="msg-7-copy"]') as HTMLButtonElement;
+    const status = container.querySelector('[data-testid="msg-7-copy-status"]')!;
+
+    act(() => copy.click());
+    await flush();
+    // The clipboard payload is the message body itself, not the permalink.
+    expect(writeText).toHaveBeenCalledWith('hello there');
+    expect(status.textContent).toBe('Message copied');
+
+    writeText.mockRejectedValueOnce(new Error('denied'));
+    act(() => copy.click());
+    await flush();
+    expect(status.textContent).toBe('Copy failed');
+
+    cleanup();
+    Object.defineProperty(navigator, 'clipboard', { value: original, configurable: true });
+  });
+});
+// harn:end web-room-visual-hierarchy-matches-soft-editorial-reference

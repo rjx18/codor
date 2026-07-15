@@ -1,7 +1,7 @@
-id: timeline-rows-are-never-crushed
+id: timeline-rows-are-never-crushed-v5
 hash: a-4aee5f76665e
 title: A row in a scrolling list is content, not flexible space
-state: retired
+state: active
 statement: No row in the message timeline may be rendered shorter than its own
   content. The timeline is a column flex container that scrolls, and a flex item
   is normally protected from being crushed because its automatic minimum size is
@@ -17,6 +17,5 @@ statement: No row in the message timeline may be rendered shorter than its own
   phone width, because a fixture that does not overflow cannot shrink anything
   and such a test can never fail.
 depends_on:
-  - web-room-visual-hierarchy-matches-restrained-reference
-created_by: a1-card-crush
-retired_by: v5-p3-room
+  - web-room-visual-hierarchy-matches-soft-editorial-reference
+created_by: v5-p3-room

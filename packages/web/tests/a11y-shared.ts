@@ -14,7 +14,7 @@ export async function control(path: string, body: unknown = {}): Promise<void> {
   if (!res.ok) throw new Error(`${path} failed: ${await res.text()}`);
 }
 
-// harn:assume web-glass-theme-accessible-modes ref=axe-room-matrix-shared
+// harn:assume web-theme-accessible-modes ref=axe-room-matrix-shared
 // The real gate behaviour lives here, guarded, rather than in the thin per-file callers:
 // how each state is reached, how every dialog is dismissed before the next scan, and how
 // axe runs once transitions have settled. Each spec file supplies only its theme, against
@@ -171,4 +171,4 @@ export async function sweepRoomStates(page: Page, theme: 'light' | 'dark'): Prom
 
   return found;
 }
-// harn:end web-glass-theme-accessible-modes
+// harn:end web-theme-accessible-modes

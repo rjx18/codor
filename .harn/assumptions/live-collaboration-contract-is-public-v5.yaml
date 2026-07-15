@@ -1,7 +1,7 @@
-id: live-collaboration-contract-is-public
-hash: a-bd2a03d49aec
-title: Operators can discover and reason about live collaboration
-state: retired
+id: live-collaboration-contract-is-public-v5
+hash: a-8ff7ab76846d
+title: The live collaboration contract is public
+state: active
 statement: Public docs must describe member-attributed interim and blocking
   posts, direct-reply waits and renewal, consuming inbox hooks, transient wait
   visibility, member status, and bounded redacted run-evidence search, including
@@ -10,6 +10,5 @@ depends_on:
   - collaboration-briefing-is-capability-aware
   - cli-waits-consume-only-matching-deliveries
   - run-evidence-search-is-bounded-and-redacted
-  - web-waits-are-visible-across-live-surfaces
-created_by: lc6-release
-retired_by: v5-p3-room
+  - web-waits-are-visible-across-live-surfaces-v5
+created_by: v5-p3-room

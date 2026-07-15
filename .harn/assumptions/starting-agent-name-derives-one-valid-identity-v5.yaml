@@ -1,7 +1,7 @@
-id: starting-agent-name-derives-one-valid-identity
-hash: a-ad2d4ed0aedf
-title: A friendly starting-agent name derives one authoritative identity
-state: retired
+id: starting-agent-name-derives-one-valid-identity-v5
+hash: a-10d1556bc585
+title: A channel's starting-agent name derives exactly one valid identity
+state: active
 statement: A channel's optional starting-agent name must be preserved as
   display_name while one shared protocol helper derives the lowercase ASCII
   assignable handle preview and request value; unsupported runs become
@@ -13,6 +13,5 @@ depends_on:
   - reserved-handles-rejected
   - channel-create-request-contract
   - channel-creation-derived-and-seeded
-  - channel-create-dialog-uses-authoritative-result
-created_by: cc1a-starting-agent-identity-cwd
-retired_by: v5-p3-room
+  - channel-create-dialog-renders-an-accessible-accent
+created_by: v5-p3-room

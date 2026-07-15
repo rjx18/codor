@@ -1,7 +1,7 @@
 id: channel-create-dialog-uses-authoritative-result
 hash: a-77d1cef13fe4
 title: Channel creation previews locally and trusts the server result
-state: active
+state: retired
 statement: The owner channel dialog must mirror id derivation only as a preview,
   submit name, accent color, validated project folder, and optional starting
   adapter to the server, navigate using the authoritative returned id, and
@@ -13,3 +13,4 @@ depends_on:
   - local-directory-listing-home-contained
   - web-room-rail-creates-owner-room
 created_by: codor-p4c-channel-create
+retired_by: v5-p3-room

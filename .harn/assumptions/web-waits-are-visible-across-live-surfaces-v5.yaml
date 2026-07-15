@@ -1,0 +1,14 @@
+id: web-waits-are-visible-across-live-surfaces-v5
+hash: a-229ab9145b64
+title: Agent waits stay visible wherever live work is summarized
+state: active
+statement: While an agent has a running turn with wait metadata, its member card
+  must identify the peer and tick the elapsed wait, its run header must replace
+  the running animation with a static waiting treatment, and the timeline foot
+  must distinguish waiting agents from other working agents, in the
+  soft-editorial room and its unframed mobile prose alike.
+depends_on:
+  - live-agent-waits-are-transient
+  - web-motion-is-purposeful-and-reduced-motion-safe-v5
+  - web-room-visual-hierarchy-matches-soft-editorial-reference
+created_by: v5-p3-room

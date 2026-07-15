@@ -386,7 +386,7 @@ export function App(props: {
     () => [...messages].reverse().find((message) => message.kind === 'run'),
     [messages],
   );
-  // harn:assume web-waits-are-visible-across-live-surfaces ref=live-collaboration-placement
+  // harn:assume web-waits-are-visible-across-live-surfaces-v5 ref=live-collaboration-placement
   const liveMemberIds = useMemo(() => {
     const active = new Set<string>();
     for (const message of messages) {
@@ -394,7 +394,7 @@ export function App(props: {
     }
     return [...active];
   }, [messages]);
-  // harn:end web-waits-are-visible-across-live-surfaces
+  // harn:end web-waits-are-visible-across-live-surfaces-v5
   const selectedRun = messages.find((message) => message.id === selectedRunId) ?? latestRun;
   const selectedRunLiveEvents = selectedRun
     ? state.runEvents[selectedRun.id] ?? { events: [], dropped_count: 0 }
@@ -473,7 +473,7 @@ export function App(props: {
   }, [searchOpen]);
 
   // harn:assume human-facing-surfaces-call-rooms-channels ref=web-channel-terminology
-  // harn:assume web-room-visual-hierarchy-matches-restrained-reference ref=restrained-room-visual-hierarchy
+  // harn:assume web-room-visual-hierarchy-matches-soft-editorial-reference ref=soft-editorial-room-visual-hierarchy
   return (
     <div className="wr-canvas">
       <div className="wr-app-grid">
@@ -699,7 +699,10 @@ export function App(props: {
               </p>
             )}
             {/* harn:end empty-and-offline-are-shown-not-blank */}
-            {messages.map((message) => {
+            {messages.map((message, index) => {
+              // Speaker grouping for the unframed mobile prose timeline: a message continues
+              // the previous speaker only when the immediately preceding message shares its author.
+              const precededBySameAuthor = index > 0 && messages[index - 1]!.author === message.author;
               if (message.kind === 'run') {
                 return (
                   <div key={message.id} className="wr-timeline-run">
@@ -744,6 +747,7 @@ export function App(props: {
                   authorHandle={handles(message.author)}
                   mine={isMe(state.members, message.author, state.selfMemberId)}
                   token={accessToken()}
+                  precededBySameAuthor={precededBySameAuthor}
                 />
               );
             })}
@@ -886,7 +890,7 @@ export function App(props: {
       )}
     </div>
   );
-  // harn:end web-room-visual-hierarchy-matches-restrained-reference
+  // harn:end web-room-visual-hierarchy-matches-soft-editorial-reference
   // harn:end human-facing-surfaces-call-rooms-channels
   // harn:end roles-gate-human-acts-not-agents
 }

@@ -1,5 +1,7 @@
 import {
+  CHANNEL_ACCENTS,
   deriveAssignableHandle,
+  deriveRoomColor,
   deriveRoomId,
   type Member,
   type Message,
@@ -32,7 +34,13 @@ import {
   type LocalDirectoryListing,
   type MemberDetail,
 } from './api.js';
-import { MemberRail } from './components.js';
+import {
+  MemberRail,
+  useAccentProjector,
+  PICKER_BACKGROUNDS,
+  RAIL_DOT_BACKGROUNDS,
+} from './components.js';
+import { useRoomPresentation } from './room-presentation.js';
 import { formatRunDuration, mergeRunEvents, presentRunEvents, type RunRow } from './run-presenter.js';
 import type { MemberStateObservation, RunEventBuffer } from './state.js';
 import type { Connection } from './ws.js';
@@ -41,16 +49,11 @@ function roomHref(room: string): string {
   return `/?${new URLSearchParams({ room }).toString()}`;
 }
 
-const CHANNEL_ACCENTS = [
-  ['#80c56d', 'Green'],
-  ['#67b7c7', 'Cyan'],
-  ['#8c86d7', 'Violet'],
-  ['#d8b34d', 'Amber'],
-  ['#d86a64', 'Coral'],
-  ['#5f8fd3', 'Blue'],
-] as const;
+// The accent palette is the protocol's single source of truth (imported, never duplicated);
+// the human-facing labels stay here, aligned to CHANNEL_ACCENTS by index.
+const ACCENT_LABELS = ['Green', 'Cyan', 'Violet', 'Amber', 'Coral', 'Blue'] as const;
 
-// harn:assume channel-create-dialog-uses-authoritative-result ref=channel-create-dialog
+// harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-create-dialog
 function FolderPicker(props: {
   token: string;
   onSelect(path: string): void;
@@ -141,10 +144,10 @@ function FolderPicker(props: {
     </div>
   );
 }
-// harn:end channel-create-dialog-uses-authoritative-result
+// harn:end channel-create-dialog-renders-an-accessible-accent
 
 // harn:assume web-room-rail-creates-owner-room ref=room-rail-create-action
-// harn:assume starting-agent-name-derives-one-valid-identity ref=starting-agent-name-control
+// harn:assume starting-agent-name-derives-one-valid-identity-v5 ref=starting-agent-name-control
 export function RoomList(props: {
   rooms: Room[];
   currentRoom: string;
@@ -159,8 +162,9 @@ export function RoomList(props: {
 }) {
   const [creating, setCreating] = useState(false);
   const [roomName, setRoomName] = useState('');
-  const [color, setColor] = useState<(typeof CHANNEL_ACCENTS)[number][0]>(CHANNEL_ACCENTS[0][0]);
+  const [color, setColor] = useState<string>(CHANNEL_ACCENTS[0]);
   const [cwd, setCwd] = useState('');
+  const projectAccentColor = useAccentProjector();
   const [pickingFolder, setPickingFolder] = useState(false);
   const [startingHarness, setStartingHarness] = useState<string>();
   const [startingName, setStartingName] = useState('codor');
@@ -170,6 +174,8 @@ export function RoomList(props: {
   const [createError, setCreateError] = useState<string>();
   const [startingNameError, setStartingNameError] = useState<string>();
   const [createBusy, setCreateBusy] = useState(false);
+  // The channel row stays framed at every width; it still adopts the presentation model.
+  const rowPresentation = useRoomPresentation('channel-row');
   const firstCreateField = useRef<HTMLInputElement>(null);
   const createTrigger = useRef<HTMLButtonElement>(null);
   const createDialog = useRef<HTMLDivElement>(null);
@@ -236,19 +242,28 @@ export function RoomList(props: {
       <ul>
         {props.rooms.map((room) => {
           const selected = room.id === props.currentRoom;
+          // The rail dot renders the accessible projection of the channel's accent - the SAME
+          // colour the header chip and the selected picker candidate show - never the raw
+          // stored value, which stays untouched in room.config.color.
+          const dotColor = projectAccentColor(
+            room.config.color ?? deriveRoomColor(room.id),
+            room.id,
+            RAIL_DOT_BACKGROUNDS,
+          );
           return (
             <li key={room.id}>
               <a
                 href={roomHref(room.id)}
                 data-testid={`room-link-${room.id}`}
                 aria-current={selected ? 'page' : undefined}
+                data-presentation={rowPresentation}
                 className="wr-room-link"
                 onClick={props.onNavigate}
               >
                 <span
                   data-testid={`room-color-${room.id}`}
                   className={`wr-room-dot ${selected && props.connected ? 'is-live' : ''}`}
-                  style={room.config.color ? { backgroundColor: room.config.color } : undefined}
+                  style={{ backgroundColor: dotColor }}
                   aria-hidden="true"
                 />
                 <span className="wr-room-copy">
@@ -365,18 +380,24 @@ export function RoomList(props: {
             <fieldset className="wr-channel-colors">
               <legend>Color</legend>
               <div>
-                {CHANNEL_ACCENTS.map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    data-testid={`channel-color-${label.toLowerCase()}`}
-                    aria-label={`${label} channel color`}
-                    aria-pressed={color === value}
-                    title={label}
-                    style={{ backgroundColor: value }}
-                    onClick={() => setColor(value)}
-                  />
-                ))}
+                {CHANNEL_ACCENTS.map((value, index) => {
+                  const label = ACCENT_LABELS[index]!;
+                  // The swatch shows the accessible PROJECTION so what the operator picks is
+                  // what the rail and header render; the RAW value is what setColor persists.
+                  const swatch = projectAccentColor(value, deriveRoomId(roomName), PICKER_BACKGROUNDS);
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      data-testid={`channel-color-${label.toLowerCase()}`}
+                      aria-label={`${label} channel color`}
+                      aria-pressed={color === value}
+                      title={label}
+                      style={{ backgroundColor: swatch }}
+                      onClick={() => setColor(value)}
+                    />
+                  );
+                })}
               </div>
             </fieldset>
             <label className="wr-field-label">
@@ -459,7 +480,7 @@ export function RoomList(props: {
     </nav>
   );
 }
-// harn:end starting-agent-name-derives-one-valid-identity
+// harn:end starting-agent-name-derives-one-valid-identity-v5
 // harn:end web-room-rail-creates-owner-room
 
 // harn:assume web-shell-responsive-three-pane ref=responsive-room-shell

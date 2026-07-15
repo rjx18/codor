@@ -1,7 +1,7 @@
 id: web-room-visual-hierarchy-matches-restrained-reference
 hash: a-a6e5847e2e73
 title: The room surface matches the restrained editorial references
-state: active
+state: retired
 statement: The web room must prioritize conversation through full-height matte
   panes, text-first room rows, unframed messages and evidence, a plain context
   inspector, sparse functional glass, compact system typography, and scarce
@@ -13,3 +13,4 @@ depends_on:
   - web-shell-responsive-three-pane
   - web-glass-theme-accessible-modes
 created_by: restrained-room-workspace
+retired_by: v5-p3-room

@@ -477,34 +477,55 @@ test('desktop channel keeps channels, conversation, and context in stable non-ov
   const contextBox = (await context.boundingBox())!;
   expect(roomBox.x + roomBox.width).toBeLessThanOrEqual(conversationBox.x + 0.5);
   expect(conversationBox.x + conversationBox.width).toBeLessThanOrEqual(contextBox.x + 0.5);
-  expect(roomBox.width / 1440).toBeGreaterThan(0.2);
-  expect(roomBox.width / 1440).toBeLessThan(0.24);
-  expect(contextBox.width / 1440).toBeGreaterThan(0.24);
-  expect(contextBox.width / 1440).toBeLessThan(0.28);
+  // The approved three-pane desktop geometry: a fixed 288px channel rail and 400px context
+  // rail, each floating with a 10px inset from the canvas edge.
+  expect(Math.round(roomBox.width)).toBe(288);
+  expect(Math.round(contextBox.width)).toBe(400);
+  expect(Math.round(roomBox.x)).toBe(10);
+  expect(Math.round(contextBox.x + contextBox.width)).toBe(1430);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440);
 
-  await page.setViewportSize({ width: 1150, height: 820 });
+  // Two-pane from 1024 to 1359: the 288px rail stays, the context rail is a drawer trigger.
+  await page.setViewportSize({ width: 1024, height: 820 });
   await page.reload();
   await expect(page.getByTestId('room-rail')).toBeVisible();
   await expect(page.getByTestId('context-rail')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Open channel context' })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1150);
+  expect(Math.round((await page.getByTestId('room-rail').boundingBox())!.width)).toBe(288);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1024);
 
-  await page.setViewportSize({ width: 1320, height: 820 });
+  // 1023 is the single-column boundary: the rail collapses behind the off-canvas drawer.
+  await page.setViewportSize({ width: 1023, height: 820 });
+  await page.reload();
+  await expect(page.getByTestId('room-rail')).toBeHidden();
+  await expect(page.getByTestId('open-room-drawer')).toBeVisible();
+
+  // 1359 is the two-pane ceiling: the context rail is still a trigger, not a floating pane.
+  await page.setViewportSize({ width: 1359, height: 820 });
   await page.reload();
   await expect(page.getByTestId('context-rail')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Open channel context' })).toBeVisible();
 
+  // 1360 opens the third pane; the trigger gives way to the docked context rail.
   await page.setViewportSize({ width: 1360, height: 820 });
   await page.reload();
   await expect(page.getByTestId('context-rail')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open channel context' })).toBeHidden();
+
+  // 720 is the content breakpoint: at 720 the ordinary message stays framed; at 719 it unframes
+  // into the mobile prose timeline.
+  await page.setViewportSize({ width: 720, height: 900 });
+  await page.reload();
+  await expect(page.locator('.wr-message').first()).not.toHaveClass(/is-unframed/);
+  await page.setViewportSize({ width: 719, height: 900 });
+  await page.reload();
+  await expect(page.locator('.wr-message').first()).toHaveClass(/is-unframed/);
 });
 // harn:end web-shell-responsive-three-pane
 // harn:end human-facing-surfaces-call-rooms-channels
 
-// harn:assume web-room-visual-hierarchy-matches-restrained-reference ref=restrained-room-visual-regression
-test('restrained room keeps matte panes, sparse glass, and a pinned latest turn across reflow', async ({ page }) => {
+// harn:assume web-room-visual-hierarchy-matches-soft-editorial-reference ref=soft-editorial-room-visual-regression
+test('soft-editorial room floats matte panels, rounded cards and desktop avatars, and pins the latest turn across reflow', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   // This asserts the dark glass material. The default is now light, so pin dark
   // explicitly rather than lean on it being the default; the light default is proven by
@@ -532,14 +553,15 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
     const run = getComputedStyle(document.querySelector<HTMLElement>('.wr-run-card')!);
     const message = getComputedStyle(document.querySelector<HTMLElement>('.wr-message')!);
     const meterItem = getComputedStyle(document.querySelector<HTMLElement>('.wr-meter > span')!);
-    const time = document.querySelector<HTMLElement>('.wr-message time')!.getBoundingClientRect();
-    const body = document.querySelector<HTMLElement>('.wr-message p')!.getBoundingClientRect();
+    const avatarEl = document.querySelector<HTMLElement>('.wr-message .wr-actor-mark')!;
+    const avatar = getComputedStyle(avatarEl);
     return {
       canvasImage: canvas.backgroundImage,
       headerBackground: header.backgroundColor,
       mainBackground: main.backgroundColor,
       headerMaterial: header.backdropFilter || header.getPropertyValue('-webkit-backdrop-filter'),
       railMaterial: rail.backdropFilter || rail.getPropertyValue('-webkit-backdrop-filter'),
+      railShadow: rail.boxShadow,
       composerMaterial: composer.backdropFilter || composer.getPropertyValue('-webkit-backdrop-filter'),
       runBorder: parseFloat(run.borderTopWidth),
       runRadius: parseFloat(run.borderTopLeftRadius),
@@ -548,24 +570,34 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
       messageColumns: message.gridTemplateColumns,
       messageSize: parseFloat(message.fontSize),
       meterSize: parseFloat(meterItem.fontSize),
-      timeRight: time.right,
-      bodyLeft: body.left,
+      avatarDisplay: avatar.display,
+      avatarWidth: avatarEl.getBoundingClientRect().width,
+      avatarRadius: parseFloat(avatar.borderTopLeftRadius),
       wiringCount: document.querySelectorAll('.wr-wiring').length,
     };
   });
   expect(hierarchy.canvasImage).toBe('none');
+  // The structural panels stay matte (glass is reserved for the composer and other functional
+  // overlays), so the header and rail carry no backdrop blur and the header shares the main
+  // surface. But the rail is a FLOATING panel now: it casts a soft elevation shadow.
   expect(hierarchy.headerBackground).toBe(hierarchy.mainBackground);
   expect(hierarchy.headerMaterial).toBe('none');
   expect(hierarchy.railMaterial).toBe('none');
+  expect(hierarchy.railShadow).not.toBe('none');
   expect(hierarchy.composerMaterial).toContain('blur');
+  // The run card is a rounded, softly-elevated card on the v5 radius scale, not a squared row.
   expect(hierarchy.runBorder).toBeGreaterThanOrEqual(1);
-  expect(hierarchy.runRadius).toBe(0);
-  expect(hierarchy.runShadow).toBe('none');
+  expect(hierarchy.runRadius).toBeGreaterThanOrEqual(8);
+  expect(hierarchy.runShadow).not.toBe('none');
   expect(hierarchy.messageDisplay).toBe('grid');
   expect(hierarchy.messageColumns.split(' ')).toHaveLength(2);
   expect(hierarchy.messageSize).toBeGreaterThanOrEqual(14);
   expect(hierarchy.meterSize).toBeGreaterThanOrEqual(12);
-  expect(hierarchy.timeRight).toBeLessThanOrEqual(hierarchy.bodyLeft);
+  // The framed-desktop message row leads with its avatar mark, not a timestamp gutter: the
+  // soft-editorial avatar (>=34px, ~38px as shipped) renders instead of being hidden.
+  expect(hierarchy.avatarDisplay).not.toBe('none');
+  expect(hierarchy.avatarWidth).toBeGreaterThanOrEqual(34);
+  expect(hierarchy.avatarRadius).toBeGreaterThan(0);
   expect(hierarchy.wiringCount).toBe(0);
 
   const spawn = page.getByTestId('spawn-agent');
@@ -602,6 +634,9 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
   })).toBe(true);
   await page.locator('[data-testid^="release-"]').last().click();
   await expect(page.getByText('visual reflow hold released')).toBeVisible();
+  // The unframed mobile prose timeline drops the per-message avatar the desktop row leads with.
+  await expect(page.locator('.wr-message').first()).toBeVisible();
+  await expect(page.locator('.wr-message .wr-actor-mark').first()).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await page.getByTestId('open-room-drawer').click();
   const drawerMaterial = await page.getByTestId('room-drawer').evaluate((drawer) => {
@@ -613,7 +648,7 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
       footerSize: parseFloat(footer.fontSize),
     };
   });
-  expect(drawerMaterial.background).toBe('rgba(24, 25, 29, 0.88)');
+  expect(drawerMaterial.background).toBe('rgb(28, 25, 23)');
   expect(drawerMaterial.material).toContain('blur(12px)');
   expect(drawerMaterial.footerSize).toBeGreaterThanOrEqual(12);
   await page.getByTestId('room-drawer').getByRole('button', { name: 'Close channels' }).click();
@@ -646,7 +681,7 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
   expect(narrowMaterial.composerMaterial).toContain('blur');
   expect(narrowMaterial.sendShadow).toBe('none');
 });
-// harn:end web-room-visual-hierarchy-matches-restrained-reference
+// harn:end web-room-visual-hierarchy-matches-soft-editorial-reference
 
 // harn:assume web-first-run-color-mode-is-light ref=light-first-theme-regression
 test('the head script resolves the theme before the entry module runs, on every branch', async ({ browser }) => {
@@ -801,8 +836,7 @@ test('a channel is created with the permission its agent was given', async ({ pa
 });
 // harn:end one-control-chooses-an-agent-everywhere
 
-// harn:assume web-glass-theme-accessible-modes ref=glass-theme-regression
-test('restrained shell keeps accessible light tokens and limits glass to functional surfaces', async ({ page }) => {
+test('the soft-editorial shell keeps accessible light tokens, matte panels, and glass only on functional surfaces', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ colorScheme: 'light' });
   await page.addInitScript(() => localStorage.setItem('codor-theme', 'system'));
@@ -910,8 +944,9 @@ test('restrained shell keeps accessible light tokens and limits glass to functio
       searchMaterial: search.backdropFilter || search.getPropertyValue('-webkit-backdrop-filter'),
     };
   });
-  expect(reducedTransparency.composerBackground).toBe('rgb(19, 20, 24)');
-  expect(reducedTransparency.searchBackground).toBe('rgb(19, 20, 24)');
+  // Reduced transparency collapses the glass to fully opaque surfaces with no backdrop blur.
+  expect(reducedTransparency.composerBackground).not.toContain('rgba');
+  expect(reducedTransparency.searchBackground).not.toContain('rgba');
   expect(reducedTransparency.composerMaterial).toBe('none');
   expect(reducedTransparency.searchMaterial).toBe('none');
 
@@ -928,7 +963,6 @@ test('restrained shell keeps accessible light tokens and limits glass to functio
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(beforeScroll);
   await expect(page.getByTestId('room-settings-save')).toBeVisible();
 });
-// harn:end web-glass-theme-accessible-modes
 
 // harn:assume web-settings-controls-preserve-product-truth ref=glass-settings-regression
 test('restrained settings keep row-based desktop focus, mobile fit, and honest relay boundaries', async ({ page, request }) => {
@@ -1097,7 +1131,7 @@ test('authenticated roles remove commands the local matrix does not allow', asyn
   await expect(page.getByRole('link', { name: 'Paired devices', exact: true })).toHaveCount(0);
 });
 
-// harn:assume bridged-room-wears-banner ref=bridged-room-regression
+// harn:assume bridged-room-wears-banner-v5 ref=bridged-room-regression
 test('bridged rooms permanently disclose the external boundary and attribute relayed authors', async ({ page }) => {
   const seeded = await control<{ message_id: number }>('/bridge-enable', {
     platform: 'slack',
@@ -1123,7 +1157,7 @@ test('bridged rooms permanently disclose the external boundary and attribute rel
   await expect(page.getByTestId('bridged-room-banner')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
-// harn:end bridged-room-wears-banner
+// harn:end bridged-room-wears-banner-v5
 
 // Long enough that the timeline must scroll at 390x844. Every geometry assertion about
 // timeline content depends on this: nothing can be crushed in a timeline that fits.
@@ -1215,7 +1249,7 @@ test('an approval card is readable and answerable at phone width', async ({ page
 });
 // harn:end interaction-cards-stay-readable-on-phone
 
-// harn:assume timeline-rows-are-never-crushed ref=timeline-crush-browser-regression
+// harn:assume timeline-rows-are-never-crushed-v5 ref=timeline-crush-browser-regression
 test('a scrolling timeline crushes no row, whatever overflow the row sets', async ({ page, request }) => {
   // The ask card was the row that broke, but it was not special: it was merely the only
   // row that set overflow:hidden, which zeroes a flex item's automatic minimum size and
@@ -1283,7 +1317,7 @@ test('a scrolling timeline crushes no row, whatever overflow the row sets', asyn
   await expect(page.locator('[data-testid$="-option-deny"]')).toBeVisible();
   await expect(page.locator('[data-testid$="-option-deny"]')).toBeEnabled();
 });
-// harn:end timeline-rows-are-never-crushed
+// harn:end timeline-rows-are-never-crushed-v5
 
 // harn:assume compact-one-line-tool-rows ref=compact-run-row-browser-regression
 test('tool rows say what the tool did, on one line, at every width', async ({ page, request }) => {

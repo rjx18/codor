@@ -23,9 +23,9 @@ export const RoomConfigSchema = z.object({
   starting_agent_handle: AssignableHandleSchema.optional(),
   // harn:end channel-starting-agent-handle-persisted
   // harn:end channel-create-request-contract
-  // harn:assume bridged-room-wears-banner ref=bridged-room-config
+  // harn:assume bridged-room-wears-banner-v5 ref=bridged-room-config
   bridged: z.boolean().default(false),
-  // harn:end bridged-room-wears-banner
+  // harn:end bridged-room-wears-banner-v5
 });
 export type RoomConfig = z.infer<typeof RoomConfigSchema>;
 // harn:end brakes-default-off
@@ -42,9 +42,9 @@ export type Room = z.infer<typeof RoomSchema>;
 export const StartingAgentSchema = z.object({
   harness: z.string().min(1),
   handle: AssignableHandleSchema,
-  // harn:assume starting-agent-name-derives-one-valid-identity ref=starting-agent-identity-contract
+  // harn:assume starting-agent-name-derives-one-valid-identity-v5 ref=starting-agent-identity-contract
   display_name: z.string().min(1).optional(),
-  // harn:end starting-agent-name-derives-one-valid-identity
+  // harn:end starting-agent-name-derives-one-valid-identity-v5
   model: z.string().optional(),
   thinking: ThinkingLevelSchema.optional(),
   // harn:assume one-control-chooses-an-agent-everywhere ref=starting-agent-policy

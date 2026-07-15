@@ -1,0 +1,40 @@
+id: channel-create-dialog-renders-an-accessible-accent
+hash: a-b6adb77494db
+title: The channel create dialog and rail render an accessible accent projection
+state: active
+statement: "The channel create dialog, the room rail and the room header must
+  render an accessible projection of a channel's accent computed by one pure
+  function of four inputs: the raw stored room.config.color string, the channel
+  roomId, the active theme, and the ordered set of opaque background colours the
+  accent meets in that theme - the rail row background and its hover and
+  selected states, the header chip background, and the picker candidate
+  background and its hover and selected states. The stored value accepts any
+  non-empty string, invalid CSS and alpha-bearing values such as transparent
+  included, and it is the value that persists; the projection is render-only and
+  is tested separately from persistence. The function first derives a seed
+  colour: the parsed value, or - when the value is unparseable -
+  deriveRoomColor(roomId) with its CHANNEL_ACCENTS palette imported from the
+  protocol package, never a duplicated hash or hex; and when the parsed value
+  carries alpha the seed is that value composited over the worst-contrast
+  background in the set, retaining the source alpha only for that composite, so
+  the seed is always well defined. Holding the seed's OKLCH hue and chroma, the
+  function walks lightness outward from the seed lightness in fixed steps,
+  gamut-clamps each candidate to an opaque sRGB colour, re-measures contrast on
+  that emitted opaque colour rather than any OKLCH intermediate or alpha-bearing
+  value, and accepts the first candidate whose contrast is at least 3:1 against
+  every background in the set; ties in step distance resolve deterministically
+  toward the darker candidate, and if the lightness bounds exhaust without a
+  passing candidate it falls back to the --cd-agent token, which itself clears
+  the set. The unparseable fallback passes through this same search. The single
+  accepted opaque colour is reused on the rail dot, the header chip and the
+  selected picker candidate - per-surface normalization is forbidden - and every
+  projection re-computes on an explicit theme change and on a live system-theme
+  change so that no stale inline colour survives, so the selected swatch, the
+  rail dot and the header chip always match."
+depends_on:
+  - channel-creation-derived-and-seeded
+  - local-directory-listing-home-contained
+  - web-room-rail-creates-owner-room
+  - web-theme-accessible-modes
+  - every-channel-has-a-visible-accent
+created_by: v5-p3-room

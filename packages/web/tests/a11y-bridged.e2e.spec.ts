@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import { BASE, ROOM, control, scan } from './a11y-shared.js';
 
-// harn:assume web-glass-theme-accessible-modes ref=axe-bridged-state
+// harn:assume web-theme-accessible-modes ref=axe-bridged-state
 test('a bridged channel is axe-clean in both themes', async ({ browser }) => {
   // The bridge is daemon state, not context state, so enable it once for this spec's
   // daemon - before either theme - and it has never held a delivery, so no hold banner
@@ -26,4 +26,4 @@ test('a bridged channel is axe-clean in both themes', async ({ browser }) => {
   }
   expect(found, `axe violations:\n${found.join('\n')}`).toEqual([]);
 });
-// harn:end web-glass-theme-accessible-modes
+// harn:end web-theme-accessible-modes

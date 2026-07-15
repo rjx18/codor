@@ -40,7 +40,7 @@ describe('adapter listing', () => {
   });
 });
 
-// harn:assume starting-agent-name-derives-one-valid-identity ref=actionable-rest-error-regression
+// harn:assume starting-agent-name-derives-one-valid-identity-v5 ref=actionable-rest-error-regression
 describe('actionable REST errors', () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -62,4 +62,4 @@ describe('actionable REST errors', () => {
     );
   });
 });
-// harn:end starting-agent-name-derives-one-valid-identity
+// harn:end starting-agent-name-derives-one-valid-identity-v5

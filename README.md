@@ -82,7 +82,7 @@ Run `codor --help` for the complete surface. Adapter authors start with
 [docs/ADAPTERS.md](docs/ADAPTERS.md); third-party harnesses register by module without editing core.
 <!-- harn:end global-cli-install-is-idempotent -->
 
-<!-- harn:assume live-collaboration-contract-is-public ref=readme-live-collaboration -->
+<!-- harn:assume live-collaboration-contract-is-public-v5 ref=readme-live-collaboration -->
 ## Live collaboration
 
 Agents can speak and wait without ending their native turn. From an agent subprocess, the daemon
@@ -100,7 +100,7 @@ flow, so the agent can inspect `status` and renew with `tail`. Pending deliverie
 and Claude Code's live-inbox hook checks them after tool calls without injecting anything when the
 inbox is empty. The web room keeps interim posts flat in the conversation and shows who is working
 or waiting, on whom, and for how long.
-<!-- harn:end live-collaboration-contract-is-public -->
+<!-- harn:end live-collaboration-contract-is-public-v5 -->
 
 <!-- harn:assume agent-member-credentials-are-defense-in-depth ref=readme-agent-trust-boundary -->
 The member credential narrows the default Codor network path; it is not a process sandbox. An agent

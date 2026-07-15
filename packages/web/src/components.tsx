@@ -23,6 +23,7 @@ import {
   CircleHelp,
   CircleDollarSign,
   CircleX,
+  Copy,
   FileCode2,
   FileText,
   Gauge,
@@ -44,13 +45,22 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 
 import { AgentControls } from './agent-controls.js';
 import type { AgentControlsValue } from './agent-controls.js';
 import { fetchLedgerNote, fetchRunEvents } from './api.js';
 import type { AdapterRegistration, LedgerNote, MemberDetail } from './api.js';
 import { currentBrowserAccessToken } from './crypto.js';
+import { projectAccent } from './room-color.js';
+import { useRoomPresentation } from './room-presentation.js';
 import {
   compactRunRow,
   formatRunDuration,
@@ -65,6 +75,94 @@ import {
   useRoomStore,
 } from './state.js';
 import type { Connection } from './ws.js';
+
+// harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-color-identity
+// The live consumption of the pure accent projection. The rail, header and picker read the
+// REAL --cd-* token values for the opaque backgrounds the accent meets in the active theme,
+// and re-project whenever the theme changes explicitly (data-theme) or the system preference
+// flips, so no stale inline colour survives a theme change.
+function subscribeTheme(onChange: () => void): () => void {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  const media = window.matchMedia('(prefers-color-scheme: dark)');
+  media.addEventListener('change', onChange);
+  return () => {
+    observer.disconnect();
+    media.removeEventListener('change', onChange);
+  };
+}
+
+// A monotonically changing snapshot: the resolved theme, so useSyncExternalStore re-runs the
+// projection on every theme change without a listener leak.
+function themeSnapshot(): string {
+  if (typeof document === 'undefined') return 'light';
+  const explicit = document.documentElement.getAttribute('data-theme');
+  if (explicit) return explicit;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function themeServerSnapshot(): string {
+  return 'light';
+}
+
+/** The active theme name, tracked live so accent projections never go stale on a theme change. */
+export function useActiveTheme(): string {
+  return useSyncExternalStore(subscribeTheme, themeSnapshot, themeServerSnapshot);
+}
+
+function readToken(name: string): string {
+  if (typeof document === 'undefined') return '';
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/**
+ * Project a channel's stored accent to one accessible opaque colour, reused across the rail
+ * dot, header chip and selected picker candidate. `backgroundVars` are the --cd-* token names
+ * of the opaque backgrounds the accent meets on the surface, including hover and selected
+ * states; the fallback is the --cd-agent token. Re-computes on every theme change.
+ */
+export function useProjectedAccent(
+  raw: string | undefined,
+  roomId: string,
+  backgroundVars: readonly string[],
+): string {
+  const theme = useActiveTheme();
+  return useMemo(() => {
+    const backgrounds = backgroundVars.map(readToken).filter((value) => value !== '');
+    const fallback = readToken('--cd-agent') || '#4338ca';
+    return projectAccent({ raw: raw ?? '', roomId, backgrounds, fallback });
+    // theme is a dependency: a theme change re-resolves the token values below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [raw, roomId, theme, backgroundVars]);
+}
+
+/**
+ * A theme-bound projector for callers that must project several accents in one render (the
+ * rail's dots, the picker's candidates) without calling a hook per item. The returned function
+ * reads the live --cd-* token values, and its identity changes on every theme change so no
+ * projection goes stale.
+ */
+export function useAccentProjector(): (
+  raw: string | undefined,
+  roomId: string,
+  backgroundVars: readonly string[],
+) => string {
+  const theme = useActiveTheme();
+  return useMemo(() => {
+    void theme;
+    return (raw, roomId, backgroundVars) => {
+      const backgrounds = backgroundVars.map(readToken).filter((value) => value !== '');
+      const fallback = readToken('--cd-agent') || '#4338ca';
+      return projectAccent({ raw: raw ?? '', roomId, backgrounds, fallback });
+    };
+  }, [theme]);
+}
+
+// The opaque backgrounds the accent meets on each surface, as --cd-* token names.
+export const RAIL_DOT_BACKGROUNDS = ['--cd-surface', '--cd-surface-muted', '--cd-surface-raised'] as const;
+export const HEADER_CHIP_BACKGROUNDS = ['--cd-surface', '--cd-surface-raised'] as const;
+export const PICKER_BACKGROUNDS = ['--cd-surface', '--cd-surface-muted', '--cd-surface-raised'] as const;
+// harn:end channel-create-dialog-renders-an-accessible-accent
 
 const stateDot: Record<string, string> = {
   idle: 'wr-state-idle',
@@ -147,7 +245,7 @@ export function messageBodySegments(message: Message): MessageBodySegment[] {
 }
 // harn:end posted-message-mentions-alone-look-effective
 
-// harn:assume bridged-room-wears-banner ref=bridged-room-banner
+// harn:assume bridged-room-wears-banner-v5 ref=bridged-room-banner
 export function BridgedRoomBanner() {
   return (
     <aside data-testid="bridged-room-banner" className="wr-bridge-banner" aria-label="Bridged channel privacy notice">
@@ -159,7 +257,23 @@ export function BridgedRoomBanner() {
     </aside>
   );
 }
-// harn:end bridged-room-wears-banner
+// harn:end bridged-room-wears-banner-v5
+
+// harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-color-identity
+// The header chip renders the SAME accessible projection the rail dot and picker use, so a
+// channel is one colour across every surface and never a stale inline value after a theme flip.
+function HeaderColorChip(props: { roomColor: string; roomId: string }) {
+  const accent = useProjectedAccent(props.roomColor, props.roomId, HEADER_CHIP_BACKGROUNDS);
+  return (
+    <span
+      data-testid="header-room-color"
+      className="wr-header-color"
+      style={{ backgroundColor: accent }}
+      aria-hidden="true"
+    />
+  );
+}
+// harn:end channel-create-dialog-renders-an-accessible-accent
 
 // harn:assume spend-meter-always-on ref=meter-settings-surface
 export function Header(props: {
@@ -200,16 +314,11 @@ export function Header(props: {
           </button>
         )}
         <span className="wr-room-glyph wr-header-glyph" aria-hidden="true">#</span>
-        {/* harn:assume channel-create-dialog-uses-authoritative-result ref=channel-color-identity */}
+        {/* harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-color-identity */}
         {props.roomColor && (
-          <span
-            data-testid="header-room-color"
-            className="wr-header-color"
-            style={{ backgroundColor: props.roomColor }}
-            aria-hidden="true"
-          />
+          <HeaderColorChip roomColor={props.roomColor} roomId={props.roomId} />
         )}
-        {/* harn:end channel-create-dialog-uses-authoritative-result */}
+        {/* harn:end channel-create-dialog-renders-an-accessible-accent */}
         <div className="wr-room-title">
           <h1 title={props.roomName}>{props.roomName}</h1>
           <span>
@@ -628,7 +737,7 @@ export function SpawnAgentDialog(props: {
 }
 // harn:end web-spawn-dialog-exposes-canonical-agent-controls
 
-// harn:assume web-motion-is-purposeful-and-reduced-motion-safe ref=motion-runtime-classes
+// harn:assume web-motion-is-purposeful-and-reduced-motion-safe-v5 ref=motion-runtime-classes
 // harn:assume web-spawn-dialog-exposes-canonical-agent-controls ref=dead-member-replacement-controls
 export function MemberCard(props: {
   member: Member;
@@ -646,6 +755,9 @@ export function MemberCard(props: {
   const [removing, setRemoving] = useState(false);
   const [handle, setHandle] = useState(props.member.handle);
   const [displayName, setDisplayName] = useState(props.member.display_name);
+  // The member card stays framed at every width, but adopts the model so it subscribes to the
+  // live viewport alongside the other seven surfaces.
+  const presentation = useRoomPresentation('member');
   const state = props.member.state ?? 'idle';
   const waiting = props.member.waiting;
   const waitingPeers = props.waitingPeerHandles ?? waiting?.peers ?? [];
@@ -662,14 +774,14 @@ export function MemberCard(props: {
 
   if (props.member.kind !== 'agent') {
     return (
-      <li data-testid={`member-${props.member.handle}`} className="wr-member wr-member-human">
+      <li data-testid={`member-${props.member.handle}`} data-presentation={presentation} className="wr-member wr-member-human">
         {props.member.state ? (
           <span className="wr-human-state" data-state={props.member.state}>
             <i aria-hidden="true" /> {props.member.state.replaceAll('_', ' ')}
           </span>
         ) : <UserRound aria-hidden="true" size={17} />}
-        <span className="min-w-0 truncate text-zinc-200">@{props.member.handle}</span>
-        <span className="ml-auto text-[11px] uppercase text-zinc-500">{props.member.role ?? props.member.kind}</span>
+        <span className="wr-member-human-handle min-w-0 truncate">@{props.member.handle}</span>
+        <span className="wr-member-role ml-auto">{props.member.role ?? props.member.kind}</span>
       </li>
     );
   }
@@ -677,6 +789,7 @@ export function MemberCard(props: {
   return (
     <li
       data-testid={`member-${props.member.handle}`}
+      data-presentation={presentation}
       className={`wr-member ${expanded ? 'is-expanded' : ''}`}
     >
       <button
@@ -691,7 +804,7 @@ export function MemberCard(props: {
         <span className="wr-member-identity">
           <strong>@{props.member.handle}</strong>
           {waiting ? (
-            // harn:assume web-waits-are-visible-across-live-surfaces ref=wait-elapsed-and-member-summary
+            // harn:assume web-waits-are-visible-across-live-surfaces-v5 ref=wait-elapsed-and-member-summary
             <small data-testid={`member-${props.member.handle}-waiting`} className="wr-member-waiting">
               waiting for {waitingPeers.map((peer) => `@${peer}`).join(', ')} ·{' '}
               <WaitElapsedTime
@@ -699,7 +812,7 @@ export function MemberCard(props: {
                 testId={`member-${props.member.handle}-wait-elapsed`}
               />
             </small>
-            // harn:end web-waits-are-visible-across-live-surfaces
+            // harn:end web-waits-are-visible-across-live-surfaces-v5
           ) : (
             <small>{props.member.harness ?? 'agent'} · {props.member.policy ?? 'default policy'}</small>
           )}
@@ -722,20 +835,20 @@ export function MemberCard(props: {
       </button>
       {expanded && <div id={`member-${props.member.id}-detail`} className="wr-member-detail">
       <dl className="wr-member-facts">
-        <dt className="text-zinc-500">Harness</dt>
-        <dd className="truncate text-zinc-300">{props.member.harness ?? '-'}</dd>
-        <dt className="text-zinc-500">Custody</dt>
-        <dd className="truncate text-zinc-300">{props.member.custody ?? 'owned'}</dd>
-        <dt className="text-zinc-500">Session</dt>
-        <dd className="truncate font-mono text-zinc-300" title={props.member.session_ref}>
+        <dt>Harness</dt>
+        <dd className="truncate">{props.member.harness ?? '-'}</dd>
+        <dt>Custody</dt>
+        <dd className="truncate">{props.member.custody ?? 'owned'}</dd>
+        <dt>Session</dt>
+        <dd className="truncate font-mono" title={props.member.session_ref}>
           {props.member.session_ref ?? 'pending'}
         </dd>
-        <dt className="text-zinc-500">Cwd</dt>
-        <dd className="truncate font-mono text-zinc-300" title={props.member.cwd}>
+        <dt>Cwd</dt>
+        <dd className="truncate font-mono" title={props.member.cwd}>
           {props.member.cwd ?? '-'}
         </dd>
-        <dt className="text-zinc-500">Spend</dt>
-        <dd className="text-zinc-300">
+        <dt>Spend</dt>
+        <dd>
           ${(props.detail?.spend.cost_usd ?? 0).toFixed(2)} · {tokens} tk
           {(props.detail?.spend.uncosted_tokens ?? 0) > 0 &&
             ` · ${props.detail!.spend.uncosted_tokens} uncosted`}
@@ -748,7 +861,7 @@ export function MemberCard(props: {
       )}
       {/* harn:assume custody-uncertain-never-double-writes ref=attach-custody-web-hint */}
       {canManage && props.member.session_ref && props.member.custody !== 'mirrored' && state !== 'dead' && (
-        <div className="mt-2 flex min-w-0 items-center gap-2 text-[10px]">
+        <div className="wr-member-attach mt-2 flex min-w-0 items-center gap-2">
           <code
             data-testid={`attach-command-${props.member.handle}`}
             className="wr-code-field min-w-0 flex-1 truncate"
@@ -770,7 +883,7 @@ export function MemberCard(props: {
       {/* harn:end custody-uncertain-never-double-writes */}
       <p
         data-testid={`member-${props.member.handle}-history`}
-        className="mt-2 truncate text-[10px] text-zinc-500"
+        className="wr-member-history mt-2 truncate"
         title={props.history.map((item) => `${item.ts} ${item.state}`).join('\n')}
       >
         {props.history.map((item) => item.state).join(' > ') || state}
@@ -795,26 +908,26 @@ export function MemberCard(props: {
             onChange={(event) => setHandle(event.target.value)}
             pattern="[a-z0-9][a-z0-9-]{1,30}"
             required
-            className="min-h-11 border border-zinc-700 bg-zinc-900 px-2 text-xs text-zinc-100"
+            className="wr-input min-h-11 px-2 text-xs"
           />
           <input
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
             required
-            className="min-h-11 border border-zinc-700 bg-zinc-900 px-2 text-xs text-zinc-100"
+            className="wr-input min-h-11 px-2 text-xs"
           />
           <div className="flex gap-2">
             <button
               type="submit"
               data-testid={`rename-${props.member.handle}-submit`}
-              className="min-h-11 bg-sky-800 px-3 text-xs text-white"
+              className="wr-primary-button min-h-11 px-3 text-xs"
             >
               Save
             </button>
             <button
               type="button"
               onClick={() => setRenaming(false)}
-              className="min-h-11 border border-zinc-700 px-3 text-xs text-zinc-300"
+              className="wr-secondary-button min-h-11 px-3 text-xs"
             >
               Cancel
             </button>
@@ -826,7 +939,7 @@ export function MemberCard(props: {
             type="button"
             data-testid={`rename-${props.member.handle}`}
             onClick={() => setRenaming(true)}
-            className="min-h-11 border border-zinc-700 px-3 text-xs text-zinc-300"
+            className="wr-secondary-button min-h-11 px-3 text-xs"
           >
             Rename
           </button>
@@ -836,7 +949,7 @@ export function MemberCard(props: {
               data-testid={`configure-${props.member.handle}`}
               onClick={() => setConfiguring((open) => !open)}
               aria-expanded={configuring}
-              className="min-h-11 border border-zinc-700 px-3 text-xs text-zinc-300"
+              className="wr-secondary-button min-h-11 px-3 text-xs"
             >
               Settings
             </button>
@@ -846,7 +959,7 @@ export function MemberCard(props: {
               type="button"
               data-testid={`adopt-${props.member.handle}`}
               onClick={() => props.connection.act({ act: 'adopt', member_id: props.member.id })}
-              className="min-h-11 bg-emerald-800 px-3 text-xs text-white"
+              className="wr-revive-button min-h-11 px-3 text-xs"
             >
               Adopt
             </button>
@@ -857,7 +970,7 @@ export function MemberCard(props: {
                 data-testid={`revive-${props.member.handle}`}
                 disabled={!props.member.session_ref}
                 onClick={() => props.connection.act({ act: 'revive', member_id: props.member.id })}
-                className="min-h-11 bg-emerald-800 px-3 text-xs text-white disabled:opacity-40"
+                className="wr-revive-button min-h-11 px-3 text-xs disabled:opacity-40"
               >
                 Revive
               </button>
@@ -865,7 +978,7 @@ export function MemberCard(props: {
                 type="button"
                 data-testid={`remove-${props.member.handle}`}
                 onClick={() => setRemoving(true)}
-                className="min-h-11 bg-red-900 px-3 text-xs text-red-100"
+                className="wr-danger-button min-h-11 px-3 text-xs"
               >
                 Remove
               </button>
@@ -876,7 +989,7 @@ export function MemberCard(props: {
                 type="button"
                 data-testid={`kill-${props.member.handle}`}
                 onClick={() => props.connection.act({ act: 'kill', member_id: props.member.id })}
-                className="min-h-11 bg-red-900 px-3 text-xs text-red-100"
+                className="wr-danger-button min-h-11 px-3 text-xs"
               >
                 Kill
               </button>
@@ -888,7 +1001,7 @@ export function MemberCard(props: {
                 type="button"
                 data-testid={`remove-${props.member.handle}`}
                 onClick={() => setRemoving(true)}
-                className="min-h-11 border border-red-900 px-3 text-xs text-red-200"
+                className="wr-danger-outline-button min-h-11 px-3 text-xs"
               >
                 Remove
               </button>
@@ -905,7 +1018,7 @@ export function MemberCard(props: {
                   member_id: props.member.id,
                 })
               }
-              className="min-h-11 border border-zinc-700 px-3 text-xs text-zinc-300"
+              className="wr-secondary-button min-h-11 px-3 text-xs"
             >
               {state === 'paused' ? 'Unpause' : 'Pause'}
             </button>
@@ -942,7 +1055,7 @@ export function MemberCard(props: {
                 props.connection.act({ act: 'remove', member_id: props.member.id });
                 setRemoving(false);
               }}
-              className="min-h-11 bg-red-900 px-3 text-xs text-red-100"
+              className="wr-danger-button min-h-11 px-3 text-xs"
             >
               Remove @{props.member.handle}
             </button>
@@ -1249,6 +1362,11 @@ export function RunMessageView(props: {
   const running = run.status === 'running';
   const waiting = running ? props.waiting : undefined;
   const waitingPeers = props.waitingPeerHandles ?? waiting?.peers ?? [];
+  // The run and tool surfaces adopt the presentation model: on a phone they unframe, and the
+  // tool calls collapse to one tappable line instead of a full framed evidence list.
+  const runPresentation = useRoomPresentation('run');
+  const toolPresentation = useRoomPresentation('tool');
+  const unframed = runPresentation === 'unframed-mobile';
   const [expanded, setExpanded] = useState(running);
   const [renderEvents, setRenderEvents] = useState(running);
   const [journal, setJournal] = useState<WireEvent[] | undefined>(undefined);
@@ -1259,6 +1377,8 @@ export function RunMessageView(props: {
     [journal, props.liveEvents],
   );
   const rows = useMemo(() => presentRunEvents(evidence), [evidence]);
+  const toolRows = rows.filter((row) => row.kind === 'tool');
+  const collapseTools = toolPresentation === 'unframed-mobile' && toolRows.length > 0;
   const extensions = extensionRunSummaries(evidence.map((item) => item.event));
   const activeTool = [...rows].reverse().find((row) => row.kind === 'tool' && row.status === 'running');
   const missingEarlier = props.liveEvents.dropped_count > 0 &&
@@ -1320,9 +1440,10 @@ export function RunMessageView(props: {
       id={String(props.message.id)}
       data-testid={`run-${props.message.id}`}
       data-run-status={run.status}
-      className="wr-run-card scroll-mt-16"
+      data-presentation={runPresentation}
+      className={`wr-run-card scroll-mt-16${unframed ? ' is-unframed' : ''}`}
     >
-      {/* harn:assume web-waits-are-visible-across-live-surfaces ref=waiting-run-header */}
+      {/* harn:assume web-waits-are-visible-across-live-surfaces-v5 ref=waiting-run-header */}
       <div
         className={`wr-run-heading ${waiting ? 'is-waiting' : running ? 'wr-shimmer' : ''}`}
         data-live-state={waiting ? 'waiting' : running ? 'working' : undefined}
@@ -1382,11 +1503,29 @@ export function RunMessageView(props: {
         )}
         <MessagePermalink id={props.message.id} />
       </div>
-      {/* harn:end web-waits-are-visible-across-live-surfaces */}
+      {/* harn:end web-waits-are-visible-across-live-surfaces-v5 */}
       {!running && props.message.body !== '' && (
         <p data-testid={`run-${props.message.id}-body`} className="wr-run-body">
           {props.message.body}
         </p>
+      )}
+      {collapseTools && (
+        <button
+          type="button"
+          data-testid={`run-${props.message.id}-tools-collapsed`}
+          className="wr-run-tools-collapsed"
+          aria-expanded={expanded}
+          onClick={() => {
+            if (expanded) {
+              setExpanded(false);
+              return;
+            }
+            setRenderEvents(true);
+            requestAnimationFrame(() => setExpanded(true));
+          }}
+        >
+          {toolRows.length} tool {toolRows.length === 1 ? 'call' : 'calls'}
+        </button>
       )}
       {renderEvents && (
         <div
@@ -1467,7 +1606,7 @@ export function RunStallBadge(props: { message: Message }) {
   );
 }
 
-// harn:assume web-waits-are-visible-across-live-surfaces ref=live-collaboration-line
+// harn:assume web-waits-are-visible-across-live-surfaces-v5 ref=live-collaboration-line
 export function LiveActivityLine(props: { members: Member[]; activeMemberIds: string[] }) {
   if (props.activeMemberIds.length === 0) return null;
   const handles = new Map(props.members.map((member) => [member.id, member.handle]));
@@ -1491,8 +1630,8 @@ export function LiveActivityLine(props: { members: Member[]; activeMemberIds: st
     </div>
   );
 }
-// harn:end web-waits-are-visible-across-live-surfaces
-// harn:end web-motion-is-purposeful-and-reduced-motion-safe
+// harn:end web-waits-are-visible-across-live-surfaces-v5
+// harn:end web-motion-is-purposeful-and-reduced-motion-safe-v5
 
 // harn:assume interaction-cards-stay-readable-on-phone ref=phone-ask-card
 export function AskCardView(props: {
@@ -1503,6 +1642,8 @@ export function AskCardView(props: {
   canAnswer?: boolean;
 }) {
   const ask = props.message.ask!;
+  // The ask card stays framed and readable at every width; it still adopts the model.
+  const presentation = useRoomPresentation('ask');
   // harn:assume approval-cards-follow-durable-resolution ref=approval-answer-inflight
   const [inFlight, setInFlight] = useState(false);
   // harn:assume room-action-errors-are-visible ref=approval-answer-error-reset
@@ -1522,6 +1663,7 @@ export function AskCardView(props: {
     <div
       id={String(props.message.id)}
       data-testid={`card-${props.message.id}`}
+      data-presentation={presentation}
       className={`wr-ask-card scroll-mt-16${done ? ' is-answered' : ''}`}
     >
       <div className="wr-ask-heading">
@@ -1596,9 +1738,11 @@ export function HoldBanner(props: {
   canRelease?: boolean;
   canRedeliver?: boolean;
 }) {
+  // The hold banner stays framed at every width; it still adopts the model.
+  const presentation = useRoomPresentation('hold');
   if (props.held.length === 0) return null;
   return (
-    <div data-testid="hold-banner" className="wr-hold-banner">
+    <div data-testid="hold-banner" data-presentation={presentation} className="wr-hold-banner">
       {props.held.map((delivery) => (
         <div key={delivery.id} className="wr-hold-row">
           <span className="wr-hold-symbol" aria-hidden="true"><PauseCircle size={19} /></span>
@@ -1692,6 +1836,8 @@ export function Composer(props: {
   const [draft, setDraft] = useState('');
   const [mention, setMention] = useState<MentionMatch>();
   const [activeMention, setActiveMention] = useState(0);
+  // The composer stays a framed rounded pill at every width; it still adopts the model.
+  const composerPresentation = useRoomPresentation('composer');
   const input = useRef<HTMLTextAreaElement>(null);
   const draftStarted = useRef(false);
   const dismissedMention = useRef<string>();
@@ -1775,7 +1921,7 @@ export function Composer(props: {
     // harn:assume the-composer-is-one-row ref=composer-single-row
     // One row plus padding. The heading only repeated the placeholder, and the
     // controls disagreed on height; they now share one token.
-    <div className="wr-composer">
+    <div className="wr-composer" data-presentation={composerPresentation}>
       <div className="wr-composer-row">
         <button
           type="button"
@@ -1921,8 +2067,31 @@ export function MessageRow(props: {
   authorHandle: string;
   mine: boolean;
   token?: string;
+  precededBySameAuthor?: boolean;
 }) {
   const { message } = props;
+  const [copyStatus, setCopyStatus] = useState('');
+  // The one per-message action that ships: a functional Copy of the message BODY (not the
+  // permalink, which stays an independent control), announcing success or a clipboard
+  // failure in a live region so it is legible without sight. Quote/More are not shipped.
+  const copyBody = (): void => {
+    if (!navigator.clipboard) {
+      setCopyStatus('Copy failed');
+      return;
+    }
+    navigator.clipboard.writeText(message.body).then(
+      () => setCopyStatus('Message copied'),
+      () => setCopyStatus('Copy failed'),
+    );
+  };
+  // harn:assume web-room-visual-hierarchy-matches-soft-editorial-reference ref=soft-editorial-responsive-adoption
+  // The ordinary message surface adopts the presentation model: on a phone it unframes to a
+  // prose row with no card and no avatar, and a continuation from the same speaker drops its
+  // author header so a burst reads as one turn.
+  const presentation = useRoomPresentation('message');
+  const unframed = presentation === 'unframed-mobile';
+  const grouped = unframed && (props.precededBySameAuthor ?? false);
+  // harn:end web-room-visual-hierarchy-matches-soft-editorial-reference
   const [note, setNote] = useState<LedgerNote>();
   const [noteError, setNoteError] = useState(false);
   const ledgerTrigger = useRef<HTMLButtonElement>(null);
@@ -1976,7 +2145,7 @@ export function MessageRow(props: {
             key={`${segment.name}-${String(index)}`}
             type="button"
             data-testid={`ledger-ref-${segment.name}`}
-            className="text-sky-300 underline decoration-zinc-600 underline-offset-2 hover:text-sky-200"
+            className="wr-ledger-ref"
             onClick={() => {
               setNoteError(false);
               const urlToken = new URLSearchParams(window.location.search).get('token') ?? '';
@@ -2001,7 +2170,7 @@ export function MessageRow(props: {
         aria-modal="true"
         aria-label={note ? `Ledger note ${note.name}` : 'Ledger note unavailable'}
         data-testid="ledger-note-dialog"
-        className="wr-focused-glass max-h-[80vh] w-full max-w-2xl overflow-auto p-5"
+        className="wr-focused-glass wr-ledger-note-dialog w-full max-w-2xl overflow-auto p-5"
       >
         <div className="wr-dialog-heading">
           <div>
@@ -2021,7 +2190,7 @@ export function MessageRow(props: {
             <X aria-hidden="true" size={18} />
           </button>
         </div>
-        {note && <pre className="mt-4 whitespace-pre-wrap font-sans text-sm text-zinc-200">{note.body}</pre>}
+        {note && <pre className="wr-ledger-note-body mt-4 whitespace-pre-wrap">{note.body}</pre>}
       </section>
     </div>
   ) : null;
@@ -2044,7 +2213,8 @@ export function MessageRow(props: {
       <div
         id={String(message.id)}
         data-testid={`msg-${message.id}`}
-        className={`wr-message scroll-mt-16 ${props.mine ? 'is-mine' : ''}`}
+        data-presentation={presentation}
+        className={`wr-message scroll-mt-16 ${props.mine ? 'is-mine' : ''}${unframed ? ' is-unframed' : ''}${grouped ? ' is-grouped' : ''}`}
       >
         <span className="wr-actor-mark wr-actor-human" aria-hidden="true">
           {message.origin ? <Cable size={17} /> : <UserRound size={17} />}
@@ -2063,9 +2233,27 @@ export function MessageRow(props: {
             </span>
             <time dateTime={message.ts}>{new Date(message.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
             <MessagePermalink id={message.id} />
+            <button
+              type="button"
+              data-testid={`msg-${message.id}-copy`}
+              aria-label="Copy message"
+              title="Copy message"
+              className="wr-message-copy"
+              onClick={copyBody}
+            >
+              <Copy aria-hidden="true" size={14} />
+            </button>
           </div>
-          <p className="whitespace-pre-wrap text-zinc-100">{body}</p>
+          <p className="wr-message-body whitespace-pre-wrap">{body}</p>
         </div>
+        <span
+          role="status"
+          aria-live="polite"
+          data-testid={`msg-${message.id}-copy-status`}
+          className="sr-only"
+        >
+          {copyStatus}
+        </span>
       </div>
       {viewer}
     </>

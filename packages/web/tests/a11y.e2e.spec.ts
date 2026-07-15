@@ -92,7 +92,7 @@ test('every landmark in the shell is distinguishable by name', async ({ page }) 
 });
 // harn:end web-shell-responsive-three-pane
 
-// harn:assume web-glass-theme-accessible-modes ref=theme-contrast-values
+// harn:assume web-theme-accessible-modes ref=theme-contrast-values
 test('the two light paths resolve identically, and the repaired tokens hold AA', async ({ page }) => {
   const read = async () =>
     page.evaluate(() => {
@@ -138,7 +138,7 @@ test('the two light paths resolve identically, and the repaired tokens hold AA',
   });
   expect(dark).toBe('#8a8d93');
 });
-// harn:end web-glass-theme-accessible-modes
+// harn:end web-theme-accessible-modes
 
 // harn:assume web-room-rail-creates-owner-room ref=create-channel-semantics
 test('the create-channel modal is a dialog, traps focus, and sits exactly where it did', async ({ page }) => {

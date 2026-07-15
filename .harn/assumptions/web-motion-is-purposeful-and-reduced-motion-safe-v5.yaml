@@ -1,0 +1,14 @@
+id: web-motion-is-purposeful-and-reduced-motion-safe-v5
+hash: a-98a517c6ad09
+title: Motion is purposeful and reduced-motion safe
+state: active
+statement: The web surface must use the shared v5 motion and easing tokens for
+  row, dialog, popup, run-reveal, tab, typing-peek and running-state feedback,
+  animate only transform and opacity except for the sanctioned run-collapse grid
+  track, remove the shimmer at finalization, and replace motion with instant
+  transitions plus a static accent when reduced motion is requested, because
+  live activity should be legible without jank or vestibular cost.
+depends_on:
+  - normalized-run-items-presented-live
+  - web-theme-accessible-modes
+created_by: v5-p3-room

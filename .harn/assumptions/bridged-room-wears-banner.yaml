@@ -1,7 +1,7 @@
 id: bridged-room-wears-banner
 hash: a-cc2e689c44ff
 title: Bridged rooms permanently disclose their external content boundary
-state: active
+state: retired
 statement: A room with any enabled Slack or Telegram bridge must persist a
   bridged config flag and render a permanent plain-language external-platform
   privacy banner on room, settings, and ledger surfaces, because readable room
@@ -11,3 +11,4 @@ depends_on:
   - restrained-design-system-guides-responsive-surfaces
   - web-room-visual-hierarchy-matches-restrained-reference
 created_by: bridges-optin-banner
+retired_by: v5-p3-room

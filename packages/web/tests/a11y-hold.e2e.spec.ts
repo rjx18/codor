@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import { BASE, ROOM, control, scan } from './a11y-shared.js';
 
-// harn:assume web-glass-theme-accessible-modes ref=axe-hold-state
+// harn:assume web-theme-accessible-modes ref=axe-hold-state
 test('a held delivery is axe-clean in both themes', async ({ browser }) => {
   // Own daemon: it has held nothing else and bridged nothing, so no other banner rides
   // on top. Each theme runs in its OWN fresh context, so no theme's storage setter
@@ -26,4 +26,4 @@ test('a held delivery is axe-clean in both themes', async ({ browser }) => {
   }
   expect(found, `axe violations:\n${found.join('\n')}`).toEqual([]);
 });
-// harn:end web-glass-theme-accessible-modes
+// harn:end web-theme-accessible-modes

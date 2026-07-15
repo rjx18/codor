@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@codor/protocol": "workspace:*",
+    "culori": "^4.0.2",
     "d3-force": "^3.0.0",
     "libsodium-wrappers": "^0.8.4",
     "lucide-react": "^1.24.0",
@@ -28,6 +29,7 @@
     "@codor/switchboard": "workspace:*",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.3.2",
+    "@types/culori": "^4.0.1",
     "@types/d3-force": "^3.0.10",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.12",

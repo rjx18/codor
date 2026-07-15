@@ -12,7 +12,7 @@ async function control<T>(path: string, body: unknown = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
-// harn:assume web-motion-is-purposeful-and-reduced-motion-safe ref=motion-browser-regression
+// harn:assume web-motion-is-purposeful-and-reduced-motion-safe-v5 ref=motion-browser-regression
 test('running shimmer finalizes and reduced motion becomes a static accent', async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on('console', (message) => {
@@ -76,7 +76,7 @@ test('running shimmer finalizes and reduced motion becomes a static accent', asy
   await expect(ack.locator('[data-testid$="-toggle"]')).toHaveCount(0);
   expect(consoleErrors).toEqual([]);
 });
-// harn:end web-motion-is-purposeful-and-reduced-motion-safe
+// harn:end web-motion-is-purposeful-and-reduced-motion-safe-v5
 
 // harn:assume unpaired-browser-always-has-enrollment-path ref=pairing-gate-browser-regression
 test('an unpaired app visit offers trusted progress and a manual pairing-link path', async ({ page }) => {

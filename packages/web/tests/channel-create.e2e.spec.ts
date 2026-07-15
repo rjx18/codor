@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-// harn:assume channel-create-dialog-uses-authoritative-result ref=channel-create-browser-regression
+// harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-create-browser-regression
 test('channel dialog uses contained folders, starting agents, colors, and authoritative collision ids', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?room=eng&token=e2e-token');
@@ -31,7 +31,7 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   await expect(page.getByTestId('create-room-model-custom-input')).toHaveCount(0);
   await expect(page.getByTestId('create-room-thinking-default')).toBeVisible();
   // harn:end agent-controls-shared-by-both-dialogs
-  // harn:assume starting-agent-name-derives-one-valid-identity ref=starting-agent-browser-regression
+  // harn:assume starting-agent-name-derives-one-valid-identity-v5 ref=starting-agent-browser-regression
   await page.getByTestId('create-room-agent-name').fill('switchboard');
   await expect(page.getByTestId('create-room-agent-handle')).toHaveCount(0);
   await page.getByTestId('create-room-submit').click();
@@ -56,7 +56,7 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   expect(details.members.map((detail) => detail.member)).toContainEqual(
     expect.objectContaining({ handle: 'review-lead', display_name: 'Review Lead' }),
   );
-  // harn:end starting-agent-name-derives-one-valid-identity
+  // harn:end starting-agent-name-derives-one-valid-identity-v5
   await expect(page.getByTestId('room-color-demo-site')).toBeVisible();
   await expect(page.getByTestId('header-room-color')).toBeVisible();
   expect(await page.getByTestId('header-room-color').evaluate(
@@ -78,7 +78,7 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   // harn:end spawn-default-cwd-is-absolute-or-empty
   expect(await page.getByTestId('header-room-color').evaluate(
     (element) => getComputedStyle(element).backgroundColor,
-  )).toBe('rgb(103, 183, 199)');
+  )).toBe('rgb(74, 155, 170)');
 });
 
 test('channel creation stays available when no starting adapters are installed', async ({ page }) => {
@@ -101,4 +101,4 @@ test('channel creation stays available when no starting adapters are installed',
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await expect(page.getByTestId('member-codor')).toHaveCount(0);
 });
-// harn:end channel-create-dialog-uses-authoritative-result
+// harn:end channel-create-dialog-renders-an-accessible-accent

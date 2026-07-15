@@ -11,7 +11,7 @@ async function enqueue(turns: unknown[]): Promise<void> {
   if (!response.ok) throw new Error(`enqueue failed: ${await response.text()}`);
 }
 
-// harn:assume web-waits-are-visible-across-live-surfaces ref=live-collaboration-browser-regression
+// harn:assume web-waits-are-visible-across-live-surfaces-v5 ref=live-collaboration-browser-regression
 // harn:assume posted-message-mentions-alone-look-effective ref=effective-mention-browser-regression
 // harn:assume interim-posts-stay-flat-beside-their-live-run ref=interim-flat-browser-regression
 test('live collaboration stays legible across waits, interim posts, themes, and widths', async ({ page, request }) => {
@@ -129,4 +129,4 @@ test('live collaboration stays legible across waits, interim posts, themes, and 
 });
 // harn:end interim-posts-stay-flat-beside-their-live-run
 // harn:end posted-message-mentions-alone-look-effective
-// harn:end web-waits-are-visible-across-live-surfaces
+// harn:end web-waits-are-visible-across-live-surfaces-v5

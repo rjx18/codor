@@ -42,7 +42,7 @@ export const AssignableHandleSchema = HandleSchema.refine(
   { message: 'handle is reserved' },
 );
 
-// harn:assume starting-agent-name-derives-one-valid-identity ref=starting-agent-handle-derivation
+// harn:assume starting-agent-name-derives-one-valid-identity-v5 ref=starting-agent-handle-derivation
 /** Derives the strict member handle shown beneath a friendly starting-agent name. */
 export function deriveAssignableHandle(name: string): string | undefined {
   const ascii = name
@@ -55,7 +55,7 @@ export function deriveAssignableHandle(name: string): string | undefined {
   const candidate = bounded.length >= 2 ? bounded : 'agent';
   return AssignableHandleSchema.safeParse(candidate).success ? candidate : undefined;
 }
-// harn:end starting-agent-name-derives-one-valid-identity
+// harn:end starting-agent-name-derives-one-valid-identity-v5
 // harn:end reserved-handles-rejected
 
 export const MemberSchema = z
