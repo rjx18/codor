@@ -530,18 +530,24 @@ function DiffEvidence(props: { row: RunRow }) {
         {props.row.detail && <span>{props.row.detail.split(' · ').at(-1)}</span>}
       </div>
       <pre>
-        {diff.unified.split('\n').map((line, index) => {
-          const tone = line.startsWith('+++') || line.startsWith('---')
-            ? 'header'
-            : line.startsWith('+')
-              ? 'add'
-              : line.startsWith('-')
-                ? 'remove'
-                : line.startsWith('@@')
-                  ? 'hunk'
-                  : 'context';
-          return <span key={index} className={`wr-diff-line-${tone}`}>{line || ' '}{'\n'}</span>;
-        })}
+        {diff.unified.split('\n').map((line, index) => (
+          <span
+            key={index}
+            className={
+              line.startsWith('+++') || line.startsWith('---')
+                ? 'wr-diff-line-header'
+                : line.startsWith('+')
+                  ? 'wr-diff-line-add'
+                  : line.startsWith('-')
+                    ? 'wr-diff-line-remove'
+                    : line.startsWith('@@')
+                      ? 'wr-diff-line-hunk'
+                      : 'wr-diff-line-context'
+            }
+          >
+            {line || ' '}{'\n'}
+          </span>
+        ))}
       </pre>
     </div>
   );
@@ -654,7 +660,7 @@ export function ContextRail(props: {
   room: string;
   token: string;
   testId?: string;
-  className?: string;
+  placement?: 'desktop' | 'sheet';
   canManageAgents?: boolean;
 }) {
   const idPrefix = props.testId ?? 'context-rail';
@@ -666,7 +672,7 @@ export function ContextRail(props: {
     <aside
       data-testid={props.testId ?? 'context-rail'}
       aria-label="Channel context"
-      className={`wr-context-rail ${props.className ?? ''}`}
+      className={`wr-context-rail ${props.placement === 'sheet' ? 'wr-context-panel' : 'wr-context-desktop'}`}
     >
       <div className="wr-context-tabs">
         <SegmentedTabs
@@ -699,7 +705,7 @@ export function ContextRail(props: {
             adapters={props.adapters}
             connection={props.connection}
             variant="context"
-            className="wr-fill-height"
+            fill
             canManageAgents={props.canManageAgents}
           />
         </div>

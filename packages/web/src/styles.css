@@ -332,7 +332,7 @@ button:disabled {
 
 :where(button, a, input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--cd-text-secondary);
-  outline-offset: 2px;
+  outline-offset: var(--cd-space-1);
 }
 
 .wr-canvas {
@@ -396,8 +396,8 @@ button:disabled {
   display: flex;
   min-height: 64px;
   align-items: center;
-  gap: 10px;
-  padding: 0 18px;
+  gap: var(--cd-space-3);
+  padding: 0 var(--cd-space-4);
   border-bottom: 1px solid var(--cd-line);
 }
 
@@ -437,7 +437,7 @@ button:disabled {
 
 .wr-room-list {
   min-height: 0;
-  padding: 18px 10px;
+  padding: var(--cd-space-4) var(--cd-space-3);
   overflow-y: auto;
 }
 
@@ -458,7 +458,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   /* Negative offsets pull the 44px tap target back onto the label's optical box. */
-  margin: calc(var(--cd-space-3) * -1) calc(10px * -1) calc(var(--cd-space-3) * -1) 0;
+  margin: calc(var(--cd-space-3) * -1) calc(var(--cd-space-3) * -1) calc(var(--cd-space-3) * -1) 0;
   border: 1px solid transparent;
   border-radius: var(--cd-radius-control);
   background: transparent;
@@ -483,7 +483,7 @@ button:disabled {
   grid-template-columns: 36px minmax(0, 1fr) auto;
   min-height: 62px;
   align-items: center;
-  gap: 10px;
+  gap: var(--cd-space-3);
   margin: var(--cd-space-1) 0;
   padding: var(--cd-space-2) var(--cd-space-2);
   border: 1px solid transparent;
@@ -596,7 +596,7 @@ button:disabled {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: var(--cd-space-3);
   margin-top: auto;
   padding: var(--cd-space-4) var(--cd-space-3);
   border-top: 1px solid var(--cd-line);
@@ -623,12 +623,12 @@ button:disabled {
   flex: 0 0 8px;
   border-radius: 50%;
   background: var(--cd-error);
-  box-shadow: 0 0 0 3px var(--cd-error-tint);
+  box-shadow: 0 0 0 var(--cd-space-1) var(--cd-error-tint);
 }
 
 .wr-presence.is-live {
   background: var(--cd-live);
-  box-shadow: 0 0 0 3px var(--cd-live-tint);
+  box-shadow: 0 0 0 var(--cd-space-1) var(--cd-live-tint);
 }
 
 .wr-room-header {
@@ -638,9 +638,9 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) auto;
   flex: 0 0 auto;
   align-items: center;
-  gap: var(--cd-space-2) 10px;
+  gap: var(--cd-space-2) var(--cd-space-3);
   min-height: 84px;
-  padding: max(10px, env(safe-area-inset-top)) var(--cd-space-3) 10px;
+  padding: max(var(--cd-space-3), env(safe-area-inset-top)) var(--cd-space-3) var(--cd-space-3);
   border-bottom: 1px solid var(--cd-line);
   box-shadow: var(--cd-elevate-panel);
 }
@@ -796,7 +796,7 @@ button:disabled {
 
 .wr-hold-banner {
   text-align: left;
-  box-shadow: inset 3px 0 var(--cd-warn);
+  box-shadow: inset var(--cd-space-1) 0 var(--cd-warn);
 }
 
 /* harn:assume room-action-errors-are-visible ref=room-action-error-style */
@@ -806,7 +806,7 @@ button:disabled {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: var(--cd-space-3);
   min-width: 0;
   padding: var(--cd-space-2) var(--cd-space-3) var(--cd-space-2) var(--cd-space-4);
   border-bottom: 1px solid color-mix(in srgb, var(--cd-error) 38%, transparent);
@@ -880,7 +880,7 @@ button:disabled {
   align-items: center;
   gap: var(--cd-space-2);
   margin: 0 auto;
-  padding: var(--cd-space-1) 10px;
+  padding: var(--cd-space-1) var(--cd-space-3);
   border: 1px solid var(--cd-line);
   border-top: 0;
   border-radius: 0 0 var(--cd-radius-pill) var(--cd-radius-pill);
@@ -912,7 +912,7 @@ button:disabled {
   max-height: 190px;
   flex: 0 0 auto;
   margin: 0 auto;
-  padding: 10px var(--cd-space-3);
+  padding: var(--cd-space-3) var(--cd-space-3);
   overflow-y: auto;
   border: 1px solid var(--cd-line);
   border-top: 0;
@@ -963,9 +963,9 @@ button:disabled {
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--cd-space-4);
   margin: 0 auto;
-  padding: var(--cd-space-5) 18px var(--cd-space-6);
+  padding: var(--cd-space-5) var(--cd-space-4) var(--cd-space-6);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-color: var(--cd-line-strong) transparent;
@@ -1248,7 +1248,7 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: var(--cd-space-2) var(--cd-space-4);
-  margin: 10px var(--cd-space-2) 0 52px;
+  margin: var(--cd-space-3) var(--cd-space-2) 0 52px;
   padding-top: var(--cd-space-2);
   border-top: 1px solid var(--cd-line);
   color: var(--cd-text-muted);
@@ -1373,7 +1373,7 @@ button:disabled {
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: var(--cd-space-3);
 }
 
 .wr-ask-symbol {
@@ -1429,8 +1429,8 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: var(--cd-space-2);
-  padding-right: 10px;
-  padding-left: 10px;
+  padding-right: var(--cd-space-3);
+  padding-left: var(--cd-space-3);
   font: var(--cd-text-ui);
 }
 
@@ -1489,7 +1489,7 @@ button:disabled {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 10px;
+  gap: var(--cd-space-3);
   margin-bottom: var(--cd-space-2);
 }
 
@@ -1738,7 +1738,7 @@ button:disabled {
 .wr-state-attention,
 .wr-state-muted,
 .wr-state-danger {
-  box-shadow: 0 0 0 3px var(--cd-surface-muted);
+  box-shadow: 0 0 0 var(--cd-space-1) var(--cd-surface-muted);
 }
 
 .wr-state-idle {
@@ -2041,7 +2041,7 @@ button:disabled {
   display: flex;
   justify-content: flex-end;
   gap: var(--cd-space-2);
-  margin-top: 18px;
+  margin-top: var(--cd-space-4);
 }
 
 /* harn:assume channel-create-dialog-renders-an-accessible-accent ref=channel-create-style */
@@ -2074,7 +2074,7 @@ button:disabled {
 
 .wr-channel-colors > div {
   display: flex;
-  gap: 10px;
+  gap: var(--cd-space-3);
   margin-top: var(--cd-space-2);
 }
 
@@ -2101,12 +2101,12 @@ button:disabled {
 
 .wr-channel-colors button[aria-pressed='true'] .wr-swatch-fill {
   border-color: var(--cd-text-strong);
-  box-shadow: 0 0 0 2px var(--cd-canvas);
+  box-shadow: 0 0 0 var(--cd-space-1) var(--cd-canvas);
 }
 
 .wr-channel-colors button:focus-visible {
   outline: 2px solid var(--cd-text-strong);
-  outline-offset: 3px;
+  outline-offset: var(--cd-space-1);
 }
 
 .wr-folder-field {
@@ -2128,7 +2128,7 @@ button:disabled {
 .wr-starting-agent {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
+  gap: var(--cd-space-3);
 }
 
 .wr-folder-picker {
@@ -2138,7 +2138,7 @@ button:disabled {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  padding: 18px;
+  padding: var(--cd-space-4);
   overflow: hidden;
   background: var(--cd-surface-raised);
 }
@@ -2166,7 +2166,7 @@ button:disabled {
 }
 
 .wr-folder-breadcrumb button {
-  min-height: 32px;
+  min-height: 44px;
   padding: 0 var(--cd-space-1);
   color: var(--cd-text-strong);
   font: var(--cd-text-caption);
@@ -2188,7 +2188,7 @@ button:disabled {
 
 .wr-folder-row {
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
   padding: 0 var(--cd-space-2);
   border-bottom: 1px solid var(--cd-line);
   color: var(--cd-text-strong);
@@ -2254,7 +2254,7 @@ button:disabled {
 }
 
 .wr-preset-list button {
-  min-height: 34px;
+  min-height: 44px;
   padding: 0 var(--cd-space-3);
   border: 1px solid var(--cd-line-strong);
   border-radius: var(--cd-radius-control);
@@ -2277,7 +2277,7 @@ button:disabled {
 
 .wr-approval-hint {
   margin: var(--cd-space-3) 0 0;
-  padding: var(--cd-space-2) 10px;
+  padding: var(--cd-space-2) var(--cd-space-3);
   border-left: 2px solid var(--cd-warn);
   background: color-mix(in srgb, var(--cd-warn) 8%, transparent);
   color: var(--cd-text-secondary);
@@ -4185,7 +4185,7 @@ button:disabled {
 .wr-run-event-list li {
   grid-template-columns: 24px minmax(0, 1fr) auto;
   gap: 10px;
-  min-height: 42px;
+  min-height: 44px;
   align-items: center;
   padding: 8px 0;
 }
@@ -4195,7 +4195,7 @@ button:disabled {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--cd-space-1);
 }
 
 .wr-run-row-copy code {
@@ -4209,7 +4209,7 @@ button:disabled {
   min-width: 62px;
   align-items: center;
   justify-content: flex-end;
-  gap: 5px;
+  gap: var(--cd-space-1);
   color: var(--cd-text-muted);
   font: var(--cd-text-caption);
   white-space: nowrap;
@@ -4230,7 +4230,7 @@ button:disabled {
 .wr-run-event-list .wr-run-prose {
   display: block;
   min-height: 0;
-  padding: 8px 0 10px 34px;
+  padding: var(--cd-space-2) 0 var(--cd-space-3) 34px;
 }
 
 .wr-run-prose p {
@@ -4243,9 +4243,9 @@ button:disabled {
 
 .wr-run-earlier {
   display: inline-flex;
-  min-height: 32px;
+  min-height: 44px;
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: var(--cd-space-1);
   color: var(--cd-text-secondary);
   font: var(--cd-text-caption);
 }
@@ -4262,12 +4262,23 @@ button:disabled {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) auto;
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0;
+  gap: var(--cd-space-3);
+  padding: var(--cd-space-2) 0;
   color: inherit;
   text-align: left;
+  /* The row divider lives on the button, whose border-box 44px target absorbs the 1px
+     so the tool row stays exactly 44 (button >=44 target AND row <=44 one-line both hold). */
+  border-bottom: 1px solid var(--cd-line);
+}
+
+/* The tool row's own <li> drops its divider (the button carries it); prose rows keep theirs. */
+.wr-run-event-list li[data-row-kind="tool"] {
+  border-bottom: 0;
+}
+.wr-run-event-list li:last-child > .wr-run-row-button {
+  border-bottom: 0;
 }
 
 .wr-run-row-button:hover,
@@ -4277,7 +4288,7 @@ button:disabled {
 
 .wr-run-row-button:focus-visible {
   outline: 2px solid var(--cd-text-secondary);
-  outline-offset: -2px;
+  outline-offset: calc(var(--cd-space-1) * -1);
 }
 
 .wr-run-context {
@@ -4288,7 +4299,7 @@ button:disabled {
 
 .wr-inspector-evidence {
   min-height: 0;
-  padding-top: 14px;
+  padding-top: var(--cd-space-4);
 }
 
 .wr-inspector-output,
@@ -4304,7 +4315,7 @@ button:disabled {
 }
 
 .wr-inspector-output {
-  padding: 10px;
+  padding: var(--cd-space-3);
   border: 1px solid var(--cd-line);
   background: var(--cd-surface-raised);
 }
@@ -4314,8 +4325,8 @@ button:disabled {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding-bottom: 10px;
+  gap: var(--cd-space-2);
+  padding-bottom: var(--cd-space-3);
   color: var(--cd-text-secondary);
   font: var(--cd-text-caption);
 }
@@ -4328,7 +4339,7 @@ button:disabled {
 }
 
 .wr-inspector-diff pre {
-  padding: 10px 0;
+  padding: var(--cd-space-3) 0;
   border-top: 1px solid var(--cd-line);
   border-bottom: 1px solid var(--cd-line);
   background: var(--cd-surface-raised);
@@ -4337,7 +4348,7 @@ button:disabled {
 .wr-inspector-diff pre span {
   display: block;
   min-width: max-content;
-  padding: 0 10px;
+  padding: 0 var(--cd-space-3);
 }
 
 .wr-diff-line-add {
@@ -4518,7 +4529,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--cd-line);
-  border-radius: 4px;
+  border-radius: var(--cd-radius-pill);
   background: transparent;
   color: var(--cd-text-secondary);
 }
@@ -4536,10 +4547,10 @@ button:disabled {
   bottom: calc(100% + 8px);
   left: 0;
   max-height: 240px;
-  padding: 5px;
+  padding: var(--cd-space-1);
   overflow-y: auto;
   border: 1px solid var(--cd-line-strong);
-  border-radius: 6px;
+  border-radius: var(--cd-radius-pill);
   background: var(--cd-surface-raised);
   box-shadow: var(--cd-elevate-float);
 }
@@ -4550,10 +4561,10 @@ button:disabled {
   min-height: 44px;
   grid-template-columns: minmax(90px, auto) minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  padding: 7px 9px;
+  gap: var(--cd-space-3);
+  padding: var(--cd-space-2) var(--cd-space-2);
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--cd-radius-pill);
   background: transparent;
   color: var(--cd-text-strong);
   text-align: left;
@@ -4579,11 +4590,11 @@ button:disabled {
 }
 
 .wr-mention-popup > p {
-  padding: 10px;
+  padding: var(--cd-space-3);
 }
 
 .wr-composer-commentary-hint {
-  margin: 6px 2px 0;
+  margin: var(--cd-space-2) var(--cd-space-1) 0;
   color: var(--cd-text-secondary);
   font: var(--cd-text-caption);
 }
@@ -5769,7 +5780,7 @@ button:disabled {
 }
 
 .wr-run-status {
-  gap: 4px;
+  gap: var(--cd-space-1);
 }
 
 .wr-shimmer {
@@ -5785,15 +5796,15 @@ button:disabled {
   content: '';
   pointer-events: none;
   transform: translateX(-110%);
-  animation: wr-shimmer-wave 1.6s var(--cd-ease-standard) infinite;
+  animation: wr-shimmer-wave var(--cd-motion-slow) var(--cd-ease-standard) infinite;
 }
 
 .wr-ack-line {
   display: flex;
   min-height: 38px;
   align-items: center;
-  gap: 7px;
-  padding: 8px 16px;
+  gap: var(--cd-space-2);
+  padding: var(--cd-space-2) var(--cd-space-4);
   border-bottom: 1px solid color-mix(in srgb, var(--cd-line) 72%, transparent);
   color: var(--cd-text-secondary);
   font: var(--cd-text-caption);
@@ -5810,11 +5821,11 @@ button:disabled {
 .wr-manual-pairing {
   display: grid;
   width: min(100%, 460px);
-  gap: 10px;
+  gap: var(--cd-space-3);
 }
 
 .wr-manual-pairing .wr-field-label {
-  margin-top: 2px;
+  margin-top: var(--cd-space-1);
 }
 
 .wr-manual-pairing code {
@@ -5827,7 +5838,7 @@ button:disabled {
 }
 
 .wr-progress-icon {
-  animation: wr-spin 1s linear infinite;
+  animation: wr-spin var(--cd-motion-slow) var(--cd-ease-standard) infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -5836,7 +5847,7 @@ button:disabled {
   }
 
   .wr-shimmer {
-    box-shadow: inset 2px 0 var(--cd-text-secondary);
+    box-shadow: inset var(--cd-space-1) 0 var(--cd-text-secondary);
   }
 
   .wr-shimmer::after {
@@ -6068,18 +6079,18 @@ button:disabled {
      the content box and shaved the right-hand characters off every line. */
   margin-left: 0;
   margin-right: 0;
-  margin-top: 0.5rem;
-  padding: 0.6rem 0.7rem;
-  border-radius: 0.5rem;
+  margin-top: var(--cd-space-2);
+  padding: var(--cd-space-2) var(--cd-space-3);
+  border-radius: var(--cd-radius-pill);
   /* The command is body-readable but monospace; the composite gives it a >=14px floor. */
   font: var(--cd-text-body);
   font-family: var(--cd-font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  background: rgb(0 0 0 / 0.18);
+  background: color-mix(in srgb, var(--cd-text-strong) 18%, transparent);
 }
 .wr-ask-answered {
-  margin-top: 0.4rem;
+  margin-top: var(--cd-space-2);
   font: var(--cd-text-caption);
   opacity: 0.75;
 }
@@ -6090,7 +6101,7 @@ button:disabled {
   .wr-ask-actions {
     display: flex;
     flex-direction: column;
-    gap: 0.45rem;
+    gap: var(--cd-space-2);
   }
   .wr-ask-actions > .wr-ask-option {
     width: 100%;
@@ -6098,11 +6109,6 @@ button:disabled {
     justify-content: center;
   }
 }
-@media (prefers-color-scheme: dark) {
-  .wr-ask-heading > div > strong { color: #f6e7c1; }
-}
-:root[data-theme='dark'] .wr-ask-heading > div > strong { color: #f6e7c1; }
-:root[data-theme='light'] .wr-ask-heading > div > strong { color: #3b2a05; }
 /* harn:end interaction-cards-stay-readable-on-phone */
 
 /* harn:assume compact-one-line-tool-rows ref=compact-run-row-style */
@@ -6122,8 +6128,8 @@ button:disabled {
 }
 @media (max-width: 767px) {
   .wr-run-row-button {
-    padding-top: 0.25rem;
-    padding-bottom: 0.25rem;
+    padding-top: var(--cd-space-1);
+    padding-bottom: var(--cd-space-1);
   }
 }
 /* harn:end compact-one-line-tool-rows */
@@ -6148,9 +6154,9 @@ textarea.wr-composer-control {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
+  gap: var(--cd-space-1);
   margin: auto;
-  padding: 2.5rem 1rem;
+  padding: var(--cd-space-6) var(--cd-space-4);
   text-align: center;
   color: var(--cd-text-secondary);
 }
@@ -6158,7 +6164,7 @@ textarea.wr-composer-control {
   color: var(--cd-text-strong);
 }
 .wr-timeline-state.is-quiet {
-  padding: 0.75rem;
+  padding: var(--cd-space-3);
 }
 .wr-timeline.is-offline {
   opacity: 0.55;
@@ -6174,26 +6180,26 @@ textarea.wr-composer-control {
   width: min(22rem, calc(100vw - 1.5rem));
   max-height: 60vh;
   overflow-y: auto;
-  padding: 0.6rem;
+  padding: var(--cd-space-2);
   border: 1px solid var(--cd-line);
-  border-radius: 0.7rem;
+  border-radius: var(--cd-radius-control);
   background: var(--cd-surface-raised, var(--cd-surface));
-  box-shadow: 0 12px 32px rgb(0 0 0 / 0.28);
+  box-shadow: var(--cd-elevate-float);
 }
 .wr-inbox-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.35rem;
+  margin-bottom: var(--cd-space-1);
 }
 .wr-inbox-item {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: var(--cd-space-1);
   width: 100%;
   min-height: 44px;
-  padding: 0.45rem 0.5rem;
-  border-radius: 0.5rem;
+  padding: var(--cd-space-2) var(--cd-space-2);
+  border-radius: var(--cd-radius-pill);
   text-align: left;
   cursor: pointer;
 }
@@ -6203,7 +6209,7 @@ textarea.wr-composer-control {
 .wr-inbox-item-head {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: var(--cd-space-1);
   font: var(--cd-text-caption);
 }
 .wr-inbox-item-prompt {
@@ -6216,7 +6222,7 @@ textarea.wr-composer-control {
 /* The card the operator was sent to must be obvious when they land on it. */
 .wr-ask-card:target {
   outline: 2px solid var(--cd-text-secondary);
-  outline-offset: 2px;
+  outline-offset: var(--cd-space-1);
 }
 /* harn:end the-inbox-opens-what-needs-you */
 
@@ -6234,7 +6240,7 @@ textarea.wr-composer-control {
    live marker can no longer BE the fill. It becomes a ring around it, which reads
    over any accent. */
 .wr-room-dot.is-live {
-  box-shadow: 0 0 0 2px var(--cd-surface), 0 0 0 4px currentColor;
+  box-shadow: 0 0 0 var(--cd-space-1) var(--cd-surface), 0 0 0 var(--cd-space-2) currentColor;
 }
 /* harn:end every-channel-has-a-visible-accent */
 
@@ -6256,7 +6262,7 @@ textarea.wr-composer-control {
    the agent may do to the operator's machine. It gets room to say so. */
 .wr-policy-row {
   display: grid;
-  gap: 8px;
+  gap: var(--cd-space-2);
   grid-template-columns: repeat(3, 1fr);
 }
 
@@ -6271,10 +6277,10 @@ textarea.wr-composer-control {
   min-height: 44px;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  padding: 10px 12px;
+  gap: var(--cd-space-1);
+  padding: var(--cd-space-3) var(--cd-space-3);
   border: 1px solid var(--cd-line);
-  border-radius: 8px;
+  border-radius: var(--cd-radius-pill);
   background: var(--cd-surface-muted);
   text-align: left;
 }
@@ -6305,7 +6311,7 @@ textarea.wr-composer-control {
 
 .wr-policy-warning {
   display: block;
-  margin-top: 8px;
+  margin-top: var(--cd-space-2);
   color: var(--cd-warn);
 }
 /* harn:end one-control-chooses-an-agent-everywhere */
@@ -6313,11 +6319,11 @@ textarea.wr-composer-control {
 /* harn:assume member-config-is-changed-not-respawned ref=member-card-settings */
 .wr-member-settings {
   display: grid;
-  margin-top: 10px;
-  gap: 10px;
-  padding: 12px;
+  margin-top: var(--cd-space-3);
+  gap: var(--cd-space-3);
+  padding: var(--cd-space-3);
   border: 1px solid var(--cd-line);
-  border-radius: 8px;
+  border-radius: var(--cd-radius-pill);
   background: var(--cd-surface-muted);
 }
 
@@ -6341,11 +6347,11 @@ textarea.wr-composer-control {
 /* harn:assume removing-an-agent-is-one-deliberate-step ref=remove-member-control */
 .wr-remove-confirm {
   display: grid;
-  margin-top: 10px;
-  gap: 10px;
-  padding: 12px;
+  margin-top: var(--cd-space-3);
+  gap: var(--cd-space-3);
+  padding: var(--cd-space-3);
   border: 1px solid color-mix(in srgb, var(--cd-error) 45%, transparent);
-  border-radius: 8px;
+  border-radius: var(--cd-radius-pill);
   background: color-mix(in srgb, var(--cd-error) 8%, var(--cd-surface));
 }
 
@@ -6390,7 +6396,7 @@ textarea.wr-composer-control {
 }
 
 .wr-run-heading.is-waiting {
-  border-radius: 6px;
+  border-radius: var(--cd-radius-pill);
   background: linear-gradient(
     100deg,
     transparent,
@@ -6408,7 +6414,7 @@ textarea.wr-composer-control {
   min-height: 30px;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: var(--cd-space-2);
   color: var(--cd-text-muted);
   font: var(--cd-text-caption);
   text-align: center;
@@ -6426,7 +6432,7 @@ textarea.wr-composer-control {
 .wr-live-activity > span {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: var(--cd-space-1);
   white-space: nowrap;
 }
 
@@ -6439,7 +6445,7 @@ textarea.wr-composer-control {
 }
 
 .wr-live-activity i {
-  margin-right: 4px;
+  margin-right: var(--cd-space-1);
   color: var(--cd-line-strong);
   font-style: normal;
 }
@@ -6447,7 +6453,7 @@ textarea.wr-composer-control {
 @media (max-width: 720px) {
   .wr-live-activity {
     flex-wrap: wrap;
-    padding: 3px 8px;
+    padding: var(--cd-space-1) var(--cd-space-2);
   }
 
   .wr-live-activity::before,

@@ -1,80 +1,182 @@
 id: p3c1-guard-and-floors
-title: V5 P3 closure 1/4 - a genuinely closed, property-scoped CSS/TSX token guard,
-  the complete tokenisation of every raw value the real guard catches (17 dirty
-  regions, not 12), the closed-className TSX fixes, and the static 44px floors.
-notes: |-
-  First of four review-closure plans. Closes review blocker 1 (the guard is still
-  open) and the CSS half of blocker 2 (sub-44 controls). No codor.service restart.
+title: V5 P3 closure 1/4 - a genuinely closed, property-scoped CSS/TSX token
+  guard, the complete tokenisation of every raw value the real guard catches (17
+  dirty regions, not 12), the closed-className TSX fixes, and the static 44px
+  floors.
+notes: >-
+  First of four review-closure plans. Closes review blocker 1 (the guard is
+  still
 
-  CLOSED CSS GUARD (modeled on the hardened primitive guard in v5/primitives.spec):
+  open) and the CSS half of blocker 2 (sub-44 controls). No codor.service
+  restart.
+
+
+  CLOSED CSS GUARD (modeled on the hardened primitive guard in
+  v5/primitives.spec):
+
   the room detector stops blacklisting bad values and instead CLASSIFIES EVERY
+
   declared property into exactly one discipline - paint / background / paint-
+
   shorthand / shadow / space / radius / type / motion / a closed layout-neutral
-  allowlist - and REJECTS any unclassified property (so a raw colour can never ride
-  in on scrollbar-color, -webkit-tap-highlight-color, caret-color, background-image
+
+  allowlist - and REJECTS any unclassified property (so a raw colour can never
+  ride
+
+  in on scrollbar-color, -webkit-tap-highlight-color, caret-color,
+  background-image
+
   or the like; scrollbar-color and -webkit-tap-highlight-color join paint,
-  scrollbar-width joins layout-neutral). It fixes the five confirmed bypasses of the
+
+  scrollbar-width joins layout-neutral). It fixes the five confirmed bypasses of
+  the
+
   current detector: (1) colour is a CLOSED allowlist (token / safe keyword /
+
   color-mix over tokens), no named-colour blacklist; (2) it RECURSES into
+
   calc/min/max/clamp/env and checks each numeric leaf instead of stripping the
-  function (the room legitimately uses env() for safe-area insets), so a raw 10px
+
+  function (the room legitimately uses env() for safe-area insets), so a raw
+  10px
+
   hidden in calc/max is caught; (3) shadows must be fully token-composed - every
-  offset/blur/spread a 0 or a token and the colour a token, so a raw 2px/3px/12px
-  ring beside a var() token fails; (4) motion rejects raw time in BOTH s and ms, the
-  easing keywords (ease/ease-in/out/in-out/linear/step-start/step-end), steps() and
+
+  offset/blur/spread a 0 or a token and the colour a token, so a raw
+  2px/3px/12px
+
+  ring beside a var() token fails; (4) motion rejects raw time in BOTH s and ms,
+  the
+
+  easing keywords (ease/ease-in/out/in-out/linear/step-start/step-end), steps()
+  and
+
   raw cubic-bezier() unless a --cd-ease-* token; (5) a spacing leaf must be a
-  --cd-space-* token or {0, auto} with NO generic % permission, and any surviving
-  fixed-geometry exception is scoped to a specific SELECTOR + PROPERTY + VALUE (never
-  a blanket set and never merely per-property), and outline-offset is classified as
+
+  --cd-space-* token or {0, auto} with NO generic % permission, and any
+  surviving
+
+  fixed-geometry exception is scoped to a specific SELECTOR + PROPERTY + VALUE
+  (never
+
+  a blanket set and never merely per-property), and outline-offset is classified
+  as
+
   spacing. The full detector runs over EVERY room region (not 3), with
-  negative fixtures for every former bypass (calc-hidden unit, token-bearing shadow
-  ring, raw seconds, easing keyword, steps(), blanket 64px, outline-offset, unknown
+
+  negative fixtures for every former bypass (calc-hidden unit, token-bearing
+  shadow
+
+  ring, raw seconds, easing keyword, steps(), blanket 64px, outline-offset,
+  unknown
+
   property, off-allowlist named colour, colour on scrollbar-color) plus positive
+
   fixtures (color-mix over tokens, max(token, env()), --cd-elevate-* shadow,
+
   tokenised animation).
 
-  REAL DIRTY INVENTORY (closed detector, verified by a throwaway postcss probe that
+
+  REAL DIRTY INVENTORY (closed detector, verified by a throwaway postcss probe
+  that
+
   reproduced the old "12" exactly): 17 dirty, 4 clean. The 4 clean regions
-  (composer-single-row, timeline-row-crush-resistance, control-fits-narrow-surface,
-  effective-mention-style) are reviewed-only. 5 regions FLIP clean->dirty vs the old
-  count, including two the old test claimed to guard: soft-editorial-room-style (37
+
+  (composer-single-row, timeline-row-crush-resistance,
+  control-fits-narrow-surface,
+
+  effective-mention-style) are reviewed-only. 5 regions FLIP clean->dirty vs the
+  old
+
+  count, including two the old test claimed to guard: soft-editorial-room-style
+  (37
+
   offenders incl. calc/max-hidden 10px, four token-bearing 3px shadow rings,
-  outline-offset 2px, unclassified colour props), room-action-error-style (gap 10px),
+
+  outline-offset 2px, unclassified colour props), room-action-error-style (gap
+  10px),
+
   channel-create-style (shadow 2px, outline-offset 3px, spacing/radius),
+
   spawn-dialog-style (padding 10px), channel-accent-rail (token-bearing 2px+4px
-  shadow). Every raw value is resolved to a --cd-* token. Any surviving fixed-geometry
-  exception is scoped to a specific SELECTOR + PROPERTY + VALUE (never a global set,
+
+  shadow). Every raw value is resolved to a --cd-* token. Any surviving
+  fixed-geometry
+
+  exception is scoped to a specific SELECTOR + PROPERTY + VALUE (never a global
+  set,
+
   never merely per-property) and only where the approved fixed shell geometry is
-  explicitly named; other off-scale spacing aligns to the nearest existing --cd-space-*
-  token, and shadow ring widths become a --cd-space-* token. Aligning controls onto the
-  token scale means rendering is NOT byte-identical - MINOR visual alignment shifts on
+
+  explicitly named; other off-scale spacing aligns to the nearest existing
+  --cd-space-*
+
+  token, and shadow ring widths become a --cd-space-* token. Aligning controls
+  onto the
+
+  token scale means rendering is NOT byte-identical - MINOR visual alignment
+  shifts on
+
   those controls are acknowledged rather than claimed away.
 
-  CLOSED TSX GUARD: classFragments/tsxOffenders stop silently skipping non-literal
-  className expressions and emit an offender for a bare identifier, a member/element
+
+  CLOSED TSX GUARD: classFragments/tsxOffenders stop silently skipping
+  non-literal
+
+  className expressions and emit an offender for a bare identifier, a
+  member/element
+
   (map/object) lookup, a call, or a non-literal template span (while explicitly
-  permitting undefined/null empty branches so idiomatic `cond ? 'wr-x' : undefined`
-  passes). The four current hard violations are rewritten to statically inspectable
-  literal branches (EXPLICIT ternary/switch inside the existing anchors - never a
+
+  permitting undefined/null empty branches so idiomatic `cond ? 'wr-x' :
+  undefined`
+
+  passes). The four current hard violations are rewritten to statically
+  inspectable
+
+  literal branches (EXPLICIT ternary/switch inside the existing anchors - never
+  a
+
   class map, indexed lookup, helper call, or moved unanchored constant, since an
+
   indexed map is itself the uninspectable member-access the guard rejects):
-  components.tsx:1142 (MemberRail - an inline ternary over the variant union yielding
-  literal wr-member-rail-* classes, and dropping the open className passthrough for an
+
+  components.tsx:1142 (MemberRail - an inline ternary over the variant union
+  yielding
+
+  literal wr-member-rail-* classes, and dropping the open className passthrough
+  for an
+
   enumerated prop), components.tsx:1436 (run.status - an inline ternary yielding
+
   literal is-* classes),
+
   shell.tsx:543 (tone -> a ternary whose branches are full literal classes),
-  shell.tsx:669 (ContextRail - drop the open className passthrough for an enumerated
+
+  shell.tsx:669 (ContextRail - drop the open className passthrough for an
+  enumerated
+
   prop). Closing the two passthrough props ripples to their literal call sites
+
   (shell.tsx:702, App.tsx:778/879), which switch to the enumerated prop.
 
+
   FLOORS (static, border-box >=44px, visible mark preserved): .wr-run-row-button
+
   42->44 and .wr-run-event-list li 42->44 (the li rule is in unanchored CSS),
+
   .wr-run-earlier 32->44, .wr-folder-row 42->44, .wr-folder-breadcrumb button
+
   32->44, .wr-preset-list button 34->44.
 
-  Gate: build -> test (0 act warnings; the room guard spec is a unit spec with its
+
+  Gate: build -> test (0 act warnings; the room guard spec is a unit spec with
+  its
+
   new negative/positive fixtures) -> e2e -> harn check. p3c2 re-touches
+
   soft-editorial-room-style/-visual-hierarchy after this lands, so this commits
+
   first.
 assumptions:
   create: []
@@ -83,8 +185,8 @@ assumptions:
     - id: web-room-visual-hierarchy-matches-soft-editorial-reference
       outcome: unchanged
       reason: The token guard is closed to one canonical property-scoped policy over
-        every region and the non-literal className hole shut (ContextRail passthrough
-        closed); the soft-editorial contract holds.
+        every region and the non-literal className hole shut (ContextRail
+        passthrough closed); the soft-editorial contract holds.
     - id: room-action-errors-are-visible
       outcome: unchanged
       reason: The error region comes under the closed guard and its raw gap is
@@ -92,22 +194,23 @@ assumptions:
     - id: channel-create-dialog-renders-an-accessible-accent
       outcome: unchanged
       reason: The create-dialog region comes under the closed guard, its raw
-        shadow/spacing/radius tokenised and its folder-row and breadcrumb given a 44px
-        box; the accent projection is unchanged here.
+        shadow/spacing/radius tokenised and its folder-row and breadcrumb given
+        a 44px box; the accent projection is unchanged here.
     - id: web-spawn-dialog-exposes-canonical-agent-controls
       outcome: unchanged
       reason: The spawn region comes under the closed guard, its raw padding tokenised
-        and preset buttons given a 44px box; the member-rail className passthrough is
-        closed to an enumerated prop; the canonical controls are unchanged.
+        and preset buttons given a 44px box; the member-rail className
+        passthrough is closed to an enumerated prop; the canonical controls are
+        unchanged.
     - id: normalized-run-items-presented-live
       outcome: unchanged
       reason: The run-stream region raw spacing is tokenised and .wr-run-earlier given
         a 44px box; live presentation is unchanged.
     - id: normalized-run-evidence-inspector
       outcome: unchanged
-      reason: The inspector region raw spacing is tokenised, .wr-run-row-button given a
-        44px box, and the diff-line tone className closed to literal branches; the
-        inspector contract holds.
+      reason: The inspector region raw spacing is tokenised, .wr-run-row-button given
+        a 44px box, and the diff-line tone className closed to literal branches;
+        the inspector contract holds.
     - id: literal-draft-effective-recipient-visible
       outcome: unchanged
       reason: The composer-popup region raw radii and spacing are tokenised; recipient
@@ -138,16 +241,16 @@ assumptions:
         contract holds.
     - id: every-channel-has-a-visible-accent
       outcome: unchanged
-      reason: The accent-rail region comes under the closed guard and its token-bearing
-        shadow ring widths are tokenised; the accent is unchanged.
+      reason: The accent-rail region comes under the closed guard and its
+        token-bearing shadow ring widths are tokenised; the accent is unchanged.
     - id: timeline-rows-are-never-crushed-v5
       outcome: unchanged
       reason: The timeline-row region comes under the closed guard and carries only
         flex-shrink; crush resistance is unchanged.
     - id: one-control-chooses-an-agent-everywhere
       outcome: unchanged
-      reason: The shared-policy region raw spacing and radius are tokenised; the shared
-        control stays canonical.
+      reason: The shared-policy region raw spacing and radius are tokenised; the
+        shared control stays canonical.
     - id: member-config-is-changed-not-respawned
       outcome: unchanged
       reason: The member-card region raw spacing and radius are tokenised; config
@@ -158,29 +261,29 @@ assumptions:
         one-step removal is unchanged.
     - id: controls-fit-the-surface-they-sit-on
       outcome: unchanged
-      reason: The narrow-surface region comes under the closed guard and is token-clean;
-        containment is unchanged.
+      reason: The narrow-surface region comes under the closed guard and is
+        token-clean; containment is unchanged.
     - id: web-waits-are-visible-across-live-surfaces-v5
       outcome: unchanged
-      reason: The live-collaboration region raw radius and spacing are tokenised and the
-        run-status pill className closed to a literal is-* map; wait visibility is
-        unchanged.
+      reason: The live-collaboration region raw radius and spacing are tokenised and
+        the run-status pill className closed to a literal is-* map; wait
+        visibility is unchanged.
     - id: posted-message-mentions-alone-look-effective
       outcome: unchanged
       reason: The effective-mention region comes under the closed guard and is
         token-clean; effective mentions are unchanged.
     - id: run-context-selects-and-follows-live-evidence
       outcome: unchanged
-      reason: The context-rail className passthrough is closed to an enumerated prop and
-        its call site updated; live-evidence selection is unchanged.
+      reason: The context-rail className passthrough is closed to an enumerated prop
+        and its call site updated; live-evidence selection is unchanged.
     - id: human-facing-surfaces-call-rooms-channels
       outcome: unchanged
-      reason: The App ContextRail call-site edits fall inside this coextensive App return
-        anchor; channel terminology is unchanged.
+      reason: The App ContextRail call-site edits fall inside this coextensive App
+        return anchor; channel terminology is unchanged.
     - id: roles-gate-human-acts-not-agents
       outcome: unchanged
-      reason: The App ContextRail call-site edits fall inside this coextensive App return
-        anchor; role gating is unchanged.
+      reason: The App ContextRail call-site edits fall inside this coextensive App
+        return anchor; role gating is unchanged.
 files:
   - packages/web/src/room-style.spec.ts
   - packages/web/src/styles.css
@@ -191,17 +294,18 @@ anchors:
   web-room-visual-hierarchy-matches-soft-editorial-reference:
     soft-editorial-room-token-discipline:
       action: change
-      reason: Replace the leaky detector with a closed property-scoped policy over every
-        region (classify-and-reject, closed colour allowlist, calc/env leaf recursion,
-        fully-token shadows, s+ms+easing motion, per-property spacing), close the
-        non-literal className hole (permitting undefined/null branches), and add the
-        negative/positive fixtures.
+      reason: Replace the leaky detector with a closed property-scoped policy over
+        every region (classify-and-reject, closed colour allowlist, calc/env
+        leaf recursion, fully-token shadows, s+ms+easing motion, per-property
+        spacing), close the non-literal className hole (permitting
+        undefined/null branches), and add the negative/positive fixtures.
     soft-editorial-room-style:
       action: change
-      reason: Tokenise the 37 offenders the closed guard surfaces (calc/max-hidden 10px,
-        four token-bearing 3px shadow rings, outline-offset, blanket spacing) and
-        classify scrollbar-color/-webkit-tap-highlight-color/scrollbar-width; the
-        nested channel-create and spawn edits also fall inside this region.
+      reason: Tokenise the 37 offenders the closed guard surfaces (calc/max-hidden
+        10px, four token-bearing 3px shadow rings, outline-offset, blanket
+        spacing) and classify
+        scrollbar-color/-webkit-tap-highlight-color/scrollbar-width; the nested
+        channel-create and spawn edits also fall inside this region.
     soft-editorial-room-visual-hierarchy:
       action: change
       reason: Update the two ContextRail call sites (App.tsx) to the enumerated
@@ -213,8 +317,8 @@ anchors:
   channel-create-dialog-renders-an-accessible-accent:
     channel-create-style:
       action: change
-      reason: Tokenise the raw shadow/spacing/radius the closed guard surfaces and raise
-        .wr-folder-row and .wr-folder-breadcrumb button to a 44px box.
+      reason: Tokenise the raw shadow/spacing/radius the closed guard surfaces and
+        raise .wr-folder-row and .wr-folder-breadcrumb button to a 44px box.
   web-spawn-dialog-exposes-canonical-agent-controls:
     spawn-dialog-style:
       action: change
@@ -283,13 +387,13 @@ anchors:
       reason: Tokenise raw radius and spacing.
     waiting-run-header:
       action: change
-      reason: Close the run-status pill className to an inline literal is-* ternary (no
-        class map).
+      reason: Close the run-status pill className to an inline literal is-* ternary
+        (no class map).
   run-context-selects-and-follows-live-evidence:
     selected-live-run-context:
       action: change
-      reason: Close the ContextRail className passthrough to an enumerated placement prop
-        and update its call site.
+      reason: Close the ContextRail className passthrough to an enumerated placement
+        prop and update its call site.
   human-facing-surfaces-call-rooms-channels:
     web-channel-terminology:
       action: change
@@ -300,3 +404,5 @@ anchors:
       action: change
       reason: Touched as an outer coextensive App return anchor over the ContextRail
         call-site update.
+applied:
+  applied_at: 2026-07-15T16:40:10.766Z

@@ -775,7 +775,7 @@ export function App(props: {
           onView={setContextView}
           room={ROOM}
           token={accessToken()}
-          className="wr-context-desktop"
+          placement="desktop"
           canManageAgents={canManageAgents}
         />
       </div>
@@ -876,7 +876,7 @@ export function App(props: {
               room={ROOM}
               token={accessToken()}
               testId="context-sheet"
-              className="wr-context-panel"
+              placement="sheet"
               canManageAgents={canManageAgents}
             />
           </section>

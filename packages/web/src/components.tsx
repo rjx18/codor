@@ -1118,7 +1118,7 @@ export function MemberRail(props: {
   adapters: AdapterRegistration[];
   connection: Connection;
   variant?: 'rail' | 'context' | 'drawer';
-  className?: string;
+  fill?: boolean;
   canManageAgents?: boolean;
 }) {
   const variant = props.variant ?? 'rail';
@@ -1139,7 +1139,16 @@ export function MemberRail(props: {
   }, [firstAgentId, selectedMemberId, visibleMembers]);
 
   return (
-    <aside aria-label="Members" className={`wr-member-rail wr-member-rail-${variant} ${props.className ?? ''}`}>
+    <aside
+      aria-label="Members"
+      className={`wr-member-rail ${
+        variant === 'context'
+          ? 'wr-member-rail-context'
+          : variant === 'drawer'
+            ? 'wr-member-rail-drawer'
+            : 'wr-member-rail-rail'
+      } ${props.fill ? 'wr-fill-height' : ''}`}
+    >
       <div className="wr-member-rail-heading">
         <div className="wr-rail-label"><span>Members</span><span>{visibleMembers.filter((m) => m.kind !== 'system').length}</span></div>
         {(props.canManageAgents ?? true) && (
@@ -1433,7 +1442,18 @@ export function RunMessageView(props: {
           <span className="wr-run-identity">
             <strong>@{props.authorHandle}</strong>
           </span>
-          <span className={`wr-run-status is-${run.status}`} data-testid={`run-${props.message.id}-status`}>
+          <span
+            className={
+              run.status === 'completed'
+                ? 'wr-run-status is-completed'
+                : run.status === 'failed'
+                  ? 'wr-run-status is-failed'
+                  : run.status === 'interrupted'
+                    ? 'wr-run-status is-interrupted'
+                    : 'wr-run-status is-running'
+            }
+            data-testid={`run-${props.message.id}-status`}
+          >
             {waiting ? (
               <>
                 <Hourglass aria-hidden="true" size={13} />
