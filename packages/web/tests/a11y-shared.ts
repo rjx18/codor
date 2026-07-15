@@ -1,7 +1,8 @@
 import { expect, type Page } from '@playwright/test';
 
-import { CONTROL } from './ports.js';
+import { BASE, CONTROL } from './ports.js';
 
+export { BASE };
 export const ROOM = '/?room=eng&token=e2e-token';
 
 export async function control(path: string, body: unknown = {}): Promise<void> {
@@ -30,10 +31,9 @@ export async function scan(page: Page): Promise<string[]> {
   );
 }
 
-async function open(page: Page, theme: string, url = ROOM): Promise<void> {
-  await page.addInitScript((t) => {
-    localStorage.setItem('codor-theme', t);
-  }, theme);
+async function open(page: Page, url = ROOM): Promise<void> {
+  // No addInitScript here: the theme is installed once by the caller before the first
+  // navigation, and same-origin localStorage persists across every goto that follows.
   await page.goto(url);
 }
 
@@ -43,13 +43,22 @@ async function open(page: Page, theme: string, url = ROOM): Promise<void> {
  * close the removal confirmation or the create dialog behind the folder picker. Returns
  * every violation found, tagged by state.
  */
-export async function sweepRoomStates(page: Page, theme: string): Promise<string[]> {
+export async function sweepRoomStates(page: Page, theme: 'light' | 'dark'): Promise<string[]> {
+  // One init script for the whole sweep. It fires on every navigation and sets the same
+  // value, so nothing accumulates and nothing depends on init-script order.
+  await page.addInitScript((t) => {
+    localStorage.setItem('codor-theme', t);
+  }, theme);
+
   const found: string[] = [];
   const record = async (state: string): Promise<void> => {
+    // Prove the document is actually in the theme this scan is recorded under - the label
+    // must reflect the rendered page, not a loop variable.
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
     for (const v of await scan(page)) found.push(`${theme}/${state}: ${v}`);
   };
 
-  await open(page, theme);
+  await open(page);
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await record('room:baseline');
 
@@ -102,13 +111,13 @@ export async function sweepRoomStates(page: Page, theme: string): Promise<string
   await page.evaluate(() => window.__codor.reconnect());
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
 
-  await open(page, theme, '/?room=eng&token=e2e-observer-token');
+  await open(page, '/?room=eng&token=e2e-observer-token');
   await expect(page.getByTestId('read-only-room')).toBeVisible();
   await record('room:read-only');
 
   // Mobile.
   await page.setViewportSize({ width: 390, height: 844 });
-  await open(page, theme);
+  await open(page);
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await page.getByTestId('open-room-drawer').click();
   await expect(page.getByTestId('room-drawer')).toBeVisible();
@@ -122,7 +131,7 @@ export async function sweepRoomStates(page: Page, theme: string): Promise<string
 
   // Ledger: docked inspector, overlay inspector, and the note dialog.
   await control('/ledger-graph-init');
-  await open(page, theme, '/ledger?room=eng&token=e2e-token');
+  await open(page, '/ledger?room=eng&token=e2e-token');
   await expect(page.getByTestId('ledger-graph-surface')).toBeVisible();
   await page.getByTestId('ledger-node-launch-plan').click();
   await record('ledger:docked');
@@ -133,7 +142,7 @@ export async function sweepRoomStates(page: Page, theme: string): Promise<string
   await page.setViewportSize({ width: 1440, height: 900 });
 
   await control('/ledger-init');
-  await open(page, theme);
+  await open(page);
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await page.getByTestId('ledger-ref-risk-limits').first().click();
   await expect(page.getByTestId('ledger-note-dialog')).toBeVisible();
@@ -143,7 +152,7 @@ export async function sweepRoomStates(page: Page, theme: string): Promise<string
 
   // The inbox needs something waiting in it.
   await control('/seed-history');
-  await open(page, theme);
+  await open(page);
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await record('room:history+ask');
   await page.getByTestId('inbox-badge').click();
@@ -151,12 +160,12 @@ export async function sweepRoomStates(page: Page, theme: string): Promise<string
   await record('room:inbox');
 
   for (const section of ['appearance', 'notifications', 'brakes', 'relay', 'devices', 'privacy']) {
-    await open(page, theme, `/settings?room=eng&token=e2e-token#${section}`);
+    await open(page, `/settings?room=eng&token=e2e-token#${section}`);
     await expect(page.getByTestId('settings-page')).toBeVisible();
     await record(`settings:${section}`);
   }
 
-  await open(page, theme, '/pair');
+  await open(page, '/pair');
   await expect(page.getByTestId('pairing-page')).toBeVisible();
   await record('pairing');
 

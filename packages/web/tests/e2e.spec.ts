@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { CONTROL } from './ports.js';
+import { BASE, CONTROL } from './ports.js';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -649,33 +649,41 @@ test('restrained room keeps matte panes, sparse glass, and a pinned latest turn 
 // harn:end web-room-visual-hierarchy-matches-restrained-reference
 
 // harn:assume web-first-run-color-mode-is-light ref=light-first-theme-regression
-test('the head script resolves the theme before the entry module runs, on every branch', async ({ page }) => {
-  // Block the entry module entirely, so what we observe is the FIRST paint - the head
-  // script alone. If the head script were absent, main.tsx would never run here and the
-  // attribute would depend only on the CSS media query, catching any prepaint flash.
-  await page.route('**/src/main.tsx', (route) => route.abort());
-  await page.route('**/assets/*.js', (route) => route.abort());
-
-  // Each branch: seed storage + OS preference before navigation, read the html attribute
-  // and the resolved colour-scheme at first paint.
+test('the head script resolves the theme before the entry module runs, on every branch', async ({ browser }) => {
+  // Each branch gets its OWN fresh context: init scripts and localStorage accumulate
+  // across navigations with undefined evaluation order, so a shared page would let one
+  // branch's storage setter run inside another. A fresh context inherits no fixture
+  // options either, so baseURL and the viewport are passed explicitly.
   const resolve = async (
     stored: string | null,
     os: 'dark' | 'light',
+    initScript?: () => void,
   ): Promise<{ attr: string | null; scheme: string }> => {
-    await page.emulateMedia({ colorScheme: os });
-    await page.addInitScript((value) => {
-      try {
+    const context = await browser.newContext({
+      baseURL: BASE,
+      viewport: { width: 1440, height: 900 },
+      colorScheme: os,
+    });
+    const page = await context.newPage();
+    // Block the entry module, so what we observe is the FIRST paint - the head script
+    // alone. Without it, the attribute would depend only on the CSS media query, catching
+    // any prepaint flash.
+    await page.route('**/src/main.tsx', (route) => route.abort());
+    await page.route('**/assets/*.js', (route) => route.abort());
+    if (initScript) await page.addInitScript(initScript);
+    else {
+      await page.addInitScript((value) => {
         if (value === null) localStorage.removeItem('codor-theme');
         else localStorage.setItem('codor-theme', value);
-      } catch {
-        /* the throwing-storage branch drives this from the page instead */
-      }
-    }, stored);
+      }, stored);
+    }
     await page.goto('/?room=eng&token=e2e-token');
-    return page.evaluate(() => ({
+    const result = await page.evaluate(() => ({
       attr: document.documentElement.getAttribute('data-theme'),
       scheme: getComputedStyle(document.documentElement).colorScheme,
     }));
+    await context.close();
+    return result;
   };
 
   // Missing choice on a dark OS resolves to light.
@@ -688,20 +696,18 @@ test('the head script resolves the theme before the entry module runs, on every 
   expect(await resolve('system', 'dark')).toEqual({ attr: null, scheme: 'dark' });
   // Invalid stored value on a dark OS resolves to light.
   expect(await resolve('chartreuse', 'dark')).toEqual({ attr: 'light', scheme: 'light' });
-
   // Throwing storage resolves to light: make getItem throw before the head script runs.
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await page.addInitScript(() => {
-    const proto = Object.getPrototypeOf(window.localStorage) as Storage;
-    Object.defineProperty(proto, 'getItem', {
-      configurable: true,
-      value: () => {
-        throw new Error('storage unavailable');
-      },
-    });
-  });
-  await page.goto('/?room=eng&token=e2e-token');
-  expect(await page.evaluate(() => document.documentElement.getAttribute('data-theme'))).toBe('light');
+  expect(
+    await resolve(null, 'dark', () => {
+      const proto = Object.getPrototypeOf(window.localStorage) as Storage;
+      Object.defineProperty(proto, 'getItem', {
+        configurable: true,
+        value: () => {
+          throw new Error('storage unavailable');
+        },
+      });
+    }),
+  ).toMatchObject({ attr: 'light' });
 });
 // harn:end web-first-run-color-mode-is-light
 
