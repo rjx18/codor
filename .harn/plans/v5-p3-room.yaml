@@ -1,0 +1,895 @@
+id: v5-p3-room
+title: >-
+  V5 Phase 3 - THE ROOM. The atomic soft-editorial redesign of the room shell,
+  conversation timeline and context rail, the accessible culori accent
+  projection, and the 43-utility Tailwind migration, wiring the shipped v5
+  primitives and presentation model into every live surface at once.
+notes: >-
+  Atomic phase: the room ships as one commit because Harn truth must match the
+  shipped UI, so there is no partial landing.
+
+  Operational constraint: NEVER restart the shared Codor backend (codor.service)
+  during this phase - it kills every agent in the channel, worker included; only
+  isolated per-spec e2e test daemons may run. Exact gate commands, in order, all
+  green: `pnpm --filter @codor/web build` (runs tsc --noEmit then vite build) ->
+  `pnpm --filter @codor/web test` -> `pnpm --filter @codor/web e2e` -> `harn
+  check v5-p3-room`. culori is pinned as a production dependency at ^4.0.2 (MIT),
+  added to dependencies not devDependencies, imported tree-shakeably, with
+  pnpm-lock.yaml recording the exact resolved version, the license recorded, and
+  the bundle/build verified.
+
+  Acceptance:
+  - Zero React act warnings across the FULL unit run; the migrated wait test and
+    every new components.spec.tsx block set and restore IS_REACT_ACT_ENVIRONMENT
+    locally.
+  - Zero palette utilities: `grep -oE '(zinc|sky|emerald|red)-[0-9]{2,3}'
+    packages/web/src/components.tsx | wc -l` is 0 (down from 43) - necessary but
+    NOT sufficient.
+  - A CLOSED structural room-token guard over the migrated regions of App.tsx,
+    shell.tsx, components.tsx and styles.css: no palette or off-token
+    presentation utility (text-white, bg-black, and arbitrary text-[...] or any
+    bracket utility included), no legacy --wr-* token in the v5 room region, and
+    tokenized colour, type, spacing, line-height, radius, elevation and motion;
+    only the projected accent and a closed geometry set are allowed as runtime
+    data styles.
+  - Responsive geometry, corrected: single column plus drawer below 1024,
+    two-pane from 1024 to 1359, and three-pane at and above 1360 (a two-to-three
+    transition); the 720 content breakpoint unframes the ordinary message, run
+    and tool surfaces. Assert the boundaries at 719/720, 1023/1024 and 1359/1360,
+    and
+    assert the approved desktop geometry: 10px inset and gaps, a 288px rail, a
+    400px context rail, a 760px timeline, 18px floating panels and the v5 card
+    radii.
+  - At 390: no horizontal overflow and every interactive target at least 44x44.
+  - Axe clean in both themes on desktop AND, enumerated at 390px in both themes,
+    the redesigned timeline unobscured for baseline and history with speaker
+    grouping and collapsed tools, a pending ask, a hold, the open drawer, and the
+    context sheet.
+  - Six as-built captures {1440,1024,390} x {light,dark} committed under
+    tmp/build/design/v5/ with the v5-product-fidelity reference refreshed.
+
+  Progress is tracked in the force-added tmp/build/design/v5/ROOM-PHASE.md, not
+  the ignored tmp/design-overhaul tree. Quote and More message actions are NOT
+  shipped in this phase; only a functional Copy (copies message.body) and the
+  existing independent permalink are, and Quote/More return only under a
+  separately specified functional contract.
+assumptions:
+  create:
+    - id: web-room-visual-hierarchy-matches-soft-editorial-reference
+      title: The room surface matches the soft-editorial references
+      statement: >-
+        The web room must match the approved soft-editorial references - a warm
+        neutral canvas, three floating rounded panels for the channel rail, the
+        centered timeline and the context rail on desktop, a centered timeline
+        about 760px wide with the day's messages full-bleed, message rows with a
+        34px avatar and per-message actions limited to a functional Copy control
+        that copies the message body and announces success, or a clipboard
+        failure, in a live region, and the existing independent permalink, both
+        reachable by keyboard and touch, run, tool and ask cards on the v5 radius
+        scale,
+        and a rounded composer with a typing peek. All eight adopted surfaces -
+        message, run, tool, ask, hold, composer, member and channel-row - consume
+        the presentation model with adoption true and resolve their frame live,
+        subscribing to viewport width after mount so that crossing the 720px
+        content breakpoint reframes them, with every listener removed on unmount.
+        On a phone the ordinary message, run and tool surfaces render as an
+        unframed prose timeline with no message cards, no per-message avatars, an
+        author header only on speaker change and tool calls collapsed to one
+        tappable line, behind a header and off-canvas drawer, while ask, hold,
+        composer, member and channel-row stay framed at every width. The Copy
+        control is offered only on ordinary chat message rows; run, ask and hold
+        bodies may be empty and do not carry Copy unless separately specified. Decorative Quote and
+        More affordances are not shipped and require a separately specified
+        functional contract. This holds because the approved v5 references define
+        a calm, content-first editorial tool rather than the restrained matte
+        control surface it replaces.
+      reason: >-
+        The operator approved the soft-editorial desktop room, centered timeline,
+        mobile prose and drawer direction; anchoring it now lets the atomic room
+        build compose the shipped v5 primitives and presentation model rather
+        than re-derive hierarchy, colour and touch size a component at a time,
+        and it ships only actions that actually work rather than mockup buttons.
+      depends_on:
+        - soft-editorial-design-system-guides-responsive-surfaces
+        - web-shell-responsive-three-pane
+        - web-theme-accessible-modes
+        - web-v5-primitives-consume-only-tokens
+        - web-presentation-model-defaults-to-v4-until-adopted
+    - id: timeline-rows-are-never-crushed-v5
+      title: A row in a scrolling list is content, not flexible space
+      statement: >-
+        No row in the message timeline may be rendered shorter than its own
+        content. The timeline is a column flex container that scrolls, and a flex
+        item is normally protected from being crushed because its automatic
+        minimum size is its content size - but a row that establishes a scroll
+        container, by setting any overflow other than visible, has an automatic
+        minimum size of ZERO and becomes the only child the flex algorithm is
+        permitted to crush. The approval card does exactly that, to clip its
+        accent bar to its rounded corner, and so in any channel whose content
+        overflows the viewport it was crushed to a twenty-four pixel sliver with
+        its own overflow hiding the remains. Every row type must therefore be
+        crush-resistant - not merely the one that was observed to break - and any
+        regression that asserts the geometry or the visibility of timeline
+        content must use a fixture long enough to OVERFLOW the viewport at phone
+        width, because a fixture that does not overflow cannot shrink anything and
+        such a test can never fail.
+      reason: >-
+        The crush invariant is unchanged by the redesign and carries forward
+        verbatim; the soft-editorial timeline still scrolls as a column flex
+        container, so every row - including the newly rounded cards - must stay
+        crush-resistant.
+      depends_on:
+        - web-room-visual-hierarchy-matches-soft-editorial-reference
+    - id: web-motion-is-purposeful-and-reduced-motion-safe-v5
+      title: Motion is purposeful and reduced-motion safe
+      statement: >-
+        The web surface must use the shared v5 motion and easing tokens for row,
+        dialog, popup, run-reveal, tab, typing-peek and running-state feedback,
+        animate only transform and opacity except for the sanctioned run-collapse
+        grid track, remove the shimmer at finalization, and replace motion with
+        instant transitions plus a static accent when reduced motion is
+        requested, because live activity should be legible without jank or
+        vestibular cost.
+      reason: >-
+        The redesign restyles every animated surface to the v5 motion tokens
+        (cdDot, cdPulse, cdPeek), which requires adding --cd-* motion and easing
+        tokens to the token layer; the reduced-motion and transform-or-opacity
+        discipline is unchanged and must hold across the new room.
+      depends_on:
+        - normalized-run-items-presented-live
+        - web-theme-accessible-modes
+    - id: web-waits-are-visible-across-live-surfaces-v5
+      title: Agent waits stay visible wherever live work is summarized
+      statement: >-
+        While an agent has a running turn with wait metadata, its member card
+        must identify the peer and tick the elapsed wait, its run header must
+        replace the running animation with a static waiting treatment, and the
+        timeline foot must distinguish waiting agents from other working agents,
+        in the soft-editorial room and its unframed mobile prose alike.
+      reason: >-
+        Wait visibility is unchanged in substance; the redesign re-expresses it in
+        the v5 member card, run header and timeline foot, including the unframed
+        mobile prose surface.
+      depends_on:
+        - live-agent-waits-are-transient
+        - web-motion-is-purposeful-and-reduced-motion-safe-v5
+        - web-room-visual-hierarchy-matches-soft-editorial-reference
+    - id: live-collaboration-contract-is-public-v5
+      title: The live collaboration contract is public
+      statement: >-
+        Public docs must describe member-attributed interim and blocking posts,
+        direct-reply waits and renewal, consuming inbox hooks, transient wait
+        visibility, member status, and bounded redacted run-evidence search,
+        including the exact conventions trailer behavior agents receive.
+      reason: >-
+        The public contract text is unchanged; its anchors migrate to the -v5
+        assumption alongside the room redesign so the documented collaboration
+        surface keeps a live owner.
+      depends_on:
+        - collaboration-briefing-is-capability-aware
+        - cli-waits-consume-only-matching-deliveries
+        - run-evidence-search-is-bounded-and-redacted
+        - web-waits-are-visible-across-live-surfaces-v5
+    - id: bridged-room-wears-banner-v5
+      title: Bridged rooms permanently disclose their external content boundary
+      statement: >-
+        A room with any enabled Slack or Telegram bridge must persist a bridged
+        config flag and render a permanent plain-language external-platform
+        privacy banner on room, settings and ledger surfaces, in the
+        soft-editorial visual system, because readable room content deliberately
+        leaves the local trust boundary until the bridge is disabled.
+      reason: >-
+        The disclosure invariant is unchanged; the banner is restyled to the
+        soft-editorial system while remaining permanent and plain-language on
+        every surface it sits on.
+      depends_on:
+        - soft-editorial-design-system-guides-responsive-surfaces
+        - web-room-visual-hierarchy-matches-soft-editorial-reference
+    - id: channel-create-dialog-renders-an-accessible-accent
+      title: The channel create dialog and rail render an accessible accent projection
+      statement: >-
+        The channel create dialog, the room rail and the room header must render
+        an accessible projection of a channel's accent computed by one pure
+        function of four inputs: the raw stored room.config.color string, the
+        channel roomId, the active theme, and the ordered set of opaque
+        background colours the accent meets in that theme - the rail row
+        background and its hover and selected states, the header chip background,
+        and the picker candidate background and its hover and selected states. The
+        stored value accepts any non-empty string, invalid CSS and alpha-bearing
+        values such as transparent included, and it is the value that persists;
+        the projection is render-only and is tested separately from persistence.
+        The function first derives a seed colour: the parsed value, or - when the
+        value is unparseable - deriveRoomColor(roomId) with its CHANNEL_ACCENTS
+        palette imported from the protocol package, never a duplicated hash or
+        hex; and when the parsed value carries alpha the seed is that value
+        composited over the worst-contrast background in the set, retaining the
+        source alpha only for that composite, so the seed is always well defined.
+        Holding the seed's OKLCH hue and chroma, the function walks lightness
+        outward from the seed lightness in fixed steps, gamut-clamps each
+        candidate to an opaque sRGB colour, re-measures contrast on that emitted
+        opaque colour rather than any OKLCH intermediate or alpha-bearing value,
+        and accepts the first candidate whose contrast is at least 3:1 against
+        every background in the set; ties in step distance resolve
+        deterministically toward the darker candidate, and if the lightness bounds
+        exhaust without a passing candidate it falls back to the --cd-agent token,
+        which itself clears the set. The unparseable fallback passes through this
+        same search. The single accepted opaque colour is reused on the rail dot,
+        the header chip and the selected picker candidate - per-surface
+        normalization is forbidden - and every projection re-computes on an
+        explicit theme change and on a live system-theme change so that no stale
+        inline colour survives, so the selected swatch, the rail dot and the
+        header chip always match.
+      reason: >-
+        Projecting the stored colour for contrast makes the prior "render the
+        persisted colour" statement false, so it is retired and replaced with an
+        accessible-projection contract; one per-theme projection reused across
+        surfaces, defined as an executable pure function, is what prevents one
+        channel from rendering as three different colours or going stale on a
+        theme change.
+      depends_on:
+        - channel-creation-derived-and-seeded
+        - local-directory-listing-home-contained
+        - web-room-rail-creates-owner-room
+        - web-theme-accessible-modes
+        - every-channel-has-a-visible-accent
+    - id: starting-agent-name-derives-one-valid-identity-v5
+      title: A channel's starting-agent name derives exactly one valid identity
+      statement: >-
+        A channel's optional starting-agent name must be preserved as
+        display_name while one shared protocol helper derives the lowercase ASCII
+        assignable handle preview and request value; unsupported runs become
+        separators, length is bounded, empty or too-short derivations use a stable
+        valid fallback, reserved output is rejected, and identity errors are shown
+        at the name field before any room is created, because a human-facing Name
+        control must not leak the strict handle grammar or blame the project
+        folder.
+      reason: >-
+        The identity derivation runtime is unchanged; its anchor comments migrate
+        to the -v5 assumption because it depended on the retired
+        authoritative-result contract, and it is re-homed onto the accessible
+        accent replacement instead.
+      depends_on:
+        - reserved-handles-rejected
+        - channel-create-request-contract
+        - channel-creation-derived-and-seeded
+        - channel-create-dialog-renders-an-accessible-accent
+  retire:
+    - id: starting-agent-name-derives-one-valid-identity
+      reason: Replaced by the -v5 assumption; its anchor comments migrate unchanged in runtime.
+    - id: channel-create-dialog-uses-authoritative-result
+      reason: Retired for channel-create-dialog-renders-an-accessible-accent; projecting the stored colour makes the render-the-persisted-colour statement false.
+    - id: live-collaboration-contract-is-public
+      reason: Replaced by the -v5 assumption; the public contract text is unchanged and its doc anchors migrate.
+    - id: web-waits-are-visible-across-live-surfaces
+      reason: Replaced by the -v5 assumption; wait visibility is re-expressed in the soft-editorial surfaces.
+    - id: web-motion-is-purposeful-and-reduced-motion-safe
+      reason: Replaced by the -v5 assumption; motion moves to the v5 tokens.
+    - id: timeline-rows-are-never-crushed
+      reason: Replaced by the -v5 assumption; the crush invariant carries forward verbatim.
+    - id: bridged-room-wears-banner
+      reason: Replaced by the -v5 assumption; the banner is restyled to the soft-editorial system.
+    - id: web-room-visual-hierarchy-matches-restrained-reference
+      reason: Superseded by the soft-editorial reference; the restrained matte hierarchy is replaced wholesale.
+    - id: web-glass-theme-accessible-modes
+      reason: Superseded by web-theme-accessible-modes; its accessibility anchors migrate and its glass CSS marker is removed.
+  reviewed:
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: The token contract is unchanged but the layer is expanded - it gains the --cd-* motion and easing tokens the v5 motion contract needs and becomes the single theme-accessibility owner as the glass axe and contrast anchors migrate onto it.
+    - id: design-references-preserve-wireroom-semantics
+      outcome: unchanged
+      reason: The reference-fidelity contract is unchanged; the v5 as-built captures are refreshed to the shipped soft-editorial room.
+    - id: every-channel-has-a-visible-accent
+      outcome: unchanged
+      reason: The accent stays a filled coloured mark; the projection keeps it filled and coloured, and deriveRoomColor is reused unmodified.
+    - id: room-action-errors-are-visible
+      outcome: unchanged
+      reason: Room-action errors stay visible while their surface and style are restyled.
+    - id: empty-and-offline-are-shown-not-blank
+      outcome: unchanged
+      reason: Empty and offline states stay shown, not blank, in the new timeline.
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: Normalized run items still stream live while the run surface is restyled.
+    - id: normalized-run-evidence-inspector
+      outcome: unchanged
+      reason: The evidence inspector keeps typed rows and selection while its panel is restyled.
+    - id: literal-draft-effective-recipient-visible
+      outcome: unchanged
+      reason: The effective recipient stays visible while the composer popup is restyled.
+    - id: interaction-cards-stay-readable-on-phone
+      outcome: unchanged
+      reason: Ask and hold cards stay framed and readable on a phone.
+    - id: compact-one-line-tool-rows
+      outcome: unchanged
+      reason: Tool rows stay one compact line in the restyled run surface.
+    - id: the-composer-is-one-row
+      outcome: unchanged
+      reason: The composer stays one row while it becomes a rounded pill.
+    - id: the-inbox-opens-what-needs-you
+      outcome: unchanged
+      reason: The inbox keeps opening what needs you while it is restyled.
+    - id: one-control-chooses-an-agent-everywhere
+      outcome: unchanged
+      reason: One shared agent control stays canonical while it is restyled.
+    - id: member-config-is-changed-not-respawned
+      outcome: unchanged
+      reason: Member config stays a change, not a respawn, in the restyled member card.
+    - id: removing-an-agent-is-one-deliberate-step
+      outcome: unchanged
+      reason: Removing an agent stays one deliberate step in the restyled control.
+    - id: controls-fit-the-surface-they-sit-on
+      outcome: unchanged
+      reason: Controls keep fitting their surface at every width.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: The spawn dialog keeps its canonical agent controls while restyled.
+    - id: posted-message-mentions-alone-look-effective
+      outcome: unchanged
+      reason: Effective mentions keep their segmentation and look while restyled.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: Pane visibility and focus-managed collapse stay intact while the panels float and round and the 1359-to-1360 boundary moves.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: The owner-only create action stays functional in the restyled rail.
+    - id: run-context-selects-and-follows-live-evidence
+      outcome: unchanged
+      reason: Evidence selection and live follow are unchanged while the inspector is restyled.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Permalink ids stay stable while the history surface and permalink render are restyled; the permalink stays an independent action, separate from the body-copy Copy control.
+    - id: history-cursor-tracks-only-the-contiguous-tail
+      outcome: unchanged
+      reason: The contiguous-tail cursor is unchanged while the timeline is restyled.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Role-gated controls stay gated; the restyle restores nothing hidden by local roles.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: Channel terminology is unchanged in the restyled surfaces though its browser assertion moves with the pane geometry.
+    - id: sw-caches-shell-only-no-message-data
+      outcome: unchanged
+      reason: The service worker still caches shell only; the restyle adds no message data to cache.
+    - id: approval-cards-follow-durable-resolution
+      outcome: unchanged
+      reason: Approval cards keep durable resolution while restyled to rounded cards.
+    - id: model-catalogs-reach-a-browser-that-arrives-early
+      outcome: unchanged
+      reason: Early adapter-catalog refresh is unchanged while the surrounding surface is restyled.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: The meter stays always on while it is restyled.
+    - id: acknowledgement-marker-protocol
+      outcome: unchanged
+      reason: The acknowledgement marker is unchanged while restyled.
+    - id: composer-caret-updates-are-synchronous
+      outcome: unchanged
+      reason: Synchronous caret updates are unchanged while the composer is restyled.
+    - id: custody-uncertain-never-double-writes
+      outcome: unchanged
+      reason: The custody hint is unchanged while restyled.
+    - id: extensions-not-addressable-v1
+      outcome: unchanged
+      reason: Extension rows stay non-addressable while their rendering is restyled.
+    - id: live-run-event-cache-bounded
+      outcome: unchanged
+      reason: The bounded run-event cache is unchanged while the run surface is restyled.
+    - id: spawn-default-cwd-is-absolute-or-empty
+      outcome: unchanged
+      reason: The default cwd rule is unchanged while the spawn control is restyled.
+    - id: bridge-enable-admin-or-owner
+      outcome: unchanged
+      reason: Bridge-origin attribution is unchanged while restyled.
+files:
+  - packages/web/src/styles.css
+  - packages/web/src/shell.tsx
+  - packages/web/src/App.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/room-color.ts
+  - packages/web/src/room-color.spec.ts
+  - packages/web/src/room-presentation.ts
+  - packages/web/src/room-presentation.spec.tsx
+  - packages/web/src/room-style.spec.ts
+  - packages/web/src/api.ts
+  - packages/web/src/api.spec.ts
+  - packages/web/package.json
+  - pnpm-lock.yaml
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/channel-create.e2e.spec.ts
+  - packages/web/tests/live-collab.e2e.spec.ts
+  - packages/web/tests/motion-pairing.e2e.spec.ts
+  - packages/web/tests/a11y.e2e.spec.ts
+  - packages/web/tests/a11y-bridged.e2e.spec.ts
+  - packages/web/tests/a11y-hold.e2e.spec.ts
+  - packages/web/tests/a11y-rooms-dark.e2e.spec.ts
+  - packages/web/tests/a11y-rooms-light.e2e.spec.ts
+  - packages/web/tests/a11y-shared.ts
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - README.md
+  - docs/PROTOCOL.md
+  - website/docs/PROTOCOL.md
+  - tmp/build/design/v5/ROOM-PHASE.md
+  - tmp/build/design/v5/DESIGN-SYSTEM.md
+  - tmp/build/design/v5/room-1440-light.png
+  - tmp/build/design/v5/room-1440-dark.png
+  - tmp/build/design/v5/room-1024-light.png
+  - tmp/build/design/v5/room-1024-dark.png
+  - tmp/build/design/v5/room-390-light.png
+  - tmp/build/design/v5/room-390-dark.png
+anchors:
+  # ---------- created assumptions (new + migrated-in anchors) ----------
+  web-room-visual-hierarchy-matches-soft-editorial-reference:
+    soft-editorial-room-visual-hierarchy:
+      action: change
+      reason: Bind the room render tree to the approved soft-editorial hierarchy.
+    soft-editorial-room-style:
+      action: change
+      reason: The general room stylesheet owner - the rewritten floating-panel, timeline, card and composer CSS the removed glass marker used to cover.
+    soft-editorial-room-token-discipline:
+      action: change
+      reason: A closed structural guard over the migrated regions of App.tsx, shell.tsx, components.tsx and styles.css - no palette or off-token presentation utility (text-white, bg-black and any arbitrary text-[...] or bracket utility included), no legacy --wr-* token in the v5 room region, and tokenized colour, type, spacing, line-height, radius, elevation and motion, allowing only the projected accent and a closed geometry set as runtime data styles.
+    soft-editorial-responsive-adoption:
+      action: change
+      reason: Wire the eight adopted surfaces to resolvePresentation with adoption true through a post-mount width subscription that reframes across 720 and removes its listener on unmount, with unit coverage for the live 719-to-720 transition.
+    soft-editorial-message-presentation-regression:
+      action: change
+      reason: New component coverage for message-row presentation, mobile author grouping, tool-call collapse, the framed ask and hold exceptions, and the functional Copy action on ordinary chat messages asserting the actual clipboard payload is message.body plus the success and clipboard-failure announcements (run, ask and hold cards carry no Copy); sets and restores the React act environment locally.
+    soft-editorial-room-visual-regression:
+      action: change
+      reason: Browser coverage for the floating panels, centered timeline, filled dots, unframed mobile prose, the live 719-to-720 reframe, 390 overflow and touch targets, and both-theme axe.
+  timeline-rows-are-never-crushed-v5:
+    timeline-row-crush-resistance:
+      action: change
+      reason: Re-assert crush resistance for every restyled row in the scrolling timeline.
+    timeline-crush-browser-regression:
+      action: change
+      reason: Overflowing phone-width fixture proves no row is crushed after the redesign.
+  web-motion-is-purposeful-and-reduced-motion-safe-v5:
+    motion-runtime-classes:
+      action: change
+      reason: Move runtime motion classes to the v5 motion tokens.
+    motion-token-style:
+      action: change
+      reason: Re-derive the motion token styles for the soft-editorial surfaces.
+    motion-browser-regression:
+      action: change
+      reason: Keep reduced-motion and transform-or-opacity coverage over the new room.
+  web-waits-are-visible-across-live-surfaces-v5:
+    live-collaboration-placement:
+      action: change
+      reason: Re-place the live collaboration foot in the soft-editorial timeline.
+    wait-presentation-regression:
+      action: change
+      reason: Re-home the wait presentation unit coverage; set and restore the React act environment locally so the suite stays quiet.
+    wait-elapsed-and-member-summary:
+      action: change
+      reason: Restyle the elapsed wait and member summary to the v5 member card.
+    waiting-run-header:
+      action: change
+      reason: Replace the running animation with the v5 static waiting header.
+    live-collaboration-line:
+      action: change
+      reason: Restyle the live collaboration line for the new timeline foot.
+    live-collaboration-style:
+      action: change
+      reason: Re-derive the live collaboration styles under the v5 tokens.
+    live-collaboration-browser-regression:
+      action: change
+      reason: Keep browser coverage of transient wait visibility on the new surfaces.
+  live-collaboration-contract-is-public-v5:
+    readme-live-collaboration:
+      action: change
+      reason: Re-home the public README live-collaboration contract onto the -v5 assumption.
+    protocol-conventions-example:
+      action: change
+      reason: Re-home the conventions example in both PROTOCOL docs onto the -v5 assumption.
+    protocol-live-collaboration-contract:
+      action: change
+      reason: Re-home the live-collaboration contract in both PROTOCOL docs onto the -v5 assumption.
+  bridged-room-wears-banner-v5:
+    bridged-room-config:
+      action: change
+      reason: Keep the persisted bridged config flag while re-homing its anchor.
+    bridged-room-banner:
+      action: change
+      reason: Restyle the permanent external-platform banner to the soft-editorial system.
+    bridged-room-regression:
+      action: change
+      reason: Keep browser coverage that the banner is permanent on every surface.
+  channel-create-dialog-renders-an-accessible-accent:
+    room-color-projection:
+      action: change
+      reason: The new pure culori projection - inputs raw value, roomId, theme and the ordered adjacent-background set including hover and selected states; a deterministic lightness search that emits one opaque sRGB colour clearing at least 3:1 against every background state, reused across surfaces, with the deriveRoomColor(roomId) unparseable fallback through the same search.
+    room-color-projection-regression:
+      action: change
+      reason: Prove the pure function against all six accents, a light-failing and a dark-failing colour, alpha and transparent, an unparseable value, at least 3:1 across every adjacent-background state, reprojection on explicit and live system-theme change with no stale inline colour, one channel rendering the same projected colour on all three surfaces, and that the raw value persists unchanged while only the render projects.
+    authoritative-channel-client:
+      action: change
+      reason: Migrate the authoritative create client onto the accessible-accent assumption; runtime unchanged.
+    channel-color-identity:
+      action: change
+      reason: Render the header chip from the accessible projection rather than the raw colour.
+    channel-create-dialog:
+      action: change
+      reason: Restyle the create dialog and render each picker candidate's projection while persisting the raw value.
+    channel-create-style:
+      action: change
+      reason: Re-derive the create dialog styles under the v5 tokens.
+    channel-create-browser-regression:
+      action: change
+      reason: Keep browser coverage of create, including the accessible accent on the rail and header.
+  starting-agent-name-derives-one-valid-identity-v5:
+    starting-agent-handle-derivation:
+      action: change
+      reason: Migrate the shared handle derivation onto the -v5 assumption; runtime unchanged.
+    starting-agent-identity-contract:
+      action: change
+      reason: Migrate the identity contract onto the -v5 assumption; runtime unchanged.
+    starting-agent-identity-regression:
+      action: change
+      reason: Migrate the identity regression onto the -v5 assumption; runtime unchanged.
+    starting-agent-create-regression:
+      action: change
+      reason: Migrate the create regression onto the -v5 assumption; runtime unchanged.
+    starting-agent-create-validation:
+      action: change
+      reason: Migrate the create validation onto the -v5 assumption; runtime unchanged.
+    actionable-rest-error-regression:
+      action: change
+      reason: Migrate the actionable REST error regression onto the -v5 assumption; runtime unchanged.
+    actionable-rest-errors:
+      action: change
+      reason: Migrate the actionable REST errors onto the -v5 assumption; runtime unchanged.
+    starting-agent-name-control:
+      action: change
+      reason: Restyle the name control while keeping identity errors at the field before create.
+    starting-agent-browser-regression:
+      action: change
+      reason: Migrate the browser regression onto the -v5 assumption; runtime unchanged.
+  # ---------- retired assumptions (anchors removed; migrations noted above) ----------
+  web-room-visual-hierarchy-matches-restrained-reference:
+    restrained-room-visual-hierarchy:
+      action: remove
+      reason: Replace the restrained hierarchy marker with the soft-editorial one.
+    restrained-room-visual-regression:
+      action: remove
+      reason: Replace restrained computed-style assertions with soft-editorial ones.
+  timeline-rows-are-never-crushed:
+    timeline-row-crush-resistance:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    timeline-crush-browser-regression:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+  web-motion-is-purposeful-and-reduced-motion-safe:
+    motion-runtime-classes:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    motion-token-style:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    motion-browser-regression:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+  web-waits-are-visible-across-live-surfaces:
+    live-collaboration-placement:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    wait-presentation-regression:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    wait-elapsed-and-member-summary:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    waiting-run-header:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    live-collaboration-line:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    live-collaboration-style:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    live-collaboration-browser-regression:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+  live-collaboration-contract-is-public:
+    readme-live-collaboration:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    protocol-conventions-example:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    protocol-live-collaboration-contract:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+  bridged-room-wears-banner:
+    bridged-room-config:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    bridged-room-banner:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    bridged-room-regression:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+  channel-create-dialog-uses-authoritative-result:
+    authoritative-channel-client:
+      action: remove
+      reason: Migrated to channel-create-dialog-renders-an-accessible-accent.
+    channel-color-identity:
+      action: remove
+      reason: Migrated to the accessible-accent assumption.
+    channel-create-dialog:
+      action: remove
+      reason: Migrated to the accessible-accent assumption.
+    channel-create-style:
+      action: remove
+      reason: Migrated to the accessible-accent assumption.
+    channel-create-browser-regression:
+      action: remove
+      reason: Migrated to the accessible-accent assumption.
+  starting-agent-name-derives-one-valid-identity:
+    starting-agent-handle-derivation:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    starting-agent-identity-contract:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    starting-agent-identity-regression:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    starting-agent-create-regression:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    starting-agent-create-validation:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    actionable-rest-error-regression:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    actionable-rest-errors:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    starting-agent-name-control:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+    starting-agent-browser-regression:
+      action: remove
+      reason: Migrated to the -v5 assumption.
+  web-glass-theme-accessible-modes:
+    semantic-glass-theme:
+      action: remove
+      reason: The glass CSS marker is removed; the rewritten room CSS is anchored under soft-editorial-room-style while the token layer is retained under web-theme-accessible-modes.
+    glass-theme-regression:
+      action: remove
+      reason: Split - theme, focus and opaque-fallback assertions go to theme-contrast-values, room material and layout to the room hierarchy, reduced motion to motion-v5.
+    theme-contrast-values:
+      action: remove
+      reason: Migrated to web-theme-accessible-modes.
+    axe-bridged-state:
+      action: remove
+      reason: Migrated to web-theme-accessible-modes.
+    axe-hold-state:
+      action: remove
+      reason: Migrated to web-theme-accessible-modes.
+    axe-room-matrix-dark:
+      action: remove
+      reason: Migrated to web-theme-accessible-modes.
+    axe-room-matrix-light:
+      action: remove
+      reason: Migrated to web-theme-accessible-modes.
+    axe-room-matrix-shared:
+      action: remove
+      reason: Migrated to web-theme-accessible-modes.
+  # ---------- reviewed assumptions (touched anchors only) ----------
+  web-theme-accessible-modes:
+    soft-editorial-token-layer:
+      action: change
+      reason: Expand the token layer with the --cd-* motion and easing tokens the v5 motion contract needs; the token contract is unchanged.
+    theme-contrast-values:
+      action: change
+      reason: Adopt the theme-contrast matrix and absorb the removed glass regression's focus-visible and opaque-fallback assertions.
+    axe-bridged-state:
+      action: change
+      reason: Adopt the bridged-state axe check.
+    axe-hold-state:
+      action: change
+      reason: Adopt the hold-state axe check.
+    axe-room-matrix-dark:
+      action: change
+      reason: Adopt the dark room-matrix axe check.
+    axe-room-matrix-light:
+      action: change
+      reason: Adopt the light room-matrix axe check.
+    axe-room-matrix-shared:
+      action: change
+      reason: Adopt the shared room-matrix axe harness.
+  design-references-preserve-wireroom-semantics:
+    v5-product-fidelity:
+      action: change
+      reason: Refresh the v5 design-system fidelity reference with the shipped room's six as-built captures.
+  every-channel-has-a-visible-accent:
+    channel-accent-rail:
+      action: change
+      reason: Render the rail accent from the accessible projection while keeping it a filled coloured mark.
+  room-action-errors-are-visible:
+    room-action-error-style:
+      action: change
+      reason: Restyle the room-action error surface under the v5 tokens.
+    room-action-error-surface:
+      action: change
+      reason: Restyle the room-action error placement while keeping it visible.
+  empty-and-offline-are-shown-not-blank:
+    timeline-empty-and-offline-states:
+      action: change
+      reason: Restyle the empty and offline states in the new timeline.
+  normalized-run-items-presented-live:
+    live-run-message-surface:
+      action: change
+      reason: Restyle the live run message surface.
+    run-stream-responsive-style:
+      action: change
+      reason: Re-derive the run-stream responsive styles under the v5 tokens.
+  normalized-run-evidence-inspector:
+    inspector-selection-state:
+      action: change
+      reason: Restyle the inspector selection state without changing selection.
+    normalized-row-selection:
+      action: change
+      reason: Restyle the normalized evidence rows.
+    typed-evidence-renderers:
+      action: change
+      reason: Restyle the typed evidence renderers in the context rail.
+    inspector-contained-scroll:
+      action: change
+      reason: Re-derive the inspector contained-scroll styles.
+  literal-draft-effective-recipient-visible:
+    composer-literal-recipient:
+      action: change
+      reason: Restyle the effective-recipient render while keeping it visible.
+    composer-popup-style:
+      action: change
+      reason: Re-derive the composer popup styles under the v5 tokens.
+  interaction-cards-stay-readable-on-phone:
+    phone-ask-card:
+      action: change
+      reason: Keep the ask card framed and readable on a phone in the redesign.
+    phone-ask-card-style:
+      action: change
+      reason: Re-derive the phone ask-card styles under the v5 tokens.
+  compact-one-line-tool-rows:
+    compact-run-row-style:
+      action: change
+      reason: Re-derive the compact tool-row styles while keeping them one line.
+  the-composer-is-one-row:
+    composer-single-row:
+      action: change
+      reason: Keep the composer one row while it becomes a rounded pill.
+  the-inbox-opens-what-needs-you:
+    inbox-panel:
+      action: change
+      reason: Restyle the inbox panel across App, component and stylesheet while keeping its behaviour.
+  one-control-chooses-an-agent-everywhere:
+    shared-policy-control:
+      action: change
+      reason: Restyle the shared agent control.
+  member-config-is-changed-not-respawned:
+    member-card-settings:
+      action: change
+      reason: Restyle the member card settings while keeping config a change, not a respawn.
+  removing-an-agent-is-one-deliberate-step:
+    remove-member-control:
+      action: change
+      reason: Restyle the remove control while keeping it one deliberate step.
+  controls-fit-the-surface-they-sit-on:
+    control-fits-narrow-surface:
+      action: change
+      reason: Re-derive the narrow-surface control fitting under the v5 tokens.
+  web-spawn-dialog-exposes-canonical-agent-controls:
+    spawn-dialog-controls:
+      action: change
+      reason: Restyle the spawn dialog controls.
+    dead-member-replacement-controls:
+      action: change
+      reason: Restyle the dead-member replacement controls.
+    spawn-dialog-style:
+      action: change
+      reason: Re-derive the spawn dialog styles under the v5 tokens.
+  posted-message-mentions-alone-look-effective:
+    effective-mention-segmentation:
+      action: change
+      reason: Restyle the effective mention segmentation render.
+    effective-mention-style:
+      action: change
+      reason: Re-derive the effective mention styles under the v5 tokens.
+  web-shell-responsive-three-pane:
+    responsive-room-shell:
+      action: change
+      reason: Reframe the responsive panes as floating rounded panels while keeping visibility and collapse.
+    responsive-shell-regression:
+      action: change
+      reason: The 1359-to-1360 two-to-three pane assertion - two-pane from 1024 to 1359, three-pane at and above 1360 - changes with the floating-panel geometry.
+  web-room-rail-creates-owner-room:
+    room-rail-create-action:
+      action: change
+      reason: Restyle the rail while keeping the owner-only create action.
+  run-context-selects-and-follows-live-evidence:
+    selected-live-run-context:
+      action: change
+      reason: Restyle the evidence context without changing selection or live follow.
+  permalink-ids-stable:
+    message-history-surface:
+      action: change
+      reason: Restyle the history surface while keeping permalink ids stable.
+    message-permalink-rendering:
+      action: change
+      reason: Restyle the permalink render while keeping its id; it stays an independent action, separate from the Copy control which copies the message body.
+  history-cursor-tracks-only-the-contiguous-tail:
+    contiguous-history-app:
+      action: change
+      reason: Restyle the timeline while keeping the contiguous-tail cursor.
+  roles-gate-human-acts-not-agents:
+    role-aware-web-controls:
+      action: change
+      reason: Restyle the role-aware controls while keeping them gated.
+  human-facing-surfaces-call-rooms-channels:
+    web-channel-terminology:
+      action: change
+      reason: Keep channel terminology while restyling the surface.
+    web-channel-regression:
+      action: change
+      reason: The channel-terminology browser assertion moves with the restyled surfaces and the pane-boundary geometry.
+  sw-caches-shell-only-no-message-data:
+    page-memory-message-cache:
+      action: change
+      reason: Restyle the page-memory surface while caching shell only.
+  approval-cards-follow-durable-resolution:
+    actionable-approval-app:
+      action: change
+      reason: Restyle the approval surface while keeping durable resolution.
+    approval-answer-inflight:
+      action: change
+      reason: Restyle the in-flight approval answer to a rounded card.
+  model-catalogs-reach-a-browser-that-arrives-early:
+    adapter-catalog-client-refresh:
+      action: change
+      reason: Restyle the surrounding surface while keeping the early catalog refresh.
+  spend-meter-always-on:
+    meter-settings-surface:
+      action: change
+      reason: Restyle the meter while keeping it always on.
+  acknowledgement-marker-protocol:
+    ack-web-marker:
+      action: change
+      reason: Restyle the acknowledgement marker.
+  composer-caret-updates-are-synchronous:
+    composer-caret-sync:
+      action: change
+      reason: Restyle the composer while keeping caret updates synchronous.
+  custody-uncertain-never-double-writes:
+    attach-custody-web-hint:
+      action: change
+      reason: Restyle the custody hint.
+  extensions-not-addressable-v1:
+    extension-run-rendering:
+      action: change
+      reason: Restyle extension rows while keeping them non-addressable.
+  live-run-event-cache-bounded:
+    full-journal-recovery:
+      action: change
+      reason: Restyle the run surface while keeping the bounded event cache.
+  spawn-default-cwd-is-absolute-or-empty:
+    spawn-cwd-inheritance:
+      action: change
+      reason: Restyle the spawn control while keeping the default-cwd rule.
+  bridge-enable-admin-or-owner:
+    bridge-origin-attribution:
+      action: change
+      reason: Restyle the bridge-origin attribution.
