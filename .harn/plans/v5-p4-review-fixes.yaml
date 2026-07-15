@@ -1,0 +1,92 @@
+id: v5-p4-review-fixes
+title: V5 Phase 4 review closure - remove the obsolete Settings and Pairing
+  cascade, enforce global surface token ownership, and commit the eight approved
+  as-built captures.
+notes: >-
+  This focused closure corrects two review findings without changing the applied
+  Phase 4 contract or any Settings, Pairing, QR, enrollment, unpair, revoke,
+  brake, theme, device, relay, protocol, switchboard, service-worker, Vite, or
+  stored-data behaviour.
+
+  First, remove the complete obsolete pre-v5 Settings and Pairing base rules and
+  their responsive fragments from styles.css. Those unanchored declarations
+  still contributed --wr-* paint, raw geometry, blur, shadow, animation, and a
+  second fixed-white QR rule before the later v5 block won the cascade. The
+  shipped soft-editorial anchor remains the sole owner of these surface styles;
+  the separate pairing-code anchor remains the sole owner of code/link and
+  add-device styles.
+
+  Second, strengthen the anchored structural unit guard from checking only the
+  two migrated regions to checking every rule in styles.css whose selector
+  references a Settings/Pairing class owned by those regions. The ownership set
+  is derived from the anchored selectors themselves, so a duplicate rule moved
+  before or after the anchors cannot evade the check. Every matching rule must
+  obey the same --cd-* and raw-presentation discipline. Across all matching
+  rules, exactly one `.wr-qr-paper||background||#fff` tuple is permitted; any
+  other fixed-white declaration, including a compound selector, fails. The
+  negative fixtures prove an out-of-region legacy duplicate and a second QR
+  white declaration are rejected.
+
+  Third, run the existing build-first isolated `capture:settings-pairing`
+  pipeline after rebuilding, freshness/dimension-check exactly the eight
+  approved Settings Appearance and Pairing QR-offer PNGs at 1440 and 390 in
+  light and dark, and force-add those ignored artifacts. The capture script and
+  existing room capture command remain unchanged.
+
+  Gate in order: build -> unit -> all 63 isolated browser cases (including PWA,
+  push, crypto, motion-pairing and the state-isolated axe matrix) -> capture
+  regeneration -> Harn check/apply. Never restart codor.service.
+assumptions:
+  reviewed:
+    - id: web-settings-pairing-match-soft-editorial-reference
+      outcome: unchanged
+      reason: The approved soft-editorial composition and every operational flow
+        remain unchanged; removing earlier v4 declarations makes the anchored v5
+        block the only contributing surface owner, and the global guard now
+        enforces that ownership anywhere in the stylesheet.
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: The light/dark semantic token layer and axe coverage remain unchanged;
+        obsolete blur, raw motion, and --wr-* declarations are removed rather
+        than replaced with new theme values.
+    - id: web-v5-primitives-consume-only-tokens
+      outcome: unchanged
+      reason: Primitive source and CSS remain untouched; the surface-level guard is
+        strengthened to enforce the same token-only consumption across every
+        duplicate selector location.
+    - id: pairing-code-enrollment-surfaces
+      outcome: unchanged
+      reason: Code, link, QR and add-device workflows are unchanged; the existing
+        pairing-code style anchor retains the sole exact QR-paper white exception.
+files:
+  - packages/web/src/styles.css
+  - packages/web/src/settings-pairing-style.spec.ts
+  - tmp/build/design/v5/settings-1440-light.png
+  - tmp/build/design/v5/settings-1440-dark.png
+  - tmp/build/design/v5/settings-390-light.png
+  - tmp/build/design/v5/settings-390-dark.png
+  - tmp/build/design/v5/pairing-1440-light.png
+  - tmp/build/design/v5/pairing-1440-dark.png
+  - tmp/build/design/v5/pairing-390-light.png
+  - tmp/build/design/v5/pairing-390-dark.png
+anchors:
+  web-settings-pairing-match-soft-editorial-reference:
+    soft-editorial-settings-pairing-token-discipline:
+      action: change
+      reason: Expand the structural guard from two extracted regions to every
+        stylesheet rule that references a class owned by those regions, require
+        one global surface QR-white tuple, and add negative proofs for rules
+        outside the anchors.
+    soft-editorial-settings-pairing-style:
+      action: keep
+      reason: The approved v5 declarations remain byte-for-byte unchanged while
+        their obsolete earlier competitors are removed.
+    soft-editorial-settings-pairing-capture-proof:
+      action: keep
+      reason: The existing build-first isolated capture pipeline remains unchanged;
+        only its eight generated artifacts are refreshed and committed.
+  pairing-code-enrollment-surfaces:
+    pairing-code-surface-style:
+      action: keep
+      reason: The sole `.wr-qr-paper` fixed-white exception remains exactly where
+        Phase 4 placed it; the global guard now proves no duplicate exists.
