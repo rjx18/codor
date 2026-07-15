@@ -1,0 +1,359 @@
+id: v5-p4-settings-pairing
+title: V5 Phase 4 - migrate Settings and browser Pairing to the soft-editorial
+  system while preserving every operational, enrollment, privacy, and local
+  browser-state contract.
+notes: >-
+  Derived design: the references contain no Settings or Pairing screen, so this
+  phase composes only the shipped v5 foundation and primitives. Settings becomes
+  a quiet operational workspace on the warm canvas: at desktop the existing room
+  rail and category navigation remain separate top-level regions while every
+  permitted category is a directly-scrolling 18px section panel; below 1024px the
+  rail and category navigation collapse and the same sections become one linear,
+  uncluttered scroll. Rows stay flat inside their section (no nested card
+  dashboard), the theme remains a three-choice radio-style segmented control,
+  brakes remain visibly opt-in, the stall flag still never kills, device rows and
+  their confirmations stay functional, and the relay disclosure remains truthful
+  with roadmap material visually subordinate and never presented as an account or
+  billing control.
+
+  Pairing becomes an editorial two-column desktop workspace: the enrollment and
+  authority flow is the primary column, the browser/relay boundary disclosure is
+  the secondary column, and an offer adds a dedicated, unfiltered white QR paper
+  with a real quiet zone and adjacent Codor identity. The manual state retains the
+  eight-cell code and concealed-link forms. Code cells use the 11px control radius;
+  they stay eight across on desktop and wrap to four by two on a phone so every
+  input remains at least 44x44 without horizontal overflow. Below 1024px all
+  Pairing regions become one ordered linear flow. The 1023/1024 boundary is a
+  tested contract: Settings changes from hidden navigation plus linear sections
+  to visible category navigation plus the desktop workspace, and Pairing changes
+  from one ordered column to its editorial columns at exactly that boundary.
+
+  Both surfaces use Geist, zero letter spacing, the warm --cd-* light/dark
+  palettes, v5 spacing/radius/elevation, Lucide icons, and the existing v5 Button,
+  IconButton and Input primitives where their semantics fit. The theme control
+  keeps radiogroup/radio semantics rather than misusing tab semantics. Functional
+  QR paper is the sole fixed-white paint exception. A new anchored structural
+  unit guard parses exactly the migrated Settings/Pairing CSS and TSX regions. It
+  rejects every --wr-* reference, Tailwind utility token, raw presentation value,
+  inline style, nonliteral className and non-Lucide SVG bypass; Lucide sizes remain
+  restricted to the v5 icon set. Its only raw-paint exception is
+  `.wr-qr-paper||background||#fff`, an exact selector/property/value tuple shared
+  by the two QR images. No protocol, switchboard, stored-data, service-worker,
+  vite.config.ts, or shared codor.service behavior is changed.
+
+  Acceptance is build -> unit -> full isolated e2e -> harn check. In addition to
+  the full suite, run pwa.e2e.spec.ts, push.e2e.spec.ts, crypto.e2e.spec.ts and
+  motion-pairing.e2e.spec.ts through isolated test daemons. Browser coverage proves
+  explicit 1023/1024 geometry assertions and no-overflow checks at 390 and 1023.
+  The 44x44 sweep runs at both 390 and 1023 from state-specific named inventories;
+  it first asserts every named control exists, so an omitted control cannot make
+  the sweep vacuously pass.
+
+  The exact-zero axe matrix runs every state in light and dark at both 1440 and
+  390. Settings states are: Appearance; Brakes; expanded Relay; Devices with a
+  minted offer; device revoke confirmation; Privacy; and Browser unpaired.
+  Pairing states are: manual code/link entry; QR offer; and a visible validation
+  error. Every matrix entry asserts its distinguishing heading, selector, expanded
+  state, offer, confirmation, or alert before axe runs. Each entry uses a fresh
+  browser context, and every mutating state uses a fresh room, device, or offer
+  fixture as applicable, so revoke, unpair, enrollment, and offer state cannot
+  leak between themes or matrix entries.
+
+  Both QR generators use qrcode `margin: 4`. Direct dev dependencies jsqr, pngjs
+  and @types/pngjs make scannability executable outside the page DOM: the test
+  decodes each raster buffer to the exact expected offer URL, computes the QR
+  module count, locates the non-white module bounds, and proves at least four
+  module widths of opaque white quiet border on all four sides. Decoder success
+  alone is insufficient. Existing tests still prove theme persistence and unpair
+  purge; the second-device round trip is extended through revoke; and brakes,
+  manual enrollment, hidden offer authority, and both relay disclosure
+  headings/copy remain exercised.
+
+  The existing `capture` command remains byte-for-byte unchanged. A separate
+  `capture:settings-pairing` command runs a tracked build-first isolated script
+  that writes and freshness/dimension-checks exactly eight images under
+  tmp/build/design/v5: Settings Appearance and Pairing QR-offer at 1440 and 390 in
+  explicit light and dark themes. Manual Pairing remains covered by axe and e2e.
+assumptions:
+  create:
+    - id: web-settings-pairing-match-soft-editorial-reference
+      title: Settings and pairing match the soft-editorial design system
+      statement: The web Settings and browser Pairing surfaces must derive from the
+        v5 soft-editorial system in both themes - Geist with zero letter spacing,
+        warm tokenised surfaces, 18px section panels, 11px controls, restrained
+        elevation and Lucide icons - while Settings presents flat operational rows,
+        a segmented local theme choice, truthful opt-in brakes, relay disclosure
+        and device authority, and Pairing presents an editorial two-column desktop
+        enrollment with a scannable QR pane plus manual code and concealed-link
+        forms. Below 1024px both surfaces must become a linear uncluttered flow with
+        no horizontal overflow and every interactive target at least 44x44,
+        because the approved references omit these product-specific screens and
+        they must be derived from the common v5 language without inventing a
+        marketing, account, billing, or nested-card interface.
+      reason: The v4 restrained assumption requires matte panes and row-only detail
+        while Phase 4 adopts the already-shipped warm, rounded v5 foundation; one
+        replacement contract records the derivation and keeps product truth ahead
+        of absent mockup content.
+      depends_on:
+        - soft-editorial-design-system-guides-responsive-surfaces
+        - web-theme-accessible-modes
+        - web-v5-primitives-consume-only-tokens
+        - web-settings-controls-preserve-product-truth
+        - pairing-discloses-browser-and-relay-boundaries
+        - pairing-offer-token-remains-qr-only
+  retire:
+    - id: web-settings-pairing-match-restrained-reference
+      reason: Superseded by the v5 soft-editorial Settings and Pairing contract; its
+        two source/regression markers migrate to the replacement while all
+        operational and privacy behavior remains unchanged.
+  reviewed:
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: Settings and Pairing consume the existing accessible v5 semantic
+        light/dark tokens and focus treatment unchanged; the new axe matrix nests
+        under this theme contract and adds no token or contrast exception.
+    - id: web-settings-controls-preserve-product-truth
+      outcome: unchanged
+      reason: Notification, paired-device, brake, stall and relay controls keep
+        their existing bindings and truthful copy; the phase changes hierarchy and
+        presentation only and adds no fake account, billing, retention or approval
+        setting.
+    - id: web-theme-choice-stays-local-v5
+      outcome: unchanged
+      reason: The existing system/dark/light radio control, immediate application,
+        local persistence and unpair purge remain unchanged while its segmented
+        presentation moves to v5 tokens.
+    - id: unpair-purges-all-browser-state
+      outcome: unchanged
+      reason: Device-row and confirmation presentation changes do not alter remote
+        revocation, push unsubscribe, service-worker/cache/IndexedDB/localStorage
+        purge, room reset or failure disclosure.
+    - id: unpaired-browser-always-has-enrollment-path
+      outcome: unchanged
+      reason: The trusted non-mutating status probe, progress state, manual code and
+        concealed link paths remain actionable while their responsive hierarchy is
+        restyled.
+    - id: pairing-offer-token-remains-qr-only
+      outcome: unchanged
+      reason: The offer continues to exist only inside the QR/enrollment request and
+        never as visible text or a plaintext DOM attribute; scannability coverage
+        decodes the raster without weakening the secrecy assertion.
+    - id: pairing-discloses-browser-and-relay-boundaries
+      outcome: unchanged
+      reason: Browser authority, local key custody, relay-visible metadata and
+        relay-hidden plaintext remain in one responsive flow with the same truthful
+        headings and content.
+    - id: pairing-code-enrollment-surfaces
+      outcome: unchanged
+      reason: CLI and client exchange behavior is untouched; browser code autofocus,
+        paste/typing, error handling, Settings offer minting, QR, second-browser
+        enrollment and device revoke stay covered while the cells and forms move to
+        the v5 layout.
+files:
+  - packages/web/src/SettingsPage.tsx
+  - packages/web/src/pairing.tsx
+  - packages/web/src/styles.css
+  - packages/web/src/settings-pairing-style.spec.ts
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/crypto.e2e.spec.ts
+  - packages/web/tests/motion-pairing.e2e.spec.ts
+  - packages/web/tests/a11y-settings-pairing.e2e.spec.ts
+  - packages/web/tests/capture-settings-pairing.mjs
+  - packages/web/package.json
+  - pnpm-lock.yaml
+  - tmp/build/design/v5/settings-1440-light.png
+  - tmp/build/design/v5/settings-1440-dark.png
+  - tmp/build/design/v5/settings-390-light.png
+  - tmp/build/design/v5/settings-390-dark.png
+  - tmp/build/design/v5/pairing-1440-light.png
+  - tmp/build/design/v5/pairing-1440-dark.png
+  - tmp/build/design/v5/pairing-390-light.png
+  - tmp/build/design/v5/pairing-390-dark.png
+anchors:
+  web-settings-pairing-match-soft-editorial-reference:
+    soft-editorial-settings-surface:
+      action: change
+      reason: Replace the restrained Settings marker with the v5 section-panel
+        hierarchy while preserving every selector, role gate and action.
+    soft-editorial-pairing-surface:
+      action: change
+      reason: Anchor the Pairing enrollment, QR, manual forms and disclosures to the
+        derived v5 hierarchy without changing enrollment behavior.
+    soft-editorial-settings-pairing-style:
+      action: change
+      reason: Consolidate the duplicated v4 Settings/Pairing CSS into one closed
+        --cd-* region for the warm panels, flat rows, desktop columns, linear mobile
+        layout, responsive targets and both themes.
+    soft-editorial-settings-pairing-token-discipline:
+      action: change
+      reason: New PostCSS/value-parser and TypeScript-AST guard over exactly the
+        three migrated source regions; reject legacy tokens, Tailwind utilities,
+        raw presentation, inline styles and nonliteral class bypasses, with only
+        `.wr-qr-paper||background||#fff` permitted as a raw-paint tuple.
+    soft-editorial-settings-regression:
+      action: change
+      reason: Replace matte/zero-radius assertions with 18px panels, v5 tokens,
+        direct-scroll categories, explicit 1023/1024 geometry, no overflow at 390
+        and 1023, named non-vacuous 44px target inventories at both widths, brake
+        defaults and truthful relay/device behavior.
+    soft-editorial-pairing-regression:
+      action: change
+      reason: Cover the two-column/linear transition at 1023/1024, QR margin-four
+        paper, out-of-DOM exact-URL decode and four-module quiet border, 11px code
+        cells, named targets at 390/1023, hidden authority, disclosures and
+        functional enrollment states.
+    soft-editorial-settings-pairing-axe:
+      action: change
+      reason: New exact-zero both-theme 1440/390 matrix for seven distinct Settings
+        states and three distinct Pairing states, each proven reached before scan.
+    soft-editorial-settings-pairing-capture-proof:
+      action: change
+      reason: New separate capture:settings-pairing build-first isolated pipeline
+        that writes and verifies the eight Appearance/QR-offer Phase 4 images
+        without changing the existing room capture command or touching
+        codor.service.
+  web-settings-pairing-match-restrained-reference:
+    restrained-settings-pairing-surface:
+      action: remove
+      reason: Replaced by soft-editorial-settings-surface.
+    restrained-settings-pairing-regression:
+      action: remove
+      reason: Replaced by the soft-editorial Settings and Pairing regressions.
+  web-theme-accessible-modes:
+    theme-contrast-matrix:
+      action: keep
+      reason: The established semantic contrast matrix remains unchanged.
+    soft-editorial-token-layer:
+      action: keep
+      reason: Phase 4 consumes the shipped token layer without adding or changing
+        tokens.
+    token-resolution-regression:
+      action: keep
+      reason: Existing token graph resolution coverage remains unchanged.
+    axe-bridged-state:
+      action: keep
+      reason: Existing bridged-room axe coverage remains unchanged.
+    axe-hold-state:
+      action: keep
+      reason: Existing hold-state axe coverage remains unchanged.
+    axe-room-matrix-dark:
+      action: keep
+      reason: Existing dark room axe coverage remains unchanged.
+    axe-room-matrix-light:
+      action: keep
+      reason: Existing light room axe coverage remains unchanged.
+    axe-room-matrix-shared:
+      action: keep
+      reason: Existing shared room axe driver remains unchanged.
+    theme-contrast-values:
+      action: keep
+      reason: Existing browser token-value assertions remain unchanged.
+    axe-settings-pairing-matrix:
+      action: change
+      reason: Nest the new state-proven Settings/Pairing matrix under the accessible
+        theme contract as well as the visual replacement.
+  web-settings-controls-preserve-product-truth:
+    glass-settings-surface:
+      action: change
+      reason: Recompose existing truthful controls with v5 primitives and hierarchy;
+        data binding and role gating remain unchanged.
+    glass-settings-regression:
+      action: change
+      reason: Keep brake, device and relay truth assertions while replacing the v4
+        computed-style expectations and adding device-revoke coverage.
+  web-theme-choice-stays-local-v5:
+    prepaint-reads-local:
+      action: keep
+      reason: The prepaint local theme read is outside Phase 4 and must not change.
+    settings-theme-control:
+      action: change
+      reason: Preserve radiogroup behavior and selectors while presenting the three
+        choices as the v5 segmented control.
+    local-theme-preference:
+      action: keep
+      reason: Theme persistence logic remains unchanged.
+    theme-choice-regression:
+      action: keep
+      reason: The existing immediate/local/reload/system regression stays the
+        authoritative persistence proof and must continue passing unchanged.
+  unpair-purges-all-browser-state:
+    device-revoke-rest:
+      action: keep
+      reason: Server revocation behavior is explicitly out of scope.
+    settings-unpair-action:
+      action: change
+      reason: Restyle the current-device row and confirmation with v5 controls while
+        preserving the exact revoke/disconnect/reset/purge sequence and warnings.
+    browser-unpair-purge:
+      action: keep
+      reason: Browser purge implementation and stored data remain untouched.
+  unpaired-browser-always-has-enrollment-path:
+    trusted-pairing-status-regression:
+      action: keep
+      reason: Switchboard trusted-status behavior remains untouched.
+    trusted-pairing-status-rest:
+      action: keep
+      reason: The unauthenticated non-mutating status endpoint remains untouched.
+    trusted-browser-pairing-client:
+      action: keep
+      reason: Trusted enrollment client behavior remains untouched.
+    unpaired-auth-gate:
+      action: keep
+      reason: Route gating remains untouched.
+    unpaired-pairing-workspace:
+      action: change
+      reason: Restyle the progress and manual enrollment states into the responsive
+        v5 flow without removing either path.
+    pairing-gate-browser-regression:
+      action: change
+      reason: Retain the trusted/manual/link narrative and add phone overflow and
+        target-size assertions for the restyled manual form.
+  pairing-offer-token-remains-qr-only:
+    glass-pairing-surface:
+      action: change
+      reason: Restyle the offer workspace and QR paper without rendering the token.
+    pairing-token-visibility-regression:
+      action: change
+      reason: Keep visible-text/attribute authority checks and add raster QR decode
+        against the exact offer URL.
+  pairing-discloses-browser-and-relay-boundaries:
+    pairing-boundary-workspace:
+      action: change
+      reason: Reflow the same browser/relay disclosure into editorial desktop and
+        linear phone regions.
+    pairing-boundary-regression:
+      action: change
+      reason: Replace v4 material assertions while retaining every privacy-boundary
+        assertion in both layouts.
+  pairing-code-enrollment-surfaces:
+    pair-code-cli-regression:
+      action: keep
+      reason: CLI code formatting is outside the visual phase.
+    pair-code-command:
+      action: keep
+      reason: CLI offer issuance is outside the visual phase.
+    settings-pair-another-device:
+      action: change
+      reason: Restyle the minted code/QR and pair-another action while preserving
+        selectors, expiry and hidden token behavior.
+    pairing-code-client-api:
+      action: keep
+      reason: Pairing API protocol is explicitly out of scope.
+    browser-pairing-code-client:
+      action: keep
+      reason: Code exchange and enrollment logic remain untouched.
+    browser-pairing-code-workspace:
+      action: change
+      reason: Recompose the existing autofocus code and concealed-link forms for the
+        8-column desktop and 4-by-2 phone layouts.
+    pairing-code-surface-style:
+      action: change
+      reason: Move code cells, Settings offer and forms from legacy --wr-* values to
+        v5 tokens, 11px radii and 44px phone targets.
+    pairing-code-browser-regression:
+      action: change
+      reason: Keep manual and second-device enrollment, add Settings QR decode and
+        complete the second-device story through revoke.
+    pairing-code-browser-harness:
+      action: keep
+      reason: The isolated harness offer shape and protocol remain untouched.
