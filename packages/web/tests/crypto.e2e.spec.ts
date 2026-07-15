@@ -2,7 +2,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, chromium, test } from '@playwright/test';
+import { expect, chromium, test, type Locator } from '@playwright/test';
+import jsQR from 'jsqr';
+import { PNG } from 'pngjs';
+import QRCode from 'qrcode';
 import {
   generateIdentity,
   openSealedBox,
@@ -18,8 +21,62 @@ async function control<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function isOpaqueWhite(data: Buffer, offset: number): boolean {
+  return data[offset] === 255 && data[offset + 1] === 255
+    && data[offset + 2] === 255 && data[offset + 3] === 255;
+}
+
+async function expectQrRaster(locator: Locator, expectedUrl: string): Promise<void> {
+  const source = await locator.getAttribute('src');
+  expect(source).toMatch(/^data:image\/png;base64,/);
+  const raster = Buffer.from(source!.slice(source!.indexOf(',') + 1), 'base64');
+  const png = PNG.sync.read(raster);
+  const pixels = new Uint8ClampedArray(png.data.buffer, png.data.byteOffset, png.data.byteLength);
+  const decoded = jsQR(pixels, png.width, png.height);
+  expect(decoded?.data).toBe(expectedUrl);
+
+  let left = png.width;
+  let right = -1;
+  let top = png.height;
+  let bottom = -1;
+  for (let y = 0; y < png.height; y += 1) {
+    for (let x = 0; x < png.width; x += 1) {
+      const offset = (y * png.width + x) * 4;
+      if (isOpaqueWhite(png.data, offset)) continue;
+      left = Math.min(left, x);
+      right = Math.max(right, x);
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y);
+    }
+  }
+  expect(right).toBeGreaterThan(left);
+  expect(bottom).toBeGreaterThan(top);
+
+  const modules = QRCode.create(expectedUrl).modules.size;
+  const moduleWidth = Math.min((right - left + 1) / modules, (bottom - top + 1) / modules);
+  expect(left / moduleWidth).toBeGreaterThanOrEqual(4);
+  expect(top / moduleWidth).toBeGreaterThanOrEqual(4);
+  expect((png.width - right - 1) / moduleWidth).toBeGreaterThanOrEqual(4);
+  expect((png.height - bottom - 1) / moduleWidth).toBeGreaterThanOrEqual(4);
+
+  let dirtyQuietPixel: string | undefined;
+  quietZone: for (let y = 0; y < png.height; y += 1) {
+    for (let x = 0; x < png.width; x += 1) {
+      if (x >= left && x <= right && y >= top && y <= bottom) continue;
+      if (!isOpaqueWhite(png.data, (y * png.width + x) * 4)) {
+        dirtyQuietPixel = `${String(x)},${String(y)}`;
+        break quietZone;
+      }
+    }
+  }
+  expect(dirtyQuietPixel, 'every raster quiet-border pixel must be opaque white').toBeUndefined();
+}
+
 // harn:assume pairing-offer-token-remains-qr-only ref=pairing-token-visibility-regression
+// Decode the raster without weakening the existing visible-text and attribute secrecy checks.
 // harn:assume pairing-discloses-browser-and-relay-boundaries ref=pairing-boundary-regression
+// Both relay-boundary headings and their truthful metadata/plaintext claims remain required.
+// harn:assume web-settings-pairing-match-soft-editorial-reference ref=soft-editorial-pairing-regression
 test('pairing page renders a QR without visible authority and enrolls the browser dual identity', async ({ page }) => {
   const offer = await control<{ url: string }>('/pair-offer');
   const offerUrl = new URL(offer.url);
@@ -27,7 +84,8 @@ test('pairing page renders a QR without visible authority and enrolls the browse
   const accessToken = 'e2e-token';
   await page.goto(offer.url);
   await expect(page.getByTestId('pairing-page')).toBeVisible();
-  await expect(page.getByAltText('Pairing QR code')).toBeVisible();
+  await expect(page.getByTestId('pairing-qr')).toBeVisible();
+  await expectQrRaster(page.getByTestId('pairing-qr'), offer.url);
   await expect(page.locator('body')).not.toContainText(pairingToken);
   await expect(page.locator('body')).not.toContainText(accessToken);
   await expect(page.getByText('This is not an account login.')).toBeVisible();
@@ -38,21 +96,40 @@ test('pairing page renders a QR without visible authority and enrolls the browse
   await page.setViewportSize({ width: 1440, height: 900 });
   const pairingStyle = await page.evaluate(() => {
     const shell = getComputedStyle(document.querySelector<HTMLElement>('.wr-pairing-shell')!);
-    const button = getComputedStyle(document.querySelector<HTMLElement>('.wr-pair-button')!);
+    const page = getComputedStyle(document.querySelector<HTMLElement>('.wr-pairing-page')!);
     return {
       display: shell.display,
       radius: parseFloat(shell.borderTopLeftRadius),
-      material: shell.backdropFilter || shell.getPropertyValue('-webkit-backdrop-filter'),
-      buttonMaterial: button.backdropFilter || button.getPropertyValue('-webkit-backdrop-filter'),
+      columns: shell.gridTemplateColumns.split(' ').length,
+      font: page.fontFamily,
+      letterSpacing: page.letterSpacing,
     };
   });
   expect(pairingStyle.display).toBe('grid');
-  expect(pairingStyle.radius).toBe(0);
-  expect(pairingStyle.material).toBe('none');
-  expect(pairingStyle.buttonMaterial).toContain('blur');
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole('button', { name: 'Pair this browser' })).toBeInViewport();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  expect(pairingStyle.radius).toBe(18);
+  expect(pairingStyle.columns).toBe(2);
+  expect(pairingStyle.font).toContain('Geist');
+  expect(pairingStyle.letterSpacing).toBe('normal');
+
+  for (const [width, columns] of [[1023, 1], [1024, 2]] as const) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect.poll(() => page.locator('.wr-pairing-shell').evaluate((element) =>
+      getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(columns);
+    await expect.poll(() => page.getByTestId('pairing-offer-state').evaluate((element) =>
+      getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(columns);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  }
+  for (const width of [1023, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    const target = page.getByTestId('confirm-pair-browser');
+    await expect(target, `pair action must exist at ${String(width)}px`).toHaveCount(1);
+    await expect(target).toBeVisible();
+    const box = await target.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  }
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole('button', { name: 'Pair this browser' }).click();
   await expect(page.getByRole('button', { name: 'Paired' })).toBeVisible();
@@ -94,6 +171,7 @@ test('pairing page renders a QR without visible authority and enrolls the browse
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
   await expect(page).not.toHaveURL(/(?:\?|&)token=/);
 });
+// harn:end web-settings-pairing-match-soft-editorial-reference
 // harn:end pairing-discloses-browser-and-relay-boundaries
 // harn:end pairing-offer-token-remains-qr-only
 
@@ -119,15 +197,26 @@ test('root code entry pairs a browser and Settings mints a second-device round t
   const mintResponse = page.waitForResponse((response) =>
     response.request().method() === 'POST' && response.url().endsWith('/api/pairing/offers'));
   await page.getByTestId('pair-another-device').click();
-  const minted = await (await mintResponse).json() as { pairing_code: string; pairing_token: string };
+  const minted = await (await mintResponse).json() as {
+    endpoint: string;
+    pairing_code: string;
+    pairing_token: string;
+    switchboard_sign_pub: string;
+  };
   await expect(page.getByTestId('settings-pairing-code')).toHaveText(minted.pairing_code);
-  await expect(page.getByAltText('Pair another device QR code')).toBeVisible();
+  await expect(page.getByTestId('settings-pairing-qr')).toBeVisible();
+  const settingsOfferUrl = new URL('/pair', minted.endpoint);
+  settingsOfferUrl.searchParams.set('endpoint', minted.endpoint);
+  settingsOfferUrl.searchParams.set('pairing_token', minted.pairing_token);
+  settingsOfferUrl.searchParams.set('switchboard_sign_pub', minted.switchboard_sign_pub);
+  await expectQrRaster(page.getByTestId('settings-pairing-qr'), settingsOfferUrl.toString());
   expect(minted.pairing_code).toMatch(/^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
   expect(await page.locator('body').innerText()).not.toContain(minted.pairing_token);
   expect(await page.locator('html').evaluate((element) => element.outerHTML))
     .not.toContain(minted.pairing_token);
 
   const secondContext = await browser.newContext();
+  let secondDeviceId = '';
   try {
     const second = await secondContext.newPage();
     await second.goto(`${BASE}/?room=eng`);
@@ -139,9 +228,22 @@ test('root code entry pairs a browser and Settings mints a second-device round t
     await second.waitForURL('**/pair?**');
     await second.getByRole('button', { name: 'Pair this browser' }).click();
     await expect(second.getByRole('button', { name: 'Paired' })).toBeVisible();
+    secondDeviceId = (await second.evaluate(() => window.__codorCrypto.identity())).device_id;
   } finally {
     await secondContext.close();
   }
+
+  await page.reload();
+  await expect(page.getByTestId(`device-${secondDeviceId}`)).toBeVisible();
+  await page.getByTestId(`device-action-${secondDeviceId}`).click();
+  await expect(page.getByTestId(`confirm-revoke-${secondDeviceId}`)).toBeVisible();
+  const revokeResponse = page.waitForResponse((response) =>
+    response.request().method() === 'DELETE' && response.url().includes(`/api/devices/${secondDeviceId}`));
+  await page.getByTestId(`confirm-revoke-${secondDeviceId}`).click();
+  expect((await revokeResponse).status()).toBe(200);
+  await expect(page.getByTestId(`device-${secondDeviceId}`)).toHaveCount(0);
+  expect((await control<{ peers: { device_id: string }[] }>('/peers')).peers)
+    .not.toContainEqual(expect.objectContaining({ device_id: secondDeviceId }));
 });
 // harn:end pairing-code-enrollment-surfaces
 

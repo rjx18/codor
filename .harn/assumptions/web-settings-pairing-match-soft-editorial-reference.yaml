@@ -1,0 +1,24 @@
+id: web-settings-pairing-match-soft-editorial-reference
+hash: a-a1294a108d0b
+title: Settings and pairing match the soft-editorial design system
+state: active
+statement: The web Settings and browser Pairing surfaces must derive from the v5
+  soft-editorial system in both themes - Geist with zero letter spacing, warm
+  tokenised surfaces, 18px section panels, 11px controls, restrained elevation
+  and Lucide icons - while Settings presents flat operational rows, a segmented
+  local theme choice, truthful opt-in brakes, relay disclosure and device
+  authority, and Pairing presents an editorial two-column desktop enrollment
+  with a scannable QR pane plus manual code and concealed-link forms. Below
+  1024px both surfaces must become a linear uncluttered flow with no horizontal
+  overflow and every interactive target at least 44x44, because the approved
+  references omit these product-specific screens and they must be derived from
+  the common v5 language without inventing a marketing, account, billing, or
+  nested-card interface.
+depends_on:
+  - soft-editorial-design-system-guides-responsive-surfaces
+  - web-theme-accessible-modes
+  - web-v5-primitives-consume-only-tokens
+  - web-settings-controls-preserve-product-truth
+  - pairing-discloses-browser-and-relay-boundaries
+  - pairing-offer-token-remains-qr-only
+created_by: v5-p4-settings-pairing

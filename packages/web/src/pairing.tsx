@@ -20,6 +20,7 @@ import {
   tryTrustedBrowserPairing,
   unpairBrowser,
 } from './crypto';
+import { Button } from './v5/primitives.js';
 
 const PAIRING_CODE_CHARACTERS = /^[23456789A-HJ-NP-Z]$/;
 
@@ -156,7 +157,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
 
   useEffect(() => {
     if (!hasOffer) return;
-    void QRCode.toDataURL(currentUrl.toString(), { margin: 1, width: 320 }).then(setQr);
+    void QRCode.toDataURL(currentUrl.toString(), { margin: 4, scale: 4 }).then(setQr);
   }, [currentUrl, hasOffer]);
 
   useEffect(() => {
@@ -191,30 +192,40 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
     }
   }, [currentUrl]);
 
+  // harn:assume web-settings-pairing-match-soft-editorial-reference ref=soft-editorial-pairing-surface
+  // The v5 surface owns presentation only; every enrollment branch below remains operational.
   // harn:assume unpaired-browser-always-has-enrollment-path ref=unpaired-pairing-workspace
+  // A tokenless visit still reaches trusted probing and then both manual enrollment forms.
   // harn:assume pairing-offer-token-remains-qr-only ref=glass-pairing-surface
+  // Offer authority stays encoded in the generated QR raster, never rendered as plaintext.
   // harn:assume pairing-discloses-browser-and-relay-boundaries ref=pairing-boundary-workspace
   return (
     <main data-testid="pairing-page" className="wr-pairing-page">
       <header className="wr-pairing-brand">
         <strong>Codor</strong>
-        <span>Local device enrollment</span>
+        <span>Local browser enrollment</span>
       </header>
 
       <section className="wr-pairing-shell">
         <div className="wr-pairing-enrollment">
           <div className="wr-pairing-heading">
             <div>
+              <p className="wr-pairing-kicker">Device authority</p>
               <h1>Pair this browser</h1>
               <span>Authorize this browser with Codor on this device. This is not an account login.</span>
             </div>
           </div>
 
           {hasOffer ? (
-            <div className="wr-pairing-grid">
+            <div data-testid="pairing-offer-state" className="wr-pairing-grid">
               <div className="wr-qr-pane">
                 {qr ? (
-                  <img src={qr} alt="Pairing QR code" />
+                  <img
+                    src={qr}
+                    alt="Pairing QR code"
+                    data-testid="pairing-qr"
+                    className="wr-qr-paper"
+                  />
                 ) : (
                   <div role="status" className="wr-qr-placeholder">Preparing QR</div>
                 )}
@@ -232,8 +243,9 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
                   <li><Check aria-hidden="true" size={15} /> Channel keys stored locally for this device</li>
                   <li><Check aria-hidden="true" size={15} /> Revoke and purge from Settings</li>
                 </ul>
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
+                  data-testid="confirm-pair-browser"
                   disabled={state === 'pairing' || state === 'paired'}
                   onClick={() => {
                     setState('pairing');
@@ -249,11 +261,10 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
                       },
                     );
                   }}
-                  className="wr-primary-button wr-pair-button"
                 >
                   <KeyRound aria-hidden="true" size={18} />
                   {state === 'pairing' ? 'Pairing' : state === 'paired' ? 'Paired' : 'Pair this browser'}
-                </button>
+                </Button>
                 {state === 'paired' && <p role="status" className="wr-pair-success"><Check aria-hidden="true" size={15} /> Browser paired. You can open your channels.</p>}
                 {state === 'failed' && <p role="alert" className="wr-form-error">{failure}</p>}
               </div>
@@ -295,9 +306,14 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
                   onChange={setPairingCode}
                   disabled={state === 'pairing'}
                 />
-                <button type="submit" disabled={state === 'pairing'} className="wr-primary-button min-h-11 px-4">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  data-testid="pairing-code-submit"
+                  disabled={state === 'pairing'}
+                >
                   {state === 'pairing' ? 'Checking code' : 'Continue'}
-                </button>
+                </Button>
               </form>
               <div className="wr-pairing-fallback"><span>or use a pairing link</span></div>
               <form
@@ -329,12 +345,12 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
                     autoComplete="off"
                     spellCheck={false}
                     required
-                    className="wr-input min-h-11 px-3"
+                    className="wr-input"
                   />
                 </label>
-                <button type="submit" className="wr-secondary-button min-h-11 px-4">
+                <Button type="submit" variant="secondary" data-testid="pairing-link-submit">
                   Open pairing link
-                </button>
+                </Button>
               </form>
               {failure && <p role="alert" className="wr-form-error">{failure}</p>}
             </div>
@@ -362,4 +378,5 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string } = {
   // harn:end pairing-discloses-browser-and-relay-boundaries
   // harn:end pairing-offer-token-remains-qr-only
   // harn:end unpaired-browser-always-has-enrollment-path
+  // harn:end web-settings-pairing-match-soft-editorial-reference
 }

@@ -999,7 +999,9 @@ test('the soft-editorial shell keeps accessible light tokens, matte panels, and 
 });
 
 // harn:assume web-settings-controls-preserve-product-truth ref=glass-settings-regression
-test('restrained settings keep row-based desktop focus, mobile fit, and honest relay boundaries', async ({ page, request }) => {
+// Product-truth assertions remain outside the visual contract they now exercise.
+// harn:assume web-settings-pairing-match-soft-editorial-reference ref=soft-editorial-settings-regression
+test('soft-editorial settings keep direct operational sections, exact responsive boundaries, and honest relay controls', async ({ page, request }) => {
   const freshRoom = `brake-default-${String(Date.now())}`;
   const created = await request.post('/api/rooms', {
     headers: { authorization: 'Bearer e2e-token' },
@@ -1036,28 +1038,30 @@ test('restrained settings keep row-based desktop focus, mobile fit, and honest r
   expect(categoryBox.x + categoryBox.width).toBeLessThanOrEqual(contentBox.x + 0.5);
   const settingsStyle = await page.evaluate(() => {
     const nav = getComputedStyle(document.querySelector<HTMLElement>('.wr-settings-nav')!);
-    const content = getComputedStyle(document.querySelector<HTMLElement>('.wr-settings-content')!);
-    const row = getComputedStyle(document.querySelector<HTMLElement>('.wr-setting-row')!);
+    const section = getComputedStyle(document.querySelector<HTMLElement>('.wr-settings-section')!);
+    const page = getComputedStyle(document.querySelector<HTMLElement>('.wr-settings-page')!);
     return {
       navBackground: nav.backgroundColor,
-      contentBackground: content.backgroundColor,
-      navMaterial: nav.backdropFilter || nav.getPropertyValue('-webkit-backdrop-filter'),
-      rowRadius: parseFloat(row.borderTopLeftRadius),
-      contentImage: content.backgroundImage,
+      sectionBackground: section.backgroundColor,
+      sectionRadius: parseFloat(section.borderTopLeftRadius),
+      pageFont: page.fontFamily,
+      pageLetterSpacing: page.letterSpacing,
+      surfaceToken: getComputedStyle(document.documentElement).getPropertyValue('--cd-surface').trim(),
     };
   });
-  expect(settingsStyle.navBackground).toBe(settingsStyle.contentBackground);
-  expect(settingsStyle.navMaterial).toBe('none');
-  expect(settingsStyle.rowRadius).toBe(0);
-  expect(settingsStyle.contentImage).toBe('none');
+  expect(settingsStyle.navBackground).toBe(settingsStyle.sectionBackground);
+  expect(settingsStyle.sectionRadius).toBe(18);
+  expect(settingsStyle.pageFont).toContain('Geist');
+  expect(settingsStyle.pageLetterSpacing).toBe('normal');
+  expect(settingsStyle.surfaceToken).not.toBe('');
 
-  // harn:assume web-settings-pairing-match-restrained-reference ref=restrained-settings-pairing-regression
   await expect(page.getByTestId('settings-section-appearance')).toBeVisible();
-  await expect(page.getByTestId('settings-section-brakes')).toBeHidden();
-  await page.getByRole('link', { name: 'Brakes', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Brakes', exact: true })).toBeVisible();
   await expect(page.getByTestId('settings-section-brakes')).toBeVisible();
-  await expect(page.getByTestId('settings-section-appearance')).toBeHidden();
+  await expect(page.getByTestId('settings-section-privacy')).toBeVisible();
+  await page.getByRole('link', { name: 'Brakes', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Channel brakes', exact: true })).toBeVisible();
+  await expect(page.getByTestId('settings-section-brakes')).toBeVisible();
+  await expect(page.getByTestId('settings-section-appearance')).toBeVisible();
   await expect(page.getByTestId('turn-brake-enabled')).not.toBeChecked();
   await expect(page.getByTestId('spend-brake-enabled')).not.toBeChecked();
   const turnToggle = (await page.getByTestId('turn-brake-enabled').boundingBox())!;
@@ -1079,28 +1083,56 @@ test('restrained settings keep row-based desktop focus, mobile fit, and honest r
   await expect(relay).toContainText('Hosted roadmap · deferred from the v1 push relay.');
   await expect(relayCategory).toHaveAttribute('aria-current', 'location');
 
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 1023, height: 844 });
   await page.reload();
   await expect(page.getByTestId('room-rail')).toBeHidden();
   await expect(page.getByTestId('settings-nav')).toBeHidden();
   await expect(page.getByTestId('settings-section-appearance')).toBeVisible();
+  await expect(page.getByTestId('settings-section-brakes')).toBeVisible();
   await expect(page.getByTestId('settings-section-privacy')).toBeVisible();
-  await expect(page.getByTestId('theme-system')).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1023);
+
+  await page.setViewportSize({ width: 1024, height: 844 });
+  await page.reload();
+  await expect(page.getByTestId('room-rail')).toBeVisible();
+  await expect(page.getByTestId('settings-nav')).toBeVisible();
+  await expect(page.getByTestId('settings-section-appearance')).toBeVisible();
+  await expect(page.getByTestId('settings-section-privacy')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1024);
+
+  const namedTargets = [
+    'theme-system',
+    'theme-dark',
+    'theme-light',
+    'enable-notifications',
+    'turn-brake-enabled',
+    'turn-brake-value',
+    'spend-brake-enabled',
+    'spend-brake-value',
+    'stall-minutes',
+    'room-settings-save',
+    'open-relay-pairing',
+    'pair-another-device',
+  ];
+  for (const width of [1023, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.reload();
+    for (const testId of namedTargets) {
+      const target = page.getByTestId(testId);
+      await expect(target, `${testId} must exist at ${String(width)}px`).toHaveCount(1);
+      await expect(target, `${testId} must be visible at ${String(width)}px`).toBeVisible();
+      const box = await target.boundingBox();
+      expect(box, `${testId} must have geometry at ${String(width)}px`).not.toBeNull();
+      expect(box!.width, `${testId} width at ${String(width)}px`).toBeGreaterThanOrEqual(44);
+      expect(box!.height, `${testId} height at ${String(width)}px`).toBeGreaterThanOrEqual(44);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  }
+
   await page.locator('#privacy').scrollIntoViewIfNeeded();
   await expect(page.getByText('Local plaintext, content-blind relay.')).toBeVisible();
-
-  await page.setViewportSize({ width: 844, height: 390 });
-  await page.reload();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(844);
-  await expect(page.getByTestId('theme-system')).toBeVisible();
-
-  await page.setViewportSize({ width: 320, height: 700 });
-  await page.reload();
-  await expect(page.getByTestId('theme-system')).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
-  // harn:end web-settings-pairing-match-restrained-reference
 });
+// harn:end web-settings-pairing-match-soft-editorial-reference
 // harn:end web-settings-controls-preserve-product-truth
 
 // harn:assume web-theme-choice-stays-local-v5 ref=theme-choice-regression

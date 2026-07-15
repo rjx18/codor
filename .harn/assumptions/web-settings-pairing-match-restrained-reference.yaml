@@ -1,7 +1,7 @@
 id: web-settings-pairing-match-restrained-reference
 hash: a-2fe38f9fc308
 title: Settings and pairing match the restrained operational references
-state: active
+state: retired
 statement: Desktop Settings must use matte full-height room, category, and
   row-based detail panes while mobile Settings becomes one linear native-like
   scroll, and browser pairing must use a compact action-and-disclosure workspace
@@ -14,3 +14,4 @@ depends_on:
   - pairing-discloses-browser-and-relay-boundaries
   - pairing-offer-token-remains-qr-only
 created_by: restrained-settings-pairing-workspace
+retired_by: v5-p4-settings-pairing

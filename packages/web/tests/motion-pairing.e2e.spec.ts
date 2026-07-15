@@ -104,6 +104,33 @@ test('an unpaired app visit offers trusted progress and a manual pairing-link pa
   await expect(page.getByTestId('pairing-code-0')).toBeFocused();
   await expect(page.getByTestId('pairing-link')).toHaveAttribute('type', 'password');
 
+  const namedTargets = [
+    ...Array.from({ length: 8 }, (_, index) => `pairing-code-${String(index)}`),
+    'pairing-code-submit',
+    'pairing-link',
+    'pairing-link-submit',
+  ];
+  for (const width of [390, 1023]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect.poll(() => page.getByTestId('pairing-code').evaluate((element) =>
+      getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(4);
+    for (const testId of namedTargets) {
+      const target = page.getByTestId(testId);
+      await expect(target, `${testId} must exist at ${String(width)}px`).toHaveCount(1);
+      await expect(target).toBeVisible();
+      const box = await target.boundingBox();
+      expect(box, `${testId} must have geometry at ${String(width)}px`).not.toBeNull();
+      expect(box!.width, `${testId} width at ${String(width)}px`).toBeGreaterThanOrEqual(44);
+      expect(box!.height, `${testId} height at ${String(width)}px`).toBeGreaterThanOrEqual(44);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  }
+  await page.setViewportSize({ width: 1024, height: 844 });
+  await expect.poll(() => page.getByTestId('pairing-code').evaluate((element) =>
+    getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(8);
+  expect(await page.getByTestId('pairing-code-0').evaluate((element) =>
+    parseFloat(getComputedStyle(element).borderTopLeftRadius))).toBe(11);
+
   const offer = await control<{ url: string }>('/pair-offer');
   await page.getByTestId('pairing-link').fill(offer.url);
   await page.getByRole('button', { name: 'Open pairing link' }).click();

@@ -44,6 +44,7 @@ import {
   storeThemeChoice,
   type ThemeChoice,
 } from './theme.js';
+import { Button } from './v5/primitives.js';
 import { connect } from './ws.js';
 
 function pageParams(): { room: string; token: string } {
@@ -84,6 +85,8 @@ function sectionFromHash(): SettingsSection {
 }
 
 // harn:assume web-settings-controls-preserve-product-truth ref=glass-settings-surface
+// Existing notification, brake, relay, device, and privacy bindings remain the source of truth.
+// harn:assume web-settings-pairing-match-soft-editorial-reference ref=soft-editorial-settings-surface
 export function SettingsPage(props: {
   token?: string;
   refreshToken?: () => Promise<string>;
@@ -163,8 +166,6 @@ export function SettingsPage(props: {
   const visibleActiveSection = visibleSections.some(([id]) => id === activeSection)
     ? activeSection
     : 'appearance';
-  const activeSectionLabel = settingsSections.find(([id]) => id === visibleActiveSection)?.[1] ?? 'Settings';
-
   useEffect(() => {
     if (self === undefined) return;
     if (canOwner) {
@@ -184,7 +185,7 @@ export function SettingsPage(props: {
     url.searchParams.set('pairing_token', pairingOffer.pairing_token);
     url.searchParams.set('switchboard_sign_pub', pairingOffer.switchboard_sign_pub);
     let current = true;
-    void QRCode.toDataURL(url.toString(), { margin: 1, width: 240 }).then((data) => {
+    void QRCode.toDataURL(url.toString(), { margin: 4, scale: 4 }).then((data) => {
       if (current) setPairingQr(data);
     });
     return () => { current = false; };
@@ -193,12 +194,12 @@ export function SettingsPage(props: {
   if (unpaired) {
     return (
       <main data-testid="browser-unpaired" className="wr-settings-page wr-centered-page">
-        <section className="wr-focused-glass wr-state-sheet">
+        <section className="wr-state-sheet">
           <ShieldCheck aria-hidden="true" size={30} />
           <h1>Browser unpaired</h1>
           <p>{localPurgeWarning ?? 'Local keys, caches, channel state, and the push subscription were removed.'}</p>
           {unpairWarning && <p role="alert" className="wr-warning-copy">{unpairWarning}</p>}
-          <a href="/pair" className="wr-primary-button min-h-11 px-4">Pair again</a>
+          <a href="/pair" className="wr-action-primary">Pair again</a>
         </section>
       </main>
     );
@@ -217,9 +218,10 @@ export function SettingsPage(props: {
           owner={owner ? { handle: owner.handle, display_name: owner.display_name } : undefined}
           canCreateRoom={canOwner}
         />
-        <aside data-testid="settings-nav" className="wr-settings-nav">
+        <aside aria-label="Settings" data-testid="settings-nav" className="wr-settings-nav">
           <div className="wr-settings-nav-title">
-            <strong>Settings</strong>
+            <strong>Local settings</strong>
+            <span>{state.room?.name ?? room}</span>
           </div>
           <nav aria-label="Settings categories">
             {visibleSections.map(([id, label]) => (
@@ -240,19 +242,18 @@ export function SettingsPage(props: {
 
         <div className="wr-settings-content">
           <header className="wr-settings-header">
-            <a href={roomHref} aria-label="Back to channel" className="wr-icon-button">
+            <a href={roomHref} aria-label="Back to channel" className="wr-icon-link">
               <ChevronLeft aria-hidden="true" size={21} />
             </a>
             <div>
-              <h1>{activeSectionLabel}</h1>
-              <p>{state.room?.name ?? room} · local settings</p>
+              <h1>Settings</h1>
+              <p>{state.room?.name ?? room} · operational controls for this channel and browser</p>
             </div>
           </header>
 
           <div className="wr-settings-body">
             {notice && <p role="status" className="wr-settings-notice">{notice}</p>}
 
-            {/* harn:assume web-settings-pairing-match-restrained-reference ref=restrained-settings-pairing-surface */}
             {state.room?.config.bridged && <BridgedRoomBanner />}
             <section id="appearance" data-testid="settings-section-appearance" data-active={visibleActiveSection === 'appearance'} className="wr-settings-section">
               <div className="wr-section-heading">
@@ -260,6 +261,7 @@ export function SettingsPage(props: {
                 <div><h2>Appearance</h2><p>Local to this browser.</p></div>
               </div>
               {/* harn:assume web-theme-choice-stays-local-v5 ref=settings-theme-control */}
+              {/* Radio semantics stay distinct from the tab primitive used by room navigation. */}
               <div className="wr-setting-row">
                 <div className="wr-setting-copy">
                   <strong>Theme</strong>
@@ -308,8 +310,8 @@ export function SettingsPage(props: {
                   <strong>{currentDevice?.push_enabled ? 'Browser notifications on' : 'Browser notifications off'}</strong>
                   <span>{pushConfig.enabled ? `Permission: ${notificationPermission()}` : 'Push is not configured on this device.'}</span>
                 </div>
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
                   data-testid="enable-notifications"
                   disabled={busy || !currentDevice || !pushConfig.enabled || !pushConfig.vapid_public_key}
                   onClick={() => {
@@ -328,10 +330,9 @@ export function SettingsPage(props: {
                       (error: unknown) => setNotice(error instanceof Error ? error.message : 'Notification setup failed.'),
                     ).finally(() => setBusy(false));
                   }}
-                  className="wr-secondary-button min-h-11 px-4 disabled:opacity-40"
                 >
                   Enable
-                </button>
+                </Button>
               </div>
             </section>}
 
@@ -409,7 +410,7 @@ export function SettingsPage(props: {
                   </div>
                 </div>
                 <div className="wr-settings-actions">
-                  <button type="submit" data-testid="room-settings-save" className="wr-primary-button min-h-11 px-5">Save brakes</button>
+                  <Button type="submit" variant="primary" data-testid="room-settings-save">Save brakes</Button>
                 </div>
               </form>
             </section>}
@@ -437,11 +438,10 @@ export function SettingsPage(props: {
               </div>
               {/* harn:assume pairing-code-enrollment-surfaces ref=settings-pair-another-device */}
               <div className="wr-pair-another">
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
                   data-testid="pair-another-device"
                   disabled={busy}
-                  className="wr-secondary-button min-h-11 px-4"
                   onClick={() => {
                     setBusy(true);
                     setNotice(undefined);
@@ -453,7 +453,7 @@ export function SettingsPage(props: {
                 >
                   <KeyRound aria-hidden="true" size={18} />
                   Pair another device
-                </button>
+                </Button>
                 {pairingOffer && (
                   <div data-testid="pairing-offer" className="wr-settings-pairing-offer">
                     <div>
@@ -462,7 +462,12 @@ export function SettingsPage(props: {
                       <small>Expires {new Date(pairingOffer.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
                     </div>
                     {pairingQr ? (
-                      <img src={pairingQr} alt="Pair another device QR code" />
+                      <img
+                        src={pairingQr}
+                        alt="Pair another device QR code"
+                        data-testid="settings-pairing-qr"
+                        className="wr-qr-paper"
+                      />
                     ) : (
                       <span role="status">Preparing QR</span>
                     )}
@@ -485,19 +490,28 @@ export function SettingsPage(props: {
                           <span>{current ? 'This browser · ' : ''}{device.push_enabled ? 'Push on' : 'Push off'} · paired {new Date(device.paired_at).toLocaleDateString()}</span>
                         </div>
                         {!confirming && (
-                          <button type="button" onClick={() => setConfirmDevice(device.device_id)} className="wr-danger-link min-h-11 px-3">
+                          <Button
+                            variant="ghost"
+                            data-testid={`device-action-${device.device_id}`}
+                            onClick={() => setConfirmDevice(device.device_id)}
+                          >
                             {current ? 'Unpair' : 'Revoke'}
-                          </button>
+                          </Button>
                         )}
                       </div>
                       {confirming && (
                         <div className="wr-confirm-row">
                           <span>{current ? 'Remove this browser and all local Codor data?' : 'Revoke this device?'}</span>
-                          <button type="button" onClick={() => setConfirmDevice(undefined)} className="wr-secondary-button min-h-11 px-3">Cancel</button>
-                          <button
-                            type="button"
+                          <Button
+                            variant="secondary"
+                            data-testid={`cancel-device-${device.device_id}`}
+                            onClick={() => setConfirmDevice(undefined)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="remove"
                             data-testid={current ? 'confirm-unpair-browser' : `confirm-revoke-${device.device_id}`}
-                            className="wr-danger-button min-h-11 px-3"
                             onClick={() => {
                               setBusy(true);
                               if (current) {
@@ -531,7 +545,7 @@ export function SettingsPage(props: {
                             }}
                           >
                             {current ? 'Unpair browser' : 'Revoke device'}
-                          </button>
+                          </Button>
                         </div>
                       )}
                     </li>
@@ -555,7 +569,6 @@ export function SettingsPage(props: {
                 <span className="wr-status-copy"><i className="wr-presence is-live" /> Local only</span>
               </div>
             </section>
-            {/* harn:end web-settings-pairing-match-restrained-reference */}
           </div>
         </div>
       </div>
@@ -654,4 +667,5 @@ function RelayPairing() {
     </div>
   );
 }
+// harn:end web-settings-pairing-match-soft-editorial-reference
 // harn:end web-settings-controls-preserve-product-truth
