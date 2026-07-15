@@ -634,7 +634,10 @@ button:disabled {
 .wr-room-header {
   z-index: 3;
   display: grid;
-  grid-template-areas: 'identity actions' 'meter meter';
+  /* Phone-first 2a IA: identity and its meter subtitle stack in the flexible first column while the
+     drawer/context/overflow controls hold the second column across both rows — no full-width meter
+     band. The >=721 desktop override restores the single-row identity | meter | actions layout. */
+  grid-template-areas: 'identity actions' 'meter actions';
   grid-template-columns: minmax(0, 1fr) auto;
   flex: 0 0 auto;
   align-items: center;
@@ -739,6 +742,65 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: var(--cd-space-1);
+}
+
+/* The phone overflow disclosure: an Ellipsis trigger and a popover of the relocated Search /
+   Ledger / Settings / Inbox controls. The trigger only mounts on the phone; the popover stays in
+   the DOM while closed (hidden) so its aria-controls target and the settings link resolve. */
+.wr-overflow {
+  position: relative;
+  display: inline-flex;
+}
+
+.wr-overflow-popover {
+  position: absolute;
+  top: calc(100% + var(--cd-space-1));
+  right: 0;
+  z-index: 4;
+  display: flex;
+  min-width: 208px;
+  flex-direction: column;
+  gap: var(--cd-space-1);
+  padding: var(--cd-space-1);
+  border: 1px solid var(--cd-line);
+  border-radius: var(--cd-radius-card);
+  background: var(--cd-surface-raised);
+  box-shadow: var(--cd-elevate-popover);
+}
+
+.wr-overflow-popover[hidden] {
+  display: none;
+}
+
+.wr-overflow-item {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--cd-space-2);
+  padding: 0 var(--cd-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--cd-radius-control);
+  background: transparent;
+  color: var(--cd-text-secondary);
+  font: var(--cd-text-ui);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.wr-overflow-item:hover {
+  border-color: var(--cd-line);
+  background: var(--cd-surface-muted);
+  color: var(--cd-text-strong);
+}
+
+.wr-overflow-item svg {
+  flex: 0 0 auto;
+  color: var(--cd-text-secondary);
+}
+
+.wr-overflow-item strong {
+  margin-left: auto;
+  color: var(--cd-warn);
 }
 
 .wr-icon-button {
@@ -1464,7 +1526,7 @@ button:disabled {
   margin: 0 auto max(var(--cd-space-4), env(safe-area-inset-bottom));
   padding: var(--cd-space-3) var(--cd-space-3) var(--cd-space-3);
   border: 1px solid var(--cd-line-strong);
-  border-radius: var(--cd-radius-card);
+  border-radius: var(--cd-radius-full);
   background: var(--cd-surface);
   box-shadow: var(--cd-elevate-float);
 }
@@ -3700,7 +3762,7 @@ button:disabled {
   }
 }
 
-@media (min-width: 640px) {
+@media (min-width: 721px) {
   .wr-room-header {
     grid-template-areas: 'identity meter actions';
     grid-template-columns: minmax(150px, auto) minmax(0, 1fr) auto;
@@ -4764,6 +4826,24 @@ button:disabled {
     min-height: 76px;
   }
 
+  /* 2a subtitle: the meter carries the run stats under the title, replacing the presence line,
+     so the identity column reads as a calm title + subtitle and reclaims the width the secondary
+     actions vacated (the channel name stops truncating to "Eng…"). */
+  .wr-room-title span {
+    display: none;
+  }
+
+  .wr-meter {
+    justify-self: start;
+    padding-left: var(--cd-space-1);
+  }
+
+  /* On the phone every breadcrumb crumb needs the full 44x44 touch target, not just the 44px
+     height the wider scale already gives it. */
+  .wr-folder-breadcrumb button {
+    min-width: 44px;
+  }
+
   .wr-timeline {
     padding: 8px 10px 20px;
   }
@@ -4797,6 +4877,9 @@ button:disabled {
     width: calc(100% - 20px);
     margin-right: 10px;
     margin-left: 10px;
+    /* A full radius clamps to the composer's half-height, so the single-row phone composer reads
+       as a pill (the 2a affordance) without a new token. */
+    border-radius: var(--cd-radius-full);
   }
 }
 

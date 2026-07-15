@@ -1,67 +1,149 @@
 id: p3c2-mobile-and-sweep
-title: V5 P3 closure 2/4 - the minimal 2a phone header with the meter as a compact
-  identity subtitle, a 24px pill composer, the secondary actions relocated to an
-  overflow surface, and a 44x44 room-target sweep that reveals and measures every
-  enumerated target per state.
-notes: |-
-  Second of four review-closure plans. Closes blocker 3 (mobile 2a IA) and the test
-  half of blocker 2 (the sweep). Depends on p3c1 (the canonical guard is in place,
+title: V5 P3 closure 2/4 - the minimal 2a phone header with the meter as a
+  compact identity subtitle, a 24px pill composer, the secondary actions
+  relocated to an overflow surface, and a 44x44 room-target sweep that reveals
+  and measures every enumerated target per state.
+notes: >-
+  Second of four review-closure plans. Closes blocker 3 (mobile 2a IA) and the
+  test
+
+  half of blocker 2 (the sweep). Depends on p3c1 (the canonical guard is in
+  place,
+
   so the new mobile CSS is written tokenised; the sub-44 floors it measures are
+
   already raised). No codor.service restart; isolated e2e daemons only.
 
-  REVIEW STANDARD (Richard): this is 2a-INSPIRED styling and responsive hierarchy,
+
+  REVIEW STANDARD (Richard): this is 2a-INSPIRED styling and responsive
+  hierarchy,
+
   NOT a literal pixel clone or a feature inventory. Search, Ledger, Settings and
-  Inbox stay fully FUNCTIONAL; relocating them on mobile is the goal, never removing
+
+  Inbox stay fully FUNCTIONAL; relocating them on mobile is the goal, never
+  removing
+
   them. The bar is a calm, uncrowded phone header in the 2a spirit, with every
+
   action still reachable.
 
+
   PHONE HEADER (2a-inspired): the phone header collapses to a minimal IA - a
-  back/drawer affordance, a centered identity stack whose subtitle now carries the
-  compact turns/tokens/spend meter (NOT a second header row and NOT a side control,
+
+  back/drawer affordance, a centered identity stack whose subtitle now carries
+  the
+
+  compact turns/tokens/spend meter (NOT a second header row and NOT a side
+  control,
+
   so spend-meter-always-on's header display is preserved), and a single overflow
-  (...) control. Search, Ledger, Settings and Inbox move out of the header into the
-  overflow menu and/or the existing drawer footer, each keeping its function and a
-  44px hit box. The identity column reclaims the space the actions vacated so the
-  channel name no longer truncates to Eng. The overflow trigger and menu are net-new
+
+  (...) control. Search, Ledger, Settings and Inbox move out of the header into
+  the
+
+  overflow menu and/or the existing drawer footer, each keeping its function and
+  a
+
+  44px hit box. The identity column reclaims the space the actions vacated so
+  the
+
+  channel name no longer truncates to Eng. The overflow trigger and menu are
+  net-new
+
   markup inside the Header (no menu primitive exists today); ask/hold cards stay
+
   framed on the phone.
 
-  OVERFLOW (accessible popover, NOT a menu): the trigger is a Lucide Ellipsis icon
-  button carrying aria-expanded (reflecting open state) and aria-controls (pointing at
-  the popover it toggles); opening moves focus into the popover, Escape and an outside
-  click/tap dismiss it, and dismissal returns focus to the trigger. It is a
-  disclosure/popover - role=menu is NOT used, because full menu keyboard navigation
-  (arrow-key roving, typeahead) is not implemented. The relocated Search, Ledger,
-  Settings and Inbox live in this popover and/or the drawer footer, each a real
-  control with a 44px hit box. The browser regression (soft-editorial-room-visual-
-  regression) is extended to prove, on the phone, that Search and Inbox still open
-  their surfaces and Ledger and Settings still navigate correctly from the overflow.
 
-  COMPOSER (pill): the phone composer applies the EXISTING --cd-radius-full (999px)
-  token to .wr-composer (base + its @media override, which today changes only width);
-  a full radius clamps to the composer's half-height and reads as a pill without a new
-  token and without mutating the --cd-radius-pill:8px scale. No token-layer change. The
-  composer stays one row - composer-single-row's control height and mention/send width
+  OVERFLOW (accessible popover, NOT a menu): the trigger is a Lucide Ellipsis
+  icon
+
+  button carrying aria-expanded (reflecting open state) and aria-controls
+  (pointing at
+
+  the popover it toggles); opening moves focus into the popover, Escape and an
+  outside
+
+  click/tap dismiss it, and dismissal returns focus to the trigger. It is a
+
+  disclosure/popover - role=menu is NOT used, because full menu keyboard
+  navigation
+
+  (arrow-key roving, typeahead) is not implemented. The relocated Search,
+  Ledger,
+
+  Settings and Inbox live in this popover and/or the drawer footer, each a real
+
+  control with a 44px hit box. The browser regression
+  (soft-editorial-room-visual-
+
+  regression) is extended to prove, on the phone, that Search and Inbox still
+  open
+
+  their surfaces and Ledger and Settings still navigate correctly from the
+  overflow.
+
+
+  COMPOSER (pill): the phone composer applies the EXISTING --cd-radius-full
+  (999px)
+
+  token to .wr-composer (base + its @media override, which today changes only
+  width);
+
+  a full radius clamps to the composer's half-height and reads as a pill without
+  a new
+
+  token and without mutating the --cd-radius-pill:8px scale. No token-layer
+  change. The
+
+  composer stays one row - composer-single-row's control height and mention/send
+  width
+
   are untouched.
 
-  SWEEP: room-target-size-sweep in e2e.spec.ts is rewritten so no target silently
-  passes - the hitVisible no-op (and its catch-swallow) is replaced with an
-  existence-and-visibility assertion; the run is driven into running/unframed-mobile
-  and expanded, its collapsed tools revealed, and every .wr-run-row-button measured;
-  the side inspector is opened and measured; the folder-picker rows and breadcrumb,
-  the spawn presets and the message permalink are measured; and the new overflow
-  menu's relocated items are measured when open. Every enumerated target is proven
-  present-visible-and->=44 per mobile state, so an absent or shrunk control fails.
 
-  Scope note: web-room-targets-meet-minimum-hit-size stays reviewed:unchanged - its
+  SWEEP: room-target-size-sweep in e2e.spec.ts is rewritten so no target
+  silently
+
+  passes - the hitVisible no-op (and its catch-swallow) is replaced with an
+
+  existence-and-visibility assertion; the run is driven into
+  running/unframed-mobile
+
+  and expanded, its collapsed tools revealed, and every .wr-run-row-button
+  measured;
+
+  the side inspector is opened and measured; the folder-picker rows and
+  breadcrumb,
+
+  the spawn presets and the message permalink are measured; and the new overflow
+
+  menu's relocated items are measured when open. Every enumerated target is
+  proven
+
+  present-visible-and->=44 per mobile state, so an absent or shrunk control
+  fails.
+
+
+  Scope note: web-room-targets-meet-minimum-hit-size stays reviewed:unchanged -
+  its
+
   enumerated triggers (search/inbox/network/settings) still exist and must clear
+
   44px, now measured in the overflow state; the contract already requires "every
-  interactive target" regardless of location. Flagged for review. App.tsx edits sit
+
+  interactive target" regardless of location. Flagged for review. App.tsx edits
+  sit
+
   inside two coextensive outer anchors (web-channel-terminology, role-aware-web-
+
   controls), declared here per Harn nested-marker semantics. The mobile @media
+
   header/composer overrides are unanchored plain CSS and need no declaration.
 
+
   Gate: build -> test (0 act warnings) -> e2e (the rewritten sweep + the visual
+
   regression) -> harn check.
 assumptions:
   create: []
@@ -75,12 +157,12 @@ assumptions:
     - id: web-room-visual-hierarchy-matches-soft-editorial-reference
       outcome: unchanged
       reason: The phone header adopts the minimal 2a IA behind the header and
-        off-canvas drawer, and the composer is a rounded pill; the soft-editorial
-        contract holds.
+        off-canvas drawer, and the composer is a rounded pill; the
+        soft-editorial contract holds.
     - id: web-room-targets-meet-minimum-hit-size
       outcome: unchanged
-      reason: The enumerated triggers still exist and must clear 44px, now measured
-        in the overflow state; the sweep proves every target per state with no
+      reason: The enumerated triggers still exist and must clear 44px, now measured in
+        the overflow state; the sweep proves every target per state with no
         silent no-op.
     - id: the-composer-is-one-row
       outcome: unchanged
@@ -104,7 +186,8 @@ anchors:
     meter-settings-surface:
       action: change
       reason: The meter becomes the compact identity subtitle; the four secondary
-        header actions are replaced by an overflow trigger + menu with new testids.
+        header actions are replaced by an overflow trigger + menu with new
+        testids.
   web-room-visual-hierarchy-matches-soft-editorial-reference:
     soft-editorial-room-visual-hierarchy:
       action: change
@@ -112,11 +195,16 @@ anchors:
         the relocated actions.
     soft-editorial-room-style:
       action: change
-      reason: The base phone header, meter, header-actions and composer CSS rework
-        for the 2a IA and the pill composer.
+      reason: The base phone header, meter, header-actions and composer CSS rework for
+        the 2a IA and the pill composer.
     soft-editorial-room-visual-regression:
       action: change
       reason: The browser visual regression is updated for the new phone header IA.
+    soft-editorial-responsive-adoption:
+      action: change
+      reason: This same-assumption anchor sits ~1800 lines below the Header in
+        components.tsx; the Header rework line-shifts it (its content is
+        unchanged), so Harn reports the region touched and it must be declared.
   web-room-targets-meet-minimum-hit-size:
     room-target-size-sweep:
       action: change
@@ -132,3 +220,5 @@ anchors:
       action: change
       reason: Touched as the outer coextensive App return anchor over the header
         rework.
+applied:
+  applied_at: 2026-07-15T18:07:09.285Z

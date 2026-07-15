@@ -24,6 +24,7 @@ import {
   CircleDollarSign,
   CircleX,
   Copy,
+  Ellipsis,
   FileCode2,
   FileText,
   Gauge,
@@ -282,6 +283,144 @@ function HeaderColorChip(props: { roomColor: string; roomId: string }) {
 // harn:end channel-create-dialog-renders-an-accessible-accent
 
 // harn:assume spend-meter-always-on ref=meter-settings-surface
+// Below the phone content breakpoint the header collapses to the minimal 2a IA: the meter
+// drops into the identity stack as a subtitle and the four secondary actions fold into an
+// overflow disclosure. matchMedia is the source of truth so a mid-session viewport change
+// (a rotate, a devtools resize) re-collapses without a reload.
+function usePhone(): boolean {
+  const [phone, setPhone] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches,
+  );
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 720px)');
+    const update = (): void => setPhone(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+  return phone;
+}
+
+// The phone overflow: a disclosure (NOT a role=menu — no roving/typeahead), holding the Search,
+// Ledger, Settings and Inbox controls relocated off the crowded phone header. The controls keep
+// their handlers and testids so they open the same surfaces / navigate the same routes; the
+// popover stays mounted while closed (hidden) so its aria-controls target and the settings link
+// remain in the DOM. Opening moves focus to the first item; Escape or an outside tap closes it and
+// returns focus to the trigger.
+function RoomOverflow(props: {
+  roomId: string;
+  unread: number;
+  inboxOpen?: boolean;
+  onToggleSearch?: () => void;
+  onOpenInbox?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const firstItemRef = useRef<HTMLButtonElement>(null);
+  const popoverId = 'room-overflow-popover';
+
+  const close = (returnFocus: boolean): void => {
+    setOpen(false);
+    if (returnFocus) requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    requestAnimationFrame(() => firstItemRef.current?.focus());
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        close(true);
+      }
+    };
+    const onPointer = (event: Event): void => {
+      const target = event.target as Node;
+      if (popoverRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+      close(true);
+    };
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('pointerdown', onPointer, true);
+    };
+  }, [open]);
+
+  return (
+    <div className="wr-overflow">
+      <button
+        ref={triggerRef}
+        type="button"
+        data-testid="open-room-overflow"
+        aria-label="More channel actions"
+        aria-expanded={open}
+        aria-controls={popoverId}
+        title="More actions"
+        onClick={() => setOpen((current) => !current)}
+        className="wr-icon-button wr-overflow-trigger"
+      >
+        <Ellipsis aria-hidden="true" size={18} />
+      </button>
+      <div
+        ref={popoverRef}
+        id={popoverId}
+        role="group"
+        aria-label="More channel actions"
+        className="wr-overflow-popover"
+        hidden={!open}
+      >
+        <button
+          ref={firstItemRef}
+          type="button"
+          data-testid="toggle-message-search"
+          className="wr-overflow-item"
+          onClick={() => {
+            close(false);
+            props.onToggleSearch?.();
+          }}
+        >
+          <Search aria-hidden="true" size={17} />
+          <span>Search messages</span>
+        </button>
+        <a
+          href={`/ledger?${new URLSearchParams({ room: props.roomId }).toString()}`}
+          data-testid="open-ledger-graph"
+          className="wr-overflow-item"
+          onClick={() => close(false)}
+        >
+          <Network aria-hidden="true" size={17} />
+          <span>Ledger graph</span>
+        </a>
+        <a
+          href={`/settings?${new URLSearchParams({ room: props.roomId }).toString()}`}
+          data-testid="room-settings"
+          className="wr-overflow-item"
+          onClick={() => close(false)}
+        >
+          <Settings aria-hidden="true" size={17} />
+          <span>Settings</span>
+        </a>
+        <button
+          type="button"
+          data-testid="inbox-badge"
+          className="wr-overflow-item"
+          aria-haspopup="dialog"
+          aria-expanded={props.inboxOpen ?? false}
+          onClick={() => {
+            close(false);
+            props.onOpenInbox?.();
+          }}
+        >
+          <Inbox aria-hidden="true" size={17} />
+          <span>Inbox</span>
+          {props.unread > 0 && <strong>{props.unread}</strong>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Header(props: {
   roomName: string;
   roomId: string;
@@ -298,6 +437,7 @@ export function Header(props: {
   onOpenContext?: () => void;
   onToggleSearch?: () => void;
 }) {
+  const phone = usePhone();
   const meter = {
     turns: props.meter?.turns ?? 0,
     costUsd: props.meter?.cost_usd ?? 0,
@@ -362,7 +502,7 @@ export function Header(props: {
         )}
       </div>
       <div className="wr-header-actions">
-        {props.onToggleSearch && (
+        {!phone && props.onToggleSearch && (
           <IconButton
             icon={Search}
             id="room-search-toggle"
@@ -386,37 +526,50 @@ export function Header(props: {
             <PanelRight aria-hidden="true" size={18} />
           </button>
         )}
-        <a
-          href={`/ledger?${new URLSearchParams({ room: props.roomId }).toString()}`}
-          data-testid="open-ledger-graph"
-          aria-label="Open ledger graph"
-          title="Ledger graph"
-          className="wr-icon-button"
-        >
-          <Network aria-hidden="true" size={18} />
-        </a>
-        <a
-          href={`/settings?${new URLSearchParams({ room: props.roomId }).toString()}`}
-          data-testid="room-settings"
-          aria-label="Settings"
-          title="Settings"
-          className="wr-icon-button"
-        >
-          <Settings aria-hidden="true" size={18} />
-        </a>
-        <button
-          type="button"
-          data-testid="inbox-badge"
-          className="wr-inbox"
-          aria-haspopup="dialog"
-          aria-expanded={props.inboxOpen ?? false}
-          title={`${String(props.unread)} unread`}
-          onClick={props.onOpenInbox}
-        >
-          <Inbox aria-hidden="true" size={16} />
-          <span className="sr-only">inbox&nbsp;</span>
-          {props.unread > 0 ? <strong>{props.unread}</strong> : 0}
-        </button>
+        {!phone && (
+          <>
+            <a
+              href={`/ledger?${new URLSearchParams({ room: props.roomId }).toString()}`}
+              data-testid="open-ledger-graph"
+              aria-label="Open ledger graph"
+              title="Ledger graph"
+              className="wr-icon-button"
+            >
+              <Network aria-hidden="true" size={18} />
+            </a>
+            <a
+              href={`/settings?${new URLSearchParams({ room: props.roomId }).toString()}`}
+              data-testid="room-settings"
+              aria-label="Settings"
+              title="Settings"
+              className="wr-icon-button"
+            >
+              <Settings aria-hidden="true" size={18} />
+            </a>
+            <button
+              type="button"
+              data-testid="inbox-badge"
+              className="wr-inbox"
+              aria-haspopup="dialog"
+              aria-expanded={props.inboxOpen ?? false}
+              title={`${String(props.unread)} unread`}
+              onClick={props.onOpenInbox}
+            >
+              <Inbox aria-hidden="true" size={16} />
+              <span className="sr-only">inbox&nbsp;</span>
+              {props.unread > 0 ? <strong>{props.unread}</strong> : 0}
+            </button>
+          </>
+        )}
+        {phone && (
+          <RoomOverflow
+            roomId={props.roomId}
+            unread={props.unread}
+            inboxOpen={props.inboxOpen}
+            onToggleSearch={props.onToggleSearch}
+            onOpenInbox={props.onOpenInbox}
+          />
+        )}
       </div>
     </header>
   );

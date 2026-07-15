@@ -680,6 +680,40 @@ test('soft-editorial room floats matte panels, rounded cards and desktop avatars
   expect(narrowMaterial.headerMaterial).toBe('none');
   expect(narrowMaterial.composerMaterial).toContain('blur');
   expect(narrowMaterial.sendShadow).toBe('none');
+
+  // The secondary actions relocate to the phone overflow but stay FULLY functional: the popover
+  // opens Search and the Inbox in place, and navigates to the Ledger and Settings routes. The
+  // popover is mounted while closed (so its controls exist in the DOM) but not reachable.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  const phoneOverflow = page.getByTestId('open-room-overflow');
+  await expect(phoneOverflow).toBeVisible();
+  await expect(page.getByTestId('room-settings')).toHaveCount(1);
+  await expect(page.getByTestId('room-settings')).toBeHidden();
+
+  await phoneOverflow.click();
+  await expect(phoneOverflow).toHaveAttribute('aria-expanded', 'true');
+  await page.getByTestId('toggle-message-search').click();
+  await expect(page.getByTestId('message-search')).toBeVisible();
+  await expect(phoneOverflow).toHaveAttribute('aria-expanded', 'false');
+
+  await phoneOverflow.click();
+  await page.getByTestId('open-ledger-graph').click();
+  await expect(page).toHaveURL(/\/ledger\?room=eng$/);
+
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await page.getByTestId('open-room-overflow').click();
+  await page.getByTestId('room-settings').click();
+  await expect(page).toHaveURL(/\/settings\?room=eng$/);
+
+  // Inbox last: its panel overlays the header, so opening it need not yield the overflow again.
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await page.getByTestId('open-room-overflow').click();
+  await page.getByTestId('inbox-badge').click();
+  await expect(page.getByTestId('inbox-panel')).toBeVisible();
 });
 // harn:end web-room-visual-hierarchy-matches-soft-editorial-reference
 
@@ -1775,10 +1809,13 @@ test('an approval acknowledgement failure is visible after durable resolution', 
 // harn:end room-action-errors-are-visible
 
 // harn:assume web-room-targets-meet-minimum-hit-size ref=room-target-size-sweep
-test('every interactive room target clears the 44x44 minimum on a phone', async ({ page }) => {
+test('every interactive room target clears the 44x44 minimum on a phone', async ({ page, request }) => {
   test.slow();
   const MIN = 44 - 0.5; // tolerate sub-pixel rounding just under 44
+  // No target silently passes: each is asserted present AND visible before it is measured, so an
+  // absent or shrunk control fails loudly instead of being skipped.
   const hit = async (locator: ReturnType<Page['locator']>, label: string): Promise<void> => {
+    await expect(locator, `${label}: visible`).toBeVisible();
     const box = await locator.boundingBox();
     expect(box, `${label}: rendered`).not.toBeNull();
     expect(box!.width, `${label} width ${String(box!.width)}`).toBeGreaterThanOrEqual(MIN);
@@ -1788,12 +1825,20 @@ test('every interactive room target clears the 44x44 minimum on a phone', async 
     const count = await locator.count();
     expect(count, `${label}: present`).toBeGreaterThan(0);
     for (let index = 0; index < count; index++) {
-      const item = locator.nth(index);
-      if (await item.isVisible()) await hit(item, `${label}[${String(index)}]`);
+      await hit(locator.nth(index), `${label}[${String(index)}]`);
     }
   };
-  const hitVisible = async (locator: ReturnType<Page['locator']>, label: string): Promise<void> => {
-    if (await locator.first().isVisible().catch(() => false)) await hit(locator.first(), label);
+  const createRoom = async (id: string, name: string): Promise<void> => {
+    await request.post('/api/rooms', {
+      headers: { authorization: 'Bearer e2e-token' },
+      data: {
+        id,
+        name,
+        cwd: process.cwd(),
+        owner: { handle: 'richard', display_name: 'Richard' },
+        starting_agent: { harness: 'fake', handle: 'codor' },
+      },
+    });
   };
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1804,47 +1849,64 @@ test('every interactive room target clears the 44x44 minimum on a phone', async 
   await page.goto('/?room=eng&token=e2e-token');
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
 
-  // A live run, an answerable ask, and a held delivery, so those targets are on screen.
+  // An answerable ask and a held delivery, so those targets are on screen.
   await page.getByTestId('composer-input').fill('@alpha which codeword');
   await control('/enqueue', {
     turns: [{ kind: 'ask', prompt: 'Which codeword?', options: ['ALPHA', 'BETA'], replyPrefix: 'chose ' }],
   });
   await page.getByTestId('composer-send').click();
   await expect(page.locator('[data-testid$="-option-ALPHA"]')).toBeVisible();
-  await control('/enqueue', { turns: [{ kind: 'complete', final_text: 'released' }] });
+  // No scripted release turn: the fake adapter's turn queue is a single FIFO shared by every fake
+  // agent, so a turn left unconsumed here would be eaten by the codor agent in the fresh run
+  // channels below. The hold banner needs only the held delivery, not a queued turn.
   await control('/hold', {});
   await expect(page.getByTestId('hold-banner')).toBeVisible();
 
-  // Header + meter + composer + message + ask + hold, in the phone timeline.
-  await hitVisible(page.getByTestId('open-room-drawer'), 'drawer trigger');
-  await hitVisible(page.getByTestId('toggle-message-search'), 'search toggle');
-  await hitVisible(page.getByRole('button', { name: 'Open channel context' }), 'context trigger');
-  await hitVisible(page.getByTestId('open-ledger-graph'), 'ledger trigger');
-  await hitVisible(page.getByTestId('room-settings'), 'settings trigger');
-  await hitVisible(page.getByTestId('inbox-badge'), 'inbox trigger');
+  // The 2a phone bar: drawer, meter subtitle, context and the single overflow trigger.
+  await hit(page.getByTestId('open-room-drawer'), 'drawer trigger');
   await hit(page.getByTestId('meter'), 'spend meter');
+  await hit(page.getByRole('button', { name: 'Open channel context' }), 'context trigger');
+  const overflow = page.getByTestId('open-room-overflow');
+  await hit(overflow, 'overflow trigger');
+
+  // The overflow disclosure holds the relocated Search / Ledger / Settings / Inbox controls;
+  // measure each while open, then prove Escape closes it and returns focus to the trigger.
+  await overflow.click();
+  await expect(overflow).toHaveAttribute('aria-expanded', 'true');
+  await hit(page.getByTestId('toggle-message-search'), 'overflow search');
+  await hit(page.getByTestId('open-ledger-graph'), 'overflow ledger');
+  await hit(page.getByTestId('room-settings'), 'overflow settings');
+  await hit(page.getByTestId('inbox-badge'), 'overflow inbox');
+  await page.keyboard.press('Escape');
+  await expect(overflow).toHaveAttribute('aria-expanded', 'false');
+  await expect(overflow).toBeFocused();
+
+  // Composer, message copy + permalink, ask options, and the hold release (redeliver is a desktop
+  // affordance the phone hold row drops, so it is not a phone target).
   await hit(page.getByTestId('composer-mention'), 'composer mention');
   await hit(page.getByTestId('composer-input'), 'composer field');
   await hit(page.getByTestId('composer-send'), 'composer send');
-  await hitVisible(page.locator('[data-testid$="-copy"]'), 'message copy');
-  await hitVisible(page.locator('[data-testid^="run-"][data-testid$="-inspect"]'), 'run inspect');
+  await hit(page.locator('[data-testid$="-copy"]').first(), 'message copy');
+  await hit(page.locator('.wr-message-meta .wr-permalink').first(), 'message permalink');
   await hitAll(page.locator('[data-testid$="-option-ALPHA"], [data-testid$="-option-BETA"]'), 'ask option');
-  await hitVisible(page.locator('[data-testid^="release-"]'), 'hold release');
-  await hitVisible(page.locator('[data-testid^="redeliver-"], .wr-hold-row .wr-secondary-button'), 'hold redeliver');
+  await hit(page.locator('[data-testid^="release-"]').first(), 'hold release');
 
-  // Search field + submit + close.
+  // Search field + submit + close — reached now through the overflow, where the toggle lives.
+  await overflow.click();
   await page.getByTestId('toggle-message-search').click();
   await expect(page.getByTestId('message-search')).toBeVisible();
   await hit(page.locator('#room-search'), 'search field');
   await hit(page.getByRole('button', { name: 'Search', exact: true }), 'search submit');
   await hit(page.getByRole('button', { name: 'Close message search' }), 'search close');
-  await page.getByTestId('toggle-message-search').click();
+  await page.getByRole('button', { name: 'Close message search' }).click();
 
-  // Drawer: channel create trigger, settings link, room links.
+  // Drawer: channel create trigger and room links.
   await page.getByTestId('open-room-drawer').click();
   await expect(page.getByTestId('room-drawer')).toBeVisible();
   await hit(page.getByTestId('room-drawer').getByTestId('create-room'), 'drawer create channel');
-  await hitAll(page.locator('[data-testid^="room-link-"]'), 'drawer room link');
+  // The desktop rail stays mounted (CSS-hidden) on the phone, so scope the room links to the
+  // visible drawer rather than matching the hidden rail copies.
+  await hitAll(page.getByTestId('room-drawer').locator('[data-testid^="room-link-"]'), 'drawer room link');
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('room-drawer')).toHaveCount(0);
 
@@ -1868,9 +1930,10 @@ test('every interactive room target clears the 44x44 minimum on a phone', async 
   await hit(sheet.getByTestId('remove-alpha-confirmed'), 'removal confirm');
   await sheet.getByTestId('remove-alpha-confirm').getByRole('button', { name: 'Cancel' }).click();
 
-  // Spawn dialog controls and fields.
+  // Spawn dialog: the preset chips, the fields, and submit.
   await sheet.getByTestId('spawn-agent').click();
   await expect(page.getByTestId('spawn-dialog')).toBeVisible();
+  await hitAll(page.getByTestId('spawn-dialog').locator('.wr-preset-list button'), 'spawn preset');
   await hit(page.getByTestId('spawn-handle'), 'spawn handle field');
   await hit(page.getByTestId('spawn-cwd'), 'spawn cwd field');
   await hit(page.getByTestId('spawn-submit'), 'spawn submit');
@@ -1879,7 +1942,8 @@ test('every interactive room target clears the 44x44 minimum on a phone', async 
   await expect(page.getByTestId('context-sheet')).toHaveCount(0);
 
   // Create dialog: on a phone the trigger lives in the drawer (the rail is hidden), so open
-  // the drawer to reach it. Then fields, the colour swatches, browse, submit, and the picker.
+  // the drawer to reach it. Then fields, the colour swatches, browse, submit, and the picker —
+  // including its previously-skipped folder rows and breadcrumb.
   await page.getByTestId('open-room-drawer').click();
   await expect(page.getByTestId('room-drawer')).toBeVisible();
   await page.getByTestId('room-drawer').getByTestId('create-room').click();
@@ -1890,7 +1954,73 @@ test('every interactive room target clears the 44x44 minimum on a phone', async 
   await hit(page.getByTestId('create-room-submit'), 'create submit');
   await page.getByTestId('browse-folders').click();
   await expect(page.getByTestId('folder-picker')).toBeVisible();
+  await expect(page.locator('.wr-folder-row').first()).toBeVisible();
+  await hitAll(page.locator('.wr-folder-breadcrumb button'), 'folder breadcrumb');
+  await hitAll(page.locator('.wr-folder-row'), 'folder row');
   await hit(page.getByTestId('folder-use'), 'folder use');
   await hit(page.getByTestId('folder-picker').getByRole('button', { name: 'Cancel' }), 'folder cancel');
+  await page.getByTestId('folder-picker').getByRole('button', { name: 'Cancel' }).click();
+  await page.keyboard.press('Escape');
+
+  // A running run with tool calls, in its own channel and held open by a long tail delay so its
+  // collapsed-tools summary, the revealed row buttons, the toggle and the inspector are all
+  // measurable at rest on the phone.
+  const toolsRoom = `sweep-tools-${String(Date.now())}`;
+  await createRoom(toolsRoom, 'Sweep tools');
+  await control('/enqueue', {
+    turns: [{
+      kind: 'complete',
+      final_text: '@richard tools measured',
+      item_delay_ms: 1,
+      delay_ms: 20_000,
+      items: [
+        { type: 'run.item', item_type: 'tool_call', payload: { call_id: 's1', tool: 'Bash', title: 'pnpm test --run' } },
+        { type: 'run.item', item_type: 'tool_result', payload: { call_id: 's1', status: 'ok', duration_ms: 1200 } },
+        { type: 'run.item', item_type: 'tool_call', payload: { call_id: 's2', tool: 'Read', title: 'packages/web/src/App.tsx' } },
+        { type: 'run.item', item_type: 'tool_result', payload: { call_id: 's2', status: 'ok', duration_ms: 0 } },
+      ],
+    }],
+  });
+  await page.goto(`/?room=${toolsRoom}&token=e2e-token`);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await page.getByTestId('composer-input').fill('@codor stream the tools');
+  await page.getByTestId('composer-send').click();
+  const toolsRun = page.locator('[data-testid^="run-"][data-run-status="running"]').first();
+  await expect(toolsRun).toBeVisible();
+  const toolsRunId = (await toolsRun.getAttribute('data-testid'))!.replace('run-', '');
+  await hit(page.getByTestId(`run-${toolsRunId}-toggle`), 'run toggle');
+  await hit(page.getByTestId(`run-${toolsRunId}-inspect`), 'run inspect');
+  const collapsed = page.getByTestId(`run-${toolsRunId}-tools-collapsed`);
+  await hit(collapsed, 'run tools-collapsed summary');
+  await collapsed.click();
+  await hitAll(page.locator(`[data-testid="run-${toolsRunId}"] .wr-run-row-button`), 'run row button');
+  // The side inspector opens as the context sheet on the phone; measure its tabs and close control.
+  await page.getByTestId(`run-${toolsRunId}-inspect`).click();
+  const inspector = page.getByRole('dialog', { name: 'Channel context' });
+  await expect(inspector).toBeVisible();
+  await hitAll(inspector.getByRole('tab'), 'inspector tab');
+  await hit(inspector.getByRole('button', { name: 'Close channel context' }), 'inspector close');
+  await inspector.getByRole('button', { name: 'Close channel context' }).click();
+
+  // A 600-event run drops its live prefix, so the "… earlier events" recovery button renders.
+  const earlierRoom = `sweep-earlier-${String(Date.now())}`;
+  await createRoom(earlierRoom, 'Sweep earlier');
+  const bulk = Array.from({ length: 600 }, (_, index) => ({
+    type: 'run.item',
+    item_type: 'file_change',
+    payload: { path: `src/generated-${String(index).padStart(3, '0')}.ts`, change: 'modified' },
+  }));
+  await control('/enqueue', {
+    turns: [{ kind: 'complete', final_text: 'bulk sequence complete', items: bulk, item_delay_ms: 1 }],
+  });
+  await page.goto(`/?room=${earlierRoom}&token=e2e-token`);
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await page.getByTestId('composer-input').fill('@codor emit the bulk sequence');
+  await page.getByTestId('composer-send').click();
+  const earlierRun = page.locator('[data-testid^="run-"][data-run-status]').first();
+  const earlierRunId = (await earlierRun.getAttribute('data-testid'))!.replace('run-', '');
+  await expect(earlierRun).toHaveAttribute('data-run-status', 'completed', { timeout: 15_000 });
+  await page.getByTestId(`run-${earlierRunId}-toggle`).click();
+  await hit(page.getByTestId(`run-${earlierRunId}-earlier`), 'run earlier events');
 });
 // harn:end web-room-targets-meet-minimum-hit-size
