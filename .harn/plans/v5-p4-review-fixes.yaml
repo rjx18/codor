@@ -57,7 +57,8 @@ assumptions:
     - id: pairing-code-enrollment-surfaces
       outcome: unchanged
       reason: Code, link, QR and add-device workflows are unchanged; the existing
-        pairing-code style anchor retains the sole exact QR-paper white exception.
+        pairing-code style anchor retains the sole exact QR-paper white
+        exception.
 files:
   - packages/web/src/styles.css
   - packages/web/src/settings-pairing-style.spec.ts
@@ -79,8 +80,8 @@ anchors:
         outside the anchors.
     soft-editorial-settings-pairing-style:
       action: keep
-      reason: The approved v5 declarations remain byte-for-byte unchanged while
-        their obsolete earlier competitors are removed.
+      reason: The approved v5 declarations remain byte-for-byte unchanged while their
+        obsolete earlier competitors are removed.
     soft-editorial-settings-pairing-capture-proof:
       action: keep
       reason: The existing build-first isolated capture pipeline remains unchanged;
@@ -90,3 +91,5 @@ anchors:
       action: keep
       reason: The sole `.wr-qr-paper` fixed-white exception remains exactly where
         Phase 4 placed it; the global guard now proves no duplicate exists.
+applied:
+  applied_at: 2026-07-15T21:19:14.795Z

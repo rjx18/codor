@@ -7,10 +7,11 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 // harn:assume web-settings-pairing-match-soft-editorial-reference ref=soft-editorial-settings-pairing-token-discipline
-// A closed guard over the exact Phase 4 CSS anchors and both migrated TSX sources. It rejects
+// A closed guard over every stylesheet rule that references a class owned by the exact Phase 4
+// CSS anchors, plus both migrated TSX sources. It rejects duplicates anywhere in the cascade,
 // legacy variables, Tailwind utilities, raw paint/type/spacing/radius/shadow/motion, inline style,
 // nonliteral class bypasses, and hand-authored SVG. The QR image paper is the sole fixed-white
-// exception, keyed to its exact selector, property, and value.
+// exception globally for these surfaces, keyed to its exact selector, property, and value.
 
 const read = (path: string): string => readFileSync(path, 'utf8');
 
@@ -90,10 +91,14 @@ function rawMetric(value: string): string[] {
   return out;
 }
 
-function cssOffenders(css: string): { offenders: string[]; whiteExceptions: string[] } {
+function cssOffenders(
+  css: string,
+  includeRule: (selector: string) => boolean = () => true,
+): { offenders: string[]; whiteExceptions: string[] } {
   const offenders: string[] = [];
   const whiteExceptions: string[] = [];
   postcss.parse(css).walkRules((rule) => {
+    if (!includeRule(rule.selector)) return;
     const selectors = rule.selector.split(',').map((selector) => selector.trim());
     rule.walkDecls((decl) => {
       const prop = decl.prop.toLowerCase();
@@ -139,6 +144,19 @@ function cssOffenders(css: string): { offenders: string[]; whiteExceptions: stri
   return { offenders, whiteExceptions };
 }
 
+function ownedSurfaceClasses(css: string): Set<string> {
+  const owned = new Set<string>();
+  postcss.parse(css).walkRules((rule) => {
+    for (const match of rule.selector.matchAll(/\.((?:wr)-[a-z0-9-]+)/g)) owned.add(match[1]);
+  });
+  return owned;
+}
+
+function referencesOwnedSurfaceClass(selector: string, owned: ReadonlySet<string>): boolean {
+  return [...selector.matchAll(/\.((?:wr)-[a-z0-9-]+)/g)]
+    .some((match) => owned.has(match[1]));
+}
+
 const ALLOWED_CLASS = /^(?:wr-[a-z0-9-]*|cd-[a-z0-9-]*|is-[a-z0-9-]*|sr-only)$/;
 const TAILWIND = /^(?:p[xytblr]?-[\w-]+|m[xytblr]?-[\w-]+|gap-[\w-]+|min-[wh]-[\w-]+|max-[wh]-[\w-]+|w-full|h-full|flex(?:-[\w-]+)?|grid|items-[\w-]+|justify-[\w-]+|text-(?:xs|sm|base|lg|white|black|zinc-[\w-]+)|bg-[\w-]+|border-[\w-]+|disabled:[\w-]+)$/;
 
@@ -170,13 +188,16 @@ function tsxOffenders(sourceText: string): string[] {
 
 describe('Settings and Pairing Phase 4 token discipline', () => {
   const stylesheet = read('src/styles.css');
-  const css = [
+  const anchoredCss = [
     region(stylesheet, VISUAL_ASSUME, 'soft-editorial-settings-pairing-style', 'css'),
     region(stylesheet, CODE_ASSUME, 'pairing-code-surface-style', 'css'),
   ].join('\n');
+  const owned = ownedSurfaceClasses(anchoredCss);
+  const includesSurfaceRule = (selector: string): boolean => referencesOwnedSurfaceClass(selector, owned);
 
-  it('keeps the exact migrated CSS regions on v5 tokens with one QR paper exception', () => {
-    const result = cssOffenders(css);
+  it('keeps every contributing surface rule on v5 tokens with one global QR paper exception', () => {
+    expect(owned.size).toBeGreaterThan(50);
+    const result = cssOffenders(stylesheet, includesSurfaceRule);
     expect(result.offenders, result.offenders.join('\n')).toEqual([]);
     expect(result.whiteExceptions).toEqual(['.wr-qr-paper||background||#fff']);
   });
@@ -201,6 +222,19 @@ describe('Settings and Pairing Phase 4 token discipline', () => {
       '.not-qr { background: #fff; }',
     ];
     for (const fixture of fixtures) expect(cssOffenders(fixture).offenders.length, fixture).toBeGreaterThan(0);
+  });
+
+  it('proves duplicate surface rules cannot evade the guard outside the anchored regions', () => {
+    const fixtures = [
+      '.wr-settings-nav { color: var(--wr-text); }',
+      '.wr-settings-section { animation: legacy-enter 220ms ease both; }',
+      '.wr-qr-pane img { background: #fff; }',
+      'body .wr-qr-paper { background: #fff; }',
+    ];
+    for (const fixture of fixtures) {
+      const result = cssOffenders(`${stylesheet}\n${fixture}`, includesSurfaceRule);
+      expect(result.offenders.length, fixture).toBeGreaterThan(0);
+    }
   });
 
   it('proves the TSX guard rejects utilities, inline style, nonliteral classes, and raw svg', () => {
