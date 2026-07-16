@@ -189,7 +189,9 @@ await new Promise((resolve) => setTimeout(resolve, 400));
 fake.enqueue({
   kind: 'complete',
   final_text: 'Profile complete — the dashboard query needs a covering index.',
-  item_delay_ms: 45_000,
+  // Long enough that the seeded "live" run stays visibly running for the whole
+  // life of a screenshot or test session.
+  item_delay_ms: 600_000,
   items: [
     {
       type: 'run.item',

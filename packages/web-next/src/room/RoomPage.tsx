@@ -12,8 +12,8 @@ import {
   useConnection,
   useMemberDetails,
   useMinuteTick,
-  useRooms,
 } from '../app/session.js';
+import { useRoomSummaries, type RoomSummary } from '../app/summary.js';
 import { Chip, IconButton, Eyebrow, StatusPill } from '../primitives/primitives.js';
 import { compactCount, memberAccent, relativeTime, usd } from '../primitives/identity.js';
 import { Composer } from './Composer.js';
@@ -36,12 +36,12 @@ export function RoomPage(props: { token: string; refreshToken?: () => Promise<st
 // ── Channel rail ─────────────────────────────────────────────────────────
 
 function ChannelRail(props: { activeRoom: string; token: () => string }) {
-  const rooms = useRooms(props.token);
+  const summaries = useRoomSummaries(props.activeRoom, props.token);
   const connected = useRoomStore((s) => s.connected);
   const room = useRoomStore((s) => s.room);
   const members = useRoomStore((s) => s.members);
   const selfId = useRoomStore((s) => s.selfMemberId);
-  const unread = useRoomStore((s) => unreadCount(s));
+  const liveUnread = useRoomStore((s) => unreadCount(s));
   const messages = useRoomStore((s) => s.messages);
   useMinuteTick();
 
@@ -52,11 +52,23 @@ function ChannelRail(props: { activeRoom: string; token: () => string }) {
     return workingMember;
   }, [members]);
 
-  const entries = rooms.length > 0
-    ? rooms
-    : room !== undefined
-      ? [room]
-      : [];
+  // Server summaries drive the rail; the active room's row is overlaid with the
+  // fresher socket truth. Working rooms sort first, then most recent activity.
+  const entries = useMemo(() => {
+    const list: RoomSummary[] = summaries.length > 0
+      ? [...summaries]
+      : room !== undefined
+        ? [{ id: room.id, name: room.name, created_ts: room.created_ts, working: false, dead: false, unread: 0 }]
+        : [];
+    const lastActivity = (entry: RoomSummary): number =>
+      Date.parse(entry.latest?.ts ?? entry.created_ts) || 0;
+    return list.sort((a, b) => {
+      const aWorking = a.id === props.activeRoom ? working !== undefined : a.working;
+      const bWorking = b.id === props.activeRoom ? working !== undefined : b.working;
+      if (aWorking !== bWorking) return aWorking ? -1 : 1;
+      return lastActivity(b) - lastActivity(a);
+    });
+  }, [summaries, room, props.activeRoom, working]);
 
   return (
     <nav className="nx-rail" aria-label="Channels">
@@ -75,7 +87,12 @@ function ChannelRail(props: { activeRoom: string; token: () => string }) {
       <ul className="nx-rail-list">
         {entries.map((entry) => {
           const active = entry.id === props.activeRoom;
-          const lastTs = active ? latest?.ts : entry.created_ts;
+          const isWorking = active ? working !== undefined : entry.working;
+          const unread = active ? liveUnread : entry.unread;
+          const lastTs = active ? latest?.ts ?? entry.latest?.ts : entry.latest?.ts;
+          const preview = active && latest
+            ? livePreview(latest, members, selfId)
+            : summaryPreview(entry);
           return (
             <li key={entry.id}>
               <a
@@ -88,7 +105,7 @@ function ChannelRail(props: { activeRoom: string; token: () => string }) {
                   name={entry.name}
                   accent="indigo"
                   size={38}
-                  presence={active ? (working ? 'live' : connected ? 'idle' : 'error') : 'idle'}
+                  presence={entry.dead ? 'error' : isWorking ? 'live' : active && !connected ? 'error' : 'idle'}
                   surface={active ? 'raised' : 'surface'}
                 />
                 <span className="nx-row-main">
@@ -97,18 +114,20 @@ function ChannelRail(props: { activeRoom: string; token: () => string }) {
                     {lastTs !== undefined && <time className="nx-row-time">{relativeTime(lastTs)}</time>}
                   </span>
                   <span className="nx-row-bottom">
-                    {active && working ? (
+                    {isWorking ? (
                       <span className="nx-row-working">
                         <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>
-                        @{working.handle} is working…
+                        {active && working ? `@${working.handle} is working…` : 'working…'}
                       </span>
+                    ) : entry.dead ? (
+                      <span className="nx-row-preview is-error">agent needs attention</span>
                     ) : (
-                      <span className="nx-row-preview">
-                        {active && latest ? previewOf(latest, members, selfId) : 'Live on this device'}
-                      </span>
+                      <span className="nx-row-preview">{preview}</span>
                     )}
-                    {active && unread > 0 && (
-                      <span className="nx-unread" data-testid="rail-unread">{unread > 99 ? '99+' : unread}</span>
+                    {unread > 0 && (
+                      <span className="nx-unread" data-testid={active ? 'rail-unread' : undefined}>
+                        {unread > 99 ? '99+' : unread}
+                      </span>
                     )}
                   </span>
                 </span>
@@ -132,10 +151,21 @@ function ChannelRail(props: { activeRoom: string; token: () => string }) {
   );
 }
 
-function previewOf(message: Message, members: Record<string, Member>, selfId: string | undefined): string {
+function livePreview(message: Message, members: Record<string, Member>, selfId: string | undefined): string {
   const author = members[message.author];
   const name = message.author === selfId ? 'You' : `@${author?.handle ?? '…'}`;
-  const body = message.body.length > 0 ? message.body : message.kind === 'run' ? 'run in progress' : '…';
+  const body = message.body.length > 0
+    ? message.body.split('\n', 1)[0] ?? ''
+    : message.kind === 'run' ? 'run in progress' : '…';
+  return `${name}: ${body}`;
+}
+
+function summaryPreview(entry: RoomSummary): string {
+  if (!entry.latest) return 'No messages yet';
+  const name = entry.latest.author_handle === '' ? '…' : `@${entry.latest.author_handle}`;
+  const body = entry.latest.preview !== ''
+    ? entry.latest.preview
+    : entry.latest.kind === 'run' ? 'run in progress' : '…';
   return `${name}: ${body}`;
 }
 

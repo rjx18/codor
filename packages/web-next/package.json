@@ -21,6 +21,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@codor/switchboard": "workspace:*",
     "@playwright/test": "^1.49.0",
     "@types/culori": "^4.0.0",

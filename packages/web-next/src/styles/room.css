@@ -144,6 +144,10 @@
   color: var(--c-live-text);
   font: var(--t-caption-strong);
 }
+.nx-row-preview.is-error {
+  color: var(--c-error-text);
+  font: var(--t-caption-strong);
+}
 .nx-unread {
   flex: none;
   min-width: 19px;
