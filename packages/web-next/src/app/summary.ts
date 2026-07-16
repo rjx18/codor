@@ -99,7 +99,9 @@ export function useRoomSummaries(activeRoom: string, token: () => string): RoomS
     refresh();
     const timer = setInterval(refresh, POLL_MS);
     return () => clearInterval(timer);
-  }, [connected, refresh]);
+    // activeRoom in the deps: switching (incl. into a just-created channel)
+    // refreshes the rail immediately instead of waiting out the poll.
+  }, [connected, refresh, activeRoom]);
 
   return summaries;
 }

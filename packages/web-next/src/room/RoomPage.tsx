@@ -1,14 +1,14 @@
 import type { Member, Message } from '@codor/protocol';
 import { Plus, Search, Settings, Share2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { sortedMessages, unreadCount, useRoomStore } from '@legacy/state.js';
 import type { Connection } from '@legacy/ws.js';
 
+import { createConnector, type RoomConnector } from '../app/connector.js';
 import {
   pageParams,
   useAccessToken,
-  useConnection,
   useMinuteTick,
 } from '../app/session.js';
 import { useRoomSummaries, type RoomSummary } from '../app/summary.js';
@@ -16,26 +16,60 @@ import { ContextPanel } from './ContextPanel.js';
 import { Chip, IconButton, Eyebrow, StatusPill } from '../primitives/primitives.js';
 import { compactCount, memberAccent, relativeTime, usd } from '../primitives/identity.js';
 import { Composer } from './Composer.js';
+import { CreateChannelDialog } from './CreateChannel.js';
 import { HoldBanner, InboxControl, SearchOverlay } from './panels.js';
 import { Transcript } from './Transcript.js';
 
 export function RoomPage(props: { token: string; refreshToken?: () => Promise<string> }) {
   const page = useMemo(pageParams, []);
   const token = useAccessToken(props.token);
-  const connection = useConnection(page.room, props.token, props.refreshToken);
+  const [room, setRoom] = useState(page.room);
+  const connectorRef = useRef<RoomConnector | null>(null);
+  if (connectorRef.current === null) {
+    connectorRef.current = createConnector({
+      room: page.room,
+      token: props.token,
+      refreshToken: props.refreshToken,
+    });
+  }
+  const connection = connectorRef.current;
+
+  // In-place channel switching: socket resubscribes, store resets, URL follows.
+  const switchRoom = (next: string): void => {
+    if (next === room) return;
+    connection.switchRoom(next);
+    setRoom(next);
+    window.history.pushState(null, '', `/?room=${encodeURIComponent(next)}`);
+  };
+
+  useEffect(() => {
+    const onPop = (): void => {
+      const next = pageParams().room;
+      connection.switchRoom(next);
+      setRoom(next);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="nx-app" data-testid="app">
-      <ChannelRail activeRoom={page.room} token={token} />
-      <ChatPanel room={page.room} connection={connection} token={token} />
-      <ContextPanel room={page.room} token={token} connection={connection} />
+      <ChannelRail activeRoom={room} token={token} onSwitch={switchRoom} />
+      <ChatPanel room={room} connection={connection} token={token} />
+      <ContextPanel room={room} token={token} connection={connection} />
     </div>
   );
 }
 
 // ── Channel rail ─────────────────────────────────────────────────────────
 
-function ChannelRail(props: { activeRoom: string; token: () => string }) {
+function ChannelRail(props: {
+  activeRoom: string;
+  token: () => string;
+  onSwitch: (room: string) => void;
+}) {
+  const [creating, setCreating] = useState(false);
   const summaries = useRoomSummaries(props.activeRoom, props.token);
   const connected = useRoomStore((s) => s.connected);
   const room = useRoomStore((s) => s.room);
@@ -82,7 +116,14 @@ function ChannelRail(props: { activeRoom: string; token: () => string }) {
       </div>
       <div className="nx-rail-label">
         <Eyebrow>Channels</Eyebrow>
-        <IconButton icon={Plus} label="Create channel" size="sm" variant="quiet" data-testid="create-room" />
+        <IconButton
+          icon={Plus}
+          label="Create channel"
+          size="sm"
+          variant="quiet"
+          data-testid="create-room"
+          onClick={() => setCreating(true)}
+        />
       </div>
       <ul className="nx-rail-list">
         {entries.map((entry) => {
@@ -100,6 +141,11 @@ function ChannelRail(props: { activeRoom: string; token: () => string }) {
                 href={`/?room=${encodeURIComponent(entry.id)}`}
                 aria-current={active ? 'page' : undefined}
                 data-testid={`room-link-${entry.id}`}
+                onClick={(event) => {
+                  if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+                  event.preventDefault();
+                  props.onSwitch(entry.id);
+                }}
               >
                 <Chip
                   name={entry.name}
@@ -147,6 +193,16 @@ function ChannelRail(props: { activeRoom: string; token: () => string }) {
         </span>
         <IconButton icon={Settings} label="Settings" variant="quiet" onClick={() => { window.location.href = `/settings?room=${props.activeRoom}`; }} />
       </footer>
+      {creating && (
+        <CreateChannelDialog
+          token={props.token}
+          onClose={() => setCreating(false)}
+          onCreated={(created) => {
+            setCreating(false);
+            props.onSwitch(created.id);
+          }}
+        />
+      )}
     </nav>
   );
 }

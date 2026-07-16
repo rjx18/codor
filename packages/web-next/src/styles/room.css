@@ -888,6 +888,69 @@
 .nx-field input:focus-visible,
 .nx-field select:focus-visible { border-color: var(--c-ink); }
 
+/* ── Create channel: field notes + folder picker ─────────────────────── */
+
+.nx-field-note {
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+.nx-field-note.is-error { color: var(--c-error-text); }
+.nx-folder-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 38px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  background: var(--c-raised);
+  color: var(--c-secondary);
+  font: var(--t-ui);
+  text-align: left;
+}
+.nx-folder-summary:hover { background: var(--c-muted); color: var(--c-ink); }
+.nx-folder-picker {
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-raised);
+}
+.nx-folder-path {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+}
+.nx-folder-up {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: var(--t-caption-strong);
+  color: var(--c-secondary);
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+}
+.nx-folder-up:hover { background: var(--c-muted); }
+.nx-folder-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.nx-folder-list button {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 5px var(--sp-2);
+  border-radius: var(--r-pill);
+  text-align: left;
+  font: var(--t-ui);
+}
+.nx-folder-list button:hover { background: var(--c-muted); }
+
 /* ── Diff + Preview tabs, empty states, inspector ────────────────────── */
 
 .nx-diff {
