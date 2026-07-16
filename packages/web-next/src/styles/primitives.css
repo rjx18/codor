@@ -56,7 +56,7 @@
 .nx-btn.is-primary:hover { background: color-mix(in srgb, var(--c-ink) 88%, var(--c-surface)); }
 .nx-btn.is-quiet { border-color: transparent; background: transparent; color: var(--c-secondary); }
 .nx-btn.is-quiet:hover { background: var(--c-muted); color: var(--c-ink); }
-.nx-btn.is-danger { border-color: color-mix(in srgb, var(--c-error) 40%, transparent); color: var(--c-error); }
+.nx-btn.is-danger { border-color: color-mix(in srgb, var(--c-error) 40%, transparent); color: var(--c-error-text); }
 .nx-btn.is-danger:hover { background: var(--c-error-tint); }
 .nx-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 

@@ -1076,7 +1076,7 @@
   overflow-wrap: anywhere;
 }
 
-/* ── Standalone surfaces (placeholder shells until their phase) ──────── */
+/* ── Standalone surfaces ─────────────────────────────────────────────── */
 
 .nx-surface {
   min-height: 100dvh;
@@ -1086,6 +1086,76 @@
   padding: var(--sp-5);
   background: var(--c-canvas);
 }
+.nx-surface.is-settings { align-items: flex-start; overflow-y: auto; }
+
+.nx-settings {
+  width: min(100%, 640px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-6);
+}
+.nx-settings-head { display: flex; flex-direction: column; gap: var(--sp-2); }
+.nx-settings-head h1 { margin: 0; font: var(--t-heading); }
+.nx-settings-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.nx-settings-card {
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-panel);
+  background: var(--c-surface);
+  box-shadow: var(--e-panel);
+  padding: var(--sp-5);
+}
+.nx-settings-card h2 {
+  margin: 0 0 var(--sp-1);
+  font: var(--t-title);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.nx-settings-sub { margin: 0 0 var(--sp-4); font: var(--t-ui); color: var(--c-secondary); }
+.nx-settings-note {
+  margin: var(--sp-3) 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+.nx-settings-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-4); }
+.nx-brake-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+  font: var(--t-ui);
+}
+.nx-brake-row input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--c-agent); }
+.nx-brake-label { color: var(--c-body); }
+.nx-brake-value {
+  width: 64px;
+  min-height: 34px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-pill);
+  background: var(--c-surface);
+  text-align: center;
+  font: var(--t-ui);
+}
+.nx-brake-value:disabled { opacity: 0.5; }
+.nx-device-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--sp-2); }
+.nx-device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-raised);
+}
+.nx-device-id { display: flex; flex-direction: column; min-width: 0; }
+.nx-pair-qr { display: block; width: 220px; margin: var(--sp-3) auto; border-radius: var(--r-card); }
+.nx-pair-code { text-align: center; font-size: 18px; }
 .nx-surface-card {
   width: min(100%, 460px);
   padding: var(--sp-5);
