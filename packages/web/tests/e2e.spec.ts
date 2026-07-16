@@ -612,14 +612,23 @@ test('desktop channel keeps channels, conversation, and context in stable non-ov
   await expect(page.getByTestId('context-rail')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open channel context' })).toBeHidden();
 
-  // 720 is the content breakpoint: at 720 the ordinary message stays framed; at 719 it unframes
-  // into the mobile prose timeline.
+  // 720 is the content breakpoint, one definition everywhere: at 720 the ordinary message stays
+  // framed AND the header keeps its desktop actions; at 719 the message unframes into the mobile
+  // prose timeline AND the header collapses to the 2a overflow. CSS, usePhone and the
+  // presentation model must flip together — a mixed state at the boundary is the regression.
+  // The boundary needs a message on screen; post one so this test does not lean on its siblings.
+  await page.getByTestId('composer-input').fill('boundary probe');
+  await page.getByTestId('composer-send').click();
+  await expect(page.locator('.wr-message').first()).toBeVisible();
   await page.setViewportSize({ width: 720, height: 900 });
   await page.reload();
   await expect(page.locator('.wr-message').first()).not.toHaveClass(/is-unframed/);
+  await expect(page.getByTestId('open-room-overflow')).toHaveCount(0);
+  await expect(page.getByTestId('toggle-message-search')).toBeVisible();
   await page.setViewportSize({ width: 719, height: 900 });
   await page.reload();
   await expect(page.locator('.wr-message').first()).toHaveClass(/is-unframed/);
+  await expect(page.getByTestId('open-room-overflow')).toBeVisible();
 });
 // harn:end web-shell-responsive-three-pane
 // harn:end human-facing-surfaces-call-rooms-channels
@@ -749,7 +758,8 @@ test('soft-editorial room floats matte panels, rounded cards and desktop avatars
     };
   });
   expect(drawerMaterial.background).toBe('rgb(28, 25, 23)');
-  expect(drawerMaterial.material).toContain('blur(12px)');
+  // The drawer wears the anchored v5 functional-overlay material, not the removed v4 blur(12px).
+  expect(drawerMaterial.material).toContain('blur(28px)');
   expect(drawerMaterial.footerSize).toBeGreaterThanOrEqual(12);
   await page.getByTestId('room-drawer').getByRole('button', { name: 'Close channels' }).click();
 
@@ -1564,8 +1574,15 @@ test('tool rows say what the tool did, on one line, at every width', async ({ pa
       (rows) => rows.map((row) => row.getBoundingClientRect().height),
     );
     expect(heights.length).toBeGreaterThanOrEqual(3);
-    // One line each: a two-line row would roughly double this.
-    for (const height of heights) expect(height, `row at ${String(width)}px`).toBeLessThanOrEqual(44);
+    // One line each: a v5 single-line row is a 28px event icon plus space-2 vertical padding
+    // (~45px); a second line of text would push past 60. The cap discriminates lines, not the
+    // removed v4 24px-icon compact geometry.
+    for (const height of heights) expect(height, `row at ${String(width)}px`).toBeLessThanOrEqual(46);
+    // Unframed phone prose carries no per-message avatars: the run's actor mark is hidden at
+    // 390 exactly as the message's is, and visible again on the framed desktop card.
+    const mark = page.locator('.wr-run-card .wr-actor-mark').first();
+    if (width < 720) await expect(mark).toBeHidden();
+    else await expect(mark).toBeVisible();
   }
 });
 // harn:end compact-one-line-tool-rows
@@ -2076,6 +2093,10 @@ test('every interactive room target clears the 44x44 minimum on a phone', async 
   await sheet.getByTestId('spawn-agent').click();
   await expect(page.getByTestId('spawn-dialog')).toBeVisible();
   await hitAll(page.getByTestId('spawn-dialog').locator('.wr-preset-list button'), 'spawn preset');
+  // The shared agent controls (harness tiles, model and thinking buttons) are the review-found
+  // 40px hole in this sweep: every one of them is a phone target and meets the 44px floor.
+  await hitAll(page.getByTestId('spawn-dialog').locator('.wr-tile'), 'spawn harness tile');
+  await hitAll(page.getByTestId('spawn-dialog').locator('.wr-button-row > button'), 'spawn agent-control button');
   await hit(page.getByTestId('spawn-handle'), 'spawn handle field');
   await hit(page.getByTestId('spawn-cwd'), 'spawn cwd field');
   await hit(page.getByTestId('spawn-submit'), 'spawn submit');

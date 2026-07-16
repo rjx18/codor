@@ -390,6 +390,213 @@ export function cssOffenders(css: string): string[] {
   return out;
 }
 
+// --- The effective cascade ----------------------------------------------------
+// The region checks above prove the anchored declarations are token-clean, but a token-clean
+// declaration can still be DEAD: an unanchored rule later in the file wins the cascade at equal
+// specificity and ships something else. This layer inspects the whole stylesheet:
+//
+//  1. Same-key overrides: for every (media context, selector, property) that an anchored region
+//     declares, no later declaration outside the scanned regions may redeclare it. The anchored
+//     declaration must be the one the cascade actually applies.
+//  2. Owned-class discipline: every rule ANYWHERE in the file whose selector references a class
+//     owned by the anchored regions must obey the paint, radius, type, motion and letter-spacing
+//     disciplines. (Spacing literals outside the regions are Phase 6 consolidation debt and are
+//     not judged here.)
+//  3. letter-spacing is absolute: any nonzero letter-spacing anywhere in the file fails, owned
+//     class or not.
+
+interface PlacedDecl {
+  media: string;
+  selector: string;
+  prop: string;
+  value: string;
+  inRegion: boolean;
+  order: number;
+  line: number;
+}
+
+/** [start, end) offsets of a set of regions in the raw CSS text. */
+function spansOf(css: string, regions: Region[]): [number, number][] {
+  return regions.map(({ assume, ref }) => {
+    const startMarker = `/* harn:assume ${assume} ref=${ref} */`;
+    const start = css.indexOf(startMarker);
+    const end = css.indexOf(`/* harn:end ${assume} */`, start + startMarker.length);
+    if (start < 0 || end < 0) throw new Error(`region not found: ${assume} ref=${ref}`);
+    return [start, end] as [number, number];
+  });
+}
+
+/** [start, end) offsets of every scanned region in the raw CSS text. */
+function regionSpans(css: string): [number, number][] {
+  return spansOf(css, scannedRegions(css));
+}
+
+/** [start, end) offsets of the two excluded legacy-layer regions. */
+function excludedSpans(css: string): [number, number][] {
+  return spansOf(css, allRegions(css).filter((r) => EXCLUDED_REFS.has(r.ref)));
+}
+
+// The glass-era burn-down list: these EXACT unanchored declarations are the shipped, approved
+// matte rendering neutralizing stale glass-era declarations that still sit INSIDE the anchored
+// region (translucent panels, panel blur, chip meters, the glass-era brand mark, the base-hidden
+// context trigger). Removing them would regress the approved look; correcting them properly means
+// reauthoring the anchored region, which is Phase 6 consolidation work. The set is exact and
+// count-pinned both ways: deleting one without updating this list fails, and adding ANY new
+// override fails. Phase 6 burns this to zero by reconciling the anchored region itself.
+const PINNED_GLASS_ERA_NEUTRALIZERS = new Set([
+  '||.wr-room-main||background||var(--cd-surface)',
+  '||.wr-room-header||background||var(--cd-surface)',
+  '||.wr-room-rail||background||var(--cd-surface)',
+  '||.wr-context-rail||-webkit-backdrop-filter||none',
+  '||.wr-context-rail||backdrop-filter||none',
+  '||.wr-room-header||-webkit-backdrop-filter||none',
+  '||.wr-room-header||backdrop-filter||none',
+  '||.wr-room-rail||-webkit-backdrop-filter||none',
+  '||.wr-room-rail||backdrop-filter||none',
+  '||.wr-brand||padding||0 22px',
+  '||.wr-brand-mark||display||none',
+  '||.wr-rail-footer||background||var(--cd-surface)',
+  '||.wr-presence||box-shadow||none',
+  '||.wr-presence.is-live||box-shadow||none',
+  '||.wr-meter||border||0',
+  '||.wr-meter||border-radius||0',
+  '||.wr-meter||background||transparent',
+  '||.wr-meter||-webkit-backdrop-filter||none',
+  '||.wr-meter||backdrop-filter||none',
+  '||.wr-context-trigger||display||inline-flex',
+]);
+
+/** Every class token owned by the scanned regions' selectors. */
+export function ownedClasses(css: string): Set<string> {
+  const owned = new Set<string>();
+  const spans = regionSpans(css);
+  postcss.parse(css).walkRules((rule) => {
+    if (rule.parent && rule.parent.type === 'atrule' && /keyframes/i.test((rule.parent as postcss.AtRule).name)) return;
+    const offset = rule.source?.start?.offset ?? -1;
+    if (!spans.some(([s, e]) => offset >= s && offset < e)) return;
+    for (const m of rule.selector.matchAll(/\.([a-zA-Z_][\w-]*)/g)) owned.add(m[1]!);
+  });
+  return owned;
+}
+
+/** The at-rule context of a node, e.g. "@media (width < 720px)"; '' at the top level. */
+function mediaContext(node: postcss.Node): string {
+  const parts: string[] = [];
+  let parent = node.parent;
+  while (parent && parent.type !== 'root') {
+    if (parent.type === 'atrule') {
+      const at = parent as postcss.AtRule;
+      parts.unshift(`@${at.name} ${at.params}`.trim());
+    }
+    parent = parent.parent;
+  }
+  return parts.join(' ').replace(/\s+/g, ' ');
+}
+
+/** Every effective-cascade violation in a whole stylesheet. Returns the violations plus the
+ *  pinned glass-era neutralizers actually observed, so the pin list can be asserted exact. */
+export function effectiveCascade(css: string): { offenders: string[]; pinned: Set<string> } {
+  const out: string[] = [];
+  const observedPinned = new Set<string>();
+  const spans = regionSpans(css);
+  const legacySpans = excludedSpans(css);
+  const owned = ownedClasses(css);
+  const placed: PlacedDecl[] = [];
+  let order = 0;
+
+  postcss.parse(css).walkDecls((decl) => {
+    const rule = decl.parent;
+    if (!rule || rule.type !== 'rule') return;
+    let inKeyframes = false;
+    for (let p: postcss.Node | undefined = rule; p; p = p.parent as postcss.Node | undefined) {
+      if (p.type === 'atrule' && /keyframes/i.test((p as postcss.AtRule).name)) inKeyframes = true;
+    }
+    if (inKeyframes) return;
+    const offset = decl.source?.start?.offset ?? -1;
+    // The two excluded legacy-layer regions are policy-exempt by design: ignore them entirely.
+    if (legacySpans.some(([s, e]) => offset >= s && offset < e)) return;
+    const inRegion = spans.some(([s, e]) => offset >= s && offset < e);
+    const media = mediaContext(decl);
+    const line = decl.source?.start?.line ?? 0;
+    const prop = decl.prop.toLowerCase();
+    const value = decl.value.trim();
+
+    for (const selector of (rule as postcss.Rule).selectors.map((s) => s.replace(/\s+/g, ' ').trim())) {
+      placed.push({ media, selector, prop, value, inRegion, order, line });
+    }
+    order += 1;
+
+    // 3. letter-spacing is absolute, everywhere in the file.
+    if (prop === 'letter-spacing' && !(value === '0' || value === 'normal')) {
+      out.push(`styles.css:${String(line)} letter-spacing ${value} (letter-spacing must be 0 everywhere)`);
+    }
+
+    // 2. Owned-class discipline outside the regions (regions are fully judged above).
+    if (inRegion || prop.startsWith('--')) return;
+    const selectorOwned = (rule as postcss.Rule).selector.match(/\.([a-zA-Z_][\w-]*)/g)
+      ?.some((c) => owned.has(c.slice(1))) ?? false;
+    if (!selectorOwned) return;
+    const policy = classify(prop);
+    const nodes = valueParser(value).nodes;
+    const flag = (why: string): void =>
+      void out.push(`styles.css:${String(line)} ${(rule as postcss.Rule).selector} { ${prop}: ${value} } (${why})`);
+    switch (policy) {
+      case 'paint':
+        for (const why of colourOffenders(nodes, false)) flag(why);
+        break;
+      case 'background':
+        for (const why of colourOffenders(nodes, true)) flag(why);
+        break;
+      case 'paint-shorthand':
+        for (const why of paintShorthandOffenders(nodes)) flag(why);
+        break;
+      case 'shadow':
+        for (const why of shadowOffenders(value)) flag(why);
+        break;
+      case 'radius':
+        for (const why of metricOffenders(nodes, 'radius', (rule as postcss.Rule).selectors, prop)) flag(why);
+        break;
+      case 'type':
+        for (const why of typeOffenders(prop, value)) flag(why);
+        break;
+      case 'motion':
+        for (const why of motionOffenders(value)) flag(why);
+        break;
+      default:
+        break; // layout / space / unclassified: Phase 6 consolidation debt outside the regions.
+    }
+  });
+
+  // 1. Same-key overrides: an anchored declaration must not be beaten by a later unanchored one.
+  const groups = new Map<string, PlacedDecl[]>();
+  for (const p of placed) {
+    const key = `${p.media}||${p.selector}||${p.prop}`;
+    const group = groups.get(key) ?? [];
+    group.push(p);
+    groups.set(key, group);
+  }
+  for (const group of groups.values()) {
+    const lastInRegion = group.filter((p) => p.inRegion).at(-1);
+    if (!lastInRegion) continue;
+    for (const p of group) {
+      if (!p.inRegion && p.order > lastInRegion.order) {
+        const key = `${p.media}||${p.selector}||${p.prop}||${p.value}`;
+        if (PINNED_GLASS_ERA_NEUTRALIZERS.has(key)) {
+          observedPinned.add(key);
+          continue;
+        }
+        out.push(`styles.css:${String(p.line)} ${p.selector} { ${p.prop}: ${p.value} } overrides the anchored declaration (${lastInRegion.prop}: ${lastInRegion.value})`);
+      }
+    }
+  }
+  return { offenders: out, pinned: observedPinned };
+}
+
+/** Back-compat convenience: just the violations. */
+export function effectiveCascadeOffenders(css: string): string[] {
+  return effectiveCascade(css).offenders;
+}
+
 // --- TSX discipline (AST, closed allowed-class policy) -----------------------
 const ROOM_TSX = ['src/App.tsx', 'src/shell.tsx', 'src/components.tsx'] as const;
 
@@ -577,6 +784,92 @@ describe('room token discipline: the migrated CSS regions are structurally close
     for (const [name, fixture] of cases) {
       expect(cssOffenders(fixture), `${name} should be clean`).toEqual([]);
     }
+  });
+});
+
+
+// Fixture markers are assembled at runtime so the Harn scanner never reads a test fixture as a
+// real anchor in this file.
+const fixtureAssume = (id: string, ref: string): string => `/* harn:${'assume'} ${id} ref=${ref} */`;
+const fixtureEnd = (id: string): string => `/* harn:${'end'} ${id} */`;
+
+describe('room token discipline: the effective cascade, not only the anchored islands', () => {
+  const css = read('src/styles.css');
+
+  it('no rule outside the anchored regions overrides or pollutes an owned surface', () => {
+    const offenders = effectiveCascadeOffenders(css);
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  it('the glass-era burn-down list is exact: every pinned neutralizer exists, nothing extra', () => {
+    // Both directions pinned: a pinned tuple that disappears must be struck from the list in the
+    // same diff (Phase 6 burn-down), and any new override cannot hide behind the pin set.
+    const { pinned } = effectiveCascade(css);
+    const missing = [...PINNED_GLASS_ERA_NEUTRALIZERS].filter((k) => !pinned.has(k));
+    expect(missing, `pinned neutralizers no longer observed:\n${missing.join('\n')}`).toEqual([]);
+    expect(pinned.size).toBe(PINNED_GLASS_ERA_NEUTRALIZERS.size);
+  });
+
+  it('rejects a later out-of-region same-key override of an anchored declaration', () => {
+    const fixture = [
+      fixtureAssume('demo-assume', 'demo-ref'),
+      '.wr-demo { border-radius: var(--cd-radius-card); }',
+      fixtureEnd('demo-assume'),
+      '.wr-demo { border-radius: var(--cd-radius-pill); }',
+    ].join('\n');
+    const offenders = effectiveCascadeOffenders(fixture);
+    expect(offenders.some((o) => o.includes('overrides the anchored declaration')), offenders.join('\n')).toBe(true);
+  });
+
+  it('does not flag an EARLIER legacy declaration the anchored region already beats', () => {
+    const fixture = [
+      '.wr-demo { border-radius: var(--cd-radius-pill); }',
+      fixtureAssume('demo-assume', 'demo-ref'),
+      '.wr-demo { border-radius: var(--cd-radius-card); }',
+      fixtureEnd('demo-assume'),
+    ].join('\n');
+    expect(effectiveCascadeOffenders(fixture)).toEqual([]);
+  });
+
+  it('rejects an out-of-region rule that re-declares an owned class with a raw literal', () => {
+    const fixture = [
+      fixtureAssume('demo-assume', 'demo-ref'),
+      '.wr-demo { color: var(--cd-text-body-color); }',
+      fixtureEnd('demo-assume'),
+      '.wr-demo strong { color: #ff0000; font-size: 13px; }',
+    ].join('\n');
+    const offenders = effectiveCascadeOffenders(fixture);
+    expect(offenders.some((o) => o.includes('raw hex #ff0000')), offenders.join('\n')).toBe(true);
+    expect(offenders.some((o) => o.includes('raw font-size')), offenders.join('\n')).toBe(true);
+  });
+
+  it('rejects nonzero letter-spacing anywhere in the file, owned class or not', () => {
+    const fixture = '.legacy-anything { letter-spacing: 0.04em; }';
+    const offenders = effectiveCascadeOffenders(fixture);
+    expect(offenders.some((o) => o.includes('letter-spacing must be 0 everywhere')), offenders.join('\n')).toBe(true);
+    expect(effectiveCascadeOffenders('.x { letter-spacing: 0; }')).toEqual([]);
+  });
+
+  it('tolerates out-of-region spacing geometry as Phase 6 debt without weakening paint', () => {
+    const fixture = [
+      fixtureAssume('demo-assume', 'demo-ref'),
+      '.wr-demo { color: var(--cd-text-body-color); }',
+      fixtureEnd('demo-assume'),
+      '.wr-demo { padding: 17px; margin: 3px; }',
+    ].join('\n');
+    expect(effectiveCascadeOffenders(fixture)).toEqual([]);
+  });
+
+  it('judges the same selector separately per media context', () => {
+    const fixture = [
+      fixtureAssume('demo-assume', 'demo-ref'),
+      '.wr-demo { color: var(--cd-text-body-color); }',
+      '@media (width < 720px) { .wr-demo { color: var(--cd-text-strong); } }',
+      fixtureEnd('demo-assume'),
+      '@media (width < 720px) { .wr-demo { color: var(--cd-text-muted); } }',
+    ].join('\n');
+    const offenders = effectiveCascadeOffenders(fixture);
+    expect(offenders.some((o) => o.includes('overrides the anchored declaration')), offenders.join('\n')).toBe(true);
   });
 });
 

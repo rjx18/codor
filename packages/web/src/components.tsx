@@ -290,13 +290,14 @@ function HeaderColorChip(props: { roomColor: string; roomId: string }) {
 // Below the phone content breakpoint the header collapses to the minimal 2a IA: the meter
 // drops into the identity stack as a subtitle and the four secondary actions fold into an
 // overflow disclosure. matchMedia is the source of truth so a mid-session viewport change
-// (a rotate, a devtools resize) re-collapses without a reload.
+// (a rotate, a devtools resize) re-collapses without a reload. Phone is width < 720, the one
+// content-breakpoint definition shared with v5/presentation.ts and the stylesheet.
 function usePhone(): boolean {
   const [phone, setPhone] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches,
+    () => typeof window !== 'undefined' && window.matchMedia('(width < 720px)').matches,
   );
   useEffect(() => {
-    const media = window.matchMedia('(max-width: 720px)');
+    const media = window.matchMedia('(width < 720px)');
     const update = (): void => setPhone(media.matches);
     update();
     media.addEventListener('change', update);

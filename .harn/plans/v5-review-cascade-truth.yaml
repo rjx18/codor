@@ -1,8 +1,8 @@
 id: v5-review-cascade-truth
-title: V5 whole-overhaul review closure 1 - remove the live v4 cascade overrides,
-  make the room guard inspect the effective cascade, land the 44px shared agent
-  controls, unframe the phone run avatar, align the 720 content breakpoint, and
-  restore the Pairing workspace width.
+title: V5 whole-overhaul review closure 1 - remove the live v4 cascade
+  overrides, make the room guard inspect the effective cascade, land the 44px
+  shared agent controls, unframe the phone run avatar, align the 720 content
+  breakpoint, and restore the Pairing workspace width.
 notes: >-
   Review-confirmed findings 1, 3, 5, 7 and 8 (channel #245/#247). No product
   behaviour changes: every edit is stylesheet truth, guard truth, or a test
@@ -14,16 +14,15 @@ notes: >-
   at equal specificity by later source order, over the anchored v5 room region:
   composer (3626 beats 1521 radius-full/940px), send button (3736 beats 1591),
   context tabs (3749 beats 1883 segmented), rail label (3045 beats 443 eyebrow),
-  message meta order and author type (3245 beats 1134), channel row (3065),
-  icon buttons (3186), ask/secondary/attention buttons (3606), unread count
-  badge (3120 beats 578), dialog glass (3880 beats 2051), search band (3208),
-  run-card cluster including the dropped Geist Mono run summary (3262-3324,
-  3524-3531), ask heading (3575-3604), and the v4 phone header stomp (3151
-  beats 633). Remove exactly the overriding declarations whose v5 replacement
-  already exists in an anchored region and demonstrably wins after removal; v4
-  declarations with no anchored v5 counterpart stay for Phase 6 consolidation.
-  The anchored v5 declarations themselves stay byte-for-byte except the two
-  additions below.
+  message meta order and author type (3245 beats 1134), channel row (3065), icon
+  buttons (3186), ask/secondary/attention buttons (3606), unread count badge
+  (3120 beats 578), dialog glass (3880 beats 2051), search band (3208), run-card
+  cluster including the dropped Geist Mono run summary (3262-3324, 3524-3531),
+  ask heading (3575-3604), and the v4 phone header stomp (3151 beats 633).
+  Remove exactly the overriding declarations whose v5 replacement already exists
+  in an anchored region and demonstrably wins after removal; v4 declarations
+  with no anchored v5 counterpart stay for Phase 6 consolidation. The anchored
+  v5 declarations themselves stay byte-for-byte except the two additions below.
 
   Two - effective-cascade guard (finding 1 root cause). Rewrite the structural
   guard in room-style.spec.ts from region extraction to effective-cascade
@@ -38,10 +37,10 @@ notes: >-
   letter-spacing anywhere in styles.css fails.
 
   Three - shared agent controls (finding 3). In the unanchored agent-controls
-  block (approx 5923-6005): raise .wr-button-row > button from min-height
-  2.5rem to the 44px control floor, set the legend letter-spacing to 0, and
-  re-point the block's raw radii (0.6rem, literal 999px) and rem font sizes
-  onto the --cd-* scale so the new effective-cascade guard passes. The
+  block (approx 5923-6005): raise .wr-button-row > button from min-height 2.5rem
+  to the 44px control floor, set the legend letter-spacing to 0, and re-point
+  the block's raw radii (0.6rem, literal 999px) and rem font sizes onto the
+  --cd-* scale so the new effective-cascade guard passes. The
   spawn/member-config/create-channel behaviour and markup are unchanged;
   agent-controls.tsx is not edited by this plan (its anchor repair is the
   companion behaviour plan). Extend the room-target-size-sweep e2e to measure
@@ -64,8 +63,8 @@ notes: >-
   anchored compact-run-row-style region (6077) which today gives desktop rooms
   phone tool-row padding at 721-767px. Local 520/560/640 breakpoints are NOT
   touched, per review scope. Browser regression asserts the settled states at
-  719 and 720: at 719 phone chrome AND unframed prose; at 720 desktop chrome
-  AND framed cards.
+  719 and 720: at 719 phone chrome AND unframed prose; at 720 desktop chrome AND
+  framed cards.
 
   Six - Pairing workspace width (finding 8). Delete the pre-v5 foreign rule
   .wr-manual-pairing { width: min(100%, 460px) } at styles.css 5761 inside the
@@ -86,8 +85,8 @@ notes: >-
 
   Gate in order: build -> unit -> focused browser (room appearance, target-size
   sweep, compact-run-row, phone-ask-card, responsive-shell boundary, crush) ->
-  capture regeneration -> harn check/apply. The full e2e matrix runs once at
-  the final checkpoint after the companion plan, per review instruction.
+  capture regeneration -> harn check/apply. The full e2e matrix runs once at the
+  final checkpoint after the companion plan, per review instruction.
 assumptions:
   reviewed:
     - id: web-room-visual-hierarchy-matches-soft-editorial-reference
@@ -103,13 +102,13 @@ assumptions:
     - id: web-motion-is-purposeful-and-reduced-motion-safe-v5
       outcome: unchanged
       reason: Motion tokens and reduced-motion behaviour are untouched; only the
-        foreign 460px pairing width rule that sheltered inside the motion
-        region is deleted.
+        foreign 460px pairing width rule that sheltered inside the motion region
+        is deleted.
     - id: compact-one-line-tool-rows
       outcome: unchanged
-      reason: One-line tool rows stay; the region's 767px stray is aligned to the
-        720 content boundary and the browser regression asserts the unframed
-        run's hidden avatar.
+      reason: One-line tool rows stay; the region's 767px stray is aligned to the 720
+        content boundary and the browser regression asserts the unframed run's
+        hidden avatar.
     - id: web-settings-pairing-match-soft-editorial-reference
       outcome: unchanged
       reason: The anchored Phase 4 declarations are untouched; the manual pairing
@@ -117,12 +116,12 @@ assumptions:
         competitor is removed.
     - id: web-shell-responsive-three-pane
       outcome: unchanged
-      reason: Pane geometry at 1024/1360 is unchanged; the shell regression gains
-        the 719/720 content-boundary assertions.
+      reason: Pane geometry at 1024/1360 is unchanged; the shell regression gains the
+        719/720 content-boundary assertions.
     - id: interaction-cards-stay-readable-on-phone
       outcome: unchanged
-      reason: Ask cards stay framed and readable; their option buttons regain the
-        v5 control radius when the 4px override is removed, and any pinned
+      reason: Ask cards stay framed and readable; their option buttons regain the v5
+        control radius when the 4px override is removed, and any pinned
         assertion is updated to the token truth.
     - id: normalized-run-items-presented-live
       outcome: unchanged
@@ -131,13 +130,13 @@ assumptions:
         is removed.
     - id: web-spawn-dialog-exposes-canonical-agent-controls
       outcome: unchanged
-      reason: Spawn dialog markup and controls are unchanged; its buttons regain
-        token radii via cascade removal and the shared control block meets the
-        44px floor.
+      reason: Spawn dialog markup and controls are unchanged; its buttons regain token
+        radii via cascade removal and the shared control block meets the 44px
+        floor.
     - id: spend-meter-always-on
       outcome: unchanged
-      reason: The meter is untouched; usePhone inside this anchored component
-        region moves to the width-below-720 boundary string only.
+      reason: The meter is untouched; usePhone inside this anchored component region
+        moves to the width-below-720 boundary string only.
     - id: graph-derived-from-vault-links-readonly-v5
       outcome: unchanged
       reason: Ledger styles and modes are untouched at their existing below-720
@@ -189,20 +188,25 @@ anchors:
       action: keep
       reason: The build-first isolated room capture pipeline is unchanged; only its
         six generated artifacts are refreshed and committed.
+    soft-editorial-room-visual-regression:
+      action: change
+      reason: The drawer-material assertion pinned the removed v4 blur(12px); it is
+        updated to the anchored v5 blur(28px) truth, per the standing note that
+        assertions pinned to overridden v4 values move to the v5 truth.
   web-motion-is-purposeful-and-reduced-motion-safe-v5:
     motion-token-style:
       action: change
-      reason: Delete the foreign pre-v5 .wr-manual-pairing 460px width rule that
-        sits inside this region; motion declarations are untouched.
+      reason: Delete the foreign pre-v5 .wr-manual-pairing 460px width rule that sits
+        inside this region; motion declarations are untouched.
   compact-one-line-tool-rows:
     compact-run-row-style:
       action: change
-      reason: Align the region's 767px media query to the below-720 content
-        boundary so desktop rooms at 721-767px no longer get phone row padding.
+      reason: Align the region's 767px media query to the below-720 content boundary
+        so desktop rooms at 721-767px no longer get phone row padding.
     compact-run-row-browser-regression:
       action: change
-      reason: Assert the unframed 390px run row hides its actor mark, and update
-        any assertion pinned to overridden v4 values.
+      reason: Assert the unframed 390px run row hides its actor mark, and update any
+        assertion pinned to overridden v4 values.
   spend-meter-always-on:
     meter-settings-surface:
       action: change
@@ -221,8 +225,8 @@ anchors:
   interaction-cards-stay-readable-on-phone:
     phone-ask-card-browser-regression:
       action: change
-      reason: Update any assertion pinned to the removed 4px option-button override
-        to the v5 control radius truth.
+      reason: Update any assertion pinned to the removed 4px option-button override to
+        the v5 control radius truth.
   graph-derived-from-vault-links-readonly-v5:
     soft-editorial-ledger-capture-proof:
       action: keep
@@ -231,5 +235,7 @@ anchors:
   timeline-rows-are-never-crushed-v5:
     timeline-crush-browser-regression:
       action: keep
-      reason: The crush fixture and assertions must keep passing unchanged against
-        the corrected cascade.
+      reason: The crush fixture and assertions must keep passing unchanged against the
+        corrected cascade.
+applied:
+  applied_at: 2026-07-16T06:38:30.589Z
