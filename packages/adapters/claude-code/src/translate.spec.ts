@@ -305,17 +305,39 @@ describe('S1 content normalization (synthetic inline records)', () => {
         message: { content: [{ type: 'tool_result', tool_use_id: 'edit-1', content: 'Updated.' }] },
       }),
     ]);
-    expect(events.at(-2)).toMatchObject({
+    // ONE row per file operation: the diff-carrying tool_result is canonical, and no
+    // trailing file_change duplicates it (the double row Richard reported live).
+    expect(events.at(-1)).toMatchObject({
       type: 'run.item', item_type: 'tool_result',
       payload: { call_id: 'edit-1', status: 'ok', diff: { path: 'src/app.ts', unified: expected } },
     });
-    expect(events.at(-1)).toEqual({
-      type: 'run.item', item_type: 'file_change',
-      payload: {
-        path: 'src/app.ts', change: 'modified',
-        diff: { path: 'src/app.ts', unified: expected },
-      },
+    expect(events.filter((e) => e.type === 'run.item' && e.item_type === 'file_change')).toEqual([]);
+    // The call itself carries the real subject, not the bare tool name.
+    expect(events.find((e) => e.type === 'run.item' && e.item_type === 'tool_call')).toMatchObject({
+      payload: { title: 'src/app.ts' },
     });
+  });
+
+  it('titles every tool call with its subject, never the bare tool name', () => {
+    const call = (name: string, input: Record<string, unknown>) => {
+      const { events } = replay([JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: `t-${name}`, name, input }] },
+      })]);
+      const event = events.find((e) => e.type === 'run.item' && e.item_type === 'tool_call');
+      return (event as { payload: { title: string } }).payload.title;
+    };
+    expect(call('Bash', { command: 'pnpm test --filter web' })).toBe('pnpm test --filter web');
+    expect(call('Read', { file_path: '/repo/src/state.ts' })).toBe('/repo/src/state.ts');
+    expect(call('Write', { file_path: 'notes.txt', content: 'hello' })).toBe('notes.txt');
+    expect(call('Grep', { pattern: 'toolTitle', path: 'src' })).toBe('toolTitle in src');
+    expect(call('Glob', { pattern: '**/*.spec.ts' })).toBe('**/*.spec.ts');
+    expect(call('WebFetch', { url: 'https://example.com/x' })).toBe('https://example.com/x');
+    expect(call('Task', { description: 'audit the cascade' })).toBe('audit the cascade');
+    // Unknown tools with no recognisable subject fall back to the name.
+    expect(call('MysteryTool', { whatever: 1 })).toBe('MysteryTool');
+    // Long subjects are bounded.
+    expect(call('Bash', { command: 'x'.repeat(500) }).length).toBeLessThanOrEqual(200);
   });
 
   it('extracts bounded base64 images from tool results', () => {

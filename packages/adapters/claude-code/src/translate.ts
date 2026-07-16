@@ -117,6 +117,52 @@ export function diffFromToolUse(
   };
 }
 
+const TITLE_MAX = 200;
+
+/** A tool call's title is what the operator reads on the evidence row, so it carries the
+ *  tool's actual subject — the command, the file, the pattern, the URL — never the bare
+ *  tool name (which rendered as "Explored Read" and command-less shell rows). */
+export function toolTitle(tool: string, input: unknown): string {
+  const value = input !== null && typeof input === 'object' ? input as Record<string, unknown> : {};
+  const str = (key: string): string | undefined =>
+    typeof value[key] === 'string' && (value[key] as string).trim() !== '' ? (value[key] as string) : undefined;
+  const title = (() => {
+    switch (tool) {
+      case 'Bash':
+      case 'BashOutput':
+        return str('command');
+      case 'Read':
+      case 'NotebookRead':
+        return str('file_path') ?? str('notebook_path');
+      case 'Edit':
+      case 'Write':
+      case 'MultiEdit':
+      case 'NotebookEdit':
+        return str('file_path') ?? str('notebook_path');
+      case 'Glob':
+      case 'Grep': {
+        const pattern = str('pattern');
+        const path = str('path');
+        return pattern !== undefined && path !== undefined ? `${pattern} in ${path}` : pattern ?? path;
+      }
+      case 'WebFetch':
+        return str('url');
+      case 'WebSearch':
+        return str('query');
+      case 'Task':
+        return str('description');
+      case 'AskUserQuestion':
+        return str('question');
+      case 'TodoWrite':
+        return 'update task list';
+      default:
+        return str('command') ?? str('file_path') ?? str('description') ?? str('query');
+    }
+  })();
+  const chosen = title ?? tool;
+  return chosen.length > TITLE_MAX ? `${chosen.slice(0, TITLE_MAX - 1)}…` : chosen;
+}
+
 export const APPROVAL_OPTIONS = [
   { label: 'allow once' },
   { label: 'allow always' },
@@ -212,7 +258,7 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
                 payload: {
                   call_id: callId,
                   tool,
-                  title: tool,
+                  title: toolTitle(tool, block.input),
                   input: block.input,
                 },
               });
@@ -254,17 +300,10 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
                 raw: block,
               },
             });
-            if (diff !== undefined) {
-              events.push({
-                type: 'run.item',
-                item_type: 'file_change',
-                payload: {
-                  path: diff.path,
-                  change: diff.change,
-                  diff: { path: diff.path, unified: diff.unified },
-                },
-              });
-            }
+            // The diff-carrying tool_result above is the single canonical row for a
+            // file operation; a second file_change event here rendered every edit
+            // twice. file_change stays reserved for harnesses whose edits are not
+            // tool-paired.
           }
           return events;
         }

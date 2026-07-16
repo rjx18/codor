@@ -8,38 +8,37 @@ notes: >-
   Read" and command-less shell rows; and every file operation emits BOTH a
   diff-carrying tool_result AND a separate file_change event, so the UI shows
   each edit twice. file_change has zero consumers outside the web presenter
-  (verified: protocol schema and presenter only), and Claude file operations
-  are always tool-paired, so the extra event is pure duplication.
+  (verified: protocol schema and presenter only), and Claude file operations are
+  always tool-paired, so the extra event is pure duplication.
 
   Fix one - titles. In the assistant tool_use branch, derive title from the
-  tool's input instead of echoing the name: Bash/shell tools use
-  input.command; Read/Glob/Grep use file_path or pattern (pattern plus path
-  when both exist); Edit/Write/MultiEdit/NotebookEdit use file_path;
-  WebFetch/WebSearch use url or query; Task uses description; anything
-  unknown falls back to the tool name. Titles are plain strings bounded to a
-  sane length; input stays attached unchanged.
+  tool's input instead of echoing the name: Bash/shell tools use input.command;
+  Read/Glob/Grep use file_path or pattern (pattern plus path when both exist);
+  Edit/Write/MultiEdit/NotebookEdit use file_path; WebFetch/WebSearch use url or
+  query; Task uses description; anything unknown falls back to the tool name.
+  Titles are plain strings bounded to a sane length; input stays attached
+  unchanged.
 
   Fix two - single row per file operation. Drop the file_change emission that
-  follows a tool_result whose payload already carries the diff; the
-  tool_result remains the single canonical row (status, output, diff). The
-  protocol file_change item type remains for harnesses whose file edits are
-  not tool-paired (codex uses it in the companion plan).
+  follows a tool_result whose payload already carries the diff; the tool_result
+  remains the single canonical row (status, output, diff). The protocol
+  file_change item type remains for harnesses whose file edits are not
+  tool-paired (codex uses it in the companion plan).
 
-  Tests: translate.spec gains cases pinning the derived titles per tool and
-  the absence of duplicate file_change after diff-carrying results, using
-  fixture lines from the live capture; existing fixtures updated where they
-  asserted the old title/duplication behavior. Gate: adapter unit suite, then
-  a paid live re-verification (haiku, low thinking - authorized in #304) of
-  the create/read/edit prompt asserting exactly one row per file op and
-  meaningful titles end to end.
+  Tests: translate.spec gains cases pinning the derived titles per tool and the
+  absence of duplicate file_change after diff-carrying results, using fixture
+  lines from the live capture; existing fixtures updated where they asserted the
+  old title/duplication behavior. Gate: adapter unit suite, then a paid live
+  re-verification (haiku, low thinking - authorized in #304) of the
+  create/read/edit prompt asserting exactly one row per file op and meaningful
+  titles end to end.
 assumptions:
   reviewed:
     - id: first-party-run-items-normalized
       outcome: unchanged
-      reason: Normalization still maps every first-party harness event onto the
-        shared run-item vocabulary; titles become faithful to the tool input
-        and file edits stop duplicating, which is what normalized always
-        promised.
+      reason: Normalization still maps every first-party harness event onto the shared
+        run-item vocabulary; titles become faithful to the tool input and file
+        edits stop duplicating, which is what normalized always promised.
     - id: claude-control-protocol-pinned
       outcome: unchanged
       reason: The control protocol fixtures stay pinned; only run-item title and
@@ -59,3 +58,5 @@ anchors:
       action: change
       reason: Fixture expectations for tool titles and file-op rows move to the
         corrected single-row, real-title behavior.
+applied:
+  applied_at: 2026-07-16T12:44:46.309Z
