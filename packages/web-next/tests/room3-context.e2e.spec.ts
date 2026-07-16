@@ -69,6 +69,16 @@ test.describe('spawn dialog', () => {
   });
 });
 
+test.describe('usage limits', () => {
+  test('member cards show the harness-reported windows; agents without reports show none', async ({ page }) => {
+    await openRoom(page);
+    const limits = page.getByTestId('member-fable-limits');
+    await expect(limits).toContainText('5h: allowed · resets');
+    await expect(limits).toContainText('weekly: 18% left');
+    await expect(page.getByTestId('member-scout-limits')).toHaveCount(0);
+  });
+});
+
 test.describe('member lifecycle', () => {
   test('kill confirms into Dead; revive brings the agent back', async ({ page }) => {
     await openRoom(page);

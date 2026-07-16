@@ -94,6 +94,13 @@ fake.enqueue({
   usage: { input_tokens: 18_234, output_tokens: 512, cost_usd: 0.041 },
   items: [
     {
+      type: 'run.limits',
+      limits: [
+        { window: 'five_hour', status: 'allowed', resets_at: new Date(Date.now() + 3 * 3_600_000).toISOString() },
+        { window: 'weekly', status: 'allowed_warning', used_percent: 82 },
+      ],
+    },
+    {
       type: 'run.item',
       item_type: 'tool_call',
       payload: {

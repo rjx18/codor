@@ -814,6 +814,23 @@
   font: var(--t-caption);
   color: var(--c-secondary);
 }
+.nx-member-limits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: var(--sp-1) 0 0 calc(32px + var(--sp-3));
+}
+.nx-limit {
+  font: var(--t-caption);
+  color: var(--c-secondary);
+  padding: 1px 8px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-full);
+  background: var(--c-raised);
+}
+.nx-limit.is-allowed_warning { color: var(--c-warn-text); background: var(--c-warn-tint); border-color: color-mix(in srgb, var(--c-warn) 30%, transparent); }
+.nx-limit.is-rejected { color: var(--c-error-text); background: var(--c-error-tint); border-color: color-mix(in srgb, var(--c-error) 30%, transparent); }
+
 .nx-member-menu { position: relative; flex: none; }
 .nx-menu {
   position: absolute;

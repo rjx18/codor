@@ -7,7 +7,7 @@ import { diffStat, presentRunEvents, type RunRow } from '@legacy/run-presenter.j
 import { sortedMessages, useRoomStore } from '@legacy/state.js';
 import type { Connection } from '@legacy/ws.js';
 
-import { compactCount, memberAccent, usd } from '../primitives/identity.js';
+import { clockTime, compactCount, memberAccent, usd } from '../primitives/identity.js';
 import { Button, Chip, Eyebrow, IconButton, Modal, Segmented, StatusPill } from '../primitives/primitives.js';
 import { useAdapters, useMemberDetails } from '../app/session.js';
 
@@ -175,6 +175,18 @@ function MemberCard(props: {
           {(detail?.queued_count ?? 0) > 0 ? ` · ${detail?.queued_count} queued` : ''}
         </p>
       )}
+      {member.limits !== undefined && member.limits.length > 0 && (
+        <p className="nx-member-limits" data-testid={`member-${member.handle}-limits`}>
+          {member.limits.map((limit) => (
+            <span key={limit.window} className={`nx-limit is-${limit.status}`}>
+              {limitWindowLabel(limit.window)}: {limit.used_percent !== undefined
+                ? `${Math.round(100 - limit.used_percent)}% left`
+                : limit.status.replace(/_/g, ' ')}
+              {limit.resets_at !== undefined ? ` · resets ${clockTime(limit.resets_at)}` : ''}
+            </span>
+          ))}
+        </p>
+      )}
 
       {confirming !== undefined && (
         <Modal
@@ -238,6 +250,12 @@ function MemberCard(props: {
       )}
     </li>
   );
+}
+
+function limitWindowLabel(window: string): string {
+  if (window === 'five_hour') return '5h';
+  if (window === 'seven_day' || window === 'weekly') return 'weekly';
+  return window.replace(/_/g, ' ');
 }
 
 function MemberStateWord(props: { state: Member['state'] }) {
