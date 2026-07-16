@@ -1456,6 +1456,25 @@ export class Store {
     return row ? messageFromRow(row) : undefined;
   }
 
+  // harn:assume rail-summary-served-not-guessed ref=rooms-summary-store-queries
+  /** Newest message in a room — the rail preview's single source. */
+  latestMessage(room: string): Message | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM messages WHERE room = ? ORDER BY id DESC LIMIT 1')
+      .get(room) as MessageRow | undefined;
+    return row ? messageFromRow(row) : undefined;
+  }
+
+  /** Unread arithmetic against a CALLER-provided cursor; the store keeps no
+   *  per-viewer read state of its own. */
+  countMessagesAfter(room: string, afterId: number): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS n FROM messages WHERE room = ? AND id > ?')
+      .get(room, afterId) as { n: number };
+    return row.n;
+  }
+  // harn:end rail-summary-served-not-guessed
+
   // harn:assume permalink-ids-stable ref=message-history-search
   listMessages(room: string, opts: { limit?: number; before?: number } = {}): Message[] {
     const rows = this.db

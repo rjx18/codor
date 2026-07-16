@@ -1,3 +1,5 @@
 packages/web-next/**
 .harnignore
 *.local.mjs
+pnpm-lock.yaml
+.playwright-mcp/**

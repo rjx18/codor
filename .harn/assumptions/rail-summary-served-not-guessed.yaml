@@ -1,0 +1,16 @@
+id: rail-summary-served-not-guessed
+hash: a-91884d1613e4
+title: The channel rail's preview, working, and unread states are served truth,
+  never client guesses
+state: active
+statement: The rooms summary endpoint is the single server-side source for
+  cross-room rail state. It reports, per room the principal may read and never
+  for any other room, the newest message as a bounded preview projection,
+  working derived from live agent member state (running or queued), and
+  dead-agent attention - all read from the store at request time. Unread counts
+  are computed exclusively against caller-provided per-room message-id cursors
+  because the switchboard tracks no per-viewer read state; absent a cursor the
+  count is zero, and the server never fabricates a read position it does not
+  have.
+depends_on: []
+created_by: rooms-summary-endpoint

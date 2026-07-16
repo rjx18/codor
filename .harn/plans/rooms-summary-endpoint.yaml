@@ -9,38 +9,37 @@ notes: >-
   can only fake those states ("Live on this device" placeholders).
 
   Change: add GET /api/rooms/summary. For every room the principal may read
-  (same roomsFor filter as GET /api/rooms), return {id, name, color,
-  created_ts, working, dead, latest?, unread}. latest is the newest message
-  projected to {id, ts, kind, author_handle, author_kind, preview} with the
-  preview server-bounded to 140 chars of the body's first line. working is true
-  when any non-removed agent member is running or queued; dead when any
-  non-removed agent is dead. unread is COUNT(messages.id > cursor) ONLY when
-  the caller supplies a cursor for that room via ?cursors=<room>:<msgId>,...
-  - the server tracks no per-viewer read state and never invents one; no
-  cursor means unread 0. Store gains two small queries (latestMessage,
-  countMessagesAfter); the route assembles from them plus member state.
-  Agents keep their narrow authority: an agent principal sees only its own
-  room's summary.
+  (same roomsFor filter as GET /api/rooms), return {id, name, color, created_ts,
+  working, dead, latest?, unread}. latest is the newest message projected to
+  {id, ts, kind, author_handle, author_kind, preview} with the preview
+  server-bounded to 140 chars of the body's first line. working is true when any
+  non-removed agent member is running or queued; dead when any non-removed agent
+  is dead. unread is COUNT(messages.id > cursor) ONLY when the caller supplies a
+  cursor for that room via ?cursors=<room>:<msgId>,... - the server tracks no
+  per-viewer read state and never invents one; no cursor means unread 0. Store
+  gains two small queries (latestMessage, countMessagesAfter); the route
+  assembles from them plus member state. Agents keep their narrow authority: an
+  agent principal sees only its own room's summary.
 
-  Tests (server.spec.ts): summary returns previews/working/dead per seeded
-  room; unread counts follow the supplied cursors and default to 0; a room the
+  Tests (server.spec.ts): summary returns previews/working/dead per seeded room;
+  unread counts follow the supplied cursors and default to 0; a room the
   principal cannot read never appears; malformed cursors are 400s. Gate:
-  switchboard unit suite green; web-next rail wired to the endpoint against
-  the fixture harness (harnignored side, screenshot-verified).
+  switchboard unit suite green; web-next rail wired to the endpoint against the
+  fixture harness (harnignored side, screenshot-verified).
 assumptions:
   create:
     - id: rail-summary-served-not-guessed
-      title: The channel rail's preview, working, and unread states are served
-        truth, never client guesses
+      title: The channel rail's preview, working, and unread states are served truth,
+        never client guesses
       statement: The rooms summary endpoint is the single server-side source for
         cross-room rail state. It reports, per room the principal may read and
         never for any other room, the newest message as a bounded preview
         projection, working derived from live agent member state (running or
         queued), and dead-agent attention - all read from the store at request
         time. Unread counts are computed exclusively against caller-provided
-        per-room message-id cursors because the switchboard tracks no
-        per-viewer read state; absent a cursor the count is zero, and the
-        server never fabricates a read position it does not have.
+        per-room message-id cursors because the switchboard tracks no per-viewer
+        read state; absent a cursor the count is zero, and the server never
+        fabricates a read position it does not have.
       reason: web-next's rail (the design's WhatsApp-style rows) needs real
         preview/working/unread state for rooms the browser has no socket to;
         guessing it client-side was the old client's placeholder hack.
@@ -53,9 +52,10 @@ anchors:
   rail-summary-served-not-guessed:
     rooms-summary-rest:
       action: change
-      reason: The new GET /api/rooms/summary handler is the assumption's REST
-        surface.
+      reason: The new GET /api/rooms/summary handler is the assumption's REST surface.
     rooms-summary-store-queries:
       action: change
-      reason: latestMessage and countMessagesAfter are the store truth the
-        summary is assembled from.
+      reason: latestMessage and countMessagesAfter are the store truth the summary is
+        assembled from.
+applied:
+  applied_at: 2026-07-16T16:26:42.530Z

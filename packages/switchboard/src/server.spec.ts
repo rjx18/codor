@@ -1738,3 +1738,69 @@ describe('Phase 3 REST boundaries', () => {
   });
   // harn:end unpaired-browser-always-has-enrollment-path
 });
+
+// harn:assume rail-summary-served-not-guessed ref=rooms-summary-rest
+describe('rooms summary', () => {
+  it('serves preview, working, dead, and cursor-driven unread per readable room', async () => {
+    daemon.postHumanMessage('eng', 'first message');
+    const latest = daemon.postHumanMessage('eng', 'the newest line\nsecond line never previews');
+    const agent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'railbot', cwd: testCwd('railbot'),
+    });
+
+    const summaryOf = async (query = '') => {
+      const res = await fetch(`${base}/api/rooms/summary${query}`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { rooms: {
+        id: string; working: boolean; dead: boolean; unread: number;
+        latest?: { id: number; author_handle: string; preview: string };
+      }[] };
+      const eng = body.rooms.find((room) => room.id === 'eng');
+      if (!eng) throw new Error('eng missing from summary');
+      return eng;
+    };
+
+    const idle = await summaryOf();
+    expect(idle.latest?.id).toBe(latest.id);
+    expect(idle.latest?.author_handle).toBe('richard');
+    expect(idle.latest?.preview).toBe('the newest line');
+    expect(idle.working).toBe(false);
+    expect(idle.dead).toBe(false);
+    expect(idle.unread).toBe(0); // no cursor -> no invented read state
+
+    expect((await summaryOf(`?cursors=eng:${latest.id - 1}`)).unread).toBe(1);
+    expect((await summaryOf(`?cursors=eng:${latest.id}`)).unread).toBe(0);
+
+    daemon.store.updateMember('eng', agent.id, { state: 'running' });
+    expect((await summaryOf()).working).toBe(true);
+    daemon.store.updateMember('eng', agent.id, { state: 'dead' });
+    const dead = await summaryOf();
+    expect(dead.working).toBe(false);
+    expect(dead.dead).toBe(true);
+  });
+
+  it('shows an agent principal only its own room', async () => {
+    daemon.createRoom({
+      id: 'other', name: 'Other', owner: { handle: 'elsewhere', display_name: 'Elsewhere' },
+    });
+    const { token } = spawnAgentWithToken('summary-agent');
+    const res = await fetch(`${base}/api/rooms/summary`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { rooms: { id: string }[] };
+    expect(body.rooms.map((room) => room.id)).toEqual(['eng']);
+  });
+
+  it('rejects malformed cursors with 400', async () => {
+    for (const bad of ['?cursors=eng', '?cursors=eng:abc', '?cursors=:7', '?cursors=eng:-1']) {
+      const res = await fetch(`${base}/api/rooms/summary${bad}`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(res.status).toBe(400);
+    }
+  });
+});
+// harn:end rail-summary-served-not-guessed

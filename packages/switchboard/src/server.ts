@@ -457,6 +457,62 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     void reply.send({ rooms: roomsFor(principal) });
   });
 
+  // harn:assume rail-summary-served-not-guessed ref=rooms-summary-rest
+  // Rail state for every readable room: bounded preview projection, working /
+  // dead from live agent member state, and unread computed ONLY against the
+  // caller's ?cursors=<room>:<msgId>,... — no cursor, no invented read state.
+  app.get('/api/rooms/summary', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    if (principal.kind === 'agent') {
+      if (!authorizeRoom(principal, principal.room, 'read', reply)) return;
+    } else if (!authorizeGlobal(principal, 'read', reply)) return;
+
+    const cursors = new Map<string, number>();
+    const rawCursors = (req.query as { cursors?: string }).cursors;
+    if (rawCursors !== undefined && rawCursors !== '') {
+      for (const entry of rawCursors.split(',')) {
+        const split = entry.lastIndexOf(':');
+        const id = split === -1 ? Number.NaN : Number(entry.slice(split + 1));
+        if (split <= 0 || !Number.isInteger(id) || id < 0) {
+          return reply.code(400).send({ error: `malformed cursor: ${entry}` });
+        }
+        cursors.set(entry.slice(0, split), id);
+      }
+    }
+
+    void reply.send({
+      rooms: roomsFor(principal).map((room) => {
+        const members = daemon.store.listMembers(room.id);
+        const latest = daemon.store.latestMessage(room.id);
+        const author = latest ? daemon.store.getMember(room.id, latest.author) : undefined;
+        const cursor = cursors.get(room.id);
+        return {
+          id: room.id,
+          name: room.name,
+          created_ts: room.created_ts,
+          color: room.config.color,
+          working: members.some(
+            (m) => m.kind === 'agent' && (m.state === 'running' || m.state === 'queued'),
+          ),
+          dead: members.some((m) => m.kind === 'agent' && m.state === 'dead'),
+          ...(latest !== undefined && {
+            latest: {
+              id: latest.id,
+              ts: latest.ts,
+              kind: latest.kind,
+              author_handle: author?.handle ?? '',
+              author_kind: author?.kind ?? 'human',
+              preview: (latest.body.split('\n', 1)[0] ?? '').slice(0, 140),
+            },
+          }),
+          unread: cursor === undefined ? 0 : daemon.store.countMessagesAfter(room.id, cursor),
+        };
+      }),
+    });
+  });
+  // harn:end rail-summary-served-not-guessed
+
   app.get('/api/adapters', (req, reply) => {
     const principal = authed(req, reply);
     if (!principal || !authorizeGlobal(principal, 'read', reply)) return;
