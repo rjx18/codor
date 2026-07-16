@@ -281,6 +281,9 @@ importers:
       culori:
         specifier: ^4.0.2
         version: 4.0.2
+      d3-force:
+        specifier: ^3.0.0
+        version: 3.0.0
       libsodium-wrappers:
         specifier: ^0.8.4
         version: 0.8.4
@@ -312,6 +315,9 @@ importers:
       '@types/culori':
         specifier: ^4.0.0
         version: 4.0.1
+      '@types/d3-force':
+        specifier: ^3.0.10
+        version: 3.0.10
       '@types/libsodium-wrappers':
         specifier: ^0.7.14
         version: 0.7.14

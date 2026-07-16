@@ -1195,6 +1195,43 @@
   letter-spacing: 4px !important;
   text-transform: uppercase;
 }
+
+/* ── Ledger graph ─────────────────────────────────────────────────────── */
+
+.nx-ledger {
+  width: min(100%, 1040px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-6);
+}
+.nx-ledger-card { padding: var(--sp-3); }
+.nx-ledger-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-2) var(--sp-2);
+}
+.nx-ledger-filter { display: inline-flex; align-items: center; gap: 6px; }
+.nx-ledger-filter.is-off { opacity: 0.4; }
+.nx-ledger-dot { width: 8px; height: 8px; border-radius: var(--r-full); }
+.nx-ledger-svg {
+  width: 100%;
+  aspect-ratio: 10 / 7;
+  border-radius: var(--r-card);
+  background:
+    radial-gradient(var(--c-line) 1px, transparent 1px) 0 0 / 22px 22px,
+    var(--c-raised);
+  cursor: grab;
+  touch-action: none;
+}
+.nx-ledger-svg:active { cursor: grabbing; }
+.nx-ledger-edge { stroke: var(--c-line-strong); stroke-width: 1.4; }
+.nx-ledger-node { cursor: pointer; }
+.nx-ledger-node circle { opacity: 0.85; }
+.nx-ledger-node.is-selected circle { stroke: var(--c-ink); stroke-width: 2.5; opacity: 1; }
+.nx-ledger-node text { font: var(--t-caption-strong); fill: var(--c-body); }
+.nx-ledger-body { max-height: 380px; }
 .nx-surface-card {
   width: min(100%, 460px);
   padding: var(--sp-5);

@@ -77,8 +77,7 @@ test.describe('run evidence', () => {
   test('run prose flows once as turn content — never duplicated by final text', async ({ page }) => {
     await openRoom(page);
     const runBody = page.locator('[data-testid^="run-"]').first();
-    const occurrences = await runBody.locator('.nx-prose', { hasText: 'Queue is short' }).count();
-    expect(occurrences).toBe(1);
+    await expect(runBody.locator('.nx-prose', { hasText: 'Queue is short' })).toHaveCount(1);
   });
 });
 

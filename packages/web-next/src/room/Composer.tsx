@@ -180,6 +180,9 @@ export function Composer(props: { room: string; connection: Connection }) {
           rows={1}
           value={draft}
           onChange={(event) => {
+            // The operator touched the draft: late hydration must never
+            // re-seed over what they typed or deliberately cleared.
+            seededRef.current = true;
             setDraft(event.target.value);
             setHint(undefined);
             autoGrow();

@@ -167,6 +167,16 @@ backdate(m3.id, minutesAgo(8));
 if (fableRun) backdate(fableRun.id, minutesAgo(7.5));
 backdate(musePost.id, minutesAgo(5));
 
+// ── Ledger notes: a small linked vault for the graph ─────────────────────
+for (const note of [
+  { name: 'launch-plan', type: 'decision', body: '# Launch plan\n\nShip with [[risk-limits]] and [[wire-contract]].' },
+  { name: 'risk-limits', type: 'constraint', body: '# Risk limits\n\nKeep exposure below 2%. Link back to [[launch-plan]].' },
+  { name: 'wire-contract', type: 'contract', body: '# Wire contract\n\nFrames remain acknowledged. See [[launch-plan]].' },
+  { name: 'release-checklist', type: 'decision', body: '# Release checklist\n\nConfirm [[wire-contract]].' },
+]) {
+  daemon.addLedgerNote('eng', { ...note, author: 'richard' });
+}
+
 // ── Held delivery (banner + release/redeliver) ───────────────────────────
 const held = daemon.store.postMessage('eng', {
   author: engOwner.id,
