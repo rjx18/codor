@@ -1,0 +1,47 @@
+id: v5-review-gate-repair
+title: V5 review closure follow-up - make the two new e2e fixtures
+  routing-neutral so the full sequential gate stays green.
+notes: >-
+  The full sequential e2e run exposed an isolation defect in two tests the
+  review-fix plans added; both poison the fake adapter's single shared FIFO
+  turn queue and cascade unscripted-turn failures through nine later tests.
+  No product code changes.
+
+  One - the responsive-shell boundary probe posts "boundary probe" with no
+  mention, so default routing delivers it to the latest finalized agent, which
+  has no scripted turn and dies. Mention @richard instead: a human delivery is
+  an inbox record and never starts an agent turn, so the probe is
+  routing-neutral. A plain chat delivery is not a pending interaction, so the
+  inbox tests are unaffected.
+
+  Two - the modal-layering regression released every parked hold on exit;
+  each released delivery then routes to an agent with no scripted turn.
+  Leave holds parked instead, exactly as the target-size sweep documents
+  ("the hold banner needs only the held delivery"): spec files get isolated
+  daemons, so a parked hold cannot leak past the file.
+
+  Gate: the previously failing e2e.spec.ts file runs green in FULL sequential
+  order, then the complete web e2e suite reruns green.
+assumptions:
+  reviewed:
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: The 719/720 boundary assertions are unchanged; only their fixture
+        message becomes routing-neutral by mentioning the human owner.
+    - id: modal-dialogs-layer-above-room-chrome
+      outcome: unchanged
+      reason: The layering contract and its probe assertions are unchanged; the
+        test stops releasing holds it does not own.
+files:
+  - packages/web/tests/e2e.spec.ts
+anchors:
+  web-shell-responsive-three-pane:
+    responsive-shell-regression:
+      action: change
+      reason: The boundary probe message mentions @richard so it routes to a human
+        inbox record instead of starting an unscripted agent turn.
+  modal-dialogs-layer-above-room-chrome:
+    modal-layering-browser-regression:
+      action: change
+      reason: Drop the hold-release cleanup; parked holds are the documented
+        per-file fixture pattern and releases eat other tests' scripted turns.
