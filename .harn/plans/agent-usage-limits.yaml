@@ -89,5 +89,7 @@ anchors:
   first-party-run-items-normalized:
     claude-normalized-run-items:
       action: change
-      reason: The translator's dispatch gains the nested rate_limit_event
-        branch inside this region.
+      reason: The translator's dispatch gains the nested rate_limit_event branch
+        inside this region.
+applied:
+  applied_at: 2026-07-16T18:40:22.573Z

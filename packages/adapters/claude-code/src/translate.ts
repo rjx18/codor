@@ -52,6 +52,12 @@ interface ClaudeEvent {
   is_error?: boolean;
   total_cost_usd?: number;
   usage?: { input_tokens?: number; output_tokens?: number };
+  rate_limit_info?: {
+    status?: string;
+    resetsAt?: number; // unix seconds
+    rateLimitType?: string; // five_hour / weekly / ...
+    utilization?: number; // percent, present in newer CLIs
+  };
 }
 
 const MAX_OUTPUT_BYTES = 256 * 1024;
@@ -335,8 +341,34 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
             },
           ];
         }
+        // harn:assume agent-usage-limits-reported-not-guessed ref=claude-rate-limit-translation
+        case 'rate_limit_event': {
+          const info = event.rate_limit_info;
+          if (!info || typeof info.rateLimitType !== 'string' || typeof info.status !== 'string') {
+            return []; // shape we don't recognize — report nothing, never guess
+          }
+          return [
+            {
+              type: 'run.limits',
+              limits: [
+                {
+                  window: info.rateLimitType,
+                  status: info.status,
+                  ...(typeof info.resetsAt === 'number' && Number.isFinite(info.resetsAt) && {
+                    resets_at: new Date(info.resetsAt * 1000).toISOString(),
+                  }),
+                  ...(typeof info.utilization === 'number' &&
+                    info.utilization >= 0 && info.utilization <= 100 && {
+                    used_percent: info.utilization,
+                  }),
+                },
+              ],
+            },
+          ];
+        }
+        // harn:end agent-usage-limits-reported-not-guessed
         default:
-          return []; // rate_limit_event etc. tolerated
+          return []; // unknown event types tolerated
       }
       // harn:end first-party-run-items-normalized
     },

@@ -627,6 +627,16 @@ describe('wire events', () => {
       },
     ],
     ['member.state', { type: 'member.state', member: ULID_A, state: 'awaiting_input' }],
+    [
+      'run.limits',
+      {
+        type: 'run.limits',
+        limits: [
+          { window: 'five_hour', status: 'allowed', resets_at: TS },
+          { window: 'weekly', status: 'allowed_warning', used_percent: 88, vendor: 'extra' },
+        ],
+      },
+    ],
     ['extension.started', { type: 'extension.started', parent: ULID_A, ext_member: ULID_B }],
     ['extension.ended', { type: 'extension.ended', ext_member: ULID_B, summary: 'PONG' }],
   ];
@@ -637,6 +647,9 @@ describe('wire events', () => {
 
   it('rejects unknown event types and running as a completion status', () => {
     expect(WireEventSchema.safeParse({ type: 'run.paused' }).success).toBe(false);
+    // run.limits must carry at least one harness-reported window — an empty
+    // report is a report of nothing and must not exist on the wire.
+    expect(WireEventSchema.safeParse({ type: 'run.limits', limits: [] }).success).toBe(false);
     expect(
       WireEventSchema.safeParse({ type: 'run.completed', status: 'running' }).success,
     ).toBe(false);

@@ -262,6 +262,13 @@ function migrateMemberAgentConfig(db: Database.Database): void {
 }
 // harn:end agent-model-and-thinking-are-durable
 
+function migrateMemberLimits(db: Database.Database): void {
+  const columns = db.pragma('table_info(members)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'limits')) {
+    db.exec('ALTER TABLE members ADD COLUMN limits TEXT');
+  }
+}
+
 // harn:assume agent-member-credentials-stay-secret ref=member-credential-storage
 function migrateMemberCredential(db: Database.Database): void {
   const columns = db.pragma('table_info(members)') as { name: string }[];
@@ -448,6 +455,7 @@ interface MemberRow {
   misaddressed: number;
   roster_stale: number;
   removed_ts: string | null;
+  limits: string | null;
 }
 
 interface MessageRow {
@@ -581,6 +589,7 @@ function memberFromRow(row: MemberRow): Member {
     misaddressed: toBool(row.misaddressed),
     roster_stale: toBool(row.roster_stale),
     removed_ts: row.removed_ts ?? undefined,
+    limits: row.limits ? JSON.parse(row.limits) as unknown : undefined,
   });
 }
 
@@ -800,6 +809,7 @@ export class Store {
     // members table from an explicit column list, which would silently drop these two
     // again — and then every insert would fail on a column that no longer exists.
     migrateMemberAgentConfig(this.db);
+    migrateMemberLimits(this.db);
     migrateMemberCredential(this.db);
     migrateMessageAck(this.db);
     migrateApprovalDeliveryResolution(this.db);
@@ -955,7 +965,7 @@ export class Store {
           `UPDATE members SET handle = ?, display_name = ?, purpose = ?, harness = ?, session_ref = ?,
              cwd = ?, policy = ?, model = ?, thinking = ?, host = ?, state = ?, custody = ?,
              parent = ?, role = ?, conventions_sent = ?, misaddressed = ?, roster_stale = ?,
-             removed_ts = ?
+             removed_ts = ?, limits = ?
            WHERE room = ? AND id = ?`,
         )
         .run(
@@ -977,6 +987,7 @@ export class Store {
           fromBool(merged.misaddressed),
           fromBool(merged.roster_stale),
           orNull(merged.removed_ts),
+          merged.limits === undefined ? null : JSON.stringify(merged.limits),
           room,
           memberId,
         );

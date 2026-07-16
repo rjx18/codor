@@ -2166,6 +2166,14 @@ export class Daemon {
         } else if (event.type === 'extension.ended') {
           journalEvent = this.endExtension(room, member, event);
         }
+        // harn:assume agent-usage-limits-reported-not-guessed ref=member-limits-persisted
+        // Limits are member status, not run content: land the harness's report
+        // on the member row and stream the member frame — nothing is journaled.
+        if (event.type === 'run.limits') {
+          this.emitMember(room, this.store.updateMember(room, member.id, { limits: event.limits }));
+          continue;
+        }
+        // harn:end agent-usage-limits-reported-not-guessed
         this.blobs.append(room, runMsg.run!.events_ref, journalEvent);
         if (
           journalEvent.type === 'run.started' ||

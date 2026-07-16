@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { MemberIdSchema, MessageIdSchema, TimestampSchema } from './ids.js';
-import { MemberStateSchema } from './member.js';
+import { AgentLimitSchema, MemberStateSchema } from './member.js';
 import { AskCardSchema, RunStatusSchema, UsageSchema } from './message.js';
 
 /**
@@ -120,6 +120,10 @@ export const WireEventSchema = z.discriminatedUnion('type', [
     status: RunStatusSchema.exclude(['running']),
     final_text: z.string().optional(),
     usage: UsageSchema.optional(),
+  }),
+  z.object({
+    type: z.literal('run.limits'),
+    limits: z.array(AgentLimitSchema).min(1),
   }),
   z.object({
     type: z.literal('member.state'),

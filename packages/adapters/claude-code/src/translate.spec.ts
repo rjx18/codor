@@ -385,3 +385,45 @@ describe('S1 content normalization (synthetic inline records)', () => {
     expect(events[0]!.payload).not.toHaveProperty('image');
   });
 });
+
+describe('rate limit events (agent-usage-limits-reported-not-guessed)', () => {
+  // Verbatim from the pinned raw fixtures — the CLI streams its limit windows.
+  const FIXTURE_LINE =
+    '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1783684800,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":false},"uuid":"db45626b-bc76-4332-9eb9-6f77682f9642","session_id":"ec6d311d-1205-4d48-961e-56bb0e995398"}';
+
+  it('maps rate_limit_event onto one run.limits event', () => {
+    const translator = createTurnTranslator();
+    expect(translator.push(FIXTURE_LINE)).toEqual([
+      {
+        type: 'run.limits',
+        limits: [
+          {
+            window: 'five_hour',
+            status: 'allowed',
+            resets_at: new Date(1783684800 * 1000).toISOString(),
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('forwards utilization as used_percent when the CLI reports it', () => {
+    const translator = createTurnTranslator();
+    const events = translator.push(JSON.stringify({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'allowed_warning', rateLimitType: 'weekly', utilization: 87.5 },
+    }));
+    expect(events).toEqual([
+      {
+        type: 'run.limits',
+        limits: [{ window: 'weekly', status: 'allowed_warning', used_percent: 87.5 }],
+      },
+    ]);
+  });
+
+  it('reports nothing for shapes it does not recognize — never a guess', () => {
+    const translator = createTurnTranslator();
+    expect(translator.push('{"type":"rate_limit_event"}')).toEqual([]);
+    expect(translator.push('{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}')).toEqual([]);
+  });
+});

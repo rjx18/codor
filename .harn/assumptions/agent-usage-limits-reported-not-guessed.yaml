@@ -1,0 +1,13 @@
+id: agent-usage-limits-reported-not-guessed
+hash: a-85b02ad094b4
+title: Member usage limits are harness-reported truth, absent when the harness
+  reports none
+state: active
+statement: An agent member's limits field holds exactly the last rate-limit
+  windows its harness reported on the wire - window name, status, reset time,
+  and utilization when given - refreshed whenever a turn streams a newer report
+  and emitted to clients as part of the member frame. A harness that reports no
+  limits produces a member with no limits field, and no component may invent,
+  extrapolate, or age the numbers into a guess the harness never made.
+depends_on: []
+created_by: agent-usage-limits

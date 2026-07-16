@@ -3702,3 +3702,37 @@ describe('agent delivery lifecycle frames (agent-delivery-lifecycle-streams)', (
     expect(states.indexOf('delivering')).toBeLessThan(states.lastIndexOf('consumed'));
   });
 });
+
+describe('usage limits (agent-usage-limits-reported-not-guessed)', () => {
+  it('a run.limits event lands on the member row and streams as a member frame', async () => {
+    const agent = daemon.spawnMember('eng', { harness: 'fake', handle: 'limited', cwd: dir });
+    fake.enqueue({
+      kind: 'complete',
+      final_text: 'done',
+      items: [{
+        type: 'run.limits',
+        limits: [
+          { window: 'five_hour', status: 'allowed', resets_at: '2026-07-17T12:00:00.000Z' },
+          { window: 'weekly', status: 'allowed_warning', used_percent: 91 },
+        ],
+      }],
+    });
+    daemon.postHumanMessage('eng', '@limited check in');
+    await daemon.settle();
+
+    const persisted = daemon.store.getMember('eng', agent.id);
+    expect(persisted?.limits).toEqual([
+      { window: 'five_hour', status: 'allowed', resets_at: '2026-07-17T12:00:00.000Z' },
+      { window: 'weekly', status: 'allowed_warning', used_percent: 91 },
+    ]);
+
+    const framed = [...frames].reverse().find((item) =>
+      item.frame.type === 'member' && item.frame.member.id === agent.id && item.frame.member.limits !== undefined);
+    expect(framed).toBeDefined();
+
+    // Member status, not run content: the journal carries no run.limits event.
+    const run = daemon.store.listRunMessages('eng', { author: agent.id, limit: 1 })[0]!;
+    const journal = daemon.readRunBlob('eng', run.id);
+    expect(journal.some((e) => e.type === 'run.limits')).toBe(false);
+  });
+});

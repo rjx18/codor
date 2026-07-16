@@ -58,6 +58,18 @@ export function deriveAssignableHandle(name: string): string | undefined {
 // harn:end starting-agent-name-derives-one-valid-identity-v6
 // harn:end reserved-handles-rejected
 
+// harn:assume agent-usage-limits-reported-not-guessed ref=agent-limit-schema
+/** One harness-reported rate-limit window (e.g. claude-code's five_hour /
+ *  weekly). Only ever what the harness said — never derived or aged. */
+export const AgentLimitSchema = z.object({
+  window: z.string().min(1), // harness-native window name, open set
+  status: z.string().min(1), // e.g. allowed / allowed_warning / rejected
+  resets_at: TimestampSchema.optional(),
+  used_percent: z.number().min(0).max(100).optional(),
+}).loose();
+export type AgentLimit = z.infer<typeof AgentLimitSchema>;
+// harn:end agent-usage-limits-reported-not-guessed
+
 export const MemberSchema = z
   .object({
     id: MemberIdSchema,
@@ -81,6 +93,11 @@ export const MemberSchema = z
     thinking: ThinkingLevelSchema.optional(),
     // harn:end agent-model-and-thinking-are-durable
     host: z.string().min(1).optional(), // which switchboard machine owns the session
+    // harn:assume agent-usage-limits-reported-not-guessed ref=agent-limit-schema
+    // Last-known harness-reported rate-limit windows; absent when the harness
+    // reports none. Status, not configuration — refreshed by run.limits events.
+    limits: z.array(AgentLimitSchema).optional(),
+    // harn:end agent-usage-limits-reported-not-guessed
     state: MemberStateSchema.optional(),
     custody: CustodySchema.optional(),
     parent: MemberIdSchema.optional(), // extensions only: spawning member
