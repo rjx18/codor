@@ -4,12 +4,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   fetchDevices,
+  fetchPushConfig,
   mintPairingOffer,
   revokeDevice,
   type DeviceSummary,
   type PairingOffer,
+  type PushConfig,
 } from '@legacy/api.js';
-import { currentBrowserAccessToken, unpairBrowser } from '@legacy/crypto.js';
+import { currentBrowserAccessToken, ensureBrowserIdentity, unpairBrowser } from '@legacy/crypto.js';
+import { enablePushNotifications, notificationPermission } from '@legacy/notifications.js';
 import { useRoomStore } from '@legacy/state.js';
 import {
   applyThemeChoice,
@@ -48,6 +51,7 @@ export function SettingsPage(props: { token: string; refreshToken?: () => Promis
           <h1>Settings</h1>
         </header>
         <AppearanceSection />
+        <NotificationsSection token={token} />
         <BrakesSection connection={connectorRef.current} />
         <DevicesSection token={token} />
         <PrivacySection />
@@ -83,6 +87,73 @@ function AppearanceSection() {
         {theme === 'system' ? <Monitor size={13} aria-hidden="true" /> : theme === 'dark' ? <Moon size={13} aria-hidden="true" /> : <Sun size={13} aria-hidden="true" />}
         {' '}applies immediately on this device
       </p>
+    </section>
+  );
+}
+
+// ── Notifications: Web Push opt-in, honest when the switchboard lacks it ──
+
+function NotificationsSection(props: { token: () => string }) {
+  const [config, setConfig] = useState<PushConfig>();
+  const [deviceId, setDeviceId] = useState<string>();
+  const [state, setState] = useState<'idle' | 'enabling' | 'on' | 'failed'>('idle');
+  const permission = notificationPermission();
+
+  useEffect(() => {
+    void Promise.all([fetchPushConfig({ token: props.token() }), ensureBrowserIdentity()])
+      .then(([loaded, identity]) => {
+        setConfig(loaded);
+        setDeviceId(identity.device_id);
+        if (permission === 'granted') setState('on');
+      })
+      .catch(() => setConfig({ enabled: false }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const available = config?.enabled === true && config.vapid_public_key !== undefined && permission !== 'unsupported';
+
+  return (
+    <section className="nx-settings-card" aria-labelledby="s-notifications">
+      <h2 id="s-notifications">Notifications</h2>
+      <p className="nx-settings-sub">
+        Push arrives sealed; this browser opens it with its own keys.
+      </p>
+      {config === undefined ? (
+        <p className="nx-field-note">Checking push support…</p>
+      ) : !available ? (
+        <p className="nx-field-note" data-testid="push-unavailable">
+          {permission === 'unsupported'
+            ? 'This browser does not support Web Push.'
+            : 'Push is not configured on this switchboard — enable a relay first.'}
+        </p>
+      ) : (
+        <div className="nx-settings-actions">
+          <Button
+            variant={state === 'on' ? 'secondary' : 'primary'}
+            disabled={state === 'enabling' || state === 'on' || deviceId === undefined}
+            data-testid="push-enable"
+            onClick={() => {
+              if (deviceId === undefined || config.vapid_public_key === undefined) return;
+              setState('enabling');
+              void enablePushNotifications({
+                deviceId,
+                token: props.token(),
+                vapidPublicKey: config.vapid_public_key,
+              }).then(
+                () => setState('on'),
+                () => setState('failed'),
+              );
+            }}
+          >
+            {state === 'on' ? 'Push is on for this device' : state === 'enabling' ? 'Enabling…' : 'Enable push on this device'}
+          </Button>
+        </div>
+      )}
+      {state === 'failed' && (
+        <p className="nx-field-note is-error" role="alert">
+          Couldn’t enable push — check the browser permission and try again.
+        </p>
+      )}
     </section>
   );
 }

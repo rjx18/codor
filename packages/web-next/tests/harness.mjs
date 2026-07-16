@@ -253,6 +253,25 @@ createServer((req, res) => {
         const body = raw === '' ? {} : JSON.parse(raw);
         for (const turn of body.turns ?? []) fake.enqueue(turn);
       }
+      if (url.pathname === '/seed-bulk') {
+        // A long back-catalog for virtualization/paging proofs: N backdated
+        // owner messages inserted straight into the store.
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const count = Math.min(2000, Number(body.count ?? 300));
+        const roomId = body.room ?? 'eng';
+        const author = daemon.ownerOf(roomId).id;
+        const base = Date.now() - (count + 60) * 60_000;
+        for (let i = 0; i < count; i++) {
+          const message = daemon.store.postMessage(roomId, {
+            author,
+            kind: 'chat',
+            body: `archive note #${i + 1}: nothing urgent, just history`,
+          });
+          daemon.store.db
+            .prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
+            .run(new Date(base + i * 60_000).toISOString(), roomId, message.id);
+        }
+      }
       res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
     } catch (error) {
       res.writeHead(400).end(String(error));

@@ -2,14 +2,48 @@ import { resolve } from 'node:path';
 
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 // The next UI is a fresh presentation layer over the UNCHANGED client machinery: the
 // legacy package's nonvisual modules (state, api, ws, crypto, theme, push, room-color,
-// run-presenter, notifications) are imported straight from its source tree via this
+// run-presenter, notifications, sw) are imported straight from its source tree via this
 // alias, so protocol behavior, encryption and synchronization stay byte-identical while
 // every component, layout and stylesheet here is new.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Same offline/push worker as the old client — presentation changed, the
+    // worker contract didn't.
+    VitePWA({
+      strategies: 'injectManifest',
+      srcDir: resolve(__dirname, '../web/src'),
+      filename: 'sw.ts',
+      injectRegister: false,
+      includeAssets: ['codor-icon.svg', 'codor-192.png', 'codor-512.png'],
+      injectManifest: {
+        globPatterns: ['**/*.{html,js,css,svg,png,woff2}'],
+        rollupFormat: 'es',
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+      },
+      manifest: {
+        name: 'Codor',
+        short_name: 'Codor',
+        description: 'Private rooms for humans and coding agents.',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        orientation: 'any',
+        background_color: '#e9e9e6',
+        theme_color: '#e9e9e6',
+        categories: ['productivity', 'utilities'],
+        icons: [
+          { src: '/codor-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/codor-512.png', sizes: '512x512', type: 'image/png' },
+          { src: '/codor-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      },
+    }),
+  ],
   resolve: {
     alias: {
       '@legacy': resolve(__dirname, '../web/src'),
@@ -27,5 +61,17 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    rollupOptions: {
+      output: {
+        // The crypto stack dwarfs the app; keep it (and other stable vendors)
+        // in their own long-lived chunks.
+        manualChunks: {
+          sodium: ['libsodium-wrappers'],
+          react: ['react', 'react-dom'],
+          graph: ['d3-force'],
+          qr: ['qrcode'],
+        },
+      },
+    },
   },
 });
