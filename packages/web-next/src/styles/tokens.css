@@ -1,0 +1,232 @@
+/* codor web-next — design tokens, authored fresh from the v5 soft-editorial contract
+   (tmp/build/design/v5/DESIGN-SYSTEM.md) and the Codor.dc.html screens. Light is the
+   base paint; dark is an explicit choice or system preference, never a default. */
+
+@font-face {
+  font-family: Geist;
+  src: url('/fonts/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/fonts/GeistMono-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces — light */
+  --c-surface: #ffffff;
+  --c-raised: #fbfbfa;
+  --c-muted: #f2f2f0;
+  --c-canvas: #e9e9e6;
+  --c-line: #e7e5e4;
+  --c-line-strong: #d6d3d1;
+  --c-scrim: rgb(28 25 23 / 0.4);
+
+  /* Text — four steps, AA-safe everywhere each role is legal */
+  --c-ink: #1c1917;
+  --c-body: #292524;
+  --c-secondary: #57534e;
+  --c-faded: #6b645f;
+  /* Decorative only; carries no contrast promise and is never spent on text */
+  --c-mark-faint: #a8a29e;
+
+  /* Semantic — vivid marks per the spec; -text variants stay AA on their surfaces */
+  --c-live: #22c55e;
+  --c-live-text: #15803d;
+  --c-live-tint: #f0fdf4;
+  --c-error: #ef4444;
+  --c-error-text: #b91c1c;
+  --c-error-tint: #fef2f2;
+  --c-warn: #f59e0b;
+  --c-warn-text: #92400e;
+  --c-warn-tint: #fef3e2;
+  --c-agent: #4338ca;
+  --c-agent-text: #4338ca;
+  --c-agent-tint: #eef2ff;
+  --c-accent: #8b5cf6;
+  --c-accent-text: #7c3aed;
+  --c-accent-tint: #f5f3ff;
+  --c-link: #15803d;
+  --c-link-hover: #166534;
+
+  /* Diff */
+  --c-diff-add: #15803d;
+  --c-diff-add-bg: #f0fdf4;
+  --c-diff-del: #b91c1c;
+  --c-diff-del-bg: #fef2f2;
+
+  /* Identity chip tints (spec §1): indigo / green / violet agents, inverse user */
+  --chip-indigo-bg: #eef2ff;
+  --chip-indigo-ink: #4338ca;
+  --chip-green-bg: #f0fdf4;
+  --chip-green-ink: #15803d;
+  --chip-violet-bg: #f5f3ff;
+  --chip-violet-ink: #7c3aed;
+  --chip-user-bg: #14532d;
+  --chip-user-ink: #dcfce7;
+
+  /* Type — Geist, letter-spacing 0 everywhere */
+  --f-sans: Geist, ui-sans-serif, system-ui, sans-serif;
+  --f-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --t-display: 600 40px/1.1 var(--f-sans);
+  --t-heading: 600 26px/1.25 var(--f-sans);
+  --t-title: 600 18px/1.35 var(--f-sans);
+  --t-body: 400 15px/1.72 var(--f-sans);
+  --t-ui: 500 14px/1.4 var(--f-sans);
+  --t-ui-strong: 600 14px/1.4 var(--f-sans);
+  --t-caption: 400 12px/1.45 var(--f-sans);
+  --t-caption-strong: 600 12px/1.45 var(--f-sans);
+  --t-eyebrow: 600 11px/1.3 var(--f-sans);
+  --t-mono: 500 13px/1.6 var(--f-mono);
+  --t-mono-small: 500 11.5px/1.5 var(--f-mono);
+
+  /* Radius — 8 pill · 11 control · 13 card · 18 panel · 999 full */
+  --r-pill: 8px;
+  --r-control: 11px;
+  --r-card: 13px;
+  --r-panel: 18px;
+  --r-full: 999px;
+
+  /* Spacing — 4 · 8 · 12 · 16 · 22 · 40 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 22px;
+  --sp-6: 40px;
+
+  /* Elevation */
+  --e-panel: 0 1px 2px rgb(28 25 23 / 0.04);
+  --e-raised: 0 1px 3px rgb(28 25 23 / 0.05);
+  --e-popover: 0 4px 12px -4px rgb(28 25 23 / 0.16);
+  --e-float: 0 24px 60px -20px rgb(28 25 23 / 0.18);
+
+  /* Motion */
+  --m-fast: 120ms;
+  --m-base: 200ms;
+  --m-slow: 320ms;
+  --m-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Layout constants */
+  --rail-w: 288px;
+  --context-w: 400px;
+  --column-w: 760px;
+  --gutter: 10px;
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+
+  --c-surface: #1c1917;
+  --c-raised: #262220;
+  --c-muted: #171310;
+  --c-canvas: #0c0a09;
+  --c-line: #292524;
+  --c-line-strong: #3a3532;
+  --c-scrim: rgb(0 0 0 / 0.5);
+
+  --c-ink: #fafaf9;
+  --c-body: #e7e5e4;
+  --c-secondary: #d6d3d1;
+  --c-faded: #a8a29e;
+  --c-mark-faint: #78716c;
+
+  --c-live: #22c55e;
+  --c-live-text: #4ade80;
+  --c-live-tint: #14231a;
+  --c-error: #ef4444;
+  --c-error-text: #f87171;
+  --c-error-tint: #2b1817;
+  --c-warn: #f59e0b;
+  --c-warn-text: #fbbf24;
+  --c-warn-tint: #2a2113;
+  --c-agent: #6366f1;
+  --c-agent-text: #a5b4fc;
+  --c-agent-tint: #1e1d33;
+  --c-accent: #8b5cf6;
+  --c-accent-text: #c4b5fd;
+  --c-accent-tint: #231d33;
+  --c-link: #4ade80;
+  --c-link-hover: #86efac;
+
+  --c-diff-add: #4ade80;
+  --c-diff-add-bg: #122117;
+  --c-diff-del: #f87171;
+  --c-diff-del-bg: #2b1414;
+
+  --chip-indigo-bg: #1e1d33;
+  --chip-indigo-ink: #a5b4fc;
+  --chip-green-bg: #122117;
+  --chip-green-ink: #4ade80;
+  --chip-violet-bg: #231d33;
+  --chip-violet-ink: #c4b5fd;
+  --chip-user-bg: #dcfce7;
+  --chip-user-ink: #14532d;
+
+  --e-panel: 0 1px 2px rgb(0 0 0 / 0.3);
+  --e-raised: 0 1px 3px rgb(0 0 0 / 0.35);
+  --e-popover: 0 4px 12px -4px rgb(0 0 0 / 0.5);
+  --e-float: 0 24px 60px -20px rgb(0 0 0 / 0.55);
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) {
+    color-scheme: dark;
+
+    --c-surface: #1c1917;
+    --c-raised: #262220;
+    --c-muted: #171310;
+    --c-canvas: #0c0a09;
+    --c-line: #292524;
+    --c-line-strong: #3a3532;
+    --c-scrim: rgb(0 0 0 / 0.5);
+
+    --c-ink: #fafaf9;
+    --c-body: #e7e5e4;
+    --c-secondary: #d6d3d1;
+    --c-faded: #a8a29e;
+    --c-mark-faint: #78716c;
+
+    --c-live: #22c55e;
+    --c-live-text: #4ade80;
+    --c-live-tint: #14231a;
+    --c-error: #ef4444;
+    --c-error-text: #f87171;
+    --c-error-tint: #2b1817;
+    --c-warn: #f59e0b;
+    --c-warn-text: #fbbf24;
+    --c-warn-tint: #2a2113;
+    --c-agent: #6366f1;
+    --c-agent-text: #a5b4fc;
+    --c-agent-tint: #1e1d33;
+    --c-accent: #8b5cf6;
+    --c-accent-text: #c4b5fd;
+    --c-accent-tint: #231d33;
+    --c-link: #4ade80;
+    --c-link-hover: #86efac;
+
+    --c-diff-add: #4ade80;
+    --c-diff-add-bg: #122117;
+    --c-diff-del: #f87171;
+    --c-diff-del-bg: #2b1414;
+
+    --chip-indigo-bg: #1e1d33;
+    --chip-indigo-ink: #a5b4fc;
+    --chip-green-bg: #122117;
+    --chip-green-ink: #4ade80;
+    --chip-violet-bg: #231d33;
+    --chip-violet-ink: #c4b5fd;
+    --chip-user-bg: #dcfce7;
+    --chip-user-ink: #14532d;
+
+    --e-panel: 0 1px 2px rgb(0 0 0 / 0.3);
+    --e-raised: 0 1px 3px rgb(0 0 0 / 0.35);
+    --e-popover: 0 4px 12px -4px rgb(0 0 0 / 0.5);
+    --e-float: 0 24px 60px -20px rgb(0 0 0 / 0.55);
+  }
+}

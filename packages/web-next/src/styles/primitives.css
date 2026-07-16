@@ -1,0 +1,200 @@
+/* codor web-next — primitive styles (nx- namespace). */
+
+/* Identity chip: tinted squircle, two-letter initials, optional presence dot. */
+.nx-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: var(--r-control);
+  font-weight: 600;
+  text-transform: lowercase;
+  user-select: none;
+}
+.nx-chip.is-indigo { background: var(--chip-indigo-bg); color: var(--chip-indigo-ink); }
+.nx-chip.is-green { background: var(--chip-green-bg); color: var(--chip-green-ink); }
+.nx-chip.is-violet { background: var(--chip-violet-bg); color: var(--chip-violet-ink); }
+.nx-chip.is-user { background: var(--chip-user-bg); color: var(--chip-user-ink); }
+
+.nx-presence {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--r-full);
+  border: 2px solid var(--c-surface);
+}
+.nx-presence.on-raised { border-color: var(--c-raised); }
+.nx-presence.on-muted { border-color: var(--c-muted); }
+.nx-presence.is-live { background: var(--c-live); animation: nx-pulse 2.4s var(--m-ease) infinite; }
+.nx-presence.is-idle { background: var(--c-mark-faint); }
+.nx-presence.is-error { background: var(--c-error); }
+
+/* Buttons */
+.nx-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 36px;
+  padding: 0 var(--sp-4);
+  border-radius: var(--r-control);
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  font: var(--t-ui);
+  transition: background-color var(--m-fast) var(--m-ease), border-color var(--m-fast) var(--m-ease);
+}
+.nx-btn:hover { background: var(--c-raised); }
+.nx-btn.is-primary {
+  border-color: var(--c-ink);
+  background: var(--c-ink);
+  color: var(--c-surface);
+}
+.nx-btn.is-primary:hover { background: color-mix(in srgb, var(--c-ink) 88%, var(--c-surface)); }
+.nx-btn.is-quiet { border-color: transparent; background: transparent; color: var(--c-secondary); }
+.nx-btn.is-quiet:hover { background: var(--c-muted); color: var(--c-ink); }
+.nx-btn.is-danger { border-color: color-mix(in srgb, var(--c-error) 40%, transparent); color: var(--c-error); }
+.nx-btn.is-danger:hover { background: var(--c-error-tint); }
+.nx-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.nx-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
+  color: var(--c-secondary);
+  transition: background-color var(--m-fast) var(--m-ease), color var(--m-fast) var(--m-ease);
+}
+.nx-iconbtn:hover { background: var(--c-muted); color: var(--c-ink); }
+.nx-iconbtn.is-quiet { width: 28px; height: 28px; border-color: transparent; background: transparent; color: var(--c-faded); }
+.nx-iconbtn.is-quiet:hover { background: var(--c-muted); color: var(--c-ink); }
+.nx-iconbtn.is-solid { border-color: var(--c-ink); background: var(--c-ink); color: var(--c-surface); }
+.nx-iconbtn.is-solid:hover { background: color-mix(in srgb, var(--c-ink) 88%, var(--c-surface)); }
+.nx-iconbtn.is-sm { width: 28px; height: 28px; }
+.nx-iconbtn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Touch floor: on coarse pointers every interactive control extends its hit area to
+   44px with a transparent pseudo-target, whatever its visual size. */
+@media (pointer: coarse) {
+  .nx-iconbtn,
+  .nx-btn,
+  .nx-segment {
+    position: relative;
+  }
+  .nx-iconbtn::after,
+  .nx-btn::after,
+  .nx-segment::after {
+    content: '';
+    position: absolute;
+    inset: 50% auto auto 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+}
+
+.nx-eyebrow {
+  font: var(--t-eyebrow);
+  text-transform: uppercase;
+  color: var(--c-faded);
+}
+
+.nx-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: var(--r-full);
+  font: var(--t-caption-strong);
+  border: 1px solid transparent;
+}
+.nx-status-dot { width: 6px; height: 6px; border-radius: var(--r-full); background: currentcolor; }
+.nx-status.is-live { color: var(--c-live-text); background: var(--c-live-tint); border-color: color-mix(in srgb, var(--c-live) 30%, transparent); }
+.nx-status.is-live .nx-status-dot { background: var(--c-live); }
+.nx-status.is-warn { color: var(--c-warn-text); background: var(--c-warn-tint); border-color: color-mix(in srgb, var(--c-warn) 30%, transparent); }
+.nx-status.is-warn .nx-status-dot { background: var(--c-warn); }
+.nx-status.is-error { color: var(--c-error-text); background: var(--c-error-tint); border-color: color-mix(in srgb, var(--c-error) 30%, transparent); }
+.nx-status.is-error .nx-status-dot { background: var(--c-error); }
+.nx-status.is-neutral { color: var(--c-secondary); background: var(--c-muted); }
+
+.nx-segmented {
+  display: flex;
+  padding: var(--sp-1);
+  gap: var(--sp-1);
+  border-radius: calc(var(--r-control) + 1px);
+  background: var(--c-muted);
+}
+.nx-segment {
+  flex: 1;
+  min-height: 32px;
+  border-radius: var(--r-pill);
+  font: var(--t-ui);
+  color: var(--c-secondary);
+}
+.nx-segment[aria-selected='true'] {
+  background: var(--c-surface);
+  color: var(--c-ink);
+  box-shadow: var(--e-raised);
+  font: var(--t-ui-strong);
+}
+
+.nx-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.nx-typing > span {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: var(--c-faded);
+  animation: nx-dot 1.2s var(--m-ease) infinite;
+}
+.nx-typing > span:nth-child(2) { animation-delay: 0.15s; }
+.nx-typing > span:nth-child(3) { animation-delay: 0.3s; }
+
+/* Modal through the body portal */
+.nx-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: var(--c-scrim);
+}
+.nx-modal {
+  width: min(100%, 560px);
+  max-height: min(84dvh, 820px);
+  overflow: auto;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-panel);
+  background: var(--c-surface);
+  box-shadow: var(--e-float);
+  padding: var(--sp-5);
+  animation: nx-enter var(--m-base) var(--m-ease);
+}
+.nx-modal.is-wide { width: min(100%, 680px); }
+
+.nx-code {
+  font: var(--t-mono);
+  font-size: 13px;
+  padding: 1px 6px;
+  border: 1px solid var(--c-line);
+  border-radius: 6px;
+  background: var(--c-raised);
+}
+
+/* Spinner */
+.nx-spin {
+  animation: nx-spin 900ms linear infinite;
+}

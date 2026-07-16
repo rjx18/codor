@@ -1,0 +1,589 @@
+/* codor web-next — room composition. Three floating island panels on the canvas
+   well: channel rail · chat · context. Desktop-first grid here; the mobile
+   re-composition arrives with its own phase. */
+
+.nx-app {
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--context-w);
+  gap: var(--gutter);
+  height: 100dvh;
+  padding: var(--gutter);
+  background: var(--c-canvas);
+}
+
+.nx-app > * {
+  min-height: 0;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-panel);
+  background: var(--c-surface);
+  box-shadow: var(--e-panel);
+}
+
+/* ── Channel rail ────────────────────────────────────────────────────── */
+
+.nx-rail {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.nx-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
+  font: var(--t-title);
+}
+.nx-brand-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-pill);
+  background: var(--c-ink);
+  color: var(--c-surface);
+  font: var(--t-ui-strong);
+}
+
+.nx-rail-search {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 var(--sp-4) var(--sp-3);
+  padding: 0 var(--sp-3);
+  min-height: 34px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-control);
+  background: var(--c-raised);
+  color: var(--c-faded);
+}
+.nx-rail-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font: var(--t-ui);
+  color: var(--c-ink);
+}
+.nx-rail-search input::placeholder { color: var(--c-faded); }
+
+.nx-rail-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) var(--sp-4);
+}
+
+.nx-rail-list {
+  flex: 1;
+  margin: 0;
+  padding: 0 var(--sp-2);
+  list-style: none;
+  overflow-y: auto;
+}
+
+.nx-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-card);
+  text-decoration: none;
+  color: inherit;
+}
+.nx-row:hover { background: var(--c-muted); }
+.nx-row.is-active { background: var(--c-muted); }
+
+.nx-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.nx-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.nx-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--t-ui-strong);
+}
+.nx-row-time {
+  flex: none;
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+.nx-row-bottom {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 18px;
+}
+.nx-row-preview,
+.nx-row-working {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--t-caption);
+  color: var(--c-secondary);
+}
+.nx-row-working {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--c-live-text);
+  font: var(--t-caption-strong);
+}
+.nx-unread {
+  flex: none;
+  min-width: 19px;
+  padding: 1px 6px;
+  border-radius: var(--r-full);
+  background: var(--c-ink);
+  color: var(--c-surface);
+  font: var(--t-caption-strong);
+  text-align: center;
+}
+
+.nx-rail-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--c-line);
+}
+.nx-rail-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font: var(--t-caption-strong);
+}
+.nx-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+.nx-conn-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--c-mark-faint);
+}
+.nx-conn.is-live .nx-conn-dot { background: var(--c-live); }
+.nx-conn.is-error { color: var(--c-error-text); }
+.nx-conn.is-error .nx-conn-dot { background: var(--c-error); }
+
+/* ── Chat panel ──────────────────────────────────────────────────────── */
+
+.nx-chat {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.nx-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--c-line);
+}
+.nx-chat-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.nx-chat-title h1 {
+  margin: 0;
+  font: var(--t-title);
+}
+.nx-chat-stats {
+  margin: 2px 0 0;
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+.nx-chat-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* ── Transcript ──────────────────────────────────────────────────────── */
+
+.nx-transcript-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.nx-transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.nx-column {
+  max-width: var(--column-w);
+  margin: 0 auto;
+  padding: var(--sp-5) var(--sp-5) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.nx-empty {
+  margin: var(--sp-6) 0;
+  text-align: center;
+  font: var(--t-ui);
+  color: var(--c-faded);
+}
+
+.nx-system {
+  margin: 0;
+  text-align: center;
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+
+.nx-turn {
+  display: flex;
+  gap: var(--sp-3);
+  scroll-margin-top: var(--sp-6);
+}
+.nx-turn.is-grouped {
+  margin-top: calc(-1 * var(--sp-3));
+  padding-left: calc(34px + var(--sp-3));
+}
+.nx-turn:target .nx-turn-main { background: var(--c-warn-tint); border-radius: var(--r-pill); }
+
+.nx-turn-main {
+  flex: 1;
+  min-width: 0;
+}
+.nx-turn-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin-bottom: 2px;
+}
+.nx-turn-author { font: var(--t-ui-strong); }
+.nx-turn-time {
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+.nx-turn-spacer { flex: 1; }
+.nx-permalink {
+  font: var(--t-caption);
+  color: var(--c-mark-faint);
+  text-decoration: none;
+  opacity: 0;
+}
+.nx-turn:hover .nx-permalink,
+.nx-turn:focus-within .nx-permalink { opacity: 1; }
+.nx-permalink:hover { color: var(--c-link); text-decoration: underline; }
+.nx-turn-actions { display: inline-flex; opacity: 0; }
+.nx-turn:hover .nx-turn-actions,
+.nx-turn:focus-within .nx-turn-actions { opacity: 1; }
+
+.nx-prose {
+  font: var(--t-body);
+  color: var(--c-body);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.nx-prose.is-dim { color: var(--c-faded); }
+
+/* ── Run evidence: bordered tool cards ───────────────────────────────── */
+
+.nx-run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.nx-tool {
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-raised);
+  padding: var(--sp-2) var(--sp-3);
+}
+.nx-tool.is-error { border-color: color-mix(in srgb, var(--c-error) 35%, transparent); }
+.nx-tool-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--c-secondary);
+}
+.nx-tool-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--t-caption-strong);
+}
+.nx-tool-spacer { flex: 1; }
+.nx-tool-status { flex: none; font: var(--t-caption); color: var(--c-faded); }
+.nx-tool-status.is-running { color: var(--c-live-text); }
+.nx-tool-status.is-error { color: var(--c-error-text); }
+.nx-tool-body {
+  margin-top: 2px;
+  font: var(--t-caption);
+  color: var(--c-secondary);
+  overflow-wrap: anywhere;
+}
+.nx-tool-body.is-mono { font: var(--t-mono-small); }
+
+/* Tool batch: the collapsed aggregate line and its expanded card stack. */
+.nx-batch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.nx-batch-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 4px 10px 4px 6px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-full);
+  background: var(--c-raised);
+  font: var(--t-caption-strong);
+  color: var(--c-secondary);
+  transition: background-color var(--m-fast) var(--m-ease);
+}
+.nx-batch-line:hover { background: var(--c-muted); color: var(--c-ink); }
+.nx-batch-line.is-active { color: var(--c-live-text); border-color: color-mix(in srgb, var(--c-live) 30%, transparent); }
+.nx-batch-line svg { transition: transform var(--m-fast) var(--m-ease); }
+.nx-batch-line svg.is-open { transform: rotate(90deg); }
+.nx-batch-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  animation: nx-enter var(--m-fast) var(--m-ease);
+}
+
+/* Interaction card: bordered, warm-tinted header, options row. */
+.nx-ask {
+  border: 1px solid color-mix(in srgb, var(--c-warn) 35%, transparent);
+  border-radius: var(--r-card);
+  background: var(--c-warn-tint);
+  padding: var(--sp-3) var(--sp-4);
+}
+.nx-ask-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+}
+.nx-ask-kind {
+  font: var(--t-eyebrow);
+  text-transform: uppercase;
+  color: var(--c-warn-text);
+}
+.nx-ask-prompt {
+  margin: 0;
+  font: var(--t-body);
+  color: var(--c-ink);
+}
+.nx-ask-detail {
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-pill);
+  background: var(--c-surface);
+  font: var(--t-mono-small);
+  overflow-x: auto;
+}
+.nx-ask-options {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.nx-working-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.nx-working-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-raised);
+}
+
+.nx-jump {
+  position: absolute;
+  bottom: var(--sp-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-full);
+  background: var(--c-surface);
+  box-shadow: var(--e-popover);
+  font: var(--t-caption-strong);
+  color: var(--c-ink);
+  animation: nx-enter var(--m-fast) var(--m-ease);
+}
+
+/* ── Loading skeleton ────────────────────────────────────────────────── */
+
+.nx-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding-top: var(--sp-4);
+}
+.nx-skeleton-row {
+  display: flex;
+  gap: var(--sp-3);
+}
+.nx-skeleton-chip {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-control);
+  background: var(--c-muted);
+}
+.nx-skeleton-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.nx-skeleton-lines > span {
+  height: 12px;
+  border-radius: var(--r-pill);
+  background: var(--c-muted);
+}
+
+/* ── Composer ────────────────────────────────────────────────────────── */
+
+.nx-composer {
+  padding: 0 var(--sp-5) var(--sp-4);
+}
+.nx-composer-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  max-width: var(--column-w);
+  margin: 0 auto;
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-panel);
+  background: var(--c-surface);
+  box-shadow: var(--e-raised);
+}
+.nx-composer-bar:focus-within {
+  border-color: var(--c-ink);
+}
+.nx-composer-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: none;
+  padding: 6px 0;
+  font: 400 16px/1.5 var(--f-sans);
+  color: var(--c-ink);
+}
+.nx-composer-input::placeholder { color: var(--c-faded); }
+
+/* ── Context panel ───────────────────────────────────────────────────── */
+
+.nx-context {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.nx-context-tabs {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--c-line);
+}
+.nx-roster {
+  flex: 1;
+  margin: 0;
+  padding: var(--sp-2) var(--sp-2) var(--sp-3);
+  list-style: none;
+  overflow-y: auto;
+}
+.nx-roster-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-card);
+}
+.nx-roster-row:hover { background: var(--c-muted); }
+.nx-roster-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.nx-roster-id strong { font: var(--t-ui-strong); }
+.nx-roster-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+.nx-roster-status { flex: none; }
+
+/* ── Standalone surfaces (placeholder shells until their phase) ──────── */
+
+.nx-surface {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-5);
+  background: var(--c-canvas);
+}
+.nx-surface-card {
+  width: min(100%, 460px);
+  padding: var(--sp-5);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-panel);
+  background: var(--c-surface);
+  box-shadow: var(--e-panel);
+}
+.nx-surface-card h1 { margin: 0 0 var(--sp-3); font: var(--t-heading); }
+.nx-surface-card p { margin: 0 0 var(--sp-2); color: var(--c-body); }
+.nx-surface-card a { color: var(--c-link); }
+
+/* ── Breakpoints (last so they win the cascade over the panel defaults);
+   the true mobile IA replaces this simple collapse in its own phase. ──── */
+
+@media (max-width: 1360px) {
+  .nx-app { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+  .nx-context { display: none; }
+}
+@media (max-width: 1024px) {
+  .nx-app { grid-template-columns: minmax(0, 1fr); }
+  .nx-rail { display: none; }
+}
