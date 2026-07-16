@@ -8,12 +8,11 @@ import type { Connection } from '@legacy/ws.js';
 import {
   pageParams,
   useAccessToken,
-  useAdapters,
   useConnection,
-  useMemberDetails,
   useMinuteTick,
 } from '../app/session.js';
 import { useRoomSummaries, type RoomSummary } from '../app/summary.js';
+import { ContextPanel } from './ContextPanel.js';
 import { Chip, IconButton, Eyebrow, StatusPill } from '../primitives/primitives.js';
 import { compactCount, memberAccent, relativeTime, usd } from '../primitives/identity.js';
 import { Composer } from './Composer.js';
@@ -29,7 +28,7 @@ export function RoomPage(props: { token: string; refreshToken?: () => Promise<st
     <div className="nx-app" data-testid="app">
       <ChannelRail activeRoom={page.room} token={token} />
       <ChatPanel room={page.room} connection={connection} token={token} />
-      <ContextPanel room={page.room} token={token} />
+      <ContextPanel room={page.room} token={token} connection={connection} />
     </div>
   );
 }
@@ -206,67 +205,3 @@ function ChatPanel(props: { room: string; connection: Connection; token: () => s
   );
 }
 
-// ── Context panel (placeholder pass: members list) ───────────────────────
-
-function ContextPanel(props: { room: string; token: () => string }) {
-  const members = useRoomStore((s) => s.members);
-  const details = useMemberDetails(props.room, props.token);
-  const adapters = useAdapters(props.token);
-  const [tab] = useState<'members'>('members');
-  void adapters;
-
-  const roster = Object.values(members).filter((m) => m.removed_ts === undefined);
-
-  return (
-    <aside className="nx-context" aria-label="Channel context">
-      <div className="nx-context-tabs">
-        <div role="tablist" aria-label="Context" className="nx-segmented">
-          <button role="tab" aria-selected="true" className="nx-segment">Members</button>
-          <button role="tab" aria-selected="false" className="nx-segment">Run</button>
-        </div>
-      </div>
-      {tab === 'members' && (
-        <ul className="nx-roster">
-          {roster.map((member) => (
-            <li key={member.id} className="nx-roster-row" data-testid={`member-${member.handle}`}>
-              <Chip name={member.handle} accent={memberAccent(member)} size={32} />
-              <span className="nx-roster-id">
-                <strong>@{member.handle}</strong>
-                {member.kind === 'agent' && (
-                  <span className="nx-roster-sub">
-                    {member.harness ?? 'agent'}
-                    {member.policy !== undefined ? ` · ${member.policy}` : ''}
-                    {details[member.id] !== undefined && (details[member.id]?.queued_count ?? 0) > 0
-                      ? ` · ${details[member.id]?.queued_count} queued`
-                      : ''}
-                  </span>
-                )}
-              </span>
-              <span className="nx-roster-status">
-                {member.kind === 'human'
-                  ? <Eyebrow>{member.role}</Eyebrow>
-                  : <MemberStateWord state={member.state} />}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </aside>
-  );
-}
-
-function MemberStateWord(props: { state: Member['state'] }) {
-  const tone = props.state === 'running' || props.state === 'queued'
-    ? 'live'
-    : props.state === 'dead'
-      ? 'error'
-      : 'neutral';
-  const word = props.state === 'running' || props.state === 'queued'
-    ? 'Working'
-    : props.state === 'dead'
-      ? 'Dead'
-      : props.state === 'awaiting_input'
-        ? 'Waiting'
-        : 'Idle';
-  return <StatusPill tone={tone}>{word}</StatusPill>;
-}

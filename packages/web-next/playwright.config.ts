@@ -20,6 +20,8 @@ export default defineConfig({
   workers: 1,
   use: {
     baseURL: `http://127.0.0.1:${String(apiPort)}`,
+    // The reference desktop composition: all three islands visible.
+    viewport: { width: 1440, height: 900 },
   },
   webServer: {
     command: 'node tests/harness.mjs',

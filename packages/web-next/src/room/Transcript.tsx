@@ -21,8 +21,9 @@ import {
   type RunEventBuffer,
 } from '@legacy/state.js';
 
-import { Chip, TypingDots } from '../primitives/primitives.js';
+import { Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
+import { DiffViewer } from './ContextPanel.js';
 
 /** Consecutive same-author messages within this window collapse their header. */
 const GROUP_WINDOW_MS = 2 * 60_000;
@@ -385,23 +386,49 @@ function ToolBatch(props: { rows: RunRow[] }) {
 }
 
 function ToolCard(props: { row: RunRow }) {
+  const [inspecting, setInspecting] = useState(false);
   const compact = compactRunRow(props.row);
+  const status = props.row.status === 'running'
+    ? 'Running…'
+    : props.row.status === 'error'
+      ? 'Failed'
+      : `Done${props.row.duration_ms !== undefined ? ` · ${formatRunDuration(props.row.duration_ms)}` : ''}`;
   return (
-    <div className={`nx-tool ${props.row.status === 'error' ? 'is-error' : ''}`} data-row-kind="tool">
-      <div className="nx-tool-head">
-        <TerminalSquare size={15} aria-hidden="true" />
-        <span className="nx-tool-name">{props.row.title}</span>
-        <span className="nx-tool-spacer" />
-        <span className={`nx-tool-status is-${props.row.status}`}>
-          {props.row.status === 'running'
-            ? 'Running…'
-            : props.row.status === 'error'
-              ? 'Failed'
-              : `Done${props.row.duration_ms !== undefined ? ` · ${formatRunDuration(props.row.duration_ms)}` : ''}`}
+    <>
+      <button
+        type="button"
+        className={`nx-tool ${props.row.status === 'error' ? 'is-error' : ''}`}
+        data-row-kind="tool"
+        aria-label={`Inspect ${props.row.title}`}
+        onClick={() => setInspecting(true)}
+      >
+        <span className="nx-tool-head">
+          <TerminalSquare size={15} aria-hidden="true" />
+          <span className="nx-tool-name">{props.row.title}</span>
+          <span className="nx-tool-spacer" />
+          <span className={`nx-tool-status is-${props.row.status}`}>{status}</span>
         </span>
-      </div>
-      <div className={`nx-tool-body ${compact.mono ? 'is-mono' : ''}`}>{compact.label}</div>
-    </div>
+        <span className={`nx-tool-body ${compact.mono ? 'is-mono' : ''}`}>{compact.label}</span>
+      </button>
+      {inspecting && (
+        // The card re-renders as live events land, so an open inspector follows
+        // the running row's latest output.
+        <Modal label={`Tool: ${props.row.title}`} onClose={() => setInspecting(false)} wide testid="run-inspector">
+          <div className="nx-inspect-head">
+            <h2 className="nx-dialog-title">{props.row.title}</h2>
+            <span className={`nx-tool-status is-${props.row.status}`}>{status}</span>
+          </div>
+          {props.row.detail !== undefined && <p className="nx-inspect-detail">{props.row.detail}</p>}
+          {props.row.event.type === 'run.item' && props.row.event.item_type === 'tool_call' && (
+            <pre className="nx-inspect-block">{JSON.stringify(props.row.event.payload, null, 2)}</pre>
+          )}
+          {props.row.output_text !== undefined && props.row.output_text !== '' && (
+            <pre className="nx-inspect-block" data-testid="inspector-output">{props.row.output_text}</pre>
+          )}
+          {props.row.diff?.unified !== undefined && <DiffViewer diff={props.row.diff} />}
+        </Modal>
+      )}
+    </>
   );
 }
 
