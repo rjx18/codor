@@ -1,0 +1,56 @@
+id: agent-delivery-frames
+title: Stream agent delivery lifecycle frames live - seen state is served, not
+  reconnect-only.
+notes: >-
+  Richard #302: a message routed to agents should read as "seen" once its
+  delivery has actually reached the agent, and stay visibly queued while it
+  waits. The store already writes every delivery change into the room change
+  log (reconnect snapshots replay them), but the daemon's LIVE inbox frames
+  are human-gated: dispatchCreatedDeliveries emits only for human recipients,
+  runTurn emits bound deliveries only when they were previously held, and
+  finalizeTurn never emits the input deliveries completeTurn just consumed. A
+  connected browser therefore learns agent delivery state only by
+  reconnecting, and the web-next seen tick freezes at queued.
+
+  Change (daemon.ts, three sites): emit the same 'inbox' frame for
+  agent-recipient deliveries at the live transitions - creation (queued), turn
+  admission (delivering), and turn completion (consumed). No schema or
+  frame-type changes; reconnect snapshots already carry identical rows, so
+  this only brings the live stream up to snapshot parity.
+
+  Tests (daemon.spec.ts): a room subscriber posting @agent work observes
+  queued -> delivering -> consumed inbox frames for the agent's delivery
+  across one scripted fake turn. Gate: switchboard suite green; web-next
+  seen-tick e2e flips live against the fixture daemon (harnignored side).
+assumptions:
+  create:
+    - id: agent-delivery-lifecycle-streams
+      title: Agent delivery lifecycle changes stream to connected clients live
+      statement: Every delivery state transition the store records for an agent
+        recipient - queued at creation, delivering at turn admission, consumed
+        at turn completion - is emitted to room subscribers as an inbox frame
+        at the moment it happens, because a client that can only learn
+        delivery state by reconnecting shows a stale answer to whether the
+        agent has seen the message yet. Live frames carry the same rows the
+        reconnect snapshot replays; the live stream must not diverge from the
+        change log.
+      reason: >-
+        Richard #302 wants delivered-vs-queued ticks on messages to agents;
+        the web client renders them from inbox frames and previously only saw
+        agent deliveries after a reconnect.
+      depends_on: []
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+anchors:
+  agent-delivery-lifecycle-streams:
+    delivery-created-emit:
+      action: change
+      reason: Creation frames now cover agent recipients, not only humans.
+    delivery-bound-emit:
+      action: change
+      reason: Turn admission emits every bound delivery, not only formerly-held
+        ones.
+    delivery-consumed-emit:
+      action: change
+      reason: Turn completion emits the consumed input deliveries.
