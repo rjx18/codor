@@ -263,6 +263,17 @@
   font: var(--t-caption);
   color: var(--c-faded);
 }
+.nx-ack {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.nx-ack svg { color: var(--c-live-text); }
+.nx-turn-origin {
+  font: var(--t-caption);
+  color: var(--c-accent-text);
+}
 
 .nx-turn {
   display: flex;

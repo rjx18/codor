@@ -177,6 +177,16 @@ function TurnBlock(props: {
   }
 
   const handle = author?.handle ?? '…';
+
+  // Acknowledgements collapse to one quiet line — the ack IS the content.
+  if (message.ack === true) {
+    return (
+      <p id={String(message.id)} data-testid={`ack-${handle}`} className="nx-system nx-ack">
+        <Check size={13} aria-hidden="true" /> @{handle} acknowledged
+      </p>
+    );
+  }
+
   const copy = (): void => {
     void navigator.clipboard?.writeText(message.body).then(() => {
       setCopied(true);
@@ -201,6 +211,11 @@ function TurnBlock(props: {
         {!props.grouped && (
           <div className="nx-turn-meta">
             <strong className="nx-turn-author">@{handle}</strong>
+            {message.origin !== undefined && (
+              <span className="nx-turn-origin" title={`via ${message.origin.platform}`}>
+                {message.origin.sender_name} · {message.origin.platform}
+              </span>
+            )}
             <time className="nx-turn-time" dateTime={message.ts}>{clockTime(message.ts)}</time>
             {author?.kind === 'human' && (
               <SeenTicks message={message} deliveries={props.deliveries} members={props.members} />

@@ -3,6 +3,7 @@
 // message id it saw per room and the server counts past it; no cursor, no count.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { fetchRooms } from '@legacy/api.js';
 import { useRoomStore } from '@legacy/state.js';
 
 export interface RoomSummaryLatest {
@@ -78,7 +79,22 @@ export function useRoomSummaries(activeRoom: string, token: () => string): RoomS
     busyRef.current = true;
     void fetchSummaries(token())
       .then(setSummaries)
-      .catch(() => undefined)
+      .catch(() =>
+        // A switchboard predating the summary endpoint still lists rooms —
+        // rows degrade to name-only (no preview/working/unread) instead of
+        // the rail collapsing to just the active channel.
+        fetchRooms({ token: token() })
+          .then((rooms) => setSummaries(rooms.map((room) => ({
+            id: room.id,
+            name: room.name,
+            created_ts: room.created_ts,
+            color: room.config.color,
+            working: false,
+            dead: false,
+            unread: 0,
+          }))))
+          .catch(() => undefined),
+      )
       .finally(() => {
         busyRef.current = false;
       });
