@@ -1,0 +1,297 @@
+id: v5-p6-motion-consolidation-retirement
+title: V5 Phase 6 - burn the glass-era pin list to zero at its anchored source,
+  consolidate the dead late blocks conservatively, prove the motion and
+  transparency fallbacks closed, retire the restrained v4 contract, and finish
+  with cross-route QA, refreshed captures and full gates.
+notes: >-
+  The final phase of tmp/design-overhaul/PLAN.md, scoped per review #264. It
+  stays feature-complete: no product behaviour changes, no new visual
+  direction, no new ambient animations, no icon-size churn, no CLI debt, no
+  e2e-runner performance work, and the local sub-720 layout tweaks stay unless
+  final QA demonstrates a real boundary defect. Never restart codor.service.
+
+  One - pin burn-down, 20 to 0, at the SOURCE. The anchored room region still
+  carries glass-era declarations whose approved matte rendering ships only via
+  20 pinned late neutralizers (PINNED_GLASS_ERA_NEUTRALIZERS in
+  room-style.spec.ts). Correct the anchored declarations so the region itself
+  states the approved truth, then delete the neutralizers and shrink the pin
+  set to empty, keeping the exactness test as a permanent gate:
+  .wr-room-main background becomes var(--cd-surface) (not the translucent
+  canvas mix); .wr-room-rail and .wr-room-header backgrounds become
+  var(--cd-surface) and their backdrop blurs are removed; .wr-context-rail's
+  blur is removed; .wr-brand padding becomes 0 var(--cd-space-5) (the shipped
+  22px on the token scale); .wr-rail-footer background becomes
+  var(--cd-surface); the .wr-presence ring shadows are removed (the shipped
+  presence dot is plain); the .wr-meter chip declarations (border, radius,
+  background, blurs) are removed so the flat header meters are region truth;
+  .wr-brand-mark is deleted outright everywhere (no TSX renders it - dead
+  selector, not a neutralizer to keep); and .wr-context-trigger's visibility
+  moves fully into the region as responsive truth (base visible, hidden at
+  and above 1360 where the context rail docks). Every correction restates the
+  value the app ALREADY renders: the phase's acceptance is that the six room
+  and six ledger captures regenerate visually identical, and the room
+  appearance e2e (matte panels, no header/rail blur, flat meters) passes
+  unchanged before and after.
+
+  Two - conservative late-block consolidation. Delete only rules that are
+  provably dead or already replaced: the .wr-primary-button rules and its
+  membership in shared selector lists (zero TSX usages), the dead
+  .wr-brand-mark rules, the [class~='text-zinc-*'] compatibility mappings
+  (zero palette utilities survive in live TSX - re-proven by the existing TSX
+  guard), and any glass-era duplicate whose every declaration is beaten by a
+  later settled rule (each such deletion individually verified against the
+  cascade, mirroring the plan-1 method; anything without a demonstrated
+  replacement stays). The thirteen late-block anchored regions themselves are
+  NOT moved and their declarations are NOT rewritten; they are reviewed
+  unchanged. The legacy --wr-* token layer and the excluded pairing-code
+  region stay as the documented legacy layer (tests and the pairing-code
+  region still consume them); no --wr removal this phase.
+
+  Three - motion and fallback closure. Census every @keyframes and animation
+  in styles.css and verify each is purposeful and state-bound (entrance,
+  shimmer on running runs, spinner) - no ambient decoration is added; the
+  reference's cdDot/cdPulse/cdPeek ambient trio is deliberately not
+  introduced, recorded here as a conscious deviation the contract's
+  remove-decoration-first rule supports. Prove the fallbacks CLOSED with a
+  new structural check in room-style.spec.ts: every selector that carries
+  backdrop-filter after the cascade settles must appear in the
+  @supports-not-backdrop-filter opaque fallback block AND be covered by the
+  prefers-reduced-transparency block; the reduced-motion block must disable
+  every declared animation and transition. The blocks are re-derived from
+  today's real consumer set (composer, drawer, and any remaining functional
+  glass) rather than trusted.
+
+  Four - retirement. Retire restrained-design-system-guides-responsive-
+  surfaces: its four depth-1 dependents (bridged-room-wears-banner,
+  graph-derived-from-vault-links-readonly, web-room-visual-hierarchy-matches-
+  restrained-reference, web-settings-pairing-match-restrained-reference) are
+  all already retired, so active dependents are zero - re-proven with harn
+  find --depended-by immediately before lock and again at apply. Remove its
+  single anchor pair from tmp/build/design/v4/DESIGN-SYSTEM.md; the v4
+  document itself stays as historical record. harn find must show zero NEW
+  dangling edges after apply; the accepted pre-existing dangles (the 5+2 set)
+  are unchanged.
+
+  Five - final QA and proofs. Full gate at the end: build, unit, the complete
+  isolated browser suite including every axe route in both themes and the
+  reduced-motion e2e, then capture regeneration for all twenty PNGs
+  (room/ledger must be visually identical to the cleared v5 checkpoint;
+  settings/pairing must not drift), then harn check/apply. Cross-route QA
+  drives room, ledger, settings and pairing at 1440/1024/719/720/390 in both
+  themes against the served build. If QA demonstrates a real defect at a
+  local sub-720 boundary, it is reported to the reviewer as a finding, not
+  silently fixed here.
+
+  Visual no-op proof method, per review #266: after all edits are complete,
+  the pre-change baseline is produced by stashing the working tree, building,
+  and running all three capture pipelines into a retained side directory with
+  sha256 hashes, then unstashing and repeating for the post-change set - the
+  two runs land minutes apart so the seeded wall-clock timestamps nearly
+  align. Because those timestamps render as text, byte hashes cannot match
+  across runs; the proof is therefore two-fold: (a) computed-style dumps of
+  every corrected selector against the served build must be byte-identical
+  before and after the edits, and (b) a per-pair pixel diff of the twenty
+  before/after captures must localise every differing pixel to the timestamp
+  glyphs (a small bounded count), with any unexplained diff treated as a stop
+  condition and reported to the reviewer.
+assumptions:
+  retire:
+    - id: restrained-design-system-guides-responsive-surfaces
+      reason: The v4 restrained direction no longer guides any surface - every
+        product route ships the soft-editorial v5 system, all four of its
+        dependents are already retired, and the master plan schedules this
+        retirement for Phase 6 once dependents reach zero. The v4 document
+        remains in the repo as history; only the contract and its anchor go.
+  reviewed:
+    - id: web-room-visual-hierarchy-matches-soft-editorial-reference
+      outcome: unchanged
+      reason: The approved composition does not change; the anchored region's
+        stale glass-era declarations are corrected to state the matte
+        rendering the app already ships, proven by identical captures and the
+        unchanged appearance regression.
+    - id: web-motion-is-purposeful-and-reduced-motion-safe-v5
+      outcome: unchanged
+      reason: Purposeful motion is preserved exactly; the phase adds closure
+        proofs that the reduced-motion, reduced-transparency and no-backdrop
+        fallbacks cover every real consumer.
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: Tokens and themes are untouched; the transparency fallback
+        verification only proves existing coverage.
+    - id: interaction-cards-stay-readable-on-phone
+      outcome: unchanged
+      reason: Late-block region reviewed; its declarations are not rewritten by
+        the consolidation.
+    - id: compact-one-line-tool-rows
+      outcome: unchanged
+      reason: Late-block region reviewed; declarations unchanged.
+    - id: the-composer-is-one-row
+      outcome: unchanged
+      reason: Late-block region reviewed; declarations unchanged.
+    - id: empty-and-offline-are-shown-not-blank
+      outcome: unchanged
+      reason: Late-block region reviewed; declarations unchanged.
+    - id: the-inbox-opens-what-needs-you
+      outcome: unchanged
+      reason: Late-block region reviewed; declarations unchanged.
+    - id: every-channel-has-a-visible-accent
+      outcome: unchanged
+      reason: Late-block region reviewed; declarations unchanged.
+    - id: timeline-rows-are-never-crushed-v5
+      outcome: unchanged
+      reason: Late-block region reviewed; the crush rules and their gates are
+        untouched.
+    - id: one-control-chooses-an-agent-everywhere
+      outcome: unchanged
+      reason: Late-block region reviewed; declarations unchanged.
+    - id: member-config-is-changed-not-respawned
+      outcome: unchanged
+      reason: Late-block region reviewed; declarations unchanged.
+    - id: removing-an-agent-is-one-deliberate-step
+      outcome: unchanged
+      reason: Late-block region reviewed; declarations unchanged.
+    - id: controls-fit-the-surface-they-sit-on
+      outcome: unchanged
+      reason: Late-block region reviewed; declarations unchanged.
+    - id: web-waits-are-visible-across-live-surfaces-v5
+      outcome: unchanged
+      reason: Late-block region reviewed; declarations unchanged.
+    - id: posted-message-mentions-alone-look-effective
+      outcome: unchanged
+      reason: Late-block region reviewed; declarations unchanged.
+    - id: design-references-preserve-wireroom-semantics
+      outcome: unchanged
+      reason: Still true and still binding the v5 artifact; its pre-existing
+        inherited dangle is accepted and unchanged.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: Kept deliberately per the master plan - every clause remains true
+        in v5; its pre-existing inherited dangle is accepted and unchanged.
+files:
+  - packages/web/src/styles.css
+  - packages/web/src/room-style.spec.ts
+  - tmp/build/design/v4/DESIGN-SYSTEM.md
+  - tmp/build/design/v5/room-1440-light.png
+  - tmp/build/design/v5/room-1440-dark.png
+  - tmp/build/design/v5/room-1024-light.png
+  - tmp/build/design/v5/room-1024-dark.png
+  - tmp/build/design/v5/room-390-light.png
+  - tmp/build/design/v5/room-390-dark.png
+  - tmp/build/design/v5/ledger-1440-light.png
+  - tmp/build/design/v5/ledger-1440-dark.png
+  - tmp/build/design/v5/ledger-1024-light.png
+  - tmp/build/design/v5/ledger-1024-dark.png
+  - tmp/build/design/v5/ledger-390-light.png
+  - tmp/build/design/v5/ledger-390-dark.png
+  - tmp/build/design/v5/settings-1440-light.png
+  - tmp/build/design/v5/settings-1440-dark.png
+  - tmp/build/design/v5/settings-390-light.png
+  - tmp/build/design/v5/settings-390-dark.png
+  - tmp/build/design/v5/pairing-1440-light.png
+  - tmp/build/design/v5/pairing-1440-dark.png
+  - tmp/build/design/v5/pairing-390-light.png
+  - tmp/build/design/v5/pairing-390-dark.png
+anchors:
+  web-room-visual-hierarchy-matches-soft-editorial-reference:
+    soft-editorial-room-style:
+      action: change
+      reason: Correct the glass-era declarations to the approved matte values the
+        app already renders (panel backgrounds and blurs, brand padding,
+        rail-footer background, presence rings, meter chrome, context-trigger
+        visibility) and delete the dead .wr-primary-button and .wr-brand-mark
+        rules inside the region.
+    soft-editorial-room-token-discipline:
+      action: change
+      reason: Shrink PINNED_GLASS_ERA_NEUTRALIZERS to the empty set, keep the
+        exactness test as a permanent gate, and add the fallback-closure check
+        (every settled backdrop-filter consumer appears in the no-backdrop and
+        reduced-transparency blocks; reduced-motion disables every animation).
+    soft-editorial-room-capture-proof:
+      action: keep
+      reason: The capture pipeline is unchanged; its six artifacts are regenerated
+        and must be visually identical.
+  web-motion-is-purposeful-and-reduced-motion-safe-v5:
+    motion-token-style:
+      action: change
+      reason: Re-derive the @supports-not-backdrop-filter and
+        reduced-transparency fallback blocks from the settled consumer set and
+        tidy provably-dead keyframes; purposeful motion is untouched.
+  graph-derived-from-vault-links-readonly-v5:
+    soft-editorial-ledger-capture-proof:
+      action: keep
+      reason: Pipeline unchanged; six ledger artifacts regenerated, visually
+        identical expected.
+  web-settings-pairing-match-soft-editorial-reference:
+    soft-editorial-settings-pairing-capture-proof:
+      action: keep
+      reason: Pipeline unchanged; eight artifacts regenerated to prove no drift.
+  interaction-cards-stay-readable-on-phone:
+    phone-ask-card-style:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  compact-one-line-tool-rows:
+    compact-run-row-style:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  the-composer-is-one-row:
+    composer-single-row:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  empty-and-offline-are-shown-not-blank:
+    timeline-empty-and-offline-states:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  the-inbox-opens-what-needs-you:
+    inbox-panel:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  every-channel-has-a-visible-accent:
+    channel-accent-rail:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  timeline-rows-are-never-crushed-v5:
+    timeline-row-crush-resistance:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  one-control-chooses-an-agent-everywhere:
+    shared-policy-control:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  member-config-is-changed-not-respawned:
+    member-card-settings:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  removing-an-agent-is-one-deliberate-step:
+    remove-member-control:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  controls-fit-the-surface-they-sit-on:
+    control-fits-narrow-surface:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  web-waits-are-visible-across-live-surfaces-v5:
+    live-collaboration-style:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  posted-message-mentions-alone-look-effective:
+    effective-mention-style:
+      action: keep
+      reason: Late CSS region reviewed unchanged; the consolidation deletes only
+        dead rules outside it.
+  restrained-design-system-guides-responsive-surfaces:
+    restrained-responsive-contract:
+      action: remove
+      reason: The retirement removes the contract's single anchor pair from the
+        v4 design document; the document itself stays as history.
