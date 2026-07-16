@@ -3681,3 +3681,24 @@ describe('answered approval restart recovery', () => {
   });
 });
 // harn:end approval-answer-is-atomic-and-chatless
+
+describe('agent delivery lifecycle frames (agent-delivery-lifecycle-streams)', () => {
+  it('streams queued, delivering, and consumed live for an agent delivery', async () => {
+    const agent = daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: dir });
+    fake.enqueue({ kind: 'complete', final_text: 'done' });
+    daemon.postHumanMessage('eng', '@alpha do the thing');
+    await daemon.settle();
+
+    const states = frames
+      .filter((f) => f.frame.type === 'inbox')
+      .map((f) => (f.frame as Extract<ServerFrame, { type: 'inbox' }>).delivery)
+      .filter((d) => d.recipient === agent.id)
+      .map((d) => d.state);
+
+    expect(states).toContain('queued');
+    expect(states).toContain('delivering');
+    expect(states.at(-1)).toBe('consumed');
+    expect(states.indexOf('queued')).toBeLessThan(states.indexOf('delivering'));
+    expect(states.indexOf('delivering')).toBeLessThan(states.lastIndexOf('consumed'));
+  });
+});

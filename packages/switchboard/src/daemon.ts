@@ -1723,8 +1723,12 @@ export class Daemon {
   private dispatchCreatedDeliveries(room: string, created: Delivery[]): void {
     for (const delivery of created) {
       const recipient = this.store.getMember(room, delivery.recipient);
-      if (recipient?.kind === 'human') this.emitInbox(room, delivery);
-      else if (recipient?.kind === 'agent') {
+      // harn:assume agent-delivery-lifecycle-streams ref=delivery-created-emit
+      // Agent recipients stream their queued frame too — a connected client's
+      // seen tick starts honest instead of waiting for a reconnect snapshot.
+      if (recipient !== undefined) this.emitInbox(room, delivery);
+      // harn:end agent-delivery-lifecycle-streams
+      if (recipient?.kind === 'agent') {
         if (
           delivery.group_id !== undefined &&
           (recipient.state === 'dead' || recipient.removed_ts !== undefined)
@@ -2075,9 +2079,13 @@ export class Daemon {
     // run.completed lands, so a crash leaves reconcilable evidence.
     const bound = started.deliveries;
     // harn:end delivery-attempt-wal-reconcile
+    // harn:assume agent-delivery-lifecycle-streams ref=delivery-bound-emit
+    // Every bound delivery whose state moved (queued/held -> delivering)
+    // streams its transition — formerly only releases out of held did.
     for (const delivery of bound) {
-      if (originalStates.get(delivery.id) === 'held') this.emitInbox(room, delivery);
+      if (originalStates.get(delivery.id) !== delivery.state) this.emitInbox(room, delivery);
     }
+    // harn:end agent-delivery-lifecycle-streams
 
     const payload = this.composeBatchPayload(room, member, bound);
     this.emitMember(room, this.store.updateMember(room, member.id, { state: 'running' }));
@@ -2390,6 +2398,14 @@ export class Daemon {
     // harn:end live-agent-waits-are-transient
     this.emitMessage(room, completed.message);
     this.emitMember(room, completed.member);
+    // harn:assume agent-delivery-lifecycle-streams ref=delivery-consumed-emit
+    // The turn just consumed its inputs — stream the settled rows so seen
+    // ticks flip without a reconnect.
+    for (const input of batch) {
+      const settled = this.store.getDelivery(room, input.id);
+      if (settled !== undefined) this.emitInbox(room, settled);
+    }
+    // harn:end agent-delivery-lifecycle-streams
     // harn:assume extensions-retire-with-parent-run ref=parent-finalization-extension-sweep
     for (const extension of this.store.listMembers(room)) {
       if (extension.kind !== 'extension' || extension.parent !== memberId || extension.state !== 'running') continue;

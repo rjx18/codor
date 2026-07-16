@@ -1,0 +1,13 @@
+id: agent-delivery-lifecycle-streams
+hash: a-32b6ba216e23
+title: Agent delivery lifecycle changes stream to connected clients live
+state: active
+statement: Every delivery state transition the store records for an agent
+  recipient - queued at creation, delivering at turn admission, consumed at turn
+  completion - is emitted to room subscribers as an inbox frame at the moment it
+  happens, because a client that can only learn delivery state by reconnecting
+  shows a stale answer to whether the agent has seen the message yet. Live
+  frames carry the same rows the reconnect snapshot replays; the live stream
+  must not diverge from the change log.
+depends_on: []
+created_by: agent-delivery-frames
