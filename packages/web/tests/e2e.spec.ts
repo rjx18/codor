@@ -617,7 +617,10 @@ test('desktop channel keeps channels, conversation, and context in stable non-ov
   // prose timeline AND the header collapses to the 2a overflow. CSS, usePhone and the
   // presentation model must flip together — a mixed state at the boundary is the regression.
   // The boundary needs a message on screen; post one so this test does not lean on its siblings.
-  await page.getByTestId('composer-input').fill('boundary probe');
+  // It mentions a human member: a human delivery is an inbox record and never starts an agent
+  // turn, so the probe cannot feed the fake adapter's shared turn queue an unscripted turn.
+  // (A SELF-mention routes like no mention at all - straight to the latest finalized agent.)
+  await page.getByTestId('composer-input').fill('@admin-user boundary probe');
   await page.getByTestId('composer-send').click();
   await expect(page.locator('.wr-message').first()).toBeVisible();
   await page.setViewportSize({ width: 720, height: 900 });
@@ -2241,15 +2244,8 @@ test('an open dialog paints above the hold banner and its Close stays clickable'
   }
   await page.getByRole('button', { name: 'Close spawn agent' }).click();
   await expect(dialog).toHaveCount(0);
-  // Leave the room without parked deliveries for the tests that follow. Earlier tests may have
-  // parked holds of their own, so release until the banner is gone.
-  await expect.poll(async () => {
-    const release = page.locator('[data-testid^="release-"]');
-    const remaining = await release.count();
-    if (remaining > 0) await release.last().click();
-    return remaining;
-  }).toBe(0);
-  await expect(page.getByTestId('hold-banner')).toHaveCount(0);
+  // The hold stays parked, like the target-size sweep's: releasing it would route a delivery to
+  // an agent with no scripted turn, and spec files get isolated daemons anyway.
 });
 // harn:end modal-dialogs-layer-above-room-chrome
 
