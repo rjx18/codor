@@ -1,0 +1,235 @@
+id: v5-review-cascade-truth
+title: V5 whole-overhaul review closure 1 - remove the live v4 cascade overrides,
+  make the room guard inspect the effective cascade, land the 44px shared agent
+  controls, unframe the phone run avatar, align the 720 content breakpoint, and
+  restore the Pairing workspace width.
+notes: >-
+  Review-confirmed findings 1, 3, 5, 7 and 8 (channel #245/#247). No product
+  behaviour changes: every edit is stylesheet truth, guard truth, or a test
+  asserting them. Protocol, switchboard, service worker, crypto, push, stored
+  data and routing are untouched. Never restart codor.service.
+
+  One - cascade overrides (finding 1). The unanchored v4 strata in styles.css
+  (approx 2646-3324, 3524-3647, 3736-3971) contain rules that win the cascade,
+  at equal specificity by later source order, over the anchored v5 room region:
+  composer (3626 beats 1521 radius-full/940px), send button (3736 beats 1591),
+  context tabs (3749 beats 1883 segmented), rail label (3045 beats 443 eyebrow),
+  message meta order and author type (3245 beats 1134), channel row (3065),
+  icon buttons (3186), ask/secondary/attention buttons (3606), unread count
+  badge (3120 beats 578), dialog glass (3880 beats 2051), search band (3208),
+  run-card cluster including the dropped Geist Mono run summary (3262-3324,
+  3524-3531), ask heading (3575-3604), and the v4 phone header stomp (3151
+  beats 633). Remove exactly the overriding declarations whose v5 replacement
+  already exists in an anchored region and demonstrably wins after removal; v4
+  declarations with no anchored v5 counterpart stay for Phase 6 consolidation.
+  The anchored v5 declarations themselves stay byte-for-byte except the two
+  additions below.
+
+  Two - effective-cascade guard (finding 1 root cause). Rewrite the structural
+  guard in room-style.spec.ts from region extraction to effective-cascade
+  inspection: parse every rule in styles.css, derive the room-owned class set
+  from the selectors inside the harn-anchored room regions (same derivation the
+  settings-pairing guard uses), and apply the token/radius/type/motion/
+  letter-spacing discipline to EVERY rule in the stylesheet whose selector
+  references a room-owned class, wherever it sits. Negative fixtures prove an
+  out-of-region duplicate that re-declares a room class with a raw literal is
+  rejected, and that a later same-specificity override of an anchored
+  declaration is rejected. The letter-spacing rule stays absolute: any nonzero
+  letter-spacing anywhere in styles.css fails.
+
+  Three - shared agent controls (finding 3). In the unanchored agent-controls
+  block (approx 5923-6005): raise .wr-button-row > button from min-height
+  2.5rem to the 44px control floor, set the legend letter-spacing to 0, and
+  re-point the block's raw radii (0.6rem, literal 999px) and rem font sizes
+  onto the --cd-* scale so the new effective-cascade guard passes. The
+  spawn/member-config/create-channel behaviour and markup are unchanged;
+  agent-controls.tsx is not edited by this plan (its anchor repair is the
+  companion behaviour plan). Extend the room-target-size-sweep e2e to measure
+  every .wr-button-row button and the harness tile inside the spawn dialog at
+  390, so the 44px floor cannot regress unmeasured.
+
+  Four - phone run avatar (finding 5). Add the unframed-run avatar rule beside
+  the existing unframed-message rule inside the anchored room region:
+  .wr-run-card.is-unframed hides its .wr-actor-mark and collapses the freed
+  column, exactly as .wr-message.is-unframed already does, making the active
+  statement "no per-message avatars" true for run rows. The run's author stays
+  visible through the summary line's handle text. Assert the hidden mark in the
+  compact-run-row browser regression at 390.
+
+  Five - content breakpoint (finding 7). One definition everywhere: phone is
+  width < 720px, desktop is width >= 720px, matching v5/presentation.ts and the
+  ledger. Re-point the room's unanchored responsive blocks (max-width: 720px at
+  2731, min-width: 721px at 2865) and usePhone's matchMedia string in
+  components.tsx onto that boundary, and align the 767px stray inside the
+  anchored compact-run-row-style region (6077) which today gives desktop rooms
+  phone tool-row padding at 721-767px. Local 520/560/640 breakpoints are NOT
+  touched, per review scope. Browser regression asserts the settled states at
+  719 and 720: at 719 phone chrome AND unframed prose; at 720 desktop chrome
+  AND framed cards.
+
+  Six - Pairing workspace width (finding 8). Delete the pre-v5 foreign rule
+  .wr-manual-pairing { width: min(100%, 460px) } at styles.css 5761 inside the
+  motion anchor region; the anchored Phase 4 declaration min(100%, 720px) at
+  4812 then wins. Assert the rendered width in the settings-pairing style
+  guard's owned-class sweep or the existing pairing browser coverage.
+
+  Seven - captures. The removals change rendered chrome (segmented tabs, pill
+  composer, eyebrow rail label, filled count badge, author-first message meta,
+  filled send pill). After all gates, rerun the three build-first isolated
+  capture pipelines and force-add the refreshed PNGs: room and ledger will
+  differ; settings/pairing are regenerated to prove they do not drift. Capture
+  scripts themselves are unchanged.
+
+  Any existing browser/unit assertion pinned to an overridden v4 value
+  (underline tabs, 4px radii, 64px tab height, time-first meta) is updated to
+  the v5 truth in the same change, never deleted.
+
+  Gate in order: build -> unit -> focused browser (room appearance, target-size
+  sweep, compact-run-row, phone-ask-card, responsive-shell boundary, crush) ->
+  capture regeneration -> harn check/apply. The full e2e matrix runs once at
+  the final checkpoint after the companion plan, per review instruction.
+assumptions:
+  reviewed:
+    - id: web-room-visual-hierarchy-matches-soft-editorial-reference
+      outcome: unchanged
+      reason: The statement finally becomes true in the rendered cascade - v5 radius
+        scale, rounded composer, segmented tabs and no phone run avatars - by
+        removing the v4 overrides and closing the guard; the approved
+        composition itself is unchanged.
+    - id: web-room-targets-meet-minimum-hit-size
+      outcome: unchanged
+      reason: The 44px floor statement is unchanged; the shared agent controls are
+        brought up to it and the sweep now measures them.
+    - id: web-motion-is-purposeful-and-reduced-motion-safe-v5
+      outcome: unchanged
+      reason: Motion tokens and reduced-motion behaviour are untouched; only the
+        foreign 460px pairing width rule that sheltered inside the motion
+        region is deleted.
+    - id: compact-one-line-tool-rows
+      outcome: unchanged
+      reason: One-line tool rows stay; the region's 767px stray is aligned to the
+        720 content boundary and the browser regression asserts the unframed
+        run's hidden avatar.
+    - id: web-settings-pairing-match-soft-editorial-reference
+      outcome: unchanged
+      reason: The anchored Phase 4 declarations are untouched; the manual pairing
+        workspace regains its intended 720px width because its earlier
+        competitor is removed.
+    - id: web-shell-responsive-three-pane
+      outcome: unchanged
+      reason: Pane geometry at 1024/1360 is unchanged; the shell regression gains
+        the 719/720 content-boundary assertions.
+    - id: interaction-cards-stay-readable-on-phone
+      outcome: unchanged
+      reason: Ask cards stay framed and readable; their option buttons regain the
+        v5 control radius when the 4px override is removed, and any pinned
+        assertion is updated to the token truth.
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: Run presentation logic is untouched; run cards regain the anchored v5
+        padding, mono summary and status treatment when the v4 cluster override
+        is removed.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: Spawn dialog markup and controls are unchanged; its buttons regain
+        token radii via cascade removal and the shared control block meets the
+        44px floor.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: The meter is untouched; usePhone inside this anchored component
+        region moves to the width-below-720 boundary string only.
+    - id: graph-derived-from-vault-links-readonly-v5
+      outcome: unchanged
+      reason: Ledger styles and modes are untouched at their existing below-720
+        boundary; its captures are regenerated because the shared channel rail
+        chrome they include changes.
+    - id: the-composer-is-one-row
+      outcome: unchanged
+      reason: The composer stays one row; it regains the anchored pill radius and
+        940px measure by deletion of the unanchored 6px override.
+files:
+  - packages/web/src/styles.css
+  - packages/web/src/room-style.spec.ts
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/web/src/room-presentation.spec.tsx
+  - packages/web/tests/e2e.spec.ts
+  - tmp/build/design/v5/room-1440-light.png
+  - tmp/build/design/v5/room-1440-dark.png
+  - tmp/build/design/v5/room-1024-light.png
+  - tmp/build/design/v5/room-1024-dark.png
+  - tmp/build/design/v5/room-390-light.png
+  - tmp/build/design/v5/room-390-dark.png
+  - tmp/build/design/v5/ledger-1440-light.png
+  - tmp/build/design/v5/ledger-1440-dark.png
+  - tmp/build/design/v5/ledger-1024-light.png
+  - tmp/build/design/v5/ledger-1024-dark.png
+  - tmp/build/design/v5/ledger-390-light.png
+  - tmp/build/design/v5/ledger-390-dark.png
+  - tmp/build/design/v5/settings-1440-light.png
+  - tmp/build/design/v5/settings-1440-dark.png
+  - tmp/build/design/v5/settings-390-light.png
+  - tmp/build/design/v5/settings-390-dark.png
+  - tmp/build/design/v5/pairing-1440-light.png
+  - tmp/build/design/v5/pairing-1440-dark.png
+  - tmp/build/design/v5/pairing-390-light.png
+  - tmp/build/design/v5/pairing-390-dark.png
+anchors:
+  web-room-visual-hierarchy-matches-soft-editorial-reference:
+    soft-editorial-room-style:
+      action: change
+      reason: Add the unframed-run avatar hide beside the existing unframed-message
+        rule; every other declaration in the region stays byte-for-byte.
+    soft-editorial-room-token-discipline:
+      action: change
+      reason: Rewrite the guard from anchored-region extraction to effective-cascade
+        inspection over every rule referencing a room-owned class, with negative
+        fixtures for out-of-region duplicates and same-specificity overrides.
+    soft-editorial-room-capture-proof:
+      action: keep
+      reason: The build-first isolated room capture pipeline is unchanged; only its
+        six generated artifacts are refreshed and committed.
+  web-motion-is-purposeful-and-reduced-motion-safe-v5:
+    motion-token-style:
+      action: change
+      reason: Delete the foreign pre-v5 .wr-manual-pairing 460px width rule that
+        sits inside this region; motion declarations are untouched.
+  compact-one-line-tool-rows:
+    compact-run-row-style:
+      action: change
+      reason: Align the region's 767px media query to the below-720 content
+        boundary so desktop rooms at 721-767px no longer get phone row padding.
+    compact-run-row-browser-regression:
+      action: change
+      reason: Assert the unframed 390px run row hides its actor mark, and update
+        any assertion pinned to overridden v4 values.
+  spend-meter-always-on:
+    meter-settings-surface:
+      action: change
+      reason: usePhone's matchMedia string inside this region moves to the
+        width-below-720 boundary; the meter itself is unchanged.
+  web-room-targets-meet-minimum-hit-size:
+    room-target-size-sweep:
+      action: change
+      reason: Extend the spawn-dialog section of the sweep to measure every
+        .wr-button-row control and the harness tile at 390.
+  web-shell-responsive-three-pane:
+    responsive-shell-regression:
+      action: change
+      reason: Add the 719/720 settled-state assertions - phone chrome plus unframed
+        prose at 719, desktop chrome plus framed cards at 720.
+  interaction-cards-stay-readable-on-phone:
+    phone-ask-card-browser-regression:
+      action: change
+      reason: Update any assertion pinned to the removed 4px option-button override
+        to the v5 control radius truth.
+  graph-derived-from-vault-links-readonly-v5:
+    soft-editorial-ledger-capture-proof:
+      action: keep
+      reason: The ledger capture pipeline is unchanged; its six artifacts are
+        refreshed because the shared channel rail chrome changes.
+  timeline-rows-are-never-crushed-v5:
+    timeline-crush-browser-regression:
+      action: keep
+      reason: The crush fixture and assertions must keep passing unchanged against
+        the corrected cascade.
