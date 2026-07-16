@@ -1098,8 +1098,7 @@
 .nx-surface-card p { margin: 0 0 var(--sp-2); color: var(--c-body); }
 .nx-surface-card a { color: var(--c-link); }
 
-/* ── Breakpoints (last so they win the cascade over the panel defaults);
-   the true mobile IA replaces this simple collapse in its own phase. ──── */
+/* ── Breakpoints (last so they win the cascade over the panel defaults) ── */
 
 @media (max-width: 1360px) {
   .nx-app { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
@@ -1109,3 +1108,124 @@
   .nx-app { grid-template-columns: minmax(0, 1fr); }
   .nx-rail { display: none; }
 }
+
+/* ── Mobile IA (<720): one surface at a time, re-composed per screen 2a ── */
+
+@media (max-width: 719px) {
+  .nx-app.is-mobile {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
+    gap: 0;
+  }
+  .nx-app.is-mobile > * {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .nx-app.is-mobile .nx-rail { display: flex; }
+  .nx-app.is-mobile .nx-context { display: flex; }
+
+  /* Mobile header: round back chevron, centered title + status word, kebab. */
+  .nx-mobile-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid var(--c-line);
+  }
+  .nx-mobile-head .nx-iconbtn {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--r-full);
+  }
+  .nx-mobile-title {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+  }
+  .nx-mobile-title h1 {
+    margin: 0;
+    font: var(--t-ui-strong);
+    font-size: 16px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nx-mobile-sub {
+    display: block;
+    font: var(--t-caption);
+    color: var(--c-faded);
+  }
+
+  /* Plain text turns: no chips, tighter column. */
+  .nx-column { padding: var(--sp-4) var(--sp-4) var(--sp-3); gap: var(--sp-3); }
+  .nx-turn > .nx-chip { display: none; }
+  .nx-turn.is-grouped { padding-left: 0; margin-top: calc(-1 * var(--sp-2)); }
+  .nx-turn-meta .nx-turn-time { display: none; }
+
+  /* Tool activity: quiet borderless disclosure lines with inline ±. */
+  .nx-batch-line {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--c-faded);
+  }
+  .nx-batch-line:hover { background: none; color: var(--c-secondary); }
+
+  /* Jump chip becomes the FAB. */
+  .nx-jump {
+    left: auto;
+    right: var(--sp-4);
+    bottom: var(--sp-4);
+    width: 44px;
+    height: 44px;
+    justify-content: center;
+    padding: 0;
+    font-size: 0;
+  }
+  .nx-jump svg { width: 18px; height: 18px; }
+
+  /* Two-row docked composer with the peach send circle. */
+  .nx-composer { padding: 0 var(--sp-3) var(--sp-3); }
+  .nx-composer-bar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--r-panel);
+  }
+  .nx-composer-row2 {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+  .nx-composer-spacer { flex: 1; }
+
+  /* Context becomes a full-screen sheet from the kebab. */
+  .nx-mobile-context {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+    background: var(--c-surface);
+  }
+  .nx-mobile-context .nx-context { display: flex; flex: 1; min-height: 0; }
+  .nx-mobile-context-close {
+    align-self: flex-end;
+    margin: var(--sp-3) var(--sp-3) 0;
+  }
+}
+
+.nx-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-full);
+  background: var(--c-send);
+  color: var(--c-send-ink);
+  transition: filter var(--m-fast) var(--m-ease);
+}
+.nx-send:hover { filter: brightness(0.96); }
+.nx-send:disabled { opacity: 0.45; cursor: not-allowed; }

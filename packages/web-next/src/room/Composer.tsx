@@ -1,10 +1,11 @@
 import type { Member } from '@codor/protocol';
-import { ArrowUp } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowUp, AtSign } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { effectiveDefaultRecipient, useRoomStore } from '@legacy/state.js';
 import type { Connection } from '@legacy/ws.js';
 
+import { useIsMobile } from '../app/session.js';
 import { Chip, IconButton } from '../primitives/primitives.js';
 import { memberAccent } from '../primitives/identity.js';
 
@@ -28,6 +29,7 @@ function mentionQuery(draft: string, caret: number): { start: number; query: str
  *  and a send that addresses nobody is blocked with an inline hint instead of
  *  leaving the room to guess (Richard #302). */
 export function Composer(props: { room: string; connection: Connection }) {
+  const isMobile = useIsMobile();
   const connected = useRoomStore((s) => s.connected);
   const members = useRoomStore((s) => s.members);
   const room = useRoomStore((s) => s.room);
@@ -38,6 +40,22 @@ export function Composer(props: { room: string; connection: Connection }) {
   const [highlighted, setHighlighted] = useState(0);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const seededRef = useRef(false);
+  const pendingCaretRef = useRef<number>();
+
+  // Programmatic inserts restore the caret synchronously with the DOM update —
+  // an rAF here loses keystrokes racing in from a fast typist.
+  useLayoutEffect(() => {
+    const caret = pendingCaretRef.current;
+    if (caret === undefined) return;
+    pendingCaretRef.current = undefined;
+    const node = areaRef.current;
+    if (!node) return;
+    node.setSelectionRange(caret, caret);
+    node.focus();
+    autoGrow();
+    refreshMention();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
 
   const roster = useMemo(
     () => Object.values(members).filter((m) => m.removed_ts === undefined),
@@ -102,12 +120,7 @@ export function Composer(props: { room: string; connection: Connection }) {
     const next = `${draft.slice(0, mention.start)}@${member.handle} ${draft.slice(caret)}`;
     setDraft(next);
     setMention(undefined);
-    requestAnimationFrame(() => {
-      const position = mention.start + member.handle.length + 2;
-      node?.setSelectionRange(position, position);
-      node?.focus();
-      autoGrow();
-    });
+    pendingCaretRef.current = mention.start + member.handle.length + 2;
   };
 
   const send = (): void => {
@@ -200,14 +213,44 @@ export function Composer(props: { room: string; connection: Connection }) {
           }}
           onBlur={() => setMention(undefined)}
         />
-        <IconButton
-          icon={ArrowUp}
-          label="Send message"
-          variant="solid"
-          data-testid="composer-send"
-          disabled={!canSend}
-          onClick={send}
-        />
+        {isMobile ? (
+          <div className="nx-composer-row2">
+            <IconButton
+              icon={AtSign}
+              label="Mention someone"
+              variant="quiet"
+              data-testid="composer-at"
+              onClick={() => {
+                const node = areaRef.current;
+                if (!node) return;
+                const caret = node.selectionStart ?? draft.length;
+                const lead = caret === 0 || /\s/.test(draft[caret - 1] ?? '') ? '' : ' ';
+                setDraft(`${draft.slice(0, caret)}${lead}@${draft.slice(caret)}`);
+                pendingCaretRef.current = caret + lead.length + 1;
+              }}
+            />
+            <span className="nx-composer-spacer" />
+            <button
+              type="button"
+              className="nx-send"
+              aria-label="Send message"
+              data-testid="composer-send"
+              disabled={!canSend}
+              onClick={send}
+            >
+              <ArrowUp size={17} aria-hidden="true" strokeWidth={2} />
+            </button>
+          </div>
+        ) : (
+          <IconButton
+            icon={ArrowUp}
+            label="Send message"
+            variant="solid"
+            data-testid="composer-send"
+            disabled={!canSend}
+            onClick={send}
+          />
+        )}
       </div>
     </footer>
   );

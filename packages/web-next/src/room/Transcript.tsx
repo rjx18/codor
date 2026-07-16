@@ -21,6 +21,7 @@ import {
   type RunEventBuffer,
 } from '@legacy/state.js';
 
+import { useIsMobile } from '../app/session.js';
 import { Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
 import { DiffViewer } from './ContextPanel.js';
@@ -80,7 +81,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
     if (!node) return;
     const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
     pinnedRef.current = nearBottom;
-    if (nearBottom) setShowJump(false);
+    setShowJump(!nearBottom);
     if (node.scrollTop < 80 && !historyBusy && hasOlder && historyCursor !== undefined && historyCursor > 1) {
       setHistoryBusy(true);
       const prior = { height: node.scrollHeight, top: node.scrollTop };
@@ -348,7 +349,10 @@ function ElapsedSince(props: { ts: string }) {
  *  expanding to the bordered cards. Counts update live while the batch runs. */
 function ToolBatch(props: { rows: RunRow[] }) {
   const [expanded, setExpanded] = useState(false);
-  if (props.rows.length === 1) return <ToolCard row={props.rows[0]!} />;
+  const isMobile = useIsMobile();
+  // On the phone every batch is a quiet disclosure line — no bare cards
+  // (2a re-composition); desktop shows a lone tool's card directly.
+  if (props.rows.length === 1 && !isMobile) return <ToolCard row={props.rows[0]!} />;
 
   const active = props.rows.some((row) => row.status === 'running');
   const diffs = props.rows.filter((row) => row.diff?.unified !== undefined);
@@ -359,8 +363,9 @@ function ToolBatch(props: { rows: RunRow[] }) {
     },
     { added: 0, removed: 0 },
   );
+  const plural = props.rows.length === 1 ? 'tool' : 'tools';
   const summary = [
-    active ? `Running · ${props.rows.length} tools so far` : `Ran ${props.rows.length} tools`,
+    active ? `Running · ${props.rows.length} ${plural} so far` : `Ran ${props.rows.length} ${plural}`,
     diffs.length > 0
       ? `wrote ${diffs.length} file${diffs.length === 1 ? '' : 's'} +${stat.added} −${stat.removed}`
       : undefined,

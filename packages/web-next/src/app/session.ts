@@ -126,6 +126,19 @@ export function useMemberDetails(room: string, token: () => string): Record<stri
   return details;
 }
 
+/** Mobile is a re-composition, not a squeeze: one surface at a time under 720. */
+export function useIsMobile(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const query = window.matchMedia('(max-width: 719px)');
+      query.addEventListener('change', onChange);
+      return () => query.removeEventListener('change', onChange);
+    },
+    () => window.matchMedia('(max-width: 719px)').matches,
+    () => false,
+  );
+}
+
 /** 60s tick for relative timestamps (rail rows re-render on the shared beat). */
 export function useMinuteTick(): number {
   return useSyncExternalStore(

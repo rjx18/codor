@@ -1,5 +1,5 @@
 import type { Member, Message } from '@codor/protocol';
-import { Plus, Search, Settings, Share2 } from 'lucide-react';
+import { ChevronLeft, MoreVertical, Plus, Search, Settings, Share2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { sortedMessages, unreadCount, useRoomStore } from '@legacy/state.js';
@@ -9,6 +9,7 @@ import { createConnector, type RoomConnector } from '../app/connector.js';
 import {
   pageParams,
   useAccessToken,
+  useIsMobile,
   useMinuteTick,
 } from '../app/session.js';
 import { useRoomSummaries, type RoomSummary } from '../app/summary.js';
@@ -52,6 +53,46 @@ export function RoomPage(props: { token: string; refreshToken?: () => Promise<st
     return () => window.removeEventListener('popstate', onPop);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Mobile is a two-surface stack (channels ⇄ room), never a drawer.
+  const isMobile = useIsMobile();
+  const [surface, setSurface] = useState<'channels' | 'room'>('room');
+  const [mobileContext, setMobileContext] = useState(false);
+
+  if (isMobile) {
+    return (
+      <div className="nx-app is-mobile" data-testid="app" data-surface={surface}>
+        {surface === 'channels' ? (
+          <ChannelRail
+            activeRoom={room}
+            token={token}
+            onSwitch={(next) => {
+              switchRoom(next);
+              setSurface('room');
+            }}
+          />
+        ) : (
+          <ChatPanel
+            room={room}
+            connection={connection}
+            token={token}
+            mobile={{
+              onBack: () => setSurface('channels'),
+              onContext: () => setMobileContext(true),
+            }}
+          />
+        )}
+        {mobileContext && surface === 'room' && (
+          <div className="nx-mobile-context" data-testid="mobile-context">
+            <button className="nx-mobile-context-close nx-btn" onClick={() => setMobileContext(false)}>
+              Close
+            </button>
+            <ContextPanel room={room} token={token} connection={connection} />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="nx-app" data-testid="app">
@@ -227,12 +268,40 @@ function summaryPreview(entry: RoomSummary): string {
 
 // ── Chat panel ───────────────────────────────────────────────────────────
 
-function ChatPanel(props: { room: string; connection: Connection; token: () => string }) {
+function ChatPanel(props: {
+  room: string;
+  connection: Connection;
+  token: () => string;
+  mobile?: { onBack: () => void; onContext: () => void };
+}) {
   const room = useRoomStore((s) => s.room);
   const meter = useRoomStore((s) => s.meter);
   const connected = useRoomStore((s) => s.connected);
   const memberCount = useRoomStore((s) => Object.values(s.members).filter((m) => m.removed_ts === undefined).length);
+  const workingAgent = useRoomStore((s) =>
+    Object.values(s.members).find((m) => m.kind === 'agent' && (m.state === 'running' || m.state === 'queued'))?.handle,
+  );
   const [searching, setSearching] = useState(false);
+
+  if (props.mobile) {
+    return (
+      <main className="nx-chat" data-testid="room-view">
+        <header className="nx-mobile-head">
+          <IconButton icon={ChevronLeft} label="Back to channels" data-testid="mobile-back" onClick={props.mobile.onBack} />
+          <div className="nx-mobile-title">
+            <h1>{room?.name ?? props.room}</h1>
+            <span className="nx-mobile-sub">
+              {workingAgent !== undefined ? `@${workingAgent} is working…` : connected ? 'live' : 'reconnecting…'}
+            </span>
+          </div>
+          <IconButton icon={MoreVertical} label="Channel details" data-testid="mobile-kebab" onClick={props.mobile.onContext} />
+        </header>
+        <HoldBanner connection={props.connection} />
+        <Transcript room={props.room} token={props.token} connection={props.connection} />
+        <Composer room={props.room} connection={props.connection} />
+      </main>
+    );
+  }
 
   return (
     <main className="nx-chat" data-testid="room-view">

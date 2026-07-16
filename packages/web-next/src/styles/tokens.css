@@ -54,6 +54,10 @@
   --c-link: #15803d;
   --c-link-hover: #166534;
 
+  /* Mobile send circle — the 2a peach */
+  --c-send: #e8956b;
+  --c-send-ink: #4a2412;
+
   /* Diff */
   --c-diff-add: #15803d;
   --c-diff-add-bg: #f0fdf4;
@@ -154,6 +158,9 @@ html[data-theme='dark'] {
   --c-link: #4ade80;
   --c-link-hover: #86efac;
 
+  --c-send: #7a4a33;
+  --c-send-ink: #f7d7c4;
+
   --c-diff-add: #4ade80;
   --c-diff-add-bg: #122117;
   --c-diff-del: #f87171;
@@ -209,6 +216,9 @@ html[data-theme='dark'] {
     --c-accent-tint: #231d33;
     --c-link: #4ade80;
     --c-link-hover: #86efac;
+
+    --c-send: #7a4a33;
+    --c-send-ink: #f7d7c4;
 
     --c-diff-add: #4ade80;
     --c-diff-add-bg: #122117;
