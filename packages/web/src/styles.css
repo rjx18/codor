@@ -361,15 +361,14 @@ button:disabled {
   flex-direction: column;
   overflow: hidden;
   position: relative;
-  background: color-mix(in srgb, var(--cd-canvas) 72%, transparent);
+  background: var(--cd-surface);
 }
 
 .wr-room-rail,
 .wr-context-rail,
 .wr-room-header {
-  background: color-mix(in srgb, var(--cd-surface) 96%, transparent);
-  -webkit-backdrop-filter: blur(22px) saturate(125%);
-  backdrop-filter: blur(22px) saturate(125%);
+  /* Matte structural panels: the paper character keeps glass for functional overlays only. */
+  background: var(--cd-surface);
 }
 
 .wr-mobile-drawer,
@@ -396,7 +395,7 @@ button:disabled {
   min-height: 64px;
   align-items: center;
   gap: var(--cd-space-3);
-  padding: 0 var(--cd-space-4);
+  padding: 0 var(--cd-space-5);
   border-bottom: 1px solid var(--cd-line);
 }
 
@@ -404,22 +403,11 @@ button:disabled {
   font: var(--cd-text-title);
 }
 
-.wr-brand-mark,
 .wr-run-symbol {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--cd-text-secondary);
-}
-
-.wr-brand-mark {
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
-  border: 1px solid color-mix(in srgb, var(--cd-text-secondary) 34%, transparent);
-  border-radius: var(--cd-radius-pill);
-  background: var(--cd-surface-muted);
-  box-shadow: none;
 }
 
 .wr-brand-copy {
@@ -599,7 +587,7 @@ button:disabled {
   margin-top: auto;
   padding: var(--cd-space-4) var(--cd-space-3);
   border-top: 1px solid var(--cd-line);
-  background: color-mix(in srgb, var(--cd-surface) 58%, transparent);
+  background: var(--cd-surface);
 }
 
 .wr-rail-footer > span:nth-child(2) {
@@ -622,12 +610,10 @@ button:disabled {
   flex: 0 0 8px;
   border-radius: 50%;
   background: var(--cd-error);
-  box-shadow: 0 0 0 var(--cd-space-1) var(--cd-error-tint);
 }
 
 .wr-presence.is-live {
   background: var(--cd-live);
-  box-shadow: 0 0 0 var(--cd-space-1) var(--cd-live-tint);
 }
 
 .wr-room-header {
@@ -691,11 +677,6 @@ button:disabled {
   align-items: center;
   gap: 0;
   overflow-x: auto;
-  border: 1px solid var(--cd-line);
-  border-radius: var(--cd-radius-control);
-  background: color-mix(in srgb, var(--cd-surface-muted) 82%, transparent);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
   scrollbar-color: var(--cd-line-strong) transparent;
   box-shadow: none;
   scrollbar-width: thin;
@@ -840,7 +821,8 @@ button:disabled {
 }
 
 .wr-context-trigger {
-  display: none;
+  /* Visible by default; the docked context rail replaces it at and above 1360. */
+  display: inline-flex;
 }
 
 .wr-offline-banner,
@@ -1043,20 +1025,12 @@ button:disabled {
 
 .wr-secondary-button,
 .wr-attention-button,
-.wr-ask-option,
-.wr-primary-button {
+.wr-ask-option {
   border: 1px solid var(--cd-line-strong);
   border-radius: var(--cd-radius-control);
   background: var(--cd-surface-muted);
   color: var(--cd-text-strong);
   transition: background-color var(--cd-motion-fast) var(--cd-ease-standard), border-color var(--cd-motion-fast) var(--cd-ease-standard), color var(--cd-motion-fast) var(--cd-ease-standard);
-}
-
-.wr-primary-button {
-  border-color: color-mix(in srgb, var(--cd-text-secondary) 54%, transparent);
-  background: var(--cd-text-secondary);
-  color: var(--cd-canvas);
-  font: var(--cd-text-ui);
 }
 
 .wr-secondary-button:hover,
@@ -2506,8 +2480,7 @@ button:disabled {
    44px target, padding and type the utilities used to add. */
 .wr-secondary-button,
 .wr-attention-button,
-.wr-ask-option,
-.wr-primary-button {
+.wr-ask-option {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
@@ -2647,44 +2620,6 @@ button:disabled {
   overflow: auto;
 }
 /* harn:end web-room-visual-hierarchy-matches-soft-editorial-reference */
-
-[class~='text-zinc-100'],
-[class~='text-zinc-200'] {
-  color: var(--cd-text-strong);
-}
-
-[class~='text-zinc-300'],
-[class~='text-zinc-400'] {
-  color: var(--cd-text-secondary);
-}
-
-[class~='text-zinc-500'] {
-  color: var(--cd-text-muted);
-}
-
-[class~='text-sky-300'],
-[class~='text-sky-400'] {
-  color: var(--cd-text-secondary);
-}
-
-[class~='text-emerald-300'] {
-  color: var(--cd-live);
-}
-
-[class~='text-amber-200'],
-[class~='text-amber-300'],
-[class~='text-amber-400'] {
-  color: var(--cd-warn);
-}
-
-[class~='text-red-400'] {
-  color: var(--cd-error);
-}
-
-[class~='border-zinc-700'],
-[class~='border-zinc-800'] {
-  border-color: var(--cd-line);
-}
 
 @keyframes wr-search-enter {
   from {
@@ -2979,35 +2914,8 @@ button:disabled {
   outline-color: var(--cd-text-strong);
 }
 
-.wr-room-main {
-  background: var(--cd-surface);
-}
-
-/* The floating panels stay matte (no backdrop glass) so a modal nested inside a rail still
-   establishes the viewport as its containing block and centres there; only the flattening
-   box-shadow:none is dropped, letting the soft float shadow through. */
-.wr-room-rail,
-.wr-room-header {
-  background: var(--cd-surface);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-.wr-context-rail {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-.wr-brand {
-  padding: 0 22px;
-}
-
 .wr-brand-copy strong {
   color: var(--cd-text-strong);
-}
-
-.wr-brand-mark {
-  display: none;
 }
 
 .wr-rail-label {
@@ -3046,28 +2954,14 @@ button:disabled {
 
 .wr-rail-footer {
   min-height: 72px;
-  background: var(--cd-surface);
 }
 
 .wr-rail-footer strong {
   color: var(--cd-text-strong);
 }
 
-.wr-presence,
-.wr-presence.is-live {
-  box-shadow: none;
-}
-
 .wr-header-glyph {
   color: var(--cd-text-secondary);
-}
-
-.wr-meter {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 
 .wr-hold-banner {
@@ -3547,10 +3441,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.wr-context-trigger {
-  display: inline-flex;
-}
-
 @media (width < 720px) {
   /* 2a subtitle: the meter carries the run stats under the title, replacing the presence line,
      so the identity column reads as a calm title + subtitle and reclaims the width the secondary
@@ -3620,9 +3510,6 @@ button:disabled {
     grid-template-columns: 288px minmax(0, 1fr) 400px;
   }
 
-  .wr-context-trigger {
-    display: none;
-  }
 }
 
 /* harn:assume web-settings-pairing-match-soft-editorial-reference ref=soft-editorial-settings-pairing-style */

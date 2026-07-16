@@ -1,7 +1,7 @@
 id: restrained-design-system-guides-responsive-surfaces
 hash: a-ee9297396cd2
 title: The restrained design system guides responsive product surfaces
-state: active
+state: retired
 statement: The Wireroom web app and forward-looking native concepts must derive
   their visual hierarchy, semantic color, sparse glass material, typography,
   spacing, responsive layout, accessibility, and motion choices from the v4
@@ -10,3 +10,4 @@ statement: The Wireroom web app and forward-looking native concepts must derive
   interaction contracts.
 depends_on: []
 created_by: restrained-design-foundation
+retired_by: v5-p6-motion-consolidation-retirement

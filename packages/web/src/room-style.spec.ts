@@ -436,35 +436,12 @@ function excludedSpans(css: string): [number, number][] {
   return spansOf(css, allRegions(css).filter((r) => EXCLUDED_REFS.has(r.ref)));
 }
 
-// The glass-era burn-down list: these EXACT unanchored declarations are the shipped, approved
-// matte rendering neutralizing stale glass-era declarations that still sit INSIDE the anchored
-// region (translucent panels, panel blur, chip meters, the glass-era brand mark, the base-hidden
-// context trigger). Removing them would regress the approved look; correcting them properly means
-// reauthoring the anchored region, which is Phase 6 consolidation work. The set is exact and
-// count-pinned both ways: deleting one without updating this list fails, and adding ANY new
-// override fails. Phase 6 burns this to zero by reconciling the anchored region itself.
-const PINNED_GLASS_ERA_NEUTRALIZERS = new Set([
-  '||.wr-room-main||background||var(--cd-surface)',
-  '||.wr-room-header||background||var(--cd-surface)',
-  '||.wr-room-rail||background||var(--cd-surface)',
-  '||.wr-context-rail||-webkit-backdrop-filter||none',
-  '||.wr-context-rail||backdrop-filter||none',
-  '||.wr-room-header||-webkit-backdrop-filter||none',
-  '||.wr-room-header||backdrop-filter||none',
-  '||.wr-room-rail||-webkit-backdrop-filter||none',
-  '||.wr-room-rail||backdrop-filter||none',
-  '||.wr-brand||padding||0 22px',
-  '||.wr-brand-mark||display||none',
-  '||.wr-rail-footer||background||var(--cd-surface)',
-  '||.wr-presence||box-shadow||none',
-  '||.wr-presence.is-live||box-shadow||none',
-  '||.wr-meter||border||0',
-  '||.wr-meter||border-radius||0',
-  '||.wr-meter||background||transparent',
-  '||.wr-meter||-webkit-backdrop-filter||none',
-  '||.wr-meter||backdrop-filter||none',
-  '||.wr-context-trigger||display||inline-flex',
-]);
+// The glass-era burn-down list is EMPTY, and stays as a permanent gate: Phase 6 corrected the
+// anchored room declarations to state the approved matte rendering directly (opaque panels, no
+// structural blur, flat meters, plain presence dots, visible context trigger), so no unanchored
+// neutralizer is tolerated any more. Any future same-key override — whatever its value — fails
+// the effective-cascade check outright; nothing can hide behind this set.
+const PINNED_GLASS_ERA_NEUTRALIZERS = new Set<string>([]);
 
 /** Every class token owned by the scanned regions' selectors. */
 export function ownedClasses(css: string): Set<string> {
@@ -803,11 +780,65 @@ describe('room token discipline: the effective cascade, not only the anchored is
 
   it('the glass-era burn-down list is exact: every pinned neutralizer exists, nothing extra', () => {
     // Both directions pinned: a pinned tuple that disappears must be struck from the list in the
-    // same diff (Phase 6 burn-down), and any new override cannot hide behind the pin set.
+    // same diff, and any new override cannot hide behind the pin set. Phase 6 burned the list to
+    // zero; the empty set is the permanent stance.
     const { pinned } = effectiveCascade(css);
     const missing = [...PINNED_GLASS_ERA_NEUTRALIZERS].filter((k) => !pinned.has(k));
     expect(missing, `pinned neutralizers no longer observed:\n${missing.join('\n')}`).toEqual([]);
     expect(pinned.size).toBe(PINNED_GLASS_ERA_NEUTRALIZERS.size);
+    expect(PINNED_GLASS_ERA_NEUTRALIZERS.size, 'the burn-down is complete and stays complete').toBe(0);
+  });
+
+  it('every backdrop-filter consumer is covered by the opaque and reduced-transparency fallbacks', () => {
+    // Functional glass must never strand a reader: any selector that carries a real
+    // backdrop-filter after the cascade settles has to appear in BOTH fallback blocks, so
+    // browsers without the feature and readers with reduced transparency get the same opaque
+    // surface. Extra fallback entries are permitted (they keep accessibility-mode rendering
+    // stable for surfaces that dropped their blur); missing consumers are the failure.
+    const root = postcss.parse(css);
+    const consumers = new Set<string>();
+    const fallbackSelectors = { supports: new Set<string>(), transparency: new Set<string>() };
+    root.walkDecls((decl) => {
+      const rule = decl.parent;
+      if (!rule || rule.type !== 'rule') return;
+      const prop = decl.prop.toLowerCase();
+      if (prop !== 'backdrop-filter' && prop !== '-webkit-backdrop-filter') return;
+      let context: 'supports' | 'transparency' | 'plain' = 'plain';
+      for (let parent = rule.parent; parent && parent.type !== 'root'; parent = parent.parent) {
+        if (parent.type !== 'atrule') continue;
+        const at = parent as postcss.AtRule;
+        if (at.name === 'supports' && at.params.includes('not')) context = 'supports';
+        if (at.name === 'media' && at.params.includes('prefers-reduced-transparency')) context = 'transparency';
+      }
+      for (const selector of (rule as postcss.Rule).selectors.map((s) => s.replace(/\s+/g, ' ').trim())) {
+        if (context === 'plain') {
+          if (decl.value.trim() !== 'none') consumers.add(selector);
+        } else {
+          fallbackSelectors[context].add(selector);
+        }
+      }
+    });
+    expect(consumers.size).toBeGreaterThan(0);
+    const missingOpaque = [...consumers].filter((s) => !fallbackSelectors.supports.has(s));
+    const missingTransparency = [...consumers].filter((s) => !fallbackSelectors.transparency.has(s));
+    expect(missingOpaque, `no @supports-not fallback for:\n${missingOpaque.join('\n')}`).toEqual([]);
+    expect(missingTransparency, `no reduced-transparency fallback for:\n${missingTransparency.join('\n')}`).toEqual([]);
+  });
+
+  it('the reduced-motion block disables every animation and transition universally', () => {
+    // One universal block, not per-surface opt-ins: a new animation must be reduced-motion
+    // safe the moment it is written.
+    const start = css.indexOf('@media (prefers-reduced-motion: reduce)');
+    expect(start).toBeGreaterThan(-1);
+    const block = css.slice(start, css.indexOf('}\n}', start));
+    for (const required of [
+      '*,', '*::before,', '*::after',
+      'animation-duration: 0.01ms !important',
+      'animation-iteration-count: 1 !important',
+      'transition-duration: 0.01ms !important',
+    ]) {
+      expect(block, `reduced-motion block must contain "${required}"`).toContain(required);
+    }
   });
 
   it('rejects a later out-of-region same-key override of an anchored declaration', () => {
