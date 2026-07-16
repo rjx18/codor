@@ -1,14 +1,13 @@
 id: agent-usage-limits
 title: Surface harness-reported usage limits (5h/weekly) on the member record.
 notes: >-
-  Richard (#302) wants member cards to show usage-limits-left (the five-hour
-  and weekly windows) per agent. The claude-code CLI already streams this
-  truth: raw pinned fixtures carry rate_limit_event lines with
-  rate_limit_info {status, resetsAt (unix seconds), rateLimitType
-  ("five_hour"), overageStatus, isUsingOverage}; the translator currently
-  drops them on the floor. Codex reports nothing limit-shaped on its wire, so
-  codex agents simply have no limits row - absence stays honest, nothing is
-  fabricated.
+  Richard (#302) wants member cards to show usage-limits-left (the five-hour and
+  weekly windows) per agent. The claude-code CLI already streams this truth: raw
+  pinned fixtures carry rate_limit_event lines with rate_limit_info {status,
+  resetsAt (unix seconds), rateLimitType ("five_hour"), overageStatus,
+  isUsingOverage}; the translator currently drops them on the floor. Codex
+  reports nothing limit-shaped on its wire, so codex agents simply have no
+  limits row - absence stays honest, nothing is fabricated.
 
   Change, end to end. Protocol: a new AgentLimitSchema {window, status,
   resets_at (ISO timestamp), used_percent?} plus a new WireEvent variant
@@ -18,38 +17,47 @@ notes: >-
   rate_limit_event into run.limits (rateLimitType -> window, unix resetsAt ->
   ISO, status forwarded; unknown fields dropped). Daemon: in the turn event
   loop, run.limits journals nothing and creates no run row - it updates the
-  member row's limits and emits the member frame, so every connected client
-  sees the freshest window state. Web-next member cards render the windows
+  member row's limits and emits the member frame, so every connected client sees
+  the freshest window state. Web-next member cards render the windows
   (harnignored side).
 
+  Storage: members gain a nullable limits TEXT column (idempotent ALTER
+  migration) serialized as JSON; updateMember writes it and memberFromRow
+  reads it back. Freshly inserted members carry no limits until a harness
+  reports some.
+
   Tests: translate.spec pins the fixture line to one run.limits event;
-  daemon.spec drives a scripted fake turn emitting run.limits and observes
-  the member frame carrying it; protocol spec pins the new schema shapes.
-  Gate: protocol + claude-code + switchboard suites green, then one paid live
-  claude run (haiku, low - authorized in #304) confirming the current CLI
-  still emits rate_limit_event in print mode.
+  daemon.spec drives a scripted fake turn emitting run.limits and observes the
+  member frame carrying it; protocol spec pins the new schema shapes. Gate:
+  protocol + claude-code + switchboard suites green, then one paid live claude
+  run (haiku, low - authorized in #304) confirming the current CLI still emits
+  rate_limit_event in print mode.
 assumptions:
   reviewed:
+    - id: member-config-is-changed-not-respawned
+      outcome: unchanged
+      reason: The member UPDATE statement gains the limits column alongside the
+        config fields it already persists; the change-not-respawn contract is
+        untouched.
     - id: first-party-run-items-normalized
       outcome: unchanged
-      reason: The claude translator gains one more mapping from a raw CLI event
-        onto the shared wire vocabulary; the normalization contract itself is
+      reason: The claude translator gains one more mapping from a raw CLI event onto
+        the shared wire vocabulary; the normalization contract itself is
         untouched.
   create:
     - id: agent-usage-limits-reported-not-guessed
-      title: Member usage limits are harness-reported truth, absent when the
-        harness reports none
-      statement: An agent member's limits field holds exactly the last
-        rate-limit windows its harness reported on the wire - window name,
-        status, reset time, and utilization when given - refreshed whenever a
-        turn streams a newer report and emitted to clients as part of the
-        member frame. A harness that reports no limits produces a member with
-        no limits field, and no component may invent, extrapolate, or age the
-        numbers into a guess the harness never made.
-      reason: >-
-        Richard #302 asked member cards to show 5h/weekly limits left; the
-        only truthful source is what the harness itself streams
-        (claude-code's rate_limit_event), and codex streams none.
+      title: Member usage limits are harness-reported truth, absent when the harness
+        reports none
+      statement: An agent member's limits field holds exactly the last rate-limit
+        windows its harness reported on the wire - window name, status, reset
+        time, and utilization when given - refreshed whenever a turn streams a
+        newer report and emitted to clients as part of the member frame. A
+        harness that reports no limits produces a member with no limits field,
+        and no component may invent, extrapolate, or age the numbers into a
+        guess the harness never made.
+      reason: "Richard #302 asked member cards to show 5h/weekly limits left; the only
+        truthful source is what the harness itself streams (claude-code's
+        rate_limit_event), and codex streams none."
       depends_on: []
 files:
   - packages/protocol/src/events.ts
@@ -60,16 +68,21 @@ files:
   - packages/adapters/claude-code/src/translate.spec.ts
   - packages/switchboard/src/daemon.ts
   - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/store.ts
 anchors:
   agent-usage-limits-reported-not-guessed:
     agent-limit-schema:
       action: change
-      reason: AgentLimitSchema, the run.limits wire variant, and the member
-        limits field define the contract.
+      reason: AgentLimitSchema, the run.limits wire variant, and the member limits
+        field define the contract.
     claude-rate-limit-translation:
       action: change
       reason: The translator maps rate_limit_event onto run.limits.
     member-limits-persisted:
       action: change
-      reason: The daemon turn loop lands run.limits on the member row and
-        emits the member frame.
+      reason: The daemon turn loop lands run.limits on the member row and emits the
+        member frame.
+  member-config-is-changed-not-respawned:
+    member-config-storage:
+      action: change
+      reason: The member UPDATE persists the new limits column.
