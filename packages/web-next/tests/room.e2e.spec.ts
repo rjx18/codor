@@ -83,13 +83,14 @@ test.describe('run evidence', () => {
 });
 
 test.describe('interaction cards', () => {
-  test('a pending approval renders read-only with its command detail', async ({ page }) => {
+  test('a pending approval renders its command detail and answerable options', async ({ page }) => {
     await openRoom(page);
     const card = page.locator('.nx-ask');
     await expect(card).toContainText('Approval needed');
     await expect(card).toContainText('Run `git push origin main`?');
     await expect(card.locator('.nx-ask-detail')).toHaveText('git push origin main');
-    await expect(card.locator('button', { hasText: 'Allow' })).toBeDisabled();
+    // Enabled but NOT clicked here — the interactions spec owns the answer flow.
+    await expect(card.locator('button', { hasText: 'Allow' })).toBeEnabled();
   });
 });
 

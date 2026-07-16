@@ -483,12 +483,224 @@
   background: var(--c-muted);
 }
 
+/* ── Run status + message ticks ──────────────────────────────────────── */
+
+.nx-run-elapsed {
+  margin: 0;
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+.nx-seen {
+  display: inline-flex;
+  align-items: center;
+  color: var(--c-mark-faint);
+}
+.nx-seen.is-seen { color: var(--c-live); }
+.nx-ask-sent {
+  margin: var(--sp-2) 0 0;
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+
+/* ── Hold banner ─────────────────────────────────────────────────────── */
+
+.nx-holds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5) 0;
+}
+.nx-hold {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  max-width: var(--column-w);
+  margin: 0 auto;
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid color-mix(in srgb, var(--c-warn) 35%, transparent);
+  border-radius: var(--r-card);
+  background: var(--c-warn-tint);
+  color: var(--c-warn-text);
+}
+.nx-hold-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--t-ui);
+}
+.nx-hold-actions {
+  display: inline-flex;
+  gap: var(--sp-2);
+}
+
+/* ── Inbox ───────────────────────────────────────────────────────────── */
+
+.nx-inbox-wrap { position: relative; display: inline-flex; }
+.nx-badge-anchor { position: relative; display: inline-flex; }
+.nx-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 17px;
+  padding: 1px 5px;
+  border-radius: var(--r-full);
+  background: var(--c-error);
+  color: #fff;
+  font: var(--t-caption-strong);
+  font-size: 10.5px;
+  text-align: center;
+  pointer-events: none;
+}
+.nx-inbox {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 340px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-surface);
+  box-shadow: var(--e-popover);
+  animation: nx-enter var(--m-fast) var(--m-ease);
+}
+.nx-inbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--c-line);
+  font: var(--t-ui-strong);
+}
+.nx-inbox-empty {
+  margin: 0;
+  padding: var(--sp-4);
+  text-align: center;
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+.nx-inbox-list {
+  margin: 0;
+  padding: var(--sp-1);
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.nx-inbox-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-pill);
+  text-align: left;
+}
+.nx-inbox-row:hover { background: var(--c-muted); }
+.nx-inbox-row strong { font: var(--t-caption-strong); }
+.nx-inbox-row time { font: var(--t-caption); color: var(--c-faded); }
+.nx-inbox-preview {
+  font: var(--t-caption);
+  color: var(--c-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* ── Search overlay ──────────────────────────────────────────────────── */
+
+.nx-search-box {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  min-height: 40px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  background: var(--c-raised);
+  color: var(--c-faded);
+}
+.nx-search-box input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font: var(--t-ui);
+  color: var(--c-ink);
+}
+.nx-search-note {
+  margin: var(--sp-3) 0 0;
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+.nx-search-results {
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 50dvh;
+  overflow-y: auto;
+}
+.nx-search-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-pill);
+  text-align: left;
+}
+.nx-search-row:hover { background: var(--c-muted); }
+.nx-search-row strong { font: var(--t-caption-strong); }
+.nx-search-body { font: var(--t-ui); color: var(--c-body); }
+.nx-search-meta { font: var(--t-caption); color: var(--c-faded); }
+
 /* ── Composer ────────────────────────────────────────────────────────── */
 
 .nx-composer {
+  position: relative;
   padding: 0 var(--sp-5) var(--sp-4);
 }
+.nx-composer-hint {
+  max-width: var(--column-w);
+  margin: 0 auto var(--sp-2);
+  font: var(--t-caption-strong);
+  color: var(--c-warn-text);
+}
+.nx-mentions {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: var(--sp-2);
+  z-index: 60;
+  margin: 0;
+  padding: var(--sp-1);
+  list-style: none;
+  min-width: 240px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-surface);
+  box-shadow: var(--e-popover);
+  animation: nx-enter var(--m-fast) var(--m-ease);
+}
+.nx-mention {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 6px var(--sp-2);
+  border-radius: var(--r-pill);
+  text-align: left;
+}
+.nx-mention.is-active { background: var(--c-muted); }
+.nx-mention-handle { flex: 1; font: var(--t-ui-strong); }
+.nx-mention-kind { font: var(--t-caption); color: var(--c-faded); }
+
 .nx-composer-bar {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: var(--sp-2);

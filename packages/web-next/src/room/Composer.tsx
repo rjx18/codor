@@ -1,20 +1,82 @@
+import type { Member } from '@codor/protocol';
 import { ArrowUp } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { useRoomStore } from '@legacy/state.js';
+import { effectiveDefaultRecipient, useRoomStore } from '@legacy/state.js';
 import type { Connection } from '@legacy/ws.js';
 
-import { IconButton } from '../primitives/primitives.js';
+import { Chip, IconButton } from '../primitives/primitives.js';
+import { memberAccent } from '../primitives/identity.js';
 
 const MAX_ROWS = 8;
 
-/** Docked composer bar: auto-grow textarea (bounded), Enter sends, Shift+Enter breaks,
- *  send disabled while empty or disconnected. Mention popover and addressing rules
- *  arrive with the interactions phase. */
+/** Transcript quote buttons talk to the composer through this event. */
+export const QUOTE_EVENT = 'nx-quote';
+
+function mentionQuery(draft: string, caret: number): { start: number; query: string } | undefined {
+  const upToCaret = draft.slice(0, caret);
+  const at = upToCaret.lastIndexOf('@');
+  if (at === -1) return undefined;
+  if (at > 0 && !/[\s(]/.test(upToCaret[at - 1] ?? '')) return undefined;
+  const query = upToCaret.slice(at + 1);
+  if (!/^[a-z0-9_-]*$/i.test(query)) return undefined;
+  return { start: at, query };
+}
+
+/** Docked composer: auto-grow, Enter sends, Shift+Enter breaks. Drafts start
+ *  addressed to the effective default recipient, an @ opens the mention popover,
+ *  and a send that addresses nobody is blocked with an inline hint instead of
+ *  leaving the room to guess (Richard #302). */
 export function Composer(props: { room: string; connection: Connection }) {
   const connected = useRoomStore((s) => s.connected);
+  const members = useRoomStore((s) => s.members);
+  const room = useRoomStore((s) => s.room);
+  const latestFinalizedAgentId = useRoomStore((s) => s.latestFinalizedAgentId);
   const [draft, setDraft] = useState('');
+  const [hint, setHint] = useState<string>();
+  const [mention, setMention] = useState<{ start: number; query: string }>();
+  const [highlighted, setHighlighted] = useState(0);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const seededRef = useRef(false);
+
+  const roster = useMemo(
+    () => Object.values(members).filter((m) => m.removed_ts === undefined),
+    [members],
+  );
+  const mentionables = useMemo(() => {
+    if (!mention) return [];
+    const query = mention.query.toLowerCase();
+    return roster
+      .filter((m) => m.handle.toLowerCase().startsWith(query))
+      .slice(0, 6);
+  }, [mention, roster]);
+
+  const defaultRecipient = useMemo(
+    () => effectiveDefaultRecipient({ room, members, latestFinalizedAgentId }),
+    [room, members, latestFinalizedAgentId],
+  );
+
+  // A fresh draft opens addressed to whoever should hear it (latest agent chain).
+  useEffect(() => {
+    if (seededRef.current || draft !== '' || defaultRecipient === undefined) return;
+    seededRef.current = true;
+    setDraft(`@${defaultRecipient.handle} `);
+  }, [draft, defaultRecipient]);
+
+  // Quote buttons in the transcript prepend their text into the draft.
+  useEffect(() => {
+    const onQuote = (event: Event): void => {
+      const text = (event as CustomEvent<string>).detail;
+      setDraft((prior) => {
+        const lead = prior !== '' && !prior.endsWith('\n') ? `${prior}\n` : prior;
+        return `${lead}${text}\n`;
+      });
+      areaRef.current?.focus();
+      requestAnimationFrame(autoGrow);
+    };
+    window.addEventListener(QUOTE_EVENT, onQuote);
+    return () => window.removeEventListener(QUOTE_EVENT, onQuote);
+  }, []);
 
   const canSend = connected && draft.trim().length > 0;
 
@@ -26,35 +88,117 @@ export function Composer(props: { room: string; connection: Connection }) {
     node.style.height = `${Math.min(node.scrollHeight, Math.round(line * MAX_ROWS))}px`;
   };
 
+  const refreshMention = (): void => {
+    const node = areaRef.current;
+    if (!node) return;
+    setMention(mentionQuery(node.value, node.selectionStart ?? node.value.length));
+    setHighlighted(0);
+  };
+
+  const insertMention = (member: Member): void => {
+    if (!mention) return;
+    const node = areaRef.current;
+    const caret = node?.selectionStart ?? draft.length;
+    const next = `${draft.slice(0, mention.start)}@${member.handle} ${draft.slice(caret)}`;
+    setDraft(next);
+    setMention(undefined);
+    requestAnimationFrame(() => {
+      const position = mention.start + member.handle.length + 2;
+      node?.setSelectionRange(position, position);
+      node?.focus();
+      autoGrow();
+    });
+  };
+
   const send = (): void => {
     const body = draft.trim();
     if (!canSend || body.length === 0) return;
+    const addressed = roster.some((m) => new RegExp(`@${m.handle}\\b`, 'i').test(body));
+    if (!addressed && roster.some((m) => m.kind === 'agent')) {
+      setHint(
+        defaultRecipient
+          ? `Say who this is for — try @${defaultRecipient.handle}`
+          : 'Say who this is for — mention someone with @',
+      );
+      return;
+    }
     props.connection.post(body);
     setDraft('');
+    setHint(undefined);
+    seededRef.current = false; // the next draft re-seeds its recipient
+    setMention(undefined);
     requestAnimationFrame(autoGrow);
   };
 
   return (
     <footer className="nx-composer">
+      {hint !== undefined && (
+        <p className="nx-composer-hint" role="alert" data-testid="composer-hint">{hint}</p>
+      )}
       <div className="nx-composer-bar">
+        {mention && mentionables.length > 0 && (
+          <ul className="nx-mentions" role="listbox" aria-label="Mention someone" data-testid="mention-popover">
+            {mentionables.map((member, index) => (
+              <li key={member.id}>
+                <button
+                  role="option"
+                  aria-selected={index === highlighted}
+                  className={`nx-mention ${index === highlighted ? 'is-active' : ''}`}
+                  onMouseEnter={() => setHighlighted(index)}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    insertMention(member);
+                  }}
+                >
+                  <Chip name={member.handle} accent={memberAccent(member)} size={24} />
+                  <span className="nx-mention-handle">@{member.handle}</span>
+                  <span className="nx-mention-kind">{member.kind}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <textarea
           ref={areaRef}
           className="nx-composer-input"
           data-testid="composer-input"
-          placeholder={connected ? `Message ${props.room}…` : 'Reconnecting…'}
+          placeholder={connected ? `Message ${room?.name ?? props.room}…` : 'Reconnecting…'}
           aria-label="Message"
           rows={1}
           value={draft}
           onChange={(event) => {
             setDraft(event.target.value);
+            setHint(undefined);
             autoGrow();
+            requestAnimationFrame(refreshMention);
           }}
+          onClick={refreshMention}
           onKeyDown={(event) => {
+            if (mention && mentionables.length > 0) {
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                setHighlighted((prior) => {
+                  const delta = event.key === 'ArrowDown' ? 1 : -1;
+                  return (prior + delta + mentionables.length) % mentionables.length;
+                });
+                return;
+              }
+              if (event.key === 'Enter' || event.key === 'Tab') {
+                event.preventDefault();
+                insertMention(mentionables[highlighted] ?? mentionables[0]!);
+                return;
+              }
+              if (event.key === 'Escape') {
+                setMention(undefined);
+                return;
+              }
+            }
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               send();
             }
           }}
+          onBlur={() => setMention(undefined)}
         />
         <IconButton
           icon={ArrowUp}

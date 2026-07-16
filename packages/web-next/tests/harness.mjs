@@ -4,6 +4,7 @@
 // tool + diff evidence, a live running run, a pending approval, and a held delivery.
 // Playwright and the screenshot pipeline point the dev server (or the built SPA this
 // serves) at it.
+import { createServer } from 'node:http';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -25,6 +26,7 @@ const readPort = (name, fallback) => {
   return value;
 };
 const API_PORT = readPort('CODOR_NEXT_E2E_API_PORT', 28_137);
+const CONTROL_PORT = readPort('CODOR_NEXT_E2E_CONTROL_PORT', 28_138);
 const TOKEN = 'next-e2e-token';
 
 const dir = mkdtempSync(join(tmpdir(), 'codor-next-e2e-'));
@@ -222,6 +224,24 @@ fake.enqueue({
 });
 daemon.postHumanMessage('eng', '@scout profile the slow dashboard query');
 await new Promise((resolve) => setTimeout(resolve, 300));
+
+// ── Control endpoint: tests script upcoming fake turns just-in-time ──────
+createServer((req, res) => {
+  let raw = '';
+  req.on('data', (chunk) => (raw += chunk));
+  req.on('end', () => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      if (url.pathname === '/enqueue') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        for (const turn of body.turns ?? []) fake.enqueue(turn);
+      }
+      res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
+    } catch (error) {
+      res.writeHead(400).end(String(error));
+    }
+  });
+}).listen(CONTROL_PORT, '127.0.0.1');
 
 // ── Serve: built SPA + API on one isolated port ──────────────────────────
 const staticRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');

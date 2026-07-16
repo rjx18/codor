@@ -1,6 +1,8 @@
-import type { Member, Message } from '@codor/protocol';
-import { ArrowDown, Check, ChevronRight, Copy, TerminalSquare } from 'lucide-react';
+import type { Delivery, Member, Message } from '@codor/protocol';
+import { ArrowDown, Check, CheckCheck, ChevronRight, Clock3, Copy, Quote, TerminalSquare } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+
+import type { Connection } from '@legacy/ws.js';
 
 import { fetchMessageHistory, fetchRunEvents } from '@legacy/api.js';
 import {
@@ -25,7 +27,7 @@ import { clockTime, memberAccent } from '../primitives/identity.js';
 /** Consecutive same-author messages within this window collapse their header. */
 const GROUP_WINDOW_MS = 2 * 60_000;
 
-export function Transcript(props: { room: string; token: () => string }) {
+export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
   const messages = useRoomStore((s) => s.messages);
   const members = useRoomStore((s) => s.members);
   const selfId = useRoomStore((s) => s.selfMemberId);
@@ -117,6 +119,9 @@ export function Transcript(props: { room: string; token: () => string }) {
                 grouped={grouped}
                 room={props.room}
                 token={props.token}
+                connection={props.connection}
+                deliveries={inbox}
+                members={members}
               />
             );
           })}
@@ -154,6 +159,9 @@ function TurnBlock(props: {
   grouped: boolean;
   room: string;
   token: () => string;
+  connection: Connection;
+  deliveries: Record<string, Delivery>;
+  members: Record<string, Member>;
 }) {
   const { message, author } = props;
   const [copied, setCopied] = useState(false);
@@ -173,6 +181,10 @@ function TurnBlock(props: {
       setTimeout(() => setCopied(false), 1200);
     });
   };
+  const quote = (): void => {
+    const line = message.body.split('\n', 1)[0] ?? '';
+    window.dispatchEvent(new CustomEvent('nx-quote', { detail: `@${handle} > ${line}` }));
+  };
 
   return (
     <article
@@ -188,9 +200,15 @@ function TurnBlock(props: {
           <div className="nx-turn-meta">
             <strong className="nx-turn-author">@{handle}</strong>
             <time className="nx-turn-time" dateTime={message.ts}>{clockTime(message.ts)}</time>
+            {author?.kind === 'human' && (
+              <SeenTicks message={message} deliveries={props.deliveries} members={props.members} />
+            )}
             <span className="nx-turn-spacer" />
             <a className="nx-permalink" href={`#${message.id}`}>#{message.id}</a>
             <span className="nx-turn-actions">
+              <button className="nx-iconbtn is-quiet" aria-label="Quote message" data-testid={`msg-${message.id}-quote`} onClick={quote}>
+                <Quote size={14} aria-hidden="true" />
+              </button>
               <button className="nx-iconbtn is-quiet" aria-label="Copy message" data-testid={`msg-${message.id}-copy`} onClick={copy}>
                 {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
               </button>
@@ -200,10 +218,35 @@ function TurnBlock(props: {
         {message.kind === 'run'
           ? <RunContent message={message} room={props.room} token={props.token} />
           : message.kind === 'ask' || message.kind === 'approval'
-            ? <AskCardView message={message} />
+            ? <AskCardView message={message} connection={props.connection} />
             : <MessageProse body={message.body} />}
       </div>
     </article>
+  );
+}
+
+/** Delivery ticks per Richard #302: a message to agents is "seen" once its
+ *  deliveries are consumed — queued or held ones have not reached anyone yet. */
+function SeenTicks(props: {
+  message: Message;
+  deliveries: Record<string, Delivery>;
+  members: Record<string, Member>;
+}) {
+  const relevant = Object.values(props.deliveries).filter(
+    (d) => d.message_id === props.message.id && props.members[d.recipient]?.kind === 'agent',
+  );
+  if (relevant.length === 0) return null;
+  // delivering means the turn already carries the payload — the agent has it.
+  const seen = relevant.every((d) => d.state === 'delivering' || d.state === 'consumed');
+  return (
+    <span
+      className={`nx-seen ${seen ? 'is-seen' : ''}`}
+      title={seen ? 'Delivered to its agents' : 'Waiting in the queue'}
+      data-testid={`msg-${props.message.id}-seen`}
+      data-seen={seen}
+    >
+      {seen ? <CheckCheck size={13} aria-hidden="true" /> : <Clock3 size={12} aria-hidden="true" />}
+    </span>
   );
 }
 
@@ -279,8 +322,24 @@ function RunContent(props: { message: Message; room: string; token: () => string
           : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} />,
       )}
       {running && rows.length === 0 && <TypingDots label="run starting" />}
+      {running && <ElapsedSince ts={props.message.ts} />}
       {!running && !hasProse && finalText.length > 0 && <MessageProse body={finalText} />}
     </div>
+  );
+}
+
+/** Ticking elapsed line under a live run. */
+function ElapsedSince(props: { ts: string }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => force((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(props.ts)) / 1000));
+  return (
+    <p className="nx-run-elapsed" data-testid="run-elapsed">
+      running · {formatRunDuration(seconds * 1000)}
+    </p>
   );
 }
 
@@ -346,11 +405,24 @@ function ToolCard(props: { row: RunRow }) {
   );
 }
 
-// ── Interaction cards (read-only pass; answering lands with interactions) ──
+// ── Interaction cards: options answer durably; the resolved card leaves the
+// timeline once the server marks its delivery resolved. ─────────────────────
 
-function AskCardView(props: { message: Message }) {
+function AskCardView(props: { message: Message; connection: Connection }) {
   const ask = props.message.ask;
+  const [picked, setPicked] = useState<string[]>([]);
+  const [sent, setSent] = useState(false);
   if (!ask) return <MessageProse body={props.message.body} />;
+
+  const answer = (value: unknown): void => {
+    props.connection.act({
+      act: 'answer_interaction',
+      interaction_id: ask.interaction_id,
+      answer: value,
+    });
+    setSent(true);
+  };
+
   return (
     <div className="nx-ask" data-testid={`ask-${props.message.id}`}>
       <div className="nx-ask-head">
@@ -362,12 +434,39 @@ function AskCardView(props: { message: Message }) {
       {ask.options !== undefined && ask.options.length > 0 && (
         <div className="nx-ask-options">
           {ask.options.map((option) => (
-            <button key={option.label} className="nx-btn" disabled title="Answering arrives with the interactions phase">
+            <button
+              key={option.label}
+              className={`nx-btn ${ask.multi === true && picked.includes(option.label) ? 'is-primary' : ''}`}
+              disabled={sent}
+              title={option.description}
+              data-testid={`ask-${props.message.id}-${option.label}`}
+              onClick={() => {
+                if (ask.multi === true) {
+                  setPicked((prior) =>
+                    prior.includes(option.label)
+                      ? prior.filter((label) => label !== option.label)
+                      : [...prior, option.label],
+                  );
+                } else {
+                  answer(option.label);
+                }
+              }}
+            >
               {option.label}
             </button>
           ))}
+          {ask.multi === true && (
+            <button
+              className="nx-btn is-primary"
+              disabled={sent || picked.length === 0}
+              onClick={() => answer(picked)}
+            >
+              Send answer
+            </button>
+          )}
         </div>
       )}
+      {sent && <p className="nx-ask-sent">Answered — waiting for the agent…</p>}
     </div>
   );
 }

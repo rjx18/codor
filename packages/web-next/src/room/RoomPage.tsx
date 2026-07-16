@@ -17,6 +17,7 @@ import { useRoomSummaries, type RoomSummary } from '../app/summary.js';
 import { Chip, IconButton, Eyebrow, StatusPill } from '../primitives/primitives.js';
 import { compactCount, memberAccent, relativeTime, usd } from '../primitives/identity.js';
 import { Composer } from './Composer.js';
+import { HoldBanner, InboxControl, SearchOverlay } from './panels.js';
 import { Transcript } from './Transcript.js';
 
 export function RoomPage(props: { token: string; refreshToken?: () => Promise<string> }) {
@@ -176,6 +177,7 @@ function ChatPanel(props: { room: string; connection: Connection; token: () => s
   const meter = useRoomStore((s) => s.meter);
   const connected = useRoomStore((s) => s.connected);
   const memberCount = useRoomStore((s) => Object.values(s.members).filter((m) => m.removed_ts === undefined).length);
+  const [searching, setSearching] = useState(false);
 
   return (
     <main className="nx-chat" data-testid="room-view">
@@ -190,13 +192,16 @@ function ChatPanel(props: { room: string; connection: Connection; token: () => s
           </p>
         </div>
         <div className="nx-chat-actions">
-          <IconButton icon={Search} label="Search messages" data-testid="toggle-message-search" />
+          <IconButton icon={Search} label="Search messages" data-testid="toggle-message-search" onClick={() => setSearching(true)} />
+          <InboxControl room={props.room} connection={props.connection} token={props.token} />
           <IconButton icon={Share2} label="Open ledger graph" onClick={() => { window.location.href = `/ledger?room=${props.room}`; }} />
           <IconButton icon={Settings} label="Channel settings" data-testid="room-settings" onClick={() => { window.location.href = `/settings?room=${props.room}`; }} />
         </div>
       </header>
-      <Transcript room={props.room} token={props.token} />
+      <HoldBanner connection={props.connection} />
+      <Transcript room={props.room} token={props.token} connection={props.connection} />
       <Composer room={props.room} connection={props.connection} />
+      {searching && <SearchOverlay room={props.room} token={props.token} onClose={() => setSearching(false)} />}
     </main>
   );
 }
