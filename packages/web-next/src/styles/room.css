@@ -1156,6 +1156,45 @@
 .nx-device-id { display: flex; flex-direction: column; min-width: 0; }
 .nx-pair-qr { display: block; width: 220px; margin: var(--sp-3) auto; border-radius: var(--r-card); }
 .nx-pair-code { text-align: center; font-size: 18px; }
+.nx-pair-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-5); }
+@media (max-width: 719px) { .nx-pair-grid { grid-template-columns: 1fr; } }
+.nx-pair-qr-pane { text-align: center; }
+.nx-pair-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--t-caption-strong);
+  color: var(--c-secondary);
+}
+.nx-pair-explain h2 { margin: 0 0 var(--sp-2); font: var(--t-title); }
+.nx-pair-points { margin: 0 0 var(--sp-4); padding: 0; list-style: none; }
+.nx-pair-points li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font: var(--t-ui);
+  color: var(--c-body);
+  margin-bottom: var(--sp-1);
+}
+.nx-pair-points svg { color: var(--c-live-text); }
+.nx-pair-done { display: flex; align-items: center; gap: 6px; margin: var(--sp-3) 0 0; color: var(--c-live-text); font: var(--t-ui-strong); }
+.nx-pair-done a { color: var(--c-link); }
+.nx-pair-form { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.nx-pair-form input {
+  flex: 1;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  background: var(--c-surface);
+  font: var(--t-ui);
+}
+.nx-pair-code-input {
+  font: var(--t-mono) !important;
+  letter-spacing: 4px !important;
+  text-transform: uppercase;
+}
 .nx-surface-card {
   width: min(100%, 460px);
   padding: var(--sp-5);
