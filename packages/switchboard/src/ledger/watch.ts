@@ -184,7 +184,7 @@ export class LedgerManager {
     return this.vault(room).snapshot();
   }
 
-  // harn:assume graph-derived-from-vault-links-readonly ref=ledger-graph-cache
+  // harn:assume graph-derived-from-vault-links-readonly-v5 ref=ledger-graph-cache
   graph(room: string): LedgerGraph {
     const vault = this.vault(room);
     if (!vault.isEnabled()) return { nodes: [], edges: [] };
@@ -199,7 +199,7 @@ export class LedgerManager {
   private rebuildGraph(room: string, vault: LedgerVault): void {
     this.graphs.set(room, deriveLedgerGraph(vault.snapshot()));
   }
-  // harn:end graph-derived-from-vault-links-readonly
+  // harn:end graph-derived-from-vault-links-readonly-v5
 
   pull(room: string, destination: string): string {
     return this.vault(room).pull(destination);

@@ -1,0 +1,330 @@
+id: v5-p5-ledger
+title: V5 Phase 5 - migrate the read-only Ledger graph to the soft-editorial
+  system while preserving its projection, navigation, note, and accessibility
+  contracts.
+notes: >-
+  Derived design: neither shipped v5 reference contains a Ledger screen, so this
+  phase composes the live read-only graph only from the tracked v5 foundation,
+  the existing v5 primitives, and the current Ledger product behavior. Ledger is
+  a quiet editorial workspace, not a dashboard or CRUD surface. The page sits on
+  the warm canvas; at wide desktop the existing channel rail, graph surface, and
+  selected-note inspector are three separate top-level panels with the shared
+  inset/gap rhythm. The graph remains the visual primary. Its edges use the v5
+  neutral line role, note types use existing accessible semantic roles
+  (decision/agent, constraint/warn, contract/live), and selection/focus remain
+  distinct without glow, gradients, ornamental chrome, or a mutation affordance.
+
+  The header keeps the real channel title, encrypted disclosure, search, type
+  filter, reset, fullscreen, and return-to-channel actions. Appropriate icon and
+  input controls consume the unchanged v5 primitive library; custom graph and
+  composite controls remain literal-class, Lucide/currentColor, tokenised
+  elements. Below 720px the quiet back/title header keeps one 44px Graph
+  controls overflow trigger; its labelled popover contains the same search
+  input, type filter, reset, and fullscreen commands rather than hiding those
+  workflows. Geist and Geist Mono, zero letter spacing, the four-step text ramp,
+  v5 spacing/elevation, and at least 44x44 interactive targets apply in both
+  themes. Each SVG node keeps its small visible semantic mark but gains a
+  transparent pointer target large enough to make the rendered group at least
+  44x44 at the 390px initial graph scale. Existing Ledger test ids, graph
+  group/node button semantics, docked complementary landmark, overlay dialog
+  semantics, focus trap, Escape return, note dialog, ledger reference buttons,
+  loading/empty/error status roles, and accessible names are preserved.
+
+  Node type is never communicated by color alone: decision, constraint, and
+  contract remain visible in the legend and are added as accessible descriptions
+  while existing node accessible names stay stable. Every edge, semantic node
+  outline, selection outline, and focus outline clears 3:1 against its adjacent
+  graph surface in both themes; a parsed/computed contrast regression owns that
+  non-text promise. The graph remains read-only and the semantic colors add no
+  status or capability not present in the projection.
+
+  The inspector is an 18px v5 panel in every mode. At and above 1360px it is a
+  docked complementary third pane. From 720px through 1359px it is a right-side
+  modal dialog over the graph with the v5 scrim. Below 720px it is a full-width,
+  bottom-aligned sheet whose exposed corners use the 18px panel radius. The
+  boundary is exact, not approximate: browser assertions exercise 719/720 and
+  1359/1360, including role, aria-modal, visibility, scrim, close control,
+  bounding geometry, focus return, and horizontal overflow. Phone and boundary
+  target inventories first prove every named control and graph node exists, then
+  sweep their rendered hit boxes so no omission can pass vacuously.
+
+  The existing data path is unchanged. The switchboard continues to derive the
+  same deterministic room-scoped nodes and untyped edges from watched vault
+  wikilinks, authorize the same read-only REST projection, and expose no graph
+  mutation route. The web continues to fetch the same projection and note
+  bodies; search, type filtering, keyboard/click selection, backlink/link
+  selection, wheel zoom, pointer-drag pan, reset, fullscreen, ledger references,
+  and note viewing all remain executable. The backend anchors move from the
+  retired v4 assumption to its v5 replacement by marker only; protocol, server
+  behavior, store behavior, graph schema, watcher behavior, and stored data do
+  not change.
+
+  The old Ledger declarations sit beside shared bridge-banner and message-origin
+  rules. Phase 5 moves only selectors owned by LedgerGraph into the new anchored
+  region; those shared room/bridge rules remain byte-for-byte unchanged and are
+  not claimed by the Ledger guard. Legacy Ledger fallback entries in shared
+  transparency lists may be removed only when the new matte v5 surface no longer
+  consumes them.
+
+  A new anchored structural unit guard parses the exact Ledger CSS anchor and
+  LedgerGraph TSX. It derives the Ledger-owned class set from the anchor and
+  then scans every matching rule across styles.css, so an earlier or later
+  legacy duplicate cannot evade it. It rejects --wr-* use, undeclared/non---cd-*
+  vars, Tailwind utilities, raw paint/type/spacing/radius/shadow/motion, inline
+  styles, nonliteral className, and literal SVG paint. The only hand-authored
+  SVG exception is the functional graph scene (svg/g/line/circle/text) with a
+  closed geometry/ARIA/event allowlist; its paint stays in CSS. Negative
+  fixtures prove every bypass fails.
+
+  Dedicated axe coverage uses a fresh browser context for every state and
+  asserts the intended theme, viewport, role, geometry, selected node,
+  dialog/sheet, or note dialog before scanning. In both light and dark it covers
+  the 1440 docked inspector, 1024 graph and side-overlay states, 390 graph and
+  bottom-sheet states, and the room ledger-note dialog. The existing broad
+  both-theme room matrices remain unchanged.
+
+  A separate tracked `capture:ledger` command runs a build-first isolated
+  harness and writes exactly six as-built captures under tmp/build/design/v5:
+  1440 with the docked inspector, 1024 with the side overlay, and 390 with the
+  bottom sheet, each in explicit light and dark. It freshness-, size-, and
+  dimension-checks every image. The existing `capture` and
+  `capture:settings-pairing` commands remain byte-for-byte unchanged. Never
+  restart codor.service; tests and captures use isolated daemons only.
+
+  Acceptance is build -> full unit -> full isolated e2e (including the dedicated
+  both-theme Ledger axe matrix) -> capture:ledger -> Harn check/apply. The graph
+  regression explicitly proves the unchanged deterministic backend projection,
+  authorization/read-only boundary, search/filter, selection and linked-note
+  navigation, wheel zoom, pointer-drag pan, reset, reference/note viewer, exact
+  responsive boundaries, no overflow, and the absence of graph mutation
+  controls.
+assumptions:
+  create:
+    - id: graph-derived-from-vault-links-readonly-v5
+      title: Ledger graph is a read-only soft-editorial projection of watched vault
+        wikilinks
+      statement: The home switchboard must continue to derive deterministic note nodes
+        and untyped edges from existing vault [[wikilinks]] when the vault is
+        enabled or watched files change, expose only that room-scoped projection
+        to an authorized reader, and let the web search, filter, navigate,
+        select and read it without any graph mutation path, while the Ledger
+        surface presents the projection on the accessible v5 warm canvas with
+        semantic tokenised nodes and edges that clear 3:1 as non-text
+        information, color-independent type descriptions, a phone Graph-controls
+        popover that preserves search/filter/reset/fullscreen, 44px rendered
+        node hit targets, and an 18px selected-note inspector that is docked at
+        1360px, a side-overlay dialog from 720px through 1359px, and a bottom
+        sheet below 720px, because the missing v5 Ledger reference must be
+        derived from the common system without changing vault, authorization,
+        graph, note, or stored-data behavior.
+      reason: The active Ledger contract still depends on the restrained v4 design
+        foundation even though Phase 5 replaces only its presentation. A v5
+        replacement keeps the backend read-only projection and web workflows
+        explicit while making the responsive visual and accessibility
+        obligations reviewable at their real source and test anchors.
+      depends_on:
+        - ledger-writes-audited-in-room
+        - roles-gate-human-acts-not-agents
+        - soft-editorial-design-system-guides-responsive-surfaces
+        - web-theme-accessible-modes
+        - web-v5-primitives-consume-only-tokens
+        - design-references-preserve-wireroom-semantics
+        - bridged-room-wears-banner-v5
+  retire:
+    - id: graph-derived-from-vault-links-readonly
+      reason: Its deterministic projection, authorization, read-only web, and
+        semantics anchors move to the v5 replacement; only the dependency on the
+        restrained visual foundation and the Ledger presentation are superseded.
+  reviewed:
+    - id: ledger-writes-audited-in-room
+      outcome: unchanged
+      reason: Watched markdown changes, attribution, audit notices, and non-routing
+        eligibility remain byte-for-byte unchanged; the adjacent graph-cache
+        marker moves to the v5 replacement without changing watcher behavior.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: The existing authorized read projection and all mutating role gates
+        remain unchanged; Phase 5 adds no graph mutation control, route,
+        protocol act, or store operation.
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: Ledger consumes the existing semantic light/dark token layer and opaque
+        fallbacks unchanged; a new nested both-theme axe anchor proves the
+        docked, overlay, sheet, graph, and note-dialog states.
+    - id: web-v5-primitives-consume-only-tokens
+      outcome: unchanged
+      reason: Ledger adopts the existing tokenised Input/IconButton/Button APIs where
+        their semantics fit, without changing primitive source, CSS, geometry,
+        or public props.
+    - id: design-references-preserve-wireroom-semantics
+      outcome: unchanged
+      reason: The derived Ledger layout depicts only the shipped read-only graph,
+        references, and note viewer; it invents no graph editing, account,
+        retention, orchestration, or relay capability.
+    - id: bridged-room-wears-banner-v5
+      outcome: unchanged
+      reason: A bridged Ledger keeps the existing permanent external-platform
+        disclosure and grid accommodation while the surrounding graph surface
+        migrates to v5.
+files:
+  - packages/switchboard/src/ledger/ledger.spec.ts
+  - packages/switchboard/src/ledger/watch.ts
+  - packages/switchboard/src/server.ts
+  - packages/web/src/LedgerGraph.tsx
+  - packages/web/src/styles.css
+  - packages/web/src/ledger-style.spec.ts
+  - packages/web/tests/e2e.spec.ts
+  - packages/web/tests/a11y.e2e.spec.ts
+  - packages/web/tests/a11y-ledger.e2e.spec.ts
+  - packages/web/tests/capture-ledger.mjs
+  - packages/web/package.json
+  - tmp/build/design/v5/ledger-1440-light.png
+  - tmp/build/design/v5/ledger-1440-dark.png
+  - tmp/build/design/v5/ledger-1024-light.png
+  - tmp/build/design/v5/ledger-1024-dark.png
+  - tmp/build/design/v5/ledger-390-light.png
+  - tmp/build/design/v5/ledger-390-dark.png
+anchors:
+  graph-derived-from-vault-links-readonly-v5:
+    ledger-graph-regression:
+      action: change
+      reason: Move the deterministic nodes/edges regression to the v5 replacement
+        without changing its backend assertions.
+    ledger-graph-cache:
+      action: change
+      reason: Move the watched-vault projection marker only; graph derivation and
+        cache invalidation remain byte-for-byte unchanged.
+    ledger-graph-rest:
+      action: change
+      reason: Move the authorized read-only REST marker only; request, response, role,
+        and schema behavior remain byte-for-byte unchanged.
+    ledger-graph-web:
+      action: change
+      reason: Replace the v4 marker around the live graph page while preserving every
+        fetch, test id, role, accessible name, state, and interaction and
+        migrating only hierarchy, primitive consumption, literal state classes,
+        and functional SVG type hooks.
+    soft-editorial-ledger-style:
+      action: change
+      reason: Replace the unanchored v4 Ledger declarations with one closed v5 region
+        for the warm graph, semantic nodes/edges, 18px inspector, shared
+        rail/panel composition, exact responsive modes, phone controls popover,
+        color-independent type legend/descriptions, 3:1 graphical contrast,
+        focus, and target sizes while leaving adjacent shared bridge/message
+        rules unchanged.
+    soft-editorial-ledger-token-discipline:
+      action: change
+      reason: Add a PostCSS/value-parser and TypeScript-AST guard over global
+        Ledger-owned selectors and the graph TSX, with a closed functional-SVG
+        exception, parsed semantic non-text contrast matrix, global
+        duplicate-rule detection, and negative bypass fixtures.
+    ledger-graph-browser-regression:
+      action: change
+      reason: Anchor functional and geometry coverage for projection, search/type
+        filtering, links/backlinks, note viewing, zoom, drag-pan, reset,
+        read-only controls, the phone Graph-controls popover and all four
+        commands, color-independent node descriptions, non-vacuous 44px
+        node/control targets, overflow, and exact 719/720 and 1359/1360
+        transitions.
+    ledger-graph-semantics:
+      action: change
+      reason: Move the existing group/node and complementary/dialog semantics
+        regression to the replacement and extend it across the exact boundaries
+        without changing names or focus behavior.
+    soft-editorial-ledger-axe:
+      action: change
+      reason: Add the state-asserted fresh-context both-theme matrix for graph, docked
+        inspector, side overlay, bottom sheet, and note dialog.
+    soft-editorial-ledger-capture-proof:
+      action: change
+      reason: Add a separate build-first isolated six-capture pipeline for the three
+        responsive inspector modes without changing existing capture commands.
+  graph-derived-from-vault-links-readonly:
+    ledger-graph-regression:
+      action: remove
+      reason: Re-anchored unchanged to graph-derived-from-vault-links-readonly-v5.
+    ledger-graph-cache:
+      action: remove
+      reason: Re-anchored unchanged to graph-derived-from-vault-links-readonly-v5.
+    ledger-graph-rest:
+      action: remove
+      reason: Re-anchored unchanged to graph-derived-from-vault-links-readonly-v5.
+    ledger-graph-web:
+      action: remove
+      reason: Replaced by the v5 Ledger web anchor.
+    ledger-graph-semantics:
+      action: remove
+      reason: Re-anchored and extended under the v5 replacement.
+  ledger-writes-audited-in-room:
+    ledger-change-audit:
+      action: keep
+      reason: Ledger audit notices and attribution do not change.
+  roles-gate-human-acts-not-agents:
+    role-matrix-integration:
+      action: keep
+      reason: The authorization regression does not change.
+    role-matrix-source:
+      action: keep
+      reason: The role matrix does not change.
+    role-aware-web-controls:
+      action: keep
+      reason: Existing role-aware room controls do not change and Ledger adds no
+        mutating control.
+  soft-editorial-design-system-guides-responsive-surfaces:
+    soft-editorial-responsive-contract:
+      action: keep
+      reason: Phase 5 consumes the shipped v5 contract without changing it.
+  web-theme-accessible-modes:
+    theme-contrast-matrix:
+      action: keep
+      reason: Ledger uses the existing measured semantic roles unchanged.
+    soft-editorial-token-layer:
+      action: keep
+      reason: No token declaration or alias changes; Ledger consumes only the existing
+        v5 graph-appropriate semantic and surface roles.
+    token-resolution-regression:
+      action: keep
+      reason: The token graph remains unchanged.
+    axe-room-matrix-dark:
+      action: keep
+      reason: Existing broad dark-theme coverage remains unchanged.
+    axe-room-matrix-light:
+      action: keep
+      reason: Existing broad light-theme coverage remains unchanged.
+    axe-room-matrix-shared:
+      action: keep
+      reason: The existing shared sweep and its Ledger/note states remain unchanged;
+        dedicated Phase 5 coverage is additive and isolated.
+    axe-ledger-matrix:
+      action: change
+      reason: Nest the new state-asserted both-theme Ledger matrix under the
+        accessible theme contract and the v5 Ledger replacement.
+  web-v5-primitives-consume-only-tokens:
+    v5-primitive-styles:
+      action: keep
+      reason: Ledger consumes the existing primitive CSS unchanged.
+    v5-primitive-token-discipline:
+      action: keep
+      reason: Existing primitive token enforcement remains unchanged.
+    v5-primitive-render-regression:
+      action: keep
+      reason: Existing primitive render and target coverage remains unchanged.
+    v5-primitive-components:
+      action: keep
+      reason: Ledger consumes the current public primitive components unchanged.
+  design-references-preserve-wireroom-semantics:
+    v5-product-fidelity:
+      action: keep
+      reason: The tracked product-fidelity contract remains unchanged.
+  bridged-room-wears-banner-v5:
+    bridged-room-config:
+      action: keep
+      reason: The persisted bridged flag is unchanged.
+    bridged-room-banner:
+      action: keep
+      reason: The existing disclosure component is reused unchanged.
+    bridged-room-regression:
+      action: keep
+      reason: Existing room/Settings/Ledger disclosure coverage remains unchanged.
+applied:
+  applied_at: 2026-07-16T05:16:59.765Z

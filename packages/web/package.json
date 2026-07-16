@@ -10,7 +10,8 @@
     "test": "vitest run",
     "e2e": "node tests/run-e2e.mjs",
     "capture": "node tests/capture-room.mjs",
-    "capture:settings-pairing": "node tests/capture-settings-pairing.mjs"
+    "capture:settings-pairing": "node tests/capture-settings-pairing.mjs",
+    "capture:ledger": "node tests/capture-ledger.mjs"
   },
   "dependencies": {
     "@codor/protocol": "workspace:*",

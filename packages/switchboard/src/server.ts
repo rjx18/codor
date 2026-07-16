@@ -611,7 +611,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     void reply.send({ events: daemon.readRunBlob(room, Number(msgId)) });
   });
 
-  // harn:assume graph-derived-from-vault-links-readonly ref=ledger-graph-rest
+  // harn:assume graph-derived-from-vault-links-readonly-v5 ref=ledger-graph-rest
   app.get('/api/rooms/:room/ledger', (req, reply) => {
     const principal = authed(req, reply);
     if (!principal) return;
@@ -623,7 +623,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return reply.code(500).send({ error: 'ledger graph unavailable' });
     }
   });
-  // harn:end graph-derived-from-vault-links-readonly
+  // harn:end graph-derived-from-vault-links-readonly-v5
 
   app.get('/api/rooms/:room/ledger/:name', (req, reply) => {
     const principal = authed(req, reply);

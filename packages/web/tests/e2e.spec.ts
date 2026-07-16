@@ -69,7 +69,9 @@ test('ledger changes appear in the room and [[refs]] open a read-only note viewe
   await expect(ledgerReference).toBeFocused();
 });
 
-test('ledger graph renders the vault projection and opens a read-only note inspector', async ({ page }) => {
+// harn:assume graph-derived-from-vault-links-readonly-v5 ref=ledger-graph-browser-regression
+test('ledger graph preserves its read-only workflows across exact v5 responsive modes', async ({ page }) => {
+  test.setTimeout(90_000);
   await control('/ledger-graph-init');
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?room=eng&token=e2e-token');
@@ -82,15 +84,28 @@ test('ledger graph renders the vault projection and opens a read-only note inspe
   const risk = page.getByTestId('ledger-node-risk-limits');
   await expect(launch).toBeVisible();
   await expect(risk).toBeVisible();
+  await expect(launch).toHaveAttribute('aria-label', 'Open note Launch Plan');
+  await expect(launch).toHaveAttribute('aria-describedby', 'ledger-type-decision');
   const surface = (await page.getByTestId('ledger-graph-surface').boundingBox())!;
   expect(surface.width).toBeGreaterThan(500);
   expect(surface.height).toBeGreaterThan(500);
+
+  // Wheel zoom, pointer pan, and reset remain real graph operations.
   const beforeZoom = await page.getByTestId('ledger-graph-surface').locator('svg > g').getAttribute('transform');
   await page.getByTestId('ledger-graph-surface').hover();
   await page.mouse.wheel(0, -120);
   await expect.poll(() => page.getByTestId('ledger-graph-surface').locator('svg > g').getAttribute('transform'))
     .not.toBe(beforeZoom);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  const graphBox = (await page.getByTestId('ledger-graph-surface').boundingBox())!;
+  await page.mouse.move(graphBox.x + graphBox.width - 40, graphBox.y + graphBox.height - 40);
+  await page.mouse.down();
+  await page.mouse.move(graphBox.x + graphBox.width - 90, graphBox.y + graphBox.height - 80);
+  await page.mouse.up();
+  const afterPan = await page.getByTestId('ledger-graph-surface').locator('svg > g').getAttribute('transform');
+  expect(afterPan).not.toBe(beforeZoom);
+  await page.getByTestId('ledger-reset').click();
+  await expect(page.getByTestId('ledger-graph-surface').locator('svg > g')).toHaveAttribute('transform', 'translate(0 0) scale(1)');
 
   await risk.click();
   const inspector = page.getByTestId('ledger-inspector');
@@ -99,35 +114,120 @@ test('ledger graph renders the vault projection and opens a read-only note inspe
   await expect(inspector).toContainText('Launch Plan');
   await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /delete|add note|create note/i })).toHaveCount(0);
+  await inspector.getByRole('button', { name: 'Launch Plan' }).first().click();
+  await expect(inspector).toContainText('Launch Plan');
+  await expect(inspector).toContainText('Wire Contract');
 
   await page.getByPlaceholder('Search notes').fill('release');
   await expect(page.getByTestId('ledger-node-release-checklist')).toBeVisible();
   await expect(launch).toBeHidden();
   await page.getByRole('button', { name: 'Clear note search' }).click();
   await expect(launch).toBeVisible();
+  await page.getByLabel('Filter note type').selectOption('constraint');
+  await expect(risk).toBeVisible();
+  await expect(launch).toBeHidden();
+  await page.getByLabel('Filter note type').selectOption('all');
+  await expect(launch).toBeVisible();
 
-  await page.setViewportSize({ width: 1150, height: 820 });
+  // 1360 is docked; 1359 is a right-side dialog with a 10px outer inset.
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.reload();
+  await expect(inspector).toHaveAttribute('role', 'complementary');
+  await expect(inspector).toBeVisible();
+  const docked = (await inspector.boundingBox())!;
+  expect(docked.width).toBeCloseTo(400, 0);
+
+  await page.setViewportSize({ width: 1359, height: 900 });
   await page.reload();
   await expect(page.getByTestId('ledger-inspector')).toBeHidden();
   const intermediateNode = page.getByTestId('ledger-node-launch-plan');
   await intermediateNode.click();
-  await expect(page.getByTestId('ledger-inspector')).toBeVisible();
+  await expect(inspector).toHaveAttribute('role', 'dialog');
+  await expect(inspector).toHaveAttribute('aria-modal', 'true');
+  await expect(inspector).toBeVisible();
+  const side = (await inspector.boundingBox())!;
+  expect(side.x + side.width).toBeCloseTo(1349, 0);
+  expect(side.y).toBeCloseTo(10, 0);
   await expect(page.getByRole('button', { name: 'Close note inspector' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('ledger-inspector')).toBeHidden();
   await expect(intermediateNode).toBeFocused();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1150);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1359);
+
+  // 720 is still the side overlay and keeps desktop controls.
+  await page.setViewportSize({ width: 720, height: 844 });
+  await page.reload();
+  await page.getByTestId('ledger-node-launch-plan').click();
+  const boundarySide = (await inspector.boundingBox())!;
+  expect(boundarySide.x + boundarySide.width).toBeCloseTo(710, 0);
+  await expect(page.getByTestId('ledger-controls-toggle')).toBeHidden();
+  await page.keyboard.press('Escape');
+
+  // 719 switches to the bottom sheet and the compact, feature-complete controls popover.
+  await page.setViewportSize({ width: 719, height: 844 });
+  await page.reload();
+  await expect(page.getByTestId('ledger-controls-toggle')).toBeVisible();
+  await page.getByTestId('ledger-node-launch-plan').click();
+  const boundarySheet = (await inspector.boundingBox())!;
+  expect(boundarySheet.x).toBe(0);
+  expect(boundarySheet.width).toBe(719);
+  expect(boundarySheet.y + boundarySheet.height).toBeCloseTo(844, 0);
+  await page.keyboard.press('Escape');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
+  const controlsToggle = page.getByTestId('ledger-controls-toggle');
+  await controlsToggle.click();
+  const phoneControls = page.getByTestId('ledger-phone-controls');
+  await expect(phoneControls).toBeVisible();
+  await phoneControls.getByLabel('Search notes').fill('risk');
+  await expect(page.getByTestId('ledger-node-risk-limits')).toBeVisible();
+  await expect(page.getByTestId('ledger-node-launch-plan')).toBeHidden();
+  await phoneControls.getByLabel('Clear note search').click();
+  await phoneControls.getByLabel('Filter note type').selectOption('contract');
+  await expect(page.getByTestId('ledger-node-wire-contract')).toBeVisible();
+  await phoneControls.getByLabel('Filter note type').selectOption('all');
+  await phoneControls.getByTestId('ledger-reset-mobile').click();
+
+  // The phone inventory is non-vacuous: every command and every rendered node is a real
+  // 44px target before an interaction is allowed to satisfy the assertion.
+  const namedTargets = [
+    controlsToggle,
+    phoneControls.getByLabel('Search notes'),
+    phoneControls.getByLabel('Filter note type'),
+    phoneControls.getByTestId('ledger-reset-mobile'),
+    phoneControls.getByTestId('ledger-fullscreen-mobile'),
+    phoneControls.getByLabel('Close graph controls'),
+  ];
+  for (const target of namedTargets) {
+    await expect(target).toHaveCount(1);
+    const box = (await target.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+  }
+  await phoneControls.getByTestId('ledger-fullscreen-mobile').click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute('data-testid')))
+    .toBe('ledger-graph-surface');
+  await page.evaluate(() => document.exitFullscreen());
+  await expect(phoneControls).toBeVisible();
+  await phoneControls.getByLabel('Close graph controls').click();
+  for (const id of ['launch-plan', 'risk-limits', 'wire-contract', 'release-checklist']) {
+    const node = page.getByTestId(`ledger-node-${id}`);
+    await expect(node).toHaveCount(1);
+    const box = (await node.boundingBox())!;
+    expect(box.width, id).toBeGreaterThanOrEqual(44);
+    expect(box.height, id).toBeGreaterThanOrEqual(44);
+  }
+
   await page.getByTestId('ledger-node-launch-plan').click();
   const mobileInspector = (await page.getByTestId('ledger-inspector').boundingBox())!;
   expect(mobileInspector.x).toBe(0);
   expect(mobileInspector.width).toBe(390);
   expect(mobileInspector.y + mobileInspector.height).toBeCloseTo(844, 0);
-  expect(mobileInspector.height).toBeLessThanOrEqual(844 * 0.58 + 1);
+  expect(mobileInspector.height).toBeLessThanOrEqual(844 * 0.68 + 1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
+// harn:end graph-derived-from-vault-links-readonly-v5
 
 test('room v1: post → live run → expand → ask → hold release → reconnect shows the finalized message', async ({
   page,

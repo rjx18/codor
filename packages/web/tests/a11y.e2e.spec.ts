@@ -192,31 +192,57 @@ test('the mobile drawer is a dialog on an element allowed to be one, and still d
 });
 // harn:end web-shell-responsive-three-pane
 
-// harn:assume graph-derived-from-vault-links-readonly ref=ledger-graph-semantics
-test('the ledger exposes its nodes, and its inspector is valid docked and overlaid', async ({ page }) => {
+// harn:assume graph-derived-from-vault-links-readonly-v5 ref=ledger-graph-semantics
+test('the ledger exposes described nodes and valid inspector semantics at its exact boundaries', async ({ page }) => {
   await control('/ledger-graph-init');
 
-  // Wide: the inspector is docked, so it is a complementary landmark.
+  // 1360: the inspector is docked, so it is a complementary landmark.
+  await page.setViewportSize({ width: 1360, height: 900 });
   await page.goto('/ledger?room=eng&token=e2e-token');
   await expect(page.getByTestId('ledger-graph-surface')).toBeVisible();
 
   // role=img is atomic; the node buttons inside it were unreachable. A group may have them.
   const svg = page.locator('[data-testid="ledger-graph-surface"] svg');
   await expect(svg).toHaveAttribute('role', 'group');
-  await expect(page.getByTestId('ledger-node-launch-plan')).toBeVisible();
+  const launch = page.getByTestId('ledger-node-launch-plan');
+  await expect(launch).toBeVisible();
+  await expect(launch).toHaveAttribute('aria-describedby', 'ledger-type-decision');
+  await expect(page.locator('#ledger-type-decision')).toContainText('Decision');
 
-  await page.getByTestId('ledger-node-launch-plan').click();
+  await launch.click();
   const inspector = page.getByTestId('ledger-inspector');
   await expect(inspector).toHaveJSProperty('tagName', 'SECTION');
   await expect(inspector).toHaveAttribute('role', 'complementary');
+  await expect(inspector).not.toHaveAttribute('aria-modal');
 
-  // Narrow: the same element overlays, and must now be a named dialog.
-  await page.setViewportSize({ width: 1200, height: 900 });
+  // 1359: the same element overlays at the right and must now be a named dialog.
+  await page.setViewportSize({ width: 1359, height: 900 });
   await page.reload();
-  await page.getByTestId('ledger-node-launch-plan').click();
+  await launch.click();
   await expect(inspector).toHaveAttribute('role', 'dialog');
   await expect(inspector).toHaveAttribute('aria-modal', 'true');
   await expect(page.getByRole('dialog', { name: 'Selected ledger note' })).toBeVisible();
-});
-// harn:end graph-derived-from-vault-links-readonly
+  await expect(inspector.getByRole('button', { name: 'Close note inspector' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(inspector.locator(':focus')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(inspector).toBeHidden();
+  await expect(launch).toBeFocused();
 
+  // 720 stays a side dialog; 719 becomes the full-width bottom sheet without changing role.
+  await page.setViewportSize({ width: 720, height: 844 });
+  await page.reload();
+  await launch.click();
+  const side = (await inspector.boundingBox())!;
+  expect(side.x).toBeGreaterThan(0);
+  await page.keyboard.press('Escape');
+
+  await page.setViewportSize({ width: 719, height: 844 });
+  await page.reload();
+  await launch.click();
+  await expect(inspector).toHaveAttribute('role', 'dialog');
+  const sheet = (await inspector.boundingBox())!;
+  expect(sheet.x).toBe(0);
+  expect(sheet.width).toBe(719);
+});
+// harn:end graph-derived-from-vault-links-readonly-v5

@@ -1,0 +1,27 @@
+id: graph-derived-from-vault-links-readonly-v5
+hash: a-680bd34c721b
+title: Ledger graph is a read-only soft-editorial projection of watched vault
+  wikilinks
+state: active
+statement: The home switchboard must continue to derive deterministic note nodes
+  and untyped edges from existing vault [[wikilinks]] when the vault is enabled
+  or watched files change, expose only that room-scoped projection to an
+  authorized reader, and let the web search, filter, navigate, select and read
+  it without any graph mutation path, while the Ledger surface presents the
+  projection on the accessible v5 warm canvas with semantic tokenised nodes and
+  edges that clear 3:1 as non-text information, color-independent type
+  descriptions, a phone Graph-controls popover that preserves
+  search/filter/reset/fullscreen, 44px rendered node hit targets, and an 18px
+  selected-note inspector that is docked at 1360px, a side-overlay dialog from
+  720px through 1359px, and a bottom sheet below 720px, because the missing v5
+  Ledger reference must be derived from the common system without changing
+  vault, authorization, graph, note, or stored-data behavior.
+depends_on:
+  - ledger-writes-audited-in-room
+  - roles-gate-human-acts-not-agents
+  - soft-editorial-design-system-guides-responsive-surfaces
+  - web-theme-accessible-modes
+  - web-v5-primitives-consume-only-tokens
+  - design-references-preserve-wireroom-semantics
+  - bridged-room-wears-banner-v5
+created_by: v5-p5-ledger

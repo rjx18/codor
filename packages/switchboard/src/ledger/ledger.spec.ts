@@ -33,7 +33,7 @@ async function waitFor(check: () => boolean, timeoutMs = 5_000): Promise<void> {
 }
 
 describe('ledger vault v1', () => {
-  // harn:assume graph-derived-from-vault-links-readonly ref=ledger-graph-regression
+  // harn:assume graph-derived-from-vault-links-readonly-v5 ref=ledger-graph-regression
   it('derives a deterministic read-only wikilink graph from a fixture vault', () => {
     expect(deriveLedgerGraph({
       'INDEX.md': '---\nname: index\n---\n# Channel Ledger\n',
@@ -55,7 +55,7 @@ describe('ledger vault v1', () => {
       ],
     });
   });
-  // harn:end graph-derived-from-vault-links-readonly
+  // harn:end graph-derived-from-vault-links-readonly-v5
 
   it('bootstraps the Obsidian-compatible vault from a byte-exact golden', () => {
     const root = mkdtempSync(join(tmpdir(), 'codor-ledger-'));

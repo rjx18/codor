@@ -14,6 +14,7 @@ import {
   Focus,
   LockKeyhole,
   Maximize2,
+  MoreHorizontal,
   Search,
   X,
 } from 'lucide-react';
@@ -30,6 +31,7 @@ import {
 } from './api.js';
 import { RoomRail } from './shell.js';
 import { BridgedRoomBanner } from './components.js';
+import { Button, IconButton, Input, Pill } from './v5/primitives.js';
 
 const WIDTH = 1000;
 const HEIGHT = 700;
@@ -40,9 +42,14 @@ interface LayoutNode extends LedgerGraphNode, SimulationNodeDatum {
 }
 
 type LayoutLink = SimulationLinkDatum<LayoutNode> & { source: string | LayoutNode; target: string | LayoutNode };
+type LedgerNodeType = NonNullable<LedgerGraphNode['type']> | 'note';
 
 function displayName(name: string): string {
   return name.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+}
+
+function nodeType(node: LedgerGraphNode): LedgerNodeType {
+  return node.type ?? 'note';
 }
 
 function layoutGraph(graph: LedgerGraph): { nodes: LayoutNode[]; links: LayoutLink[] } {
@@ -67,7 +74,7 @@ function linkedNodeId(value: string | LayoutNode): string {
   return typeof value === 'string' ? value : value.id;
 }
 
-// harn:assume graph-derived-from-vault-links-readonly ref=ledger-graph-web
+// harn:assume graph-derived-from-vault-links-readonly-v5 ref=ledger-graph-web
 export function LedgerGraphPage(props: { token: string }) {
   const requestedRoom = useMemo(() => new URLSearchParams(window.location.search).get('room') ?? '', []);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -85,10 +92,13 @@ export function LedgerGraphPage(props: { token: string }) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [drag, setDrag] = useState<{ x: number; y: number; panX: number; panY: number }>();
+  const [controlsOpen, setControlsOpen] = useState(false);
   const graphSurface = useRef<HTMLDivElement>(null);
   const inspector = useRef<HTMLElement>(null);
   const inspectorClose = useRef<HTMLButtonElement>(null);
   const inspectorTrigger = useRef<HTMLElement | SVGElement>();
+  const controlsTrigger = useRef<HTMLButtonElement>(null);
+  const controlsPanel = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let current = true;
@@ -211,6 +221,27 @@ export function LedgerGraphPage(props: { token: string }) {
     return () => document.removeEventListener('keydown', keydown, true);
   }, [closeInspector, inspectorOpen, overlayMode]);
 
+  const closeControls = useCallback((): void => {
+    setControlsOpen(false);
+    requestAnimationFrame(() => controlsTrigger.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    if (!controlsOpen) return;
+    const keydown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeControls();
+    };
+    document.addEventListener('keydown', keydown, true);
+    return () => document.removeEventListener('keydown', keydown, true);
+  }, [closeControls, controlsOpen]);
+
+  const resetGraph = (): void => {
+    setPan({ x: 0, y: 0 });
+    setZoom(1);
+  };
+
   const selectNode = (id: string, trigger?: HTMLElement | SVGElement): void => {
     setSelected(id);
     if (overlayMode) {
@@ -233,37 +264,89 @@ export function LedgerGraphPage(props: { token: string }) {
         owner={owner}
         canCreateRoom={false}
       />
-      <main className={`wr-ledger-main ${bridged ? 'is-bridged' : ''}`}>
+      <main className="wr-ledger-main" data-bridged={bridged ? 'true' : 'false'}>
         <header className="wr-ledger-header">
-          <a href={`/?${new URLSearchParams({ room }).toString()}`} className="wr-icon-button" aria-label="Back to channel" title="Back to channel">
+          <a href={`/?${new URLSearchParams({ room }).toString()}`} className="cd-button cd-button-icon wr-ledger-back" aria-label="Back to channel" title="Back to channel">
             <ArrowLeft aria-hidden="true" size={18} />
           </a>
           <div className="wr-ledger-title">
-            <strong>Ledger</strong>
+            <h1>Ledger</h1>
             <span>{roomName || 'Channel'} <LockKeyhole aria-hidden="true" size={13} /> Encrypted</span>
           </div>
-          <label className="wr-ledger-search">
-            <Search aria-hidden="true" size={16} />
-            <span className="sr-only">Search notes</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes" />
-            {query !== '' && <button type="button" aria-label="Clear note search" onClick={() => setQuery('')}><X size={14} /></button>}
-          </label>
-          <label className="wr-ledger-filter">
-            <Filter aria-hidden="true" size={16} />
-            <span className="sr-only">Filter note type</span>
-            <select value={type} onChange={(event) => setType(event.target.value as typeof type)}>
-              <option value="all">All notes</option>
-              <option value="decision">Decisions</option>
-              <option value="constraint">Constraints</option>
-              <option value="contract">Contracts</option>
-            </select>
-          </label>
-          <button type="button" className="wr-icon-button" aria-label="Reset graph view" title="Reset graph view" onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1); }}>
-            <Focus aria-hidden="true" size={17} />
-          </button>
-          <button type="button" className="wr-icon-button" aria-label="Enter fullscreen" title="Fullscreen" onClick={() => { void graphSurface.current?.requestFullscreen(); }}>
-            <Maximize2 aria-hidden="true" size={17} />
-          </button>
+          <div className="wr-ledger-desktop-controls">
+            <div className="wr-ledger-search">
+              <Search aria-hidden="true" size={16} />
+              <Input
+                id="ledger-search-desktop"
+                label="Search notes"
+                value={query}
+                onChange={setQuery}
+                placeholder="Search notes"
+              />
+              {query !== '' && <IconButton icon={X} label="Clear note search" title="Clear note search" onClick={() => setQuery('')} />}
+            </div>
+            <label className="wr-ledger-filter">
+              <Filter aria-hidden="true" size={16} />
+              <span className="sr-only">Filter note type</span>
+              <select aria-label="Filter note type" value={type} onChange={(event) => setType(event.target.value as typeof type)}>
+                <option value="all">All notes</option>
+                <option value="decision">Decisions</option>
+                <option value="constraint">Constraints</option>
+                <option value="contract">Contracts</option>
+              </select>
+            </label>
+            <IconButton data-testid="ledger-reset" icon={Focus} label="Reset graph view" title="Reset graph view" onClick={resetGraph} />
+            <IconButton data-testid="ledger-fullscreen" icon={Maximize2} label="Enter fullscreen" title="Fullscreen" onClick={() => { void graphSurface.current?.requestFullscreen(); }} />
+          </div>
+          <div className="wr-ledger-phone-trigger">
+            <IconButton
+              ref={controlsTrigger}
+              data-testid="ledger-controls-toggle"
+              icon={MoreHorizontal}
+              label="Graph controls"
+              title="Graph controls"
+              aria-expanded={controlsOpen}
+              aria-controls="ledger-phone-controls"
+              onClick={() => setControlsOpen((open) => !open)}
+            />
+          </div>
+          {controlsOpen && (
+            <section ref={controlsPanel} id="ledger-phone-controls" data-testid="ledger-phone-controls" className="wr-ledger-phone-controls" aria-label="Graph controls">
+              <div className="wr-ledger-phone-controls-heading">
+                <strong>Graph controls</strong>
+                <IconButton icon={X} label="Close graph controls" onClick={closeControls} />
+              </div>
+              <div className="wr-ledger-search">
+                <Search aria-hidden="true" size={16} />
+                <Input
+                  id="ledger-search-mobile"
+                  label="Search notes"
+                  value={query}
+                  onChange={setQuery}
+                  placeholder="Search notes"
+                />
+                {query !== '' && <IconButton icon={X} label="Clear note search" onClick={() => setQuery('')} />}
+              </div>
+              <label className="wr-ledger-filter">
+                <Filter aria-hidden="true" size={16} />
+                <span>Note type</span>
+                <select aria-label="Filter note type" value={type} onChange={(event) => setType(event.target.value as typeof type)}>
+                  <option value="all">All notes</option>
+                  <option value="decision">Decisions</option>
+                  <option value="constraint">Constraints</option>
+                  <option value="contract">Contracts</option>
+                </select>
+              </label>
+              <div className="wr-ledger-phone-actions">
+                <Button variant="secondary" data-testid="ledger-reset-mobile" onClick={resetGraph}>
+                  <Focus aria-hidden="true" size={17} /> Reset view
+                </Button>
+                <Button variant="secondary" data-testid="ledger-fullscreen-mobile" onClick={() => { void graphSurface.current?.requestFullscreen(); }}>
+                  <Maximize2 aria-hidden="true" size={17} /> Fullscreen
+                </Button>
+              </div>
+            </section>
+          )}
         </header>
         {bridged && <BridgedRoomBanner />}
         <div
@@ -300,16 +383,19 @@ export function LedgerGraphPage(props: { token: string }) {
                   const sourceId = linkedNodeId(source);
                   const targetId = linkedNodeId(target);
                   if (!visible.has(sourceId) || !visible.has(targetId)) return null;
-                  return <line key={`${sourceId}:${targetId}`} x1={source.x ?? 0} y1={source.y ?? 0} x2={target.x ?? 0} y2={target.y ?? 0} />;
+                  return <line className="wr-ledger-edge" key={`${sourceId}:${targetId}`} x1={source.x ?? 0} y1={source.y ?? 0} x2={target.x ?? 0} y2={target.y ?? 0} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />;
                 })}
                 {layout.nodes.map((node) => visible.has(node.id) && (
                   <g
                     key={node.id}
                     data-testid={`ledger-node-${node.id}`}
-                    className={node.id === selected ? 'is-selected' : ''}
+                    className="wr-ledger-node"
+                    data-node-type={nodeType(node)}
+                    data-selected={node.id === selected ? 'true' : 'false'}
                     role="button"
                     tabIndex={0}
                     aria-label={`Open note ${displayName(node.name)}`}
+                    aria-describedby={`ledger-type-${nodeType(node)}`}
                     transform={`translate(${node.x ?? 0} ${node.y ?? 0})`}
                     onClick={(event) => { event.stopPropagation(); selectNode(node.id, event.currentTarget); }}
                     onKeyDown={(event) => {
@@ -319,16 +405,20 @@ export function LedgerGraphPage(props: { token: string }) {
                       }
                     }}
                   >
-                    <circle r={node.id === selected ? 9 : 6} />
-                    <text x={14} y={5}>{displayName(node.name)}</text>
+                    <circle aria-hidden="true" className="wr-ledger-node-hit" r={60} />
+                    <circle aria-hidden="true" className="wr-ledger-node-mark" r={node.id === selected ? 9 : 7} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                    <text x={14} y={5} paintOrder="stroke" strokeWidth={4} strokeLinejoin="round">{displayName(node.name)}</text>
                   </g>
                 ))}
               </g>
             </svg>
           )}
           <div className="wr-ledger-legend" aria-label="Graph legend">
-            <span><i /> Note</span>
-            <span><i className="is-selected" /> Selected</span>
+            <span id="ledger-type-note"><i data-node-type="note" /> Note</span>
+            <span id="ledger-type-decision"><i data-node-type="decision" /> Decision</span>
+            <span id="ledger-type-constraint"><i data-node-type="constraint" /> Constraint</span>
+            <span id="ledger-type-contract"><i data-node-type="contract" /> Contract</span>
+            <span><i data-selected="true" /> Selected</span>
           </div>
         </div>
       </main>
@@ -338,31 +428,33 @@ export function LedgerGraphPage(props: { token: string }) {
       <section
         ref={inspector}
         data-testid="ledger-inspector"
-        className={`wr-ledger-inspector ${inspectorOpen ? 'is-open' : ''}`}
+        className="wr-ledger-inspector"
+        data-open={inspectorOpen ? 'true' : 'false'}
         aria-label="Selected ledger note"
         role={overlayMode ? 'dialog' : 'complementary'}
         aria-modal={overlayMode ? true : undefined}
       >
         <div className="wr-ledger-inspector-top">
-          <div className="wr-ledger-readonly"><LockKeyhole aria-hidden="true" size={13} /> Read-only</div>
-          <button ref={inspectorClose} type="button" className="wr-icon-button wr-ledger-inspector-close" aria-label="Close note inspector" onClick={closeInspector}>
-            <X aria-hidden="true" size={17} />
-          </button>
+          <Pill><LockKeyhole aria-hidden="true" size={13} /> Read-only</Pill>
+          <span className="wr-ledger-inspector-close">
+            <IconButton ref={inspectorClose} icon={X} label="Close note inspector" onClick={closeInspector} />
+          </span>
         </div>
         {selectedNode ? (
           <>
-            <h1>{displayName(selectedNode.name)}</h1>
+            <h2>{displayName(selectedNode.name)}</h2>
             <p>{roomName} / {selectedNode.relative_path}</p>
+            <Pill>{displayName(nodeType(selectedNode))}</Pill>
             <section>
-              <h2>Backlinks <span>{backlinks.length}</span></h2>
-              {backlinks.length === 0 ? <p>None</p> : backlinks.map((id) => <button key={id} type="button" onClick={() => selectNode(id)}>{displayName(id)}</button>)}
+              <h3>Backlinks <span>{backlinks.length}</span></h3>
+              {backlinks.length === 0 ? <p>None</p> : backlinks.map((id) => <Button key={id} variant="ghost" onClick={() => selectNode(id)}>{displayName(id)}</Button>)}
             </section>
             <section>
-              <h2>Links <span>{links.length}</span></h2>
-              {links.length === 0 ? <p>None</p> : links.map((id) => <button key={id} type="button" onClick={() => selectNode(id)}>{displayName(id)}</button>)}
+              <h3>Links <span>{links.length}</span></h3>
+              {links.length === 0 ? <p>None</p> : links.map((id) => <Button key={id} variant="ghost" onClick={() => selectNode(id)}>{displayName(id)}</Button>)}
             </section>
             <section className="wr-ledger-preview">
-              <h2>Preview</h2>
+              <h3>Preview</h3>
               {noteFailed ? <p role="alert">Note unavailable</p> : note ? <pre>{note.body}</pre> : <p role="status">Loading note</p>}
             </section>
           </>
@@ -371,4 +463,4 @@ export function LedgerGraphPage(props: { token: string }) {
     </div>
   );
 }
-// harn:end graph-derived-from-vault-links-readonly
+// harn:end graph-derived-from-vault-links-readonly-v5

@@ -1,7 +1,7 @@
 id: graph-derived-from-vault-links-readonly
 hash: a-ad444730937f
 title: Ledger graph is a read-only projection of watched vault wikilinks
-state: active
+state: retired
 statement: The home switchboard must derive deterministic note nodes and untyped
   edges from existing vault [[wikilinks]] when the vault is enabled or watched
   files change, expose only that room-scoped projection to an authorized reader,
@@ -11,3 +11,4 @@ depends_on:
   - roles-gate-human-acts-not-agents
   - restrained-design-system-guides-responsive-surfaces
 created_by: ledger-graph-view
+retired_by: v5-p5-ledger
