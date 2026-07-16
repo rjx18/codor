@@ -22,9 +22,9 @@ notes: >-
   (harnignored side).
 
   Storage: members gain a nullable limits TEXT column (idempotent ALTER
-  migration) serialized as JSON; updateMember writes it and memberFromRow
-  reads it back. Freshly inserted members carry no limits until a harness
-  reports some.
+  migration) serialized as JSON; updateMember writes it and memberFromRow reads
+  it back. Freshly inserted members carry no limits until a harness reports
+  some.
 
   Tests: translate.spec pins the fixture line to one run.limits event;
   daemon.spec drives a scripted fake turn emitting run.limits and observes the
@@ -36,8 +36,8 @@ assumptions:
   reviewed:
     - id: member-config-is-changed-not-respawned
       outcome: unchanged
-      reason: The member UPDATE statement gains the limits column alongside the
-        config fields it already persists; the change-not-respawn contract is
+      reason: The member UPDATE statement gains the limits column alongside the config
+        fields it already persists; the change-not-respawn contract is
         untouched.
     - id: first-party-run-items-normalized
       outcome: unchanged
@@ -86,3 +86,8 @@ anchors:
     member-config-storage:
       action: change
       reason: The member UPDATE persists the new limits column.
+  first-party-run-items-normalized:
+    claude-normalized-run-items:
+      action: change
+      reason: The translator's dispatch gains the nested rate_limit_event
+        branch inside this region.
