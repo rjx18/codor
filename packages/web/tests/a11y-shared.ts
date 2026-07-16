@@ -108,6 +108,9 @@ export async function sweepRoomStates(page: Page, theme: 'light' | 'dark'): Prom
   await expect(page.getByTestId('create-room-dialog')).toHaveCount(0);
 
   await page.evaluate(() => window.__codor.disconnect());
+  // The state must prove it rendered before axe composites it: a disconnect that becomes a
+  // no-op would otherwise silently rescan the baseline as "offline".
+  await expect(page.getByTestId('timeline-reconnecting')).toBeVisible();
   await record('room:offline');
   await page.evaluate(() => window.__codor.reconnect());
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
@@ -155,6 +158,9 @@ export async function sweepRoomStates(page: Page, theme: 'light' | 'dark'): Prom
   await control('/seed-history');
   await open(page);
   await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  // The seeded approval card must actually be on the page before this state is scanned as
+  // "history+ask" — otherwise a card that stops rendering degrades the scan to plain history.
+  await expect(page.locator('.wr-ask-card').first()).toBeAttached();
   await record('room:history+ask');
   await page.getByTestId('inbox-badge').click();
   await expect(page.getByTestId('inbox-panel')).toBeVisible();

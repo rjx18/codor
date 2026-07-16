@@ -37,6 +37,7 @@ import {
 } from './api.js';
 import {
   MemberRail,
+  ModalBackdrop,
   useAccentProjector,
   ACCENT_UNION_BACKGROUNDS,
 } from './components.js';
@@ -288,7 +289,7 @@ export function RoomList(props: {
         })}
       </ul>
       {creating && props.token && props.owner && (props.canCreateRoom ?? true) && (
-        <div className="wr-modal-backdrop">
+        <ModalBackdrop>
           <button
             type="button"
             aria-label="Close create channel"
@@ -473,7 +474,7 @@ export function RoomList(props: {
             )}
           </form>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
     </nav>
   );

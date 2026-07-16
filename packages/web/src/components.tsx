@@ -53,7 +53,10 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
+  type ReactPortal,
 } from 'react';
+import { createPortal } from 'react-dom';
 
 import { AgentControls } from './agent-controls.js';
 import type { AgentControlsValue } from './agent-controls.js';
@@ -77,6 +80,19 @@ import {
   useRoomStore,
 } from './state.js';
 import type { Connection } from './ws.js';
+
+// harn:assume modal-dialogs-layer-above-room-chrome ref=shared-modal-portal
+// Every modal dialog renders its backdrop through this one body-level portal, so its stacking
+// never depends on the mount point. A panel subtree can create a stacking context at any time
+// (a filled animation, a transform, an isolation) and would otherwise trap the fixed z-50
+// backdrop below page chrome such as the hold banner — with the dialog's own Close control
+// click-blocked. React synthetic events and wrapper-ref focus traps are unaffected by portals,
+// and document.body sits under :root, so token inheritance is identical to an inline mount.
+export function ModalBackdrop(props: { children: ReactNode }): ReactPortal | null {
+  if (typeof document === 'undefined') return null;
+  return createPortal(<div className="wr-modal-backdrop">{props.children}</div>, document.body);
+}
+// harn:end modal-dialogs-layer-above-room-chrome
 
 // harn:assume channel-accent-projects-accessibly-across-themes ref=channel-color-identity
 // The live consumption of the pure accent projection. The rail, header and picker read the
@@ -342,7 +358,9 @@ function RoomOverflow(props: {
     const onPointer = (event: Event): void => {
       const target = event.target as Node;
       if (popoverRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
-      close(true);
+      // An outside tap is the user moving on to another control: close without stealing the
+      // focus back to the trigger. Escape (above) keeps the refocus — that IS a return gesture.
+      close(false);
     };
     document.addEventListener('keydown', onKey, true);
     document.addEventListener('pointerdown', onPointer, true);
@@ -773,7 +791,7 @@ export function SpawnAgentDialog(props: {
         }}
       />
       {open && (
-        <div className="wr-modal-backdrop">
+        <ModalBackdrop>
           {/* ARIA does not allow role=dialog on a form. The dialog is this element, and it
               keeps the box the form used to own - same classes, so the same width, height
               and centring. The form inside lays out as display:contents and draws nothing,
@@ -883,7 +901,7 @@ export function SpawnAgentDialog(props: {
             </div>
           </form>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
     </>
   );
@@ -2317,7 +2335,7 @@ export function MessageRow(props: {
     </>
   );
   const viewer = note || noteError ? (
-    <div className="wr-modal-backdrop">
+    <ModalBackdrop>
       <section
         ref={ledgerDialog}
         role="dialog"
@@ -2346,7 +2364,7 @@ export function MessageRow(props: {
         </div>
         {note && <pre className="wr-ledger-note-body">{note.body}</pre>}
       </section>
-    </div>
+    </ModalBackdrop>
   ) : null;
   if (message.kind === 'system') {
     return (

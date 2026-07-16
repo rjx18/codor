@@ -630,6 +630,26 @@ test('desktop channel keeps channels, conversation, and context in stable non-ov
   await expect(page.locator('.wr-message').first()).toHaveClass(/is-unframed/);
   await expect(page.getByTestId('open-room-overflow')).toBeVisible();
 });
+
+test('the context sheet traps Tab inside the production-queried .wr-context-sheet section', async ({ page }) => {
+  // The Tab trap in production code queries the CLASS .wr-context-sheet, not a testid: this
+  // regression targets that exact selector, so a rename breaks a test before it breaks the trap.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await page.getByRole('button', { name: 'Open channel context' }).click();
+  const sheet = page.locator('.wr-context-sheet');
+  await expect(sheet).toBeVisible();
+  for (let press = 0; press < 25; press++) {
+    await page.keyboard.press('Tab');
+    expect(
+      await sheet.evaluate((element) => element.contains(document.activeElement)),
+      `Tab press ${String(press)} escaped the sheet`,
+    ).toBe(true);
+  }
+  await page.keyboard.press('Escape');
+  await expect(sheet).not.toBeVisible();
+});
 // harn:end web-shell-responsive-three-pane
 // harn:end human-facing-surfaces-call-rooms-channels
 
@@ -1915,6 +1935,7 @@ test('notification attention keeps an approval until its answer resolves every b
     await peer.close();
   }
 });
+
 // harn:end approval-cards-follow-durable-resolution
 
 // harn:assume room-action-errors-are-visible ref=approval-error-browser-regression
@@ -2187,3 +2208,71 @@ test('every interactive room target clears the 44x44 minimum on a phone', async 
   await hit(page.getByTestId(`run-${earlierRunId}-earlier`), 'run earlier events');
 });
 // harn:end web-room-targets-meet-minimum-hit-size
+
+// harn:assume modal-dialogs-layer-above-room-chrome ref=modal-layering-browser-regression
+test('an open dialog paints above the hold banner and its Close stays clickable', async ({ page }) => {
+  // The regression this pins: a panel stacking context (the context-rail tabpanel's filled
+  // animation) trapped the inline-mounted z-50 modal below the hold banner's z-2, covering the
+  // dialog title and click-blocking Close. The portal mount makes layering mount-point-proof.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+  await control('/hold', {});
+  await expect(page.getByTestId('hold-banner')).toBeVisible();
+
+  await page.getByTestId('spawn-agent').click();
+  const dialog = page.getByTestId('spawn-dialog');
+  await expect(dialog).toBeVisible();
+  const probes = await page.evaluate(() => {
+    const dialogElement = document.querySelector('[data-testid="spawn-dialog"]')!;
+    const targets: [string, Element | null][] = [
+      ['dialog heading', dialogElement.querySelector('h2')],
+      ['dialog close', dialogElement.querySelector('[aria-label="Close spawn agent"]')],
+    ];
+    return targets.map(([name, element]) => {
+      if (!element) return { name, topHit: false };
+      const rect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return { name, topHit: hit !== null && (element === hit || element.contains(hit)) };
+    });
+  });
+  for (const probe of probes) {
+    expect(probe.topHit, `${probe.name} is covered by page chrome while a hold is active`).toBe(true);
+  }
+  await page.getByRole('button', { name: 'Close spawn agent' }).click();
+  await expect(dialog).toHaveCount(0);
+  // Leave the room without parked deliveries for the tests that follow. Earlier tests may have
+  // parked holds of their own, so release until the banner is gone.
+  await expect.poll(async () => {
+    const release = page.locator('[data-testid^="release-"]');
+    const remaining = await release.count();
+    if (remaining > 0) await release.last().click();
+    return remaining;
+  }).toBe(0);
+  await expect(page.getByTestId('hold-banner')).toHaveCount(0);
+});
+// harn:end modal-dialogs-layer-above-room-chrome
+
+test('phone search close and overflow outside-tap keep focus where the user is', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?room=eng&token=e2e-token');
+  await expect(page.getByTestId('connection')).toHaveAttribute('title', 'connected');
+
+  // Closing search returns focus to the phone overflow trigger: the desktop toggle is not in
+  // the phone DOM, and the old fallback silently dropped focus to <body>.
+  const overflow = page.getByTestId('open-room-overflow');
+  await overflow.click();
+  await page.getByTestId('toggle-message-search').click();
+  await expect(page.locator('#room-search')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('message-search')).toHaveCount(0);
+  await expect(overflow).toBeFocused();
+
+  // An outside tap moves on to another control: the overflow closes WITHOUT stealing the focus
+  // back to its trigger. Escape (asserted elsewhere) keeps the return-to-trigger gesture.
+  await overflow.click();
+  await expect(page.getByTestId('room-settings')).toBeVisible();
+  await page.getByTestId('composer-input').click();
+  await expect(page.getByTestId('room-settings')).toBeHidden();
+  await expect(page.getByTestId('composer-input')).toBeFocused();
+});

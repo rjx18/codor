@@ -1,12 +1,12 @@
 id: v5-review-behavior-a11y
 title: V5 whole-overhaul review closure 2 - portal modal dialogs above room
-  chrome, compute mobile speaker grouping from visible rows, repair the v5
-  Harn anchor mechanics, close the context-sheet and axe fixture coverage
-  gaps, and fix the two phone focus defects.
+  chrome, compute mobile speaker grouping from visible rows, repair the v5 Harn
+  anchor mechanics, close the context-sheet and axe fixture coverage gaps, and
+  fix the two phone focus defects.
 notes: >-
   Review-confirmed findings 2, 4, 6, 9 and 11 (channel #245/#247). Runs after
-  v5-review-cascade-truth. Protocol, switchboard, service worker, crypto,
-  push, stored data and routing are untouched. Never restart codor.service.
+  v5-review-cascade-truth. Protocol, switchboard, service worker, crypto, push,
+  stored data and routing are untouched. Never restart codor.service.
 
   One - modal stacking (finding 2). The three wr-modal-backdrop sites (spawn
   dialog components.tsx:775, channel-create shell.tsx:291, ledger note dialog
@@ -21,24 +21,23 @@ notes: >-
   wrapper-ref focus traps work identically through portals, and the drawer's
   spawn-dialog document query still resolves. If body-level rendering loses an
   inherited font or color, the backdrop gains explicit token-only inherits in
-  the anchored room region. This makes every modal paint above the hold
-  banner, the room header and any panel chrome. New assumption
-  modal-dialogs-layer-above-room-chrome records the layering contract,
-  anchored at the shared wrapper and at a browser regression that holds a
-  delivery, opens the spawn dialog, and proves the dialog heading and Close
-  are the top hit-targets at their own coordinates and that Close actually
-  closes.
+  the anchored room region. This makes every modal paint above the hold banner,
+  the room header and any panel chrome. New assumption
+  modal-dialogs-layer-above-room-chrome records the layering contract, anchored
+  at the shared wrapper and at a browser regression that holds a delivery, opens
+  the spawn dialog, and proves the dialog heading and Close are the top
+  hit-targets at their own coordinates and that Close actually closes.
 
-  Two - speaker grouping (finding 4). App.tsx:699 computes
-  precededBySameAuthor from the raw message array while :721 renders null for
-  approvals that are no longer actionable, so a resolved approval between two
-  authors makes the next author's phone message render headerless under the
-  previous author's header. Fix: derive the rendered timeline first - filter
-  out non-actionable approvals - and compute grouping from that visible
-  sequence. Unit regression in components.spec drives the visible-sequence
-  computation; browser regression seeds author A message, author B approval,
-  resolves it, posts author B message, and asserts at 390 that B's message
-  keeps its author header while genuine same-author runs still group.
+  Two - speaker grouping (finding 4). App.tsx:699 computes precededBySameAuthor
+  from the raw message array while :721 renders null for approvals that are no
+  longer actionable, so a resolved approval between two authors makes the next
+  author's phone message render headerless under the previous author's header.
+  Fix: derive the rendered timeline first - filter out non-actionable approvals
+  - and compute grouping from that visible sequence. Unit regression in
+  components.spec drives the visible-sequence computation; browser regression
+  seeds author A message, author B approval, resolves it, posts author B
+  message, and asserts at 390 that B's message keeps its author header while
+  genuine same-author runs still group.
 
   Three - Harn anchor mechanics in v5-owned files only (finding 6, review
   scope). agent-controls.tsx: add the missing harn:end
@@ -46,39 +45,37 @@ notes: >-
   markers into LIFO order so all three declared anchors become tracked.
   components.spec.tsx: add the missing harn:end
   timeline-rows-are-never-crushed-v5 after the crush-gate describe block.
-  index.html: move the two prepaint anchor pairs inside the inline script as
-  JS comments so the tracked regions actually cover the prepaint code they
-  guard; the script's behaviour is unchanged. Verify with harn find --file
-  that all repaired anchors are tracked. Adapter/switchboard anchor debt is
-  explicitly out of scope. The same-defect anchor in run-presenter.spec.ts is
-  excluded per the review's file list.
+  index.html: move the two prepaint anchor pairs inside the inline script as JS
+  comments so the tracked regions actually cover the prepaint code they guard;
+  the script's behaviour is unchanged. Verify with harn find --file that all
+  repaired anchors are tracked. Adapter/switchboard anchor debt is explicitly
+  out of scope. The same-defect anchor in run-presenter.spec.ts is excluded per
+  the review's file list.
 
   Four - coverage gaps (finding 9). e2e: a Tab-cycle trap regression for the
   context sheet that targets the production-queried .wr-context-sheet class
   itself, so a class rename breaks a test before it breaks the trap.
-  a11y-shared: assert the offline state actually rendered (reconnecting
-  status visible) before the room:offline scan, and assert the seeded ask
-  card is visible before the room:history+ask scan. a11y-settings-pairing:
-  drive and axe-scan the pairing checking state (trusted-pairing-progress) in
-  both themes.
+  a11y-shared: assert the offline state actually rendered (reconnecting status
+  visible) before the room:offline scan, and assert the seeded ask card is
+  visible before the room:history+ask scan. a11y-settings-pairing: drive and
+  axe-scan the pairing checking state (trusted-pairing-progress) in both themes.
 
   Five - phone focus defects (finding 11). Closing message search currently
   restores focus to desktop-only room-search-toggle, dropping phone focus to
   body: restore to the phone overflow trigger when the desktop toggle is not
   rendered. RoomOverflow's outside-pointerdown close refocuses its trigger,
   stealing focus from the control the user tapped: outside-tap closes without
-  refocus; Escape keeps refocusing the trigger. Browser regressions assert
-  both behaviours at 390.
+  refocus; Escape keeps refocusing the trigger. Browser regressions assert both
+  behaviours at 390.
 
   Gate in order: build -> unit -> focused browser (modal layering, grouping,
-  context-sheet trap, focus pair, pairing-checking axe, room axe light+dark)
-  -> harn check/apply. Then the single full build/unit/e2e/harn gate for the
+  context-sheet trap, focus pair, pairing-checking axe, room axe light+dark) ->
+  harn check/apply. Then the single full build/unit/e2e/harn gate for the
   checkpoint, per review instruction.
 assumptions:
   create:
     - id: modal-dialogs-layer-above-room-chrome
-      title: Modal dialog backdrops portal to the body and layer above all room
-        chrome
+      title: Modal dialog backdrops portal to the body and layer above all room chrome
       statement: Every wr-modal-backdrop dialog - spawn, channel create, and the
         ledger note dialog - must render through the shared body-level portal
         wrapper so its backdrop and dialog paint above all room chrome,
@@ -87,10 +84,10 @@ assumptions:
         control can be covered or click-blocked by page chrome silently breaks
         both pointer dismissal and the modality the dialog role promises.
       reason: The review proved the hold banner (z-index 2 in the canvas context)
-        paints over the z-50 spawn dialog trapped in the context-rail
-        tabpanel's filled-animation stacking context, click-blocking its Close
-        control. Mount-point-independent layering is a review obligation that
-        future overlay or motion work must not regress.
+        paints over the z-50 spawn dialog trapped in the context-rail tabpanel's
+        filled-animation stacking context, click-blocking its Close control.
+        Mount-point-independent layering is a review obligation that future
+        overlay or motion work must not regress.
   reviewed:
     - id: web-spawn-dialog-exposes-canonical-agent-controls
       outcome: unchanged
@@ -98,41 +95,39 @@ assumptions:
         unchanged; only its backdrop mount moves to the shared body portal.
     - id: starting-agent-name-derives-one-valid-identity-v6
       outcome: unchanged
-      reason: Channel-create naming logic is untouched; the dialog's backdrop
-        renders through the shared portal wrapper.
+      reason: Channel-create naming logic is untouched; the dialog's backdrop renders
+        through the shared portal wrapper.
     - id: web-room-rail-creates-owner-room
       outcome: unchanged
-      reason: Create-channel behaviour is unchanged; only the modal wrapper
-        changes.
+      reason: Create-channel behaviour is unchanged; only the modal wrapper changes.
     - id: approval-cards-follow-durable-resolution
       outcome: unchanged
-      reason: Resolved approvals still leave the timeline; the visible-row
-        derivation only stops them from corrupting neighbour grouping.
+      reason: Resolved approvals still leave the timeline; the visible-row derivation
+        only stops them from corrupting neighbour grouping.
     - id: web-room-visual-hierarchy-matches-soft-editorial-reference
       outcome: unchanged
-      reason: The author-header-on-speaker-change clause becomes true across
-        resolved approvals; presentation and composition are otherwise
-        unchanged.
+      reason: The author-header-on-speaker-change clause becomes true across resolved
+        approvals; presentation and composition are otherwise unchanged.
     - id: sw-caches-shell-only-no-message-data
       outcome: unchanged
       reason: The timeline map inside this region is restructured for visible-row
         grouping only; caching behaviour is untouched.
     - id: roles-gate-human-acts-not-agents
       outcome: unchanged
-      reason: Role gating is untouched; the search-close focus fallback inside
-        this region learns the phone target.
+      reason: Role gating is untouched; the search-close focus fallback inside this
+        region learns the phone target.
     - id: spend-meter-always-on
       outcome: unchanged
       reason: The meter is untouched; RoomOverflow's outside-tap close inside this
         region stops stealing focus.
     - id: timeline-rows-are-never-crushed-v5
       outcome: unchanged
-      reason: The crush gate's missing end marker is added so its declared unit
-        anchor becomes tracked; the gate itself is unchanged.
+      reason: The crush gate's missing end marker is added so its declared unit anchor
+        becomes tracked; the gate itself is unchanged.
     - id: agent-controls-shared-by-both-dialogs
       outcome: unchanged
-      reason: End-marker repair only; the shared component's behaviour and markup
-        are unchanged.
+      reason: End-marker repair only; the shared component's behaviour and markup are
+        unchanged.
     - id: harness-declares-supported-thinking-levels
       outcome: unchanged
       reason: End-marker reorder only; thinking-level behaviour is unchanged.
@@ -149,12 +144,12 @@ assumptions:
       reason: Light-first behaviour is unchanged; same marker relocation as above.
     - id: web-theme-accessible-modes
       outcome: unchanged
-      reason: The axe matrix keeps its states; offline and history+ask now prove
-        their fixture rendered, and pairing checking is scanned in both themes.
+      reason: The axe matrix keeps its states; offline and history+ask now prove their
+        fixture rendered, and pairing checking is scanned in both themes.
     - id: web-settings-pairing-match-soft-editorial-reference
       outcome: unchanged
-      reason: Settings/pairing composition is untouched; the checking state joins
-        the axe matrix.
+      reason: Settings/pairing composition is untouched; the checking state joins the
+        axe matrix.
     - id: web-shell-responsive-three-pane
       outcome: unchanged
       reason: Shell geometry is untouched; the context-sheet focus trap gains a
@@ -174,23 +169,28 @@ anchors:
   modal-dialogs-layer-above-room-chrome:
     shared-modal-portal:
       action: change
-      reason: New anchor on the shared ModalBackdrop portal wrapper in
-        components.tsx that all three dialog sites consume.
+      reason: New anchor on the shared ModalBackdrop portal wrapper in components.tsx
+        that all three dialog sites consume.
     modal-layering-browser-regression:
       action: change
-      reason: New anchor on the browser regression that holds a delivery, opens
-        the spawn dialog, and proves the heading and Close are the top
-        hit-targets and Close closes.
+      reason: New anchor on the browser regression that holds a delivery, opens the
+        spawn dialog, and proves the heading and Close are the top hit-targets
+        and Close closes.
   web-spawn-dialog-exposes-canonical-agent-controls:
     spawn-dialog-controls:
       action: change
       reason: The spawn dialog's backdrop div is replaced by the shared portal
         wrapper; controls and testids inside are unchanged.
+    spawn-dialog-unit-regression:
+      action: change
+      reason: The unit regression queries the dialog from the document, exactly as the
+        production focus code does, because the backdrop now portals to
+        document.body.
   starting-agent-name-derives-one-valid-identity-v6:
     starting-agent-name-control:
       action: change
-      reason: The channel-create backdrop div inside this region is replaced by
-        the shared portal wrapper.
+      reason: The channel-create backdrop div inside this region is replaced by the
+        shared portal wrapper.
   web-room-rail-creates-owner-room:
     room-rail-create-action:
       action: change
@@ -198,8 +198,8 @@ anchors:
   approval-cards-follow-durable-resolution:
     actionable-approval-app:
       action: change
-      reason: The null-render of non-actionable approvals moves into the
-        visible-row derivation feeding the timeline map.
+      reason: The null-render of non-actionable approvals moves into the visible-row
+        derivation feeding the timeline map.
     approval-two-browser-regression:
       action: change
       reason: Gains the resolved-approval speaker-grouping browser regression.
@@ -212,6 +212,10 @@ anchors:
       action: change
       reason: The search-close focus fallback at the room level learns the phone
         overflow target; room composition is unchanged.
+    soft-editorial-responsive-adoption:
+      action: change
+      reason: The MessageRow ledger-note modal swap sits beside this region in the
+        same component; presentation adoption itself is unchanged.
   roles-gate-human-acts-not-agents:
     role-aware-web-controls:
       action: change
@@ -237,13 +241,13 @@ anchors:
   one-control-chooses-an-agent-everywhere:
     shared-policy-control:
       action: change
-      reason: Missing end marker added in agent-controls.tsx; the styles.css
-        region of the same ref is untouched.
+      reason: Missing end marker added in agent-controls.tsx; the styles.css region of
+        the same ref is untouched.
   web-theme-choice-stays-local-v5:
     prepaint-reads-local:
       action: change
-      reason: Marker moves inside the script block so the region tracks the
-        prepaint code.
+      reason: Marker moves inside the script block so the region tracks the prepaint
+        code.
   web-first-run-color-mode-is-light:
     light-first-prepaint:
       action: change
@@ -251,8 +255,8 @@ anchors:
   web-theme-accessible-modes:
     axe-room-matrix-shared:
       action: change
-      reason: Offline and history+ask scans assert their fixture state rendered
-        before compositing.
+      reason: Offline and history+ask scans assert their fixture state rendered before
+        compositing.
     axe-settings-pairing-matrix:
       action: change
       reason: The pairing checking state is driven and scanned in both themes.
@@ -265,3 +269,5 @@ anchors:
       action: change
       reason: Gains the .wr-context-sheet Tab-trap regression targeting the
         production-queried class.
+applied:
+  applied_at: 2026-07-16T07:18:20.045Z

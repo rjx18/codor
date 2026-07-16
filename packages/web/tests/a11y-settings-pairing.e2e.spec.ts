@@ -201,6 +201,16 @@ test('every distinct Settings and Pairing state is axe-clean in both themes at d
         await expect(page.getByRole('alert')).toHaveText('Enter the complete 8-character pairing code.');
       },
     },
+    {
+      name: 'checking',
+      reach: async (page: Page): Promise<void> => {
+        // Hold the trusted-enrollment probe open so the checking state persists for the whole
+        // scan; the context closes afterwards and aborts the pending request.
+        await page.route('**/api/pairing/**', () => { /* held: the state must outlive the scan */ });
+        await page.goto('/?room=eng');
+        await expect(page.getByTestId('trusted-pairing-progress')).toBeVisible();
+      },
+    },
   ] as const;
 
   for (const theme of ['light', 'dark'] as const) {

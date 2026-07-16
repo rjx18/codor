@@ -53,6 +53,15 @@ function fragmentMessageId(): number | undefined {
   return Number.isSafeInteger(id) && id > 0 ? id : undefined;
 }
 
+/** The RENDERED timeline: resolved approvals leave it entirely, so downstream per-row logic
+ *  (speaker grouping above all) sees the neighbours a reader actually sees. */
+export function renderedTimeline<T extends { kind: string; id: number }>(
+  messages: readonly T[],
+  actionableApprovalIds: ReadonlySet<number>,
+): T[] {
+  return messages.filter((message) => message.kind !== 'approval' || actionableApprovalIds.has(message.id));
+}
+
 // harn:assume permalink-ids-stable ref=message-history-surface
 export function App(props: {
   token?: string;
@@ -460,6 +469,17 @@ export function App(props: {
     };
   }, [contextOpen, drawerOpen]);
 
+  // Closing search returns focus to whatever opened it: the desktop header toggle when it is
+  // rendered, otherwise the phone overflow trigger (the toggle lives inside that popover on a
+  // phone, so focusing the removed desktop button would silently drop focus to <body>).
+  const refocusSearchOrigin = (): void => {
+    requestAnimationFrame(() => {
+      const origin = document.getElementById('room-search-toggle')
+        ?? document.querySelector<HTMLElement>('[data-testid="open-room-overflow"]');
+      origin?.focus();
+    });
+  };
+
   useEffect(() => {
     if (!searchOpen) return;
     const close = (event: KeyboardEvent): void => {
@@ -468,7 +488,7 @@ export function App(props: {
       setSearchQuery('');
       setSearchResults([]);
       setSearched(false);
-      requestAnimationFrame(() => document.getElementById('room-search-toggle')?.focus());
+      refocusSearchOrigin();
     };
     window.addEventListener('keydown', close);
     return () => window.removeEventListener('keydown', close);
@@ -597,7 +617,7 @@ export function App(props: {
                   setSearchQuery('');
                   setSearchResults([]);
                   setSearched(false);
-                  requestAnimationFrame(() => document.getElementById('room-search-toggle')?.focus());
+                  refocusSearchOrigin();
                 }}
               />
             </form>
@@ -693,10 +713,17 @@ export function App(props: {
               </p>
             )}
             {/* harn:end empty-and-offline-are-shown-not-blank */}
-            {messages.map((message, index) => {
+            {/* harn:assume approval-cards-follow-durable-resolution ref=actionable-approval-app */}
+            {/* Resolved approvals leave the timeline entirely, so the RENDERED sequence — not
+                the raw one — is what speaker grouping must be computed from: a hidden approval
+                between two authors must not make the next author's message continue the
+                previous author's group (a headerless, misattributed row on the phone). */}
+            {renderedTimeline(messages, actionableApprovalIds).map((message, index, visible) => {
               // Speaker grouping for the unframed mobile prose timeline: a message continues
-              // the previous speaker only when the immediately preceding message shares its author.
-              const precededBySameAuthor = index > 0 && messages[index - 1]!.author === message.author;
+              // the previous speaker only when the immediately preceding RENDERED message
+              // shares its author.
+              const precededBySameAuthor = index > 0 && visible[index - 1]!.author === message.author;
+              // harn:end approval-cards-follow-durable-resolution
               if (message.kind === 'run') {
                 return (
                   <div key={message.id} className="wr-timeline-run">
@@ -717,8 +744,6 @@ export function App(props: {
                 );
               }
               if (message.kind === 'ask' || message.kind === 'approval') {
-                // harn:assume approval-cards-follow-durable-resolution ref=actionable-approval-app
-                if (message.kind === 'approval' && !actionableApprovalIds.has(message.id)) return null;
                 return (
                   <AskCardView
                     key={message.id}
@@ -732,7 +757,6 @@ export function App(props: {
                         delivery.message_id === message.id && delivery.recipient === self.id))}
                   />
                 );
-                // harn:end approval-cards-follow-durable-resolution
               }
               return (
                 <MessageRow

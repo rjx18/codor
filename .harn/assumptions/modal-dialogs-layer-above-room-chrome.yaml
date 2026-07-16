@@ -1,0 +1,13 @@
+id: modal-dialogs-layer-above-room-chrome
+hash: a-791726345fe2
+title: Modal dialog backdrops portal to the body and layer above all room chrome
+state: active
+statement: Every wr-modal-backdrop dialog - spawn, channel create, and the
+  ledger note dialog - must render through the shared body-level portal wrapper
+  so its backdrop and dialog paint above all room chrome, including the hold
+  banner, the room header and any panel stacking context, whenever the dialog is
+  open, because a modal whose Close control can be covered or click-blocked by
+  page chrome silently breaks both pointer dismissal and the modality the dialog
+  role promises.
+depends_on: []
+created_by: v5-review-behavior-a11y

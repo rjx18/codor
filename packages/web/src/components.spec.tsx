@@ -29,6 +29,7 @@ import {
   availableAgentHandle,
   defaultSpawnCwd,
 } from './components.js';
+import { renderedTimeline } from './App.js';
 import { useRoomStore } from './state.js';
 import type { RunEventBuffer } from './state.js';
 import type { Connection } from './ws.js';
@@ -213,7 +214,9 @@ describe('spawn dialog semantics', () => {
       container.querySelector<HTMLButtonElement>('[data-testid="spawn-agent"]')?.click();
     });
 
-    const dialog = container.querySelector('[data-testid="spawn-dialog"]');
+    // The backdrop portals to document.body so panel stacking contexts can never trap it;
+    // the dialog is queried from the document, exactly as the production focus code does.
+    const dialog = document.querySelector('[data-testid="spawn-dialog"]');
     // ARIA does not allow role=dialog on a form; the modal announced itself as a form.
     expect(dialog?.tagName).toBe('DIV');
     expect(dialog?.getAttribute('role')).toBe('dialog');
@@ -878,6 +881,7 @@ describe('timeline rows are content, not flexible space', () => {
     expect(offenders, 'these rules let a timeline row be crushed again').toEqual([]);
   });
 });
+// harn:end timeline-rows-are-never-crushed-v5
 
 // harn:assume member-config-is-changed-not-respawned ref=member-card-settings
 describe('MemberSettings', () => {
@@ -1199,3 +1203,21 @@ describe('soft-editorial message presentation', () => {
   });
 });
 // harn:end web-room-visual-hierarchy-matches-soft-editorial-reference
+
+describe('the rendered timeline is what speaker grouping sees', () => {
+  it('drops resolved approvals so a hidden card cannot corrupt neighbour grouping', () => {
+    const timeline = [
+      { id: 1, kind: 'chat', author: 10 },
+      { id: 2, kind: 'approval', author: 11 },
+      { id: 3, kind: 'chat', author: 11 },
+    ];
+    // Resolved (non-actionable): the approval leaves the rendered sequence, so message 3's
+    // rendered neighbour is message 1 by ANOTHER author — it must start its own group instead
+    // of continuing the hidden approval author's.
+    expect(renderedTimeline(timeline, new Set()).map((message) => message.id)).toEqual([1, 3]);
+    // Actionable: the card renders and stays the neighbour.
+    expect(renderedTimeline(timeline, new Set([2])).map((message) => message.id)).toEqual([1, 2, 3]);
+    // Non-approval kinds are never filtered.
+    expect(renderedTimeline([{ id: 4, kind: 'run', author: 12 }], new Set())).toHaveLength(1);
+  });
+});

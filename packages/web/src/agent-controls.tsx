@@ -225,6 +225,7 @@ export function AgentControls(props: {
         )}
       </fieldset>
     )}
+    {/* harn:end one-control-chooses-an-agent-everywhere */}
     </>
   );
 
