@@ -4,27 +4,27 @@ title: Codex adapter - surface file operations as file_change run items instead
 notes: >-
   Live-reproduced defect (Richard #304; gpt-5.6-luna raw capture 2026-07-16,
   /tmp/diag-codex-raw.jsonl): codex file operations arrive as
-  item.started/item.completed pairs with item.type "file_change" carrying
-  {id, changes: [{path, kind: add|update|delete}], status}, and the translator
-  returns [] for them - so a turn that creates and edits files shows zero
-  write activity in the room; only plain shell command_execution items
-  surface. The verified turn created and edited notes.txt with nothing shown.
+  item.started/item.completed pairs with item.type "file_change" carrying {id,
+  changes: [{path, kind: add|update|delete}], status}, and the translator
+  returns [] for them - so a turn that creates and edits files shows zero write
+  activity in the room; only plain shell command_execution items surface. The
+  verified turn created and edited notes.txt with nothing shown.
 
-  Fix: translate item.completed file_change items into one protocol
-  file_change run item PER change entry - payload { path, change } with kind
-  mapped add->created, update->modified, delete->deleted (unknown kinds map to
-  modified). Codex reports no diff body for these items, so no diff is
-  attached and the web presenter renders the file and change kind without
-  +/- counts (counts remain available for harnesses that report diffs).
-  item.started file_change is intentionally not emitted - one settled row per
-  operation, matching the one-row-per-file-op contract the claude-code
-  companion plan (58b5cab) establishes.
+  Fix: translate item.completed file_change items into one protocol file_change
+  run item PER change entry - payload { path, change } with kind mapped
+  add->created, update->modified, delete->deleted (unknown kinds map to
+  modified). Codex reports no diff body for these items, so no diff is attached
+  and the web presenter renders the file and change kind without +/- counts
+  (counts remain available for harnesses that report diffs). item.started
+  file_change is intentionally not emitted - one settled row per operation,
+  matching the one-row-per-file-op contract the claude-code companion plan
+  (58b5cab) establishes.
 
   Tests: translate.spec gains fixture lines from the raw capture pinning one
-  created + one modified event for the live turn's add/update items, zero
-  events for item.started, and kind mapping incl. the unknown-kind fallback.
-  Gate: adapter unit suite, then a paid live re-verification (gpt-5.6-luna,
-  low - authorized in #304) of the create/read/edit prompt asserting the file
+  created + one modified event for the live turn's add/update items, zero events
+  for item.started, and kind mapping incl. the unknown-kind fallback. Gate:
+  adapter unit suite, then a paid live re-verification (gpt-5.6-luna, low -
+  authorized in #304) of the create/read/edit prompt asserting the file
   operations now surface.
 assumptions:
   reviewed:
@@ -50,3 +50,5 @@ anchors:
     codex-fixture-invariants:
       action: change
       reason: Fixtures gain file_change lines from the live raw capture.
+applied:
+  applied_at: 2026-07-16T15:52:10.890Z

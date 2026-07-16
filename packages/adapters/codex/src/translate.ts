@@ -15,6 +15,7 @@ interface CodexItem {
   exit_code?: number | null;
   status?: string;
   message?: string;
+  changes?: Array<{ path?: string; kind?: string }>;
 }
 
 interface CodexEvent {
@@ -121,6 +122,25 @@ export function createTurnTranslator(): TurnTranslator {
                     },
                   },
             ];
+          }
+          if (item.type === 'file_change') {
+            // Codex file operations arrive as their own items (no tool pair, no diff
+            // body). One settled row per changed path: emit on completion only.
+            if (event.type !== 'item.completed') return [];
+            const changes = Array.isArray(item.changes) ? item.changes : [];
+            return changes.flatMap((change) => {
+              if (!change || typeof change !== 'object' || typeof change.path !== 'string') return [];
+              const kind = change.kind === 'add'
+                ? 'created'
+                : change.kind === 'delete'
+                  ? 'deleted'
+                  : 'modified';
+              return [{
+                type: 'run.item' as const,
+                item_type: 'file_change' as const,
+                payload: { path: change.path, change: kind },
+              }];
+            });
           }
           if (item.type === 'error') {
             return [

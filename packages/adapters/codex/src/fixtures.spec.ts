@@ -20,6 +20,7 @@ type CodexEvent = {
     exit_code?: number | null;
     status?: string;
     aggregated_output?: string;
+    changes?: Array<{ path?: string; kind?: string }>;
   };
 };
 
@@ -146,6 +147,43 @@ describe('SIGKILL mid-turn (npm shim orphans the engine)', () => {
     );
     expect(completed?.item?.exit_code).toBe(0);
     expect(evs.at(-1)!.type).toBe('turn.completed');
+  });
+});
+
+describe('file_change items (live re-probe 2026-07-16, gpt-5.6-luna)', () => {
+  // Captured raw from `codex exec --json` (/tmp/diag-codex-raw.jsonl). File
+  // operations are NOT tool pairs: they arrive as item.started/item.completed
+  // with type "file_change" carrying changes:[{path,kind}] and NO diff body.
+  const capture: CodexEvent[] = [
+    '{"type":"item.started","item":{"id":"item_1","type":"file_change","changes":[{"path":"/tmp/codor-diag-codexraw-n7jC18/notes.txt","kind":"add"}],"status":"in_progress"}}',
+    '{"type":"item.completed","item":{"id":"item_1","type":"file_change","changes":[{"path":"/tmp/codor-diag-codexraw-n7jC18/notes.txt","kind":"add"}],"status":"completed"}}',
+    '{"type":"item.started","item":{"id":"item_3","type":"file_change","changes":[{"path":"/tmp/codor-diag-codexraw-n7jC18/notes.txt","kind":"update"}],"status":"in_progress"}}',
+    '{"type":"item.completed","item":{"id":"item_3","type":"file_change","changes":[{"path":"/tmp/codor-diag-codexraw-n7jC18/notes.txt","kind":"update"}],"status":"completed"}}',
+  ].map((line) => JSON.parse(line) as CodexEvent);
+
+  it('arrive as started/completed pairs carrying changes:[{path,kind}]', () => {
+    expect(capture.map((e) => e.type)).toEqual([
+      'item.started',
+      'item.completed',
+      'item.started',
+      'item.completed',
+    ]);
+    for (const event of capture) {
+      expect(event.item?.type).toBe('file_change');
+      expect(event.item?.changes).toHaveLength(1);
+      expect(event.item?.changes?.[0]?.path).toMatch(/notes\.txt$/);
+    }
+  });
+
+  it('kinds observed live are add and update; no diff body is reported', () => {
+    expect(capture.map((e) => e.item?.changes?.[0]?.kind)).toEqual([
+      'add',
+      'add',
+      'update',
+      'update',
+    ]);
+    expect(JSON.stringify(capture)).not.toContain('diff');
+    expect(JSON.stringify(capture)).not.toContain('unified');
   });
 });
 
