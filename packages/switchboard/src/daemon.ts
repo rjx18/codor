@@ -2369,9 +2369,10 @@ export class Daemon {
         let journalEvent = event;
         if (event.type === 'run.item') {
           // harn:assume member-status-is-bounded-and-identity-safe ref=run-item-journal-timestamp
-          if (event.item_type === 'tool_call' || event.item_type === 'tool_result') {
-            journalEvent = { ...event, ts: new Date().toISOString() };
-          }
+          // Every run item is journaled with a wall-clock ts — prose (text_delta,
+          // reasoning) included — so transcript blocks can be ordered by true time,
+          // not only tool events. One path, no per-type branching.
+          journalEvent = { ...event, ts: new Date().toISOString() };
           // harn:end member-status-is-bounded-and-identity-safe
           if (event.item_type === 'tool_call') toolCalls++;
           const description = extensionDescription(event);

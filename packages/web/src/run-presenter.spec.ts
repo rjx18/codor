@@ -212,3 +212,41 @@ describe('indexed run event buffer (appendRunEvent)', () => {
     expect(buffer).toEqual({ events: [text('a'), text('b')], dropped_count: 0 });
   });
 });
+
+describe('prose block timestamps (prose-blocks-carry-first-delta-timestamps)', () => {
+  const delta = (t: string, ts?: string): WireEvent =>
+    ({ type: 'run.item', item_type: 'text_delta', payload: { text: t }, ...(ts !== undefined && { ts }) });
+  const call = (id: string, ts: string): WireEvent =>
+    ({ type: 'run.item', item_type: 'tool_call', payload: { call_id: id, tool: 'Bash', title: id, input: {} }, ts });
+  const result = (id: string, ts: string): WireEvent =>
+    ({ type: 'run.item', item_type: 'tool_result', payload: { call_id: id, status: 'ok' }, ts });
+
+  it('a coalesced prose block reports its first delta ts while its event stays the last', () => {
+    const rows = presentRunEvents(indexed([
+      delta('Hello ', '2026-07-18T00:00:01.000Z'),
+      delta('world', '2026-07-18T00:00:02.000Z'),
+    ]));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.ts).toBe('2026-07-18T00:00:01.000Z'); // when the text started
+    expect(rows[0]!.text).toBe('Hello world'); // coalesced
+    const ev = rows[0]!.event;
+    expect(ev.type === 'run.item' && (ev.payload as { text: string }).text).toBe('world'); // last delta
+  });
+
+  it('a second prose block after a tool row keeps its own first-delta ts', () => {
+    const rows = presentRunEvents(indexed([
+      delta('before', '2026-07-18T00:00:01.000Z'),
+      call('c1', '2026-07-18T00:00:02.000Z'),
+      result('c1', '2026-07-18T00:00:03.000Z'),
+      delta('after', '2026-07-18T00:00:04.000Z'),
+    ]));
+    expect(rows.filter((row) => row.kind === 'prose').map((row) => row.ts))
+      .toEqual(['2026-07-18T00:00:01.000Z', '2026-07-18T00:00:04.000Z']);
+    // the tool row keeps the tool_call's stamp, not the later result's
+    expect(rows.find((row) => row.kind === 'tool')!.ts).toBe('2026-07-18T00:00:02.000Z');
+  });
+
+  it('rows from pre-upgrade ts-less journal events leave ts undefined', () => {
+    expect(presentRunEvents(indexed([delta('no stamp')]))[0]!.ts).toBeUndefined();
+  });
+});

@@ -1,69 +1,65 @@
 id: run-prose-block-timestamps
-title: Journal timestamps on prose run items so transcript blocks can
-  interleave truthfully.
+title: Journal timestamps on prose run items so transcript blocks can interleave
+  truthfully.
 notes: >-
-  Unblocks fixes-round item 2 (#431): a human message posted mid-run must
-  land BETWEEN the run's text blocks, but blocks currently cannot be
-  ordered individually - opus verified (and fable confirmed) that the
-  daemon stamps ts only on tool_call/tool_result run items, and the
-  presenter's delta coalescing keeps the LAST delta's event, so prose
-  blocks carry no usable time at all. The protocol already allows ts on
-  every run item (events.ts RunItem ts optional) - no protocol change.
+  Unblocks fixes-round item 2 (#431): a human message posted mid-run must land
+  BETWEEN the run's text blocks, but blocks currently cannot be ordered
+  individually - opus verified (and fable confirmed) that the daemon stamps ts
+  only on tool_call/tool_result run items, and the presenter's delta coalescing
+  keeps the LAST delta's event, so prose blocks carry no usable time at all. The
+  protocol already allows ts on every run item (events.ts RunItem ts optional) -
+  no protocol change.
 
-  Change. Daemon: inside the run-item-journal-timestamp anchored stamp,
-  every run.item journals with ts (text_delta and reasoning_summary join
+  Change. Daemon: inside the run-item-journal-timestamp anchored stamp, every
+  run.item journals with ts (text_delta and reasoning_summary join
   tool_call/tool_result; one code path, no per-type branching). Presenter
-  (packages/web/src/run-presenter.ts): RunRow gains an optional ts field;
-  every row records the FIRST contributing event's ts (for a coalesced
-  prose block that is the first delta's stamp; tool rows keep their own),
-  while previous.event keeps its existing last-event meaning for live
-  updates. Rows built from pre-upgrade journals have no ts and the field
-  stays undefined - clients must treat a ts-less block exactly as today
-  (ordered at the run's terminal position), so history never reorders.
+  (packages/web/src/run-presenter.ts): RunRow gains an optional ts field; every
+  row records the FIRST contributing event's ts (for a coalesced prose block
+  that is the first delta's stamp; tool rows keep their own), while
+  previous.event keeps its existing last-event meaning for live updates. Rows
+  built from pre-upgrade journals have no ts and the field stays undefined -
+  clients must treat a ts-less block exactly as today (ordered at the run's
+  terminal position), so history never reorders.
 
-  Web-next follow-up in the same round (harnignored, after this lands):
-  hoist finalized runs' per-block rows into the top-level transcript
-  ordering by row ts (ts-less blocks stay at the run's ended_ts; running
-  runs stay tail-pinned), header/avatar per contiguous same-author
-  stretch, and a sensible home for run-level affordances (status, Retry,
-  inspector, tool batches).
+  Web-next follow-up in the same round (harnignored, after this lands): hoist
+  finalized runs' per-block rows into the top-level transcript ordering by row
+  ts (ts-less blocks stay at the run's ended_ts; running runs stay tail-pinned),
+  header/avatar per contiguous same-author stretch, and a sensible home for
+  run-level affordances (status, Retry, inspector, tool batches).
 
-  Tests: daemon - a run's journaled text_delta and reasoning_summary
-  items carry ts (read the journal blob back), tool stamps unchanged;
-  presenter (new run-presenter.spec.ts) - a coalesced prose block reports
-  the first delta's ts while its event stays the last delta's, a second
-  block after a tool row gets its own first-delta ts, rows from ts-less
-  events leave ts undefined. Gate: switchboard + web suites green; full
-  workspace build green.
+  Tests: daemon - a run's journaled text_delta and reasoning_summary items carry
+  ts (read the journal blob back), tool stamps unchanged; presenter (new
+  run-presenter.spec.ts) - a coalesced prose block reports the first delta's ts
+  while its event stays the last delta's, a second block after a tool row gets
+  its own first-delta ts, rows from ts-less events leave ts undefined. Gate:
+  switchboard + web suites green; full workspace build green.
 assumptions:
   reviewed:
     - id: member-status-is-bounded-and-identity-safe
       outcome: unchanged
-      reason: The stamp inside its anchor widens from two item types to all
-        run items; status derivation and identity bounding are untouched.
+      reason: The stamp inside its anchor widens from two item types to all run items;
+        status derivation and identity bounding are untouched.
     - id: normalized-run-items-presented-live
       outcome: unchanged
       reason: The presenter still renders normalized items live; rows gain a
         first-event ts without changing any existing row semantics.
     - id: run-events-merge-by-journal-index
       outcome: unchanged
-      reason: Merge stays keyed by journal index; ts is payload, not merge
-        identity.
+      reason: Merge stays keyed by journal index; ts is payload, not merge identity.
   create:
     - id: prose-blocks-carry-first-delta-timestamps
-      title: Every journaled run item is timestamped and a presented prose
-        block reports its first delta's stamp
-      statement: The daemon journals every run.item with a wall-clock ts (not
-        only tool events), and the presenter gives each row an optional ts
-        equal to the first contributing event's stamp - a coalesced prose
-        block reports when its text STARTED, tool rows their own event
-        time - while rows built from pre-upgrade ts-less journal entries
-        leave ts undefined so clients order them exactly as before; this
-        exists so transcript blocks can interleave with other messages by
-        true time without ever reordering history.
-      reason: >-
-        #431 item 2: mid-run human messages must land between a run's text
-        blocks, which is impossible while prose carries no time.
+      title: Every journaled run item is timestamped and a presented prose block
+        reports its first delta's stamp
+      statement: The daemon journals every run.item with a wall-clock ts (not only
+        tool events), and the presenter gives each row an optional ts equal to
+        the first contributing event's stamp - a coalesced prose block reports
+        when its text STARTED, tool rows their own event time - while rows built
+        from pre-upgrade ts-less journal entries leave ts undefined so clients
+        order them exactly as before; this exists so transcript blocks can
+        interleave with other messages by true time without ever reordering
+        history.
+      reason: "#431 item 2: mid-run human messages must land between a run's text
+        blocks, which is impossible while prose carries no time."
       depends_on: []
 files:
   - packages/switchboard/src/daemon.ts
@@ -74,15 +70,17 @@ anchors:
   prose-blocks-carry-first-delta-timestamps:
     prose-block-first-ts:
       action: change
-      reason: The widened daemon stamp and the presenter's first-event ts
-        capture define the contract.
+      reason: The widened daemon stamp and the presenter's first-event ts capture
+        define the contract.
   member-status-is-bounded-and-identity-safe:
     run-item-journal-timestamp:
       action: change
-      reason: The stamp inside this anchor widens to every run.item; the
-        assumption's status/identity meaning is unchanged.
+      reason: The stamp inside this anchor widens to every run.item; the assumption's
+        status/identity meaning is unchanged.
   normalized-run-items-presented-live:
     normalized-run-presenter:
       action: change
-      reason: The presenter's coalescing gains first-event ts capture inside
-        this anchor; presentation semantics are otherwise unchanged.
+      reason: The presenter's coalescing gains first-event ts capture inside this
+        anchor; presentation semantics are otherwise unchanged.
+applied:
+  applied_at: 2026-07-17T17:38:38.963Z
