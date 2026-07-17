@@ -1,14 +1,13 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createInterface } from 'node:readline';
 
 import type {
   AgentLimit,
-  ModelCatalog,
   AdapterTurnHooks,
   HarnessAdapter,
+  ModelCatalog,
   Session,
   SessionRef,
   SpawnOpts,
@@ -17,8 +16,16 @@ import type {
 } from '@codor/protocol';
 import { PolicySchema, ThinkingLevelSchema } from '@codor/protocol';
 
-import { createTurnTranslator } from './translate.js';
+import {
+  CodexAppServerClient,
+  type CodexAppServerFactory,
+  spawnCodexAppServer,
+} from './app-server-transport.js';
 import { probeCodexLimits } from './limits-probe.js';
+import {
+  createTurnTranslator,
+  type CodexTranslatorContext,
+} from './translate.js';
 
 const ROLLOUT_RE = /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/;
 
@@ -51,28 +58,127 @@ function assertThinkingLevel(thinking: ThinkingLevel | undefined): void {
 }
 // harn:end harness-declares-supported-thinking-levels
 
+export interface CodexPolicyOptions {
+  approvalPolicy: 'never';
+  sandbox: 'read-only' | 'workspace-write' | 'danger-full-access';
+  sandboxPolicy:
+    | { type: 'readOnly' }
+    | { type: 'workspaceWrite'; networkAccess: false }
+    | { type: 'dangerFullAccess' };
+}
+
 // harn:assume canonical-spawn-controls-enforced ref=codex-spawn-control-mapping
-export function codexArgs(session: Session, payload: string): string[] {
-  const policy = session.policy ?? 'read-only';
-  if (!PolicySchema.safeParse(policy).success) throw invalidPolicy(policy);
-  const args = ['exec', '--json', '--skip-git-repo-check', '-C', session.cwd];
-  if (policy === 'full-access') args.push('--yolo');
-  else args.push('--sandbox', policy);
-  if (session.model !== undefined) args.push('-m', session.model);
-  if (session.thinking !== undefined) {
-    ThinkingLevelSchema.parse(session.thinking);
-    assertThinkingLevel(session.thinking);
-    args.push('-c', `model_reasoning_effort=${session.thinking}`);
+export function codexPolicyOptions(policy: string | undefined): CodexPolicyOptions {
+  const selected = policy ?? 'read-only';
+  if (!PolicySchema.safeParse(selected).success) throw invalidPolicy(selected);
+  if (selected === 'read-only') {
+    return { approvalPolicy: 'never', sandbox: 'read-only', sandboxPolicy: { type: 'readOnly' } };
   }
-  if (session.session_ref !== undefined) args.push('resume', session.session_ref);
-  args.push(payload);
-  return args;
+  if (selected === 'workspace-write') {
+    return {
+      approvalPolicy: 'never',
+      sandbox: 'workspace-write',
+      sandboxPolicy: { type: 'workspaceWrite', networkAccess: false },
+    };
+  }
+  return {
+    approvalPolicy: 'never',
+    sandbox: 'danger-full-access',
+    sandboxPolicy: { type: 'dangerFullAccess' },
+  };
+}
+
+function validateThinking(thinking: ThinkingLevel | undefined): void {
+  if (thinking === undefined) return;
+  ThinkingLevelSchema.parse(thinking);
+  assertThinkingLevel(thinking);
+}
+// harn:end canonical-spawn-controls-enforced
+
+interface RuntimeIdentity {
+  cwd: string;
+  model?: string;
+  policy?: string;
+  thinking?: ThinkingLevel;
+  env: string;
+}
+
+interface TurnState {
+  translator: ReturnType<typeof createTurnTranslator>;
+  hooks: AdapterTurnHooks;
+  queue: WireEvent[];
+  wake: (() => void) | null;
+  terminal: boolean;
+  done: boolean;
+  interrupted: boolean;
+  turnId?: string;
+}
+
+interface CodexRuntime {
+  session: Session;
+  memberKey?: string;
+  identity?: RuntimeIdentity;
+  client: CodexAppServerClient | null;
+  child: ChildProcessWithoutNullStreams | null;
+  connecting: Promise<void> | null;
+  active: TurnState | null;
+  threadId?: string;
+  context: CodexTranslatorContext;
+}
+
+export interface CodexAdapterOptions {
+  command?: string;
+  appServerFactory?: CodexAppServerFactory;
+}
+
+function sortedEnvironment(env: NodeJS.ProcessEnv): string {
+  return JSON.stringify(
+    Object.entries(env)
+      .filter((entry): entry is [string, string] => entry[1] !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function runtimeIdentity(session: Session): RuntimeIdentity {
+  return {
+    cwd: session.cwd,
+    model: session.model,
+    policy: session.policy,
+    thinking: session.thinking,
+    env: sortedEnvironment({ ...process.env, ...session.env }),
+  };
+}
+
+function sameIdentity(left: RuntimeIdentity | undefined, right: RuntimeIdentity): boolean {
+  return left !== undefined &&
+    left.cwd === right.cwd &&
+    left.model === right.model &&
+    left.policy === right.policy &&
+    left.thinking === right.thinking &&
+    left.env === right.env;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function responseId(response: unknown, key: 'thread' | 'turn'): string | undefined {
+  const container = record(response)?.[key];
+  const id = record(container)?.id;
+  return typeof id === 'string' && id !== '' ? id : undefined;
+}
+
+function notificationThreadId(params: unknown): string | undefined {
+  const id = record(params)?.threadId;
+  return typeof id === 'string' ? id : undefined;
 }
 
 /**
- * Codex adapter — drives `codex exec --json` per the P0.2 fixtures/NOTES.md.
- * Approvals are spawn-time sandbox policy (the member's policy chip); there
- * is no ask/approval control protocol in exec mode.
+ * Codex adapter backed by one long-lived 0.144.5 app-server per member.
+ * Codor owns the turn boundary and spawn-time sandbox policy; app-server owns
+ * the persistent native thread and context compaction.
  */
 export class CodexAdapter implements HarnessAdapter {
   readonly id = 'codex';
@@ -98,18 +204,19 @@ export class CodexAdapter implements HarnessAdapter {
     // harn:end harness-declares-what-a-policy-becomes
   } as const;
 
-  private readonly children = new WeakMap<Session, ChildProcess>();
+  private readonly runtimes = new WeakMap<Session, CodexRuntime>();
+  private readonly memberRuntimes = new Map<string, CodexRuntime>();
+  private readonly command: string;
+  private readonly appServerFactory: CodexAppServerFactory;
 
-  constructor(private readonly command = 'codex') {}
+  constructor(options: CodexAdapterOptions = {}) {
+    this.command = options.command ?? 'codex';
+    this.appServerFactory = options.appServerFactory ?? spawnCodexAppServer;
+  }
 
   spawn(opts: SpawnOpts): Session {
-    if (opts.policy !== undefined && !PolicySchema.safeParse(opts.policy).success) {
-      throw invalidPolicy(opts.policy);
-    }
-    if (opts.thinking !== undefined) {
-      ThinkingLevelSchema.parse(opts.thinking);
-      assertThinkingLevel(opts.thinking);
-    }
+    codexPolicyOptions(opts.policy);
+    validateThinking(opts.thinking);
     return {
       harness: this.id,
       cwd: opts.cwd,
@@ -118,7 +225,6 @@ export class CodexAdapter implements HarnessAdapter {
       thinking: opts.thinking,
     };
   }
-  // harn:end canonical-spawn-controls-enforced
 
   // harn:assume adapters-own-their-model-catalog ref=codex-model-catalog
   /** Curated: `codex` has no listing command. Cited in NOTES.md. */
@@ -138,107 +244,282 @@ export class CodexAdapter implements HarnessAdapter {
     return { harness: this.id, session_ref, cwd: process.cwd() };
   }
 
-  // harn:assume adapters-cli-only-no-sdk ref=cli-subprocess-driver
-  /**
-   * One deliver() = one `codex exec --json` subprocess = one turn.
-   * Contract pinned by fixtures: flags BEFORE the `resume` subcommand;
-   * stdin closed (codex reads a piped stdin as extra prompt); the child gets
-   * its own process group because the npm shim cannot forward SIGKILL — the
-   * orphaned engine keeps running and writing, so signals must target the
-   * GROUP and EOF (not child-exit) ends the stream.
-   */
-  // harn:assume adapter-process-lifecycle-supervised ref=cli-process-supervision
+  // harn:assume codex-app-server-is-the-member-runtime ref=codex-app-server-session-lifecycle
   async *deliver(
     session: Session,
     payload: string,
     hooks: AdapterTurnHooks = {},
   ): AsyncIterable<WireEvent> {
-    const args = codexArgs(session, payload);
+    const runtime = this.runtimeFor(session);
+    if (runtime.active !== null) throw new Error('a Codex turn is already in flight for this member');
+    await this.prepareRuntime(runtime, session);
 
-    const child = spawn(this.command, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: true, // own process group — signal the group, not the shim
-      // harn:assume adapter-children-inherit-session-env ref=codex-child-environment
-      env: { ...process.env, ...session.env },
-      // harn:end adapter-children-inherit-session-env
-    });
-    this.children.set(session, child);
-
-    let stderr = '';
-    child.stderr!.setEncoding('utf8');
-    child.stderr!.on('data', (chunk: string) => {
-      stderr = `${stderr}${chunk}`.slice(-8192);
-    });
-    let childError: Error | undefined;
-    const spawned = new Promise<void>((resolve, reject) => {
-      child.once('spawn', resolve);
-      child.once('error', (error) => {
-        childError = error;
-        reject(error);
-      });
-    });
-    const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
-      (resolve) => child.once('close', (code, signal) => resolve({ code, signal })),
-    );
-
-    const translator = createTurnTranslator();
-    let reportedSessionRef: string | undefined;
-    const reportSessionRef = (): void => {
-      const discovered = translator.threadId();
-      if (discovered === undefined || discovered === reportedSessionRef) return;
-      session.session_ref = discovered;
-      reportedSessionRef = discovered;
-      hooks.onSessionRef?.(discovered);
+    const turn: TurnState = {
+      translator: createTurnTranslator(runtime.context),
+      hooks,
+      queue: [],
+      wake: null,
+      terminal: false,
+      done: false,
+      interrupted: false,
     };
+    runtime.active = turn;
+
     try {
       try {
-        await spawned;
+        await this.ensureClient(runtime);
+        hooks.onStarted?.({
+          pid: runtime.child?.pid,
+        });
+        await this.ensureThread(runtime, turn);
+        const response = await runtime.client!.request('turn/start', {
+          threadId: runtime.threadId,
+          input: [{ type: 'text', text: payload, text_elements: [] }],
+          cwd: session.cwd,
+          ...this.turnOptions(session),
+        });
+        turn.turnId ??= responseId(response, 'turn');
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        yield* translator.end({ status: 'failed', final_text: detail });
-        return;
-      }
-      hooks.onStarted?.({ pid: child.pid, process_group_id: child.pid });
-
-      const lines = createInterface({ input: child.stdout! });
-      for await (const line of lines) {
-        for (const event of translator.push(line)) {
-          reportSessionRef();
-          yield event;
+        if (!turn.terminal) {
+          const detail = error instanceof Error ? error.message : String(error);
+          this.completeTurn(turn, {
+            type: 'run.completed',
+            status: turn.interrupted ? 'interrupted' : 'failed',
+            ...(turn.interrupted ? {} : { error: detail }),
+          });
         }
-        reportSessionRef();
+        this.retireRuntime(runtime);
       }
-      const exit = await closed;
-      const failed = childError !== undefined || (exit.code !== null && exit.code !== 0);
-      const detail = stderr.trim() || childError?.message;
-      yield* translator.end({
-        status: failed ? 'failed' : 'interrupted',
-        ...(detail !== undefined && detail !== '' && { final_text: detail }),
-      });
+
+      while (true) {
+        if (turn.queue.length > 0) {
+          yield turn.queue.shift()!;
+          continue;
+        }
+        if (turn.done) break;
+        await new Promise<void>((resolve) => {
+          turn.wake = resolve;
+        });
+        turn.wake = null;
+      }
     } finally {
-      this.children.delete(session);
-      if (child.exitCode === null && child.signalCode === null) {
-        this.signal(child, 'SIGKILL');
+      if (runtime.active === turn) runtime.active = null;
+      if (!turn.terminal) {
+        turn.interrupted = true;
+        this.completeTurn(turn, { type: 'run.completed', status: 'interrupted' });
+        this.retireRuntime(runtime);
       }
     }
   }
-  // harn:end adapter-process-lifecycle-supervised
+
+  private runtimeFor(session: Session): CodexRuntime {
+    const direct = this.runtimes.get(session);
+    if (direct !== undefined) {
+      direct.session = session;
+      return direct;
+    }
+    const memberKey = session.env?.CODOR_MEMBER_ID;
+    const existing = memberKey === undefined ? undefined : this.memberRuntimes.get(memberKey);
+    const runtime: CodexRuntime = existing ?? {
+      session,
+      ...(memberKey !== undefined && { memberKey }),
+      client: null,
+      child: null,
+      connecting: null,
+      active: null,
+      ...(session.session_ref !== undefined && { threadId: session.session_ref }),
+      context: {},
+    };
+    runtime.session = session;
+    if (session.session_ref !== undefined) runtime.threadId = session.session_ref;
+    this.runtimes.set(session, runtime);
+    if (memberKey !== undefined) this.memberRuntimes.set(memberKey, runtime);
+    return runtime;
+  }
+
+  private async prepareRuntime(runtime: CodexRuntime, session: Session): Promise<void> {
+    const identity = runtimeIdentity(session);
+    if (runtime.client !== null && !sameIdentity(runtime.identity, identity)) {
+      this.retireRuntime(runtime);
+    }
+    runtime.session = session;
+    if (session.session_ref !== undefined) runtime.threadId = session.session_ref;
+    if (runtime.client === null) runtime.identity = identity;
+  }
+
+  private async ensureClient(runtime: CodexRuntime): Promise<void> {
+    if (runtime.client !== null) return;
+    if (runtime.connecting !== null) return await runtime.connecting;
+    const connecting = this.connect(runtime);
+    runtime.connecting = connecting;
+    try {
+      await connecting;
+    } finally {
+      if (runtime.connecting === connecting) runtime.connecting = null;
+    }
+  }
+
+  private async connect(runtime: CodexRuntime): Promise<void> {
+    const session = runtime.session;
+    // harn:assume adapter-children-inherit-session-env ref=codex-child-environment
+    const child = await this.appServerFactory({
+      command: this.command,
+      cwd: session.cwd,
+      env: { ...process.env, ...session.env },
+    });
+    // harn:end adapter-children-inherit-session-env
+    let client!: CodexAppServerClient;
+    client = new CodexAppServerClient(child, (error) => this.handleClientClose(runtime, client, error));
+    runtime.child = child;
+    runtime.client = client;
+    runtime.identity = runtimeIdentity(session);
+    client.setNotificationHandler((method, params) => this.routeNotification(runtime, client, method, params));
+    // Runtime approvals are intentionally unsupported. `never` should prevent
+    // these methods, but declining is safer than leaving an unexpected request hung.
+    client.setRequestHandler('item/commandExecution/requestApproval', () => ({ decision: 'decline' }));
+    client.setRequestHandler('item/fileChange/requestApproval', () => ({ decision: 'decline' }));
+
+    try {
+      await client.request('initialize', {
+        clientInfo: { name: 'codor', title: 'Codor', version: '0.1.0' },
+      });
+      client.notify('initialized');
+      if (runtime.threadId !== undefined) {
+        await client.request('thread/resume', {
+          threadId: runtime.threadId,
+          ...this.threadOptions(session),
+        });
+      }
+    } catch (error) {
+      if (runtime.client === client) {
+        runtime.client = null;
+        runtime.child = null;
+      }
+      client.dispose();
+      throw error;
+    }
+  }
+
+  private async ensureThread(runtime: CodexRuntime, turn: TurnState): Promise<void> {
+    if (runtime.threadId !== undefined) return;
+    const response = await runtime.client!.request('thread/start', this.threadOptions(runtime.session));
+    const threadId = responseId(response, 'thread');
+    if (threadId === undefined) throw new Error('Codex app-server did not return a thread id');
+    runtime.threadId = threadId;
+    runtime.session.session_ref = threadId;
+    turn.hooks.onSessionRef?.(threadId);
+  }
+
+  private threadOptions(session: Session): Record<string, unknown> {
+    const policy = codexPolicyOptions(session.policy);
+    return {
+      cwd: session.cwd,
+      approvalPolicy: policy.approvalPolicy,
+      sandbox: policy.sandbox,
+      ...(session.model !== undefined && { model: session.model }),
+    };
+  }
+
+  private turnOptions(session: Session): Record<string, unknown> {
+    const policy = codexPolicyOptions(session.policy);
+    return {
+      approvalPolicy: policy.approvalPolicy,
+      sandboxPolicy: policy.sandboxPolicy,
+      ...(session.model !== undefined && { model: session.model }),
+      ...(session.thinking !== undefined && { effort: session.thinking }),
+    };
+  }
+
+  private routeNotification(
+    runtime: CodexRuntime,
+    client: CodexAppServerClient,
+    method: string,
+    params: unknown,
+  ): void {
+    if (runtime.client !== client) return;
+    const threadId = notificationThreadId(params);
+    if (threadId !== undefined && runtime.threadId !== undefined && threadId !== runtime.threadId) {
+      return;
+    }
+    const turn = runtime.active;
+    if (turn === null || turn.done) return;
+    const events = turn.translator.push(method, params);
+    turn.turnId ??= turn.translator.turnId();
+    this.push(turn, events);
+    if (events.some((event) => event.type === 'run.completed')) {
+      turn.terminal = true;
+      turn.done = true;
+      turn.wake?.();
+    }
+  }
+
+  private handleClientClose(
+    runtime: CodexRuntime,
+    client: CodexAppServerClient,
+    error: Error,
+  ): void {
+    if (runtime.client !== client) return;
+    runtime.client = null;
+    runtime.child = null;
+    const turn = runtime.active;
+    if (turn !== null && !turn.terminal) {
+      this.completeTurn(turn, turn.interrupted
+        ? { type: 'run.completed', status: 'interrupted' }
+        : { type: 'run.completed', status: 'failed', error: error.message });
+    }
+  }
+
+  private push(turn: TurnState, events: WireEvent[]): void {
+    if (events.length === 0) return;
+    turn.queue.push(...events);
+    turn.wake?.();
+  }
+
+  private completeTurn(turn: TurnState, event: WireEvent): void {
+    if (turn.terminal) return;
+    this.push(turn, [event]);
+    turn.terminal = true;
+    turn.done = true;
+    turn.wake?.();
+  }
+
+  private retireRuntime(runtime: CodexRuntime, removeRuntime = false): void {
+    const client = runtime.client;
+    runtime.client = null;
+    runtime.child = null;
+    runtime.identity = undefined;
+    client?.dispose();
+    if (removeRuntime) {
+      this.runtimes.delete(runtime.session);
+      if (runtime.memberKey !== undefined) this.memberRuntimes.delete(runtime.memberKey);
+    }
+  }
 
   interrupt(session: Session): void {
-    const child = this.children.get(session);
-    if (child) this.signal(child, 'SIGINT');
-  }
-
-  /** Signal the child's whole process group (see NOTES.md kill findings). */
-  private signal(child: ChildProcess, signal: NodeJS.Signals): void {
-    if (child.pid === undefined) return;
-    try {
-      process.kill(-child.pid, signal);
-    } catch {
-      child.kill(signal); // group already gone — try the direct pid
+    const runtime = this.runtimes.get(session)
+      ?? (session.env?.CODOR_MEMBER_ID === undefined
+        ? undefined
+        : this.memberRuntimes.get(session.env.CODOR_MEMBER_ID));
+    if (runtime === undefined) return;
+    const turn = runtime.active;
+    if (turn === null || turn.terminal) {
+      this.retireRuntime(runtime, true);
+      return;
     }
+    turn.interrupted = true;
+    const client = runtime.client;
+    if (client === null || runtime.threadId === undefined || turn.turnId === undefined) {
+      this.completeTurn(turn, { type: 'run.completed', status: 'interrupted' });
+      this.retireRuntime(runtime, true);
+      return;
+    }
+    this.completeTurn(turn, { type: 'run.completed', status: 'interrupted' });
+    void client.request('turn/interrupt', {
+      threadId: runtime.threadId,
+      turnId: turn.turnId,
+    }, 5_000).catch(() => undefined).finally(() => this.retireRuntime(runtime, true));
   }
-  // harn:end adapters-cli-only-no-sdk
+  // harn:end codex-app-server-is-the-member-runtime
 
   respondInteraction(): Promise<void> {
     return Promise.reject(

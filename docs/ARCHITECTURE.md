@@ -9,8 +9,8 @@
    iPhone app  ─────┼──▶│  │  · channels + message store      │  spawns/  │
                     │   │  │  · mention router             │  resumes  │
    Apple Watch ──┐  │   │  │  · member lifecycle           │──────────▶│ Claude Agent SDK query()
-   (via phone or │  │   │  │  · event journal (run blobs)  │           │ codex exec --json
-    push relay)  │  │   │  │  · WS/REST API                │◀──────────│ (harness CLIs, local)
+   (via phone or │  │   │  │  · event journal (run blobs)  │           │ codex app-server
+    push relay)  │  │   │  │  · WS/REST API                │◀──────────│ (+ harness CLIs, local)
                  │  │   │  └───────┬──────────────┬───────┘           │
                  │  │   │          │adapters      │transports          │
                  │  │   │   claude-code  codex    │· tailnet WS (tier 0)│
@@ -61,10 +61,10 @@ interface HarnessAdapter {
 ```
 
 Design rule: **adapters expose one normalized turn contract while using the provider-native
-runtime that preserves a session correctly.** Most harnesses remain plain supervised CLI
-subprocesses. Claude is the deliberate exception: its first-party Agent SDK owns a long-lived
-Claude Code process, streaming input, callbacks, and native auto-compaction. The switchboard
-still sees the same `deliver()`/interaction/interrupt/session-ref boundary.
+runtime that preserves a session correctly.** Copilot, Gemini, and OpenCode remain plain
+supervised per-turn CLI subprocesses. Claude's first-party Agent SDK and Codex's app-server
+are deliberate persistent-runtime exceptions. The switchboard still sees the same
+`deliver()`/interaction/interrupt/session-ref boundary.
 
 - **claude-code**: owns one first-party Agent SDK `query()` per member over streaming
   `SDKUserMessage` input and recreates it with `resume` after an exit. SDK result/system
@@ -73,9 +73,12 @@ still sees the same `deliver()`/interaction/interrupt/session-ref boundary.
   authoritative extension source; `PostToolUse` runs the member's exact live-inbox hook.
   Interrupt uses `query.interrupt()`. The raw `claude -p` turn driver and its generated hook
   settings/HTTP bridge are gone.
-- **codex**: drives `codex exec --json [--sandbox <policy>] resume <rollout-id> "<payload>"` —
-  the exact pattern proven in months of manual use. Flags precede the subcommand (learned the
-  hard way). Approvals are spawn-time sandbox policy → rendered as the member's policy chip.
+- **codex**: owns one initialized `codex app-server` JSON-RPC process per member, retains it
+  across turns, and recreates it with `thread/resume` after an exit or configuration mismatch.
+  `thread/tokenUsage/updated` feeds native context occupancy; canonical context-compaction
+  items plus the compatibility notification feed deduplicated timeline markers. Interrupt
+  uses `turn/interrupt`. Approvals remain spawn-time sandbox policy with
+  `approvalPolicy:"never"`; no runtime approval cards are introduced.
 - **ACP — evaluated in M0 (P0.2), verdict: NO for driver replacement.** Decision gate was
   resume + usage + subagent visibility. Findings: resume exists (`session/load` +
   `session/resume`, optional; `claude-agent-acp` implements both across process restarts);
@@ -217,7 +220,7 @@ verified in M0 before any code lands (unverified entries marked ⚠).
 | Component | Reuse | Mode | Notes |
 | --- | --- | --- | --- |
 | Claude session driving | `@anthropic-ai/claude-agent-sdk` (`query()` streaming input + `resume`) | depend | one long-lived query per member; first-party callbacks for permissions/hooks; engine-native compaction |
-| Codex session driving | `codex` CLI (`exec --json`, `resume`) | depend | subprocess; proven pattern |
+| Codex session driving | `codex app-server` JSON-RPC (`thread/start`, `thread/resume`, `turn/start`) | depend | one persistent supervised process per member; native usage and compaction notifications |
 | Harness normalization | Zed ACP (`agent-client-protocol` + `claude-agent-acp`, both Apache-2.0) | rejected as driver layer (M0 verdict) | P0.2 spike: resume OK, usage coarse (per-turn tokens still a Draft RFD), subagent visibility absent by design; codex adapter is third-party (JetBrains). CLI drivers stay; ACP = candidate future fourth adapter |
 | Additional harness adapters (Copilot CLI, OpenCode, Gemini, Pi, …) | paseo's adapter set as the *behavioral reference* (AGPL forbids copying code, not learning from it); ACP adapters where they exist (Apache/MIT); each harness's first-party headless docs | pattern / depend | per harness: read their connector → write a behavioral spec (`packages/adapters/<harness>/NOTES.md`: invocation, resume, session store, event format, quirks) → implement our small adapter from the spec against the six-method interface. No paseo code in this repo, in-process or sidecar |
 | P2P transport | `hyperswarm` (+ DHT, Noise) — walkie's stack (**MIT, verified P0.2**) | depend; walkie as pattern/vendor | `line:secret` → DHT topic, exactly walkie's channel model; walkie's `listen()/send()` lib is MIT (`walkie-sh` v1.5.0) — reuse permitted with attribution, else hyperswarm directly |

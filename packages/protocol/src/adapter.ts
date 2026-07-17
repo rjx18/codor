@@ -103,9 +103,9 @@ export interface ModelCatalog {
 // harn:end adapters-own-their-model-catalog
 
 export interface AdapterTurnHooks {
-  /** Called after the adapter runtime accepts the turn; process ids are optional for SDK runtimes. */
+  /** Called after the adapter runtime accepts the turn; a retained provider process may repeat its pid. */
   onStarted?(process: { pid?: number; process_group_id?: number }): void;
-  /** Called as soon as provider output reveals the harness-native resume token. */
+  /** Called as soon as provider output or an RPC response reveals the native resume token. */
   onSessionRef?(session_ref: SessionRef): void;
 }
 

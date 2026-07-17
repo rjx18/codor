@@ -1,0 +1,11 @@
+{"method":"turn/started","params":{"threadId":"thread-fixture","turn":{"id":"turn-fixture","status":"inProgress","items":[],"error":null}}}
+{"method":"item/completed","params":{"threadId":"thread-fixture","turnId":"turn-fixture","item":{"type":"reasoning","id":"reasoning-1","summary":["Inspecting the fixture"],"content":[]}}}
+{"method":"item/started","params":{"threadId":"thread-fixture","turnId":"turn-fixture","item":{"type":"commandExecution","id":"command-1","command":"pwd","cwd":"/work","processId":null,"status":"inProgress","commandActions":[],"aggregatedOutput":null,"exitCode":null,"durationMs":null}}}
+{"method":"item/completed","params":{"threadId":"thread-fixture","turnId":"turn-fixture","item":{"type":"commandExecution","id":"command-1","command":"pwd","cwd":"/work","processId":"process-1","status":"completed","commandActions":[],"aggregatedOutput":"/work\n","exitCode":0,"durationMs":12}}}
+{"method":"item/completed","params":{"threadId":"thread-fixture","turnId":"turn-fixture","item":{"type":"fileChange","id":"change-1","changes":[{"path":"/work/new.txt","kind":{"type":"add"},"diff":"--- /dev/null\n+++ b/new.txt\n"}],"status":"completed"}}}
+{"method":"item/started","params":{"threadId":"thread-fixture","turnId":"turn-fixture","item":{"type":"contextCompaction","id":"compact-1"}}}
+{"method":"item/completed","params":{"threadId":"thread-fixture","turnId":"turn-fixture","item":{"type":"contextCompaction","id":"compact-1"}}}
+{"method":"thread/compacted","params":{"threadId":"thread-fixture","turnId":"turn-fixture"}}
+{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-fixture","turnId":"turn-fixture","tokenUsage":{"total":{"totalTokens":9000,"inputTokens":8000,"cachedInputTokens":4000,"outputTokens":1000,"reasoningOutputTokens":100},"last":{"totalTokens":7000,"inputTokens":6000,"cachedInputTokens":3000,"outputTokens":1000,"reasoningOutputTokens":100},"modelContextWindow":200000}}}
+{"method":"item/completed","params":{"threadId":"thread-fixture","turnId":"turn-fixture","item":{"type":"agentMessage","id":"message-1","text":"DONE","phase":"final_answer","memoryCitation":null}}}
+{"method":"turn/completed","params":{"threadId":"thread-fixture","turn":{"id":"turn-fixture","status":"completed","items":[],"error":null}}}

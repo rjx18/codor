@@ -65,7 +65,7 @@ describe('pong fixture replay', () => {
   });
 });
 
-// harn:assume normalized-agent-usage-telemetry ref=claude-usage-telemetry-regression
+// harn:assume normalized-agent-usage-and-context-telemetry ref=claude-usage-telemetry-regression
 describe('usage telemetry fixture replay', () => {
   const { all } = replay(fixture('usage-telemetry.jsonl'));
 
@@ -177,7 +177,7 @@ describe('usage telemetry fixture replay', () => {
     });
   });
 });
-// harn:end normalized-agent-usage-telemetry
+// harn:end normalized-agent-usage-and-context-telemetry
 
 describe('resume fixture replay', () => {
   it('--resume keeps the same session id', () => {

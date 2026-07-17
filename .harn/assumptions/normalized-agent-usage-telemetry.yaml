@@ -1,7 +1,7 @@
 id: normalized-agent-usage-telemetry
 hash: a-e2dc49c3301a
 title: Harness usage telemetry has one normalized additive wire shape
-state: active
+state: retired
 statement: Agent usage telemetry must use the optional camelCase fields
   inputTokens, cachedInputTokens, outputTokens, totalCostUsd,
   contextWindowMaxTokens, and contextWindowUsedTokens with no percentage field,
@@ -15,3 +15,4 @@ depends_on:
   - first-party-run-items-normalized
   - codex-usage-tokens-only
 created_by: context-ceiling-guardrails
+retired_by: ctx-guardrails-p5c-codex-app-server

@@ -129,7 +129,7 @@ export const WireEventSchema = z.discriminatedUnion('type', [
     item: CompactionTimelineItemSchema,
   }),
   // harn:end compaction-timeline-items-are-durable-run-evidence
-  // harn:assume normalized-agent-usage-telemetry ref=agent-usage-telemetry-schema
+  // harn:assume normalized-agent-usage-and-context-telemetry ref=agent-usage-telemetry-schema
   z.object({
     type: z.literal('usage_updated'),
     usage: AgentUsageSchema,
@@ -145,7 +145,7 @@ export const WireEventSchema = z.discriminatedUnion('type', [
     usage: UsageSchema.optional(),
     agent_usage: AgentUsageSchema.optional(),
   }),
-  // harn:end normalized-agent-usage-telemetry
+  // harn:end normalized-agent-usage-and-context-telemetry
   z.object({
     type: z.literal('run.limits'),
     limits: z.array(AgentLimitSchema).min(1),

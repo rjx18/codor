@@ -1,38 +1,38 @@
-import type { WireEvent } from '@codor/protocol';
-
-/**
- * Pure translator: `codex exec --json` stdout lines → normalized WireEvents.
- * The event vocabulary is pinned by the raw fixtures under ../fixtures/
- * (see NOTES.md) — success, resume, refused-write, interrupt, kill, failure.
- */
-
-interface CodexItem {
-  id: string;
-  type: string;
-  text?: string;
-  command?: string;
-  aggregated_output?: string;
-  exit_code?: number | null;
-  status?: string;
-  message?: string;
-  changes?: Array<{ path?: string; kind?: string }>;
-}
-
-interface CodexEvent {
-  type: string;
-  thread_id?: string;
-  usage?: {
-    input_tokens?: number;
-    cached_input_tokens?: number;
-    output_tokens?: number;
-    reasoning_output_tokens?: number;
-  };
-  error?: { message?: string };
-  message?: string;
-  item?: CodexItem;
-}
+import type { AgentUsage, WireEvent } from '@codor/protocol';
 
 const MAX_OUTPUT = 256 * 1024;
+
+type JsonRecord = Record<string, unknown>;
+
+export interface CodexTranslatorContext {
+  latestUsage?: AgentUsage;
+}
+
+export interface TurnTranslator {
+  push(method: string, params: unknown): WireEvent[];
+  end(fallback?: { status: 'failed' | 'interrupted'; error?: string }): WireEvent[];
+  turnId(): string | undefined;
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function nonnegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? value
+    : undefined;
+}
 
 function boundedOutput(value: string | undefined): string | undefined {
   if (value === undefined || Buffer.byteLength(value) <= MAX_OUTPUT) return value;
@@ -43,187 +43,265 @@ function boundedOutput(value: string | undefined): string | undefined {
   return `${prefix}${marker}`;
 }
 
-export interface TurnTranslator {
-  /** Feed one stdout line; returns the WireEvents it produced (often none). */
-  push(line: string): WireEvent[];
-  /** Signal stream EOF; synthesizes the terminal event if none was seen. */
-  end(fallback?: { status: 'failed' | 'interrupted'; final_text?: string }): WireEvent[];
-  /** thread_id from thread.started — the session_ref/resume token. */
-  threadId(): string | undefined;
+function itemFrom(params: unknown): JsonRecord | undefined {
+  if (!isRecord(params) || !isRecord(params.item)) return undefined;
+  return params.item;
 }
 
-/**
- * One translator per turn. Codex quirks handled here (all fixture-pinned):
- * - a turn can carry SEVERAL agent_message items; the LAST one is final_text;
- * - command_execution items surface only when the model uses the plain shell
- *   tool — unified-exec runs are invisible, so tool visibility is best-effort;
- * - SIGINT/kill truncate the stream with no terminal event: EOF without
- *   turn.completed/turn.failed synthesizes status 'interrupted';
- * - unparseable lines are skipped (never fatal).
- */
-export function createTurnTranslator(): TurnTranslator {
-  let threadId: string | undefined;
-  let lastAgentText: string | undefined;
-  let streamError: string | undefined;
-  let terminal = false;
+function fileChangeKind(kind: unknown): 'created' | 'modified' | 'deleted' {
+  const type = isRecord(kind) ? kind.type : undefined;
+  if (type === 'add') return 'created';
+  if (type === 'delete') return 'deleted';
+  return 'modified';
+}
 
-  const finalText = (): string | undefined => lastAgentText ?? streamError;
+function resultText(item: JsonRecord): string | undefined {
+  if (typeof item.aggregatedOutput === 'string') return item.aggregatedOutput;
+  if (typeof item.error === 'string') return item.error;
+  if (isRecord(item.error) && typeof item.error.message === 'string') return item.error.message;
+  if (item.result !== undefined) return JSON.stringify(item.result);
+  if (Array.isArray(item.contentItems)) return JSON.stringify(item.contentItems);
+  return undefined;
+}
+
+function usageEvent(usage: AgentUsage | undefined): WireEvent[] {
+  return usage === undefined || Object.keys(usage).length === 0
+    ? []
+    : [{ type: 'usage_updated', usage }];
+}
+
+// harn:assume codex-app-server-usage-is-context-aware-and-uncosted ref=codex-app-server-usage-mapping
+// harn:assume normalized-agent-usage-and-context-telemetry ref=codex-usage-telemetry
+/** Exact Codex 0.144.5 camelCase tokenUsage mapping; no historical aliases. */
+export function agentUsageFromTokenUsage(tokenUsage: unknown): AgentUsage | undefined {
+  if (!isRecord(tokenUsage) || !isRecord(tokenUsage.last)) return undefined;
+  const last = tokenUsage.last;
+  const inputTokens = nonnegativeInteger(last.inputTokens);
+  const cachedInputTokens = nonnegativeInteger(last.cachedInputTokens);
+  const outputTokens = nonnegativeInteger(last.outputTokens);
+  const contextWindowMaxTokens = positiveInteger(tokenUsage.modelContextWindow);
+  const contextWindowUsedTokens = nonnegativeInteger(last.totalTokens);
+  const usage: AgentUsage = {
+    ...(inputTokens !== undefined && { inputTokens }),
+    ...(cachedInputTokens !== undefined && { cachedInputTokens }),
+    ...(outputTokens !== undefined && { outputTokens }),
+    ...(contextWindowMaxTokens !== undefined && contextWindowUsedTokens !== undefined && {
+      contextWindowMaxTokens,
+      contextWindowUsedTokens,
+    }),
+  };
+  return Object.keys(usage).length === 0 ? undefined : usage;
+}
+// harn:end normalized-agent-usage-and-context-telemetry
+// harn:end codex-app-server-usage-is-context-aware-and-uncosted
+
+/** One app-server turn translator. Shared context carries only latest usage. */
+export function createTurnTranslator(
+  context: CodexTranslatorContext = {},
+): TurnTranslator {
+  let currentTurnId: string | undefined;
+  let lastAgentText: string | undefined;
+  let terminal = false;
+  let unpairedNotificationCompletions = 0;
+  let unpairedItemCompletions = 0;
+
+  const completed = (
+    status: 'completed' | 'failed' | 'interrupted',
+    error?: string,
+  ): WireEvent[] => {
+    if (terminal) return [];
+    terminal = true;
+    const usage = context.latestUsage;
+    return [{
+      type: 'run.completed',
+      status,
+      ...(status === 'completed' && lastAgentText !== undefined && { final_text: lastAgentText }),
+      ...(status === 'failed' && error !== undefined && error !== '' && { error }),
+      ...(usage !== undefined && {
+        usage: {
+          input_tokens: usage.inputTokens ?? 0,
+          output_tokens: usage.outputTokens ?? 0,
+        },
+        agent_usage: usage,
+      }),
+    }];
+  };
 
   return {
-    threadId: () => threadId,
+    turnId: () => currentTurnId,
 
-    push(line: string): WireEvent[] {
-      if (line.trim() === '') return [];
-      let event: CodexEvent;
-      try {
-        event = JSON.parse(line) as CodexEvent;
-      } catch {
-        return []; // malformed line — skip, never fatal
-      }
+    push(method, params) {
+      if (terminal) return [];
       // harn:assume first-party-run-items-normalized ref=codex-normalized-run-items
-      switch (event.type) {
-        case 'thread.started':
-          threadId = event.thread_id;
-          return [];
-        case 'turn.started':
-          return [];
-        case 'item.started':
-        case 'item.completed': {
-          const item = event.item;
-          if (!item) return [];
-          if (item.type === 'agent_message') {
-            if (event.type !== 'item.completed') return [];
-            lastAgentText = item.text ?? '';
-            return [
-              { type: 'run.item', item_type: 'text_delta', payload: { text: item.text ?? '' } },
-            ];
-          }
-          if (item.type === 'command_execution') {
-            return [
-              event.type === 'item.started'
-                ? {
-                    type: 'run.item',
-                    item_type: 'tool_call',
-                    payload: {
-                      call_id: item.id,
-                      tool: 'Bash',
-                      title: item.command ?? 'Shell command',
-                      input: { command: item.command },
-                    },
-                  }
-                : {
-                    type: 'run.item',
-                    item_type: 'tool_result',
-                    payload: {
-                      call_id: item.id,
-                      status: item.exit_code === 0 && item.status !== 'failed' ? 'ok' : 'error',
-                      output_text: boundedOutput(item.aggregated_output),
-                      raw: item,
-                    },
-                  },
-            ];
-          }
-          if (item.type === 'file_change') {
-            // Codex file operations arrive as their own items (no tool pair, no diff
-            // body). One settled row per changed path: emit on completion only.
-            if (event.type !== 'item.completed') return [];
-            const changes = Array.isArray(item.changes) ? item.changes : [];
-            return changes.flatMap((change) => {
-              if (!change || typeof change !== 'object' || typeof change.path !== 'string') return [];
-              const kind = change.kind === 'add'
-                ? 'created'
-                : change.kind === 'delete'
-                  ? 'deleted'
-                  : 'modified';
-              return [{
-                type: 'run.item' as const,
-                item_type: 'file_change' as const,
-                payload: { path: change.path, change: kind },
-              }];
-            });
-          }
-          if (item.type === 'error') {
-            return [
-              {
-                type: 'run.item',
-                item_type: 'tool_result',
-                payload: {
-                  call_id: item.id || 'codex-error',
-                  status: 'error',
-                  output_text: boundedOutput(item.message),
-                  raw: item,
-                },
-              },
-            ];
-          }
-          return []; // unknown item types tolerated
+      if (method === 'turn/started') {
+        if (isRecord(params) && isRecord(params.turn)) {
+          currentTurnId = stringValue(params.turn.id);
         }
-        // harn:assume codex-usage-tokens-only ref=usage-token-mapping
-        // turn.completed usage is TOKENS ONLY — codex reports no dollar cost
-        // and none may ever be fabricated (meters count $ only from
-        // cost-reporting harnesses).
-        case 'turn.completed': {
-          terminal = true;
-          // harn:assume normalized-agent-usage-telemetry ref=codex-usage-telemetry
-          const agentUsage = event.usage === undefined
-            ? undefined
-            : {
-                ...(event.usage.input_tokens !== undefined && {
-                  inputTokens: event.usage.input_tokens,
-                }),
-                ...(event.usage.cached_input_tokens !== undefined && {
-                  cachedInputTokens: event.usage.cached_input_tokens,
-                }),
-                ...(event.usage.output_tokens !== undefined && {
-                  outputTokens: event.usage.output_tokens,
-                }),
-              };
-          // harn:end normalized-agent-usage-telemetry
-          return [
-            {
-              type: 'run.completed',
-              status: 'completed',
-              final_text: finalText(),
-              usage: {
-                input_tokens: event.usage?.input_tokens ?? 0,
-                output_tokens: event.usage?.output_tokens ?? 0,
-              },
-              ...(agentUsage !== undefined && Object.keys(agentUsage).length > 0 && {
-                agent_usage: agentUsage,
-              }),
-            },
-          ];
-        }
-        // harn:end codex-usage-tokens-only
-        case 'turn.failed': {
-          terminal = true;
-          return [
-            {
-              type: 'run.completed',
-              status: 'failed',
-              final_text: event.error?.message ?? finalText(),
-            },
-          ];
-        }
-        case 'error':
-          streamError = event.message;
-          return [];
-        default:
-          return []; // unknown event types tolerated
+        return [];
       }
+
+      if (method === 'thread/tokenUsage/updated') {
+        if (!isRecord(params)) return [];
+        const usage = agentUsageFromTokenUsage(params.tokenUsage);
+        if (usage === undefined) return [];
+        context.latestUsage = usage;
+        return usageEvent(usage);
+      }
+
+      // harn:assume codex-app-server-compaction-follows-native-events ref=codex-app-server-compaction-translation
+      if (method === 'thread/compacted') {
+        if (unpairedItemCompletions > 0) {
+          unpairedItemCompletions -= 1;
+          return [];
+        }
+        unpairedNotificationCompletions += 1;
+        return [{
+          type: 'timeline',
+          item: { type: 'compaction', status: 'completed', trigger: 'auto' },
+        }];
+      }
+
+      if (method === 'item/started' || method === 'item/completed') {
+        const item = itemFrom(params);
+        if (item === undefined) return [];
+        const itemType = stringValue(item.type);
+        const itemId = stringValue(item.id) ?? 'codex-item';
+
+        if (itemType === 'contextCompaction') {
+          if (method === 'item/started') {
+            return [{
+              type: 'timeline',
+              item: { type: 'compaction', status: 'loading', trigger: 'auto' },
+            }];
+          }
+          if (unpairedNotificationCompletions > 0) {
+            unpairedNotificationCompletions -= 1;
+            return [];
+          }
+          unpairedItemCompletions += 1;
+          return [{
+            type: 'timeline',
+            item: { type: 'compaction', status: 'completed', trigger: 'auto' },
+          }];
+        }
+        // harn:end codex-app-server-compaction-follows-native-events
+
+        if (itemType === 'agentMessage') {
+          if (method !== 'item/completed') return [];
+          lastAgentText = stringValue(item.text) ?? '';
+          return [{ type: 'run.item', item_type: 'text_delta', payload: { text: lastAgentText } }];
+        }
+
+        if (itemType === 'reasoning') {
+          if (method !== 'item/completed') return [];
+          const summary = Array.isArray(item.summary)
+            ? item.summary.filter((value): value is string => typeof value === 'string').join('\n')
+            : '';
+          return summary === ''
+            ? []
+            : [{ type: 'run.item', item_type: 'reasoning_summary', payload: { text: summary } }];
+        }
+
+        if (itemType === 'commandExecution') {
+          if (method === 'item/started') {
+            const command = stringValue(item.command);
+            return [{
+              type: 'run.item',
+              item_type: 'tool_call',
+              payload: {
+                call_id: itemId,
+                tool: 'Bash',
+                title: command ?? 'Shell command',
+                input: { command },
+              },
+            }];
+          }
+          const exitCode = nonnegativeInteger(item.exitCode);
+          return [{
+            type: 'run.item',
+            item_type: 'tool_result',
+            payload: {
+              call_id: itemId,
+              status: exitCode === 0 && item.status === 'completed' ? 'ok' : 'error',
+              output_text: boundedOutput(resultText(item)),
+              ...(nonnegativeInteger(item.durationMs) !== undefined && {
+                duration_ms: nonnegativeInteger(item.durationMs),
+              }),
+              raw: item,
+            },
+          }];
+        }
+
+        if (itemType === 'fileChange') {
+          if (method !== 'item/completed' || !Array.isArray(item.changes)) return [];
+          return item.changes.flatMap((value): WireEvent[] => {
+            if (!isRecord(value) || typeof value.path !== 'string') return [];
+            return [{
+              type: 'run.item',
+              item_type: 'file_change',
+              payload: {
+                path: value.path,
+                change: fileChangeKind(value.kind),
+                ...(typeof value.diff === 'string' && {
+                  diff: { path: value.path, unified: value.diff },
+                }),
+              },
+            }];
+          });
+        }
+
+        if (itemType === 'mcpToolCall' || itemType === 'dynamicToolCall') {
+          const tool = stringValue(item.tool) ?? itemType;
+          if (method === 'item/started') {
+            return [{
+              type: 'run.item',
+              item_type: 'tool_call',
+              payload: {
+                call_id: itemId,
+                tool,
+                title: stringValue(item.server) === undefined
+                  ? tool
+                  : `${String(item.server)} / ${tool}`,
+                input: item.arguments,
+              },
+            }];
+          }
+          const success = item.success === true || item.status === 'completed';
+          return [{
+            type: 'run.item',
+            item_type: 'tool_result',
+            payload: {
+              call_id: itemId,
+              status: success && item.error === undefined ? 'ok' : 'error',
+              output_text: boundedOutput(resultText(item)),
+              raw: item,
+            },
+          }];
+        }
+        return [];
+      }
+
+      if (method === 'turn/completed') {
+        if (!isRecord(params) || !isRecord(params.turn)) {
+          return completed('failed', 'Codex app-server emitted an invalid turn/completed');
+        }
+        const status = params.turn.status;
+        if (status === 'interrupted') return completed('interrupted');
+        if (status === 'failed') {
+          const error = isRecord(params.turn.error)
+            ? stringValue(params.turn.error.message)
+            : undefined;
+          return completed('failed', error ?? 'Codex turn failed');
+        }
+        if (status === 'completed') return completed('completed');
+        return completed('failed', `Codex app-server emitted terminal status ${String(status)}`);
+      }
+      return [];
       // harn:end first-party-run-items-normalized
     },
 
-    end(fallback = { status: 'interrupted' as const }): WireEvent[] {
-      if (terminal) return [];
-      terminal = true;
-      return [
-        {
-          type: 'run.completed',
-          status: fallback.status,
-          final_text: fallback.final_text ?? finalText(),
-        },
-      ];
+    end(fallback = { status: 'interrupted' as const }) {
+      return completed(fallback.status, fallback.error);
     },
   };
 }

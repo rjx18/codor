@@ -1,7 +1,7 @@
 id: adapters-cli-only-no-sdk
 hash: a-3cc26efc0176
 title: Adapters drive plain CLI subprocesses, never SDKs
-state: active
+state: retired
 statement: The codex adapter must drive the codex CLI strictly as a spawned
   child process over argv and stdout JSONL - flags before the resume subcommand,
   stdin closed, the child in its own process group so signals reach the real
@@ -11,3 +11,4 @@ statement: The codex adapter must drive the codex CLI strictly as a spawned
 depends_on:
   - codex-event-contract-pinned
 created_by: codex-adapter-cli-driver
+retired_by: ctx-guardrails-p5c-codex-app-server

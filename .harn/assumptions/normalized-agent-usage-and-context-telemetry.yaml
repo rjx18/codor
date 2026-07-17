@@ -1,0 +1,13 @@
+id: normalized-agent-usage-and-context-telemetry
+hash: a-907961384cf5
+title: Harness usage telemetry has one normalized additive context shape
+state: active
+statement: Agent usage telemetry must use only optional camelCase inputTokens,
+  cachedInputTokens, outputTokens, totalCostUsd, contextWindowMaxTokens, and
+  contextWindowUsedTokens fields with no percentage, travel live on
+  usage_updated and as agent_usage on run.completed, and include context maximum
+  and used only as a pair; providers must forward native values without guessing
+  missing cost or context data.
+depends_on:
+  - first-party-run-items-normalized
+created_by: ctx-guardrails-p5c-codex-app-server

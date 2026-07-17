@@ -8,18 +8,21 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { CodexAdapter } from './adapter.js';
 
 /**
- * Live smoke: two tiny real `codex exec` turns (PONG + resume), read-only
- * sandbox. Spend-gated behind CODOR_LIVE_SMOKE=1 so the suite doesn't
+ * Live smoke: two tiny turns through one real `codex app-server` process
+ * (PONG + persistent thread), read-only sandbox. Spend-gated behind
+ * CODOR_LIVE_SMOKE=1 so the suite doesn't
  * re-bill on every phase's `pnpm -r test`; run explicitly per phase spec.
  */
 const LIVE = process.env.CODOR_LIVE_SMOKE === '1';
 
-describe.skipIf(!LIVE)('codex live smoke (CODOR_LIVE_SMOKE=1)', () => {
+describe.skipIf(!LIVE)('codex app-server live smoke (CODOR_LIVE_SMOKE=1)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'codor-codex-smoke-'));
-  afterAll(() => rmSync(dir, { recursive: true, force: true }));
-
   const adapter = new CodexAdapter();
   const session = adapter.spawn({ cwd: dir, policy: 'read-only', model: 'gpt-5.4-mini' });
+  afterAll(() => {
+    adapter.interrupt(session);
+    rmSync(dir, { recursive: true, force: true });
+  });
 
   it('PONG turn completes and captures a session_ref', { timeout: 180_000 }, async () => {
     const events: WireEvent[] = [];
@@ -34,7 +37,7 @@ describe.skipIf(!LIVE)('codex live smoke (CODOR_LIVE_SMOKE=1)', () => {
     expect(session.session_ref).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it('resume reuses the same thread and retains context', { timeout: 180_000 }, async () => {
+  it('the persistent process reuses the same thread and retains context', { timeout: 180_000 }, async () => {
     const events: WireEvent[] = [];
     const before = session.session_ref;
     for await (const event of adapter.deliver(

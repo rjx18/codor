@@ -1,10 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-// harn:assume codex-event-contract-pinned ref=codex-fixture-invariants
-// These specs assert the invariants of the RAW captured `codex exec --json`
-// fixtures (see ../NOTES.md). If they fail after a fixture change, the change
-// must have come from re-probing the CLI — never from hand-editing.
+// Historical raw `codex exec --json` captures from the retired per-turn
+// transport. They remain immutable provenance/regression evidence, but the
+// active adapter contract is the app-server fixture and fake server.
 
 type CodexEvent = {
   type: string;
@@ -197,4 +196,3 @@ describe('resume after SIGKILL', () => {
     expect(messages.at(-1)?.item?.text).toContain('sleep 60');
   });
 });
-// harn:end codex-event-contract-pinned

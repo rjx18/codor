@@ -102,7 +102,7 @@ export class CopilotAdapter implements HarnessAdapter {
     return { harness: this.id, session_ref, cwd: process.cwd() };
   }
 
-  // harn:assume adapters-cli-only-no-sdk ref=copilot-cli-subprocess-driver
+  // harn:assume remaining-cli-adapters-use-supervised-subprocesses ref=copilot-cli-subprocess-driver
   // harn:assume adapter-process-lifecycle-supervised ref=copilot-cli-process-supervision
   async *deliver(
     session: Session,
@@ -186,7 +186,7 @@ export class CopilotAdapter implements HarnessAdapter {
     }
   }
   // harn:end adapter-process-lifecycle-supervised
-  // harn:end adapters-cli-only-no-sdk
+  // harn:end remaining-cli-adapters-use-supervised-subprocesses
 
   respondInteraction(): Promise<void> {
     return Promise.reject(

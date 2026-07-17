@@ -1,0 +1,16 @@
+id: codex-app-server-is-the-member-runtime
+hash: a-64125361eeab
+title: One supervised Codex app-server process is the member runtime
+state: active
+statement: A Codex member must retain one initialized app-server child across
+  completed turns, keep session_ref equal to the native thread id, resume that
+  thread after process exit or cwd/model/policy/thinking/environment mismatch,
+  route interrupt through turn/interrupt, fail only an active turn on an
+  unexpected exit, and merge session.env over process.env for every replacement
+  child.
+depends_on:
+  - codex-app-server-contract-is-pinned-to-0-144-5
+  - one-inflight-turn-per-member
+  - revive-via-session-ref
+  - adapter-children-inherit-session-env
+created_by: ctx-guardrails-p5c-codex-app-server

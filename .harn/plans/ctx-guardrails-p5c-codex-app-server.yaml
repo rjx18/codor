@@ -1,0 +1,367 @@
+id: ctx-guardrails-p5c-codex-app-server
+title: Phase 5c context-ceiling guardrails - persistent Codex app-server runtime
+notes: >-
+  Implement Phase 5c only from tmp/context-ceiling-guardrails/PLAN.md. Replace
+  per-turn `codex exec --json` with one injected, supervised `codex app-server`
+  JSONL JSON-RPC process per member. The process initializes once, starts or
+  resumes the persisted thread id, serves multiple turn/start requests, and is
+  recreated after exit or identity mismatch while resuming the same thread.
+
+  Pin the wire contract to the locally installed Codex 0.144.5 source/types:
+  camelCase v2 thread/start, thread/resume, turn/start, item notifications,
+  thread/tokenUsage/updated, thread/compacted, and turn/completed. Preserve
+  spawn-time-only approvals by sending approvalPolicy never plus the canonical
+  sandbox policy; do not add interaction cards. Map token-usage notifications to
+  live and terminal normalized usage including the required context used/max
+  pair. Map canonical contextCompaction items and the deprecated
+  thread/compacted compatibility notification to Phase 4 markers, deduplicating
+  their paired completion channels with unpaired counters.
+
+  Tests use an injected fake app-server child and JSONL fixtures only. No live
+  Codex process, model/API request, deployment, daemon restart, runtime approval
+  surface, or slash-command/manual-compaction routing is in scope. No new
+  package dependency is needed because the transport uses Node streams and
+  readline.
+assumptions:
+  retire:
+    - id: adapters-cli-only-no-sdk
+      reason: Codex no longer runs one argv/stdout exec subprocess per turn; it owns a
+        persistent JSON-RPC app-server process. The remaining direct CLI
+        adapters move to a narrower replacement assumption.
+    - id: codex-event-contract-pinned
+      reason: The immutable exec --json captures remain historical regression
+        evidence, but they no longer define the active Codex transport contract;
+        installed 0.144.5 app-server types plus fake-server fixtures do.
+    - id: codex-usage-tokens-only
+      reason: Codex remains uncosted, but app-server now reports context occupancy on
+        token-usage notifications rather than only exec turn.completed token
+        totals, so the mechanism-specific statement is false.
+    - id: normalized-agent-usage-telemetry
+      reason: The shared schema remains unchanged, but its explicit claim that Codex
+        lacks app-server context telemetry has expired; replace it with the same
+        cross-harness contract including Codex's new source.
+  create:
+    - id: remaining-cli-adapters-use-supervised-subprocesses
+      title: Remaining direct CLI adapters use supervised per-turn subprocesses
+      statement: Copilot, Gemini, and OpenCode must continue to drive their documented
+        programmatic CLI modes as one supervised child process per turn, because
+        Phase 5c changes only Codex and must not silently migrate or weaken the
+        fixture-backed lifecycle contract of the remaining direct CLI adapters.
+      reason: This is the honest narrow replacement for the retired Codex-specific
+        plain-CLI design rule.
+      depends_on:
+        - adapter-process-lifecycle-supervised
+    - id: codex-app-server-contract-is-pinned-to-0-144-5
+      title: Codex app-server uses the installed 0.144.5 JSON-RPC contract
+      statement: The Codex adapter must speak newline-delimited JSON-RPC without a
+        jsonrpc member, initialize exactly once, use camelCase v2 thread and
+        turn messages from Codex 0.144.5, tolerate unknown notifications, and
+        verify all lifecycle and translation behavior through an injected fake
+        server and immutable fixtures without launching a live Codex process or
+        model request.
+      reason: App-server is versioned and evolving; a precise local contract keeps
+        compatibility shims evidence-based rather than speculative.
+      depends_on: []
+    - id: codex-app-server-is-the-member-runtime
+      title: One supervised Codex app-server process is the member runtime
+      statement: A Codex member must retain one initialized app-server child across
+        completed turns, keep session_ref equal to the native thread id, resume
+        that thread after process exit or cwd/model/policy/thinking/environment
+        mismatch, route interrupt through turn/interrupt, fail only an active
+        turn on an unexpected exit, and merge session.env over process.env for
+        every replacement child.
+      reason: The persistent process unlocks native context compaction while retaining
+        Codor's one-turn delivery boundary and recoverable native identity.
+      depends_on:
+        - codex-app-server-contract-is-pinned-to-0-144-5
+        - one-inflight-turn-per-member
+        - revive-via-session-ref
+        - adapter-children-inherit-session-env
+    - id: normalized-agent-usage-and-context-telemetry
+      title: Harness usage telemetry has one normalized additive context shape
+      statement: Agent usage telemetry must use only optional camelCase inputTokens,
+        cachedInputTokens, outputTokens, totalCostUsd, contextWindowMaxTokens,
+        and contextWindowUsedTokens fields with no percentage, travel live on
+        usage_updated and as agent_usage on run.completed, and include context
+        maximum and used only as a pair; providers must forward native values
+        without guessing missing cost or context data.
+      reason: This preserves the approved Phase 1 wire contract while removing the
+        now-obsolete Codex limitation clause.
+      depends_on:
+        - first-party-run-items-normalized
+    - id: codex-app-server-usage-is-context-aware-and-uncosted
+      title: Codex app-server usage reports context without invented cost
+      statement: Codex thread/tokenUsage/updated must normalize last input, cached
+        input, and output tokens plus last.totalTokens as
+        contextWindowUsedTokens paired with tokenUsage.modelContextWindow, emit
+        the snapshot live and on terminal completion, and never fabricate
+        totalCostUsd or legacy cost_usd.
+      reason: Phase 1's Codex gauge can become truthful only when the native
+        app-server reports both context fields, while room spend must remain
+        explicitly uncosted.
+      depends_on:
+        - codex-app-server-contract-is-pinned-to-0-144-5
+        - normalized-agent-usage-and-context-telemetry
+    - id: codex-app-server-compaction-follows-native-events
+      title: Codex compaction follows canonical items and compatibility notifications
+      statement: Codex contextCompaction item start/completion must emit loading and
+        completed auto compaction timeline items, thread/compacted must remain a
+        completed compatibility source, and per-turn unpaired item/notification
+        counters must suppress the duplicate completion regardless of arrival
+        order; manual compact routing remains outside the adapter surface.
+      reason: Codex 0.144.5 exposes both the canonical v2 item and a deprecated
+        notification, so Paseo-style pairing is required for one durable marker.
+      depends_on:
+        - codex-app-server-contract-is-pinned-to-0-144-5
+        - compaction-timeline-items-are-durable-run-evidence
+  reviewed:
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: Its CLI process lifecycle remains correct for Copilot, Gemini, and
+        OpenCode; only the obsolete Codex anchor is removed. Codex receives its
+        own request-aware persistent-process supervision assumption.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Registry construction and replacement remain transport-neutral; the
+        built-in Codex factory simply creates the new app-server-backed adapter.
+    - id: copilot-capability-truth
+      outcome: unchanged
+      reason: Copilot keeps its existing per-turn CLI process and fixture contract.
+    - id: gemini-capability-truth
+      outcome: unchanged
+      reason: Gemini keeps its existing per-turn CLI process and fixture contract.
+    - id: opencode-capability-truth
+      outcome: unchanged
+      reason: OpenCode keeps its existing per-turn CLI process and fixture contract.
+    - id: m0-live-acceptance-chain
+      outcome: unchanged
+      reason: The spend-gated acceptance still drives the real Codex CLI executable
+        through the daemon; only its subcommand/transport changes to app-server.
+    - id: first-party-run-items-normalized
+      outcome: unchanged
+      reason: Codex's translator changes native object shapes but preserves bounded
+        normalized text, tool, result, and file-change payloads.
+    - id: uncosted-usage-visible-not-guessed
+      outcome: unchanged
+      reason: Codex remains visibly uncosted; new native context occupancy does not
+        imply or synthesize a dollar value.
+    - id: claude-compaction-follows-native-system-events
+      outcome: unchanged
+      reason: Claude continues using its SDK system events and the same shared
+        compaction timeline shape.
+    - id: claude-result-errors-follow-native-signals
+      outcome: unchanged
+      reason: Claude failure classification is unrelated to the Codex transport.
+    - id: claude-sdk-message-contract-preserves-normalized-runs
+      outcome: unchanged
+      reason: Claude SDK objects retain the replacement shared usage contract and all
+        Phase 1-4 semantics.
+    - id: context-ceiling-follows-main-model
+      outcome: unchanged
+      reason: The context ceiling still comes from native main-model telemetry; Codex
+        now supplies it directly through app-server.
+    - id: last-agent-usage-is-transient
+      outcome: unchanged
+      reason: Codex usage_updated remains broadcast-only runtime state while the
+        terminal snapshot stays attached to run completion.
+    - id: member-context-window-meter-derived-from-last-usage
+      outcome: unchanged
+      reason: The browser still computes percent from the same paired fields; Codex
+        now makes those fields available.
+    - id: revive-via-session-ref
+      outcome: unchanged
+      reason: attach still restores the exact persisted native id, now passed to
+        thread/resume on the replacement app-server process.
+    - id: operator-interrupt-not-failure
+      outcome: unchanged
+      reason: The daemon's operator intent remains authoritative while Codex routes
+        interruption through turn/interrupt instead of a process-group signal.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: The canonical policy/thinking vocabulary remains validated and is now
+        mapped to app-server sandboxPolicy, approvalPolicy never, model, and
+        effort.
+    - id: harness-declares-what-a-policy-becomes
+      outcome: unchanged
+      reason: Codex still declares three distinct native sandbox modes, now using
+        app-server names instead of exec argv spelling.
+    - id: adapter-children-inherit-session-env
+      outcome: unchanged
+      reason: Every app-server replacement receives process.env overlaid by the member
+        session environment.
+    - id: attempt-start-evidence-persisted
+      outcome: unchanged
+      reason: Each accepted turn still calls onStarted, reporting the persistent child
+        pid when available, and reports a newly started thread immediately.
+    - id: member-config-is-changed-not-respawned
+      outcome: unchanged
+      reason: The member and native thread survive configuration changes; the adapter
+        replaces its incompatible process and resumes the same thread before the
+        next turn.
+files:
+  - packages/adapters/codex/src/app-server-transport.ts
+  - packages/adapters/codex/src/test-utils/fake-app-server.ts
+  - packages/adapters/codex/src/test-fixtures/app-server-turn.jsonl
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/adapter.spec.ts
+  - packages/adapters/codex/src/translate.ts
+  - packages/adapters/codex/src/translate.spec.ts
+  - packages/adapters/codex/src/fixtures.spec.ts
+  - packages/adapters/codex/src/index.ts
+  - packages/adapters/codex/src/index.spec.ts
+  - packages/adapters/codex/src/live.spec.ts
+  - packages/adapters/codex/NOTES.md
+  - packages/adapters/copilot/src/adapter.ts
+  - packages/adapters/gemini/src/adapter.ts
+  - packages/adapters/opencode/src/adapter.ts
+  - packages/adapters/claude-code/src/translate.ts
+  - packages/adapters/claude-code/src/translate.spec.ts
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/events.ts
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/schemas.spec.ts
+  - docs/ARCHITECTURE.md
+anchors:
+  remaining-cli-adapters-use-supervised-subprocesses:
+    copilot-cli-subprocess-driver:
+      action: change
+      reason: Re-anchor the unchanged Copilot per-turn CLI driver under the narrow
+        replacement assumption.
+    gemini-cli-subprocess-driver:
+      action: change
+      reason: Re-anchor the unchanged Gemini per-turn CLI driver under the narrow
+        replacement assumption.
+    opencode-cli-subprocess-driver:
+      action: change
+      reason: Re-anchor the unchanged OpenCode per-turn CLI driver under the narrow
+        replacement assumption.
+  codex-app-server-contract-is-pinned-to-0-144-5:
+    codex-app-server-transport:
+      action: change
+      reason: Implement ordered JSONL JSON-RPC requests, notifications, server
+        requests, stderr/exit handling, and deterministic disposal.
+    codex-app-server-fake:
+      action: change
+      reason: Provide a Paseo-shaped in-memory child/process harness for all adapter
+        lifecycle tests without executing Codex.
+    codex-app-server-contract-notes:
+      action: change
+      reason: Record the installed 0.144.5 camelCase shapes and explicit divergences
+        from Paseo's historical compatibility shims.
+  codex-app-server-is-the-member-runtime:
+    codex-app-server-session-lifecycle:
+      action: change
+      reason: Own one process per member, initialize once, start/resume the thread,
+        span multiple turns, recover after exit/mismatch, and route interrupt
+        RPC.
+    codex-app-server-session-regression:
+      action: change
+      reason: Prove persistence, resume recovery, identity replacement, environment,
+        option mapping, failure, and interrupt behavior against fake children.
+  normalized-agent-usage-and-context-telemetry:
+    claude-usage-telemetry:
+      action: change
+      reason: Move unchanged Claude usage anchors to the replacement shared contract.
+    claude-usage-telemetry-regression:
+      action: change
+      reason: Move unchanged Claude regression evidence to the replacement contract.
+    codex-usage-telemetry:
+      action: change
+      reason: Map app-server token usage to the shared live and terminal shape.
+    codex-usage-telemetry-regression:
+      action: change
+      reason: Assert native context used/max pairing and absence of fabricated cost.
+    agent-usage-telemetry-schema:
+      action: change
+      reason: Move the unchanged protocol/member schema anchors to the honest shared
+        replacement assumption.
+  codex-app-server-usage-is-context-aware-and-uncosted:
+    codex-app-server-usage-mapping:
+      action: change
+      reason: Convert exact 0.144.5 camelCase tokenUsage fields and preserve the
+        latest snapshot across process and turn boundaries.
+    codex-app-server-usage-regression:
+      action: change
+      reason: Prove live and terminal context telemetry, pair guards, and no cost.
+  codex-app-server-compaction-follows-native-events:
+    codex-app-server-compaction-translation:
+      action: change
+      reason: Normalize item and thread completion channels with paired counters.
+    codex-app-server-compaction-regression:
+      action: change
+      reason: Replay both arrival orders and prove one loading/completed timeline pair.
+  adapters-cli-only-no-sdk:
+    cli-subprocess-driver:
+      action: remove
+      reason: Delete the per-turn codex exec driver.
+    copilot-cli-subprocess-driver:
+      action: remove
+      reason: Re-anchor unchanged Copilot code under the narrow replacement.
+    gemini-cli-subprocess-driver:
+      action: remove
+      reason: Re-anchor unchanged Gemini code under the narrow replacement.
+    opencode-cli-subprocess-driver:
+      action: remove
+      reason: Re-anchor unchanged OpenCode code under the narrow replacement.
+  codex-event-contract-pinned:
+    codex-fixture-invariants:
+      action: remove
+      reason: Keep raw exec captures immutable but mark them historical rather than
+        normative for the active adapter.
+  codex-usage-tokens-only:
+    usage-token-mapping:
+      action: remove
+      reason: Replace turn.completed-only mapping with native app-server usage
+        notification mapping.
+  normalized-agent-usage-telemetry:
+    claude-usage-telemetry:
+      action: remove
+      reason: Move to the replacement shared telemetry assumption.
+    claude-usage-telemetry-regression:
+      action: remove
+      reason: Move to the replacement shared telemetry assumption.
+    codex-usage-telemetry:
+      action: remove
+      reason: Replace the exec-limited mapping with app-server context telemetry.
+    codex-usage-telemetry-regression:
+      action: remove
+      reason: Replace the old absence assertion with app-server context evidence.
+    agent-usage-telemetry-schema:
+      action: remove
+      reason: Move the unchanged schema anchors to the replacement shared assumption.
+  adapter-process-lifecycle-supervised:
+    cli-process-supervision:
+      action: remove
+      reason: Codex is no longer a per-turn CLI adapter; the other supervision anchors
+        remain and Codex gets a JSON-RPC-specific lifecycle anchor.
+  first-party-run-items-normalized:
+    codex-normalized-run-items:
+      action: change
+      reason: Consume canonical app-server item objects while preserving bounded
+        normalized payloads.
+  canonical-spawn-controls-enforced:
+    codex-spawn-control-mapping:
+      action: change
+      reason: Replace argv construction with app-server sandbox, approval, model, and
+        effort parameters.
+  harness-declares-what-a-policy-becomes:
+    adapter-policy-declarations:
+      action: change
+      reason: Declare app-server sandbox mode names rather than exec flag spelling.
+    adapter-policy-regression:
+      action: change
+      reason: Assert declared policy values equal the thread/turn RPC parameters.
+  adapter-children-inherit-session-env:
+    codex-child-environment:
+      action: change
+      reason: Merge the member environment into the persistent app-server spawn.
+    codex-env-regression:
+      action: change
+      reason: Inspect the injected factory context rather than executing a script.
+  attempt-start-evidence-persisted:
+    adapter-turn-hooks:
+      action: change
+      reason: Clarify that provider runtimes report the accepting persistent process
+        and native thread id rather than only per-turn child discovery.
+applied:
+  applied_at: 2026-07-17T11:06:18.796Z

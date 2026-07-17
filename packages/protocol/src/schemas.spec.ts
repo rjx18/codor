@@ -693,7 +693,7 @@ describe('wire events', () => {
   });
   // harn:end compaction-timeline-items-are-durable-run-evidence
 
-  // harn:assume normalized-agent-usage-telemetry ref=agent-usage-telemetry-schema
+  // harn:assume normalized-agent-usage-and-context-telemetry ref=agent-usage-telemetry-schema
   it('keeps AgentUsage normalized, percentage-free, and context-pair atomic', () => {
     expect(AgentUsageSchema.parse({
       inputTokens: 10,
@@ -714,7 +714,7 @@ describe('wire events', () => {
     expect(AgentUsageSchema.safeParse({ contextWindowUsedTokens: 42_000 }).success).toBe(false);
     expect(AgentUsageSchema.safeParse({ contextWindowMaxTokens: 200_000 }).success).toBe(false);
   });
-  // harn:end normalized-agent-usage-telemetry
+  // harn:end normalized-agent-usage-and-context-telemetry
 
   // harn:assume failed-run-details-never-route-as-replies ref=failed-run-error-schema
   it('accepts failed completion detail separately from agent final text', () => {

@@ -1,0 +1,11 @@
+id: codex-app-server-contract-is-pinned-to-0-144-5
+hash: a-a395d2ba2e91
+title: Codex app-server uses the installed 0.144.5 JSON-RPC contract
+state: active
+statement: The Codex adapter must speak newline-delimited JSON-RPC without a
+  jsonrpc member, initialize exactly once, use camelCase v2 thread and turn
+  messages from Codex 0.144.5, tolerate unknown notifications, and verify all
+  lifecycle and translation behavior through an injected fake server and
+  immutable fixtures without launching a live Codex process or model request.
+depends_on: []
+created_by: ctx-guardrails-p5c-codex-app-server

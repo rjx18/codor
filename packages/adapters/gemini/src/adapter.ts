@@ -129,7 +129,7 @@ export class GeminiAdapter implements HarnessAdapter {
     return { harness: this.id, session_ref, cwd: process.cwd() };
   }
 
-  // harn:assume adapters-cli-only-no-sdk ref=gemini-cli-subprocess-driver
+  // harn:assume remaining-cli-adapters-use-supervised-subprocesses ref=gemini-cli-subprocess-driver
   // harn:assume adapter-process-lifecycle-supervised ref=gemini-cli-process-supervision
   async *deliver(
     session: Session,
@@ -220,7 +220,7 @@ export class GeminiAdapter implements HarnessAdapter {
     }
   }
   // harn:end adapter-process-lifecycle-supervised
-  // harn:end adapters-cli-only-no-sdk
+  // harn:end remaining-cli-adapters-use-supervised-subprocesses
 
   respondInteraction(): Promise<void> {
     return Promise.reject(

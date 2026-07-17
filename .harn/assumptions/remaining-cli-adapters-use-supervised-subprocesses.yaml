@@ -1,0 +1,11 @@
+id: remaining-cli-adapters-use-supervised-subprocesses
+hash: a-7e7051d34d0b
+title: Remaining direct CLI adapters use supervised per-turn subprocesses
+state: active
+statement: Copilot, Gemini, and OpenCode must continue to drive their documented
+  programmatic CLI modes as one supervised child process per turn, because Phase
+  5c changes only Codex and must not silently migrate or weaken the
+  fixture-backed lifecycle contract of the remaining direct CLI adapters.
+depends_on:
+  - adapter-process-lifecycle-supervised
+created_by: ctx-guardrails-p5c-codex-app-server

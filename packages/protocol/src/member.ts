@@ -58,7 +58,7 @@ export function deriveAssignableHandle(name: string): string | undefined {
 // harn:end starting-agent-name-derives-one-valid-identity-v6
 // harn:end reserved-handles-rejected
 
-// harn:assume normalized-agent-usage-telemetry ref=agent-usage-telemetry-schema
+// harn:assume normalized-agent-usage-and-context-telemetry ref=agent-usage-telemetry-schema
 /** Provider-neutral turn and context telemetry. Percentages are deliberately
  * absent: clients derive presentation from the reported used/max pair. */
 export const AgentUsageSchema = z
@@ -84,7 +84,7 @@ export const AgentUsageSchema = z
     }
   });
 export type AgentUsage = z.infer<typeof AgentUsageSchema>;
-// harn:end normalized-agent-usage-telemetry
+// harn:end normalized-agent-usage-and-context-telemetry
 
 // harn:assume agent-usage-limits-reported-not-guessed ref=agent-limit-schema
 /** One harness-reported rate-limit window (e.g. claude-code's five_hour /
@@ -126,11 +126,11 @@ export const MemberSchema = z
     // reports none. Provider status, not configuration — refreshed by reports.
     limits: z.array(AgentLimitSchema).optional(),
     // harn:end agent-usage-limits-reported-not-guessed
-    // harn:assume normalized-agent-usage-telemetry ref=agent-usage-telemetry-schema
+    // harn:assume normalized-agent-usage-and-context-telemetry ref=agent-usage-telemetry-schema
     // harn:assume last-agent-usage-is-transient ref=last-usage-member-projection
     lastUsage: AgentUsageSchema.optional(),
     // harn:end last-agent-usage-is-transient
-    // harn:end normalized-agent-usage-telemetry
+    // harn:end normalized-agent-usage-and-context-telemetry
     state: MemberStateSchema.optional(),
     custody: CustodySchema.optional(),
     parent: MemberIdSchema.optional(), // extensions only: spawning member
