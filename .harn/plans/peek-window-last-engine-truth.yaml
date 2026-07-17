@@ -1,0 +1,79 @@
+id: peek-window-last-engine-truth
+title: Context-peek estimates use the last engine-reported window, not the
+  curated table alone.
+notes: >-
+  Fix requested by Richard in #438, investigated first. Symptom: opus's
+  context ring shows max 200k while ESTIMATING (dimmed pre-turn peek) but
+  his real window is 1M. Root cause chain: the peek
+  (adapters/claude-code/src/peek.ts) scans the session jsonl whose
+  message.model is the raw API id (claude-opus-4-8 - the [1m] marker is a
+  Claude Code SETTINGS notation and never appears in the artifact; verified
+  against the live session file), so windowForModel resolves the curated
+  200k row; the [1m] table variants are only reachable on the live path
+  where the engine reports modelUsage keys. Codor also cannot derive
+  1m-ness from configuration: it passes the bare alias (session.model =
+  "opus") to the SDK and the CLI's own settings apply the beta.
+
+  Change - the engine's own report is the durable truth. Store: members
+  gain a context_window INTEGER column (idempotent ALTER; daemon-internal,
+  NOT added to the protocol Member schema). Daemon: whenever a live usage
+  event carries contextWindowMaxTokens, persist it on the member row when
+  it changed; at boot/revive/join seeding, after the adapter peek returns
+  an estimate, override its contextWindowMaxTokens with the persisted
+  engine-reported window when one exists (the used-tokens estimate is
+  untouched; the estimated flag stays). The curated table remains the
+  backstop for members whose engine has never reported a window. Adapter
+  peek signatures are unchanged - the override lives where the persistence
+  lives, in the daemon seed path.
+
+  Effect: after one real turn ever, restarts estimate against the true 1M
+  window; a fresh never-run member still gets the honest curated guess.
+  Codex is unaffected (its engine-reported window rides the same usage
+  events and now persists identically).
+
+  Tests: store - context_window round-trip + migration on a pre-column db;
+  daemon - a usage event with a window persists it and a boot-seeded
+  estimate carries the persisted window over the curated one (fake adapter
+  peek returns 200k, persisted 1M wins, estimated flag intact), a member
+  with no persisted window keeps the peek's own number, change-only
+  persistence writes once for a stable window. Gate: switchboard suite
+  green; full workspace build green.
+assumptions:
+  reviewed:
+    - id: context-peek-reads-session-artifacts
+      outcome: unchanged
+      reason: The peek still reads only session artifacts and never guesses;
+        the daemon layering a persisted engine fact over its window guess
+        happens outside the peek.
+    - id: last-agent-usage-is-transient-and-seeded
+      outcome: unchanged
+      reason: Live usage stays transient and in-memory; what persists is the
+        engine-reported window size - a stable engine fact like the limits
+        column, not usage.
+  create:
+    - id: engine-reported-window-outlives-restarts
+      title: An engine-reported context window persists on the member and
+        outranks the curated table in estimates
+      statement: When a live usage event reports the model's context window,
+        the daemon persists it on the member row and every later estimated
+        seed (boot, revive, join) presents that window instead of the
+        curated per-model guess, leaving the estimated used-tokens value
+        and flag untouched, so gauges never regress to a smaller curated
+        window after a restart; members whose engine never reported a
+        window keep the curated backstop, and the persisted value updates
+        only when the engine reports a different one.
+      reason: >-
+        #438: the curated table cannot see settings-applied windows (the 1m
+        beta never appears in session artifacts), so estimates lied after
+        every restart for 1m members.
+      depends_on: []
+files:
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+anchors:
+  engine-reported-window-outlives-restarts:
+    persisted-window-seed:
+      action: change
+      reason: The store column, the usage-event capture, and the seed-path
+        override define the persisted-window contract.
