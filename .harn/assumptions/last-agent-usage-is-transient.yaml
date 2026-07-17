@@ -1,0 +1,13 @@
+id: last-agent-usage-is-transient
+hash: a-31c293e9078c
+title: Last agent usage is broadcast runtime state, never durable member truth
+state: active
+statement: The daemon must keep each member's latest normalized AgentUsage only
+  in memory, refresh it from live usage_updated events and terminal agent_usage
+  snapshots, and overlay it as lastUsage on member emissions, details, and sync
+  hydration without writing it to Store or journaling live usage events. After a
+  daemon restart lastUsage is absent and all member projections remain valid
+  until the next reporting turn repopulates and broadcasts it.
+depends_on:
+  - normalized-agent-usage-telemetry
+created_by: context-ceiling-guardrails

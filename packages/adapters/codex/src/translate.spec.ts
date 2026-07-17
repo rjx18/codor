@@ -42,6 +42,7 @@ describe('success fixture replay', () => {
         status: 'completed',
         final_text: 'PONG',
         usage: { input_tokens: 14146, output_tokens: 6 },
+        agent_usage: { inputTokens: 14146, cachedInputTokens: 11008, outputTokens: 6 },
       },
     ]);
   });
@@ -49,6 +50,19 @@ describe('success fixture replay', () => {
   it('usage is tokens only — no cost_usd, ever', () => {
     expect(completed(events).usage).not.toHaveProperty('cost_usd');
   });
+
+  // harn:assume normalized-agent-usage-telemetry ref=codex-usage-telemetry-regression
+  it('snapshots only the normalized usage fields exec reports', () => {
+    expect(completed(events).agent_usage).toEqual({
+      inputTokens: 14146,
+      cachedInputTokens: 11008,
+      outputTokens: 6,
+    });
+    expect(completed(events).agent_usage).not.toHaveProperty('totalCostUsd');
+    expect(completed(events).agent_usage).not.toHaveProperty('contextWindowMaxTokens');
+    expect(completed(events).agent_usage).not.toHaveProperty('contextWindowUsedTokens');
+  });
+  // harn:end normalized-agent-usage-telemetry
 });
 
 describe('multi-message fixture replay (command-success)', () => {
@@ -94,6 +108,7 @@ describe('multi-message fixture replay (command-success)', () => {
         status: 'completed',
         final_text: '1',
         usage: { input_tokens: 26387, output_tokens: 110 },
+        agent_usage: { inputTokens: 26387, cachedInputTokens: 22016, outputTokens: 110 },
       },
     ]);
   });
@@ -262,6 +277,7 @@ describe('malformed input', () => {
       status: 'completed',
       final_text: 'OK',
       usage: { input_tokens: 1, output_tokens: 1 },
+      agent_usage: { inputTokens: 1, outputTokens: 1 },
     });
   });
 

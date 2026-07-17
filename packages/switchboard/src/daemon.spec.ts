@@ -3853,3 +3853,89 @@ describe('run_event journal indices (run-events-merge-by-journal-index)', () => 
   });
 });
 // harn:end run-events-merge-by-journal-index
+
+// harn:assume last-agent-usage-is-transient ref=last-usage-daemon-regression
+describe('transient lastUsage telemetry', () => {
+  const liveUsage = {
+    contextWindowMaxTokens: 200_000,
+    contextWindowUsedTokens: 120_000,
+  } as const;
+  const completedUsage = {
+    inputTokens: 40,
+    cachedInputTokens: 30,
+    outputTokens: 5,
+    totalCostUsd: 0.02,
+    contextWindowMaxTokens: 200_000,
+    contextWindowUsedTokens: 125_000,
+  } as const;
+
+  it('broadcasts live and completed usage while persisting neither member cache nor live event', async () => {
+    const agent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'usage-agent', cwd: testCwd('usage-agent'),
+    });
+    fake.enqueue({
+      kind: 'complete',
+      final_text: 'done',
+      items: [{ type: 'usage_updated', usage: liveUsage }],
+      agent_usage: completedUsage,
+    });
+
+    daemon.postHumanMessage('eng', '@usage-agent report usage');
+    await daemon.settle();
+
+    const broadcasts = frames.flatMap((item) =>
+      item.frame.type === 'member' && item.frame.member.id === agent.id &&
+      item.frame.member.lastUsage !== undefined
+        ? [item.frame.member.lastUsage]
+        : []);
+    expect(broadcasts).toContainEqual(liveUsage);
+    expect(broadcasts).toContainEqual(completedUsage);
+    expect(daemon.sync('eng', 0).members.find((member) => member.id === agent.id)?.lastUsage)
+      .toEqual(completedUsage);
+    expect(daemon.memberDetails('eng').find((detail) => detail.member.id === agent.id)?.member.lastUsage)
+      .toEqual(completedUsage);
+    expect(daemon.store.getMember('eng', agent.id)).not.toHaveProperty('lastUsage');
+
+    const run = daemon.store.listRunMessages('eng', { author: agent.id, limit: 1 })[0]!;
+    const journal = daemon.readRunBlob('eng', run.id);
+    expect(journal.some((event) => event.type === 'usage_updated')).toBe(false);
+    expect(journal.find((event) => event.type === 'run.completed')).toMatchObject({
+      agent_usage: completedUsage,
+    });
+  });
+
+  it('starts absent after restart and repopulates safely on the next reporting turn', async () => {
+    const agent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'restart-usage', cwd: testCwd('restart-usage'),
+    });
+    fake.enqueue({ kind: 'complete', final_text: 'first', agent_usage: completedUsage });
+    daemon.postHumanMessage('eng', '@restart-usage first turn');
+    await daemon.settle();
+    expect(daemon.sync('eng', 0).members.find((member) => member.id === agent.id)?.lastUsage)
+      .toEqual(completedUsage);
+
+    await daemon.close();
+    frames = [];
+    daemon = newDaemon();
+
+    const afterRestart = daemon.sync('eng', 0).members.find((member) => member.id === agent.id);
+    expect(afterRestart).toBeDefined();
+    expect(afterRestart).not.toHaveProperty('lastUsage');
+    expect(daemon.memberDetails('eng').find((detail) => detail.member.id === agent.id)?.member)
+      .not.toHaveProperty('lastUsage');
+
+    const nextUsage = {
+      inputTokens: 12,
+      outputTokens: 2,
+      contextWindowMaxTokens: 200_000,
+      contextWindowUsedTokens: 30_000,
+    } as const;
+    fake.enqueue({ kind: 'complete', final_text: 'second', agent_usage: nextUsage });
+    daemon.postHumanMessage('eng', '@restart-usage second turn');
+    await daemon.settle();
+
+    expect(daemon.sync('eng', 0).members.find((member) => member.id === agent.id)?.lastUsage)
+      .toEqual(nextUsage);
+  });
+});
+// harn:end last-agent-usage-is-transient

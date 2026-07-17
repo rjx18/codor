@@ -39,19 +39,30 @@ interface ClaudeContentBlock {
   source?: { type?: string; media_type?: string; data?: string };
 }
 
+interface ClaudeUsage {
+  input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  output_tokens?: number;
+}
+
 interface ClaudeEvent {
   type: string;
   subtype?: string;
   session_id?: string;
+  model?: string;
   request_id?: string;
   request?: ControlRequest['request'];
   message?: {
+    model?: string;
     content?: (ClaudeContentBlock | string)[];
+    usage?: ClaudeUsage;
   };
   result?: string;
   is_error?: boolean;
   total_cost_usd?: number;
-  usage?: { input_tokens?: number; output_tokens?: number };
+  usage?: ClaudeUsage;
+  modelUsage?: Record<string, { contextWindow?: number }>;
   rate_limit_info?: {
     status?: string;
     resetsAt?: number; // unix seconds
@@ -62,6 +73,50 @@ interface ClaudeEvent {
 
 const MAX_OUTPUT_BYTES = 256 * 1024;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
+// harn:assume normalized-agent-usage-telemetry ref=claude-usage-telemetry
+// Seeded from paseo's curated Claude catalog. A result's engine-reported
+// modelUsage.contextWindow replaces this seed when it is available.
+const CLAUDE_CONTEXT_WINDOWS = new Map<string, number>([
+  ['claude-fable-5', 1_000_000],
+  ['claude-opus-4-8[1m]', 1_000_000],
+  ['claude-opus-4-8', 200_000],
+  ['claude-sonnet-5', 1_000_000],
+  ['claude-opus-4-7[1m]', 1_000_000],
+  ['claude-opus-4-7', 200_000],
+  ['claude-opus-4-6[1m]', 1_000_000],
+  ['claude-opus-4-6', 200_000],
+  ['claude-sonnet-4-6[1m]', 1_000_000],
+  ['claude-sonnet-4-6', 200_000],
+  ['claude-haiku-4-5', 200_000],
+]);
+
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function contextWindowUsed(usage: ClaudeUsage | undefined): number | undefined {
+  if (usage === undefined) return undefined;
+  const values = [
+    tokenCount(usage.input_tokens),
+    tokenCount(usage.cache_read_input_tokens),
+    tokenCount(usage.cache_creation_input_tokens),
+  ];
+  if (values.every((value) => value === undefined)) return undefined;
+  return values.reduce<number>((total, value) => total + (value ?? 0), 0);
+}
+
+function reportedContextWindow(modelUsage: ClaudeEvent['modelUsage']): number | undefined {
+  let reported: number | undefined;
+  for (const usage of Object.values(modelUsage ?? {})) {
+    const window = tokenCount(usage?.contextWindow);
+    if (window !== undefined && window > 0) reported = Math.max(reported ?? 0, window);
+  }
+  return reported;
+}
+// harn:end normalized-agent-usage-telemetry
 
 function boundedOutput(value: string): string {
   if (Buffer.byteLength(value, 'utf8') <= MAX_OUTPUT_BYTES) return value;
@@ -222,8 +277,17 @@ export interface ClaudeTurnTranslator {
 export function createTurnTranslator(): ClaudeTurnTranslator {
   let sessionId: string | undefined;
   let terminal = false;
+  let contextWindowMaxTokens: number | undefined;
+  let contextWindowUsedTokens: number | undefined;
+  let lastLiveContextKey: string | undefined;
   const pending = new Map<string, ControlRequest>();
   const tools = new Map<string, { name: string; input: unknown }>();
+
+  const seedContextWindow = (model: string | undefined): void => {
+    if (model === undefined) return;
+    const seeded = CLAUDE_CONTEXT_WINDOWS.get(model);
+    if (seeded !== undefined) contextWindowMaxTokens = seeded;
+  };
 
   return {
     sessionId: () => sessionId,
@@ -242,9 +306,14 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
         case 'system':
           // init is NOT guaranteed first (user hooks precede it); every other
           // system subtype (hook_started, thinking_tokens, task_*) is noise.
-          if (event.subtype === 'init') sessionId = event.session_id;
+          if (event.subtype === 'init') {
+            sessionId = event.session_id;
+            seedContextWindow(event.model);
+          }
           return [];
         case 'assistant': {
+          // harn:assume normalized-agent-usage-telemetry ref=claude-usage-telemetry
+          seedContextWindow(event.message?.model);
           const events: WireEvent[] = [];
           for (const block of event.message?.content ?? []) {
             if (typeof block === 'string') continue;
@@ -270,6 +339,19 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
               });
             }
           }
+          const used = contextWindowUsed(event.message?.usage);
+          if (used !== undefined) contextWindowUsedTokens = used;
+          if (used !== undefined && contextWindowMaxTokens !== undefined) {
+            const contextKey = `${contextWindowMaxTokens}:${used}`;
+            if (contextKey !== lastLiveContextKey) {
+              events.push({
+                type: 'usage_updated',
+                usage: { contextWindowMaxTokens, contextWindowUsedTokens: used },
+              });
+              lastLiveContextKey = contextKey;
+            }
+          }
+          // harn:end normalized-agent-usage-telemetry
           return events;
         }
         case 'user': {
@@ -328,6 +410,27 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
         }
         case 'result': {
           terminal = true;
+          // harn:assume normalized-agent-usage-telemetry ref=claude-usage-telemetry
+          contextWindowMaxTokens = reportedContextWindow(event.modelUsage) ?? contextWindowMaxTokens;
+          contextWindowUsedTokens ??= contextWindowUsed(event.usage);
+          const inputTokens = tokenCount(event.usage?.input_tokens);
+          const cachedInputTokens = tokenCount(event.usage?.cache_read_input_tokens);
+          const outputTokens = tokenCount(event.usage?.output_tokens);
+          const totalCostUsd = typeof event.total_cost_usd === 'number' &&
+            Number.isFinite(event.total_cost_usd) && event.total_cost_usd >= 0
+            ? event.total_cost_usd
+            : undefined;
+          const agentUsage = {
+            ...(inputTokens !== undefined && { inputTokens }),
+            ...(cachedInputTokens !== undefined && { cachedInputTokens }),
+            ...(outputTokens !== undefined && { outputTokens }),
+            ...(totalCostUsd !== undefined && { totalCostUsd }),
+            ...(contextWindowMaxTokens !== undefined && contextWindowUsedTokens !== undefined && {
+              contextWindowMaxTokens,
+              contextWindowUsedTokens,
+            }),
+          };
+          // harn:end normalized-agent-usage-telemetry
           return [
             {
               type: 'run.completed',
@@ -338,6 +441,7 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
                 output_tokens: event.usage?.output_tokens ?? 0,
                 ...(event.total_cost_usd !== undefined && { cost_usd: event.total_cost_usd }),
               },
+              ...(Object.keys(agentUsage).length > 0 && { agent_usage: agentUsage }),
             },
           ];
         }

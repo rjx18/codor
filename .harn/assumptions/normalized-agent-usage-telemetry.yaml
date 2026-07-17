@@ -1,0 +1,17 @@
+id: normalized-agent-usage-telemetry
+hash: a-e2dc49c3301a
+title: Harness usage telemetry has one normalized additive wire shape
+state: active
+statement: Agent usage telemetry must use the optional camelCase fields
+  inputTokens, cachedInputTokens, outputTokens, totalCostUsd,
+  contextWindowMaxTokens, and contextWindowUsedTokens with no percentage field,
+  travel live on usage_updated and as an agent_usage snapshot on run.completed,
+  and include context-window maximum and used fields only as a pair. Claude
+  derives used context from the current request's input, cache-read, and
+  cache-creation tokens and prefers a positive finite engine-reported
+  contextWindow over its curated model seed; Codex forwards only the token
+  fields exec --json actually reports until app-server telemetry exists.
+depends_on:
+  - first-party-run-items-normalized
+  - codex-usage-tokens-only
+created_by: context-ceiling-guardrails

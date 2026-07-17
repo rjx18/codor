@@ -1,0 +1,147 @@
+id: context-ceiling-guardrails
+title: Phase 1 context-ceiling guardrails - normalized usage telemetry and
+  transient member snapshots
+notes: >-
+  Implement Phase 1 only from tmp/context-ceiling-guardrails/PLAN.md, following
+  paseo's AgentUsage and agent-manager shapes without copying its source. Add
+  one additive normalized telemetry shape with optional inputTokens,
+  cachedInputTokens, outputTokens, totalCostUsd, contextWindowMaxTokens, and
+  contextWindowUsedTokens fields and no percentage field. Carry live telemetry
+  on usage_updated and terminal snapshots on run.completed.agent_usage while
+  retaining Codor's existing run.completed.usage accounting payload for durable
+  run summaries and meters.
+
+  Claude stream-json translation emits live context usage from the current
+  request's input + cache-read + cache-creation tokens, seeds the maximum from
+  the curated paseo model table, and lets a positive finite modelUsage
+  contextWindow override that seed on the terminal snapshot. Codex exec --json
+  emits the input, cached-input, and output values it currently reports, with
+  neither context-window field because it cannot report both until Phase 5c.
+
+  The daemon keeps the latest normalized usage in a per-member in-memory map,
+  overlays it onto member frames, member details, and sync hydration, consumes
+  live usage_updated events without journaling them, and refreshes the map from
+  terminal snapshots. It never writes lastUsage to Store. A new daemon therefore
+  starts with no lastUsage and safely repopulates it on the next reporting turn.
+
+  Tests are fixture/in-memory only: protocol shape coverage, Claude cache and
+  context extraction including runtime override, Codex best-effort extraction,
+  daemon live/final broadcast behavior, non-persistence, and restart absence
+  until the next turn. No live API call, deployment, or daemon restart is in
+  scope.
+assumptions:
+  reviewed:
+    - id: first-party-run-items-normalized
+      outcome: unchanged
+      reason: Claude and Codex continue to map their native evidence onto the shared
+        open WireEvent transport; Phase 1 adds normalized usage evidence without
+        changing run-item payloads, bounds, pairing, or error tolerance.
+    - id: codex-usage-tokens-only
+      outcome: unchanged
+      reason: The existing accounting usage remains token-only with no fabricated
+        cost_usd, and the additive AgentUsage snapshot likewise omits
+        totalCostUsd because codex exec reports no dollar cost.
+    - id: live-agent-waits-are-transient
+      outcome: unchanged
+      reason: Wait state retains its existing in-memory registry, lifecycle, and
+        projection behavior; lastUsage is overlaid alongside it without
+        persisting, clearing, or otherwise changing waits.
+  create:
+    - id: normalized-agent-usage-telemetry
+      title: Harness usage telemetry has one normalized additive wire shape
+      statement: Agent usage telemetry must use the optional camelCase fields
+        inputTokens, cachedInputTokens, outputTokens, totalCostUsd,
+        contextWindowMaxTokens, and contextWindowUsedTokens with no percentage
+        field, travel live on usage_updated and as an agent_usage snapshot on
+        run.completed, and include context-window maximum and used fields only
+        as a pair. Claude derives used context from the current request's input,
+        cache-read, and cache-creation tokens and prefers a positive finite
+        engine-reported contextWindow over its curated model seed; Codex
+        forwards only the token fields exec --json actually reports until
+        app-server telemetry exists.
+      reason: Clients need one provider-neutral source of context occupancy and cost
+        without guessing percentages, window sizes, or unsupported values.
+      depends_on:
+        - first-party-run-items-normalized
+        - codex-usage-tokens-only
+    - id: last-agent-usage-is-transient
+      title: Last agent usage is broadcast runtime state, never durable member truth
+      statement: The daemon must keep each member's latest normalized AgentUsage only
+        in memory, refresh it from live usage_updated events and terminal
+        agent_usage snapshots, and overlay it as lastUsage on member emissions,
+        details, and sync hydration without writing it to Store or journaling
+        live usage events. After a daemon restart lastUsage is absent and all
+        member projections remain valid until the next reporting turn
+        repopulates and broadcasts it.
+      reason: Usage is current engine telemetry rather than durable room truth, and a
+        stale pre-restart value must never masquerade as the active session
+        context.
+      depends_on:
+        - normalized-agent-usage-telemetry
+files:
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/events.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/adapters/claude-code/fixtures/usage-telemetry.jsonl
+  - packages/adapters/claude-code/src/translate.ts
+  - packages/adapters/claude-code/src/translate.spec.ts
+  - packages/adapters/codex/src/translate.ts
+  - packages/adapters/codex/src/translate.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+anchors:
+  normalized-agent-usage-telemetry:
+    agent-usage-telemetry-schema:
+      action: change
+      reason: Define AgentUsage, usage_updated, the terminal snapshot, and
+        Member.lastUsage.
+    claude-usage-telemetry:
+      action: change
+      reason: Map fixture-pinned Claude live and terminal usage with curated and
+        runtime windows.
+    claude-usage-telemetry-regression:
+      action: change
+      reason: Prove cache-aware live usage and the runtime terminal window override
+        from a fixture.
+    codex-usage-telemetry:
+      action: change
+      reason: Forward Codex exec token and cached-token evidence without guessing
+        context or cost.
+    codex-usage-telemetry-regression:
+      action: change
+      reason: Prove the existing Codex fixture produces the supported normalized
+        snapshot only.
+  last-agent-usage-is-transient:
+    last-usage-runtime-registry:
+      action: change
+      reason: Consume live and terminal telemetry into daemon memory without
+        journaling live updates.
+    last-usage-member-projection:
+      action: change
+      reason: Overlay lastUsage on member frames, details, and sync hydration.
+    last-usage-daemon-regression:
+      action: change
+      reason: Prove broadcast updates, Store absence, restart absence, and next-turn
+        repopulation.
+  first-party-run-items-normalized:
+    claude-normalized-run-items:
+      action: change
+      reason: Add live and terminal usage evidence inside Claude's native-event
+        dispatch.
+    codex-normalized-run-items:
+      action: change
+      reason: Add the terminal normalized snapshot inside Codex's native-event
+        dispatch.
+  codex-usage-tokens-only:
+    usage-token-mapping:
+      action: change
+      reason: Preserve the legacy token-only accounting payload while adding a no-cost
+        AgentUsage snapshot.
+  live-agent-waits-are-transient:
+    wait-member-projection:
+      action: change
+      reason: Preserve the wait overlay while composing the independent transient
+        lastUsage overlay.
+applied:
+  applied_at: 2026-07-17T08:17:18.608Z

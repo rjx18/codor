@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ActSchema,
+  AgentUsageSchema,
   AssignableHandleSchema,
   ChangeLogEntrySchema,
   ClientFrameSchema,
@@ -624,6 +625,21 @@ describe('wire events', () => {
         status: 'completed',
         final_text: 'PONG',
         usage: { input_tokens: 1, output_tokens: 1, cost_usd: 0.19 },
+        agent_usage: {
+          inputTokens: 1,
+          cachedInputTokens: 2,
+          outputTokens: 3,
+          totalCostUsd: 0.19,
+          contextWindowMaxTokens: 200_000,
+          contextWindowUsedTokens: 150_000,
+        },
+      },
+    ],
+    [
+      'usage_updated',
+      {
+        type: 'usage_updated',
+        usage: { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 150_000 },
       },
     ],
     ['member.state', { type: 'member.state', member: ULID_A, state: 'awaiting_input' }],
@@ -645,6 +661,29 @@ describe('wire events', () => {
   it.each(cases)('accepts %s', (_name, event) => {
     expect(WireEventSchema.safeParse(event).success).toBe(true);
   });
+
+  // harn:assume normalized-agent-usage-telemetry ref=agent-usage-telemetry-schema
+  it('keeps AgentUsage normalized, percentage-free, and context-pair atomic', () => {
+    expect(AgentUsageSchema.parse({
+      inputTokens: 10,
+      cachedInputTokens: 8,
+      outputTokens: 2,
+      totalCostUsd: 0.1,
+      contextWindowMaxTokens: 200_000,
+      contextWindowUsedTokens: 42_000,
+    })).toEqual({
+      inputTokens: 10,
+      cachedInputTokens: 8,
+      outputTokens: 2,
+      totalCostUsd: 0.1,
+      contextWindowMaxTokens: 200_000,
+      contextWindowUsedTokens: 42_000,
+    });
+    expect(AgentUsageSchema.safeParse({ percent: 21 }).success).toBe(false);
+    expect(AgentUsageSchema.safeParse({ contextWindowUsedTokens: 42_000 }).success).toBe(false);
+    expect(AgentUsageSchema.safeParse({ contextWindowMaxTokens: 200_000 }).success).toBe(false);
+  });
+  // harn:end normalized-agent-usage-telemetry
 
   it('run_event frames may carry their journal index (absent on old daemons)', () => {
     const base = {

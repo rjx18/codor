@@ -1,6 +1,7 @@
 import type {
   AdapterCapabilities,
   AdapterTurnHooks,
+  AgentUsage,
   AskCard,
   HarnessAdapter,
   Session,
@@ -19,6 +20,7 @@ export type FakeTurn =
       kind: 'complete';
       final_text: string;
       usage?: { input_tokens: number; output_tokens: number; cost_usd?: number };
+      agent_usage?: AgentUsage;
       items?: WireEvent[];
       item_delay_ms?: number;
       delay_ms?: number;
@@ -223,6 +225,7 @@ export class FakeAdapter implements HarnessAdapter {
         status: turn.status ?? 'completed',
         final_text: turn.final_text,
         usage: turn.usage ?? { input_tokens: 100, output_tokens: 20, cost_usd: 0.01 },
+        ...(turn.agent_usage !== undefined && { agent_usage: turn.agent_usage }),
       };
     } finally {
       this.concurrent.set(key, (this.concurrent.get(key) ?? 1) - 1);

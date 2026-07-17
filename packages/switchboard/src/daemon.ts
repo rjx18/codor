@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import type {
   AgentLimit,
+  AgentUsage,
   ModelCatalog,
   AskCard,
   Policy,
@@ -204,6 +205,9 @@ export class Daemon {
   private readonly releasedDeliveries = new Set<string>();
   private readonly operatorInterrupts = new Set<string>();
   private readonly memberWaits = new Map<string, NonNullable<Member['waiting']>>();
+  // harn:assume last-agent-usage-is-transient ref=last-usage-runtime-registry
+  private readonly lastUsage = new Map<string, AgentUsage>();
+  // harn:end last-agent-usage-is-transient
   private readonly groupWaits = new Map<string, GroupWaitContext>();
   private readonly attachLeaseTimeoutMs: number;
   private readonly processProbe: (target: number) => boolean;
@@ -427,14 +431,23 @@ export class Daemon {
     this.emit(room, { type: 'message', seq: message.seq, message });
   }
 
+  // harn:assume last-agent-usage-is-transient ref=last-usage-member-projection
+  private memberWithLastUsage(room: string, member: Member): Member {
+    const lastUsage = this.lastUsage.get(`${room}\0${member.id}`);
+    return lastUsage === undefined ? member : { ...member, lastUsage: { ...lastUsage } };
+  }
+  // harn:end last-agent-usage-is-transient
+
   private emitMember(room: string, member: Member): void {
     // harn:assume live-agent-waits-are-transient ref=wait-member-projection
+    // harn:assume last-agent-usage-is-transient ref=last-usage-member-projection
     const waiting = this.memberWaits.get(member.id);
     this.emit(room, {
       type: 'member',
       seq: this.store.currentSeq(room),
-      member: { ...member, ...(waiting && { waiting }) },
+      member: { ...this.memberWithLastUsage(room, member), ...(waiting && { waiting }) },
     });
+    // harn:end last-agent-usage-is-transient
     // harn:end live-agent-waits-are-transient
   }
 
@@ -775,7 +788,9 @@ export class Daemon {
           message.run?.status !== 'running',
       );
       return {
-        member,
+        // harn:assume last-agent-usage-is-transient ref=last-usage-member-projection
+        member: this.memberWithLastUsage(room, member),
+        // harn:end last-agent-usage-is-transient
         queued_count: this.store.listDeliveries(room, {
           recipient: member.id,
           state: 'queued',
@@ -2244,6 +2259,16 @@ export class Daemon {
         } else if (event.type === 'extension.ended') {
           journalEvent = this.endExtension(room, member, event);
         }
+        // harn:assume last-agent-usage-is-transient ref=last-usage-runtime-registry
+        // Live usage is member runtime state: broadcast it, but do not append it
+        // to the durable run journal or change log.
+        if (event.type === 'usage_updated') {
+          this.lastUsage.set(`${room}\0${member.id}`, { ...event.usage });
+          const current = this.store.getMember(room, member.id);
+          if (current !== undefined) this.emitMember(room, current);
+          continue;
+        }
+        // harn:end last-agent-usage-is-transient
         // harn:assume agent-usage-limits-reported-not-guessed ref=member-limits-persisted
         // Limits are member status, not run content: land the harness's report
         // on the member row and stream the member frame — nothing is journaled.
@@ -2275,6 +2300,11 @@ export class Daemon {
         if (event.type === 'ask.raised' || event.type === 'approval.raised') {
           this.handleInteractionRaised(room, member, event.card, event.type === 'ask.raised' ? 'ask' : 'approval');
         } else if (event.type === 'run.completed') {
+          // harn:assume last-agent-usage-is-transient ref=last-usage-runtime-registry
+          if (event.agent_usage !== undefined) {
+            this.lastUsage.set(`${room}\0${member.id}`, { ...event.agent_usage });
+          }
+          // harn:end last-agent-usage-is-transient
           completion = { status: event.status, final_text: event.final_text, usage: event.usage };
         }
       }
@@ -3269,8 +3299,13 @@ export class Daemon {
       // Transient waits have no change-log row, so every hydration gets the
       // authoritative active roster plus any removed-member delta from Store.
       members: [...members.values()].map((member) => {
+        // harn:assume last-agent-usage-is-transient ref=last-usage-member-projection
         const waiting = this.memberWaits.get(member.id);
-        return { ...member, ...(waiting && { waiting }) };
+        return {
+          ...this.memberWithLastUsage(room, member),
+          ...(waiting && { waiting }),
+        };
+        // harn:end last-agent-usage-is-transient
       }),
     });
   }

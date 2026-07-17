@@ -164,6 +164,21 @@ export function createTurnTranslator(): TurnTranslator {
         // cost-reporting harnesses).
         case 'turn.completed': {
           terminal = true;
+          // harn:assume normalized-agent-usage-telemetry ref=codex-usage-telemetry
+          const agentUsage = event.usage === undefined
+            ? undefined
+            : {
+                ...(event.usage.input_tokens !== undefined && {
+                  inputTokens: event.usage.input_tokens,
+                }),
+                ...(event.usage.cached_input_tokens !== undefined && {
+                  cachedInputTokens: event.usage.cached_input_tokens,
+                }),
+                ...(event.usage.output_tokens !== undefined && {
+                  outputTokens: event.usage.output_tokens,
+                }),
+              };
+          // harn:end normalized-agent-usage-telemetry
           return [
             {
               type: 'run.completed',
@@ -173,6 +188,9 @@ export function createTurnTranslator(): TurnTranslator {
                 input_tokens: event.usage?.input_tokens ?? 0,
                 output_tokens: event.usage?.output_tokens ?? 0,
               },
+              ...(agentUsage !== undefined && Object.keys(agentUsage).length > 0 && {
+                agent_usage: agentUsage,
+              }),
             },
           ];
         }

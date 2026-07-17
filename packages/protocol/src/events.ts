@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { MemberIdSchema, MessageIdSchema, TimestampSchema } from './ids.js';
-import { AgentLimitSchema, MemberStateSchema } from './member.js';
+import { AgentLimitSchema, AgentUsageSchema, MemberStateSchema } from './member.js';
 import { AskCardSchema, RunStatusSchema, UsageSchema } from './message.js';
 
 /**
@@ -115,12 +115,20 @@ export const WireEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('ask.raised'), card: AskCardSchema }),
   z.object({ type: z.literal('approval.raised'), card: AskCardSchema }),
+  // harn:assume normalized-agent-usage-telemetry ref=agent-usage-telemetry-schema
+  z.object({
+    type: z.literal('usage_updated'),
+    usage: AgentUsageSchema,
+  }),
   z.object({
     type: z.literal('run.completed'),
     status: RunStatusSchema.exclude(['running']),
     final_text: z.string().optional(),
+    // Durable accounting compatibility; normalized telemetry is agent_usage.
     usage: UsageSchema.optional(),
+    agent_usage: AgentUsageSchema.optional(),
   }),
+  // harn:end normalized-agent-usage-telemetry
   z.object({
     type: z.literal('run.limits'),
     limits: z.array(AgentLimitSchema).min(1),

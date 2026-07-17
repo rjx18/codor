@@ -72,6 +72,37 @@ describe('pong fixture replay', () => {
   });
 });
 
+// harn:assume normalized-agent-usage-telemetry ref=claude-usage-telemetry-regression
+describe('usage telemetry fixture replay', () => {
+  const { all } = replay(fixture('usage-telemetry.jsonl'));
+
+  it('emits live cache-aware context usage from the curated model window', () => {
+    expect(all.filter((event) => event.type === 'usage_updated')).toEqual([
+      {
+        type: 'usage_updated',
+        usage: {
+          contextWindowMaxTokens: 200_000,
+          contextWindowUsedTokens: 60,
+        },
+      },
+    ]);
+  });
+
+  it('snapshots normalized totals and lets the runtime window override the seed', () => {
+    expect(completed(all).agent_usage).toEqual({
+      inputTokens: 100,
+      cachedInputTokens: 300,
+      outputTokens: 8,
+      totalCostUsd: 0.01,
+      contextWindowMaxTokens: 250_000,
+      // Current context is the last request, not the result's aggregate totals.
+      contextWindowUsedTokens: 60,
+    });
+    expect(completed(all).agent_usage).not.toHaveProperty('percent');
+  });
+});
+// harn:end normalized-agent-usage-telemetry
+
 describe('resume fixture replay', () => {
   it('--resume keeps the same session id', () => {
     expect(replay(fixture('resume.jsonl')).translator.sessionId()).toBe(
@@ -254,6 +285,7 @@ describe('robustness', () => {
       status: 'completed',
       final_text: 'OK',
       usage: { input_tokens: 1, output_tokens: 1, cost_usd: 0.01 },
+      agent_usage: { inputTokens: 1, outputTokens: 1, totalCostUsd: 0.01 },
     });
   });
 
