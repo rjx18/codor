@@ -25,6 +25,27 @@ async function postToFable(page: Page, body: string): Promise<void> {
   await input.press('Enter');
 }
 
+test.describe('sticky typing indicator', () => {
+  test('one indicator survives scroll and leaves rooms where nobody works', async ({ page }) => {
+    await openRoom(page);
+    // scout's seeded run never settles, so the indicator names @scout.
+    const indicator = page.getByTestId('live-activity');
+    await expect(indicator).toBeVisible();
+    await expect(indicator).toHaveCount(1);
+    await expect(indicator.locator('.nx-chip')).toBeVisible();
+    await expect(page.locator('[aria-label="@scout is working"]')).toBeVisible();
+    // The old in-column working row is gone.
+    await expect(page.locator('.nx-working-row')).toHaveCount(0);
+    // Sticky: still on screen with the transcript scrolled to the top.
+    await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = 0; });
+    await expect(indicator).toBeInViewport();
+    // A room with nobody working shows none (its dormant dead agent must not count).
+    await page.getByTestId('room-link-design').click();
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId('live-activity')).toHaveCount(0);
+  });
+});
+
 test.describe('usage gauges', () => {
   test('live run.limits updates re-tint the gauge and the pill fallback returns', async ({ page }) => {
     await openRoom(page);

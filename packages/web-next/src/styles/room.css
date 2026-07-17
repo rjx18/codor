@@ -513,18 +513,21 @@
   margin-top: var(--sp-3);
 }
 
-.nx-working-row {
+/* The one typing indicator: a pill stuck to the scroller's floor, so it reads
+   as sitting just above the composer no matter where the reader scrolled. */
+.nx-typing-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-}
-.nx-working-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 10px;
+  align-self: flex-start;
+  padding: 4px 12px 4px 4px;
   border: 1px solid var(--c-line);
-  border-radius: var(--r-card);
-  background: var(--c-raised);
+  border-radius: var(--r-full);
+  background: var(--c-surface);
+  box-shadow: var(--e-raised);
 }
 
 .nx-jump {

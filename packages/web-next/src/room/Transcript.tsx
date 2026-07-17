@@ -83,12 +83,19 @@ export function Transcript(props: { room: string; token: () => string; connectio
     );
   }, [ordered, messages, inbox, members, selfId]);
 
-  // Working agents drive the typing indicator row. Derived with useMemo — a selector
+  // Working agents drive the typing indicator. Derived with useMemo — a selector
   // returning a fresh array every snapshot would loop useSyncExternalStore forever.
   const workingAgents = useMemo(
     () => Object.values(members).filter((m) => m.kind === 'agent' && (m.state === 'running' || m.state === 'queued')),
     [members],
   );
+  // ONE indicator for the whole room: the most recently started still-running
+  // run names the agent; queued-only work falls back to any working member.
+  const typingAgent = useMemo(() => {
+    if (workingAgents.length === 0) return undefined;
+    const latestRunning = ordered.filter((m) => m.kind === 'run' && m.run?.status === 'running').at(-1);
+    return workingAgents.find((m) => m.id === latestRunning?.author) ?? workingAgents[0];
+  }, [workingAgents, ordered]);
 
   // Follow the tail unless the reader scrolled up; then offer the jump chip instead.
   const lastId = visible.at(-1)?.id;
@@ -188,10 +195,12 @@ export function Transcript(props: { room: string; token: () => string; connectio
               />
             );
           })}
-          {workingAgents.length > 0 && (
-            <div className="nx-working-row" data-testid="live-activity">
-              <Chip name={workingAgents[0]!.handle} accent={memberAccent(workingAgents[0]!)} size={24} />
-              <span className="nx-working-pill"><TypingDots label={`@${workingAgents[0]!.handle} is working`} /></span>
+          {typingAgent !== undefined && (
+            // Sticky floor of the scroller: visible at any scroll position,
+            // present only while someone is actually working.
+            <div className="nx-typing-bar" data-testid="live-activity">
+              <Chip name={typingAgent.handle} accent={memberAccent(typingAgent)} size={24} />
+              <TypingDots label={`@${typingAgent.handle} is working`} />
             </div>
           )}
         </div>
@@ -423,7 +432,6 @@ function RunContent(props: { message: Message; room: string; token: () => string
             )
           : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} />,
       )}
-      {running && rows.length === 0 && <TypingDots label="run starting" />}
       {running && <ElapsedSince ts={props.message.ts} />}
       {!running && !hasProse && finalText.length > 0 && (
         <RunTextBlock messageId={props.message.id} blockId="final" text={finalText} />
