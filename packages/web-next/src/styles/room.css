@@ -334,6 +334,16 @@
   flex-direction: column;
   gap: var(--sp-2);
 }
+.nx-run-block { position: relative; }
+.nx-run-block > .nx-prose { padding-right: 32px; }
+.nx-run-block-actions {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  opacity: 0;
+}
+.nx-run-block:hover .nx-run-block-actions,
+.nx-run-block:focus-within .nx-run-block-actions { opacity: 1; }
 
 .nx-tool {
   border: 1px solid var(--c-line);

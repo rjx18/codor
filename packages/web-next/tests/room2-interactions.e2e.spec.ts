@@ -12,6 +12,15 @@ async function enqueue(turns: unknown[]): Promise<void> {
   if (!res.ok) throw new Error(`enqueue failed: ${await res.text()}`);
 }
 
+async function completeAgent(handle: string, finalText: string): Promise<void> {
+  const res = await fetch(`${CONTROL}/complete-agent`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ handle, final_text: finalText, prompt: `update ${handle} default` }),
+  });
+  if (!res.ok) throw new Error(`complete agent failed: ${await res.text()}`);
+}
+
 async function openRoom(page: Page): Promise<void> {
   await page.goto(ROOM);
   await expect(page.getByTestId('timeline')).toBeVisible();
@@ -22,6 +31,19 @@ test.describe('composer addressing', () => {
   test('drafts open addressed to the latest finalized agent', async ({ page }) => {
     await openRoom(page);
     await expect(page.getByTestId('composer-input')).toHaveValue('@fable ');
+  });
+
+  test('seed follows hydrated defaults until the first manual keystroke', async ({ page }) => {
+    await openRoom(page);
+    const input = page.getByTestId('composer-input');
+    await expect(input).toHaveValue('@fable ');
+
+    await completeAgent('hydrate', 'Hydrated agent completed.');
+    await expect(input).toHaveValue('@hydrate ');
+
+    await input.pressSequentially('keep this draft');
+    await completeAgent('restore', 'Default changed again.');
+    await expect(input).toHaveValue('@hydrate keep this draft');
   });
 
   test('an unaddressed send is blocked with a friendly hint', async ({ page }) => {

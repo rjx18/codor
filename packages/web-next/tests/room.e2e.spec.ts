@@ -47,14 +47,26 @@ test.describe('header', () => {
 });
 
 test.describe('transcript grouping', () => {
-  test('same-sender messages inside two minutes share a header; a later one starts a new turn', async ({ page }) => {
+  test('chronological sort happens before same-sender grouping', async ({ page }) => {
     await openRoom(page);
-    // m1+m2 were seeded 30s apart: one header, second body grouped.
+    const turns = page.locator('.nx-column > .nx-turn');
+    const texts = await turns.allTextContents();
+    const indexOf = (part: string) => texts.findIndex((text) => text.includes(part));
+
+    // This probe was inserted later by id, but its timestamp lies between m1/m2.
+    expect(indexOf('morning — can we')).toBeLessThan(indexOf('chronology probe between'));
+    expect(indexOf('chronology probe between')).toBeLessThan(indexOf('staging deploy is green'));
     await expect(page.getByTestId('msg-1').locator('.nx-turn-meta')).toHaveCount(1);
+    await expect(page.locator('article', { hasText: 'chronology probe between' })).toHaveClass(/is-grouped/);
     await expect(page.getByTestId('msg-2')).toHaveClass(/is-grouped/);
     // m3 came 18 minutes later from the same sender: fresh header.
     await expect(page.getByTestId('msg-3')).not.toHaveClass(/is-grouped/);
     await expect(page.getByTestId('msg-3').locator('.nx-turn-meta')).toHaveCount(1);
+
+    // A finalized run follows ended_ts even though @muse's chat has a newer id;
+    // the still-running @scout turn stays behind a chat posted after it began.
+    expect(indexOf('I can pick up the pricing copy')).toBeLessThan(indexOf('Queue is short'));
+    expect(indexOf('chronology probe posted after the running')).toBeLessThan(indexOf('running ·'));
   });
 });
 
@@ -79,6 +91,19 @@ test.describe('run evidence', () => {
     await openRoom(page);
     const runBody = page.locator('[data-testid^="run-"]').first();
     await expect(runBody.locator('.nx-prose', { hasText: 'Queue is short' })).toHaveCount(1);
+  });
+
+  test('sequence text blocks share one turn header and each own a copy action', async ({ page }) => {
+    await openRoom(page);
+    const run = page.locator('article', { hasText: 'Queue is short' }).first();
+    const blocks = run.locator('.nx-run-block');
+    await expect(run.locator('.nx-turn-meta')).toHaveCount(1);
+    await expect(run.locator(':scope > .nx-chip')).toHaveCount(1);
+    await expect(blocks).toHaveCount(2);
+    await expect(blocks.locator('[aria-label="Copy run block"]')).toHaveCount(2);
+    await expect(blocks.filter({ hasText: 'Reasoning' })).toHaveCount(0);
+    await blocks.first().hover();
+    await expect(blocks.first().locator('.nx-run-block-actions')).toHaveCSS('opacity', '1');
   });
 });
 

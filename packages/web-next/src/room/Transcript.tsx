@@ -16,7 +16,6 @@ import {
 import {
   HISTORY_PAGE_SIZE,
   pendingInteractions,
-  sortedMessages,
   useRoomStore,
   type RunEventBuffer,
 } from '@legacy/state.js';
@@ -28,6 +27,30 @@ import { DiffViewer } from './ContextPanel.js';
 
 /** Consecutive same-author messages within this window collapse their header. */
 const GROUP_WINDOW_MS = 2 * 60_000;
+const RELEASE_PIN_DISTANCE_PX = 120;
+const REGLUE_DISTANCE_PX = 80;
+
+function transcriptTime(message: Message): number {
+  if (message.kind === 'run' && message.run?.status === 'running') {
+    return Number.POSITIVE_INFINITY;
+  }
+  if (message.kind === 'run' && message.run?.status !== 'running') {
+    return Date.parse(message.run?.ended_ts ?? message.ts);
+  }
+  return Date.parse(message.ts);
+}
+
+function transcriptMessages(messages: Record<number, Message>): Message[] {
+  return Object.values(messages).sort((left, right) => {
+    const leftRunning = left.kind === 'run' && left.run?.status === 'running';
+    const rightRunning = right.kind === 'run' && right.run?.status === 'running';
+    if (leftRunning !== rightRunning) return leftRunning ? 1 : -1;
+    const byTime = leftRunning && rightRunning
+      ? Date.parse(left.ts) - Date.parse(right.ts)
+      : transcriptTime(left) - transcriptTime(right);
+    return byTime === 0 ? left.id - right.id : byTime;
+  });
+}
 
 export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
   const messages = useRoomStore((s) => s.messages);
@@ -38,13 +61,16 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const connected = useRoomStore((s) => s.connected);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const columnRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+  const upwardScrollRef = useRef(0);
   const [showJump, setShowJump] = useState(false);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
 
   const inbox = useRoomStore((s) => s.inbox);
-  const ordered = useMemo(() => sortedMessages(messages), [messages]);
+  const ordered = useMemo(() => transcriptMessages(messages), [messages]);
   // Interaction cards stay in the timeline only while they need the operator;
   // resolved ones leave. pendingInteractions is the legacy single source of truth.
   const visible = useMemo(() => {
@@ -76,12 +102,44 @@ export function Transcript(props: { room: string; token: () => string; connectio
     }
   }, [lastId]);
 
+  // Run prose and evidence can grow without creating a new message. While the
+  // reader is pinned, follow that column growth too; an upward scroll past the
+  // release threshold is the only thing that suspends this observer.
+  useEffect(() => {
+    const node = scrollerRef.current;
+    const column = columnRef.current;
+    if (!node || !column) return;
+    let frame: number | undefined;
+    const observer = new ResizeObserver(() => {
+      if (!pinnedRef.current) return;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!pinnedRef.current) return;
+        node.scrollTop = node.scrollHeight;
+        setShowJump(false);
+      });
+    });
+    observer.observe(column);
+    return () => {
+      observer.disconnect();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+  }, []);
+
   const onScroll = (): void => {
     const node = scrollerRef.current;
     if (!node) return;
-    const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
-    pinnedRef.current = nearBottom;
-    setShowJump(!nearBottom);
+    const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
+    const upward = lastScrollTopRef.current - node.scrollTop;
+    lastScrollTopRef.current = node.scrollTop;
+    if (upward > 0) upwardScrollRef.current += upward;
+    else if (upward < 0) upwardScrollRef.current = 0;
+    if (distance < REGLUE_DISTANCE_PX) {
+      pinnedRef.current = true;
+    } else if (pinnedRef.current && upwardScrollRef.current >= RELEASE_PIN_DISTANCE_PX) {
+      pinnedRef.current = false;
+    }
+    setShowJump(!pinnedRef.current);
     if (node.scrollTop < 80 && !historyBusy && hasOlder && historyCursor !== undefined && historyCursor > 1) {
       setHistoryBusy(true);
       const prior = { height: node.scrollHeight, top: node.scrollTop };
@@ -101,7 +159,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
   return (
     <div className="nx-transcript-wrap">
       <div ref={scrollerRef} className="nx-transcript" data-testid="timeline" onScroll={onScroll} tabIndex={0}>
-        <div className="nx-column">
+        <div ref={columnRef} className="nx-column">
           {!connected && ordered.length === 0 && <TranscriptSkeleton />}
           {connected && visible.length === 0 && (
             <p className="nx-empty" data-testid="timeline-empty">No messages yet — say something.</p>
@@ -111,7 +169,9 @@ export function Transcript(props: { room: string; token: () => string; connectio
             const grouped = previous !== undefined
               && previous.author === message.author
               && previous.kind !== 'system' && message.kind !== 'system'
-              && Date.parse(message.ts) - Date.parse(previous.ts) < GROUP_WINDOW_MS;
+              && Number.isFinite(transcriptTime(previous))
+              && Number.isFinite(transcriptTime(message))
+              && transcriptTime(message) - transcriptTime(previous) < GROUP_WINDOW_MS;
             return (
               <TurnBlock
                 key={message.id}
@@ -166,7 +226,6 @@ function TurnBlock(props: {
   members: Record<string, Member>;
 }) {
   const { message, author } = props;
-  const [copied, setCopied] = useState(false);
 
   if (message.kind === 'system') {
     return (
@@ -187,12 +246,6 @@ function TurnBlock(props: {
     );
   }
 
-  const copy = (): void => {
-    void navigator.clipboard?.writeText(message.body).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    });
-  };
   const quote = (): void => {
     const line = message.body.split('\n', 1)[0] ?? '';
     window.dispatchEvent(new CustomEvent('nx-quote', { detail: `@${handle} > ${line}` }));
@@ -226,9 +279,9 @@ function TurnBlock(props: {
               <button className="nx-iconbtn is-quiet" aria-label="Quote message" data-testid={`msg-${message.id}-quote`} onClick={quote}>
                 <Quote size={14} aria-hidden="true" />
               </button>
-              <button className="nx-iconbtn is-quiet" aria-label="Copy message" data-testid={`msg-${message.id}-copy`} onClick={copy}>
-                {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-              </button>
+              {message.kind !== 'run' && (
+                <CopyButton text={message.body} label="Copy message" testId={`msg-${message.id}-copy`} />
+              )}
             </span>
           </div>
         )}
@@ -239,6 +292,25 @@ function TurnBlock(props: {
             : <MessageProse body={message.body} />}
       </div>
     </article>
+  );
+}
+
+function CopyButton(props: { text: string; label: string; testId: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className="nx-iconbtn is-quiet"
+      aria-label={props.label}
+      data-testid={props.testId}
+      onClick={() => {
+        void navigator.clipboard?.writeText(props.text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        });
+      }}
+    >
+      {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+    </button>
   );
 }
 
@@ -293,6 +365,13 @@ function segmentRows(rows: RunRow[]): RunSegment[] {
   const segments: RunSegment[] = [];
   for (const row of rows) {
     const last = segments.at(-1);
+    // Reasoning summaries are batch metadata, not visible prose. Ignoring them
+    // here keeps tools on either side in one maximal batch, including empty
+    // summaries emitted by adapters.
+    if (
+      row.icon === 'reasoning'
+      || (row.event.type === 'run.item' && row.event.item_type === 'reasoning_summary')
+    ) continue;
     if (row.kind === 'tool') {
       if (last?.kind === 'tools') last.rows.push(row);
       else segments.push({ kind: 'tools', rows: [row] });
@@ -335,12 +414,36 @@ function RunContent(props: { message: Message; room: string; token: () => string
     <div className="nx-run" data-run-status={props.message.run?.status ?? 'running'}>
       {segments.map((segment, index) =>
         segment.kind === 'prose'
-          ? <div key={segment.row.eventIndex} className="nx-prose">{segment.row.text}</div>
+          ? (
+              <RunTextBlock
+                key={segment.row.eventIndex}
+                messageId={props.message.id}
+                blockId={segment.row.eventIndex}
+                text={segment.row.text ?? ''}
+              />
+            )
           : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} />,
       )}
       {running && rows.length === 0 && <TypingDots label="run starting" />}
       {running && <ElapsedSince ts={props.message.ts} />}
-      {!running && !hasProse && finalText.length > 0 && <MessageProse body={finalText} />}
+      {!running && !hasProse && finalText.length > 0 && (
+        <RunTextBlock messageId={props.message.id} blockId="final" text={finalText} />
+      )}
+    </div>
+  );
+}
+
+function RunTextBlock(props: { messageId: number; blockId: number | 'final'; text: string }) {
+  return (
+    <div className="nx-run-block" data-testid={`run-${props.messageId}-block-${props.blockId}`}>
+      <MessageProse body={props.text} />
+      <span className="nx-run-block-actions">
+        <CopyButton
+          text={props.text}
+          label="Copy run block"
+          testId={`run-${props.messageId}-block-${props.blockId}-copy`}
+        />
+      </span>
     </div>
   );
 }

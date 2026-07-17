@@ -46,16 +46,59 @@ test.describe('mobile transcript re-composition', () => {
     await expect(page.locator('.nx-tool').first()).toBeVisible();
   });
 
-  test('scrolling up shows the FAB and it returns to the tail', async ({ page }) => {
+  test('content growth stays pinned until an intentional upward scroll releases it', async ({ page }) => {
     await openRoom(page);
-    await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = 0; });
+    const timeline = page.getByTestId('timeline');
     const fab = page.locator('.nx-jump');
+
+    await expect.poll(() => timeline.evaluate((node) =>
+      node.scrollHeight - node.scrollTop - node.clientHeight,
+    )).toBeLessThan(4);
+
+    // A small nudge does not release the tail; subsequent column growth snaps back.
+    await timeline.evaluate((node) => { node.scrollTop -= 60; });
+    await expect(fab).toBeHidden();
+    await timeline.evaluate((node) => {
+      const spacer = document.createElement('div');
+      spacer.dataset.testid = 'growth-probe-one';
+      spacer.style.height = '240px';
+      spacer.style.flex = '0 0 240px';
+      node.querySelector('.nx-column')?.append(spacer);
+    });
+    await expect.poll(() => timeline.evaluate((node) =>
+      node.scrollHeight - node.scrollTop - node.clientHeight,
+    )).toBeLessThan(4);
+
+    // Crossing the release threshold exposes the FAB and ResizeObserver stops following.
+    await timeline.evaluate((node) => { node.scrollTop -= 160; });
     await expect(fab).toBeVisible();
+    const releasedTop = await timeline.evaluate((node) => node.scrollTop);
+    await timeline.evaluate((node) => {
+      const spacer = document.createElement('div');
+      spacer.dataset.testid = 'growth-probe-two';
+      spacer.style.height = '240px';
+      spacer.style.flex = '0 0 240px';
+      node.querySelector('.nx-column')?.append(spacer);
+    });
+    await page.waitForTimeout(100);
+    expect(await timeline.evaluate((node) => node.scrollTop)).toBe(releasedTop);
+
     const box = await fab.boundingBox();
     expect(box!.width).toBeGreaterThanOrEqual(44);
     expect(box!.height).toBeGreaterThanOrEqual(44);
-    await fab.click();
+
+    // Returning near the bottom re-glues without needing the button.
+    await timeline.evaluate((node) => { node.scrollTop = node.scrollHeight - node.clientHeight - 40; });
     await expect(fab).toBeHidden();
+    await timeline.evaluate((node) => {
+      const spacer = document.createElement('div');
+      spacer.style.height = '120px';
+      spacer.style.flex = '0 0 120px';
+      node.querySelector('.nx-column')?.append(spacer);
+    });
+    await expect.poll(() => timeline.evaluate((node) =>
+      node.scrollHeight - node.scrollTop - node.clientHeight,
+    )).toBeLessThan(4);
   });
 });
 
@@ -64,6 +107,7 @@ test.describe('mobile composer', () => {
     await enqueueTurn();
     await openRoom(page);
     const input = page.getByTestId('composer-input');
+    await expect(input).toHaveValue('@fable ');
     await input.fill('');
     await page.getByTestId('composer-at').click();
     await expect(page.getByTestId('mention-popover')).toBeVisible();
