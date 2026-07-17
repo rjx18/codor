@@ -1,5 +1,5 @@
 import type { Delivery, Member, Message } from '@codor/protocol';
-import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Pencil, Pin, PinOff, Quote, Search, TerminalSquare, X } from 'lucide-react';
+import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Pencil, Pin, PinOff, Quote, Search, Square, TerminalSquare, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -93,6 +93,8 @@ export function Transcript(props: { room: string; token: () => string; connectio
   // else, so showing the control to them would only earn an error.
   const selfRole = selfId !== undefined ? members[selfId]?.role : undefined;
   const canPin = selfRole === 'owner' || selfRole === 'admin';
+  // Interrupt is gated at admin too — the same owner/admin viewers may stop a run.
+  const canStop = selfRole === 'owner' || selfRole === 'admin';
 
   // Working agents drive the typing indicator. Derived with useMemo — a selector
   // returning a fresh array every snapshot would loop useSyncExternalStore forever.
@@ -249,6 +251,18 @@ export function Transcript(props: { room: string; token: () => string; connectio
             <div className="nx-typing-bar" data-testid="live-activity">
               <Chip name={typingAgent.handle} accent={memberAccent(typingAgent)} size={24} />
               <TypingDots label={`@${typingAgent.handle} is working`} />
+              {canStop && (
+                <button
+                  type="button"
+                  className="nx-typing-stop"
+                  aria-label={`Stop @${typingAgent.handle}`}
+                  data-testid="typing-stop"
+                  title="Stop this run (the agent stays alive)"
+                  onClick={() => props.connection.act({ act: 'interrupt', member_id: typingAgent.id })}
+                >
+                  <Square size={12} aria-hidden="true" />
+                </button>
+              )}
             </div>
           )}
         </div>

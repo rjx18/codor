@@ -581,6 +581,25 @@
   margin-top: var(--sp-3);
 }
 
+/* Stop control: a square glyph that interrupts a running agent. Non-destructive
+   (the turn ends Interrupted, the agent stays alive), so no confirm — but it
+   wears the error tint to read as a hard stop. */
+.nx-member-stop,
+.nx-typing-stop {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-pill);
+  color: var(--c-error-text);
+  transition: background-color var(--m-fast) var(--m-ease);
+}
+.nx-member-stop:hover,
+.nx-typing-stop:hover { background: var(--c-error-tint); }
+.nx-typing-stop { width: 22px; height: 22px; }
+
 /* The one typing indicator: a pill stuck to the scroller's floor, so it reads
    as sitting just above the composer no matter where the reader scrolled. */
 .nx-typing-bar {

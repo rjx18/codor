@@ -68,6 +68,12 @@ const muse = daemon.spawnMember('eng', { harness: 'fake', handle: 'muse', cwd: d
 const hydrate = daemon.spawnMember('eng', { harness: 'fake', handle: 'hydrate', cwd: dir });
 const restore = daemon.spawnMember('eng', { harness: 'fake', handle: 'restore', cwd: dir });
 
+// A non-privileged human so tests can prove owner/admin-only controls stay hidden.
+const viewer = daemon.store.addMember('eng', {
+  kind: 'human', handle: 'viewer', display_name: 'Viewer', role: 'member',
+});
+const VIEWER_TOKEN = 'next-e2e-viewer-token';
+
 // Ops carries the failure state: its latest run failed and its author is dead.
 const relay = daemon.spawnMember('ops', { harness: 'fake', handle: 'relay', cwd: dir });
 const relayRunTs = new Date().toISOString();
@@ -357,6 +363,7 @@ await startServer({
   port: API_PORT,
   staticRoot,
   crypto,
+  principals: [{ token: VIEWER_TOKEN, member_id: viewer.id }],
 });
 
 console.log(`web-next harness ready
