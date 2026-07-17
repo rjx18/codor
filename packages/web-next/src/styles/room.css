@@ -308,7 +308,7 @@
 .nx-turn-spacer { flex: 1; }
 .nx-permalink {
   font: var(--t-caption);
-  color: var(--c-mark-faint);
+  color: var(--c-faded);
   text-decoration: none;
   opacity: 0;
 }
@@ -656,7 +656,8 @@
   min-width: 17px;
   padding: 1px 5px;
   border-radius: var(--r-full);
-  background: var(--c-error);
+  /* --c-error-text, not --c-error: white on the vivid mark misses AA. */
+  background: var(--c-error-text);
   color: #fff;
   font: var(--t-caption-strong);
   font-size: 10.5px;
