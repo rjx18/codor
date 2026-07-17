@@ -15,16 +15,22 @@ notes: >-
   "opus") to the SDK and the CLI's own settings apply the beta.
 
   Change - the engine's own report is the durable truth. Store: members
-  gain a context_window INTEGER column (idempotent ALTER; daemon-internal,
-  NOT added to the protocol Member schema). Daemon: whenever a live usage
-  event carries contextWindowMaxTokens, persist it on the member row when
-  it changed; at boot/revive/join seeding, after the adapter peek returns
-  an estimate, override its contextWindowMaxTokens with the persisted
-  engine-reported window when one exists (the used-tokens estimate is
-  untouched; the estimated flag stays). The curated table remains the
-  backstop for members whose engine has never reported a window. Adapter
-  peek signatures are unchanged - the override lives where the persistence
-  lives, in the daemon seed path.
+  gain a context_window INTEGER column via idempotent ALTER migration ONLY,
+  following the limits-column precedent (never touching the base CREATE
+  TABLE, so the store schema anchor is not crossed); daemon-internal, NOT
+  added to the protocol Member schema; the set/get accessors are placed
+  outside anchored spans. Daemon: whenever a live usage event carries
+  contextWindowMaxTokens (the usage_updated branch and the run.completed
+  agent_usage capture - both inside last-usage-runtime-registry anchored
+  regions, declared below), persist it on the member row when it changed;
+  in seedContextUsage (inside the last-usage-seeding and
+  last-usage-member-projection anchored spans, declared below), after the
+  adapter peek returns an estimate, override its contextWindowMaxTokens
+  with the persisted engine-reported window when one exists (the
+  used-tokens estimate is untouched; the estimated flag stays). The curated
+  table remains the backstop for members whose engine has never reported a
+  window. Adapter peek signatures are unchanged - the override lives where
+  the persistence lives, in the daemon seed path.
 
   Effect: after one real turn ever, restarts estimate against the true 1M
   window; a fresh never-run member still gets the honest curated guess.
@@ -77,3 +83,19 @@ anchors:
       action: change
       reason: The store column, the usage-event capture, and the seed-path
         override define the persisted-window contract.
+  last-agent-usage-is-transient-and-seeded:
+    last-usage-seeding:
+      action: change
+      reason: seedContextUsage gains the persisted-window override on the
+        peeked estimate; seeding stays fire-and-forget and never overwrites
+        live values.
+    last-usage-member-projection:
+      action: change
+      reason: The seed function sits inside this span too (overlapping
+        anchors); the projection of lastUsage onto member frames is
+        unchanged in meaning.
+    last-usage-runtime-registry:
+      action: change
+      reason: The usage_updated and run.completed capture points gain the
+        persist-on-change call; live usage itself stays transient and
+        in-memory.
