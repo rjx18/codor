@@ -1,0 +1,3 @@
+{"type": "system", "subtype": "init", "session_id": "aaaa", "model": "claude-haiku-4-5"}
+{"type": "assistant", "message": {"model": "claude-haiku-4-5", "usage": {"input_tokens": 2, "cache_read_input_tokens": 100000, "cache_creation_input_tokens": 5000}, "content": []}}
+{"type": "assistant", "message": {"model": "claude-haiku-4-5", "usage": {"input_tokens": 2, "cache_read_input_tokens": 149000, "cache_creation_input_tokens": 998}, "content": []}}

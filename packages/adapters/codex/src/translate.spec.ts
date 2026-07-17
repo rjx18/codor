@@ -110,7 +110,7 @@ describe('Codex 0.144.5 app-server fixture translation', () => {
   });
   // harn:end codex-app-server-compaction-follows-native-events
 
-  // harn:assume normalized-agent-usage-and-context-telemetry ref=codex-usage-telemetry-regression
+  // harn:assume normalized-agent-usage-telemetry-with-estimates ref=codex-usage-telemetry-regression
   // harn:assume codex-app-server-usage-is-context-aware-and-uncosted ref=codex-app-server-usage-regression
   it('emits live and terminal native context telemetry with no invented cost', () => {
     const expected = {
@@ -140,7 +140,7 @@ describe('Codex 0.144.5 app-server fixture translation', () => {
     })).toEqual({ inputTokens: 10, cachedInputTokens: 2, outputTokens: 2 });
   });
   // harn:end codex-app-server-usage-is-context-aware-and-uncosted
-  // harn:end normalized-agent-usage-and-context-telemetry
+  // harn:end normalized-agent-usage-telemetry-with-estimates
 });
 
 describe('terminal app-server semantics', () => {

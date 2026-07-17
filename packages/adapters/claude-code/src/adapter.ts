@@ -16,6 +16,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import type {
   AgentLimit,
+  AgentUsage,
   AdapterTurnHooks,
   AskCard,
   HarnessAdapter,
@@ -28,12 +29,14 @@ import type {
 import { PolicySchema, ThinkingLevelSchema } from '@codor/protocol';
 
 import { probeClaudeLimits } from './limits-probe.js';
+import { peekClaudeContextUsage } from './peek.js';
 import {
   claudeQuery,
   type ClaudeOptions,
   type ClaudeQueryFactory,
 } from './query.js';
 import {
+  claudeContextWindow,
   createTurnTranslator,
   type ClaudeTranslatorContext,
   type HookPayload,
@@ -394,6 +397,12 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     });
   }
   // harn:end adapters-own-their-model-catalog
+
+  // harn:assume context-peek-reads-session-artifacts ref=claude-context-peek
+  peekContextUsage(session_ref: SessionRef): Promise<AgentUsage | undefined> {
+    return Promise.resolve(peekClaudeContextUsage(session_ref, claudeContextWindow));
+  }
+  // harn:end context-peek-reads-session-artifacts
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };

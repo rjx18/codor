@@ -71,7 +71,7 @@ function usageEvent(usage: AgentUsage | undefined): WireEvent[] {
 }
 
 // harn:assume codex-app-server-usage-is-context-aware-and-uncosted ref=codex-app-server-usage-mapping
-// harn:assume normalized-agent-usage-and-context-telemetry ref=codex-usage-telemetry
+// harn:assume normalized-agent-usage-telemetry-with-estimates ref=codex-usage-telemetry
 /** Exact Codex 0.144.5 camelCase tokenUsage mapping; no historical aliases. */
 export function agentUsageFromTokenUsage(tokenUsage: unknown): AgentUsage | undefined {
   if (!isRecord(tokenUsage) || !isRecord(tokenUsage.last)) return undefined;
@@ -92,7 +92,7 @@ export function agentUsageFromTokenUsage(tokenUsage: unknown): AgentUsage | unde
   };
   return Object.keys(usage).length === 0 ? undefined : usage;
 }
-// harn:end normalized-agent-usage-and-context-telemetry
+// harn:end normalized-agent-usage-telemetry-with-estimates
 // harn:end codex-app-server-usage-is-context-aware-and-uncosted
 
 /** One app-server turn translator. Shared context carries only latest usage. */

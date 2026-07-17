@@ -2236,6 +2236,41 @@ describe('failed turns', () => {
     expect(delivered.payload).toContain(`[run failed] ${detail}`);
   });
 
+  // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-daemon-regression
+  it('seeds an estimated gauge from the adapter peek on boot reconcile', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'complete', final_text: 'establish a session ref' });
+    daemon.postHumanMessage('eng', '@alpha hello');
+    await daemon.settle();
+
+    fake.peekUsage = { contextWindowMaxTokens: 1_000_000, contextWindowUsedTokens: 12_000, estimated: true };
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const detailed = daemon.memberDetails('eng').find((d) => d.member.id === alpha.id)!;
+    expect(detailed.member.lastUsage).toEqual({
+      contextWindowMaxTokens: 1_000_000,
+      contextWindowUsedTokens: 12_000,
+      estimated: true,
+    });
+  });
+
+  it('never lets a peek seed overwrite a live usage report', async () => {
+    const alpha = spawnAgent('alpha');
+    const live = { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 55_000 };
+    fake.enqueue({ kind: 'complete', final_text: 'ok', agent_usage: live });
+    daemon.postHumanMessage('eng', '@alpha go');
+    await daemon.settle();
+
+    fake.peekUsage = { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 1, estimated: true };
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const detailed = daemon.memberDetails('eng').find((d) => d.member.id === alpha.id)!;
+    expect(detailed.member.lastUsage).toEqual(live);
+  });
+  // harn:end last-agent-usage-is-transient-and-seeded
+
   it('does not re-broadcast a member frame for an unchanged usage snapshot', async () => {
     const alpha = spawnAgent('alpha');
     const usage = { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 50_000 };
@@ -3979,7 +4014,7 @@ describe('run_event journal indices (run-events-merge-by-journal-index)', () => 
 });
 // harn:end run-events-merge-by-journal-index
 
-// harn:assume last-agent-usage-is-transient ref=last-usage-daemon-regression
+// harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-daemon-regression
 describe('transient lastUsage telemetry', () => {
   const liveUsage = {
     contextWindowMaxTokens: 200_000,
@@ -4063,4 +4098,4 @@ describe('transient lastUsage telemetry', () => {
       .toEqual(nextUsage);
   });
 });
-// harn:end last-agent-usage-is-transient
+// harn:end last-agent-usage-is-transient-and-seeded

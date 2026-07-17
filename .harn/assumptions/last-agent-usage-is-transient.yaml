@@ -1,7 +1,7 @@
 id: last-agent-usage-is-transient
 hash: a-31c293e9078c
 title: Last agent usage is broadcast runtime state, never durable member truth
-state: active
+state: retired
 statement: The daemon must keep each member's latest normalized AgentUsage only
   in memory, refresh it from live usage_updated events and terminal agent_usage
   snapshots, and overlay it as lastUsage on member emissions, details, and sync
@@ -11,3 +11,4 @@ statement: The daemon must keep each member's latest normalized AgentUsage only
 depends_on:
   - normalized-agent-usage-telemetry
 created_by: context-ceiling-guardrails
+retired_by: ctx-guardrails-peek

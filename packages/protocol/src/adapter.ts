@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type { WireEvent } from './events.js';
-import type { AgentLimit } from './member.js';
+import type { AgentLimit, AgentUsage } from './member.js';
 
 // harn:assume canonical-spawn-controls-enforced ref=canonical-policy-thinking-enforcement
 export const PolicySchema = z.enum(['read-only', 'workspace-write', 'full-access']);
@@ -120,6 +120,16 @@ export interface HarnessAdapter {
   capabilities: AdapterCapabilities;
   spawn(opts: SpawnOpts): Session;
   attach(session_ref: SessionRef): Session;
+  // harn:assume context-peek-reads-session-artifacts ref=adapter-peek-contract
+  /**
+   * Optional: estimate a session's current context from the harness's own
+   * on-disk artifacts WITHOUT running a turn. Returns an AgentUsage flagged
+   * estimated, or undefined when artifacts are missing/unreadable. The
+   * artifact is the only source that reflects out-of-band activity (e.g. an
+   * interactive /compact), so implementations must read it, never a cache.
+   */
+  peekContextUsage?(session_ref: SessionRef): Promise<AgentUsage | undefined>;
+  // harn:end context-peek-reads-session-artifacts
   /**
    * The models this harness accepts. Omitted when the harness cannot say.
    * Never called on a request path — the daemon discovers in the background.

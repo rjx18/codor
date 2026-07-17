@@ -1,0 +1,14 @@
+id: normalized-agent-usage-telemetry-with-estimates
+hash: a-e6319d7179b5
+title: Normalized usage telemetry with explicit estimation
+state: active
+statement: Agent usage telemetry must use only optional camelCase inputTokens,
+  cachedInputTokens, outputTokens, totalCostUsd, contextWindowMaxTokens,
+  contextWindowUsedTokens, and estimated fields with no percentage, travel live
+  on usage_updated and as agent_usage on run.completed, and include context
+  maximum and used only as a pair. estimated true marks values derived from
+  session artifacts; absence means engine-reported. Providers never guess
+  missing values - estimation is always explicit.
+depends_on:
+  - first-party-run-items-normalized
+created_by: ctx-guardrails-peek

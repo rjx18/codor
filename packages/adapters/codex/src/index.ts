@@ -19,3 +19,4 @@ export type {
   CodexTranslatorContext,
   TurnTranslator,
 } from './translate.js';
+export { peekCodexContextUsage } from './peek.js';

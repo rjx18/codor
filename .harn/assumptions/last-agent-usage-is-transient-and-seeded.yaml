@@ -1,0 +1,13 @@
+id: last-agent-usage-is-transient-and-seeded
+hash: a-57574b0397a0
+title: Last agent usage is transient, seeded from artifacts, never stored
+state: active
+statement: The daemon must keep each member's latest AgentUsage only in memory
+  and never write it to Store or journal live usage events. At boot hydration,
+  revive, and join it may seed the registry from the adapter's peekContextUsage
+  flagged estimated; a seed never overwrites a live value, and live reports
+  replace seeds. Member projections stay valid whether the registry is empty,
+  seeded, or live.
+depends_on:
+  - normalized-agent-usage-telemetry-with-estimates
+created_by: ctx-guardrails-peek

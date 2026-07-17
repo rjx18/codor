@@ -1,7 +1,7 @@
 id: normalized-agent-usage-and-context-telemetry
 hash: a-907961384cf5
 title: Harness usage telemetry has one normalized additive context shape
-state: active
+state: retired
 statement: Agent usage telemetry must use only optional camelCase inputTokens,
   cachedInputTokens, outputTokens, totalCostUsd, contextWindowMaxTokens, and
   contextWindowUsedTokens fields with no percentage, travel live on
@@ -11,3 +11,4 @@ statement: Agent usage telemetry must use only optional camelCase inputTokens,
 depends_on:
   - first-party-run-items-normalized
 created_by: ctx-guardrails-p5c-codex-app-server
+retired_by: ctx-guardrails-peek

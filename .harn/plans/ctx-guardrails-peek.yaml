@@ -1,0 +1,222 @@
+id: ctx-guardrails-peek
+title: Pre-turn context peek - seed the gauge from on-disk session artifacts
+notes: >-
+  Richard-approved 2026-07-17: operators must see a member's context pressure
+  BEFORE spending a turn - especially after daemon restarts and revives, the
+  exact moments the fable incident proved dangerous. Neither live telemetry nor
+  any persisted cache can answer this honestly (out-of-band activity like an
+  interactive /compact invalidates both; the fable session file proved it:
+  persisted state would report 986,729 while the true post-compact context is a
+  few thousand). The session artifact on disk is the source of truth.
+
+  AgentUsage gains an optional estimated boolean: true means the values were
+  derived from session artifacts rather than reported live by the engine.
+  Because the current telemetry assumption pins the field list with "only", it
+  is retired and recreated with the widened contract; the transient-usage
+  assumption likewise pins "absent after restart until the next reporting turn",
+  so it is retired and recreated to allow artifact seeding. Anchors in
+  claude/codex translators, protocol, and daemon rename mechanically to the
+  successor ids.
+
+  Adapters gain an optional peekContextUsage(session_ref) returning an estimated
+  AgentUsage or undefined: claude scans the tail of the matching
+  ~/.claude/projects/*/<ref>.jsonl for the last usage record, and if a compact
+  summary follows it, estimates from the summary size instead (the incident
+  forensics preserved as logic + fixture); codex locates the rollout file for
+  the thread id under ~/.codex/sessions and takes the last token_count event's
+  last_token_usage.total_tokens with model_context_window. Tail reads are
+  chunked from the end of the file so 20MB+ transcripts stay cheap.
+
+  The daemon seeds its transient lastUsage registry (never the Store) at boot
+  member hydration, reviveMember, and joinMember - fire-and-forget, and a seed
+  never overwrites a live (non-estimated) value. Live reports replace seeds and
+  drop the flag. Web-next renders an estimated ring dimmed with a tilde in the
+  tooltip; thresholds and hidden states are unchanged.
+
+  Fixture and in-memory tests only: peek fixtures for both adapters including
+  the compaction-after-last-usage case, daemon seeding/no-clobber tests via the
+  fake adapter, meter estimated-state spec. No live API calls. Deploy after
+  review including the web-next dist copy step.
+assumptions:
+  retire:
+    - id: normalized-agent-usage-and-context-telemetry
+      reason: The field contract said "only" the six fields; the estimated flag widens
+        it, which is a meaning change.
+    - id: last-agent-usage-is-transient
+      reason: The statement pinned lastUsage as absent after restart until the next
+        reporting turn; artifact seeding changes that lifecycle.
+  create:
+    - id: normalized-agent-usage-telemetry-with-estimates
+      title: Normalized usage telemetry with explicit estimation
+      statement: Agent usage telemetry must use only optional camelCase inputTokens,
+        cachedInputTokens, outputTokens, totalCostUsd, contextWindowMaxTokens,
+        contextWindowUsedTokens, and estimated fields with no percentage, travel
+        live on usage_updated and as agent_usage on run.completed, and include
+        context maximum and used only as a pair. estimated true marks values
+        derived from session artifacts; absence means engine-reported. Providers
+        never guess missing values - estimation is always explicit.
+      reason: Pre-turn visibility requires artifact-derived values that must never
+        masquerade as live engine reports.
+      depends_on:
+        - first-party-run-items-normalized
+    - id: last-agent-usage-is-transient-and-seeded
+      title: Last agent usage is transient, seeded from artifacts, never stored
+      statement: The daemon must keep each member's latest AgentUsage only in memory
+        and never write it to Store or journal live usage events. At boot
+        hydration, revive, and join it may seed the registry from the adapter's
+        peekContextUsage flagged estimated; a seed never overwrites a live
+        value, and live reports replace seeds. Member projections stay valid
+        whether the registry is empty, seeded, or live.
+      reason: Operators need pre-turn context pressure without creating a second
+        durable source of usage truth that out-of-band activity would falsify.
+      depends_on:
+        - normalized-agent-usage-telemetry-with-estimates
+    - id: context-peek-reads-session-artifacts
+      title: Context peeks come from on-disk session artifacts
+      statement: An adapter's peekContextUsage must derive context estimates solely
+        from its harness's own on-disk session artifacts - claude from the
+        session jsonl tail honoring a trailing compact summary, codex from the
+        rollout's last token_count record - returning undefined when artifacts
+        are missing or unreadable, because the artifact reflects out-of-band
+        activity that no cached or live value can.
+      reason: The fable incident's compaction happened outside codor; only the
+        artifact told the truth.
+      depends_on:
+        - normalized-agent-usage-telemetry-with-estimates
+  reviewed:
+    - id: run-failure-evidence-is-surfaced
+      outcome: unchanged
+      reason: Failure-evidence behavior is untouched; the seeding regressions were
+        inserted adjacent to existing tests inside its anchored spec region.
+    - id: member-context-window-meter-derived-from-last-usage
+      outcome: unchanged
+      reason: Derivation, thresholds, pair validity, and hidden states are untouched;
+        estimated adds a dimmed styling variant of the same meter.
+    - id: claude-sdk-message-contract-preserves-normalized-runs
+      outcome: unchanged
+      reason: Translation is untouched; anchors rename to the successor telemetry
+        assumption id.
+    - id: codex-app-server-usage-is-context-aware-and-uncosted
+      outcome: unchanged
+      reason: App-server usage mapping is untouched; peek adds a parallel artifact
+        path.
+    - id: claude-compaction-follows-native-system-events
+      outcome: unchanged
+      reason: Live compaction handling untouched; the peek's compact-summary heuristic
+        reads artifacts, not events.
+files:
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/protocol/src/events.ts
+  - packages/adapters/claude-code/src/peek.ts
+  - packages/adapters/claude-code/src/peek.spec.ts
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/claude-code/src/index.ts
+  - packages/adapters/claude-code/src/translate.ts
+  - packages/adapters/claude-code/src/translate.spec.ts
+  - packages/adapters/claude-code/test-fixtures/peek-session.jsonl
+  - packages/adapters/claude-code/test-fixtures/peek-session-compacted.jsonl
+  - packages/adapters/codex/src/peek.ts
+  - packages/adapters/codex/src/peek.spec.ts
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/index.ts
+  - packages/adapters/codex/src/translate.ts
+  - packages/adapters/codex/src/translate.spec.ts
+  - packages/adapters/codex/src/test-fixtures/peek-rollout.jsonl
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/web-next/src/room/ContextWindowMeter.tsx
+  - packages/web-next/src/room/ContextWindowMeter.spec.tsx
+  - packages/web-next/src/styles/room.css
+anchors:
+  run-failure-evidence-is-surfaced:
+    run-failure-evidence-regression:
+      action: change
+      reason: New seeding tests inserted within the anchored spec block; existing
+        assertions untouched.
+  normalized-agent-usage-and-context-telemetry:
+    agent-usage-telemetry-schema:
+      action: remove
+      reason: Anchor renames to the successor assumption id.
+    claude-usage-telemetry:
+      action: remove
+      reason: Anchor renames to the successor assumption id.
+    claude-usage-telemetry-regression:
+      action: remove
+      reason: Anchor renames to the successor assumption id.
+    codex-usage-telemetry:
+      action: remove
+      reason: Anchor renames to the successor assumption id.
+    codex-usage-telemetry-regression:
+      action: remove
+      reason: Anchor renames to the successor assumption id.
+  last-agent-usage-is-transient:
+    last-usage-runtime-registry:
+      action: remove
+      reason: Anchor renames to the successor assumption id.
+    last-usage-member-projection:
+      action: remove
+      reason: Anchor renames to the successor assumption id.
+    last-usage-daemon-regression:
+      action: remove
+      reason: Anchor renames to the successor assumption id.
+  normalized-agent-usage-telemetry-with-estimates:
+    agent-usage-telemetry-schema:
+      action: change
+      reason: AgentUsage gains the optional estimated flag; anchors rename from the
+        retired assumption id.
+    claude-usage-telemetry:
+      action: change
+      reason: Anchor renames to the successor assumption id.
+    claude-usage-telemetry-regression:
+      action: change
+      reason: Anchor renames to the successor assumption id.
+    codex-usage-telemetry:
+      action: change
+      reason: Anchor renames to the successor assumption id.
+    codex-usage-telemetry-regression:
+      action: change
+      reason: Anchor renames to the successor assumption id.
+  last-agent-usage-is-transient-and-seeded:
+    last-usage-runtime-registry:
+      action: change
+      reason: Seeding entry points and no-clobber guard; renamed from retired id.
+    last-usage-member-projection:
+      action: change
+      reason: Renamed from retired id; projection unchanged.
+    last-usage-daemon-regression:
+      action: change
+      reason: Renamed from retired id; regression extended for seeding.
+    last-usage-seeding:
+      action: change
+      reason: New seeding sweep at boot, revive, and join.
+    last-usage-seeding-regression:
+      action: change
+      reason: Daemon tests for seed, no-clobber, and live replacement.
+  context-peek-reads-session-artifacts:
+    claude-context-peek:
+      action: change
+      reason: New tail-scan peek implementation.
+    claude-context-peek-regression:
+      action: change
+      reason: Fixtures incl. compact-summary-after-last-usage.
+    codex-context-peek:
+      action: change
+      reason: New rollout token_count peek.
+    codex-context-peek-regression:
+      action: change
+      reason: Rollout fixture coverage.
+    adapter-peek-contract:
+      action: change
+      reason: Optional HarnessAdapter method declaration.
+  member-context-window-meter-derived-from-last-usage:
+    context-window-meter-component:
+      action: change
+      reason: Estimated variant renders dimmed with a tilde tooltip.
+    context-window-meter-estimated-regression:
+      action: change
+      reason: Spec for the estimated state.
+applied:
+  applied_at: 2026-07-17T12:57:21.663Z

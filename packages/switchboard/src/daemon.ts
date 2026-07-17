@@ -206,9 +206,9 @@ export class Daemon {
   private readonly releasedDeliveries = new Set<string>();
   private readonly operatorInterrupts = new Set<string>();
   private readonly memberWaits = new Map<string, NonNullable<Member['waiting']>>();
-  // harn:assume last-agent-usage-is-transient ref=last-usage-runtime-registry
+  // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-runtime-registry
   private readonly lastUsage = new Map<string, AgentUsage>();
-  // harn:end last-agent-usage-is-transient
+  // harn:end last-agent-usage-is-transient-and-seeded
   private readonly groupWaits = new Map<string, GroupWaitContext>();
   private readonly attachLeaseTimeoutMs: number;
   private readonly processProbe: (target: number) => boolean;
@@ -432,23 +432,49 @@ export class Daemon {
     this.emit(room, { type: 'message', seq: message.seq, message });
   }
 
-  // harn:assume last-agent-usage-is-transient ref=last-usage-member-projection
+  // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-member-projection
+  // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-seeding
+  /**
+   * Pre-turn gauge seeding: estimate context from the harness's on-disk
+   * session artifact so operators see pressure BEFORE spending a turn.
+   * Fire-and-forget; a seed never overwrites a live (non-estimated) value.
+   */
+  private seedContextUsage(room: string, member: Member): void {
+    if (member.kind !== 'agent' || member.harness === undefined || member.session_ref === undefined) return;
+    const adapter = this.adapters.get(member.harness);
+    if (adapter?.peekContextUsage === undefined) return;
+    const existing = this.lastUsage.get(member.id);
+    if (existing !== undefined && existing.estimated !== true) return;
+    const ref = member.session_ref;
+    this.track((async () => {
+      const peeked = await adapter.peekContextUsage!(ref);
+      if (peeked === undefined) return;
+      const current = this.lastUsage.get(member.id);
+      if (current !== undefined && current.estimated !== true) return; // live won meanwhile
+      if (isDeepStrictEqual(current, peeked)) return;
+      this.lastUsage.set(member.id, { ...peeked });
+      const fresh = this.store.getMember(room, member.id);
+      if (fresh !== undefined && fresh.removed_ts === undefined) this.emitMember(room, fresh);
+    })().catch(() => undefined));
+  }
+  // harn:end last-agent-usage-is-transient-and-seeded
+
   private memberWithLastUsage(room: string, member: Member): Member {
     const lastUsage = this.lastUsage.get(member.id);
     return lastUsage === undefined ? member : { ...member, lastUsage: { ...lastUsage } };
   }
-  // harn:end last-agent-usage-is-transient
+  // harn:end last-agent-usage-is-transient-and-seeded
 
   private emitMember(room: string, member: Member): void {
     // harn:assume live-agent-waits-are-transient ref=wait-member-projection
-    // harn:assume last-agent-usage-is-transient ref=last-usage-member-projection
+    // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-member-projection
     const waiting = this.memberWaits.get(member.id);
     this.emit(room, {
       type: 'member',
       seq: this.store.currentSeq(room),
       member: { ...this.memberWithLastUsage(room, member), ...(waiting && { waiting }) },
     });
-    // harn:end last-agent-usage-is-transient
+    // harn:end last-agent-usage-is-transient-and-seeded
     // harn:end live-agent-waits-are-transient
   }
 
@@ -789,9 +815,9 @@ export class Daemon {
           message.run?.status !== 'running',
       );
       return {
-        // harn:assume last-agent-usage-is-transient ref=last-usage-member-projection
+        // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-member-projection
         member: this.memberWithLastUsage(room, member),
-        // harn:end last-agent-usage-is-transient
+        // harn:end last-agent-usage-is-transient-and-seeded
         queued_count: this.store.listDeliveries(room, {
           recipient: member.id,
           state: 'queued',
@@ -1017,6 +1043,9 @@ export class Daemon {
     });
     this.markRostersStale(room);
     this.emitMember(room, member);
+    // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-seeding
+    this.seedContextUsage(room, member);
+    // harn:end last-agent-usage-is-transient-and-seeded
     this.postSystemMessage(room, `@${member.handle} joined from a live ${opts.harness} terminal`);
     return member;
   }
@@ -1417,9 +1446,9 @@ export class Daemon {
     });
     this.sessions.delete(memberId);
     this.staleSessions.delete(memberId);
-    // harn:assume last-agent-usage-is-transient ref=last-usage-runtime-registry
+    // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-runtime-registry
     this.lastUsage.delete(memberId);
-    // harn:end last-agent-usage-is-transient
+    // harn:end last-agent-usage-is-transient-and-seeded
 
     // harn:assume removing-an-agent-is-one-deliberate-step ref=remove-drains-queued-work
     // Work addressed to a member that no longer exists has nowhere to go. Left queued it
@@ -2281,7 +2310,7 @@ export class Daemon {
         } else if (event.type === 'extension.ended') {
           journalEvent = this.endExtension(room, member, event);
         }
-        // harn:assume last-agent-usage-is-transient ref=last-usage-runtime-registry
+        // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-runtime-registry
         // Live usage is member runtime state: broadcast it, but do not append it
         // to the durable run journal or change log.
         if (event.type === 'usage_updated') {
@@ -2296,7 +2325,7 @@ export class Daemon {
           }
           continue;
         }
-        // harn:end last-agent-usage-is-transient
+        // harn:end last-agent-usage-is-transient-and-seeded
         // harn:assume agent-usage-limits-reported-not-guessed ref=member-limits-persisted
         // Limits are member status, not run content: land the harness's report
         // on the member row and stream the member frame — nothing is journaled.
@@ -2331,11 +2360,11 @@ export class Daemon {
         if (event.type === 'ask.raised' || event.type === 'approval.raised') {
           this.handleInteractionRaised(room, member, event.card, event.type === 'ask.raised' ? 'ask' : 'approval');
         } else if (event.type === 'run.completed') {
-          // harn:assume last-agent-usage-is-transient ref=last-usage-runtime-registry
+          // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-runtime-registry
           if (event.agent_usage !== undefined) {
             this.lastUsage.set(member.id, { ...event.agent_usage });
           }
-          // harn:end last-agent-usage-is-transient
+          // harn:end last-agent-usage-is-transient-and-seeded
           // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
           completion = {
             status: event.status,
@@ -2892,6 +2921,11 @@ export class Daemon {
    */
   async reconcile(): Promise<void> {
     for (const room of this.store.listRooms()) {
+      // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-seeding
+      for (const member of this.store.listMembers(room.id)) {
+        this.seedContextUsage(room.id, member);
+      }
+      // harn:end last-agent-usage-is-transient-and-seeded
       const delivering = this.store.listDeliveries(room.id, { state: 'delivering' });
       const byRunMsg = new Map<number, Delivery[]>();
       for (const delivery of delivering) {
@@ -3369,13 +3403,13 @@ export class Daemon {
       // Transient waits have no change-log row, so every hydration gets the
       // authoritative active roster plus any removed-member delta from Store.
       members: [...members.values()].map((member) => {
-        // harn:assume last-agent-usage-is-transient ref=last-usage-member-projection
+        // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-member-projection
         const waiting = this.memberWaits.get(member.id);
         return {
           ...this.memberWithLastUsage(room, member),
           ...(waiting && { waiting }),
         };
-        // harn:end last-agent-usage-is-transient
+        // harn:end last-agent-usage-is-transient-and-seeded
       }),
     });
   }

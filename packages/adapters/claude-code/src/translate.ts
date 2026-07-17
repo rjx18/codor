@@ -55,7 +55,7 @@ interface ClaudeEvent {
 const MAX_OUTPUT_BYTES = 256 * 1024;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
-// harn:assume normalized-agent-usage-and-context-telemetry ref=claude-usage-telemetry
+// harn:assume normalized-agent-usage-telemetry-with-estimates ref=claude-usage-telemetry
 // Seeded from paseo's curated Claude catalog. A result's engine-reported
 // modelUsage.contextWindow replaces this seed when it is available.
 const CLAUDE_CONTEXT_WINDOWS = new Map<string, number>([
@@ -71,6 +71,11 @@ const CLAUDE_CONTEXT_WINDOWS = new Map<string, number>([
   ['claude-sonnet-4-6', 200_000],
   ['claude-haiku-4-5', 200_000],
 ]);
+
+/** Curated window lookup shared with the pre-turn context peek. */
+export function claudeContextWindow(model: string): number | undefined {
+  return CLAUDE_CONTEXT_WINDOWS.get(model);
+}
 
 function tokenCount(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
@@ -111,7 +116,7 @@ function reportedContextWindow(
   return undefined;
 }
 // harn:end context-ceiling-follows-main-model
-// harn:end normalized-agent-usage-and-context-telemetry
+// harn:end normalized-agent-usage-telemetry-with-estimates
 
 // harn:assume claude-compaction-follows-native-system-events ref=claude-compaction-translation
 function objectRecord(value: unknown): Record<string, unknown> | undefined {
@@ -371,7 +376,7 @@ export function createTurnTranslator(
           return [];
         }
         case 'assistant': {
-          // harn:assume normalized-agent-usage-and-context-telemetry ref=claude-usage-telemetry
+          // harn:assume normalized-agent-usage-telemetry-with-estimates ref=claude-usage-telemetry
           seedContextWindow(event.message?.model);
           const events: WireEvent[] = [];
           for (const block of event.message?.content ?? []) {
@@ -413,7 +418,7 @@ export function createTurnTranslator(
               lastLiveContextKey = contextKey;
             }
           }
-          // harn:end normalized-agent-usage-and-context-telemetry
+          // harn:end normalized-agent-usage-telemetry-with-estimates
           return events;
         }
         case 'user': {
@@ -462,7 +467,7 @@ export function createTurnTranslator(
           // harn:assume claude-result-errors-follow-native-signals ref=claude-result-failure-translation
           const failure = claudeResultFailure(event);
           // harn:end claude-result-errors-follow-native-signals
-          // harn:assume normalized-agent-usage-and-context-telemetry ref=claude-usage-telemetry
+          // harn:assume normalized-agent-usage-telemetry-with-estimates ref=claude-usage-telemetry
           contextWindowMaxTokens = reportedContextWindow(event.modelUsage, sessionModel) ??
             contextWindowMaxTokens;
           if (contextWindowMaxTokens !== undefined) {
@@ -491,7 +496,7 @@ export function createTurnTranslator(
               contextWindowUsedTokens: snapshotContextUsedTokens,
             }),
           };
-          // harn:end normalized-agent-usage-and-context-telemetry
+          // harn:end normalized-agent-usage-telemetry-with-estimates
           return [
             {
               type: 'run.completed',

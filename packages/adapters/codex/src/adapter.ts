@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import type {
   AgentLimit,
+  AgentUsage,
   AdapterTurnHooks,
   HarnessAdapter,
   ModelCatalog,
@@ -22,6 +23,7 @@ import {
   spawnCodexAppServer,
 } from './app-server-transport.js';
 import { probeCodexLimits } from './limits-probe.js';
+import { peekCodexContextUsage } from './peek.js';
 import {
   createTurnTranslator,
   type CodexTranslatorContext,
@@ -239,6 +241,12 @@ export class CodexAdapter implements HarnessAdapter {
   probeLimits(): Promise<AgentLimit[] | undefined> {
     return probeCodexLimits();
   }
+
+  // harn:assume context-peek-reads-session-artifacts ref=codex-context-peek
+  peekContextUsage(session_ref: SessionRef): Promise<AgentUsage | undefined> {
+    return Promise.resolve(peekCodexContextUsage(session_ref));
+  }
+  // harn:end context-peek-reads-session-artifacts
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };

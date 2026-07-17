@@ -1,0 +1,13 @@
+id: context-peek-reads-session-artifacts
+hash: a-e15bf3a5aadb
+title: Context peeks come from on-disk session artifacts
+state: active
+statement: An adapter's peekContextUsage must derive context estimates solely
+  from its harness's own on-disk session artifacts - claude from the session
+  jsonl tail honoring a trailing compact summary, codex from the rollout's last
+  token_count record - returning undefined when artifacts are missing or
+  unreadable, because the artifact reflects out-of-band activity that no cached
+  or live value can.
+depends_on:
+  - normalized-agent-usage-telemetry-with-estimates
+created_by: ctx-guardrails-peek

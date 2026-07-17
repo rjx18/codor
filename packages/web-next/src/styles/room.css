@@ -1562,3 +1562,8 @@
 }
 .nx-send:hover { filter: brightness(0.96); }
 .nx-send:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* harn:assume member-context-window-meter-derived-from-last-usage ref=context-window-meter-component */
+/* Estimated (artifact-seeded) context rings render dimmed until a live report replaces them. */
+.nx-context-meter.is-estimated { opacity: 0.55; }
+/* harn:end member-context-window-meter-derived-from-last-usage */

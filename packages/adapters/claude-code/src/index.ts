@@ -8,6 +8,7 @@ export type {
   InboxHookContext,
   InboxHookRunner,
 } from './adapter.js';
+export { peekClaudeContextUsage } from './peek.js';
 export { claudeQuery } from './query.js';
 export type {
   ClaudeOptions,

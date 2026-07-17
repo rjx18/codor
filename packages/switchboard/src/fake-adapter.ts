@@ -73,6 +73,13 @@ export class FakeAdapter implements HarnessAdapter {
 
   private script: FakeTurn[] = [];
   readonly deliveries: DeliverRecord[] = [];
+  // harn:assume context-peek-reads-session-artifacts ref=adapter-peek-contract
+  /** Scriptable pre-turn context estimate; undefined = no artifact. */
+  peekUsage: AgentUsage | undefined;
+  peekContextUsage(): Promise<AgentUsage | undefined> {
+    return Promise.resolve(this.peekUsage === undefined ? undefined : { ...this.peekUsage });
+  }
+  // harn:end context-peek-reads-session-artifacts
   readonly respondCalls: { interaction_id: string; answer: unknown }[] = [];
   private readonly pendingAnswers = new Map<string, (answer: unknown) => void>();
   private readonly pendingBySession = new WeakMap<Session, string>();

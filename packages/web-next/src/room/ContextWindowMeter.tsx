@@ -85,15 +85,16 @@ export const ContextWindowMeter = memo(function ContextWindowMeter(
   const cost = rawCost !== undefined && Number.isFinite(rawCost) && rawCost > 0
     ? usd(rawCost)
     : undefined;
+  const estimated = usage?.estimated === true;
   const tooltip = [
-    `Context window · ${roundedPercentage}% used`,
+    `Context window · ${estimated ? '≈ ' : ''}${roundedPercentage}% used`,
     `${compactCount(usedTokens)} / ${compactCount(maxTokens)} tokens`,
     ...(cost === undefined ? [] : [`Session cost: ${cost}`]),
   ].join(' · ');
 
   return (
     <span
-      className={`nx-context-meter is-${meterTone(clampedPercentage)}`}
+      className={`nx-context-meter is-${meterTone(clampedPercentage)}${estimated ? ' is-estimated' : ''}`}
       role="img"
       aria-label={tooltip}
       title={tooltip}

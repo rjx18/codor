@@ -54,4 +54,29 @@ describe('ContextWindowMeter', () => {
     expect(markup).toContain('stroke-dashoffset="0"');
   });
 });
+
+// harn:assume member-context-window-meter-derived-from-last-usage ref=context-window-meter-estimated-regression
+describe('ContextWindowMeter estimated state', () => {
+  it('dims an artifact-seeded ring and marks the tooltip approximate', () => {
+    const markup = renderToStaticMarkup(
+      <ContextWindowMeter
+        usage={{ contextWindowMaxTokens: 1_000_000, contextWindowUsedTokens: 12_000, estimated: true }}
+      />,
+    );
+    expect(markup).toContain('is-estimated');
+    expect(markup).toContain('≈ 1% used');
+  });
+
+  it('renders live values without the estimated marker', () => {
+    const markup = renderToStaticMarkup(
+      <ContextWindowMeter
+        usage={{ contextWindowMaxTokens: 1_000_000, contextWindowUsedTokens: 12_000 }}
+      />,
+    );
+    expect(markup).not.toContain('is-estimated');
+    expect(markup).not.toContain('≈');
+  });
+});
+// harn:end member-context-window-meter-derived-from-last-usage
+
 // harn:end member-context-window-meter-derived-from-last-usage

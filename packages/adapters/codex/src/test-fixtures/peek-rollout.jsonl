@@ -1,0 +1,3 @@
+{"timestamp": "t1", "type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": {"total_tokens": 80000}, "model_context_window": 258400}}}
+{"timestamp": "t2", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": []}}
+{"timestamp": "t3", "type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": {"total_tokens": 197226}, "model_context_window": 258400}}}
