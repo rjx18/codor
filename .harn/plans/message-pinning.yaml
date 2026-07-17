@@ -1,0 +1,74 @@
+id: message-pinning
+title: Pin messages - a durable owner/admin marker that syncs like any message
+  change.
+notes: >-
+  P9 piece one (approved by Richard in #351; design in tmp/web-next/PLAN.md
+  P9). Operators need to mark the messages that matter in long agent
+  channels; today nothing in the protocol can hold that.
+
+  Change. Protocol: Message gains pinned?: boolean (absent means not pinned -
+  additive, old rows untouched) and the Act union gains {act: pin_message,
+  message_id, pinned}. Store: messages gain a pinned INTEGER NOT NULL
+  DEFAULT 0 column (idempotent ALTER), a setMessagePinned(room, id, pinned)
+  mutation writing through the change log so live frames and reconnect sync
+  both carry the flip, and messageFromRow reads it back. Daemon:
+  pinMessage(room, messageId, pinned, byMemberId) - humans with role admin
+  or owner only (the roles-gate contract: agents and observers cannot pin),
+  idempotent when the flag already matches, emits the message frame. Server:
+  the ws act dispatch routes pin_message with the actor resolved from the
+  principal, same as the other room acts. Nothing about pinning re-routes
+  deliveries or touches run journals.
+
+  Web-next (harnignored, same batch): hover pin/unpin action on message
+  meta; a pinned strip above the transcript listing pinned messages
+  (click scrolls to #id); pinned rows show a small pin glyph.
+
+  Tests: store round-trip incl. migration on an existing db copy pattern;
+  daemon spec - admin pins and unpins with frames observed, member/observer
+  and agent principals refused, idempotent re-pin emits nothing; server act
+  e2e through the ws path; web-next e2e for the strip and the permalink
+  jump. Gate: protocol + switchboard suites green; web-next playwright
+  green.
+assumptions:
+  reviewed:
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: pin_message joins the acts that roles gate; agents remain unable
+        to pin regardless of policy.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: The pin flip is a message change appended to the room change log
+        like every other visible mutation.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Pinning mutates a flag on an existing message; ids and paging are
+        untouched.
+  create:
+    - id: pins-are-durable-role-gated-markers
+      title: A pin is a durable message flag only owner or admin humans may
+        flip, synced like any message change
+      statement: Pinning sets a boolean on the message row through the room
+        change log, so live frames and reconnect sync agree on it forever;
+        only human members with role owner or admin may flip it, agents and
+        observers are refused, re-flipping to the same value changes nothing
+        and emits nothing, and pinning never re-routes deliveries, alters run
+        journals, or affects message ids.
+      reason: >-
+        P9 (#351): operators need durable markers in long agent channels; the
+        protocol had no way to hold one.
+      depends_on: []
+files:
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+anchors:
+  pins-are-durable-role-gated-markers:
+    pin-message-contract:
+      action: change
+      reason: The act schema, store mutation, daemon authorization, and server
+        dispatch define the pin contract.
