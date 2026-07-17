@@ -1,5 +1,5 @@
 import type { AgentLimit, Member, RunItemDiff, WireEvent } from '@codor/protocol';
-import { MoreVertical, Plus } from 'lucide-react';
+import { MoreVertical, Plus, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@legacy/api.js';
@@ -42,9 +42,15 @@ export function ContextPanel(props: { room: string; token: () => string; connect
 
 function MembersTab(props: { room: string; token: () => string; connection: Connection }) {
   const members = useRoomStore((s) => s.members);
+  const selfId = useRoomStore((s) => s.selfMemberId);
   const details = useMemberDetails(props.room, props.token);
   const adapters = useAdapters(props.token);
   const [spawning, setSpawning] = useState(false);
+
+  // Interrupt is an owner/admin act (matrix gates it at admin), so only they see
+  // the Stop control — the server would refuse anyone else anyway.
+  const selfRole = selfId !== undefined ? members[selfId]?.role : undefined;
+  const canStop = selfRole === 'owner' || selfRole === 'admin';
 
   const roster = useMemo(() => {
     // Extensions are transient run machinery — the roster lists durable members.
@@ -75,6 +81,7 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
             key={member.id}
             member={member}
             detail={details[member.id]}
+            canStop={canStop}
             connection={props.connection}
           />
         ))}
@@ -96,9 +103,11 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
 function MemberCard(props: {
   member: Member;
   detail: MemberDetail | undefined;
+  canStop: boolean;
   connection: Connection;
 }) {
   const { member, detail } = props;
+  const working = member.state === 'running' || member.state === 'queued';
   const [menu, setMenu] = useState(false);
   const [confirming, setConfirming] = useState<'kill' | 'remove'>();
   const [renaming, setRenaming] = useState(false);
@@ -143,6 +152,18 @@ function MemberCard(props: {
           />
         )}
         {/* harn:end member-context-window-meter-derived-from-last-usage */}
+        {member.kind === 'agent' && working && props.canStop && (
+          <button
+            type="button"
+            className="nx-member-stop"
+            aria-label={`Stop @${member.handle}`}
+            data-testid={`member-${member.handle}-stop`}
+            title="Stop this run (the agent stays alive)"
+            onClick={() => props.connection.act({ act: 'interrupt', member_id: member.id })}
+          >
+            <Square size={13} aria-hidden="true" />
+          </button>
+        )}
         {member.kind === 'agent' && (
           <div className="nx-member-menu" ref={menuRef}>
             <IconButton
