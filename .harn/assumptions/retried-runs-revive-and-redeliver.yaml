@@ -1,0 +1,15 @@
+id: retried-runs-revive-and-redeliver
+hash: a-445c10f74d3f
+title: Retrying a terminal failed or interrupted run revives its dead author if
+  needed and re-queues its surviving bound deliveries into a new run
+state: active
+statement: retry_run applies only to run-kind messages in failed or interrupted
+  status and only for human owners or admins; it revives the run's author when a
+  failed run left that agent dead (an unmodified reviveMember call at the same
+  admin gate level), then re-queues the deliveries bound to that run through the
+  ordinary redeliver path, skipping deliveries whose trigger message was deleted
+  and refusing when none survive, so the agent receives the same instructions as
+  a fresh turn producing a new run message while the original failed run remains
+  in history unchanged.
+depends_on: []
+created_by: retry-statement-truth-correction

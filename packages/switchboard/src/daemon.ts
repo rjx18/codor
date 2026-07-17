@@ -3256,7 +3256,7 @@ export class Daemon {
   }
   // harn:end redeliver-interrupts-stranded-run
 
-  // harn:assume retried-runs-are-fresh-deliveries ref=retry-run-contract
+  // harn:assume retried-runs-revive-and-redeliver ref=retry-run-contract
   /**
    * Retry a failed or interrupted run: re-deliver the instructions it fed so the
    * agent takes them again as a fresh turn producing a NEW run; the original run
@@ -3293,7 +3293,7 @@ export class Daemon {
     if (agent?.kind === 'agent' && agent.state === 'dead') this.reviveMember(room, agent.id);
     for (const delivery of survivors) this.redeliver(room, delivery.id);
   }
-  // harn:end retried-runs-are-fresh-deliveries
+  // harn:end retried-runs-revive-and-redeliver
 
   releaseHold(room: string, deliveryId: string): void {
     const delivery = this.store.getDelivery(room, deliveryId);
