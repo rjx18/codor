@@ -413,6 +413,30 @@
 .nx-run-block:hover .nx-run-block-actions,
 .nx-run-block:focus-within .nx-run-block-actions { opacity: 1; }
 
+/* harn:assume web-compaction-markers-upgrade-in-place ref=web-compaction-marker-style */
+.nx-compaction {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-2) 0;
+  color: var(--c-faded);
+}
+.nx-compaction-line {
+  flex: 1;
+  height: 1px;
+  background: var(--c-line);
+}
+.nx-compaction-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
+  font: var(--t-caption);
+}
+.nx-compaction-label svg { flex: none; }
+/* harn:end web-compaction-markers-upgrade-in-place */
+
 /* One-line tool rows: no card — icon · what it did · a right-aligned mark. */
 .nx-tool {
   display: flex;

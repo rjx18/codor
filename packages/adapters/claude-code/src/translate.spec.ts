@@ -339,6 +339,53 @@ describe('result failure contract', () => {
 });
 // harn:end claude-result-errors-follow-native-signals
 
+// harn:assume claude-compaction-follows-native-system-events ref=claude-compaction-regression
+describe('compaction system-message contract', () => {
+  const { events } = replay(testFixture('compaction.jsonl'));
+
+  it('maps loading and completed boundaries for automatic and manual compaction', () => {
+    expect(events.filter((event) => event.type === 'timeline')).toEqual([
+      { type: 'timeline', item: { type: 'compaction', status: 'loading' } },
+      {
+        type: 'timeline',
+        item: { type: 'compaction', status: 'completed', trigger: 'auto', preTokens: 149_900 },
+      },
+      { type: 'timeline', item: { type: 'compaction', status: 'loading' } },
+      {
+        type: 'timeline',
+        item: { type: 'compaction', status: 'completed', trigger: 'manual', preTokens: 20_000 },
+      },
+    ]);
+  });
+
+  it('re-baselines the context gauge from each boundary post_tokens value', () => {
+    expect(events.filter((event) => event.type === 'usage_updated')).toEqual([
+      {
+        type: 'usage_updated',
+        usage: { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 18_700 },
+      },
+      {
+        type: 'usage_updated',
+        usage: { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 3_200 },
+      },
+    ]);
+    for (const event of events) expect(WireEventSchema.safeParse(event).success).toBe(true);
+  });
+
+  it('defaults an unrecognized native trigger to automatic, like paseo', () => {
+    const translator = createTurnTranslator();
+    expect(translator.push(JSON.stringify({
+      type: 'system',
+      subtype: 'compact_boundary',
+      compact_metadata: { trigger: 'scheduled', pre_tokens: 10 },
+    }))[0]).toEqual({
+      type: 'timeline',
+      item: { type: 'compaction', status: 'completed', trigger: 'auto', preTokens: 10 },
+    });
+  });
+});
+// harn:end claude-compaction-follows-native-system-events
+
 describe('S1 content normalization (synthetic inline records)', () => {
   it('maps thinking blocks instead of dropping them', () => {
     const { events } = replay([

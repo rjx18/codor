@@ -1,0 +1,15 @@
+id: claude-compaction-follows-native-system-events
+hash: a-a7c37c2572ff
+title: Claude compaction follows native system events and re-baselines usage
+state: active
+statement: The Claude stream-json translator must map system/status with status
+  compacting to a loading compaction item, map system/compact_boundary metadata
+  to a completed item with manual only when explicitly reported and auto
+  otherwise, normalize pre_tokens to preTokens, and follow it with usage_updated
+  using post_tokens as the new contextWindowUsedTokens paired with the known
+  context-window maximum.
+depends_on:
+  - first-party-run-items-normalized
+  - normalized-agent-usage-telemetry
+  - compaction-timeline-items-are-durable-run-evidence
+created_by: ctx-guardrails-p4-compaction-timeline

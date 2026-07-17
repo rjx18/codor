@@ -395,6 +395,28 @@ extension.ended    { ext_member, summary? }                    // mapped to Memb
 ```
 <!-- harn:end failed-run-details-never-route-as-replies -->
 
+<!-- harn:assume compaction-timeline-items-are-durable-run-evidence ref=compaction-timeline-item-schema -->
+Compaction is first-class run-timeline evidence rather than chat text or a tool
+row. Adapters emit the same item shape Paseo uses:
+
+```ts
+timeline {
+  item: {
+    type: 'compaction'
+    status: 'loading' | 'completed'
+    trigger?: 'auto' | 'manual'
+    preTokens?: number
+  }
+}
+```
+
+The switchboard journals and index-streams these items with the rest of the run,
+so a loading marker is visible live and the completed boundary survives a late
+join. A native boundary may immediately emit `usage_updated` with the engine's
+post-compaction token count; that companion event remains transient member state
+and is not written to the run journal.
+<!-- harn:end compaction-timeline-items-are-durable-run-evidence -->
+
 <!-- harn:assume normalized-run-item-payload-contract ref=normalized-run-item-documentation -->
 `run.item.payload` has a standalone normalized schema for each `item_type`:
 

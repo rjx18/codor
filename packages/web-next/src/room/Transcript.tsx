@@ -11,7 +11,6 @@ import {
   diffStat,
   formatRunDuration,
   mergeRunEvents,
-  presentRunEvents,
   type RunRow,
 } from '@legacy/run-presenter.js';
 import {
@@ -25,7 +24,9 @@ import { useIsMobile } from '../app/session.js';
 import { Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
 import { DiffViewer } from './ContextPanel.js';
+import { CompactionMarker } from './CompactionMarker.js';
 import { renderMarkdown } from './markdown.js';
+import { presentRunTimeline, type CompactionRunTimelineItem } from './run-timeline.js';
 
 /** Consecutive same-author messages within this window collapse their header. */
 const GROUP_WINDOW_MS = 2 * 60_000;
@@ -391,11 +392,18 @@ function MessageProse(props: { body: string }) {
 
 type RunSegment =
   | { kind: 'prose'; row: RunRow }
-  | { kind: 'tools'; rows: RunRow[] };
+  | { kind: 'tools'; rows: RunRow[] }
+  | { kind: 'compaction'; item: CompactionRunTimelineItem };
 
-function segmentRows(rows: RunRow[]): RunSegment[] {
+// harn:assume web-compaction-markers-upgrade-in-place ref=web-compaction-timeline-wiring
+function segmentTimeline(timeline: ReturnType<typeof presentRunTimeline>): RunSegment[] {
   const segments: RunSegment[] = [];
-  for (const row of rows) {
+  for (const item of timeline) {
+    if (item.kind === 'compaction') {
+      segments.push({ kind: 'compaction', item });
+      continue;
+    }
+    const row = item.row;
     const last = segments.at(-1);
     // Reasoning summaries are batch metadata, not visible prose. Ignoring them
     // here keeps tools on either side in one maximal batch, including empty
@@ -431,11 +439,11 @@ function RunContent(props: { message: Message; room: string; token: () => string
     return () => { current = false; };
   }, [props.message.id, props.message.run?.status, props.room, props.token]);
 
-  const rows = useMemo(() => {
+  const timeline = useMemo(() => {
     const merged = mergeRunEvents(journal?.events, live ?? { events: [], dropped_count: 0 });
-    return presentRunEvents(merged);
+    return presentRunTimeline(merged);
   }, [journal, live]);
-  const segments = useMemo(() => segmentRows(rows), [rows]);
+  const segments = useMemo(() => segmentTimeline(timeline), [timeline]);
 
   // The prose already streams through text rows; only a run that produced no
   // prose at all (e.g. a failure) falls back to the settled final text.
@@ -445,7 +453,16 @@ function RunContent(props: { message: Message; room: string; token: () => string
   return (
     <div className="nx-run" data-run-status={props.message.run?.status ?? 'running'}>
       {segments.map((segment, index) =>
-        segment.kind === 'prose'
+        segment.kind === 'compaction'
+          ? (
+              <CompactionMarker
+                key={segment.item.id}
+                status={segment.item.status}
+                trigger={segment.item.trigger}
+                preTokens={segment.item.preTokens}
+              />
+            )
+          : segment.kind === 'prose'
           ? (
               <RunTextBlock
                 key={segment.row.eventIndex}
@@ -463,6 +480,7 @@ function RunContent(props: { message: Message; room: string; token: () => string
     </div>
   );
 }
+// harn:end web-compaction-markers-upgrade-in-place
 
 function RunTextBlock(props: { messageId: number; blockId: number | 'final'; text: string }) {
   return (

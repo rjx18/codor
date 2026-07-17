@@ -49,6 +49,7 @@ interface ClaudeUsage {
 interface ClaudeEvent {
   type: string;
   subtype?: string;
+  status?: unknown;
   session_id?: string;
   model?: string;
   request_id?: string;
@@ -64,6 +65,9 @@ interface ClaudeEvent {
   total_cost_usd?: number;
   usage?: ClaudeUsage;
   modelUsage?: Record<string, { contextWindow?: number }>;
+  compact_metadata?: unknown;
+  compactMetadata?: unknown;
+  compactionMetadata?: unknown;
   rate_limit_info?: {
     status?: string;
     resetsAt?: number; // unix seconds
@@ -118,6 +122,31 @@ function reportedContextWindow(modelUsage: ClaudeEvent['modelUsage']): number | 
   return reported;
 }
 // harn:end normalized-agent-usage-telemetry
+
+// harn:assume claude-compaction-follows-native-system-events ref=claude-compaction-translation
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function readCompactionMetadata(event: ClaudeEvent): {
+  trigger?: string;
+  preTokens?: number;
+  postTokens?: number;
+} | undefined {
+  const candidates = [event.compact_metadata, event.compactMetadata, event.compactionMetadata];
+  for (const candidate of candidates) {
+    const metadata = objectRecord(candidate);
+    if (metadata === undefined) continue;
+    const trigger = typeof metadata.trigger === 'string' ? metadata.trigger : undefined;
+    const preTokens = tokenCount(metadata.preTokens ?? metadata.pre_tokens);
+    const postTokens = tokenCount(metadata.postTokens ?? metadata.post_tokens);
+    return { trigger, preTokens, postTokens };
+  }
+  return undefined;
+}
+// harn:end claude-compaction-follows-native-system-events
 
 function claudeResultFailure(event: ClaudeEvent): string | undefined {
   const errors = Array.isArray(event.errors)
@@ -320,7 +349,37 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
       }
       // harn:assume first-party-run-items-normalized ref=claude-normalized-run-items
       switch (event.type) {
-        case 'system':
+        case 'system': {
+          // harn:assume claude-compaction-follows-native-system-events ref=claude-compaction-translation
+          if (event.subtype === 'status' && event.status === 'compacting') {
+            return [{
+              type: 'timeline',
+              item: { type: 'compaction', status: 'loading' },
+            }];
+          }
+          if (event.subtype === 'compact_boundary') {
+            const metadata = readCompactionMetadata(event);
+            contextWindowUsedTokens = metadata?.postTokens;
+            const usage = contextWindowMaxTokens !== undefined && contextWindowUsedTokens !== undefined
+              ? { contextWindowMaxTokens, contextWindowUsedTokens }
+              : {};
+            lastLiveContextKey = contextWindowMaxTokens !== undefined && contextWindowUsedTokens !== undefined
+              ? `${contextWindowMaxTokens}:${contextWindowUsedTokens}`
+              : undefined;
+            return [
+              {
+                type: 'timeline',
+                item: {
+                  type: 'compaction',
+                  status: 'completed',
+                  trigger: metadata?.trigger === 'manual' ? 'manual' : 'auto',
+                  ...(metadata?.preTokens !== undefined && { preTokens: metadata.preTokens }),
+                },
+              },
+              { type: 'usage_updated', usage },
+            ];
+          }
+          // harn:end claude-compaction-follows-native-system-events
           // init is NOT guaranteed first (user hooks precede it); every other
           // system subtype (hook_started, thinking_tokens, task_*) is noise.
           if (event.subtype === 'init') {
@@ -328,6 +387,7 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
             seedContextWindow(event.model);
           }
           return [];
+        }
         case 'assistant': {
           // harn:assume normalized-agent-usage-telemetry ref=claude-usage-telemetry
           seedContextWindow(event.message?.model);

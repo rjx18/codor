@@ -3871,6 +3871,51 @@ describe('run_event journal indices (run-events-merge-by-journal-index)', () => 
       expect(withoutTs(journal[frame.index!])).toEqual(withoutTs(frame.event));
     }
   });
+
+  // harn:assume compaction-timeline-items-are-durable-run-evidence ref=compaction-journal-regression
+  it('journals and index-streams compaction while keeping its usage baseline transient', async () => {
+    const agent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'compactor', cwd: testCwd('compactor'),
+    });
+    const baseline = {
+      contextWindowMaxTokens: 200_000,
+      contextWindowUsedTokens: 18_700,
+    } as const;
+    fake.enqueue({
+      kind: 'complete',
+      final_text: 'continued after compaction',
+      items: [
+        { type: 'timeline', item: { type: 'compaction', status: 'loading' } },
+        {
+          type: 'timeline',
+          item: { type: 'compaction', status: 'completed', trigger: 'auto', preTokens: 149_900 },
+        },
+        { type: 'usage_updated', usage: baseline },
+      ],
+    });
+
+    daemon.postHumanMessage('eng', '@compactor compact this context');
+    await daemon.settle();
+
+    const run = daemon.store.listRunMessages('eng', { author: agent.id, limit: 1 })[0]!;
+    const journal = daemon.readRunBlob('eng', run.id);
+    const timelineFrames = frames.flatMap(({ frame }) =>
+      frame.type === 'run_event' && frame.message_id === run.id && frame.event.type === 'timeline'
+        ? [frame]
+        : []);
+    expect(timelineFrames.map((frame) => frame.event)).toEqual([
+      { type: 'timeline', item: { type: 'compaction', status: 'loading' } },
+      {
+        type: 'timeline',
+        item: { type: 'compaction', status: 'completed', trigger: 'auto', preTokens: 149_900 },
+      },
+    ]);
+    for (const frame of timelineFrames) expect(journal[frame.index!]).toEqual(frame.event);
+    expect(journal.some((event) => event.type === 'usage_updated')).toBe(false);
+    expect(daemon.sync('eng', 0).members.find((member) => member.id === agent.id)?.lastUsage)
+      .toEqual(baseline);
+  });
+  // harn:end compaction-timeline-items-are-durable-run-evidence
 });
 // harn:end run-events-merge-by-journal-index
 

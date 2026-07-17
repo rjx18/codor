@@ -618,6 +618,20 @@ describe('wire events', () => {
         card: { interaction_id: 'i', kind: 'approval', prompt: 'Allow?', tool: 'Bash' },
       },
     ],
+    // harn:assume compaction-timeline-items-are-durable-run-evidence ref=compaction-timeline-item-schema
+    [
+      'timeline compaction',
+      {
+        type: 'timeline',
+        item: {
+          type: 'compaction',
+          status: 'completed',
+          trigger: 'manual',
+          preTokens: 149_900,
+        },
+      },
+    ],
+    // harn:end compaction-timeline-items-are-durable-run-evidence
     [
       'run.completed',
       {
@@ -661,6 +675,23 @@ describe('wire events', () => {
   it.each(cases)('accepts %s', (_name, event) => {
     expect(WireEventSchema.safeParse(event).success).toBe(true);
   });
+
+  // harn:assume compaction-timeline-items-are-durable-run-evidence ref=compaction-timeline-item-schema
+  it('rejects invalid compaction timeline metadata', () => {
+    expect(WireEventSchema.safeParse({
+      type: 'timeline',
+      item: { type: 'compaction', status: 'settled' },
+    }).success).toBe(false);
+    expect(WireEventSchema.safeParse({
+      type: 'timeline',
+      item: { type: 'compaction', status: 'completed', trigger: 'scheduled' },
+    }).success).toBe(false);
+    expect(WireEventSchema.safeParse({
+      type: 'timeline',
+      item: { type: 'compaction', status: 'completed', preTokens: -1 },
+    }).success).toBe(false);
+  });
+  // harn:end compaction-timeline-items-are-durable-run-evidence
 
   // harn:assume normalized-agent-usage-telemetry ref=agent-usage-telemetry-schema
   it('keeps AgentUsage normalized, percentage-free, and context-pair atomic', () => {

@@ -99,6 +99,15 @@ export function parseRunItemPayload<Type extends RunItemType>(
 /** Opaque id reported by a harness before it is mapped to a Codor member. */
 export const HarnessNativeIdSchema = z.string().min(1);
 
+// harn:assume compaction-timeline-items-are-durable-run-evidence ref=compaction-timeline-item-schema
+export const CompactionTimelineItemSchema = z.object({
+  type: z.literal('compaction'),
+  status: z.enum(['loading', 'completed']),
+  trigger: z.enum(['auto', 'manual']).optional(),
+  preTokens: z.number().nonnegative().optional(),
+}).loose();
+export type CompactionTimelineItem = z.infer<typeof CompactionTimelineItemSchema>;
+
 export const WireEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('run.started'),
@@ -115,6 +124,11 @@ export const WireEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('ask.raised'), card: AskCardSchema }),
   z.object({ type: z.literal('approval.raised'), card: AskCardSchema }),
+  z.object({
+    type: z.literal('timeline'),
+    item: CompactionTimelineItemSchema,
+  }),
+  // harn:end compaction-timeline-items-are-durable-run-evidence
   // harn:assume normalized-agent-usage-telemetry ref=agent-usage-telemetry-schema
   z.object({
     type: z.literal('usage_updated'),

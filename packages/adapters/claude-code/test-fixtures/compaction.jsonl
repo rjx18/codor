@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","session_id":"44444444-4444-4444-8444-444444444444","model":"claude-haiku-4-5"}
+{"type":"system","subtype":"status","status":"compacting","uuid":"55555555-5555-4555-8555-555555555555","session_id":"44444444-4444-4444-8444-444444444444"}
+{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":149900,"post_tokens":18700,"duration_ms":2123},"uuid":"66666666-6666-4666-8666-666666666666","session_id":"44444444-4444-4444-8444-444444444444"}
+{"type":"system","subtype":"status","status":"compacting","uuid":"77777777-7777-4777-8777-777777777777","session_id":"44444444-4444-4444-8444-444444444444"}
+{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"manual","pre_tokens":20000,"post_tokens":3200},"uuid":"88888888-8888-4888-8888-888888888888","session_id":"44444444-4444-4444-8444-444444444444"}

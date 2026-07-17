@@ -1,0 +1,165 @@
+id: ctx-guardrails-p4-compaction-timeline
+title: Phase 4 context-ceiling guardrails - compaction timeline items
+notes: >-
+  Implement Phase 4 only from tmp/context-ceiling-guardrails/PLAN.md by
+  mirroring Paseo's CompactionTimelineItem end to end. The locally installed
+  Claude Code 2.1.212 / Agent SDK 0.3.185 declarations pin system/status with
+  status compacting and system/compact_boundary with compact_metadata containing
+  trigger, pre_tokens, and optional post_tokens; no API call is needed.
+
+  Add a normalized timeline event carrying the Paseo-shaped compaction item.
+  Claude maps compacting to a loading item and compact_boundary to a completed
+  item, then emits the existing transient usage_updated shape with postTokens
+  paired to the known model window so the member gauge re-baselines. The daemon
+  journals and index-stamps compaction items while continuing not to journal
+  usage updates.
+
+  Web-next reduces ordered journal/live events into prose, tools, and compaction
+  markers. A completed item upgrades the first loading marker in place, matching
+  Paseo, and the transcript renders the item as a quiet divider. All tests use
+  contract-derived fixtures or the FakeAdapter; no live API call, deployment,
+  daemon restart, or Phase 5 process work is in scope.
+assumptions:
+  reviewed:
+    - id: first-party-run-items-normalized
+      outcome: unchanged
+      reason: Existing normalized prose, tool, reasoning, file, image, and error
+        run-item mapping remains unchanged; compaction is an additive timeline
+        event emitted beside those items.
+    - id: normalized-agent-usage-telemetry
+      outcome: unchanged
+      reason: Post-compaction re-baselining uses the existing percentage-free
+        usage_updated shape and retains the required used/max context pair.
+    - id: last-agent-usage-is-transient
+      outcome: unchanged
+      reason: The daemon continues to keep usage_updated only in memory and off the
+        durable run journal, including the post-compaction baseline.
+    - id: member-context-window-meter-derived-from-last-usage
+      outcome: unchanged
+      reason: The existing client-derived gauge consumes the re-baselined lastUsage
+        pair without any threshold, tooltip, or visibility change.
+    - id: run-events-merge-by-journal-index
+      outcome: unchanged
+      reason: Compaction timeline events are durable run evidence and receive the same
+        journal position used to merge fetched and live streams exactly.
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: Existing prose and tool presentation remains intact while the additive
+        compaction reducer interleaves a new first-class marker.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: The daemon still sends every timeline frame through the existing
+        projected emit path; compaction metadata contains only enums and counts.
+  create:
+    - id: compaction-timeline-items-are-durable-run-evidence
+      title: Compaction is durable indexed run-timeline evidence
+      statement: A compaction timeline item must use the shape type compaction, status
+        loading or completed, optional trigger auto or manual, and optional
+        non-negative preTokens; the daemon must append it to the run journal and
+        broadcast it with that journal index so late and live clients see the
+        same timeline while usage_updated remains transient.
+      reason: Compaction is a meaningful context boundary that must survive reconnects
+        and history fetches without becoming a chat message.
+      depends_on:
+        - run-events-merge-by-journal-index
+        - redaction-before-fanout
+    - id: claude-compaction-follows-native-system-events
+      title: Claude compaction follows native system events and re-baselines usage
+      statement: The Claude stream-json translator must map system/status with status
+        compacting to a loading compaction item, map system/compact_boundary
+        metadata to a completed item with manual only when explicitly reported
+        and auto otherwise, normalize pre_tokens to preTokens, and follow it
+        with usage_updated using post_tokens as the new contextWindowUsedTokens
+        paired with the known context-window maximum.
+      reason: Native engine boundaries are authoritative for both timeline visibility
+        and the context gauge's new baseline.
+      depends_on:
+        - first-party-run-items-normalized
+        - normalized-agent-usage-telemetry
+        - compaction-timeline-items-are-durable-run-evidence
+    - id: web-compaction-markers-upgrade-in-place
+      title: Web compaction markers upgrade loading boundaries in place
+      statement: Web-next must reduce a completed compaction item into the first
+        loading compaction marker in place, preserving its position and filling
+        trigger and preTokens from the completion, append a standalone completed
+        marker when no loading marker exists, and render each marker as a quiet
+        full-width divider labeled for loading, automatic, manual, tokenized, or
+        generic completion without disturbing prose and tool order.
+      reason: Operators need one stable visual boundary rather than duplicate
+        start/end rows when engine compaction settles.
+      depends_on:
+        - compaction-timeline-items-are-durable-run-evidence
+        - normalized-run-items-presented-live
+files:
+  - packages/protocol/src/events.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/adapters/claude-code/NOTES.md
+  - packages/adapters/claude-code/test-fixtures/compaction.jsonl
+  - packages/adapters/claude-code/src/translate.ts
+  - packages/adapters/claude-code/src/translate.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web-next/src/room/run-timeline.ts
+  - packages/web-next/src/room/run-timeline.spec.ts
+  - packages/web-next/src/room/CompactionMarker.tsx
+  - packages/web-next/src/room/CompactionMarker.spec.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/styles/room.css
+  - docs/PROTOCOL.md
+anchors:
+  compaction-timeline-items-are-durable-run-evidence:
+    compaction-timeline-item-schema:
+      action: change
+      reason: Define and test the normalized Paseo-shaped timeline item and document
+        its durable versus transient companion events.
+    compaction-journal-fanout:
+      action: change
+      reason: Include timeline items in indexed live run-event fanout after they are
+        appended to the journal.
+    compaction-journal-regression:
+      action: change
+      reason: Prove marker persistence/indexing and post-compaction usage transience
+        through a fixture-only daemon turn.
+  claude-compaction-follows-native-system-events:
+    claude-compaction-system-contract:
+      action: change
+      reason: Record the pinned SDK declarations and contract-derived fixture.
+    claude-compaction-translation:
+      action: change
+      reason: Map loading/completed native system events and re-baseline usage.
+    claude-compaction-regression:
+      action: change
+      reason: Replay both auto and manual contract shapes without an API call.
+  web-compaction-markers-upgrade-in-place:
+    web-compaction-timeline-reducer:
+      action: change
+      reason: Interleave compaction items with existing evidence and replace the
+        loading item in place on completion.
+    web-compaction-timeline-regression:
+      action: change
+      reason: Cover loading-to-completed replacement, standalone completion, and
+        surrounding prose order.
+    web-compaction-marker-component:
+      action: change
+      reason: Render the Paseo-style divider and label variants.
+    web-compaction-marker-regression:
+      action: change
+      reason: Prove loading and completed labels plus the exposed metadata.
+    web-compaction-timeline-wiring:
+      action: change
+      reason: Wire reduced compaction items into the web-next run transcript.
+    web-compaction-marker-style:
+      action: change
+      reason: Give the marker the quiet line-label-line divider treatment.
+  first-party-run-items-normalized:
+    claude-normalized-run-items:
+      action: change
+      reason: Extend Claude's system branch additively without changing existing
+        normalized run-item evidence.
+  run-events-merge-by-journal-index:
+    daemon-journal-index-stamp:
+      action: change
+      reason: Extend the existing indexed run-event whitelist to compaction timeline
+        events.
+applied:
+  applied_at: 2026-07-17T09:12:34.265Z

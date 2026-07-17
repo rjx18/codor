@@ -1,0 +1,14 @@
+id: web-compaction-markers-upgrade-in-place
+hash: a-bccc4de20389
+title: Web compaction markers upgrade loading boundaries in place
+state: active
+statement: Web-next must reduce a completed compaction item into the first
+  loading compaction marker in place, preserving its position and filling
+  trigger and preTokens from the completion, append a standalone completed
+  marker when no loading marker exists, and render each marker as a quiet
+  full-width divider labeled for loading, automatic, manual, tokenized, or
+  generic completion without disturbing prose and tool order.
+depends_on:
+  - compaction-timeline-items-are-durable-run-evidence
+  - normalized-run-items-presented-live
+created_by: ctx-guardrails-p4-compaction-timeline

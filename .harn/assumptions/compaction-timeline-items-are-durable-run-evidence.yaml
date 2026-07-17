@@ -1,0 +1,13 @@
+id: compaction-timeline-items-are-durable-run-evidence
+hash: a-7589525900a6
+title: Compaction is durable indexed run-timeline evidence
+state: active
+statement: A compaction timeline item must use the shape type compaction, status
+  loading or completed, optional trigger auto or manual, and optional
+  non-negative preTokens; the daemon must append it to the run journal and
+  broadcast it with that journal index so late and live clients see the same
+  timeline while usage_updated remains transient.
+depends_on:
+  - run-events-merge-by-journal-index
+  - redaction-before-fanout
+created_by: ctx-guardrails-p4-compaction-timeline

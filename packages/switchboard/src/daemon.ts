@@ -2283,9 +2283,11 @@ export class Daemon {
         // Stamp the frame with the position this event just took in the
         // journal, so a viewer who joined mid-run merges exactly.
         const stampedIndex = journalIndex++;
+        // harn:assume compaction-timeline-items-are-durable-run-evidence ref=compaction-journal-fanout
         if (
           journalEvent.type === 'run.started' ||
           journalEvent.type === 'run.item' ||
+          journalEvent.type === 'timeline' ||
           journalEvent.type === 'extension.started' ||
           journalEvent.type === 'extension.ended'
         ) {
@@ -2297,6 +2299,7 @@ export class Daemon {
             index: stampedIndex,
           });
         }
+        // harn:end compaction-timeline-items-are-durable-run-evidence
         // harn:end run-events-merge-by-journal-index
         if (event.type === 'ask.raised' || event.type === 'approval.raised') {
           this.handleInteractionRaised(room, member, event.card, event.type === 'ask.raised' ? 'ask' : 'approval');

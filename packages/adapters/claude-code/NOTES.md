@@ -78,6 +78,24 @@ that declared shape, including the synthesized assistant API-error message seen 
 the incident. It is deliberately outside `fixtures/`: the files in `fixtures/`
 remain untouched raw scrubbed live captures under the contract above.
 <!-- harn:end claude-result-errors-follow-native-signals -->
+
+<!-- harn:assume claude-compaction-follows-native-system-events ref=claude-compaction-system-contract -->
+### Compaction system-message contract (pinned without an API call)
+
+Claude Code 2.1.212's embedded Agent SDK 0.3.185 declaration exposes compaction
+with two `system` messages. `SDKStatusMessage` has `subtype: "status"` and
+`status: "compacting" | "requesting" | null`. `SDKCompactBoundaryMessage` has
+`subtype: "compact_boundary"` and `compact_metadata: { trigger: "manual" |
+"auto", pre_tokens: number, post_tokens?: number, duration_ms?: number }`.
+The raw pinned fixtures already establish the same `type: "system"` plus
+`subtype` stream-json envelope, but contain no compaction boundary to replay.
+
+`test-fixtures/compaction.jsonl` records those declared stream-json shapes with
+both automatic and manual boundaries. It is contract-derived rather than a paid
+live capture, and intentionally lives beside the other synthetic contract
+fixtures. These events remain rare under one-process-per-turn CLI delivery; the
+same normalized plumbing is ready for the long-lived Phase 5 adapter.
+<!-- harn:end claude-compaction-follows-native-system-events -->
 - Subagent (Task) internals are NOT streamed at the top level (no assistant events with
   `parent_tool_use_id` set were observed around the Task call) — hooks are the authoritative
   extension signal (below).
