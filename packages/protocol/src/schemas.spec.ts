@@ -645,6 +645,18 @@ describe('wire events', () => {
     expect(WireEventSchema.safeParse(event).success).toBe(true);
   });
 
+  it('run_event frames may carry their journal index (absent on old daemons)', () => {
+    const base = {
+      type: 'run_event',
+      room: 'traderjoe-eng',
+      message_id: 4,
+      event: { type: 'run.item', item_type: 'text_delta', payload: { text: 'hi' } },
+    };
+    expect(ServerFrameSchema.safeParse(base).success).toBe(true);
+    expect(ServerFrameSchema.safeParse({ ...base, index: 12 }).success).toBe(true);
+    expect(ServerFrameSchema.safeParse({ ...base, index: -1 }).success).toBe(false);
+  });
+
   it('rejects unknown event types and running as a completion status', () => {
     expect(WireEventSchema.safeParse({ type: 'run.paused' }).success).toBe(false);
     // run.limits must carry at least one harness-reported window — an empty

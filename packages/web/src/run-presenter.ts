@@ -253,17 +253,22 @@ export function presentRunEvents(items: readonly IndexedRunEvent[]): RunRow[] {
 }
 // harn:end normalized-run-items-presented-live
 
+// harn:assume run-events-merge-by-journal-index ref=client-indexed-buffer-merge
 export function mergeRunEvents(
   journal: readonly WireEvent[] | undefined,
-  live: { events: readonly WireEvent[]; dropped_count: number },
+  live: { events: readonly WireEvent[]; dropped_count: number; first_index?: number },
 ): IndexedRunEvent[] {
   const merged = new Map<number, WireEvent>();
   journal?.forEach((event, index) => merged.set(index, event));
-  live.events.forEach((event, index) => merged.set(live.dropped_count + index, event));
+  // Stamped buffers know the true journal position of their first entry; an
+  // unstamped buffer (old daemon) keeps the historical local arithmetic.
+  const base = live.first_index ?? live.dropped_count;
+  live.events.forEach((event, index) => merged.set(base + index, event));
   return [...merged.entries()]
     .sort(([left], [right]) => left - right)
     .map(([index, event]) => ({ index, event }));
 }
+// harn:end run-events-merge-by-journal-index
 
 export function formatRunDuration(durationMs: number): string {
   const seconds = Math.max(0, Math.floor(durationMs / 1000));

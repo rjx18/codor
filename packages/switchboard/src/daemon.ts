@@ -2073,6 +2073,14 @@ export class Daemon {
     this.noteRunActivity(room, runMsg.id);
     // harn:end runs-are-one-message
 
+    // harn:assume run-events-merge-by-journal-index ref=daemon-journal-index-stamp
+    // The journal position of the NEXT appended event. A reconciled retry
+    // reuses the run message, so its blob may already carry lines.
+    let journalIndex = reuseRunMsg !== undefined
+      ? this.blobs.read(room, runMsg.run!.events_ref).length
+      : 0;
+    // harn:end run-events-merge-by-journal-index
+
     // harn:assume delivery-attempt-wal-reconcile ref=wal-bind-before-spawn
     // Attempt WAL: bind every batched delivery to the run message and count
     // the attempt BEFORE the adapter spawns — consumption happens only when
@@ -2132,7 +2140,15 @@ export class Daemon {
             trigger_msg: triggerMsg,
           };
           this.blobs.append(room, runMsg.run!.events_ref, startedEvent);
-          this.emit(room, { type: 'run_event', room, message_id: runMsg.id, event: startedEvent });
+          // harn:assume run-events-merge-by-journal-index ref=daemon-journal-index-stamp
+          this.emit(room, {
+            type: 'run_event',
+            room,
+            message_id: runMsg.id,
+            event: startedEvent,
+            index: journalIndex++,
+          });
+          // harn:end run-events-merge-by-journal-index
         },
         onSessionRef: (sessionRef) => {
           const persisted = this.store.getMember(room, member.id);
@@ -2175,6 +2191,10 @@ export class Daemon {
         }
         // harn:end agent-usage-limits-reported-not-guessed
         this.blobs.append(room, runMsg.run!.events_ref, journalEvent);
+        // harn:assume run-events-merge-by-journal-index ref=daemon-journal-index-stamp
+        // Stamp the frame with the position this event just took in the
+        // journal, so a viewer who joined mid-run merges exactly.
+        const stampedIndex = journalIndex++;
         if (
           journalEvent.type === 'run.started' ||
           journalEvent.type === 'run.item' ||
@@ -2186,8 +2206,10 @@ export class Daemon {
             room,
             message_id: runMsg.id,
             event: event.type === 'run.item' ? event : journalEvent,
+            index: stampedIndex,
           });
         }
+        // harn:end run-events-merge-by-journal-index
         if (event.type === 'ask.raised' || event.type === 'approval.raised') {
           this.handleInteractionRaised(room, member, event.card, event.type === 'ask.raised' ? 'ask' : 'approval');
         } else if (event.type === 'run.completed') {

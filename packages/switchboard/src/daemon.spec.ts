@@ -3736,3 +3736,44 @@ describe('usage limits (agent-usage-limits-reported-not-guessed)', () => {
     expect(journal.some((e) => e.type === 'run.limits')).toBe(false);
   });
 });
+
+// harn:assume run-events-merge-by-journal-index ref=daemon-journal-index-stamp
+describe('run_event journal indices (run-events-merge-by-journal-index)', () => {
+  it('stamps consecutive indices matching the journal across a scripted turn', async () => {
+    daemon.spawnMember('eng', { harness: 'fake', handle: 'indexer', cwd: dir });
+    fake.enqueue({
+      kind: 'complete',
+      final_text: 'done',
+      items: [
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 'one' } },
+        {
+          type: 'run.item',
+          item_type: 'tool_call',
+          payload: { call_id: 'c1', tool: 'Bash', title: 'ls', input: {} },
+        },
+        { type: 'run.item', item_type: 'tool_result', payload: { call_id: 'c1', status: 'ok' } },
+      ],
+    });
+    daemon.postHumanMessage('eng', '@indexer count things');
+    await daemon.settle();
+
+    const runFrames = frames
+      .filter((f) => f.frame.type === 'run_event')
+      .map((f) => f.frame as Extract<ServerFrame, { type: 'run_event' }>);
+    expect(runFrames.length).toBeGreaterThanOrEqual(4); // run.started + 3 items
+    const indices = runFrames.map((frame) => frame.index);
+    expect(indices.every((value) => typeof value === 'number')).toBe(true);
+    // Consecutive and aligned with the journal: frame N points at journal[N].
+    const run = daemon.store.listRunMessages('eng', { limit: 1 })[0]!;
+    const journal = daemon.readRunBlob('eng', run.id);
+    const withoutTs = (event: unknown): unknown => {
+      const { ts: _ts, ...rest } = event as Record<string, unknown>;
+      return rest;
+    };
+    for (const frame of runFrames) {
+      // The journal copy may carry the daemon's ts stamp; position must match.
+      expect(withoutTs(journal[frame.index!])).toEqual(withoutTs(frame.event));
+    }
+  });
+});
+// harn:end run-events-merge-by-journal-index

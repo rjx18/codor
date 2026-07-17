@@ -10,6 +10,7 @@ import {
   presentRunEvents,
   type RunRow,
 } from './run-presenter.js';
+import { appendRunEvent } from './state.js';
 
 const indexed = (events: WireEvent[]) => events.map((event, index) => ({ event, index }));
 
@@ -154,5 +155,60 @@ describe('compact one-line tool rows', () => {
 
   it('leaves a short command untouched', () => {
     expect(middleEllipsis('ls -la')).toBe('ls -la');
+  });
+});
+
+// harn:assume run-events-merge-by-journal-index ref=client-indexed-buffer-merge
+describe('journal-indexed merge (run-events-merge-by-journal-index)', () => {
+  const text = (t: string): WireEvent => ({ type: 'run.item', item_type: 'text_delta', payload: { text: t } });
+  const call = (id: string): WireEvent => ({
+    type: 'run.item', item_type: 'tool_call', payload: { call_id: id, tool: 'Bash', title: id, input: {} },
+  });
+  const result = (id: string): WireEvent => ({
+    type: 'run.item', item_type: 'tool_result', payload: { call_id: id, status: 'ok' },
+  });
+
+  it('a mid-run subscriber merges journal and stamped buffer without duplicates', () => {
+    // Journal holds the whole run so far; the live buffer joined at index 3.
+    const journal = [text('a'), call('t1'), result('t1'), text('b'), call('t2')];
+    const live = { events: [text('b'), call('t2'), result('t2')], dropped_count: 0, first_index: 3 };
+    const merged = mergeRunEvents(journal, live);
+    expect(merged).toHaveLength(6); // no duplicated text('b')/call('t2')
+    const rows = presentRunEvents(merged);
+    const toolRows = rows.filter((row) => row.kind === 'tool');
+    expect(toolRows).toHaveLength(2);
+    expect(toolRows.every((row) => row.status === 'ok')).toBe(true); // nothing stuck running
+  });
+
+  it('an unstamped buffer keeps the historical dropped_count arithmetic', () => {
+    const journal = [text('a'), text('b')];
+    const live = { events: [text('c')], dropped_count: 2 };
+    expect(mergeRunEvents(journal, live).map((entry) => entry.index)).toEqual([0, 1, 2]);
+  });
+});
+// harn:end run-events-merge-by-journal-index
+
+describe('indexed run event buffer (appendRunEvent)', () => {
+  const text = (t: string): WireEvent => ({ type: 'run.item', item_type: 'text_delta', payload: { text: t } });
+
+  it('seeds first_index from the first stamped frame and drops re-deliveries', () => {
+    let buffer = appendRunEvent(undefined, text('x'), 7);
+    expect(buffer.first_index).toBe(7);
+    buffer = appendRunEvent(buffer, text('y'), 8);
+    buffer = appendRunEvent(buffer, text('y'), 8); // duplicate delivery
+    expect(buffer.events).toHaveLength(2);
+  });
+
+  it('a gap resets the buffer forward — the journal owns the missed range', () => {
+    let buffer = appendRunEvent(undefined, text('x'), 0);
+    buffer = appendRunEvent(buffer, text('far'), 10);
+    expect(buffer.first_index).toBe(10);
+    expect(buffer.events).toHaveLength(1);
+  });
+
+  it('unstamped frames behave exactly as before', () => {
+    let buffer = appendRunEvent(undefined, text('a'));
+    buffer = appendRunEvent(buffer, text('b'));
+    expect(buffer).toEqual({ events: [text('a'), text('b')], dropped_count: 0 });
   });
 });

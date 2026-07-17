@@ -215,12 +215,17 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   // harn:assume sync-cursor-commits-after-hydration ref=sync-complete-frame
   z.object({ type: z.literal('sync_complete'), seq: SeqSchema }),
   // harn:end sync-cursor-commits-after-hydration
+  // harn:assume run-events-merge-by-journal-index ref=indexed-run-event-frame
   z.object({
     type: z.literal('run_event'),
     room: RoomIdSchema,
     message_id: MessageIdSchema,
     event: WireEventSchema,
+    // The event's position in the run journal. Absent only from daemons that
+    // predate index stamping; clients then fall back to local arithmetic.
+    index: z.number().int().nonnegative().optional(),
   }),
+  // harn:end run-events-merge-by-journal-index
   z.object({
     type: z.literal('error'),
     message: z.string(),

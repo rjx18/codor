@@ -1,0 +1,14 @@
+id: run-events-merge-by-journal-index
+hash: a-c6d5c21daa28
+title: Live run events carry their journal index; clients merge streams and
+  journals exactly, never by guesswork
+state: active
+statement: Every run_event frame the daemon emits carries the event's position
+  in that run's journal, seeded from the existing blob when a turn resumes a run
+  message, and clients that buffer live events keep the journal index of what
+  they hold, so merging a fetched journal with a live buffer aligns identical
+  events at identical indices no matter when the viewer connected. A client
+  without stamped indices falls back to the old local arithmetic rather than
+  inventing positions.
+depends_on: []
+created_by: run-event-journal-index

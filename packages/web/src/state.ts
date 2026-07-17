@@ -20,6 +20,9 @@ export interface MemberStateObservation {
 export interface RunEventBuffer {
   events: WireEvent[];
   dropped_count: number;
+  /** Journal index of events[0], seeded from stamped run_event frames. Absent
+   *  when this buffer only ever saw unstamped frames (old daemons). */
+  first_index?: number;
 }
 
 // harn:assume history-cursor-tracks-only-the-contiguous-tail ref=contiguous-history-state
@@ -49,18 +52,34 @@ export const HISTORY_PAGE_SIZE = 50;
 export const RUN_EVENT_LIMIT = 500;
 
 // harn:assume live-run-event-cache-bounded ref=bounded-live-event-buffer
+// harn:assume run-events-merge-by-journal-index ref=client-indexed-buffer-merge
 export function appendRunEvent(
   buffer: RunEventBuffer | undefined,
   event: WireEvent,
+  index?: number,
 ): RunEventBuffer {
-  const current = buffer ?? { events: [], dropped_count: 0 };
+  let current = buffer ?? { events: [], dropped_count: 0 };
+  if (index !== undefined) {
+    if (current.events.length === 0) {
+      current = { ...current, first_index: index };
+    } else if (current.first_index !== undefined) {
+      const expected = current.first_index + current.events.length;
+      // Exact re-delivery of something already buffered: drop it.
+      if (index < expected) return current;
+      // A gap means THIS socket missed events (reconnect); the journal fetch
+      // owns that range — restart the buffer at the new true position.
+      if (index > expected) current = { ...current, events: [], first_index: index };
+    }
+  }
   const events = [...current.events, event];
   const overflow = Math.max(0, events.length - RUN_EVENT_LIMIT);
   return {
     events: overflow === 0 ? events : events.slice(overflow),
     dropped_count: current.dropped_count + overflow,
+    ...(current.first_index !== undefined && { first_index: current.first_index + overflow }),
   };
 }
+// harn:end run-events-merge-by-journal-index
 // harn:end live-run-event-cache-bounded
 
 const ROLE_RANK: Record<Role, number> = { observer: 0, member: 1, admin: 2, owner: 3 };
@@ -171,7 +190,11 @@ export const useRoomStore = create<RoomState>((set) => ({
           return {
             runEvents: {
               ...state.runEvents,
-              [frame.message_id]: appendRunEvent(state.runEvents[frame.message_id], frame.event),
+              [frame.message_id]: appendRunEvent(
+                state.runEvents[frame.message_id],
+                frame.event,
+                frame.index,
+              ),
             },
           };
         case 'error':
