@@ -184,8 +184,8 @@ function MemberCard(props: {
             limit.used_percent !== undefined
               ? <LimitGauge key={limit.window} limit={limit} />
               : (
-                <span key={limit.window} className={`nx-limit is-${limit.status}`}>
-                  {limitWindowLabel(limit.window)}: {limit.status.replace(/_/g, ' ')}
+                <span key={limit.window} className={`nx-limit is-${limit.status ?? 'unknown'}`}>
+                  {limitWindowLabel(limit.window)}: {(limit.status ?? 'reported').replace(/_/g, ' ')}
                   {limit.resets_at !== undefined ? ` · resets ${clockTime(limit.resets_at)}` : ''}
                 </span>
               ),
