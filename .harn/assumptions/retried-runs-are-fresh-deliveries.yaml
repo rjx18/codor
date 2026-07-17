@@ -1,0 +1,13 @@
+id: retried-runs-are-fresh-deliveries
+hash: a-8cf42a8dbc85
+title: Retrying a terminal failed or interrupted run re-queues its surviving
+  bound deliveries into a new run
+state: active
+statement: retry_run applies only to run-kind messages in failed or interrupted
+  status and only for human owners or admins; it re-queues the deliveries bound
+  to that run through the ordinary redeliver path, skipping deliveries whose
+  trigger message was deleted and refusing when none survive, so the agent
+  receives the same instructions as a fresh turn producing a new run message
+  while the original failed run remains in history unchanged.
+depends_on: []
+created_by: run-retry

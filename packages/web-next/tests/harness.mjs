@@ -57,6 +57,7 @@ for (const [id, name] of [
   ['ops', 'Ops'],
   ['research', 'Research'],
   ['trash', 'Scratch'],
+  ['recovery', 'Recovery'],
 ]) {
   daemon.createRoom({ id, name, owner });
   crypto.roomKeys.ensureRoom(id);
@@ -208,6 +209,18 @@ fake.enqueue({
   ],
 });
 const m3 = daemon.postHumanMessage('eng', '@fable summarize what is left on the auth queue');
+await daemon.settle();
+
+// Recovery: an isolated room with a real failed run (bound delivery intact) so
+// the retry tests have something to act on without touching eng. A room-scoped
+// member ('onlooker') lets the viewer-role gate be proven here too.
+const medic = daemon.spawnMember('recovery', { harness: 'fake', handle: 'medic', cwd: dir });
+const onlooker = daemon.store.addMember('recovery', {
+  kind: 'human', handle: 'onlooker', display_name: 'Onlooker', role: 'member',
+});
+const RECOVERY_VIEWER_TOKEN = 'next-e2e-recovery-viewer-token';
+fake.enqueue({ kind: 'complete', status: 'failed', final_text: 'deploy step exploded' });
+daemon.postHumanMessage('recovery', '@medic run the deploy');
 await daemon.settle();
 
 const musePost = daemon.postAgentMessage(
@@ -377,7 +390,10 @@ await startServer({
   port: API_PORT,
   staticRoot,
   crypto,
-  principals: [{ token: VIEWER_TOKEN, member_id: viewer.id }],
+  principals: [
+    { token: VIEWER_TOKEN, member_id: viewer.id },
+    { token: RECOVERY_VIEWER_TOKEN, member_id: onlooker.id },
+  ],
 });
 
 console.log(`web-next harness ready

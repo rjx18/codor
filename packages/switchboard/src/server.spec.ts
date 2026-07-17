@@ -341,6 +341,41 @@ describe('delete_message act (deleted-messages-are-purged-tombstones)', () => {
   });
 });
 
+describe('retry_run act (retried-runs-are-fresh-deliveries)', () => {
+  it('an owner retries a failed run over the ws into a fresh run; an observer is refused', async () => {
+    const alpha = spawnAgentWithToken('alpha');
+    fake.enqueue({ kind: 'complete', status: 'failed', final_text: 'boom' });
+    daemon.postHumanMessage('eng', '@alpha do the thing');
+    await daemon.settle();
+    const failed = daemon.store
+      .listRunMessages('eng', { author: alpha.agent.id })
+      .find((message) => message.run?.status === 'failed')!;
+    expect(failed).toBeDefined();
+
+    // An observer principal is refused.
+    const denied = await connectAs(OBSERVER_TOKEN);
+    denied.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await denied.next((frame) => frame.type === 'sync_complete');
+    denied.ws.send(JSON.stringify({ type: 'act', room: 'eng', act: { act: 'retry_run', message_id: failed.id } }));
+    expect(await denied.next((frame) => frame.type === 'error')).toMatchObject({ type: 'error', ref: 'act' });
+    denied.ws.close();
+
+    // The owner retries → a fresh completed run appears; the failed one stands.
+    fake.enqueue({ kind: 'complete', final_text: 'done this time' });
+    const owner = await connect();
+    owner.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await owner.next((frame) => frame.type === 'sync_complete');
+    owner.ws.send(JSON.stringify({ type: 'act', room: 'eng', act: { act: 'retry_run', message_id: failed.id } }));
+    const fresh = await owner.next((frame) =>
+      frame.type === 'message' && frame.message.kind === 'run'
+      && frame.message.author === alpha.agent.id && frame.message.id !== failed.id
+      && frame.message.run?.status === 'completed');
+    expect(fresh).toBeTruthy();
+    expect(daemon.store.getMessage('eng', failed.id)?.run?.status).toBe('failed');
+    owner.ws.close();
+  });
+});
+
 afterEach(async () => {
   await server.close();
   await daemon.close();

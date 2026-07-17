@@ -3256,6 +3256,45 @@ export class Daemon {
   }
   // harn:end redeliver-interrupts-stranded-run
 
+  // harn:assume retried-runs-are-fresh-deliveries ref=retry-run-contract
+  /**
+   * Retry a failed or interrupted run: re-deliver the instructions it fed so the
+   * agent takes them again as a fresh turn producing a NEW run; the original run
+   * stays in history untouched. Only human owners/admins may retry (the server
+   * gate enforces the role; this refuses others defensively). Deliveries whose
+   * trigger message was since deleted are skipped — a purge must not resurrect —
+   * and a run with none surviving is refused. A failed run leaves its agent dead,
+   * so it is revived first; reuses redeliver unmodified for the re-queue.
+   */
+  retryRun(room: string, messageId: number, byMemberId: string): void {
+    const actor = this.store.getMember(room, byMemberId);
+    if (actor?.kind !== 'human' || (actor.role !== 'owner' && actor.role !== 'admin')) {
+      throw new Error('forbidden: only owners and admins can retry runs');
+    }
+    const message = this.store.getMessage(room, messageId);
+    if (!message) throw new Error(`no such message: #${messageId}`);
+    if (message.kind !== 'run' || message.run === undefined) {
+      throw new Error(`only run messages can be retried, not ${message.kind}`);
+    }
+    const status = message.run.status;
+    if (status !== 'failed' && status !== 'interrupted') {
+      throw new Error(`only failed or interrupted runs can be retried, not ${status}`);
+    }
+    // A deleted trigger stays purged: skip its snapshotted delivery.
+    const survivors = this.store
+      .listDeliveries(room)
+      .filter((delivery) => delivery.run_msg_id === messageId)
+      .filter((delivery) => this.store.getMessage(room, delivery.message_id)?.deleted !== true);
+    if (survivors.length === 0) {
+      throw new Error('nothing to retry: the run has no surviving instructions to re-deliver');
+    }
+    // A failed run killed its agent; bring it back so the re-queue can run.
+    const agent = this.store.getMember(room, message.author);
+    if (agent?.kind === 'agent' && agent.state === 'dead') this.reviveMember(room, agent.id);
+    for (const delivery of survivors) this.redeliver(room, delivery.id);
+  }
+  // harn:end retried-runs-are-fresh-deliveries
+
   releaseHold(room: string, deliveryId: string): void {
     const delivery = this.store.getDelivery(room, deliveryId);
     if (!delivery || delivery.state !== 'held') throw new Error(`delivery ${deliveryId} is not held`);
