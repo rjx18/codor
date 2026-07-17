@@ -2,6 +2,8 @@ import { memo } from 'react';
 
 import type { AgentUsage } from '@codor/protocol';
 
+import { compactCount, usd } from '../primitives/identity.js';
+
 interface ContextWindowMeterProps {
   usage: AgentUsage | undefined;
   pending?: boolean;
@@ -30,17 +32,6 @@ function meterTone(percentage: number): MeterTone {
   if (percentage > 90) return 'red';
   if (percentage >= 70) return 'amber';
   return 'normal';
-}
-
-function formatTokenCount(value: number): string {
-  if (value >= 1_000_000) return `${Math.round(value / 1_000_000)}m`;
-  if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
-  return Math.round(value).toString();
-}
-
-function formatSessionCost(value: number | undefined): string | undefined {
-  if (value === undefined || !Number.isFinite(value) || value <= 0) return undefined;
-  return `$${value.toFixed(value < 0.01 ? 4 : 2)}`;
 }
 
 function ring(trackOnly: boolean, percentage = 0) {
@@ -90,10 +81,13 @@ export const ContextWindowMeter = memo(function ContextWindowMeter(
   const roundedPercentage = Math.round(percentage);
   const usedTokens = usage?.contextWindowUsedTokens ?? 0;
   const maxTokens = usage?.contextWindowMaxTokens ?? 0;
-  const cost = formatSessionCost(usage?.totalCostUsd);
+  const rawCost = usage?.totalCostUsd;
+  const cost = rawCost !== undefined && Number.isFinite(rawCost) && rawCost > 0
+    ? usd(rawCost)
+    : undefined;
   const tooltip = [
     `Context window · ${roundedPercentage}% used`,
-    `${formatTokenCount(usedTokens)} / ${formatTokenCount(maxTokens)} tokens`,
+    `${compactCount(usedTokens)} / ${compactCount(maxTokens)} tokens`,
     ...(cost === undefined ? [] : [`Session cost: ${cost}`]),
   ].join(' · ');
 

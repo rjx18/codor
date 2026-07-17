@@ -442,7 +442,11 @@ function RunContent(props: { message: Message; room: string; token: () => string
   const timeline = useMemo(() => {
     const merged = mergeRunEvents(journal?.events, live ?? { events: [], dropped_count: 0 });
     return presentRunTimeline(merged);
-  }, [journal, live]);
+    // Keyed on counts, not object identity: run events are append-only, and
+    // `live` is a fresh object per streamed frame — identity keying re-ran the
+    // presenter over the full unchanged list on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [journal?.events.length, live?.events.length, live?.dropped_count]);
   const segments = useMemo(() => segmentTimeline(timeline), [timeline]);
 
   // The prose already streams through text rows; only a run that produced no

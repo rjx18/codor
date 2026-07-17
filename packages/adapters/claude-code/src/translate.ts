@@ -44,8 +44,6 @@ interface ClaudeEvent {
   usage?: ClaudeUsage;
   modelUsage?: Record<string, { contextWindow?: number }>;
   compact_metadata?: unknown;
-  compactMetadata?: unknown;
-  compactionMetadata?: unknown;
   rate_limit_info?: {
     status?: string;
     resetsAt?: number; // unix seconds
@@ -127,16 +125,13 @@ function readCompactionMetadata(event: ClaudeEvent): {
   preTokens?: number;
   postTokens?: number;
 } | undefined {
-  const candidates = [event.compact_metadata, event.compactMetadata, event.compactionMetadata];
-  for (const candidate of candidates) {
-    const metadata = objectRecord(candidate);
-    if (metadata === undefined) continue;
-    const trigger = typeof metadata.trigger === 'string' ? metadata.trigger : undefined;
-    const preTokens = tokenCount(metadata.preTokens ?? metadata.pre_tokens);
-    const postTokens = tokenCount(metadata.postTokens ?? metadata.post_tokens);
-    return { trigger, preTokens, postTokens };
-  }
-  return undefined;
+  // Contract pinned to CLI 2.1.212: compact_metadata with snake_case fields.
+  const metadata = objectRecord(event.compact_metadata);
+  if (metadata === undefined) return undefined;
+  const trigger = typeof metadata.trigger === 'string' ? metadata.trigger : undefined;
+  const preTokens = tokenCount(metadata.pre_tokens);
+  const postTokens = tokenCount(metadata.post_tokens);
+  return { trigger, preTokens, postTokens };
 }
 // harn:end claude-compaction-follows-native-system-events
 
@@ -226,7 +221,7 @@ const TITLE_MAX = 200;
  *  tool's actual subject — the command, the file, the pattern, the URL — never the bare
  *  tool name (which rendered as "Explored Read" and command-less shell rows). */
 export function toolTitle(tool: string, input: unknown): string {
-  const value = input !== null && typeof input === 'object' ? input as Record<string, unknown> : {};
+  const value = objectRecord(input) ?? {};
   const str = (key: string): string | undefined =>
     typeof value[key] === 'string' && (value[key] as string).trim() !== '' ? (value[key] as string) : undefined;
   const title = (() => {

@@ -50,5 +50,6 @@ export function compactCount(value: number): string {
 }
 
 export function usd(value: number): string {
-  return `$${value.toFixed(2)}`;
+  // Sub-cent costs keep 4 decimals so tiny per-turn spend never rounds to $0.00.
+  return `$${value.toFixed(value > 0 && value < 0.01 ? 4 : 2)}`;
 }

@@ -9,17 +9,13 @@ import {
   wireEventFromHook,
 } from './translate.js';
 
-function fixture(name: string): string[] {
-  return readFileSync(new URL(`../fixtures/${name}`, import.meta.url), 'utf8')
-    .split('\n')
-    .filter((l) => l.trim() !== '');
-}
-
-function testFixture(name: string): string[] {
-  return readFileSync(new URL(`../test-fixtures/${name}`, import.meta.url), 'utf8')
+function fixture(name: string, dir: 'fixtures' | 'test-fixtures' = 'fixtures'): string[] {
+  return readFileSync(new URL(`../${dir}/${name}`, import.meta.url), 'utf8')
     .split('\n')
     .filter((line) => line.trim() !== '');
 }
+
+const testFixture = (name: string): string[] => fixture(name, 'test-fixtures');
 
 function replay(lines: string[]) {
   const translator = createTurnTranslator();

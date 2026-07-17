@@ -56,3 +56,11 @@ describe('meters', () => {
     expect(usd(0)).toBe('$0.00');
   });
 });
+
+describe('usd', () => {
+  it('keeps sub-cent precision so tiny spend never rounds to zero', () => {
+    expect(usd(0.0042)).toBe('$0.0042');
+    expect(usd(0.19)).toBe('$0.19');
+    expect(usd(0)).toBe('$0.00');
+  });
+});

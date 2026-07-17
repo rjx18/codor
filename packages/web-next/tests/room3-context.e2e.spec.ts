@@ -96,7 +96,7 @@ test.describe('context window meter', () => {
     await expect(meter).toBeVisible();
     await expect(meter).toHaveClass(/is-amber/);
     await expect(meter).toHaveAttribute('data-percentage', '75');
-    await expect(meter).toHaveAttribute('title', /150k \/ 200k tokens · Session cost: \$0\.04/);
+    await expect(meter).toHaveAttribute('title', /150K \/ 200K tokens · Session cost: \$0\.04/);
 
     await expect(page.getByTestId('member-scout-context-window')).toHaveClass(/is-pending/);
     await expect(page.getByTestId('member-hydrate-context-window')).toHaveCount(0);

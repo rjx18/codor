@@ -1,0 +1,90 @@
+id: ctx-guardrails-cleanup-round
+title: Deep-review cleanup round - shared formatters, dead tolerance, memo keying
+notes: >-
+  Apply the below-cap cleanup items from the 2026-07-17 deep review
+  (tmp/context-ceiling-guardrails/PROGRESS.md), deliberately trimmed per
+  Richard's only-reuse-when-genuinely-needed directive.
+
+  Doing: web-next token/cost formatting unifies on the shared primitives -
+  ContextWindowMeter and CompactionMarker call compactCount and usd instead of
+  three private abbreviators, with usd gaining sub-cent precision so every cost
+  surface benefits; CompactionMarker's falsy-zero preTokens guard becomes an
+  explicit undefined check so a zero-token compaction still labels; Transcript
+  keys its timeline memo on event counts instead of object identity so every
+  streamed frame stops re-running the presenter over unchanged inputs; the
+  claude translator drops the dead camelCase compaction-metadata spellings
+  (contract pinned to compact_metadata/pre_tokens/post_tokens for CLI 2.1.212)
+  and toolTitle reuses objectRecord so the module has one is-plain-object
+  narrowing; translate.spec merges its two byte-identical fixture loaders.
+
+  Skipping with reasons: sharing tone thresholds/CSS between the ring meter and
+  LimitGauge (different visual forms with deliberately different breakpoints -
+  an abstraction would be for its own sake); stripping the meter's
+  schema-redundant guards (cheap defense for hand-built props in tests);
+  refactoring the translator's lastLiveContextKey dedup (works, regression
+  covered, churn without payoff).
+
+  Formatting expectations in existing specs update alongside (compact notation
+  renders 150K not 150k). Fixture and unit coverage only; no live calls, no
+  deployment.
+assumptions:
+  reviewed:
+    - id: member-context-window-meter-derived-from-last-usage
+      outcome: unchanged
+      reason: Derivation, thresholds, and hidden states are untouched; only the
+        tooltip's token/cost strings now come from the shared primitives.
+    - id: web-compaction-markers-upgrade-in-place
+      outcome: unchanged
+      reason: Upgrade-in-place semantics are untouched; the marker label uses the
+        shared formatter and no longer drops a zero preTokens count.
+    - id: claude-compaction-follows-native-system-events
+      outcome: unchanged
+      reason: Native-event derivation is unchanged; dead alternate metadata spellings
+        are removed because the pinned contract has one shape.
+    - id: claude-sdk-message-contract-preserves-normalized-runs
+      outcome: unchanged
+      reason: Message translation behavior is unchanged; toolTitle reuses the existing
+        objectRecord guard and the spec merges duplicate loaders.
+files:
+  - packages/web-next/tests/room3-context.e2e.spec.ts
+  - packages/web-next/src/primitives/identity.ts
+  - packages/web-next/src/primitives/identity.spec.ts
+  - packages/web-next/src/room/ContextWindowMeter.tsx
+  - packages/web-next/src/room/ContextWindowMeter.spec.tsx
+  - packages/web-next/src/room/CompactionMarker.tsx
+  - packages/web-next/src/room/CompactionMarker.spec.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/adapters/claude-code/src/translate.ts
+  - packages/adapters/claude-code/src/translate.spec.ts
+anchors:
+  member-context-window-meter-derived-from-last-usage:
+    context-window-meter-component:
+      action: change
+      reason: Tooltip strings route through compactCount/usd.
+    context-window-meter-browser-smoke:
+      action: change
+      reason: Browser smoke expectation follows the shared formatter rendering.
+  web-compaction-markers-upgrade-in-place:
+    web-compaction-marker-component:
+      action: change
+      reason: Shared formatter and explicit undefined check for preTokens.
+    web-compaction-marker-regression:
+      action: change
+      reason: Label expectations follow the shared formatter; add zero-preTokens
+        regression.
+    web-compaction-timeline-wiring:
+      action: change
+      reason: Timeline memo keys on event counts instead of object identity.
+  claude-compaction-follows-native-system-events:
+    claude-compaction-translation:
+      action: change
+      reason: Drop dead camelCase metadata spellings for the pinned contract.
+  claude-sdk-message-contract-preserves-normalized-runs:
+    claude-sdk-message-translation:
+      action: change
+      reason: toolTitle reuses objectRecord.
+    claude-sdk-message-regression:
+      action: change
+      reason: Merge the duplicate fixture loaders.
+applied:
+  applied_at: 2026-07-17T11:14:28.992Z

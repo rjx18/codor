@@ -1,4 +1,5 @@
 import { LoaderCircle, Scissors } from 'lucide-react';
+import { compactCount } from '../primitives/identity.js';
 
 export interface CompactionMarkerProps {
   status: 'loading' | 'completed';
@@ -14,7 +15,7 @@ export function compactionMarkerLabel({
   if (status === 'loading') return 'Compacting…';
   if (trigger === 'auto') return 'Context automatically compacted';
   if (trigger === 'manual') return 'Context manually compacted';
-  if (preTokens) return `Context compacted (${String(Math.round(preTokens / 1_000))}K tokens)`;
+  if (preTokens !== undefined) return `Context compacted (${compactCount(preTokens)} tokens)`;
   return 'Context compacted';
 }
 

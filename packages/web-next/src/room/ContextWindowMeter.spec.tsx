@@ -38,7 +38,7 @@ describe('ContextWindowMeter', () => {
     const markup = render(100_000, 200_000, 0.0042);
     expect(markup).toContain('is-normal');
     expect(markup).toContain('data-percentage="50"');
-    expect(markup).toContain('100k / 200k tokens');
+    expect(markup).toContain('100K / 200K tokens');
     expect(markup).toContain('Session cost: $0.0042');
   });
 

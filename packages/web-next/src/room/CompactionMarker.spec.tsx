@@ -5,6 +5,11 @@ import { CompactionMarker, compactionMarkerLabel } from './CompactionMarker.js';
 
 // harn:assume web-compaction-markers-upgrade-in-place ref=web-compaction-marker-regression
 describe('CompactionMarker', () => {
+  it('labels a zero-token compaction instead of dropping the count', () => {
+    expect(compactionMarkerLabel({ status: 'completed', preTokens: 0 }))
+      .toBe('Context compacted (0 tokens)');
+  });
+
   it('matches paseo labels for every marker state', () => {
     expect(compactionMarkerLabel({ status: 'loading' })).toBe('Compacting…');
     expect(compactionMarkerLabel({ status: 'completed', trigger: 'auto' }))
@@ -12,7 +17,7 @@ describe('CompactionMarker', () => {
     expect(compactionMarkerLabel({ status: 'completed', trigger: 'manual' }))
       .toBe('Context manually compacted');
     expect(compactionMarkerLabel({ status: 'completed', preTokens: 12_345 }))
-      .toBe('Context compacted (12K tokens)');
+      .toBe('Context compacted (12.3K tokens)');
     expect(compactionMarkerLabel({ status: 'completed' })).toBe('Context compacted');
   });
 
