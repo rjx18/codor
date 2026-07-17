@@ -11,7 +11,10 @@ notes: >-
   is invisible until its page happens to load. Server: GET
   /api/rooms/:room/messages accepts pinned=1 and then returns every pinned
   message of the room ordered by id ascending, ignoring paging (pins are
-  few by nature; the endpoint region carries no harn anchors). Store: a new
+  few by nature). The endpoint lives inside the
+  permalink-ids-stable:message-history-rest anchor, so the pinned branch is
+  a declared mechanical crossing - ids and paging semantics are untouched.
+  Store: a new
   listPinnedMessages(room) reading WHERE pinned = 1 - placed OUTSIDE the
   collaboration-store-projection anchored span (which begins at
   listMessages), so no anchor is crossed. Clients fetch it at room load and
@@ -63,3 +66,9 @@ anchors:
       action: change
       reason: The refusal of deleted messages lives in daemon.pinMessage,
         inside the anchor that defines the pin contract.
+  permalink-ids-stable:
+    message-history-rest:
+      action: change
+      reason: The messages endpoint lives inside this anchor and gains the
+        pinned=1 branch; ids, ordering, and paging semantics are unchanged
+        in meaning.
