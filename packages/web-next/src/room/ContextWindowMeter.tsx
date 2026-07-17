@@ -1,3 +1,5 @@
+import { memo } from 'react';
+
 import type { AgentUsage } from '@codor/protocol';
 
 interface ContextWindowMeterProps {
@@ -63,7 +65,13 @@ function ring(trackOnly: boolean, percentage = 0) {
 
 // harn:assume member-context-window-meter-derived-from-last-usage ref=context-window-meter-component
 /** Compact member-card context pressure derived entirely from transient usage. */
-export function ContextWindowMeter({ usage, pending = false, testId }: ContextWindowMeterProps) {
+/**
+ * Memoized: usage frames for ONE member must not re-render and re-animate
+ * every sibling card's ring (the members map is replaced per frame).
+ */
+export const ContextWindowMeter = memo(function ContextWindowMeter(
+  { usage, pending = false, testId }: ContextWindowMeterProps,
+) {
   const percentage = usagePercentage(usage);
   if (percentage === undefined) {
     if (!pending) return null;
@@ -101,5 +109,5 @@ export function ContextWindowMeter({ usage, pending = false, testId }: ContextWi
       {ring(false, clampedPercentage)}
     </span>
   );
-}
+});
 // harn:end member-context-window-meter-derived-from-last-usage

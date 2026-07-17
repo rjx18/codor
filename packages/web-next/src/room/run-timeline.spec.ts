@@ -39,6 +39,33 @@ describe('compaction timeline reducer', () => {
     expect(timeline[3]).toMatchObject({ kind: 'row', row: { text: 'After.' } });
   });
 
+  it('pairs a tool result with its call across a compaction boundary', () => {
+    const timeline = presentRunTimeline(indexed([
+      {
+        type: 'run.item',
+        item_type: 'tool_call',
+        payload: { call_id: 'call-1', tool: 'Bash', title: 'run tests', input: {} },
+      },
+      { type: 'timeline', item: { type: 'compaction', status: 'loading' } },
+      {
+        type: 'timeline',
+        item: { type: 'compaction', status: 'completed', trigger: 'auto', preTokens: 150_000 },
+      },
+      {
+        type: 'run.item',
+        item_type: 'tool_result',
+        payload: { call_id: 'call-1', status: 'ok', output_text: '42 passed' },
+      },
+    ]));
+
+    const rows = timeline.filter((entry) => entry.kind === 'row');
+    expect(rows).toHaveLength(1); // the orphan merged into its call row
+    expect(rows[0]).toMatchObject({
+      row: { kind: 'tool', title: 'Bash', status: 'ok', output_text: '42 passed' },
+    });
+    expect(timeline.filter((entry) => entry.kind === 'compaction')).toHaveLength(1);
+  });
+
   it('appends a completed marker when no loading item exists', () => {
     expect(presentRunTimeline(indexed([{
       type: 'timeline',

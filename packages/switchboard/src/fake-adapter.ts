@@ -36,7 +36,9 @@ export type FakeTurn =
       /** Final text once answered (receives the answer). */
       reply: (answer: unknown) => string;
     }
-  | { kind: 'fail-on-interrupt'; final_text?: string }
+  // harn:assume failed-run-details-never-route-as-replies ref=fake-failed-turn-detail
+  | { kind: 'fail-on-interrupt'; final_text?: string; error?: string }
+  // harn:end failed-run-details-never-route-as-replies
   | { kind: 'die-silently' }; // stream ends with no run.completed
 
 export type FakeTurnStep =
@@ -180,7 +182,9 @@ export class FakeAdapter implements HarnessAdapter {
         yield {
           type: 'run.completed',
           status: 'failed',
-          final_text: turn.final_text ?? 'process exited 130 after SIGINT',
+          ...(turn.error !== undefined
+            ? { error: turn.error }
+            : { final_text: turn.final_text ?? 'process exited 130 after SIGINT' }),
         };
         return;
       }

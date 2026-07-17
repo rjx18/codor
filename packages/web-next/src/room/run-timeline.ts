@@ -1,4 +1,4 @@
-import type { CompactionTimelineItem } from '@codor/protocol';
+import type { CompactionTimelineItem, WireEvent } from '@codor/protocol';
 
 import {
   presentRunEvents,
@@ -55,9 +55,61 @@ export function reduceTimelineCompaction(
   ];
 }
 
+function runItemCallId(event: WireEvent): string | undefined {
+  if (event.type !== 'run.item') return undefined;
+  const payload = event.payload as { call_id?: unknown } | undefined;
+  return typeof payload?.call_id === 'string' ? payload.call_id : undefined;
+}
+
+/** A tool_result presented as its own row is an orphan: matched results merge
+ * into their call row and never surface separately. Segment-flushing at a
+ * compaction boundary orphans a result whose call landed in an earlier
+ * segment; this repairs the pair after the fact — the call row completes,
+ * the orphan disappears — without giving up the boundary's prose split. */
+function repairOrphanedToolResults(timeline: RunTimelineItem[]): RunTimelineItem[] {
+  const callRows = new Map<string, number>();
+  const repaired: RunTimelineItem[] = [];
+  for (const entry of timeline) {
+    if (entry.kind !== 'row') {
+      repaired.push(entry);
+      continue;
+    }
+    const { row } = entry;
+    if (row.event.type === 'run.item' && row.event.item_type === 'tool_call') {
+      const callId = runItemCallId(row.event);
+      if (callId !== undefined) callRows.set(callId, repaired.length);
+      repaired.push(entry);
+      continue;
+    }
+    if (row.event.type === 'run.item' && row.event.item_type === 'tool_result') {
+      const callId = runItemCallId(row.event);
+      const callIndex = callId === undefined ? undefined : callRows.get(callId);
+      const call = callIndex === undefined ? undefined : repaired[callIndex];
+      if (call?.kind === 'row' && call.row.status === 'running') {
+        repaired[callIndex!] = {
+          kind: 'row',
+          row: {
+            ...call.row,
+            resultEventIndex: row.eventIndex,
+            status: row.status,
+            duration_ms: row.duration_ms,
+            output_text: row.output_text,
+            diff: row.diff,
+            image: row.image,
+          },
+        };
+        continue; // orphan consumed by its call row
+      }
+    }
+    repaired.push(entry);
+  }
+  return repaired;
+}
+
 /** Interleave compaction boundaries with the existing prose/tool presenter.
- * Flushing evidence at each boundary keeps its journal order while allowing a
- * later completed item to upgrade an earlier loading marker in place. */
+ * Flushing evidence at each boundary keeps journal order and splits prose
+ * around the divider; the orphan-repair pass then restores tool call/result
+ * pairing that the segment split would otherwise break. */
 export function presentRunTimeline(events: readonly IndexedRunEvent[]): RunTimelineItem[] {
   let timeline: RunTimelineItem[] = [];
   let evidence: IndexedRunEvent[] = [];
@@ -79,6 +131,6 @@ export function presentRunTimeline(events: readonly IndexedRunEvent[]): RunTimel
     }
   }
   flushEvidence();
-  return timeline;
+  return repairOrphanedToolResults(timeline);
 }
 // harn:end web-compaction-markers-upgrade-in-place

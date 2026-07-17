@@ -2201,6 +2201,66 @@ describe('failed turns', () => {
     expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('idle');
   });
 
+  // harn:assume run-failure-evidence-is-surfaced ref=run-failure-evidence-regression
+  it('keeps error evidence on a run reclassified failed-to-interrupted by an operator', async () => {
+    const alpha = spawnAgent('alpha');
+    const detail = 'error_during_execution: provider crashed as the interrupt landed';
+    fake.enqueue({ kind: 'fail-on-interrupt', error: detail });
+    daemon.postHumanMessage('eng', '@alpha wait for interrupt');
+    await until(() =>
+      daemon.store.getMember('eng', alpha.id)?.state === 'running' ? alpha : undefined,
+    );
+
+    daemon.interruptMember('eng', alpha.id);
+    await daemon.settle();
+
+    const run = runMessages()[0]!;
+    expect(run.run).toMatchObject({ status: 'interrupted', error: detail });
+    expect(run.body).toBe('');
+  });
+
+  it('quotes a failed run reference as labeled error evidence, not empty context', async () => {
+    const alpha = spawnAgent('alpha');
+    const beta = spawnAgent('beta');
+    const detail = 'Prompt is too long: context window exceeded';
+    fake.enqueue({ kind: 'complete', final_text: detail, error: detail, status: 'failed' });
+    daemon.postHumanMessage('eng', '@alpha continue the incident');
+    await daemon.settle();
+    const failedRun = daemon.store.listRunMessages('eng', { author: alpha.id, limit: 1 })[0]!;
+
+    fake.enqueue({ kind: 'complete', final_text: 'looking' });
+    daemon.postHumanMessage('eng', `@beta look at #${failedRun.id}`);
+    await daemon.settle();
+
+    const delivered = fake.deliveries.at(-1)!;
+    expect(delivered.payload).toContain(`[run failed] ${detail}`);
+  });
+
+  it('does not re-broadcast a member frame for an unchanged usage snapshot', async () => {
+    const alpha = spawnAgent('alpha');
+    const usage = { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 50_000 };
+    fake.enqueue({
+      kind: 'complete',
+      final_text: 'ok',
+      items: [
+        { type: 'usage_updated', usage },
+        { type: 'usage_updated', usage },
+      ],
+    });
+    daemon.postHumanMessage('eng', '@alpha go');
+    await daemon.settle();
+
+    // The turn-end idle transition frame also carries the overlay; the guard
+    // only suppresses the usage-triggered re-broadcast during the run.
+    const usageFrames = frames.filter((item) =>
+      item.frame.type === 'member' &&
+      item.frame.member.id === alpha.id &&
+      item.frame.member.state === 'running' &&
+      item.frame.member.lastUsage?.contextWindowUsedTokens === 50_000);
+    expect(usageFrames).toHaveLength(1);
+  });
+  // harn:end run-failure-evidence-is-surfaced
+
   it('classifies a nonzero exit after operator interrupt as interrupted, not dead', async () => {
     const alpha = spawnAgent('alpha');
     fake.enqueue({ kind: 'fail-on-interrupt' });

@@ -1,0 +1,246 @@
+id: ctx-guardrails-fix-round
+title: Deep-review correctness fix round for the context-ceiling guardrails branch
+notes: >-
+  Apply the ten verified deep-review findings recorded in
+  tmp/context-ceiling-guardrails/PROGRESS.md (2026-07-17 review over
+  main...4b04702, re-checked against the 5b SDK rework in f300aaf). Correctness
+  scope only; the below-cap cleanup list ships in a separate follow-up plan.
+
+  Failure evidence becomes visible again everywhere: web-next and legacy web
+  render run.error as a failure-evidence block when a settled run has no final
+  text; codor tail prints it; the slack bridge egress falls back to it; quoted
+  run references and collaboration round results carry it so agents receive the
+  reason a referenced or participating run stopped. The daemon persists
+  completion.error whenever the adapter reported it - including runs
+  reclassified failed-to-interrupted by an operator interrupt - while reply
+  routing continues to be suppressed exactly as before for failed runs. The
+  load-bearing completion.error ?? completion.final_text fallback for
+  legacy-shaped adapters is explicitly preserved.
+
+  Claude translator: the legacy overflow guard matches only exact
+  API-error-shaped text (trimmed, case-insensitive, optional trailing period) so
+  legitimate replies that merely mention the phrase are never reclassified; a
+  compact_boundary without post_tokens no longer clobbers the live used count
+  and usage_updated is emitted only when a complete window pair exists; the
+  terminal window override prefers the session's own model entry in modelUsage
+  and ignores larger aux/subagent windows (fixing the ceiling inflation
+  faithfully ported from paseo).
+
+  Daemon lastUsage hygiene: rekey the registry by bare member id to match every
+  sibling per-member map, sweep it on member removal, and skip the member
+  re-broadcast when an incoming usage snapshot deep-equals the stored one.
+  Web-next renders the ring through a memoized component so unrelated member
+  frames stop re-animating every card.
+
+  Web-next timeline: compaction markers interleave through a single stateful
+  presenter pass so tool_call/tool_result pairing and prose coalescing survive
+  across compaction boundaries; markers still upgrade loading-to-completed in
+  place.
+
+  Every fix lands with a regression test that fails without it. Fixture and
+  in-memory coverage only; no live API calls, no deployment, no daemon restart.
+assumptions:
+  reviewed:
+    - id: failed-run-details-never-route-as-replies
+      outcome: unchanged
+      reason: Reply-body suppression for failed runs is untouched; the fixes only add
+        surfacing and persistence of the same error evidence.
+    - id: claude-result-errors-follow-native-signals
+      outcome: unchanged
+      reason: Native signals stay primary; the secondary guard is narrowed to exact
+        error-shaped text, which the statement already frames as a limited
+        compatibility measure.
+    - id: normalized-agent-usage-telemetry
+      outcome: unchanged
+      reason: The usage shape and event contract are untouched; fixes correct which
+        values feed them.
+    - id: claude-compaction-follows-native-system-events
+      outcome: unchanged
+      reason: Compaction events still derive solely from native system messages; the
+        fix stops an incomplete boundary from erasing live usage.
+    - id: last-agent-usage-is-transient
+      outcome: unchanged
+      reason: Usage stays in-memory and broadcast-only; keying, sweeping, and the
+        duplicate-broadcast guard are lifecycle hygiene within the statement.
+    - id: claude-sdk-message-contract-preserves-normalized-runs
+      outcome: unchanged
+      reason: The SDK message mapping is unchanged apart from the classification and
+        window-selection corrections inside already-anchored regions.
+    - id: web-compaction-markers-upgrade-in-place
+      outcome: unchanged
+      reason: Markers still upgrade in place; the reducer change only preserves
+        presenter state across boundaries.
+    - id: member-context-window-meter-derived-from-last-usage
+      outcome: unchanged
+      reason: Derivation, thresholds, and hidden states are untouched; the component
+        is memoized only.
+    - id: reply-is-finalized-run-message
+      outcome: unchanged
+      reason: One turn one message stands; failure evidence renders from run state on
+        the same message.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: Snapshot mechanics are untouched; only the quoted ref body composed into
+        the snapshot now falls back to labeled run error evidence.
+  create:
+    - id: run-failure-evidence-is-surfaced
+      title: Run failure evidence reaches every consumer
+      statement: When a run settles with error detail, the daemon must persist it as
+        run.error for failed and operator-interrupted completions alike, quoted
+        run references and collaboration round results must fall back to it when
+        final text and body are empty, and web, web-next, the CLI tail, and
+        bridge egress must render it as failure evidence, because a failure
+        whose reason is invisible cannot be acted on by operators or agents.
+      reason: The phase-3 restructuring moved failure detail out of reply bodies but
+        left every consumer reading only final_text/body, making failures
+        silently blank.
+      depends_on:
+        - failed-run-details-never-route-as-replies
+    - id: context-ceiling-follows-main-model
+      title: Context ceiling derives from the session's own model
+      statement: The claude translator must select the terminal context-window
+        override from the modelUsage entry matching the session's current model,
+        falling back to the seeded window when no matching entry exists, and
+        must never widen the ceiling from a different model's entry, because aux
+        and subagent models with larger windows otherwise inflate the
+        denominator while used tokens still reflect the main model.
+      reason: Max-across-models (ported from paseo) under-reports context pressure
+        exactly when subagents run, defeating the gauge's warning purpose.
+      depends_on:
+        - normalized-agent-usage-telemetry
+files:
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/adapters/claude-code/src/translate.ts
+  - packages/adapters/claude-code/src/translate.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/run-timeline.ts
+  - packages/web-next/src/room/run-timeline.spec.ts
+  - packages/web-next/src/room/ContextWindowMeter.tsx
+  - packages/web/src/components.tsx
+  - packages/web/src/components.spec.tsx
+  - packages/cli/src/program.ts
+  - packages/bridges/slack/src/index.ts
+  - packages/bridges/slack/src/index.spec.ts
+anchors:
+  claude-result-errors-follow-native-signals:
+    claude-result-failure-translation:
+      action: change
+      reason: Narrow the legacy overflow guard to exact error-shaped text.
+    claude-result-failure-regression:
+      action: change
+      reason: Add the legitimate-reply-mentioning-overflow regression.
+  context-ceiling-follows-main-model:
+    claude-main-model-window:
+      action: change
+      reason: New selector prefers the session model's window entry.
+    claude-main-model-window-regression:
+      action: change
+      reason: Regressions for main-model preference and multi-aux fallback.
+  delivery-payload-snapshotted:
+    daemon-payload-snapshot:
+      action: change
+      reason: The snapshot's quoted ref body now routes through runRefBody.
+  run-failure-evidence-is-surfaced:
+    interrupted-error-evidence:
+      action: change
+      reason: finalizeTurn persists interrupted error evidence.
+    run-ref-error-evidence:
+      action: change
+      reason: runRefBody labels failed-run refs with their error.
+    round-result-error-evidence:
+      action: change
+      reason: Round results surface a failed participant's error.
+    web-next-run-error-evidence:
+      action: change
+      reason: web-next Transcript renders run.error as an alert note.
+    web-run-error-evidence:
+      action: change
+      reason: Legacy web renders run.error under the run body.
+    cli-run-error-evidence:
+      action: change
+      reason: codor tail prints the run error line.
+    bridge-run-error-evidence:
+      action: change
+      reason: Slack egress mirrors labeled error evidence over blank posts.
+    run-failure-evidence-regression:
+      action: change
+      reason: Daemon regressions for interrupted evidence, labeled refs, dedup.
+    web-run-error-regression:
+      action: change
+      reason: Legacy web failed-run render regression.
+    bridge-run-error-regression:
+      action: change
+      reason: Slack bridge failed-run mirror regression.
+  normalized-agent-usage-telemetry:
+    claude-usage-telemetry:
+      action: change
+      reason: Prefer the session model's modelUsage entry for the window override.
+    claude-usage-telemetry-regression:
+      action: change
+      reason: Extended fixture-replay coverage for the corrected window source.
+  claude-compaction-follows-native-system-events:
+    claude-compaction-translation:
+      action: change
+      reason: Keep prior used tokens and suppress usage_updated when the boundary
+        lacks a complete pair.
+    claude-compaction-regression:
+      action: change
+      reason: Add the incomplete-boundary no-clobber regression.
+  claude-sdk-message-contract-preserves-normalized-runs:
+    claude-sdk-message-translation:
+      action: change
+      reason: The classification and window-selection fixes live inside the SDK
+        message translation region.
+    claude-sdk-message-regression:
+      action: change
+      reason: Add regression coverage for the exact-match guard, boundary no-clobber,
+        and main-model ceiling.
+  failed-run-details-never-route-as-replies:
+    fake-failed-turn-detail:
+      action: change
+      reason: fail-on-interrupt gains an optional error passthrough so the
+        interrupted-evidence regression can script a claude-shaped completion.
+    failed-run-finalization:
+      action: change
+      reason: Persist completion.error for interrupted completions and keep the legacy
+        final_text fallback; reply suppression unchanged.
+    failed-run-recovery:
+      action: change
+      reason: Recovery path carries error for interrupted completions identically.
+    failed-run-error-schema:
+      action: keep
+      reason: The wire schema is already correct and must not change.
+  last-agent-usage-is-transient:
+    last-usage-runtime-registry:
+      action: change
+      reason: Rekey by member id, sweep on removal, and skip no-op re-broadcasts.
+    last-usage-member-projection:
+      action: change
+      reason: Projection reads the rekeyed registry.
+  web-compaction-markers-upgrade-in-place:
+    web-compaction-timeline-reducer:
+      action: change
+      reason: Single presenter pass with interleaved markers preserves cross-boundary
+        pairing.
+    web-compaction-timeline-regression:
+      action: change
+      reason: Add the cross-boundary tool pairing regression.
+    web-compaction-timeline-wiring:
+      action: change
+      reason: Transcript renders failure evidence and consumes the reworked reducer.
+    web-compaction-marker-regression:
+      action: keep
+      reason: Marker label behavior is untouched in this plan.
+  member-context-window-meter-derived-from-last-usage:
+    context-window-meter-component:
+      action: change
+      reason: Memoize the component; derivation and thresholds unchanged.
+  reply-is-finalized-run-message:
+    finalize-and-route:
+      action: change
+      reason: finalizeTurn persists interrupted error evidence within the same
+        finalize-in-place contract.
+applied:
+  applied_at: 2026-07-17T10:34:18.954Z

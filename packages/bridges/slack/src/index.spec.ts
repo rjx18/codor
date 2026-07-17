@@ -24,4 +24,28 @@ describe('SlackTransport', () => {
     expect(received).toEqual([{ externalId: '3', senderName: 'Sarah', body: '@alpha ship [[plan]]' }]);
     expect(posted).toEqual([{ channel: 'C123', text: 'Done #4' }]);
   });
+
+  // harn:assume run-failure-evidence-is-surfaced ref=bridge-run-error-regression
+  it('mirrors a failed run as labeled error evidence instead of a blank post', async () => {
+    const posted: { channel: string; text: string }[] = [];
+    const gateway: SlackGateway = {
+      onMessage: () => undefined,
+      post: async (channel, text) => { posted.push({ channel, text }); },
+      start: async () => undefined,
+      stop: async () => undefined,
+    };
+    const transport = new SlackTransport({ channel: 'C123', gateway });
+    await transport.send({
+      body: '',
+      id: 9,
+      kind: 'run',
+      run: { status: 'failed', error: 'Prompt is too long: context window exceeded' },
+    } as Message);
+
+    expect(posted).toEqual([{
+      channel: 'C123',
+      text: '[run failed] Prompt is too long: context window exceeded',
+    }]);
+  });
+  // harn:end run-failure-evidence-is-surfaced
 });

@@ -434,7 +434,7 @@ export class Daemon {
 
   // harn:assume last-agent-usage-is-transient ref=last-usage-member-projection
   private memberWithLastUsage(room: string, member: Member): Member {
-    const lastUsage = this.lastUsage.get(`${room}\0${member.id}`);
+    const lastUsage = this.lastUsage.get(member.id);
     return lastUsage === undefined ? member : { ...member, lastUsage: { ...lastUsage } };
   }
   // harn:end last-agent-usage-is-transient
@@ -1417,6 +1417,9 @@ export class Daemon {
     });
     this.sessions.delete(memberId);
     this.staleSessions.delete(memberId);
+    // harn:assume last-agent-usage-is-transient ref=last-usage-runtime-registry
+    this.lastUsage.delete(memberId);
+    // harn:end last-agent-usage-is-transient
 
     // harn:assume removing-an-agent-is-one-deliberate-step ref=remove-drains-queued-work
     // Work addressed to a member that no longer exists has nowhere to go. Left queued it
@@ -1978,11 +1981,29 @@ export class Daemon {
           id: ref.id,
           authorHandle: this.store.getMember(room, ref.author)?.handle ?? 'unknown',
           ts: ref.ts,
-          body: ref.kind === 'run' ? (ref.run?.final_text ?? ref.body) : ref.body,
+          body: this.runRefBody(ref),
         })),
       ledgerRefs: this.ledger?.resolve(room, root.ledger_refs),
     };
   }
+
+  // harn:assume run-failure-evidence-is-surfaced ref=run-ref-error-evidence
+  /**
+   * A referenced run's quotable content: its reply text, else its failure
+   * evidence (labeled so consumers know it is evidence, not a reply), else
+   * its body. Keeps refs to failed/interrupted runs from resolving empty.
+   */
+  private runRefBody(ref: Message): string {
+    if (ref.kind !== 'run') return ref.body;
+    const finalText = ref.run?.final_text;
+    if (finalText !== undefined && finalText !== '') return finalText;
+    const error = ref.run?.error;
+    if (error !== undefined && error !== '') {
+      return `[run ${ref.run?.status ?? 'failed'}] ${error}`;
+    }
+    return ref.body;
+  }
+  // harn:end run-failure-evidence-is-surfaced
 
   // harn:assume collaboration-round-release-is-one-barrier ref=group-payload-snapshot-integration
   private groupPayloadSnapshot(payload: string): string {
@@ -2016,7 +2037,7 @@ export class Daemon {
         id: ref.id,
         author_handle: this.store.getMember(room, ref.author)?.handle ?? 'unknown',
         ts: ref.ts,
-        body: ref.kind === 'run' ? (ref.run?.final_text ?? ref.body) : ref.body,
+        body: this.runRefBody(ref),
       }));
     const ledgerRefs = this.ledger?.resolve(room, message.ledger_refs) ?? [];
     const snapshot: DeliveryPayloadSnapshot = {
@@ -2264,9 +2285,15 @@ export class Daemon {
         // Live usage is member runtime state: broadcast it, but do not append it
         // to the durable run journal or change log.
         if (event.type === 'usage_updated') {
-          this.lastUsage.set(`${room}\0${member.id}`, { ...event.usage });
-          const current = this.store.getMember(room, member.id);
-          if (current !== undefined) this.emitMember(room, current);
+          // Keyed by bare member id like every sibling per-member map (ULIDs
+          // never repeat, so no cross-room collision). Skip the re-broadcast
+          // when the snapshot is unchanged — a full member frame per identical
+          // usage report is pure fanout waste.
+          if (!isDeepStrictEqual(this.lastUsage.get(member.id), event.usage)) {
+            this.lastUsage.set(member.id, { ...event.usage });
+            const current = this.store.getMember(room, member.id);
+            if (current !== undefined) this.emitMember(room, current);
+          }
           continue;
         }
         // harn:end last-agent-usage-is-transient
@@ -2306,7 +2333,7 @@ export class Daemon {
         } else if (event.type === 'run.completed') {
           // harn:assume last-agent-usage-is-transient ref=last-usage-runtime-registry
           if (event.agent_usage !== undefined) {
-            this.lastUsage.set(`${room}\0${member.id}`, { ...event.agent_usage });
+            this.lastUsage.set(member.id, { ...event.agent_usage });
           }
           // harn:end last-agent-usage-is-transient
           // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
@@ -2439,10 +2466,21 @@ export class Daemon {
   ): void {
     const runMsg = this.store.getMessage(room, runMsgId)!;
     // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
+    // harn:assume run-failure-evidence-is-surfaced ref=interrupted-error-evidence
     const failed = completion.status === 'failed';
-    const rawFailure = failed ? (completion.error ?? completion.final_text) : undefined;
+    // The `?? completion.final_text` arm is LOAD-BEARING: codex/gemini/opencode/
+    // copilot report failure detail in final_text, only claude uses error.
+    // An operator interrupt can reclassify failed->interrupted after the
+    // adapter already produced error detail — persist it there too, or the
+    // "why" of the interrupt vanishes from every surface.
+    const rawFailure = failed
+      ? (completion.error ?? completion.final_text)
+      : completion.status === 'interrupted'
+        ? completion.error
+        : undefined;
     const failure = rawFailure?.trim() === '' ? undefined : rawFailure;
     const body = failed ? '' : (completion.final_text ?? '');
+    // harn:end run-failure-evidence-is-surfaced
     // harn:end failed-run-details-never-route-as-replies
     // harn:assume substantive-routing-excludes-acknowledgements ref=exact-ack-finalization
     const ack = completion.status === 'completed' && body.trim() === '<ACK_OK>';
@@ -2598,7 +2636,11 @@ export class Daemon {
         status,
         ...(result !== undefined && result.ack !== true && {
           messageId: result.id,
-          body: result.body,
+          // harn:assume run-failure-evidence-is-surfaced ref=round-result-error-evidence
+          // A failed participant's body is empty by design; surface its run
+          // error so peers see why the round member stopped.
+          body: this.runRefBody(result),
+          // harn:end run-failure-evidence-is-surfaced
         }),
       });
 

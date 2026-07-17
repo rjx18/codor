@@ -105,7 +105,15 @@ export class SlackTransport implements BridgeTransport {
   }
 
   async send(message: Message): Promise<void> {
-    await this.options.gateway.post(this.options.channel, message.body);
+    // harn:assume run-failure-evidence-is-surfaced ref=bridge-run-error-evidence
+    // A failed run's body is empty by design; mirror its error evidence
+    // instead of posting a blank message outward.
+    const error = message.run?.error;
+    const body = message.body !== '' || error === undefined || error === ''
+      ? message.body
+      : `[run ${message.run?.status ?? 'failed'}] ${error}`;
+    // harn:end run-failure-evidence-is-surfaced
+    await this.options.gateway.post(this.options.channel, body);
   }
 
   stop(): Promise<void> {

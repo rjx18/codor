@@ -91,14 +91,28 @@ function contextWindowUsed(usage: ClaudeUsage | undefined): number | undefined {
   return values.reduce<number>((total, value) => total + (value ?? 0), 0);
 }
 
-function reportedContextWindow(modelUsage: ClaudeEvent['modelUsage']): number | undefined {
-  let reported: number | undefined;
-  for (const usage of Object.values(modelUsage ?? {})) {
-    const window = tokenCount(usage?.contextWindow);
-    if (window !== undefined && window > 0) reported = Math.max(reported ?? 0, window);
+// harn:assume context-ceiling-follows-main-model ref=claude-main-model-window
+function reportedContextWindow(
+  modelUsage: ClaudeEvent['modelUsage'],
+  sessionModel: string | undefined,
+): number | undefined {
+  const entries = Object.entries(modelUsage ?? {});
+  if (sessionModel !== undefined) {
+    const own = entries.find(([model]) => model === sessionModel);
+    if (own !== undefined) {
+      const window = tokenCount(own[1]?.contextWindow);
+      return window !== undefined && window > 0 ? window : undefined;
+    }
   }
-  return reported;
+  // Without a session-model match the only safe entry is an unambiguous one:
+  // a lone reporting model. Aux/subagent models must never widen the ceiling.
+  if (entries.length === 1) {
+    const window = tokenCount(entries[0]?.[1]?.contextWindow);
+    return window !== undefined && window > 0 ? window : undefined;
+  }
+  return undefined;
 }
+// harn:end context-ceiling-follows-main-model
 // harn:end normalized-agent-usage-telemetry
 
 // harn:assume claude-compaction-follows-native-system-events ref=claude-compaction-translation
@@ -133,7 +147,11 @@ function claudeResultFailure(event: ClaudeEvent): string | undefined {
   const result = typeof event.result === 'string' ? event.result : '';
   const nativeFailure = event.is_error === true ||
     (event.subtype !== undefined && event.subtype !== 'success');
-  const legacyOverflow = [...errors, result].find((text) => /prompt is too long/i.test(text));
+  // Exact API-error shape only (trimmed, optional trailing period): a
+  // legitimate reply that merely mentions the phrase must never reclassify.
+  const legacyOverflow = [...errors, result].find(
+    (text) => /^prompt is too long\.?$/i.test(text.trim()),
+  );
   if (!nativeFailure && legacyOverflow === undefined) return undefined;
   if (errors.length > 0) return errors.join('\n');
   if (result.trim() !== '') return result;
@@ -256,6 +274,7 @@ export interface ClaudeTurnTranslator {
 
 export interface ClaudeTranslatorContext {
   sessionId?: string;
+  sessionModel?: string;
   contextWindowMaxTokens?: number;
   contextWindowUsedTokens?: number;
 }
@@ -273,8 +292,12 @@ export function createTurnTranslator(
   let lastLiveContextKey: string | undefined;
   const tools = new Map<string, { name: string; input: unknown }>();
 
+  let sessionModel = context.sessionModel;
+
   const seedContextWindow = (model: string | undefined): void => {
     if (model === undefined) return;
+    sessionModel = model;
+    context.sessionModel = model;
     const seeded = CLAUDE_CONTEXT_WINDOWS.get(model);
     if (seeded !== undefined) {
       contextWindowMaxTokens = seeded;
@@ -316,16 +339,19 @@ export function createTurnTranslator(
           }
           if (event.subtype === 'compact_boundary') {
             const metadata = readCompactionMetadata(event);
-            contextWindowUsedTokens = metadata?.postTokens;
-            if (contextWindowUsedTokens !== undefined) {
-              context.contextWindowUsedTokens = contextWindowUsedTokens;
+            // A boundary without post_tokens re-baselines nothing: keep the
+            // live used count and emit no usage event, so a previously-good
+            // gauge is never clobbered by an incomplete boundary.
+            if (metadata?.postTokens !== undefined) {
+              contextWindowUsedTokens = metadata.postTokens;
+              context.contextWindowUsedTokens = metadata.postTokens;
             }
-            const usage = contextWindowMaxTokens !== undefined && contextWindowUsedTokens !== undefined
+            const pair = contextWindowMaxTokens !== undefined && contextWindowUsedTokens !== undefined
               ? { contextWindowMaxTokens, contextWindowUsedTokens }
-              : {};
-            lastLiveContextKey = contextWindowMaxTokens !== undefined && contextWindowUsedTokens !== undefined
-              ? `${contextWindowMaxTokens}:${contextWindowUsedTokens}`
               : undefined;
+            if (pair !== undefined) {
+              lastLiveContextKey = `${pair.contextWindowMaxTokens}:${pair.contextWindowUsedTokens}`;
+            }
             return [
               {
                 type: 'timeline',
@@ -336,7 +362,9 @@ export function createTurnTranslator(
                   ...(metadata?.preTokens !== undefined && { preTokens: metadata.preTokens }),
                 },
               },
-              { type: 'usage_updated', usage },
+              ...(pair !== undefined && metadata?.postTokens !== undefined
+                ? [{ type: 'usage_updated', usage: pair } satisfies WireEvent]
+                : []),
             ];
           }
           // harn:end claude-compaction-follows-native-system-events
@@ -440,7 +468,8 @@ export function createTurnTranslator(
           const failure = claudeResultFailure(event);
           // harn:end claude-result-errors-follow-native-signals
           // harn:assume normalized-agent-usage-telemetry ref=claude-usage-telemetry
-          contextWindowMaxTokens = reportedContextWindow(event.modelUsage) ?? contextWindowMaxTokens;
+          contextWindowMaxTokens = reportedContextWindow(event.modelUsage, sessionModel) ??
+            contextWindowMaxTokens;
           if (contextWindowMaxTokens !== undefined) {
             context.contextWindowMaxTokens = contextWindowMaxTokens;
           }

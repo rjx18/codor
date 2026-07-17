@@ -1676,6 +1676,15 @@ export function RunMessageView(props: {
           {props.message.body}
         </p>
       )}
+      {/* harn:assume run-failure-evidence-is-surfaced ref=web-run-error-evidence */}
+      {/* Failed/interrupted runs have empty bodies by design — the reason
+          lives on run.error and must render, or failures are silently blank. */}
+      {!running && props.message.run?.error !== undefined && props.message.run.error !== '' && (
+        <p data-testid={`run-${props.message.id}-error`} className="wr-run-body" role="alert">
+          {props.message.run.error}
+        </p>
+      )}
+      {/* harn:end run-failure-evidence-is-surfaced */}
       {collapseTools && (
         <button
           type="button"

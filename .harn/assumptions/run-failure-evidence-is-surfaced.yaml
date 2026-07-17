@@ -1,0 +1,13 @@
+id: run-failure-evidence-is-surfaced
+hash: a-7db0cdc02f9e
+title: Run failure evidence reaches every consumer
+state: active
+statement: When a run settles with error detail, the daemon must persist it as
+  run.error for failed and operator-interrupted completions alike, quoted run
+  references and collaboration round results must fall back to it when final
+  text and body are empty, and web, web-next, the CLI tail, and bridge egress
+  must render it as failure evidence, because a failure whose reason is
+  invisible cannot be acted on by operators or agents.
+depends_on:
+  - failed-run-details-never-route-as-replies
+created_by: ctx-guardrails-fix-round

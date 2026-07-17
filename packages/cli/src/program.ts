@@ -616,6 +616,9 @@ export function createProgram(context: CliContext = {}): Command {
           if (frame.message.kind === 'run') {
             out(formatRunHeader(frame.message, author));
             if (frame.message.body) out(frame.message.body);
+            // harn:assume run-failure-evidence-is-surfaced ref=cli-run-error-evidence
+            if (frame.message.run?.error) out(`error: ${frame.message.run.error}`);
+            // harn:end run-failure-evidence-is-surfaced
           } else {
             out(`#${frame.message.id} @${author} ${frame.message.kind}`);
             if (frame.message.body) out(frame.message.body);

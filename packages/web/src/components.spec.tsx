@@ -337,6 +337,34 @@ describe('RunMessageView', () => {
     );
   });
 
+  // harn:assume run-failure-evidence-is-surfaced ref=web-run-error-regression
+  it('renders a failed run\u2019s error evidence instead of a blank body', () => {
+    const failed: Message = {
+      ...finalizedRun,
+      body: '',
+      run: {
+        status: 'failed',
+        started_ts: TS,
+        ended_ts: TS,
+        tool_calls: 0,
+        events_ref: 'runs/7.jsonl',
+        error: 'Prompt is too long: context window exceeded',
+      },
+    };
+    const html = renderToStaticMarkup(
+      <RunMessageView
+        message={failed}
+        authorHandle="alpha"
+        liveEvents={{ events: [], dropped_count: 0 }}
+        room="eng"
+        token="t"
+      />,
+    );
+    expect(html).toContain('data-testid="run-7-error"');
+    expect(html).toContain('Prompt is too long: context window exceeded');
+  });
+  // harn:end run-failure-evidence-is-surfaced
+
   it('renders the finalized body, status, tokens, and cost in place', () => {
     const html = renderToStaticMarkup(
       <RunMessageView

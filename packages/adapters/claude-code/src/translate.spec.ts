@@ -94,6 +94,58 @@ describe('usage telemetry fixture replay', () => {
     expect(completed(all).agent_usage).not.toHaveProperty('percent');
   });
 
+  // harn:assume context-ceiling-follows-main-model ref=claude-main-model-window-regression
+  it('takes the window override from the session model, never a larger aux model', () => {
+    const translator = createTurnTranslator();
+    translator.push({
+      type: 'system', subtype: 'init', session_id: 'session-x', model: 'claude-opus-4-8',
+    });
+    translator.push({
+      type: 'assistant',
+      message: {
+        model: 'claude-opus-4-8',
+        content: [],
+        usage: { input_tokens: 50_000, cache_read_input_tokens: 100_000 },
+      },
+    });
+    const events = translator.push({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: 'done',
+      usage: { input_tokens: 50_000, cache_read_input_tokens: 100_000, output_tokens: 10 },
+      modelUsage: {
+        'claude-opus-4-8': { contextWindow: 200_000 },
+        'claude-sonnet-5': { contextWindow: 1_000_000 },
+      },
+    });
+    const done = events.find((event) => event.type === 'run.completed');
+    expect(done).toMatchObject({
+      agent_usage: { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 150_000 },
+    });
+  });
+
+  it('keeps the seeded window when multiple aux models report and none match the session', () => {
+    const translator = createTurnTranslator();
+    translator.push({
+      type: 'system', subtype: 'init', session_id: 'session-y', model: 'claude-opus-4-8',
+    });
+    const events = translator.push({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: 'done',
+      usage: { input_tokens: 10, output_tokens: 1 },
+      modelUsage: {
+        'claude-sonnet-5': { contextWindow: 1_000_000 },
+        'claude-haiku-4-5': { contextWindow: 250_000 },
+      },
+    });
+    const done = events.find((event) => event.type === 'run.completed');
+    expect(done).toMatchObject({ agent_usage: { contextWindowMaxTokens: 200_000 } });
+  });
+  // harn:end context-ceiling-follows-main-model
+
   it('carries session and context telemetry across fresh turn translators', () => {
     const context = {};
     const first = createTurnTranslator(context);
@@ -234,6 +286,17 @@ describe('result failure contract', () => {
     expect(completed(all)).toMatchObject({ status: 'failed', error: 'Prompt is too long' });
     expect(completed(all)).not.toHaveProperty('final_text');
   });
+
+  it('never reclassifies a legitimate reply that merely mentions the overflow phrase', () => {
+    const { all } = replay([
+      '{"type":"result","subtype":"success","is_error":false,"result":"Heads up: the prompt is too long for this model, so I truncated it. Done."}',
+    ]);
+    expect(completed(all)).toMatchObject({
+      status: 'completed',
+      final_text: 'Heads up: the prompt is too long for this model, so I truncated it. Done.',
+    });
+    expect(completed(all)).not.toHaveProperty('error');
+  });
 });
 // harn:end claude-result-errors-follow-native-signals
 
@@ -268,6 +331,37 @@ describe('compaction system-message contract', () => {
       },
     ]);
     for (const event of events) expect(WireEventSchema.safeParse(event).success).toBe(true);
+  });
+
+  it('keeps prior live usage when a boundary omits post_tokens instead of blanking the gauge', () => {
+    const translator = createTurnTranslator();
+    translator.push(JSON.stringify({
+      type: 'system',
+      subtype: 'init',
+      session_id: '44444444-4444-4444-8444-444444444444',
+      model: 'claude-haiku-4-5',
+    }));
+    translator.push(JSON.stringify({
+      type: 'assistant',
+      message: { model: 'claude-haiku-4-5', content: [], usage: { input_tokens: 100, cache_read_input_tokens: 119_900 } },
+    }));
+    const boundary = translator.push(JSON.stringify({
+      type: 'system',
+      subtype: 'compact_boundary',
+      compact_metadata: { trigger: 'auto', pre_tokens: 120_000 },
+    }));
+    expect(boundary.filter((event) => event.type === 'usage_updated')).toEqual([]);
+    expect(boundary[0]).toMatchObject({ item: { type: 'compaction', status: 'completed' } });
+    // The live count survives: the next real growth emits from 120k, not from
+    // a blanked gauge.
+    const next = translator.push(JSON.stringify({
+      type: 'assistant',
+      message: { model: 'claude-haiku-4-5', content: [], usage: { input_tokens: 100, cache_read_input_tokens: 129_900 } },
+    }));
+    expect(next.filter((event) => event.type === 'usage_updated')).toEqual([{
+      type: 'usage_updated',
+      usage: { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 130_000 },
+    }]);
   });
 
   it('defaults an unrecognized native trigger to automatic, like paseo', () => {

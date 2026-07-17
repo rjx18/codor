@@ -449,6 +449,11 @@ function RunContent(props: { message: Message; room: string; token: () => string
   // prose at all (e.g. a failure) falls back to the settled final text.
   const hasProse = segments.some((s) => s.kind === 'prose');
   const finalText = props.message.run?.final_text ?? props.message.body;
+  // harn:assume run-failure-evidence-is-surfaced ref=web-next-run-error-evidence
+  // Failed/interrupted runs have empty bodies by design — their reason lives
+  // on run.error and must render, or failures are silently blank.
+  const runError = props.message.run?.error;
+  // harn:end run-failure-evidence-is-surfaced
 
   return (
     <div className="nx-run" data-run-status={props.message.run?.status ?? 'running'}>
@@ -477,6 +482,13 @@ function RunContent(props: { message: Message; room: string; token: () => string
       {!running && !hasProse && finalText.length > 0 && (
         <RunTextBlock messageId={props.message.id} blockId="final" text={finalText} />
       )}
+      {/* harn:assume run-failure-evidence-is-surfaced ref=web-next-run-error-evidence */}
+      {!running && runError !== undefined && runError !== '' && (
+        <p className="nx-field-note is-error" role="alert" data-testid="run-error">
+          {runError}
+        </p>
+      )}
+      {/* harn:end run-failure-evidence-is-surfaced */}
     </div>
   );
 }

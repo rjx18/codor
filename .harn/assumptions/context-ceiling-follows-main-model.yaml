@@ -1,0 +1,13 @@
+id: context-ceiling-follows-main-model
+hash: a-25546a531293
+title: Context ceiling derives from the session's own model
+state: active
+statement: The claude translator must select the terminal context-window
+  override from the modelUsage entry matching the session's current model,
+  falling back to the seeded window when no matching entry exists, and must
+  never widen the ceiling from a different model's entry, because aux and
+  subagent models with larger windows otherwise inflate the denominator while
+  used tokens still reflect the main model.
+depends_on:
+  - normalized-agent-usage-telemetry
+created_by: ctx-guardrails-fix-round
