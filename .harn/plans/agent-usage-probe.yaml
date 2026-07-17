@@ -1,0 +1,74 @@
+id: agent-usage-probe
+title: Probe provider usage APIs with the operator's own CLI credentials to
+  fill the 5h/weekly gauges.
+notes: >-
+  Richard (#341) wants member cards to show mini gauges of how much 5h and
+  weekly capacity is LEFT, not a bare status word - and pointed at
+  loongphy/codex-auth and realiti4/claude-swap for the mechanisms. Research
+  (2026-07-17, both repos read):
+
+  Claude - GET https://api.anthropic.com/api/oauth/usage with Authorization
+  Bearer <access_token from ~/.claude/.credentials.json> and anthropic-beta
+  oauth-2025-04-20; the response carries five_hour and seven_day objects with
+  utilization (percent used) and resets_at.
+
+  Codex - GET https://chatgpt.com/backend-api/wham/usage with Authorization
+  Bearer <access_token from ~/.codex/auth.json> and ChatGPT-Account-Id
+  <account_id from the same file>; the response carries
+  rate_limits.primary_window and secondary_window with used_percent,
+  limit_window_seconds, and reset_at (windows mapped to five_hour /
+  seven_day by their length; unknown lengths keep a minutes-derived name).
+
+  Change. Protocol: HarnessAdapter gains an OPTIONAL probeLimits() returning
+  AgentLimit[]; AgentLimitSchema.status becomes optional (a probe reports
+  utilization and reset, not a status word - nothing is invented). Adapters:
+  claude-code and codex each gain a probe module reading their credential
+  file (silently absent when the file or fields are missing - keychain-only
+  setups degrade to stream-reported limits) and mapping the response as
+  above; HTTP goes through an injectable fetcher so specs never touch the
+  network. Daemon: on boot and every 15 minutes, probe each registered
+  adapter that supports it and land the result on every non-removed agent
+  member of that harness (limits are account-level truth), reusing the
+  existing limits column + member frame path and emitting only on change.
+  Probe failures degrade silently to whatever the stream last reported.
+
+  Security boundary: tokens are read locally and sent ONLY to their own
+  provider's endpoint, never logged, never persisted beyond the request, and
+  never to the switchboard's peers; this matches what the operator's own
+  CLIs already do with the same files.
+
+  Tests: adapter probe specs with a stubbed fetcher pinning the exact
+  request (URL, both headers) and the window mapping incl. nulls; daemon
+  spec with a fake adapter exposing probeLimits proving fan-out to matching
+  members, change-only emission, and silent failure. Gate: protocol +
+  adapters + switchboard suites green; one live probe per adapter against
+  the real endpoints (operator's own credentials, no cost) verified by hand.
+assumptions:
+  reviewed:
+    - id: agent-usage-limits-reported-not-guessed
+      outcome: unchanged
+      reason: Probed windows are still provider-reported truth for this account,
+        refreshed on a timer instead of only mid-turn; absence still renders
+        nothing and no number is ever derived locally.
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/adapters/claude-code/src/limits-probe.ts
+  - packages/adapters/claude-code/src/limits-probe.spec.ts
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/codex/src/limits-probe.ts
+  - packages/adapters/codex/src/limits-probe.spec.ts
+  - packages/adapters/codex/src/adapter.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+anchors:
+  agent-usage-limits-reported-not-guessed:
+    agent-limit-schema:
+      action: change
+      reason: status relaxes to optional; probed reports carry utilization and
+        reset without inventing a status word.
+    member-limits-persisted:
+      action: change
+      reason: The daemon's probe timer lands account-level windows on matching
+        members through the same persistence + frame path.
