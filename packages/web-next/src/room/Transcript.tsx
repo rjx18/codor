@@ -124,20 +124,23 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const canDelete = selfRole === 'owner' || selfRole === 'admin';
   // Retry (failed/interrupted runs) is owner/admin too.
   const canRetry = selfRole === 'owner' || selfRole === 'admin';
+  const selfHandle = selfId !== undefined ? members[selfId]?.handle : undefined;
 
   // Working agents drive the typing indicator. Derived with useMemo — a selector
   // returning a fresh array every snapshot would loop useSyncExternalStore forever.
+  // EVERY working agent shows in the typing bar (richard #431). Running ones
+  // first, then queued, each order stable by handle so the row never reshuffles.
   const workingAgents = useMemo(
-    () => Object.values(members).filter((m) => m.kind === 'agent' && (m.state === 'running' || m.state === 'queued')),
+    () => Object.values(members)
+      .filter((m) => m.kind === 'agent' && (m.state === 'running' || m.state === 'queued'))
+      .sort((left, right) => {
+        if ((left.state === 'running') !== (right.state === 'running')) {
+          return left.state === 'running' ? -1 : 1;
+        }
+        return left.handle.localeCompare(right.handle);
+      }),
     [members],
   );
-  // ONE indicator for the whole room: the most recently started still-running
-  // run names the agent; queued-only work falls back to any working member.
-  const typingAgent = useMemo(() => {
-    if (workingAgents.length === 0) return undefined;
-    const latestRunning = ordered.filter((m) => m.kind === 'run' && m.run?.status === 'running').at(-1);
-    return workingAgents.find((m) => m.id === latestRunning?.author) ?? workingAgents[0];
-  }, [workingAgents, ordered]);
 
   // Arrivals while unpinned drive the jump counter. Only ids above the
   // highwater mark are new — history pages prepend OLD ids and never count.
@@ -276,27 +279,33 @@ export function Transcript(props: { room: string; token: () => string; connectio
                 canPin={canPin}
                 canDelete={canDelete}
                 canRetry={canRetry}
+                viewerId={selfId}
+                viewerHandle={selfHandle}
               />
             );
           })}
-          {typingAgent !== undefined && (
-            // Sticky floor of the scroller: visible at any scroll position,
-            // present only while someone is actually working.
+          {workingAgents.length > 0 && (
+            // Sticky floor of the scroller: visible at any scroll position, one
+            // chip per working agent, present only while someone is working.
             <div className="nx-typing-bar" data-testid="live-activity">
-              <Chip name={typingAgent.handle} accent={memberAccent(typingAgent)} size={24} />
-              <TypingDots label={`@${typingAgent.handle} is working`} />
-              {canStop && typingAgent.state === 'running' && (
-                <button
-                  type="button"
-                  className="nx-typing-stop"
-                  aria-label={`Stop @${typingAgent.handle}`}
-                  data-testid="typing-stop"
-                  title="Stop this run (the agent stays alive)"
-                  onClick={() => props.connection.act({ act: 'interrupt', member_id: typingAgent.id })}
-                >
-                  <Square size={12} aria-hidden="true" />
-                </button>
-              )}
+              {workingAgents.map((agent) => (
+                <span key={agent.id} className="nx-typing-agent" data-testid={`typing-${agent.handle}`}>
+                  <Chip name={agent.handle} accent={memberAccent(agent)} size={24} />
+                  <TypingDots label={`@${agent.handle} is working`} />
+                  {canStop && agent.state === 'running' && (
+                    <button
+                      type="button"
+                      className="nx-typing-stop"
+                      aria-label={`Stop @${agent.handle}`}
+                      data-testid={`typing-stop-${agent.handle}`}
+                      title="Stop this run (the agent stays alive)"
+                      onClick={() => props.connection.act({ act: 'interrupt', member_id: agent.id })}
+                    >
+                      <Square size={12} aria-hidden="true" />
+                    </button>
+                  )}
+                </span>
+              ))}
             </div>
           )}
         </div>
@@ -339,6 +348,8 @@ function TurnBlock(props: {
   canPin: boolean;
   canDelete: boolean;
   canRetry: boolean;
+  viewerId: string | undefined;
+  viewerHandle: string | undefined;
   room: string;
   token: () => string;
   connection: Connection;
@@ -347,6 +358,9 @@ function TurnBlock(props: {
 }) {
   const { message, author } = props;
   const isMobile = useIsMobile();
+  // A message that @-mentions the viewer is highlighted so it stands out.
+  const mentionsMe = props.viewerId !== undefined
+    && message.mentions.some((mention) => mention.member_id === props.viewerId);
 
   if (message.kind === 'system') {
     return (
@@ -406,7 +420,8 @@ function TurnBlock(props: {
     <article
       id={String(message.id)}
       data-testid={message.kind === 'run' ? `run-${message.id}` : `msg-${message.id}`}
-      className={`nx-turn ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''} ${message.pinned === true ? 'is-pinned' : ''}`}
+      data-mentions-me={mentionsMe ? 'true' : undefined}
+      className={`nx-turn ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''} ${message.pinned === true ? 'is-pinned' : ''} ${mentionsMe ? 'is-mentioned' : ''}`}
     >
       {!props.grouped && !isMobile && (
         <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />
@@ -478,7 +493,7 @@ function TurnBlock(props: {
           ? <RunContent message={message} room={props.room} token={props.token} />
           : message.kind === 'ask' || message.kind === 'approval'
             ? <AskCardView message={message} connection={props.connection} />
-            : <MessageProse body={message.body} />}
+            : <MessageProse body={message.body} highlightHandle={mentionsMe ? props.viewerHandle : undefined} />}
       </div>
     </article>
   );
@@ -566,9 +581,25 @@ function SeenTicks(props: {
   );
 }
 
-function MessageProse(props: { body: string }) {
+/** Bold a mention of the viewer's own handle in already-sanitized markdown HTML.
+ *  Only @handle preceded by a non-word/non-path char is wrapped (skips emails). */
+function boldSelfMention(html: string, handle: string): string {
+  const escaped = handle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return html.replace(
+    new RegExp(`(^|[^\\w@/])@(${escaped})\\b`, 'gi'),
+    '$1<strong class="nx-mention-self">@$2</strong>',
+  );
+}
+
+function MessageProse(props: { body: string; highlightHandle?: string }) {
   // renderMarkdown sanitizes: only markdown-produced structure reaches the DOM.
-  const html = useMemo(() => renderMarkdown(props.body), [props.body]);
+  // The self-mention <strong> we add afterwards is our own safe markup.
+  const html = useMemo(() => {
+    const rendered = renderMarkdown(props.body);
+    return props.highlightHandle === undefined
+      ? rendered
+      : boldSelfMention(rendered, props.highlightHandle);
+  }, [props.body, props.highlightHandle]);
   return <div className="nx-prose" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
@@ -670,6 +701,14 @@ function RunContent(props: { message: Message; room: string; token: () => string
           : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} />,
       )}
       {running && <ElapsedSince ts={props.message.ts} />}
+      {/* A terminal run that produced no reply (e.g. interrupted by a restart)
+          reads as a quiet status marker, never a blank bubble. */}
+      {!running && !hasProse && finalText.length === 0
+        && (props.message.run?.status === 'interrupted' || props.message.run?.status === 'failed') && (
+        <p className={`nx-run-status is-${props.message.run.status}`} data-testid={`run-${props.message.id}-status`}>
+          run {props.message.run.status}
+        </p>
+      )}
       {!running && !hasProse && finalText.length > 0 && (
         <RunTextBlock messageId={props.message.id} blockId="final" text={finalText} />
       )}

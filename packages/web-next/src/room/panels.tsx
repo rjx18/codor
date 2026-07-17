@@ -3,7 +3,7 @@ import { Inbox as InboxIcon, PauseCircle, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchMessageHistory, searchMessages } from '@legacy/api.js';
-import { HISTORY_PAGE_SIZE, heldDeliveries, unreadCount, useRoomStore } from '@legacy/state.js';
+import { HISTORY_PAGE_SIZE, heldDeliveries, useRoomStore } from '@legacy/state.js';
 import type { Connection } from '@legacy/ws.js';
 
 import { clockTime } from '../primitives/identity.js';
@@ -81,15 +81,23 @@ export function InboxControl(props: { room: string; connection: Connection; toke
   const members = useRoomStore((s) => s.members);
   const selfId = useRoomStore((s) => s.selfMemberId);
   const messages = useRoomStore((s) => s.messages);
-  const count = useRoomStore((s) => unreadCount(s));
 
+  // Only what actually needs the viewer: an @-mention of them, or a question/
+  // approval addressed to them — not every message that merely reached them.
   const rows = useMemo(() => {
     const self = selfId !== undefined ? members[selfId] : undefined;
     if (!self) return [];
     return Object.values(inbox)
       .filter((d) => d.recipient === self.id && d.state === 'consumed' && d.read_ts === undefined)
+      .filter((d) => {
+        const message = messages[d.message_id];
+        if (message === undefined) return false;
+        return message.kind === 'ask' || message.kind === 'approval'
+          || message.mentions.some((mention) => mention.member_id === self.id);
+      })
       .sort((a, b) => b.message_id - a.message_id);
-  }, [inbox, members, selfId]);
+  }, [inbox, members, selfId, messages]);
+  const count = rows.length;
 
   return (
     <span className="nx-inbox-wrap">
@@ -108,6 +116,10 @@ export function InboxControl(props: { room: string; connection: Connection; toke
           members={members}
           messages={messages}
           onClose={() => setOpen(false)}
+          onMarkAllRead={() => {
+            for (const delivery of rows) props.connection.act({ act: 'mark_read', delivery_id: delivery.id });
+            setOpen(false);
+          }}
           onOpenRow={(delivery) => {
             props.connection.act({ act: 'mark_read', delivery_id: delivery.id });
             setOpen(false);
@@ -124,6 +136,7 @@ function InboxPanel(props: {
   members: Record<string, Member>;
   messages: Record<number, Message>;
   onClose: () => void;
+  onMarkAllRead: () => void;
   onOpenRow: (delivery: Delivery) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -147,6 +160,11 @@ function InboxPanel(props: {
     <div ref={panelRef} className="nx-inbox" role="dialog" aria-label="Inbox" data-testid="inbox-panel">
       <header className="nx-inbox-head">
         <strong>Needs you</strong>
+        {props.rows.length > 0 && (
+          <button className="nx-inbox-clear" data-testid="inbox-mark-all" onClick={props.onMarkAllRead}>
+            Mark all read
+          </button>
+        )}
         <IconButton icon={X} label="Close inbox" size="sm" variant="quiet" onClick={props.onClose} />
       </header>
       {props.rows.length === 0 ? (
