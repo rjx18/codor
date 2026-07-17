@@ -25,6 +25,57 @@ async function postToFable(page: Page, body: string): Promise<void> {
   await input.press('Enter');
 }
 
+test.describe('one-line tool rows', () => {
+  test('expanded batch rows carry icons, tinted counts, and a done mark', async ({ page }) => {
+    await openRoom(page);
+    const batch = page.getByTestId('tool-batch');
+    await batch.locator('.nx-batch-line').click();
+    const rows = batch.locator('.nx-tool');
+    await expect(rows).toHaveCount(2);
+
+    // The shell row: terminal glyph, verbatim command, a done check — no card.
+    const shell = rows.filter({ hasText: 'pnpm test --filter auth' });
+    await expect(shell.locator('.nx-tool-icon')).toBeVisible();
+    await expect(shell.locator('.nx-tool-mark svg')).toHaveAttribute('aria-label', 'done');
+    await expect(shell).toHaveCSS('border-style', 'none');
+
+    // The edit row: filename with the ± split into tinted add/del spans.
+    const edit = rows.filter({ hasText: 'session.ts' });
+    await expect(edit.locator('.nx-stat-add')).toHaveText('+2');
+    await expect(edit.locator('.nx-stat-del')).toHaveText('−1');
+    const addColor = await edit.locator('.nx-stat-add').evaluate((n) => getComputedStyle(n).color);
+    const delColor = await edit.locator('.nx-stat-del').evaluate((n) => getComputedStyle(n).color);
+    expect(addColor).not.toBe(delColor);
+
+    // The row still opens the inspector.
+    await edit.click();
+    await expect(page.getByTestId('run-inspector')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('run-inspector')).toBeHidden();
+  });
+
+  test('a single-tool batch renders the line directly with its status mark', async ({ page }) => {
+    // One error-result tool inside a run that still completes → a direct row
+    // (no "Ran 1 tool" wrapper) wearing ✕, without killing the agent.
+    await enqueue([{
+      kind: 'complete',
+      final_text: 'the check failed',
+      items: [
+        { type: 'run.item', item_type: 'tool_call', payload: { call_id: 'f1', tool: 'Bash', title: 'npm run typecheck', input: { command: 'npm run typecheck' } } },
+        { type: 'run.item', item_type: 'tool_result', payload: { call_id: 'f1', status: 'error', output_text: 'tsc: 3 errors' } },
+      ],
+    }]);
+    await openRoom(page);
+    await postToFable(page, '@fable run the typecheck');
+    const run = page.locator('[data-testid^="run-"]', { hasText: 'npm run typecheck' });
+    // No batch wrapper around a lone tool.
+    await expect(run.getByTestId('tool-batch')).toHaveCount(0);
+    const row = run.locator('.nx-tool', { hasText: 'npm run typecheck' });
+    await expect(row).toHaveClass(/is-error/);
+    await expect(row.locator('.nx-tool-mark svg')).toHaveAttribute('aria-label', 'failed');
+  });
+});
+
 test.describe('jump control', () => {
   test('arrow-only when merely scrolled up; counts only arrivals while unpinned', async ({ page }) => {
     await openRoom(page);

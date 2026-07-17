@@ -1,5 +1,6 @@
 import type { Delivery, Member, Message } from '@codor/protocol';
-import { ArrowDown, Check, CheckCheck, ChevronRight, Clock3, Copy, Quote, TerminalSquare } from 'lucide-react';
+import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Pencil, Quote, Search, TerminalSquare, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Connection } from '@legacy/ws.js';
@@ -494,13 +495,11 @@ function ElapsedSince(props: { ts: string }) {
 }
 
 /** One aggregate line per tool batch — "Ran 4 tools · wrote 3 files +34 −76 ›" —
- *  expanding to the bordered cards. Counts update live while the batch runs. */
+ *  expanding to the one-line rows. Counts update live while the batch runs. */
 function ToolBatch(props: { rows: RunRow[] }) {
   const [expanded, setExpanded] = useState(false);
-  const isMobile = useIsMobile();
-  // On the phone every batch is a quiet disclosure line — no bare cards
-  // (2a re-composition); desktop shows a lone tool's card directly.
-  if (props.rows.length === 1 && !isMobile) return <ToolCard row={props.rows[0]!} />;
+  // A lone tool is its own line on every form factor — no "Ran 1 tool" wrapper.
+  if (props.rows.length === 1) return <ToolRow row={props.rows[0]!} />;
 
   const active = props.rows.some((row) => row.status === 'running');
   const diffs = props.rows.filter((row) => row.diff?.unified !== undefined);
@@ -531,16 +530,37 @@ function ToolBatch(props: { rows: RunRow[] }) {
       </button>
       {expanded && (
         <div className="nx-batch-cards">
-          {props.rows.map((row) => <ToolCard key={row.eventIndex} row={row} />)}
+          {props.rows.map((row) => <ToolRow key={row.eventIndex} row={row} />)}
         </div>
       )}
     </div>
   );
 }
 
-function ToolCard(props: { row: RunRow }) {
+const ROW_ICONS: Record<RunRow['icon'], LucideIcon> = {
+  terminal: TerminalSquare,
+  edit: Pencil,
+  search: Search,
+  web: Globe,
+  // No dedicated glyph in the batch-B set — task/other and commit fold into bot.
+  commit: Bot,
+  reasoning: Bot,
+  text: Bot,
+  tool: Bot,
+  generic: Bot,
+};
+
+/** The presenter's diff label is "+A −B file"; split the tinted counts back out. */
+const DIFF_LABEL = /^\+(\d+)\s−(\d+)\s(.*)$/;
+
+/** One line per tool: icon · what it did (± tinted) · a right-aligned ✓/✕ or
+ *  spinner. The whole row opens the inspector — no bordered card anywhere. */
+function ToolRow(props: { row: RunRow }) {
   const [inspecting, setInspecting] = useState(false);
   const compact = compactRunRow(props.row);
+  const Icon = ROW_ICONS[compact.icon];
+  const diff = DIFF_LABEL.exec(compact.label);
+  // Modal keeps its textual status; the row itself only wears the mark.
   const status = props.row.status === 'running'
     ? 'Running…'
     : props.row.status === 'error'
@@ -550,18 +570,28 @@ function ToolCard(props: { row: RunRow }) {
     <>
       <button
         type="button"
-        className={`nx-tool ${props.row.status === 'error' ? 'is-error' : ''}`}
+        className={`nx-tool is-${props.row.status}`}
         data-row-kind="tool"
         aria-label={`Inspect ${props.row.title}`}
         onClick={() => setInspecting(true)}
       >
-        <span className="nx-tool-head">
-          <TerminalSquare size={15} aria-hidden="true" />
-          <span className="nx-tool-name">{props.row.title}</span>
-          <span className="nx-tool-spacer" />
-          <span className={`nx-tool-status is-${props.row.status}`}>{status}</span>
+        <Icon className="nx-tool-icon" size={14} aria-hidden="true" />
+        <span className={`nx-tool-label ${compact.mono ? 'is-mono' : ''}`}>
+          {diff !== null ? (
+            <>
+              <span className="nx-stat-add">+{diff[1]}</span>{' '}
+              <span className="nx-stat-del">−{diff[2]}</span>{' '}
+              {diff[3]}
+            </>
+          ) : compact.label}
         </span>
-        <span className={`nx-tool-body ${compact.mono ? 'is-mono' : ''}`}>{compact.label}</span>
+        <span className={`nx-tool-mark is-${props.row.status}`}>
+          {props.row.status === 'running'
+            ? <LoaderCircle className="nx-spin" size={13} aria-label="running" />
+            : props.row.status === 'error'
+              ? <X size={13} aria-label="failed" />
+              : <Check size={13} aria-label="done" />}
+        </span>
       </button>
       {inspecting && (
         // The card re-renders as live events land, so an open inspector follows

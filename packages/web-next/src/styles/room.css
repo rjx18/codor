@@ -413,37 +413,43 @@
 .nx-run-block:hover .nx-run-block-actions,
 .nx-run-block:focus-within .nx-run-block-actions { opacity: 1; }
 
+/* One-line tool rows: no card — icon · what it did · a right-aligned mark. */
 .nx-tool {
-  border: 1px solid var(--c-line);
-  border-radius: var(--r-card);
-  background: var(--c-raised);
-  padding: var(--sp-2) var(--sp-3);
-}
-.nx-tool.is-error { border-color: color-mix(in srgb, var(--c-error) 35%, transparent); }
-.nx-tool-head {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+  width: 100%;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: none;
+  text-align: left;
   color: var(--c-secondary);
+  transition: background-color var(--m-fast) var(--m-ease);
 }
-.nx-tool-name {
+.nx-tool:hover { background: var(--c-muted); color: var(--c-ink); }
+.nx-tool-icon { flex: none; color: var(--c-faded); }
+.nx-tool.is-running .nx-tool-icon { color: var(--c-live-text); }
+.nx-tool-label {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: var(--t-caption-strong);
+  font: var(--t-caption);
 }
-.nx-tool-spacer { flex: 1; }
+.nx-tool-label.is-mono { font: var(--t-mono-small); }
+.nx-stat-add { color: var(--c-diff-add); }
+.nx-stat-del { color: var(--c-diff-del); }
+.nx-tool-mark { flex: none; display: inline-flex; color: var(--c-faded); }
+.nx-tool-mark.is-ok { color: var(--c-live-text); }
+.nx-tool-mark.is-error { color: var(--c-error-text); }
+.nx-tool-mark.is-running { color: var(--c-faded); }
+
+/* Inspector modal keeps a textual status pill. */
 .nx-tool-status { flex: none; font: var(--t-caption); color: var(--c-faded); }
 .nx-tool-status.is-running { color: var(--c-live-text); }
 .nx-tool-status.is-error { color: var(--c-error-text); }
-.nx-tool-body {
-  margin-top: 2px;
-  font: var(--t-caption);
-  color: var(--c-secondary);
-  overflow-wrap: anywhere;
-}
-.nx-tool-body.is-mono { font: var(--t-mono-small); }
 
 /* Tool batch: the collapsed aggregate line and its expanded card stack. */
 .nx-batch {
@@ -1187,10 +1193,6 @@
   opacity: 0.5;
 }
 
-.nx-tool { width: 100%; text-align: left; display: block; }
-.nx-tool .nx-tool-head { display: flex; }
-.nx-tool .nx-tool-body { display: block; }
-.nx-tool:hover { border-color: var(--c-line-strong); }
 
 .nx-inspect-head {
   display: flex;
