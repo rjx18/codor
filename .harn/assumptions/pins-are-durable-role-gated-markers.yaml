@@ -2,7 +2,7 @@ id: pins-are-durable-role-gated-markers
 hash: a-9f8c18dfa3a7
 title: A pin is a durable message flag only owner or admin humans may flip,
   synced like any message change
-state: active
+state: retired
 statement: Pinning sets a boolean on the message row through the room change
   log, so live frames and reconnect sync agree on it forever; only human members
   with role owner or admin may flip it, agents and observers are refused,
@@ -10,3 +10,4 @@ statement: Pinning sets a boolean on the message row through the room change
   never re-routes deliveries, alters run journals, or affects message ids.
 depends_on: []
 created_by: message-pinning
+retired_by: pins-statement-truth-correction

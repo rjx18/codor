@@ -1,38 +1,35 @@
 id: pins-statement-truth-correction
 title: Correct the pins assumption truth to carry the tombstone refusal clause.
-notes: >-
-  Bookkeeping correction, no behavior change. The polish round
-  (pin-strip-hydration-and-guards, applied 2026-07-17) added the
-  daemon-side guard refusing to pin a deleted message and declared the
-  amended statement via reviewed outcome changed - but harn apply does not
-  propagate statement text through reviewed, so the recorded
-  pins-are-durable-role-gated-markers statement still lacks the clause the
-  code and tests enforce. Assumption truth must not lag the code. Harn
-  refuses recreating an id that exists, so the stale assumption retires
-  and the contract returns under pins-are-durable-owner-admin-markers with
-  the full amended statement. The only source change is the two anchor
-  comment lines in daemon.ts renaming the assumption id; the anchor ref
-  (pin-message-contract) and the guarded code are untouched.
+notes: Bookkeeping correction, no behavior change. The polish round
+  (pin-strip-hydration-and-guards, applied 2026-07-17) added the daemon-side
+  guard refusing to pin a deleted message and declared the amended statement via
+  reviewed outcome changed - but harn apply does not propagate statement text
+  through reviewed, so the recorded pins-are-durable-role-gated-markers
+  statement still lacks the clause the code and tests enforce. Assumption truth
+  must not lag the code. Harn refuses recreating an id that exists, so the stale
+  assumption retires and the contract returns under
+  pins-are-durable-owner-admin-markers with the full amended statement. The only
+  source change is the two anchor comment lines in daemon.ts renaming the
+  assumption id; the anchor ref (pin-message-contract) and the guarded code are
+  untouched.
 assumptions:
   retire:
     - id: pins-are-durable-role-gated-markers
-      reason: The statement predates the tombstone refusal the code now
-        enforces; the contract continues under
-        pins-are-durable-owner-admin-markers with the clause included.
+      reason: The statement predates the tombstone refusal the code now enforces; the
+        contract continues under pins-are-durable-owner-admin-markers with the
+        clause included.
   create:
     - id: pins-are-durable-owner-admin-markers
-      title: A pin is a durable message flag only owner or admin humans may
-        flip, synced like any message change
-      statement: Pinning sets a boolean on the message row through the room
-        change log, so live frames and reconnect sync agree on it forever;
-        only human members with role owner or admin may flip it, agents and
-        observers are refused, a deleted message cannot be pinned,
-        re-flipping to the same value changes nothing and emits nothing, and
-        pinning never re-routes deliveries, alters run journals, or affects
-        message ids.
-      reason: >-
-        Truth correction: the polish round's guard made the tombstone
-        refusal real in code and tests; the recorded statement must say so.
+      title: A pin is a durable message flag only owner or admin humans may flip,
+        synced like any message change
+      statement: Pinning sets a boolean on the message row through the room change
+        log, so live frames and reconnect sync agree on it forever; only human
+        members with role owner or admin may flip it, agents and observers are
+        refused, a deleted message cannot be pinned, re-flipping to the same
+        value changes nothing and emits nothing, and pinning never re-routes
+        deliveries, alters run journals, or affects message ids.
+      reason: "Truth correction: the polish round's guard made the tombstone refusal
+        real in code and tests; the recorded statement must say so."
       depends_on: []
 files:
   - packages/switchboard/src/daemon.ts
@@ -40,10 +37,12 @@ anchors:
   pins-are-durable-role-gated-markers:
     pin-message-contract:
       action: remove
-      reason: The old-id anchor comments disappear as they rename to the
-        recreated assumption; the guarded code inside is untouched.
+      reason: The old-id anchor comments disappear as they rename to the recreated
+        assumption; the guarded code inside is untouched.
   pins-are-durable-owner-admin-markers:
     pin-message-contract:
       action: change
-      reason: The anchor comment lines in daemon.ts rename the assumption id
-        to the recreated one; the guarded code inside is untouched.
+      reason: The anchor comment lines in daemon.ts rename the assumption id to the
+        recreated one; the guarded code inside is untouched.
+applied:
+  applied_at: 2026-07-17T16:25:19.362Z

@@ -805,7 +805,7 @@ export class Daemon {
     return updated;
   }
 
-  // harn:assume pins-are-durable-role-gated-markers ref=pin-message-contract
+  // harn:assume pins-are-durable-owner-admin-markers ref=pin-message-contract
   /**
    * Pin or unpin a message. Only human owners/admins may flip it — the server's
    * capability gate enforces the role, and this refuses non-humans/underprivileged
@@ -829,7 +829,7 @@ export class Daemon {
     this.emitMessage(room, updated);
     return updated;
   }
-  // harn:end pins-are-durable-role-gated-markers
+  // harn:end pins-are-durable-owner-admin-markers
 
   // harn:assume deleted-messages-are-purged-tombstones ref=delete-message-contract
   /**
