@@ -20,8 +20,12 @@ notes: >-
   HumanCapability automatically (the type derives from the Act union), so
   CAPABILITY_MINIMUM_ROLE - a total record - gains a pin_message: admin row
   (owner+admin allowed via ROLE_RANK; agents stay refused because
-  AGENT_CAPABILITIES does not gain the act). Nothing about pinning re-routes
-  deliveries or touches run journals.
+  AGENT_CAPABILITIES does not gain the act). Mirroring ack, the pinned
+  column also lands in the base messages CREATE TABLE and rides the
+  postMessage INSERT (new rows default unpinned), and the pin_message
+  branch joins the act dispatch inside the shared ws listener - three
+  anchored regions crossed mechanically without changing their contracts.
+  Nothing about pinning re-routes deliveries or touches run journals.
 
   Web-next (harnignored, same batch): hover pin/unpin action on message
   meta; a pinned strip above the transcript listing pinned messages
@@ -49,6 +53,18 @@ assumptions:
       outcome: unchanged
       reason: Pinning mutates a flag on an existing message; ids and paging are
         untouched.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: pin_message is one more branch in the act dispatch both
+        transports share; local and remote stay the same protocol.
+    - id: collaboration-groups-are-durable-state
+      outcome: unchanged
+      reason: The messages table gains an additive defaulted column, mirroring
+        ack; group, round, and slot durability are untouched.
+    - id: message-id-txn-allocation
+      outcome: unchanged
+      reason: The INSERT carries one more constant column; id allocation stays
+        inside the same transaction, dense and monotonic.
   create:
     - id: pins-are-durable-role-gated-markers
       title: A pin is a durable message flag only owner or admin humans may
@@ -85,3 +101,20 @@ anchors:
       reason: CAPABILITY_MINIMUM_ROLE is a total record over HumanCapability,
         so the new act forces a pin_message row (minimum role admin) inside
         this anchor. The gate rule itself is unchanged.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: The entire act dispatch lives inside this anchor, so the
+        pin_message branch necessarily touches it. Both transports keep the
+        identical protocol.
+  collaboration-groups-are-durable-state:
+    collaboration-store-schema:
+      action: change
+      reason: The messages CREATE TABLE gains pinned INTEGER NOT NULL
+        DEFAULT 0 next to ack; the migration ALTER outside the anchor covers
+        pre-existing databases.
+  message-id-txn-allocation:
+    message-id-allocation:
+      action: change
+      reason: The postMessage INSERT names the new pinned column with a
+        constant 0, mirroring ack; allocation logic is untouched.
