@@ -328,6 +328,16 @@
 }
 .nx-turn:target .nx-turn-main { background: var(--c-warn-tint); border-radius: var(--r-pill); }
 
+/* A message that @-mentions the viewer: a warm highlight + bold handle so it's
+   easy to spot. --c-warn-tint carries --c-body at AA in both themes. */
+.nx-turn.is-mentioned .nx-turn-main {
+  background: var(--c-warn-tint);
+  border-radius: var(--r-card);
+  padding: var(--sp-2) var(--sp-3);
+  box-shadow: inset 3px 0 0 var(--c-warn);
+}
+.nx-mention-self { font-weight: 700; color: var(--c-warn-text); }
+
 .nx-turn-main {
   flex: 1;
   min-width: 0;
@@ -363,6 +373,15 @@
   overflow-wrap: anywhere;
 }
 .nx-prose.is-dim { color: var(--c-faded); }
+
+/* Quiet marker for a terminal run that produced no reply. */
+.nx-run-status {
+  margin: 0;
+  font: var(--t-caption);
+  font-style: italic;
+  color: var(--c-faded);
+}
+.nx-run-status.is-failed { color: var(--c-error-text); }
 
 /* Deletion tombstone: the body is gone; a quiet italic marker holds its place. */
 .nx-deleted {
@@ -608,16 +627,23 @@
 .nx-typing-stop:hover { background: var(--c-error-tint); }
 .nx-typing-stop { width: 22px; height: 22px; }
 
-/* The one typing indicator: a pill stuck to the scroller's floor, so it reads
-   as sitting just above the composer no matter where the reader scrolled. */
+/* The typing indicators stick to the scroller's floor, reading as sitting just
+   above the composer at any scroll — one pill per working agent, wrapping. */
 .nx-typing-bar {
   position: sticky;
   bottom: 0;
   z-index: 5;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
   align-self: flex-start;
+  max-width: 100%;
+}
+.nx-typing-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
   padding: 4px 12px 4px 4px;
   border: 1px solid var(--c-line);
   border-radius: var(--r-full);
@@ -768,11 +794,17 @@
 .nx-inbox-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--sp-2);
   padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
   border-bottom: 1px solid var(--c-line);
   font: var(--t-ui-strong);
 }
+.nx-inbox-clear {
+  margin-left: auto;
+  font: var(--t-caption-strong);
+  color: var(--c-link);
+}
+.nx-inbox-clear:hover { color: var(--c-link-hover); text-decoration: underline; }
 .nx-inbox-empty {
   margin: 0;
   padding: var(--sp-4);

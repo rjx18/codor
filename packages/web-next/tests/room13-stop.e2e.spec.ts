@@ -50,7 +50,7 @@ test.describe('agent stop control', () => {
     await startFableWorking(page);
     // fable's is the most-recently-started run, so the chip names fable.
     await expect(page.locator('[aria-label="@fable is working"]')).toBeVisible();
-    const chipStop = page.getByTestId('typing-stop');
+    const chipStop = page.getByTestId('typing-stop-fable');
     await expect(chipStop).toBeVisible();
     await chipStop.click();
     // fable left the chip; it falls back to the still-running scout.
@@ -62,7 +62,7 @@ test.describe('agent stop control', () => {
     await openRoom(page, VIEWER_ROOM);
     await expect(page.getByTestId('live-activity')).toBeVisible(); // scout is working
     await expect(page.locator('[data-testid$="-stop"]')).toHaveCount(0);
-    await expect(page.getByTestId('typing-stop')).toHaveCount(0);
+    await expect(page.locator('[data-testid^="typing-stop-"]')).toHaveCount(0);
   });
 
   test('the working state with stop controls is axe-clean', async ({ page }) => {
