@@ -92,12 +92,22 @@ describe('the registry wrapper preserves the whole adapter contract', () => {
     expect(catalog.models).toContain('opus');
   });
 
+  it('forwards peekContextUsage so production gauges can seed', async () => {
+    // The seeding sweep only ever sees WRAPPED adapters; a dropped member
+    // means every gauge silently stays empty (this exact bug shipped).
+    const adapters = await loadAdapterRegistry();
+    const claude = adapters.find((adapter) => adapter.id === 'claude-code')!;
+    expect(claude.peekContextUsage).toBeTypeOf('function');
+    await expect(claude.peekContextUsage!('no-such-session-ref')).resolves.toBeUndefined();
+  });
+
   it('carries every declared member of the contract through the wrapper', async () => {
     // Guards the next member somebody adds to HarnessAdapter and forgets here.
     const [wrapped] = await loadAdapterRegistry();
     for (const member of [
       'id', 'capabilities', 'spawn', 'attach', 'deliver',
       'respondInteraction', 'interrupt', 'discoverSessions', 'listModels',
+      'peekContextUsage',
     ]) {
       expect(wrapped, `wrapper must carry ${member}`).toHaveProperty(member);
     }

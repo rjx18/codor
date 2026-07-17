@@ -1,0 +1,30 @@
+id: ctx-guardrails-peek-wrapper-fix
+title: Registry wrapper must forward peekContextUsage
+notes: Production loads adapters through withSpawnValidation, which rebuilds the
+  adapter object member by member; peekContextUsage was not forwarded, so the
+  daemon's seeding sweep saw undefined on every real adapter and no gauge was
+  ever seeded - exactly the vanish-not-degrade failure the wrapper's own comment
+  (and the adapter-wrappers-preserve-the-whole-contract assumption) warns about.
+  Forward the optional method like listModels; regression proves a wrapped
+  adapter still peeks.
+assumptions:
+  reviewed:
+    - id: adapter-wrappers-preserve-the-whole-contract
+      outcome: unchanged
+      reason: The fix fulfills the assumption for the newest optional member.
+    - id: context-peek-reads-session-artifacts
+      outcome: unchanged
+      reason: Peek behavior untouched; it is now reachable in production.
+files:
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+anchors:
+  adapter-wrappers-preserve-the-whole-contract:
+    registry-wrapper-completeness:
+      action: change
+      reason: Forward the optional peekContextUsage member.
+    registry-wrapper-regression:
+      action: change
+      reason: Wrapped-adapter peek forwarding regression.
+applied:
+  applied_at: 2026-07-17T13:20:23.189Z
