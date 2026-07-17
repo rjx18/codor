@@ -2,103 +2,100 @@ id: message-deletion
 title: Delete messages - an owner/admin purge that leaves a durable tombstone.
 notes: >-
   P9 piece two (design confirmed by Richard in #415: "delete just has a
-  [deleted]"). Operators need to remove mistaken or sensitive chat messages;
-  the body must actually leave the store, but ids, ordering, and attribution
-  must survive so history and permalinks stay coherent.
+  [deleted]"). Operators need to remove mistaken or sensitive chat messages; the
+  body must actually leave the store, but ids, ordering, and attribution must
+  survive so history and permalinks stay coherent.
 
   Change. Protocol: Message gains deleted?: boolean (absent means live -
   additive, old rows untouched) and the Act union gains {act: delete_message,
   message_id}. Only chat-kind messages are deletable in v1: run messages are
   journal evidence and system rows are daemon speech; both are refused with a
-  clear error. Store: messages gain a deleted INTEGER NOT NULL DEFAULT 0
-  column (CREATE TABLE next to pinned, plus idempotent ALTER migration,
-  mirroring the pinned/ack pattern), and deleteMessage(room, id) purges the
-  row in place through the change log - body set to the empty string,
+  clear error. Store: messages gain a deleted INTEGER NOT NULL DEFAULT 0 column
+  (CREATE TABLE next to pinned, plus idempotent ALTER migration, mirroring the
+  pinned/ack pattern), and deleteMessage(room, id) purges the row in place
+  through the change log - body set to the empty string,
   mentions/refs/ledger_refs/ask/origin nulled, deleted set, pinned cleared (a
-  tombstone cannot stay pinned), same id, new seq. messageFromRow reads the
-  flag back. The purge is irreversible by design; there is no undelete act.
-  Daemon: deleteMessage(room, messageId, byMemberId) - human owner/admin only
-  (defensive double-gate like pinMessage), idempotent when already deleted
-  (emits nothing), emits the tombstone message frame, and cancels this
-  message's still-pending deliveries (queued or held) so purged content is
-  never delivered later; already-consumed deliveries are history and keep
-  their snapshots (delivery-payload-snapshotted stands - operators should
-  know a delivered copy may already sit in an agent context). Deletion never
-  renumbers messages or touches run journals. Server: the ws act dispatch
-  routes delete_message like the other room acts. Authorization: the derived
-  HumanCapability forces a delete_message row (minimum role admin) in
-  CAPABILITY_MINIMUM_ROLE; AGENT_CAPABILITIES does not gain the act, so
-  agents stay refused. Same three mechanical anchor crossings as pinning:
-  the shared ws listener dispatch, the base messages CREATE TABLE, and the
-  postMessage INSERT naming the new column with a constant 0.
+  tombstone cannot stay pinned), same id, new seq. messageFromRow reads the flag
+  back. The purge is irreversible by design; there is no undelete act. Daemon:
+  deleteMessage(room, messageId, byMemberId) - human owner/admin only (defensive
+  double-gate like pinMessage), idempotent when already deleted (emits nothing),
+  emits the tombstone message frame, and cancels this message's still-pending
+  deliveries (queued or held) so purged content is never delivered later;
+  already-consumed deliveries are history and keep their snapshots
+  (delivery-payload-snapshotted stands - operators should know a delivered copy
+  may already sit in an agent context). Deletion never renumbers messages or
+  touches run journals. Server: the ws act dispatch routes delete_message like
+  the other room acts. Authorization: the derived HumanCapability forces a
+  delete_message row (minimum role admin) in CAPABILITY_MINIMUM_ROLE;
+  AGENT_CAPABILITIES does not gain the act, so agents stay refused. Same three
+  mechanical anchor crossings as pinning: the shared ws listener dispatch, the
+  base messages CREATE TABLE, and the postMessage INSERT naming the new column
+  with a constant 0.
 
   Web-next (harnignored, same batch): hover delete action (owner/admin only)
   with a confirm step - this one is destructive, unlike pin; tombstone rows
   render an italic "[deleted]" placeholder keeping author and timestamp; a
   deleted message vanishes from the pinned strip (its pin was cleared).
 
-  Tests: store - purge round-trip proves body and payload columns are gone
-  from the row while id/author/ts survive, migration on a pre-column db,
-  pinned cleared on delete; daemon - admin deletes with tombstone frame
-  observed, member/observer/agent refused, run and system kinds refused,
-  idempotent re-delete emits nothing, a queued delivery of the deleted
-  message never reaches its agent while a consumed one is untouched; server
-  ws e2e through the act path; web-next e2e - confirm flow, tombstone
-  rendering, pinned strip drop, axe. Gate: protocol + switchboard suites
-  green; web-next unit + playwright green.
+  Tests: store - purge round-trip proves body and payload columns are gone from
+  the row while id/author/ts survive, migration on a pre-column db, pinned
+  cleared on delete; daemon - admin deletes with tombstone frame observed,
+  member/observer/agent refused, run and system kinds refused, idempotent
+  re-delete emits nothing, a queued delivery of the deleted message never
+  reaches its agent while a consumed one is untouched; server ws e2e through the
+  act path; web-next e2e - confirm flow, tombstone rendering, pinned strip drop,
+  axe. Gate: protocol + switchboard suites green; web-next unit + playwright
+  green.
 assumptions:
   reviewed:
     - id: roles-gate-human-acts-not-agents
       outcome: unchanged
-      reason: delete_message joins the role-gated acts with a matrix row at
-        minimum role admin; agents remain unable to delete regardless of
-        policy.
+      reason: delete_message joins the role-gated acts with a matrix row at minimum
+        role admin; agents remain unable to delete regardless of policy.
     - id: changelog-covers-every-visible-entity
       outcome: unchanged
-      reason: The purge is a message change appended to the room change log,
-        so live frames and reconnect sync both carry the tombstone.
+      reason: The purge is a message change appended to the room change log, so live
+        frames and reconnect sync both carry the tombstone.
     - id: permalink-ids-stable
       outcome: unchanged
-      reason: Deletion tombstones the row in place; ids, ordering, and paging
-        are untouched, and a permalink to a deleted message resolves to its
+      reason: Deletion tombstones the row in place; ids, ordering, and paging are
+        untouched, and a permalink to a deleted message resolves to its
         tombstone.
     - id: delivery-payload-snapshotted
       outcome: unchanged
-      reason: Pending deliveries of the deleted message are cancelled before
-        delivery; consumed deliveries keep their snapshots - deletion does
-        not rewrite delivery history.
+      reason: Pending deliveries of the deleted message are cancelled before delivery;
+        consumed deliveries keep their snapshots - deletion does not rewrite
+        delivery history.
     - id: unix-socket-same-protocol
       outcome: unchanged
-      reason: delete_message is one more branch in the act dispatch both
-        transports share; local and remote stay the same protocol.
+      reason: delete_message is one more branch in the act dispatch both transports
+        share; local and remote stay the same protocol.
     - id: collaboration-groups-are-durable-state
       outcome: unchanged
-      reason: The messages table gains an additive defaulted column, mirroring
-        pinned; group, round, and slot durability are untouched.
+      reason: The messages table gains an additive defaulted column, mirroring pinned;
+        group, round, and slot durability are untouched.
     - id: message-id-txn-allocation
       outcome: unchanged
-      reason: The INSERT carries one more constant column; id allocation stays
-        inside the same transaction, dense and monotonic.
+      reason: The INSERT carries one more constant column; id allocation stays inside
+        the same transaction, dense and monotonic.
     - id: pins-are-durable-role-gated-markers
       outcome: unchanged
-      reason: Deleting a pinned message clears its pin through the same store
-        mutation contract; pinning semantics for live messages are untouched.
+      reason: Deleting a pinned message clears its pin through the same store mutation
+        contract; pinning semantics for live messages are untouched.
   create:
     - id: deleted-messages-are-purged-tombstones
-      title: Deletion purges a chat message body in place, leaving a durable
-        tombstone only owner or admin humans may create
-      statement: Deleting a message empties its body and payload columns and
-        sets a durable deleted flag on the same row through the room change
-        log, keeping id, author, kind, and timestamp so ordering, attribution,
-        and permalinks survive; only human members with role owner or admin
-        may delete, agents and observers are refused, only chat-kind messages
-        qualify (run and system messages are refused), re-deleting is a
-        silent no-op, still-pending deliveries of the message are cancelled
-        while consumed deliveries keep their snapshots, and there is no
-        undelete.
-      reason: >-
-        P9 piece two (#415): operators need to remove mistaken or sensitive
-        messages, with the body genuinely gone but history coherent.
+      title: Deletion purges a chat message body in place, leaving a durable tombstone
+        only owner or admin humans may create
+      statement: Deleting a message empties its body and payload columns and sets a
+        durable deleted flag on the same row through the room change log,
+        keeping id, author, kind, and timestamp so ordering, attribution, and
+        permalinks survive; only human members with role owner or admin may
+        delete, agents and observers are refused, only chat-kind messages
+        qualify (run and system messages are refused), re-deleting is a silent
+        no-op, still-pending deliveries of the message are cancelled while
+        consumed deliveries keep their snapshots, and there is no undelete.
+      reason: "P9 piece two (#415): operators need to remove mistaken or sensitive
+        messages, with the body genuinely gone but history coherent."
       depends_on: []
 files:
   - packages/protocol/src/message.ts
@@ -119,23 +116,25 @@ anchors:
   roles-gate-human-acts-not-agents:
     role-matrix-source:
       action: change
-      reason: CAPABILITY_MINIMUM_ROLE is a total record over HumanCapability,
-        so the new act forces a delete_message row (minimum role admin)
-        inside this anchor. The gate rule itself is unchanged.
+      reason: CAPABILITY_MINIMUM_ROLE is a total record over HumanCapability, so the
+        new act forces a delete_message row (minimum role admin) inside this
+        anchor. The gate rule itself is unchanged.
   unix-socket-same-protocol:
     unix-websocket-listener:
       action: change
-      reason: The entire act dispatch lives inside this anchor, so the
-        delete_message branch necessarily touches it. Both transports keep
-        the identical protocol.
+      reason: The entire act dispatch lives inside this anchor, so the delete_message
+        branch necessarily touches it. Both transports keep the identical
+        protocol.
   collaboration-groups-are-durable-state:
     collaboration-store-schema:
       action: change
-      reason: The messages CREATE TABLE gains deleted INTEGER NOT NULL
-        DEFAULT 0 next to pinned; the migration ALTER outside the anchor
-        covers pre-existing databases.
+      reason: The messages CREATE TABLE gains deleted INTEGER NOT NULL DEFAULT 0 next
+        to pinned; the migration ALTER outside the anchor covers pre-existing
+        databases.
   message-id-txn-allocation:
     message-id-allocation:
       action: change
-      reason: The postMessage INSERT names the new deleted column with a
-        constant 0, mirroring pinned; allocation logic is untouched.
+      reason: The postMessage INSERT names the new deleted column with a constant 0,
+        mirroring pinned; allocation logic is untouched.
+applied:
+  applied_at: 2026-07-17T15:27:28.288Z

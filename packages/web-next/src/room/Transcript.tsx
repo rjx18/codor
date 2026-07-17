@@ -1,5 +1,5 @@
 import type { Delivery, Member, Message } from '@codor/protocol';
-import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Pencil, Pin, PinOff, Quote, Search, Square, TerminalSquare, X } from 'lucide-react';
+import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Pencil, Pin, PinOff, Quote, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -21,7 +21,7 @@ import {
 } from '@legacy/state.js';
 
 import { useIsMobile } from '../app/session.js';
-import { Chip, Modal, TypingDots } from '../primitives/primitives.js';
+import { Button, Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
 import { DiffViewer } from './ContextPanel.js';
 import { CompactionMarker } from './CompactionMarker.js';
@@ -95,6 +95,8 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const canPin = selfRole === 'owner' || selfRole === 'admin';
   // Interrupt is gated at admin too — the same owner/admin viewers may stop a run.
   const canStop = selfRole === 'owner' || selfRole === 'admin';
+  // Delete is an owner/admin act as well; the server refuses anyone else.
+  const canDelete = selfRole === 'owner' || selfRole === 'admin';
 
   // Working agents drive the typing indicator. Derived with useMemo — a selector
   // returning a fresh array every snapshot would loop useSyncExternalStore forever.
@@ -242,6 +244,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
                 deliveries={inbox}
                 members={members}
                 canPin={canPin}
+                canDelete={canDelete}
               />
             );
           })}
@@ -303,6 +306,7 @@ function TurnBlock(props: {
   mine: boolean;
   grouped: boolean;
   canPin: boolean;
+  canDelete: boolean;
   room: string;
   token: () => string;
   connection: Connection;
@@ -328,6 +332,36 @@ function TurnBlock(props: {
       <p id={String(message.id)} data-testid={`ack-${handle}`} className="nx-system nx-ack">
         <Check size={13} aria-hidden="true" /> @{handle} acknowledged
       </p>
+    );
+  }
+
+  // A purged message keeps its place, author, and time but shows only a
+  // tombstone — no body, no actions (its pin was cleared server-side too).
+  if (message.deleted === true) {
+    return (
+      <article
+        id={String(message.id)}
+        data-testid={`msg-${message.id}`}
+        className={`nx-turn is-deleted ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''}`}
+      >
+        {!props.grouped && !isMobile && (
+          <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />
+        )}
+        <div className="nx-turn-main">
+          {!props.grouped && (
+            <div className="nx-turn-meta">
+              {isMobile && (
+                <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={24} />
+              )}
+              <strong className="nx-turn-author">@{handle}</strong>
+              <time className="nx-turn-time" dateTime={message.ts}>{clockTime(message.ts)}</time>
+              <span className="nx-turn-spacer" />
+              <a className="nx-permalink" href={`#${message.id}`}>#{message.id}</a>
+            </div>
+          )}
+          <p className="nx-deleted" data-testid={`msg-${message.id}-deleted`}>[deleted]</p>
+        </div>
+      </article>
     );
   }
 
@@ -391,6 +425,9 @@ function TurnBlock(props: {
                     : <Pin size={14} aria-hidden="true" />}
                 </button>
               )}
+              {props.canDelete && message.kind === 'chat' && (
+                <DeleteButton messageId={message.id} connection={props.connection} />
+              )}
             </span>
           </div>
         )}
@@ -420,6 +457,44 @@ function CopyButton(props: { text: string; label: string; testId: string }) {
     >
       {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
     </button>
+  );
+}
+
+/** Delete is destructive and irreversible, so it confirms before purging. */
+function DeleteButton(props: { messageId: number; connection: Connection }) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <>
+      <button
+        className="nx-iconbtn is-quiet"
+        aria-label="Delete message"
+        data-testid={`msg-${props.messageId}-delete`}
+        onClick={() => setConfirming(true)}
+      >
+        <Trash2 size={14} aria-hidden="true" />
+      </button>
+      {confirming && (
+        <Modal label="Delete message?" onClose={() => setConfirming(false)} alert testid="delete-confirm">
+          <h2 className="nx-dialog-title">Delete this message?</h2>
+          <p className="nx-dialog-body">
+            The body is purged for everyone and cannot be restored; a “[deleted]” marker stays in its place.
+          </p>
+          <div className="nx-dialog-actions">
+            <Button variant="quiet" onClick={() => setConfirming(false)}>Cancel</Button>
+            <Button
+              variant="danger"
+              data-testid="delete-confirm-go"
+              onClick={() => {
+                props.connection.act({ act: 'delete_message', message_id: props.messageId });
+                setConfirming(false);
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
 

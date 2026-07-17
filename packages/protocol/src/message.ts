@@ -81,6 +81,7 @@ export const MessageSchema = z.object({
   ack: z.boolean().optional(), // absent is the additive false/default state
   // harn:end acknowledgement-marker-protocol
   pinned: z.boolean().optional(), // durable owner/admin marker; absent is the additive default
+  deleted: z.boolean().optional(), // purged tombstone marker; absent is the additive live default
   ts: TimestampSchema,
   seq: SeqSchema, // room change-sequence at last insert/update
 });

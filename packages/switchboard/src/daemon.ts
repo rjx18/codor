@@ -828,6 +828,40 @@ export class Daemon {
   }
   // harn:end pins-are-durable-role-gated-markers
 
+  // harn:assume deleted-messages-are-purged-tombstones ref=delete-message-contract
+  /**
+   * Purge a chat message, leaving a durable [deleted] tombstone. Only human
+   * owners/admins may delete (the server gate enforces the role; this refuses
+   * non-humans/underprivileged callers defensively). Only chat messages qualify
+   * — run rows are journal evidence and system rows are daemon speech, both
+   * refused. Idempotent when already deleted (emits nothing). Still-pending
+   * deliveries (queued or held) of the message are cancelled so purged content
+   * never delivers late; already-consumed deliveries keep their snapshots.
+   * Deletion never renumbers messages or touches run journals.
+   */
+  deleteMessage(room: string, messageId: number, byMemberId: string): Message {
+    const actor = this.store.getMember(room, byMemberId);
+    if (actor?.kind !== 'human' || (actor.role !== 'owner' && actor.role !== 'admin')) {
+      throw new Error('forbidden: only owners and admins can delete messages');
+    }
+    const message = this.store.getMessage(room, messageId);
+    if (!message) throw new Error(`no such message: #${messageId}`);
+    if (message.kind !== 'chat') {
+      throw new Error(`only chat messages can be deleted, not ${message.kind}`);
+    }
+    if (message.deleted === true) return message; // idempotent — emit nothing
+    const tombstone = this.store.deleteMessage(room, messageId);
+    // Cancel still-pending deliveries so the purged body is never delivered.
+    for (const delivery of this.store.listDeliveries(room)) {
+      if (delivery.message_id !== messageId) continue;
+      if (delivery.state !== 'queued' && delivery.state !== 'held') continue;
+      this.emitInbox(room, this.store.updateDelivery(room, delivery.id, { state: 'consumed' }));
+    }
+    this.emitMessage(room, tombstone);
+    return tombstone;
+  }
+  // harn:end deleted-messages-are-purged-tombstones
+
   memberDetails(room: string): MemberDetails[] {
     const messages = this.store.listMessages(room, { limit: Number.MAX_SAFE_INTEGER });
     return this.store.listMembers(room).map((member) => {

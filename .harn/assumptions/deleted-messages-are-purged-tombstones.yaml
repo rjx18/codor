@@ -1,0 +1,15 @@
+id: deleted-messages-are-purged-tombstones
+hash: a-95540747d89c
+title: Deletion purges a chat message body in place, leaving a durable tombstone
+  only owner or admin humans may create
+state: active
+statement: Deleting a message empties its body and payload columns and sets a
+  durable deleted flag on the same row through the room change log, keeping id,
+  author, kind, and timestamp so ordering, attribution, and permalinks survive;
+  only human members with role owner or admin may delete, agents and observers
+  are refused, only chat-kind messages qualify (run and system messages are
+  refused), re-deleting is a silent no-op, still-pending deliveries of the
+  message are cancelled while consumed deliveries keep their snapshots, and
+  there is no undelete.
+depends_on: []
+created_by: message-deletion

@@ -212,6 +212,17 @@ describe('messages', () => {
     expect(ActSchema.safeParse({ act: 'pin_message', message_id: 3 }).success).toBe(false);
   });
 
+  it('treats deleted as an additive optional marker', () => {
+    expect(MessageSchema.parse(chatMessage).deleted).toBeUndefined();
+    expect(MessageSchema.parse({ ...chatMessage, deleted: true }).deleted).toBe(true);
+  });
+
+  it('accepts a delete_message act naming only the message', () => {
+    expect(ActSchema.parse({ act: 'delete_message', message_id: 3 }))
+      .toEqual({ act: 'delete_message', message_id: 3 });
+    expect(ActSchema.safeParse({ act: 'delete_message' }).success).toBe(false);
+  });
+
   it('accepts a finalized run message (tokens-only usage, no cost_usd)', () => {
     const run = {
       ...chatMessage,
