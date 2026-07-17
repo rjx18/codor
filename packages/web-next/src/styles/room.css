@@ -1324,9 +1324,9 @@
     color: var(--c-faded);
   }
 
-  /* Plain text turns: no chips, tighter column. */
+  /* Tighter column; the chip column folds into a small chip beside the handle. */
   .nx-column { padding: var(--sp-4) var(--sp-4) var(--sp-3); gap: var(--sp-3); }
-  .nx-turn > .nx-chip { display: none; }
+  .nx-turn-meta { align-items: center; }
   .nx-turn.is-grouped { padding-left: 0; margin-top: calc(-1 * var(--sp-2)); }
   .nx-turn-meta .nx-turn-time { display: none; }
 

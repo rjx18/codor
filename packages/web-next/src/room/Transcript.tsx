@@ -167,6 +167,7 @@ function TurnBlock(props: {
 }) {
   const { message, author } = props;
   const [copied, setCopied] = useState(false);
+  const isMobile = useIsMobile();
 
   if (message.kind === 'system') {
     return (
@@ -204,12 +205,16 @@ function TurnBlock(props: {
       data-testid={message.kind === 'run' ? `run-${message.id}` : `msg-${message.id}`}
       className={`nx-turn ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''}`}
     >
-      {!props.grouped && (
+      {!props.grouped && !isMobile && (
         <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />
       )}
       <div className="nx-turn-main">
         {!props.grouped && (
           <div className="nx-turn-meta">
+            {/* The phone trades the chip column for a small chip in the header. */}
+            {isMobile && (
+              <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={24} />
+            )}
             <strong className="nx-turn-author">@{handle}</strong>
             {message.origin !== undefined && (
               <span className="nx-turn-origin" title={`via ${message.origin.platform}`}>

@@ -35,10 +35,15 @@ test.describe('two-surface stack', () => {
 });
 
 test.describe('mobile transcript re-composition', () => {
-  test('turns are plain text and tool activity is a quiet disclosure line', async ({ page }) => {
+  test('turn headers carry a small inline chip and tool activity is a quiet disclosure line', async ({ page }) => {
     await openRoom(page);
-    // Identity chips leave the timeline on the phone.
-    await expect(page.locator('.nx-turn > .nx-chip').first()).toBeHidden();
+    // The chip column folds into a 24px chip beside the handle in the header.
+    await expect(page.locator('.nx-turn > .nx-chip')).toHaveCount(0);
+    const headerChip = page.locator('.nx-turn-meta .nx-chip').first();
+    await expect(headerChip).toBeVisible();
+    const chipBox = await headerChip.boundingBox();
+    expect(chipBox!.width).toBe(24);
+    expect(chipBox!.height).toBe(24);
     // The batch renders as a line with inline ±, expanding on tap.
     const line = page.locator('.nx-batch-line').first();
     await expect(line).toContainText(/Ran 2 tools · wrote 1 file \+2 −1/);
@@ -64,6 +69,9 @@ test.describe('mobile composer', () => {
     await enqueueTurn();
     await openRoom(page);
     const input = page.getByTestId('composer-input');
+    // Wait out the draft seeding effect — clearing before it lands would let
+    // the seed overwrite the cleared draft mid-test.
+    await expect(input).toHaveValue(/@\w+ /);
     await input.fill('');
     await page.getByTestId('composer-at').click();
     await expect(page.getByTestId('mention-popover')).toBeVisible();
