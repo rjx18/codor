@@ -33,15 +33,21 @@ describe('Codex usage limits probe', () => {
       return {
         ok: true,
         json: async () => ({
-          rate_limits: {
+          // The LIVE envelope (verified against the real endpoint 2026-07-17):
+          // windows nest under rate_limit, singular.
+          rate_limit: {
+            allowed: true,
+            limit_reached: false,
             primary_window: {
               used_percent: 12,
               limit_window_seconds: 18_000,
+              reset_after_seconds: 1_246,
               reset_at: 1_784_294_400,
             },
             secondary_window: {
               used_percent: 44.5,
               limit_window_seconds: 604_800,
+              reset_after_seconds: 496_946,
               reset_at: null,
             },
           },

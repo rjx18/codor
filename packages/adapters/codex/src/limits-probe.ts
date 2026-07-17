@@ -97,7 +97,9 @@ export async function probeCodexLimits(
   });
   if (!response.ok) throw new Error(`Codex usage probe failed (${String(response.status ?? 'unknown')})`);
   const payload = record(await response.json());
-  const rateLimits = record(payload?.rate_limits);
+  // The live endpoint nests windows under rate_limit (singular, verified
+  // 2026-07-17); older shapes used rate_limits — accept both.
+  const rateLimits = record(payload?.rate_limit) ?? record(payload?.rate_limits);
   const limits = [
     mapWindow(rateLimits?.primary_window),
     mapWindow(rateLimits?.secondary_window),

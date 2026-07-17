@@ -3,17 +3,17 @@ title: Codex usage probe reads the live rate_limit envelope, not the legacy
   plural key.
 notes: >-
   Live verification of the merged usage probe (my hand-run gate from the
-  agent-usage-probe plan, 2026-07-17) showed the ChatGPT usage endpoint
-  nesting the windows under "rate_limit" (singular) - the probe read
-  "rate_limits" (plural, taken from the reference repo's parser, which
-  targeted a different shape) and so mapped zero windows and returned honest
-  absence while real data (primary 67% used / five-hour, secondary 35% /
-  seven-day, unix reset_at) sat in the response.
+  agent-usage-probe plan, 2026-07-17) showed the ChatGPT usage endpoint nesting
+  the windows under "rate_limit" (singular) - the probe read "rate_limits"
+  (plural, taken from the reference repo's parser, which targeted a different
+  shape) and so mapped zero windows and returned honest absence while real data
+  (primary 67% used / five-hour, secondary 35% / seven-day, unix reset_at) sat
+  in the response.
 
-  Fix: the probe accepts the live singular envelope first and falls back to
-  the plural key so both shapes map; the spec's stubbed response gains the
-  LIVE singular shape (fields verbatim from the verified response) alongside
-  a plural-shape case. No daemon, protocol, or claude-side changes.
+  Fix: the probe accepts the live singular envelope first and falls back to the
+  plural key so both shapes map; the spec's stubbed response gains the LIVE
+  singular shape (fields verbatim from the verified response) alongside a
+  plural-shape case. No daemon, protocol, or claude-side changes.
 assumptions:
   reviewed:
     - id: agent-usage-limits-reported-not-guessed
@@ -24,3 +24,5 @@ files:
   - packages/adapters/codex/src/limits-probe.ts
   - packages/adapters/codex/src/limits-probe.spec.ts
 anchors: {}
+applied:
+  applied_at: 2026-07-17T06:08:00.742Z
