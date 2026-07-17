@@ -323,9 +323,77 @@
   font: var(--t-body);
   color: var(--c-body);
   overflow-wrap: anywhere;
-  white-space: pre-wrap;
 }
 .nx-prose.is-dim { color: var(--c-faded); }
+
+/* Markdown structure inside prose: chat-tight rhythm, tokens only — headings
+   clamp well under the page scale and links paint --c-link, never browser blue. */
+.nx-prose > :first-child { margin-top: 0; }
+.nx-prose > :last-child { margin-bottom: 0; }
+.nx-prose p,
+.nx-prose ul,
+.nx-prose ol,
+.nx-prose blockquote,
+.nx-prose pre {
+  margin: 0 0 var(--sp-2);
+}
+.nx-prose h1,
+.nx-prose h2,
+.nx-prose h3,
+.nx-prose h4,
+.nx-prose h5,
+.nx-prose h6 {
+  margin: var(--sp-3) 0 var(--sp-1);
+  color: var(--c-ink);
+}
+.nx-prose h1 { font: var(--t-title); }
+.nx-prose h2 { font: 600 16px/1.4 var(--f-sans); }
+.nx-prose h3,
+.nx-prose h4,
+.nx-prose h5,
+.nx-prose h6 { font: var(--t-ui-strong); }
+.nx-prose ul,
+.nx-prose ol { padding-left: var(--sp-5); }
+.nx-prose li { margin: 2px 0; }
+.nx-prose li::marker { color: var(--c-faded); }
+.nx-prose blockquote {
+  padding: 2px var(--sp-3);
+  border-left: 3px solid var(--c-line-strong);
+  color: var(--c-secondary);
+}
+.nx-prose code {
+  font: var(--t-mono);
+  font-size: 13px;
+  padding: 1px 6px;
+  border: 1px solid var(--c-line);
+  border-radius: 6px;
+  background: var(--c-raised);
+}
+.nx-prose pre {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-raised);
+  overflow-x: auto;
+}
+.nx-prose pre code {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: var(--t-mono);
+}
+.nx-prose a {
+  color: var(--c-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.nx-prose a:hover { color: var(--c-link-hover); }
+.nx-prose hr {
+  margin: var(--sp-3) 0;
+  border: 0;
+  border-top: 1px solid var(--c-line);
+}
 
 /* ── Run evidence: bordered tool cards ───────────────────────────────── */
 

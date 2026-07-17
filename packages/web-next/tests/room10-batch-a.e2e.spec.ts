@@ -53,6 +53,86 @@ test.describe('composer transparency — mobile', () => {
   });
 });
 
+// ── Item 3: prose is real sanitized markdown, styled by nx- tokens. ────────
+const MARKDOWN = [
+  '## Deploy plan',
+  '',
+  'Ship **carefully** with *checks*:',
+  '',
+  '- step one',
+  '- step two',
+  '',
+  '1. first',
+  '2. second',
+  '',
+  '> keep the release window quiet',
+  '',
+  'Run `rollback.sh` if needed:',
+  '',
+  '```bash',
+  'git push origin main --force-with-lease',
+  '```',
+  '',
+  '[runbook](https://example.com/runbook)',
+  '',
+  '<img src=x onerror="window.__pwned = true">',
+  '',
+  '[bad](javascript:alert(1))',
+].join('\n');
+
+test.describe('markdown prose', () => {
+  test('run and message prose render sanitized markdown structures', async ({ page }) => {
+    // The text_delta covers the streamed run-prose path, not just final text.
+    await enqueue([{
+      kind: 'complete',
+      final_text: MARKDOWN,
+      items: [{ type: 'run.item', item_type: 'text_delta', payload: { text: MARKDOWN } }],
+    }]);
+    await openRoom(page);
+    const input = page.getByTestId('composer-input');
+    await expect(input).toHaveValue(/@\w+ /);
+    await input.fill('@fable print the deploy plan with `inline code` and **bold text**');
+    await input.press('Enter');
+
+    // The agent's markdown lands as structure, not literal text.
+    const run = page.locator('.nx-prose', { has: page.locator('h2') });
+    await expect(run.locator('h2')).toHaveText('Deploy plan');
+    await expect(run.locator('strong', { hasText: 'carefully' })).toBeVisible();
+    await expect(run.locator('em', { hasText: 'checks' })).toBeVisible();
+    await expect(run.locator('ul > li')).toHaveCount(2);
+    await expect(run.locator('ol > li')).toHaveCount(2);
+    await expect(run.locator('blockquote')).toContainText('keep the release window quiet');
+    await expect(run.locator('pre code')).toContainText('git push origin main --force-with-lease');
+
+    // Links open away from the room, painted by the token — not browser blue.
+    const link = run.locator('a', { hasText: 'runbook' });
+    await expect(link).toHaveAttribute('href', 'https://example.com/runbook');
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', /noopener/);
+    expect(await link.evaluate((node) => getComputedStyle(node).color)).toBe('rgb(21, 128, 61)');
+
+    // Raw HTML and javascript: hrefs never survive the sanitizer.
+    await expect(run.locator('img')).toHaveCount(0);
+    await expect(run.locator('a[href^="javascript"]')).toHaveCount(0);
+    expect(await page.evaluate(() => (window as { __pwned?: boolean }).__pwned)).toBeUndefined();
+
+    // Human messages get the same treatment.
+    const message = page.locator('.nx-prose', { hasText: 'print the deploy plan' });
+    await expect(message.locator('code')).toHaveText('inline code');
+    await expect(message.locator('strong')).toHaveText('bold text');
+
+    // The markdown-heavy room stays axe-clean in both themes.
+    await page.waitForTimeout(350);
+    const { default: AxeBuilder } = await import('@axe-core/playwright');
+    const light = await new AxeBuilder({ page }).analyze();
+    expect(light.violations.map((v) => `${v.id}: ${v.nodes[0]?.target[0]}`)).toEqual([]);
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+    await page.waitForTimeout(350);
+    const dark = await new AxeBuilder({ page }).analyze();
+    expect(dark.violations.map((v) => `${v.id}: ${v.nodes[0]?.target[0]}`)).toEqual([]);
+  });
+});
+
 test.describe('members tab', () => {
   test('extension members stay out of the roster and the header count', async ({ page }) => {
     // A turn that reports a subagent: the daemon mints a kind=extension member.

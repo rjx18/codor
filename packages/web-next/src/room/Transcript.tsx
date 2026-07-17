@@ -25,6 +25,7 @@ import { useIsMobile } from '../app/session.js';
 import { Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
 import { DiffViewer } from './ContextPanel.js';
+import { renderMarkdown } from './markdown.js';
 
 /** Consecutive same-author messages within this window collapse their header. */
 const GROUP_WINDOW_MS = 2 * 60_000;
@@ -273,16 +274,9 @@ function SeenTicks(props: {
 }
 
 function MessageProse(props: { body: string }) {
-  const segments = useMemo(() => props.body.split(/(`[^`]+`)/g), [props.body]);
-  return (
-    <div className="nx-prose">
-      {segments.map((segment, i) =>
-        segment.startsWith('`') && segment.endsWith('`') && segment.length > 2
-          ? <code key={i} className="nx-code">{segment.slice(1, -1)}</code>
-          : <span key={i}>{segment}</span>,
-      )}
-    </div>
-  );
+  // renderMarkdown sanitizes: only markdown-produced structure reaches the DOM.
+  const html = useMemo(() => renderMarkdown(props.body), [props.body]);
+  return <div className="nx-prose" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 // ── Run rendering (transcript model per Richard #298): run prose flows as
@@ -340,7 +334,7 @@ function RunContent(props: { message: Message; room: string; token: () => string
     <div className="nx-run" data-run-status={props.message.run?.status ?? 'running'}>
       {segments.map((segment, index) =>
         segment.kind === 'prose'
-          ? <div key={segment.row.eventIndex} className="nx-prose">{segment.row.text}</div>
+          ? <MessageProse key={segment.row.eventIndex} body={segment.row.text ?? ''} />
           : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} />,
       )}
       {running && rows.length === 0 && <TypingDots label="run starting" />}
