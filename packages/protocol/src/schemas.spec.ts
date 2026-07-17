@@ -685,6 +685,20 @@ describe('wire events', () => {
   });
   // harn:end normalized-agent-usage-telemetry
 
+  // harn:assume failed-run-details-never-route-as-replies ref=failed-run-error-schema
+  it('accepts failed completion detail separately from agent final text', () => {
+    expect(WireEventSchema.parse({
+      type: 'run.completed',
+      status: 'failed',
+      error: 'Prompt is too long',
+    })).toEqual({
+      type: 'run.completed',
+      status: 'failed',
+      error: 'Prompt is too long',
+    });
+  });
+  // harn:end failed-run-details-never-route-as-replies
+
   it('run_event frames may carry their journal index (absent on old daemons)', () => {
     const base = {
       type: 'run_event',

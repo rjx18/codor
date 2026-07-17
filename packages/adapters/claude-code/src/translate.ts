@@ -60,6 +60,7 @@ interface ClaudeEvent {
   };
   result?: string;
   is_error?: boolean;
+  errors?: unknown;
   total_cost_usd?: number;
   usage?: ClaudeUsage;
   modelUsage?: Record<string, { contextWindow?: number }>;
@@ -117,6 +118,22 @@ function reportedContextWindow(modelUsage: ClaudeEvent['modelUsage']): number | 
   return reported;
 }
 // harn:end normalized-agent-usage-telemetry
+
+function claudeResultFailure(event: ClaudeEvent): string | undefined {
+  const errors = Array.isArray(event.errors)
+    ? event.errors.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
+    : [];
+  const result = typeof event.result === 'string' ? event.result : '';
+  const nativeFailure = event.is_error === true ||
+    (event.subtype !== undefined && event.subtype !== 'success');
+  const legacyOverflow = [...errors, result].find((text) => /prompt is too long/i.test(text));
+  if (!nativeFailure && legacyOverflow === undefined) return undefined;
+  if (errors.length > 0) return errors.join('\n');
+  if (result.trim() !== '') return result;
+  return event.subtype !== undefined && event.subtype !== 'success'
+    ? `Claude run failed (${event.subtype})`
+    : 'Claude run failed';
+}
 
 function boundedOutput(value: string): string {
   if (Buffer.byteLength(value, 'utf8') <= MAX_OUTPUT_BYTES) return value;
@@ -410,6 +427,9 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
         }
         case 'result': {
           terminal = true;
+          // harn:assume claude-result-errors-follow-native-signals ref=claude-result-failure-translation
+          const failure = claudeResultFailure(event);
+          // harn:end claude-result-errors-follow-native-signals
           // harn:assume normalized-agent-usage-telemetry ref=claude-usage-telemetry
           contextWindowMaxTokens = reportedContextWindow(event.modelUsage) ?? contextWindowMaxTokens;
           contextWindowUsedTokens ??= contextWindowUsed(event.usage);
@@ -434,8 +454,10 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
           return [
             {
               type: 'run.completed',
-              status: event.is_error === true ? 'failed' : 'completed',
-              final_text: event.result,
+              status: failure === undefined ? 'completed' : 'failed',
+              ...(failure === undefined
+                ? (event.result === undefined ? {} : { final_text: event.result })
+                : { error: failure }),
               usage: {
                 input_tokens: event.usage?.input_tokens ?? 0,
                 output_tokens: event.usage?.output_tokens ?? 0,

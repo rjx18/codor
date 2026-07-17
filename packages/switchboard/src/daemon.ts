@@ -110,6 +110,7 @@ export type FrameListener = (room: string, frame: ServerFrame) => void;
 interface TurnCompletion {
   status: 'completed' | 'failed' | 'interrupted';
   final_text?: string;
+  error?: string;
   usage?: { input_tokens: number; output_tokens: number; cost_usd?: number };
 }
 
@@ -2305,7 +2306,14 @@ export class Daemon {
             this.lastUsage.set(`${room}\0${member.id}`, { ...event.agent_usage });
           }
           // harn:end last-agent-usage-is-transient
-          completion = { status: event.status, final_text: event.final_text, usage: event.usage };
+          // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
+          completion = {
+            status: event.status,
+            final_text: event.final_text,
+            error: event.error,
+            usage: event.usage,
+          };
+          // harn:end failed-run-details-never-route-as-replies
         }
       }
     } catch (error) {
@@ -2313,10 +2321,12 @@ export class Daemon {
         this.holdAmbiguousTurn(room, member, bound, runMsg.id, 'resident reported ambiguous');
         return;
       }
+      // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
       completion = completion ?? {
         status: 'failed',
-        final_text: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? error.message : String(error),
       };
+      // harn:end failed-run-details-never-route-as-replies
     }
 
     if (
@@ -2411,10 +2421,10 @@ export class Daemon {
 
   // harn:assume reply-is-finalized-run-message ref=finalize-and-route
   /**
-   * The reply IS the run message: finalize IN PLACE (body = final_text,
-   * mentions/refs re-parsed from that body, summary updated, seq bumped) and
-   * route onward FROM this same message id. One turn, one message, one #N —
-   * no separate reply message ever exists.
+   * The reply IS the run message: successful final text finalizes IN PLACE,
+   * mentions/refs are re-parsed from that body, and routing starts FROM this
+   * same message id. Failed diagnostics stay on the same run as error evidence,
+   * but are not replies. One turn, one message, one #N — no separate reply.
    */
   private finalizeTurn(
     room: string,
@@ -2425,10 +2435,15 @@ export class Daemon {
     toolCalls: number,
   ): void {
     const runMsg = this.store.getMessage(room, runMsgId)!;
-    const body = completion.final_text ?? '';
+    // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
+    const failed = completion.status === 'failed';
+    const rawFailure = failed ? (completion.error ?? completion.final_text) : undefined;
+    const failure = rawFailure?.trim() === '' ? undefined : rawFailure;
+    const body = failed ? '' : (completion.final_text ?? '');
+    // harn:end failed-run-details-never-route-as-replies
     // harn:assume substantive-routing-excludes-acknowledgements ref=exact-ack-finalization
     const ack = completion.status === 'completed' && body.trim() === '<ACK_OK>';
-    const parsed = ack
+    const parsed = failed || ack
       ? { mentions: [], refs: [], ledger_refs: [], unresolved: [] }
       : parseBody(body, this.store.listMembers(room));
     const endedTs = new Date().toISOString();
@@ -2445,7 +2460,10 @@ export class Daemon {
         stalled_since: undefined,
         tool_calls: toolCalls,
         usage: completion.usage,
-        final_text: completion.final_text,
+        // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
+        final_text: failed ? undefined : completion.final_text,
+        error: failure,
+        // harn:end failed-run-details-never-route-as-replies
       },
     } satisfies Parameters<Store['completeTurn']>[1]['message'];
     // harn:end substantive-routing-excludes-acknowledgements
@@ -2887,7 +2905,14 @@ export class Daemon {
             room.id,
             member.id,
             runMsgId,
-            { status: completed.status, final_text: completed.final_text, usage: completed.usage },
+            // harn:assume failed-run-details-never-route-as-replies ref=failed-run-recovery
+            {
+              status: completed.status,
+              final_text: completed.final_text,
+              error: completed.error,
+              usage: completed.usage,
+            },
+            // harn:end failed-run-details-never-route-as-replies
             group,
             toolCalls,
           );

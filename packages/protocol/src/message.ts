@@ -58,6 +58,9 @@ export const RunSummarySchema = z.object({
   usage: UsageSchema.optional(),
   events_ref: z.string().min(1), // pointer to the JSONL event blob
   final_text: z.string().optional(), // the closing message — becomes the visible body
+  // harn:assume failed-run-details-never-route-as-replies ref=failed-run-error-schema
+  error: z.string().min(1).optional(), // failed-run detail — evidence, never reply text
+  // harn:end failed-run-details-never-route-as-replies
 });
 export type RunSummary = z.infer<typeof RunSummarySchema>;
 

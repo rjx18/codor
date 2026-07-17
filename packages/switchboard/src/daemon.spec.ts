@@ -2159,6 +2159,26 @@ describe('redaction before fanout', () => {
 });
 
 describe('failed turns', () => {
+  // harn:assume failed-run-details-never-route-as-replies ref=failed-run-daemon-regression
+  it('keeps overflow detail on the failed run and never makes it a reply body', async () => {
+    const alpha = spawnAgent('alpha');
+    const detail = 'Prompt is too long: context window exceeded';
+    fake.enqueue({ kind: 'complete', final_text: detail, error: detail, status: 'failed' });
+    daemon.postHumanMessage('eng', '@alpha continue the incident');
+    await daemon.settle();
+
+    const run = daemon.store.listRunMessages('eng', { author: alpha.id, limit: 1 })[0]!;
+    expect(run.body).toBe('');
+    expect(run.mentions).toEqual([]);
+    expect(run.refs).toEqual([]);
+    expect(run.run).toMatchObject({ status: 'failed', error: detail });
+    expect(run.run).not.toHaveProperty('final_text');
+    expect(daemon.store.listDeliveries('eng').filter((delivery) => delivery.message_id === run.id))
+      .toEqual([]);
+    expect(daemon.store.getMember('eng', alpha.id)?.state).toBe('dead');
+  });
+  // harn:end failed-run-details-never-route-as-replies
+
   it('a failed run marks the member dead with a system message; revive requeues', async () => {
     const alpha = spawnAgent('alpha');
     fake.enqueue({ kind: 'complete', final_text: 'exploded', status: 'failed' });

@@ -124,6 +124,9 @@ export const WireEventSchema = z.discriminatedUnion('type', [
     type: z.literal('run.completed'),
     status: RunStatusSchema.exclude(['running']),
     final_text: z.string().optional(),
+    // harn:assume failed-run-details-never-route-as-replies ref=failed-run-error-schema
+    error: z.string().min(1).optional(),
+    // harn:end failed-run-details-never-route-as-replies
     // Durable accounting compatibility; normalized telemetry is agent_usage.
     usage: UsageSchema.optional(),
     agent_usage: AgentUsageSchema.optional(),

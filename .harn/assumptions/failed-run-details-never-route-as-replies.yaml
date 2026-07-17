@@ -1,0 +1,14 @@
+id: failed-run-details-never-route-as-replies
+hash: a-48fb3d744bb1
+title: Failed turn detail stays on the run and never becomes a reply
+state: active
+statement: A failed run completion must preserve its diagnostic text as
+  RunSummary.error on the same durable run message while finalizing that message
+  with an empty body, no final_text, no parsed mentions or refs, and no reply
+  fanout; the member still enters the existing failed/dead attention path, and
+  boot reconciliation must produce the same result.
+depends_on:
+  - reply-is-finalized-run-message
+  - substantive-routing-excludes-acknowledgements
+  - delivery-attempt-wal-reconcile
+created_by: ctx-guardrails-p3-failure-classification

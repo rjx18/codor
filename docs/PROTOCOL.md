@@ -108,15 +108,23 @@ RunSummary {
   usage?: { input_tokens, output_tokens, cost_usd? }   // as reported by the harness
   events_ref: string    // pointer to the JSONL event blob (see ARCHITECTURE §storage)
   final_text?: string   // the agent's closing message — this is the visible body
+  error?: string        // failed-run detail — evidence, never reply/routing text
 }
 ```
 
+<!-- harn:assume failed-run-details-never-route-as-replies ref=failed-run-error-schema -->
 **Runs are one message — and the reply IS that message.** When an agent starts a turn, the
 switchboard posts a `run` message immediately (`status: running`) and streams events into its
 blob; surfaces render a live header (elapsed, current tool, cost) and expand-on-click. On
 completion the SAME message is finalized in place: `final_text` becomes its body, and its
 mentions/refs are parsed **from that finalized message** for onward routing. One turn, one
 message, one permanent `#N` — no duplicate "reply" message is ever created.
+
+A failed completion has no agent reply: its diagnostic is stored as `error` on that same run,
+while the message body, `final_text`, mentions, refs, and onward fanout remain empty. This keeps
+the run's failed/attention evidence without allowing provider or process errors to speak as the
+agent or invoke another member.
+<!-- harn:end failed-run-details-never-route-as-replies -->
 
 <!-- harn:assume acknowledgement-marker-protocol ref=ack-protocol-documentation -->
 **`<ACK_OK>` ends acknowledgement cascades.** Every agent briefing instructs the member to
@@ -373,17 +381,19 @@ and progress impossible to miss, and offer opt-in brakes per channel:
 Adapters translate harness-native streams into `WireEvent`s; the switchboard journals them into
 the run blob and fans out live to surfaces:
 
+<!-- harn:assume failed-run-details-never-route-as-replies ref=failed-run-error-schema -->
 ```
 run.started        { member, trigger_msg }
 run.item           { type: 'tool_call'|'tool_result'|'reasoning_summary'|'text_delta'|
                      'commit'|'file_change', payload }        // rendered inside expanded runs
 ask.raised         { card }                                   // blocks the run
 approval.raised    { card }                                   // blocks the run
-run.completed      { final_text, usage, status }
+run.completed      { final_text?, error?, usage, status }
 member.state       { member, state }                          // idle/running/queued/…
 extension.started  { parent, ext_member }                     // harness-native parent/agent ids
 extension.ended    { ext_member, summary? }                    // mapped to MemberIds by switchboard
 ```
+<!-- harn:end failed-run-details-never-route-as-replies -->
 
 <!-- harn:assume normalized-run-item-payload-contract ref=normalized-run-item-documentation -->
 `run.item.payload` has a standalone normalized schema for each `item_type`:

@@ -18,6 +18,12 @@ function fixture(name: string): string[] {
     .filter((l) => l.trim() !== '');
 }
 
+function testFixture(name: string): string[] {
+  return readFileSync(new URL(`../test-fixtures/${name}`, import.meta.url), 'utf8')
+    .split('\n')
+    .filter((line) => line.trim() !== '');
+}
+
 function replay(lines: string[]) {
   const translator = createTurnTranslator();
   const events: WireEvent[] = [];
@@ -296,6 +302,42 @@ describe('robustness', () => {
     expect(completed(all).status).toBe('failed');
   });
 });
+
+// harn:assume claude-result-errors-follow-native-signals ref=claude-result-failure-regression
+describe('result failure contract', () => {
+  it('classifies the contract-derived context overflow as error detail, never final text', () => {
+    const { all } = replay(testFixture('context-overflow.jsonl'));
+    expect(all).toContainEqual({
+      type: 'run.item',
+      item_type: 'text_delta',
+      payload: { text: 'API Error: 400 Prompt is too long' },
+    });
+    expect(completed(all)).toMatchObject({
+      type: 'run.completed',
+      status: 'failed',
+      error: 'Prompt is too long: 986729 tokens exceed the 1000000 token context window',
+    });
+    expect(completed(all)).not.toHaveProperty('final_text');
+    expect(WireEventSchema.safeParse(completed(all)).success).toBe(true);
+  });
+
+  it('uses a non-success result subtype as a primary signal even when is_error is false', () => {
+    const { all } = replay([
+      '{"type":"result","subtype":"error_during_execution","is_error":false,"errors":["provider exploded"]}',
+    ]);
+    expect(completed(all)).toMatchObject({ status: 'failed', error: 'provider exploded' });
+    expect(completed(all)).not.toHaveProperty('final_text');
+  });
+
+  it('keeps Prompt is too long as a secondary guard for legacy success-shaped output', () => {
+    const { all } = replay([
+      '{"type":"result","subtype":"success","is_error":false,"result":"Prompt is too long"}',
+    ]);
+    expect(completed(all)).toMatchObject({ status: 'failed', error: 'Prompt is too long' });
+    expect(completed(all)).not.toHaveProperty('final_text');
+  });
+});
+// harn:end claude-result-errors-follow-native-signals
 
 describe('S1 content normalization (synthetic inline records)', () => {
   it('maps thinking blocks instead of dropping them', () => {

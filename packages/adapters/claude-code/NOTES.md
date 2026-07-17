@@ -62,6 +62,22 @@ native rejection is surfaced as a normal failed turn.
   cache_creation_input_tokens, cache_read_input_tokens, …}, modelUsage:{<model>:{…costUSD…}},
   permission_denials[], terminal_reason, uuid}` — the finalize signal; `result` is the
   final text, `total_cost_usd` the dollar cost (present, unlike codex).
+
+<!-- harn:assume claude-result-errors-follow-native-signals ref=claude-result-error-contract -->
+### Result failure contract (pinned without an API call)
+
+Claude Code 2.1.212's embedded Agent SDK 0.3.185 declaration distinguishes
+`SDKResultSuccess` from `SDKResultError`. Error results have
+`subtype: "error_during_execution" | "error_max_turns" | "error_max_budget_usd" |
+"error_max_structured_output_retries"`, `is_error`, and `errors: string[]`; unlike
+success results, they do not have `result`. Paseo likewise treats every non-success
+result as a failed turn and takes its detail from `errors[]`.
+
+`test-fixtures/context-overflow.jsonl` is a minimal contract-derived record for
+that declared shape, including the synthesized assistant API-error message seen in
+the incident. It is deliberately outside `fixtures/`: the files in `fixtures/`
+remain untouched raw scrubbed live captures under the contract above.
+<!-- harn:end claude-result-errors-follow-native-signals -->
 - Subagent (Task) internals are NOT streamed at the top level (no assistant events with
   `parent_tool_use_id` set were observed around the Task call) — hooks are the authoritative
   extension signal (below).

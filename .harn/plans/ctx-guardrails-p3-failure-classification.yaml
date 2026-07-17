@@ -1,0 +1,144 @@
+id: ctx-guardrails-p3-failure-classification
+title: Phase 3 context-ceiling guardrails - failed result classification
+notes: >-
+  Implement Phase 3 only from tmp/context-ceiling-guardrails/PLAN.md. Pin the
+  current Claude result-error contract locally without making an API call: the
+  installed Claude Code 2.1.212 / Agent SDK 0.3.185 contract defines
+  error_during_execution, error_max_turns, error_max_budget_usd, and
+  error_max_structured_output_retries result subtypes with is_error and an
+  errors string array. This matches Paseo's non-success-result handling.
+
+  Claude classification uses is_error or any non-success result subtype as the
+  primary signal and errors[] as the primary detail. A known Prompt is too long
+  match on result/errors is only a compatibility guard for malformed or older
+  success-shaped output. Failed completions carry error, never final_text.
+
+  Add an optional generic error detail to run.completed and RunSummary. The
+  daemon persists failed detail there, leaves the finalized run message body
+  empty, parses no mentions, creates no reply fanout, and retains the existing
+  failed member/dead/attention treatment. Legacy adapters that still put failed
+  detail in final_text are normalized at this boundary. Boot reconciliation
+  preserves the same failure detail behavior.
+
+  Tests use a contract-derived JSONL fixture and FakeAdapter only. No live API
+  calls, deployment, or daemon restart is in scope.
+assumptions:
+  reviewed:
+    - id: first-party-run-items-normalized
+      outcome: unchanged
+      reason: Claude continues to emit bounded normalized text and other run-item
+        evidence; result failure classification changes only the terminal event.
+    - id: normalized-agent-usage-telemetry
+      outcome: unchanged
+      reason: Failed results retain the same optional usage and agent_usage snapshots,
+        and the additive error field changes no telemetry shape.
+    - id: reply-is-finalized-run-message
+      outcome: unchanged
+      reason: Successful agent replies still finalize and route from the one run
+        message; a failure detail is explicitly not a reply or final_text.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: Exact acknowledgements retain their existing semantics, while failed
+        completions use the existing empty-body non-routable path.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: A journaled run.completed still finalizes exactly once during boot
+        reconciliation, now preserving its optional error detail too.
+  create:
+    - id: failed-run-details-never-route-as-replies
+      title: Failed turn detail stays on the run and never becomes a reply
+      statement: A failed run completion must preserve its diagnostic text as
+        RunSummary.error on the same durable run message while finalizing that
+        message with an empty body, no final_text, no parsed mentions or refs,
+        and no reply fanout; the member still enters the existing failed/dead
+        attention path, and boot reconciliation must produce the same result.
+      reason: Provider and process errors are operational evidence, not agent-authored
+        chat capable of mentioning people or triggering more work.
+      depends_on:
+        - reply-is-finalized-run-message
+        - substantive-routing-excludes-acknowledgements
+        - delivery-attempt-wal-reconcile
+    - id: claude-result-errors-follow-native-signals
+      title: Claude result errors are classified from native terminal signals
+      statement: The Claude stream-json translator must classify a result as failed
+        when is_error is true or its subtype is not success, take failure detail
+        from the native errors array before any legacy result text, and emit
+        that detail as run.completed.error with no final_text. A
+        case-insensitive Prompt is too long result/error text match may classify
+        otherwise success-shaped legacy output only as a secondary compatibility
+        guard.
+      reason: API failures, including context overflow, must follow the CLI's terminal
+        contract rather than masquerade as assistant-authored replies.
+      depends_on:
+        - first-party-run-items-normalized
+        - normalized-agent-usage-telemetry
+        - failed-run-details-never-route-as-replies
+files:
+  - packages/adapters/claude-code/NOTES.md
+  - packages/adapters/claude-code/test-fixtures/context-overflow.jsonl
+  - packages/adapters/claude-code/src/translate.ts
+  - packages/adapters/claude-code/src/translate.spec.ts
+  - packages/protocol/src/events.ts
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - docs/PROTOCOL.md
+anchors:
+  failed-run-details-never-route-as-replies:
+    failed-run-error-schema:
+      action: change
+      reason: Carry generic diagnostic detail separately on terminal events and run
+        summaries and document the distinction from reply text.
+    fake-failed-turn-detail:
+      action: change
+      reason: Let fixture-only daemon tests emit an explicit failed-run error.
+    failed-run-finalization:
+      action: change
+      reason: Persist failure detail while keeping the message body and routing empty.
+    failed-run-recovery:
+      action: change
+      reason: Preserve the same diagnostic-only finalization after journal recovery.
+    failed-run-daemon-regression:
+      action: change
+      reason: Prove the error is durable, the member receives failed treatment, and
+        the text never becomes a reply body or delivery.
+  claude-result-errors-follow-native-signals:
+    claude-result-error-contract:
+      action: change
+      reason: Record the locally pinned SDK result-error shape and its
+        contract-derived overflow fixture.
+    claude-result-failure-translation:
+      action: change
+      reason: Prefer native error signals and details, with a narrow secondary
+        overflow-string compatibility guard.
+    claude-result-failure-regression:
+      action: change
+      reason: Prove native subtype/is_error classification, absence of final_text, and
+        the secondary legacy guard from fixture-only inputs.
+  first-party-run-items-normalized:
+    claude-normalized-run-items:
+      action: change
+      reason: Change Claude's terminal result mapping without altering normalized
+        run-item evidence.
+  normalized-agent-usage-telemetry:
+    agent-usage-telemetry-schema:
+      action: change
+      reason: Add an orthogonal optional error field beside the existing terminal
+        telemetry fields.
+  reply-is-finalized-run-message:
+    finalize-and-route:
+      action: change
+      reason: Preserve successful one-message reply routing while separating failed
+        diagnostics from reply bodies.
+  substantive-routing-excludes-acknowledgements:
+    exact-ack-finalization:
+      action: change
+      reason: Compose failed empty-body parsing beside the unchanged exact-ack path.
+  delivery-attempt-wal-reconcile:
+    boot-reconcile:
+      action: change
+      reason: Replay the optional terminal error detail during crash recovery.
+applied:
+  applied_at: 2026-07-17T08:54:27.431Z

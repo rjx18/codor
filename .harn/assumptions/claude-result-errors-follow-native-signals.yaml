@@ -1,0 +1,15 @@
+id: claude-result-errors-follow-native-signals
+hash: a-60113c0c22a3
+title: Claude result errors are classified from native terminal signals
+state: active
+statement: The Claude stream-json translator must classify a result as failed
+  when is_error is true or its subtype is not success, take failure detail from
+  the native errors array before any legacy result text, and emit that detail as
+  run.completed.error with no final_text. A case-insensitive Prompt is too long
+  result/error text match may classify otherwise success-shaped legacy output
+  only as a secondary compatibility guard.
+depends_on:
+  - first-party-run-items-normalized
+  - normalized-agent-usage-telemetry
+  - failed-run-details-never-route-as-replies
+created_by: ctx-guardrails-p3-failure-classification
