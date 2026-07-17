@@ -87,6 +87,23 @@ test.describe('usage limits', () => {
   });
 });
 
+// harn:assume member-context-window-meter-derived-from-last-usage ref=context-window-meter-browser-smoke
+test.describe('context window meter', () => {
+  test('member cards derive the ring and tooltip from fixture telemetry', async ({ page }) => {
+    await openRoom(page);
+
+    const meter = page.getByTestId('member-fable-context-window');
+    await expect(meter).toBeVisible();
+    await expect(meter).toHaveClass(/is-amber/);
+    await expect(meter).toHaveAttribute('data-percentage', '75');
+    await expect(meter).toHaveAttribute('title', /150k \/ 200k tokens · Session cost: \$0\.04/);
+
+    await expect(page.getByTestId('member-scout-context-window')).toHaveClass(/is-pending/);
+    await expect(page.getByTestId('member-hydrate-context-window')).toHaveCount(0);
+  });
+});
+// harn:end member-context-window-meter-derived-from-last-usage
+
 test.describe('member lifecycle', () => {
   test('kill confirms into Dead; revive brings the agent back', async ({ page }) => {
     await openRoom(page);

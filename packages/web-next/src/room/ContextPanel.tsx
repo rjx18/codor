@@ -10,6 +10,7 @@ import type { Connection } from '@legacy/ws.js';
 import { clockTime, compactCount, memberAccent, usd } from '../primitives/identity.js';
 import { Button, Chip, Eyebrow, IconButton, Modal, Segmented, StatusPill } from '../primitives/primitives.js';
 import { useAdapters, useMemberDetails } from '../app/session.js';
+import { ContextWindowMeter } from './ContextWindowMeter.js';
 
 type Tab = 'members' | 'diff' | 'preview';
 
@@ -133,6 +134,15 @@ function MemberCard(props: {
             ? <Eyebrow>{member.role ?? 'human'}</Eyebrow>
             : <MemberStateWord state={member.state} />}
         </span>
+        {/* harn:assume member-context-window-meter-derived-from-last-usage ref=context-window-meter-wiring */}
+        {member.kind === 'agent' && (
+          <ContextWindowMeter
+            usage={member.lastUsage}
+            pending={member.state === 'running'}
+            testId={`member-${member.handle}-context-window`}
+          />
+        )}
+        {/* harn:end member-context-window-meter-derived-from-last-usage */}
         {member.kind === 'agent' && (
           <div className="nx-member-menu" ref={menuRef}>
             <IconButton

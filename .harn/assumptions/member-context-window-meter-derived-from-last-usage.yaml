@@ -1,0 +1,17 @@
+id: member-context-window-meter-derived-from-last-usage
+hash: a-1b5661eb9f37
+title: Member context occupancy is a client-derived transient gauge
+state: active
+statement: Web-next agent member cards must derive context occupancy from
+  lastUsage.contextWindowUsedTokens divided by lastUsage.contextWindowMaxTokens
+  and render no completed meter unless both values form a valid non-negative
+  used and positive maximum pair. The ring is normal below 70 percent, amber
+  from 70 through 90 percent inclusive, and red above 90 percent; its drawing is
+  clamped to the ring while its tooltip reports used and maximum tokens plus
+  positive session cost when present. A running member without a valid pair may
+  reserve a track-only pending skeleton, and no computed percentage may be
+  written to protocol or daemon state.
+depends_on:
+  - normalized-agent-usage-telemetry
+  - last-agent-usage-is-transient
+created_by: ctx-guardrails-p2-gauge

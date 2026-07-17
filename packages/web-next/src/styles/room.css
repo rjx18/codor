@@ -975,6 +975,28 @@
 .nx-gauge.is-warn .nx-gauge-value { color: var(--c-warn-text); }
 .nx-gauge.is-error .nx-gauge-value { color: var(--c-error-text); }
 
+/* harn:assume member-context-window-meter-derived-from-last-usage ref=context-window-meter-style */
+.nx-context-meter {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--r-full);
+}
+.nx-context-meter svg { transform: rotate(-90deg); }
+.nx-context-meter circle { stroke-width: 2; }
+.nx-context-meter-track { stroke: var(--c-muted); }
+.nx-context-meter-progress {
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--m-fast) var(--m-ease), stroke var(--m-fast) var(--m-ease);
+}
+.nx-context-meter.is-normal .nx-context-meter-progress { stroke: var(--c-faded); }
+.nx-context-meter.is-amber .nx-context-meter-progress { stroke: var(--c-warn); }
+.nx-context-meter.is-red .nx-context-meter-progress { stroke: var(--c-error); }
+.nx-context-meter.is-pending { opacity: 0.72; }
+/* harn:end member-context-window-meter-derived-from-last-usage */
+
 .nx-member-menu { position: relative; flex: none; }
 .nx-menu {
   position: absolute;

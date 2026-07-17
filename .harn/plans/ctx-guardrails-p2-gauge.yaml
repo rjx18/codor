@@ -1,0 +1,81 @@
+id: ctx-guardrails-p2-gauge
+title: Phase 2 context-ceiling guardrails - member context window gauge
+notes: >-
+  Implement Phase 2 only from tmp/context-ceiling-guardrails/PLAN.md. Add a
+  compact ring meter to web-next agent member cards, following Paseo's
+  ContextWindowMeter data flow and visual states while using Codor's existing
+  room-card tokens and native title tooltip convention.
+
+  The browser derives occupancy from Member.lastUsage contextWindowUsedTokens
+  and contextWindowMaxTokens; no percentage enters the protocol or daemon.
+  Invalid or incomplete context pairs render nothing, normal is below 70%, amber
+  is 70% through 90% inclusive, and red is above 90%. The drawn arc is clamped
+  while the tooltip reports formatted used/max tokens and a positive session
+  cost when available. A running member without a valid pair may show a
+  track-only pending skeleton.
+
+  Coverage consists of fixture-only component states and an isolated Playwright
+  room smoke backed by the existing FakeAdapter harness. No live API calls,
+  deployment, or daemon restart is in scope.
+assumptions:
+  reviewed:
+    - id: normalized-agent-usage-telemetry
+      outcome: unchanged
+      reason: Phase 2 consumes the existing optional camelCase AgentUsage fields
+        exactly as published and adds no percentage or transport field.
+    - id: last-agent-usage-is-transient
+      outcome: unchanged
+      reason: The gauge reads the existing transient Member.lastUsage projection and
+        does not persist, journal, refresh, or otherwise change its lifecycle.
+  create:
+    - id: member-context-window-meter-derived-from-last-usage
+      title: Member context occupancy is a client-derived transient gauge
+      statement: Web-next agent member cards must derive context occupancy from
+        lastUsage.contextWindowUsedTokens divided by
+        lastUsage.contextWindowMaxTokens and render no completed meter unless
+        both values form a valid non-negative used and positive maximum pair.
+        The ring is normal below 70 percent, amber from 70 through 90 percent
+        inclusive, and red above 90 percent; its drawing is clamped to the ring
+        while its tooltip reports used and maximum tokens plus positive session
+        cost when present. A running member without a valid pair may reserve a
+        track-only pending skeleton, and no computed percentage may be written
+        to protocol or daemon state.
+      reason: Operators need compact, current context pressure at the point where they
+        inspect agents without creating a second source of usage truth.
+      depends_on:
+        - normalized-agent-usage-telemetry
+        - last-agent-usage-is-transient
+files:
+  - packages/web-next/src/room/ContextWindowMeter.tsx
+  - packages/web-next/src/room/ContextWindowMeter.spec.tsx
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room3-context.e2e.spec.ts
+anchors:
+  member-context-window-meter-derived-from-last-usage:
+    context-window-meter-component:
+      action: change
+      reason: Derive and render the hidden, pending, normal, amber, and red ring
+        states with a usage-and-cost tooltip.
+    context-window-meter-wiring:
+      action: change
+      reason: Place the meter on agent member cards using transient lastUsage and
+        running state only.
+    context-window-meter-style:
+      action: change
+      reason: Match the existing web-next gauge token language in compact ring form.
+    context-window-meter-regression:
+      action: change
+      reason: Prove hidden, pending, normal, amber, and red component states from
+        local values.
+    context-window-meter-browser-fixture:
+      action: change
+      reason: Seed paired normalized context telemetry in the isolated browser harness
+        without a live provider.
+    context-window-meter-browser-smoke:
+      action: change
+      reason: Prove the room member card exposes the derived ring state and tooltip
+        from fixture telemetry.
+applied:
+  applied_at: 2026-07-17T08:33:47.641Z

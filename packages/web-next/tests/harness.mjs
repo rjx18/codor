@@ -111,6 +111,15 @@ fake.enqueue({
   final_text:
     'Queue is short: session rotation is refactored and tests pass. Remaining: wire the refresh TTL config and delete the legacy cookie path.',
   usage: { input_tokens: 18_234, output_tokens: 512, cost_usd: 0.041 },
+  // harn:assume member-context-window-meter-derived-from-last-usage ref=context-window-meter-browser-fixture
+  agent_usage: {
+    inputTokens: 18_234,
+    outputTokens: 512,
+    totalCostUsd: 0.041,
+    contextWindowUsedTokens: 150_000,
+    contextWindowMaxTokens: 200_000,
+  },
+  // harn:end member-context-window-meter-derived-from-last-usage
   items: [
     {
       type: 'run.limits',
