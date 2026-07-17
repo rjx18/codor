@@ -9,7 +9,7 @@ async function openRoom(page: Page): Promise<void> {
 }
 
 test.describe('rail anatomy', () => {
-  test('rows carry preview, working, failure, and unread states from the summary', async ({ page }) => {
+  test('rows carry preview, working, attention, and unread states from the summary', async ({ page }) => {
     // A seeded cursor makes research's unread pill deterministic (2 messages, cursor at 1).
     await page.addInitScript(() => {
       localStorage.setItem('nx-room-cursors', JSON.stringify({ research: 1 }));
@@ -25,6 +25,7 @@ test.describe('rail anatomy', () => {
 
     const design = page.getByTestId('room-link-design');
     await expect(design).toContainText('@richard: new pricing page comps');
+    await expect(design.locator('.nx-row-preview.is-error')).toHaveCount(0);
     await expect(design.locator('.nx-unread')).toHaveCount(0);
 
     // The live run keeps eng working, and working rooms sort first.

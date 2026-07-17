@@ -1,5 +1,5 @@
 // Rail summaries: the server truth for every readable room (preview, working,
-// dead, unread). Unread is cursor arithmetic — this device remembers the last
+// attention, unread). Unread is cursor arithmetic — this device remembers the last
 // message id it saw per room and the server counts past it; no cursor, no count.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -21,7 +21,7 @@ export interface RoomSummary {
   created_ts: string;
   color?: string;
   working: boolean;
-  dead: boolean;
+  attention: boolean;
   latest?: RoomSummaryLatest;
   unread: number;
 }
@@ -90,7 +90,7 @@ export function useRoomSummaries(activeRoom: string, token: () => string): RoomS
             created_ts: room.created_ts,
             color: room.config.color,
             working: false,
-            dead: false,
+            attention: false,
             unread: 0,
           }))))
           .catch(() => undefined),

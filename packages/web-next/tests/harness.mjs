@@ -66,10 +66,27 @@ const fable = daemon.spawnMember('eng', { harness: 'fake', handle: 'fable', cwd:
 const scout = daemon.spawnMember('eng', { harness: 'fake', handle: 'scout', cwd: dir });
 const muse = daemon.spawnMember('eng', { harness: 'fake', handle: 'muse', cwd: dir });
 
-// Ops carries the failure state: a dead agent and an unhappy last word.
+// Ops carries the failure state: its latest run failed and its author is dead.
 const relay = daemon.spawnMember('ops', { harness: 'fake', handle: 'relay', cwd: dir });
+const relayRunTs = new Date().toISOString();
+daemon.store.postMessage('ops', {
+  author: relay.id,
+  kind: 'run',
+  body: 'deploy job exited 1 — rollback applied, needs a human look',
+  run: {
+    status: 'failed',
+    started_ts: relayRunTs,
+    ended_ts: relayRunTs,
+    tool_calls: 0,
+    events_ref: 'runs/relay-failed.jsonl',
+    final_text: 'deploy job exited 1 — rollback applied, needs a human look',
+  },
+});
 daemon.store.updateMember('ops', relay.id, { state: 'dead' });
-daemon.postAgentMessage('ops', relay.id, 'deploy job exited 1 — rollback applied, needs a human look');
+
+// Design also has a dormant dead agent, which must not trip attention by itself.
+const retiredDesigner = daemon.spawnMember('design', { harness: 'fake', handle: 'retired-designer', cwd: dir });
+daemon.store.updateMember('design', retiredDesigner.id, { state: 'dead' });
 
 daemon.postHumanMessage('design', 'new pricing page comps are in figma, comments welcome', {
   author: daemon.ownerOf('design').id,

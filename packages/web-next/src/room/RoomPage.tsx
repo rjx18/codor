@@ -133,7 +133,7 @@ function ChannelRail(props: {
     const list: RoomSummary[] = summaries.length > 0
       ? [...summaries]
       : room !== undefined
-        ? [{ id: room.id, name: room.name, created_ts: room.created_ts, working: false, dead: false, unread: 0 }]
+        ? [{ id: room.id, name: room.name, created_ts: room.created_ts, working: false, attention: false, unread: 0 }]
         : [];
     const lastActivity = (entry: RoomSummary): number =>
       Date.parse(entry.latest?.ts ?? entry.created_ts) || 0;
@@ -192,7 +192,7 @@ function ChannelRail(props: {
                   name={entry.name}
                   accent="indigo"
                   size={38}
-                  presence={entry.dead ? 'error' : isWorking ? 'live' : active && !connected ? 'error' : 'idle'}
+                  presence={entry.attention ? 'error' : isWorking ? 'live' : active && !connected ? 'error' : 'idle'}
                   surface={active ? 'raised' : 'surface'}
                 />
                 <span className="nx-row-main">
@@ -206,7 +206,7 @@ function ChannelRail(props: {
                         <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>
                         {active && working ? `@${working.handle} is working…` : 'working…'}
                       </span>
-                    ) : entry.dead ? (
+                    ) : entry.attention ? (
                       <span className="nx-row-preview is-error">agent needs attention</span>
                     ) : (
                       <span className="nx-row-preview">{preview}</span>
@@ -329,4 +329,3 @@ function ChatPanel(props: {
     </main>
   );
 }
-

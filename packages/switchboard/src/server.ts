@@ -459,7 +459,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   // harn:assume rail-summary-served-not-guessed ref=rooms-summary-rest
   // Rail state for every readable room: bounded preview projection, working /
-  // dead from live agent member state, and unread computed ONLY against the
+  // attention from live agent and latest-run state, and unread computed ONLY against the
   // caller's ?cursors=<room>:<msgId>,... — no cursor, no invented read state.
   app.get('/api/rooms/summary', (req, reply) => {
     const principal = authed(req, reply);
@@ -484,18 +484,26 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     void reply.send({
       rooms: roomsFor(principal).map((room) => {
         const members = daemon.store.listMembers(room.id);
-        const latest = daemon.store.latestMessage(room.id);
+        const latest = daemon.store.latestMessage(room.id, { ignoreAcks: true });
+        const latestRun = daemon.store.listRunMessages(room.id, { limit: 1 })[0];
         const author = latest ? daemon.store.getMember(room.id, latest.author) : undefined;
+        const runAuthor = latestRun
+          ? daemon.store.getMember(room.id, latestRun.author)
+          : undefined;
         const cursor = cursors.get(room.id);
+        const working = members.some(
+          (m) => m.kind === 'agent' && (m.state === 'running' || m.state === 'queued'),
+        );
         return {
           id: room.id,
           name: room.name,
           created_ts: room.created_ts,
           color: room.config.color,
-          working: members.some(
-            (m) => m.kind === 'agent' && (m.state === 'running' || m.state === 'queued'),
-          ),
-          dead: members.some((m) => m.kind === 'agent' && m.state === 'dead'),
+          working,
+          attention: !working
+            && latestRun?.run?.status === 'failed'
+            && runAuthor?.kind === 'agent'
+            && runAuthor.state === 'dead',
           ...(latest !== undefined && {
             latest: {
               id: latest.id,

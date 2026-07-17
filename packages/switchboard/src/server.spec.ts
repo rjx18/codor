@@ -1741,11 +1741,14 @@ describe('Phase 3 REST boundaries', () => {
 
 // harn:assume rail-summary-served-not-guessed ref=rooms-summary-rest
 describe('rooms summary', () => {
-  it('serves preview, working, dead, and cursor-driven unread per readable room', async () => {
+  it('serves preview, working, attention, and cursor-driven unread per readable room', async () => {
     daemon.postHumanMessage('eng', 'first message');
     const latest = daemon.postHumanMessage('eng', 'the newest line\nsecond line never previews');
     const agent = daemon.spawnMember('eng', {
       harness: 'fake', handle: 'railbot', cwd: testCwd('railbot'),
+    });
+    const otherAgent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'other-railbot', cwd: testCwd('other-railbot'),
     });
 
     const summaryOf = async (query = '') => {
@@ -1754,7 +1757,7 @@ describe('rooms summary', () => {
       });
       expect(res.status).toBe(200);
       const body = await res.json() as { rooms: {
-        id: string; working: boolean; dead: boolean; unread: number;
+        id: string; working: boolean; attention: boolean; unread: number;
         latest?: { id: number; author_handle: string; preview: string };
       }[] };
       const eng = body.rooms.find((room) => room.id === 'eng');
@@ -1767,7 +1770,7 @@ describe('rooms summary', () => {
     expect(idle.latest?.author_handle).toBe('richard');
     expect(idle.latest?.preview).toBe('the newest line');
     expect(idle.working).toBe(false);
-    expect(idle.dead).toBe(false);
+    expect(idle.attention).toBe(false);
     expect(idle.unread).toBe(0); // no cursor -> no invented read state
 
     expect((await summaryOf(`?cursors=eng:${latest.id - 1}`)).unread).toBe(1);
@@ -1776,9 +1779,51 @@ describe('rooms summary', () => {
     daemon.store.updateMember('eng', agent.id, { state: 'running' });
     expect((await summaryOf()).working).toBe(true);
     daemon.store.updateMember('eng', agent.id, { state: 'dead' });
-    const dead = await summaryOf();
-    expect(dead.working).toBe(false);
-    expect(dead.dead).toBe(true);
+    expect((await summaryOf()).attention).toBe(false); // a dormant corpse alone is not attention-worthy
+
+    const started = new Date().toISOString();
+    daemon.store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: 'the run failed',
+      run: {
+        status: 'failed', started_ts: started, ended_ts: started,
+        tool_calls: 0, events_ref: 'runs/railbot-failed.jsonl', final_text: 'the run failed',
+      },
+    });
+    expect((await summaryOf()).attention).toBe(true);
+
+    daemon.store.updateMember('eng', otherAgent.id, { state: 'queued' });
+    const working = await summaryOf();
+    expect(working.working).toBe(true);
+    expect(working.attention).toBe(false);
+    daemon.store.updateMember('eng', otherAgent.id, { state: 'idle' });
+    expect((await summaryOf()).attention).toBe(true);
+
+    daemon.store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: 'the retry succeeded',
+      run: {
+        status: 'completed', started_ts: started, ended_ts: new Date().toISOString(),
+        tool_calls: 0, events_ref: 'runs/railbot-completed.jsonl', final_text: 'the retry succeeded',
+      },
+    });
+    expect((await summaryOf()).attention).toBe(false);
+
+    daemon.store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: '<ACK_OK>',
+      ack: true,
+      run: {
+        status: 'completed', started_ts: started, ended_ts: new Date().toISOString(),
+        tool_calls: 0, events_ref: 'runs/railbot-ack.jsonl', final_text: '<ACK_OK>',
+      },
+    });
+    const afterAck = await summaryOf();
+    expect(afterAck.latest?.preview).toBe('the retry succeeded');
+    expect(afterAck.unread).toBe(0);
   });
 
   it('shows an agent principal only its own room', async () => {
