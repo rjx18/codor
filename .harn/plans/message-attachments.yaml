@@ -1,0 +1,152 @@
+id: message-attachments
+title: Message attachments - room files under the data dir, delivered to
+  agents as paths.
+notes: >-
+  P9 piece four (design settled with Richard in #425: caps 25 MB per file
+  and 8 per message, any file type, storage under the daemon data
+  directory, agents receive absolute paths, deletion purges the files).
+  Humans need to hand agents real files - screenshots, logs, documents -
+  not just prose.
+
+  Change. Protocol: Message gains attachments?: Attachment[] (additive;
+  Attachment is {id, name, mime, size} with the id as the server-issued
+  handle) and the post client frame gains attachments?: string[] carrying
+  ids from prior uploads. No new act and no capability-matrix change -
+  attachments ride the existing member-gated post. Server: POST
+  /api/rooms/:room/attachments (authenticated) streams one file to disk
+  under <data-dir>/attachments/<room>/<id> (server-issued id as the on-disk
+  name - the original filename lives only in metadata, so no path
+  traversal), refusing files over 25 MB; GET
+  /api/rooms/:room/attachments/:id (authenticated) streams it back with
+  the stored mime and name. The post path validates attachment ids (must
+  exist in this room's staging, at most 8 per message) and stamps the
+  metadata onto the message. Uploads not referenced by any message within
+  24 hours are orphans; a boot-time sweep unlinks them. Store: messages
+  gain an attachments TEXT column (JSON, like ask/origin - CREATE TABLE +
+  idempotent ALTER migration), postMessage writes it, messageFromRow reads
+  it back. Daemon: composeBatchPayload appends one line per attachment to
+  the delivered text - the absolute file path plus name and size - so
+  agents on this machine read the file directly; deleteMessage additionally
+  unlinks the message's attachment files and nulls the column (the
+  tombstone statement gains that clause). Delivery snapshots carry the
+  path text, which stays valid until the message is deleted. Agents do not
+  upload in v1 - runs already surface agent-produced artifacts.
+
+  Anchor crossings: the messages CREATE TABLE (schema anchor), the
+  postMessage INSERT (id-allocation anchor), the shared ws listener (post
+  frame handling lives inside it), and the delete contract (purge extends
+  to files). The http endpoint region carries no anchors.
+
+  Web-next (harnignored, same batch): composer attach button + drag-drop
+  onto the composer, pending chips with name/size and remove before send,
+  upload progress, refusal messaging over the caps; in the transcript,
+  image attachments render inline (click opens the served file), other
+  types render as download chips; tombstones show no attachments.
+
+  Tests: protocol - Attachment and post-frame parse incl. cap-adjacent
+  shapes; store - attachments round-trip and migration on a pre-column db;
+  daemon - payload lines carry absolute paths, delete unlinks files from
+  disk (asserted) and nulls the column, orphan sweep removes only
+  unreferenced files older than the window; server - upload/download e2e
+  with auth, oversize refused, over-count post refused, cross-room id
+  refused; web-next e2e - attach + send renders an inline image and a
+  download chip, tombstone hides them, axe. Gate: protocol + switchboard
+  suites green; web-next unit + playwright green.
+assumptions:
+  reviewed:
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: Attachments are stamped at post time and removed by the delete
+        mutation - both already ride the change log; no new visible
+        mutation class is introduced.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Attachments hang off existing message rows; ids, ordering, and
+        paging are untouched.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: The post frame gains an optional attachments field parsed
+        identically on both transports; uploads are http on the same
+        server.
+    - id: collaboration-groups-are-durable-state
+      outcome: unchanged
+      reason: The messages table gains an additive defaulted column; group,
+        round, and slot durability are untouched.
+    - id: message-id-txn-allocation
+      outcome: unchanged
+      reason: The INSERT carries one more nullable column; id allocation
+        stays inside the same transaction, dense and monotonic.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: Attachment paths are part of the composed payload text and
+        snapshot like the rest of it.
+    - id: deleted-messages-are-purged-tombstones
+      outcome: changed
+      statement: Deleting a message empties its body and payload columns,
+        unlinks its attachment files from disk and nulls their metadata,
+        and sets a durable deleted flag on the same row through the room
+        change log, keeping id, author, kind, and timestamp so ordering,
+        attribution, and permalinks survive; only human members with role
+        owner or admin may delete, agents and observers are refused, only
+        chat-kind messages qualify (run and system messages are refused),
+        re-deleting is a silent no-op, still-pending deliveries of the
+        message are cancelled while consumed deliveries keep their
+        snapshots, and there is no undelete.
+      reason: The purge now genuinely removes attachment bytes from disk,
+        not just the row's columns; everything else stands.
+  create:
+    - id: attachments-are-data-dir-files-delivered-as-paths
+      title: Attachments are room-scoped files under the data directory,
+        capped, served authenticated, and handed to agents as absolute
+        paths
+      statement: A message attachment is one uploaded file of any type up to
+        25 MB stored under the daemon data directory keyed by a
+        server-issued id (never the client filename), at most 8 per
+        message, posted only by referencing prior authenticated uploads in
+        the same room, served back only through the authenticated endpoint,
+        appended to agent delivery payloads as an absolute path line,
+        unlinked from disk when its message is deleted, and swept at boot
+        when no message referenced it within a day.
+      reason: >-
+        P9 piece four (#425): operators need to hand agents real files;
+        agents share the operator's machine, so paths are the honest
+        delivery form.
+      depends_on: []
+files:
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+anchors:
+  attachments-are-data-dir-files-delivered-as-paths:
+    attachment-contract:
+      action: change
+      reason: The upload/serve endpoints, post-frame validation, store
+        column, payload lines, and purge-unlink define the attachment
+        contract.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: The post frame handling lives inside the shared listener
+        anchor, and it gains the attachments field validation. Both
+        transports keep the identical protocol.
+  collaboration-groups-are-durable-state:
+    collaboration-store-schema:
+      action: change
+      reason: The messages CREATE TABLE gains an attachments TEXT column;
+        the migration ALTER outside the anchor covers pre-existing
+        databases.
+  message-id-txn-allocation:
+    message-id-allocation:
+      action: change
+      reason: The postMessage INSERT names the new attachments column;
+        allocation logic is untouched.
+  deleted-messages-are-purged-tombstones:
+    delete-message-contract:
+      action: change
+      reason: deleteMessage additionally unlinks attachment files and nulls
+        the column inside the anchor that defines the purge.
