@@ -1,0 +1,45 @@
+id: summary-attention-semantics
+title: Rail attention means the latest run failed and died; previews skip acks.
+notes: >-
+  Richard (#341/#338): codor-ui showed "agent needs attention" because the
+  roster still carries long-dead agents (worker, worker2) - any dead agent
+  tripped the flag, and dormant corpses are not attention-worthy. And the
+  rail preview surfaced a bare ack marker as the channel's latest message.
+
+  Change (summary endpoint semantics, both in GET /api/rooms/summary):
+
+  One - the "dead" field becomes "attention" and means exactly: the room's
+  latest run message has status failed AND its author is an agent whose state
+  is dead. Working always wins: if any non-removed agent is running or
+  queued, attention is false regardless. Old dead members alone never trip
+  it. The web-next rail renders the red state from attention (harnignored
+  side updated in the same breath).
+
+  Two - the latest-message projection skips ack messages: latestMessage
+  gains an option to ignore rows whose ack flag is set, and the summary uses
+  it, so previews show the last REAL message. unread counting is untouched.
+
+  Tests (server.spec.ts): a dormant dead agent alone does not set attention;
+  a failed latest run by a now-dead agent does; a running agent overrides it
+  back to false; a newer successful run clears it; an ack as the newest
+  message previews the message before it.
+assumptions:
+  reviewed:
+    - id: rail-summary-served-not-guessed
+      outcome: unchanged
+      reason: The endpoint stays the single served source for rail state; the
+        attention rule sharpens what dead-agent attention means and previews
+        stay bounded projections of real messages.
+files:
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/server.spec.ts
+anchors:
+  rail-summary-served-not-guessed:
+    rooms-summary-rest:
+      action: change
+      reason: The handler computes attention from the latest run's fate and
+        working state instead of any-dead, and previews skip acks.
+    rooms-summary-store-queries:
+      action: change
+      reason: latestMessage learns to skip ack rows for the preview projection.
