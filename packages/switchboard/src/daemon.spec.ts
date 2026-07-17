@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { ServerFrame, Session, SpawnOpts } from '@codor/protocol';
+import type { AgentLimit, HarnessAdapter, ServerFrame, Session, SpawnOpts } from '@codor/protocol';
 import { createTurnTranslator, wireEventFromHook } from '@codor/adapter-claude-code';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -3734,6 +3734,82 @@ describe('usage limits (agent-usage-limits-reported-not-guessed)', () => {
     const run = daemon.store.listRunMessages('eng', { author: agent.id, limit: 1 })[0]!;
     const journal = daemon.readRunBlob('eng', run.id);
     expect(journal.some((e) => e.type === 'run.limits')).toBe(false);
+  });
+
+  it('fans account probes out by harness, emits only changes, and ignores failures', async () => {
+    const reported: AgentLimit[] = [
+      { window: 'five_hour', used_percent: 21, resets_at: '2026-07-17T12:00:00.000Z' },
+      { window: 'seven_day', used_percent: 64 },
+    ];
+    let failing = false;
+    const probeLimits = vi.fn(async () => {
+      if (failing) throw new Error('provider unavailable');
+      return reported;
+    });
+    const adapter: HarnessAdapter = Object.assign(new FakeAdapter('claude-code'), { probeLimits });
+    const backgroundErrors: Error[] = [];
+    const probeDaemon = new Daemon({
+      dbPath: join(dir, 'limits-probe.sqlite'),
+      blobRoot: join(dir, 'limits-probe-blobs'),
+      adapters: [adapter, new FakeAdapter('codex')],
+      discoverModels: false,
+      limitsProbeMs: 20,
+      onBackgroundError: (error) => backgroundErrors.push(error),
+      homeDir: dir,
+    });
+
+    try {
+      probeDaemon.createRoom({
+        id: 'probe-a', name: 'Probe A', owner: { handle: 'owner-a', display_name: 'Owner A' },
+      });
+      probeDaemon.createRoom({
+        id: 'probe-b', name: 'Probe B', owner: { handle: 'owner-b', display_name: 'Owner B' },
+      });
+      const first = probeDaemon.spawnMember('probe-a', {
+        harness: 'claude-code', handle: 'probe-first', cwd: testCwd('probe-first'),
+      });
+      const second = probeDaemon.spawnMember('probe-b', {
+        harness: 'claude-code', handle: 'probe-second', cwd: testCwd('probe-second'),
+      });
+      const otherHarness = probeDaemon.spawnMember('probe-a', {
+        harness: 'codex', handle: 'probe-codex', cwd: testCwd('probe-codex'),
+      });
+      const removed = probeDaemon.spawnMember('probe-a', {
+        harness: 'claude-code', handle: 'probe-removed', cwd: testCwd('probe-removed'),
+      });
+      probeDaemon.store.updateMember('probe-a', removed.id, { removed_ts: new Date().toISOString() });
+
+      const probeFrames: { room: string; frame: ServerFrame }[] = [];
+      probeDaemon.onFrame((room, frame) => probeFrames.push({ room, frame }));
+      await until(() =>
+        probeDaemon.store.getMember('probe-a', first.id)?.limits !== undefined
+        && probeDaemon.store.getMember('probe-b', second.id)?.limits !== undefined
+          ? true
+          : undefined);
+
+      expect(probeDaemon.store.getMember('probe-a', first.id)?.limits).toEqual(reported);
+      expect(probeDaemon.store.getMember('probe-b', second.id)?.limits).toEqual(reported);
+      expect(probeDaemon.store.getMember('probe-a', otherHarness.id)?.limits).toBeUndefined();
+      expect(probeDaemon.store.getMember('probe-a', removed.id)?.limits).toBeUndefined();
+      const limitFrames = () => probeFrames.filter((item) =>
+        item.frame.type === 'member' && item.frame.member.limits !== undefined);
+      expect(limitFrames().map((item) => item.frame.type === 'member' && item.frame.member.id).sort())
+        .toEqual([first.id, second.id].sort());
+
+      const unchangedFrameCount = limitFrames().length;
+      const callsBeforeUnchanged = probeLimits.mock.calls.length;
+      await until(() => probeLimits.mock.calls.length > callsBeforeUnchanged ? true : undefined);
+      expect(limitFrames()).toHaveLength(unchangedFrameCount);
+
+      failing = true;
+      const callsBeforeFailure = probeLimits.mock.calls.length;
+      await until(() => probeLimits.mock.calls.length > callsBeforeFailure ? true : undefined);
+      expect(limitFrames()).toHaveLength(unchangedFrameCount);
+      expect(probeDaemon.store.getMember('probe-a', first.id)?.limits).toEqual(reported);
+      expect(backgroundErrors).toEqual([]);
+    } finally {
+      await probeDaemon.close();
+    }
   });
 });
 

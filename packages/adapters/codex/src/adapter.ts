@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import type {
+  AgentLimit,
   ModelCatalog,
   AdapterTurnHooks,
   HarnessAdapter,
@@ -17,6 +18,7 @@ import type {
 import { PolicySchema, ThinkingLevelSchema } from '@codor/protocol';
 
 import { createTurnTranslator } from './translate.js';
+import { probeCodexLimits } from './limits-probe.js';
 
 const ROLLOUT_RE = /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/;
 
@@ -127,6 +129,10 @@ export class CodexAdapter implements HarnessAdapter {
     });
   }
   // harn:end adapters-own-their-model-catalog
+
+  probeLimits(): Promise<AgentLimit[] | undefined> {
+    return probeCodexLimits();
+  }
 
   attach(session_ref: SessionRef): Session {
     return { harness: this.id, session_ref, cwd: process.cwd() };

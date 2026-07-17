@@ -633,6 +633,7 @@ describe('wire events', () => {
         type: 'run.limits',
         limits: [
           { window: 'five_hour', status: 'allowed', resets_at: TS },
+          { window: 'seven_day', used_percent: 42, resets_at: TS },
           { window: 'weekly', status: 'allowed_warning', used_percent: 88, vendor: 'extra' },
         ],
       },

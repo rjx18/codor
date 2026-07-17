@@ -1,8 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
 import type {
+  AgentLimit,
   ModelCatalog,
   AskCard,
   Policy,
@@ -75,6 +77,8 @@ export interface DaemonOptions {
    * suite: discovery shells out to real CLIs, which would make it non-hermetic.
    */
   discoverModels?: boolean;
+  /** Account usage refresh cadence; production defaults to 15 minutes. */
+  limitsProbeMs?: number;
   attachLeaseTimeoutMs?: number;
   attachLeasePollMs?: number;
   processProbe?: (target: number) => boolean;
@@ -205,6 +209,8 @@ export class Daemon {
   private readonly processProbe: (target: number) => boolean;
   private readonly attachLeaseTimer: NodeJS.Timeout;
   private readonly stallTimer: NodeJS.Timeout;
+  private readonly limitsProbeTimer: NodeJS.Timeout;
+  private probingLimits = false;
   private readonly runActivity = new Map<string, number>();
   private readonly hostId?: string;
   private readonly residency?: ResidencyCoordinator;
@@ -259,6 +265,12 @@ export class Daemon {
     this.attachLeaseTimer.unref();
     this.stallTimer = setInterval(() => this.checkStalls(), options.stallPollMs ?? 60_000);
     this.stallTimer.unref();
+    this.track(this.probeAdapterLimits());
+    this.limitsProbeTimer = setInterval(
+      () => this.track(this.probeAdapterLimits()),
+      options.limitsProbeMs ?? 15 * 60_000,
+    );
+    this.limitsProbeTimer.unref();
     this.stopResidencyReachability = this.residency?.onReachability((peerId, connected) =>
       this.handleResidentReachability(peerId, connected));
   }
@@ -292,6 +304,7 @@ export class Daemon {
     this.closing = true;
     clearInterval(this.attachLeaseTimer);
     clearInterval(this.stallTimer);
+    clearInterval(this.limitsProbeTimer);
     this.stopResidencyReachability?.();
     if (options.force !== true) {
       for (const [memberId, session] of this.sessions) {
@@ -423,6 +436,13 @@ export class Daemon {
       member: { ...member, ...(waiting && { waiting }) },
     });
     // harn:end live-agent-waits-are-transient
+  }
+
+  private landMemberLimits(room: string, memberId: string, limits: AgentLimit[]): void {
+    const member = this.store.getMember(room, memberId);
+    if (!member || member.removed_ts !== undefined) return;
+    if (isDeepStrictEqual(member.limits, limits)) return;
+    this.emitMember(room, this.store.updateMember(room, member.id, { limits }));
   }
 
   // harn:assume push-only-for-human-targeted-events ref=push-target-dispatch
@@ -688,6 +708,48 @@ export class Daemon {
       .sort((a, b) => a.id.localeCompare(b.id));
   }
   // harn:end adapters-own-their-model-catalog
+
+  /** Provider limits are account-level: one probe fans out to every active
+   * agent using that harness. Missing credentials and failures preserve the
+   * last stream-reported value. */
+  private async probeAdapterLimits(): Promise<void> {
+    if (this.probingLimits || this.closing) return;
+    this.probingLimits = true;
+    try {
+      const membersByHarness = new Map<string, { room: string; member: Member }[]>();
+      for (const room of this.store.listRooms()) {
+        for (const member of this.store.listMembers(room.id)) {
+          if (member.kind !== 'agent' || member.harness === undefined) continue;
+          const members = membersByHarness.get(member.harness) ?? [];
+          members.push({ room: room.id, member });
+          membersByHarness.set(member.harness, members);
+        }
+      }
+
+      for (const adapter of this.adapters.values()) {
+        const targets = membersByHarness.get(adapter.id);
+        if (!adapter.probeLimits || targets === undefined || targets.length === 0) continue;
+        let limits: AgentLimit[] | undefined;
+        try {
+          limits = await adapter.probeLimits();
+        } catch {
+          continue;
+        }
+        if (this.closing || limits === undefined || limits.length === 0) continue;
+        for (const target of targets) {
+          const current = this.store.getMember(target.room, target.member.id);
+          if (
+            current?.kind !== 'agent'
+            || current.harness !== adapter.id
+            || current.removed_ts !== undefined
+          ) continue;
+          this.landMemberLimits(target.room, current.id, limits);
+        }
+      }
+    } finally {
+      this.probingLimits = false;
+    }
+  }
 
   setHumanRole(room: string, memberId: string, role: Role): Member {
     const member = this.store.getMember(room, memberId);
@@ -2186,7 +2248,7 @@ export class Daemon {
         // Limits are member status, not run content: land the harness's report
         // on the member row and stream the member frame — nothing is journaled.
         if (event.type === 'run.limits') {
-          this.emitMember(room, this.store.updateMember(room, member.id, { limits: event.limits }));
+          this.landMemberLimits(room, member.id, event.limits);
           continue;
         }
         // harn:end agent-usage-limits-reported-not-guessed

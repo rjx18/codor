@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { WireEvent } from './events.js';
+import type { AgentLimit } from './member.js';
 
 // harn:assume canonical-spawn-controls-enforced ref=canonical-policy-thinking-enforcement
 export const PolicySchema = z.enum(['read-only', 'workspace-write', 'full-access']);
@@ -122,6 +123,8 @@ export interface HarnessAdapter {
    * Never called on a request path — the daemon discovers in the background.
    */
   listModels?(): Promise<ModelCatalog>;
+  /** Account-level rate-limit windows reported by the harness provider. */
+  probeLimits?(): Promise<AgentLimit[] | undefined>;
   // harn:assume attempt-start-evidence-persisted ref=adapter-turn-hooks
   deliver(session: Session, payload: string, hooks?: AdapterTurnHooks): AsyncIterable<WireEvent>;
   // harn:end attempt-start-evidence-persisted
