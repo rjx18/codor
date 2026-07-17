@@ -3,10 +3,7 @@ import { readFileSync } from 'node:fs';
 import { parseRunItemPayload, type WireEvent, WireEventSchema } from '@codor/protocol';
 import { describe, expect, it } from 'vitest';
 
-import { composeControlResponse } from './adapter.js';
 import {
-  cardFromControlRequest,
-  type ControlRequest,
   createTurnTranslator,
   diffFromToolUse,
   wireEventFromHook,
@@ -27,7 +24,15 @@ function testFixture(name: string): string[] {
 function replay(lines: string[]) {
   const translator = createTurnTranslator();
   const events: WireEvent[] = [];
-  for (const line of lines) events.push(...translator.push(line));
+  // harn:assume claude-sdk-message-contract-preserves-normalized-runs ref=claude-sdk-message-regression
+  for (const line of lines) {
+    try {
+      events.push(...translator.push(JSON.parse(line) as object));
+    } catch {
+      events.push(...translator.push(line));
+    }
+  }
+  // harn:end claude-sdk-message-contract-preserves-normalized-runs
   const tail = translator.end();
   const all = [...events, ...tail];
   for (const event of all) {
@@ -40,24 +45,6 @@ function replay(lines: string[]) {
 
 const completed = (events: WireEvent[]) =>
   events.find((e) => e.type === 'run.completed') as Extract<WireEvent, { type: 'run.completed' }>;
-
-const firstCard = (events: WireEvent[]) => {
-  const raised = events.find((e) => e.type === 'ask.raised' || e.type === 'approval.raised') as
-    | Extract<WireEvent, { type: 'ask.raised' }>
-    | Extract<WireEvent, { type: 'approval.raised' }>;
-  return raised;
-};
-
-const requestFromFixture = (name: string): ControlRequest => {
-  const line = fixture(name).find((l) => JSON.parse(l).type === 'control_request')!;
-  const parsed = JSON.parse(line);
-  return { request_id: parsed.request_id, request: parsed.request };
-};
-
-const responseFromStdinFixture = (name: string): Record<string, unknown> => {
-  const line = fixture(name).find((l) => JSON.parse(l).type === 'control_response')!;
-  return JSON.parse(line);
-};
 
 describe('pong fixture replay', () => {
   const { translator, all } = replay(fixture('pong.jsonl'));
@@ -106,6 +93,37 @@ describe('usage telemetry fixture replay', () => {
     });
     expect(completed(all).agent_usage).not.toHaveProperty('percent');
   });
+
+  it('carries session and context telemetry across fresh turn translators', () => {
+    const context = {};
+    const first = createTurnTranslator(context);
+    first.push({
+      type: 'system', subtype: 'init', session_id: 'session-1', model: 'claude-sonnet-4-6',
+    });
+    first.push({
+      type: 'assistant',
+      message: {
+        model: 'claude-sonnet-4-6',
+        content: [],
+        usage: { input_tokens: 10, cache_read_input_tokens: 20 },
+      },
+    });
+    const second = createTurnTranslator(context);
+    const [done] = second.push({
+      type: 'result', subtype: 'success', is_error: false, result: 'next',
+      usage: { output_tokens: 2 },
+    });
+
+    expect(second.sessionId()).toBe('session-1');
+    expect(done).toMatchObject({
+      type: 'run.completed',
+      agent_usage: {
+        outputTokens: 2,
+        contextWindowMaxTokens: 200_000,
+        contextWindowUsedTokens: 30,
+      },
+    });
+  });
 });
 // harn:end normalized-agent-usage-telemetry
 
@@ -114,126 +132,6 @@ describe('resume fixture replay', () => {
     expect(replay(fixture('resume.jsonl')).translator.sessionId()).toBe(
       replay(fixture('pong.jsonl')).translator.sessionId(),
     );
-  });
-});
-
-describe('ask → answer → resume-of-turn (fixture replay)', () => {
-  const lines = fixture('ask-user-question.jsonl');
-  const { translator, all } = replay(lines);
-
-  it('the control_request normalizes to exactly one blocking ask card', () => {
-    const raisedEvents = all.filter((e) => e.type === 'ask.raised');
-    expect(raisedEvents).toHaveLength(1);
-    const card = firstCard(all).card;
-    expect(card).toEqual({
-      interaction_id: '315adf4a-1770-46d0-8b66-e341049410ea',
-      kind: 'ask',
-      prompt: 'Which codeword?',
-      options: [
-        { label: 'ALPHA', description: 'Select the codeword ALPHA.' },
-        { label: 'BETA', description: 'Select the codeword BETA.' },
-      ],
-      multi: false,
-    });
-  });
-
-  it('the composed answer equals the recorded stdin control_response byte-for-byte', () => {
-    const request = translator.pendingRequest('315adf4a-1770-46d0-8b66-e341049410ea')!;
-    const composed = composeControlResponse(request, { 'Which codeword?': 'ALPHA' });
-    expect(composed).toEqual(responseFromStdinFixture('ask-user-question.stdin.jsonl'));
-  });
-
-  it('a plain-string answer maps onto the single question automatically', () => {
-    const request = translator.pendingRequest('315adf4a-1770-46d0-8b66-e341049410ea')!;
-    expect(composeControlResponse(request, 'ALPHA')).toEqual(
-      responseFromStdinFixture('ask-user-question.stdin.jsonl'),
-    );
-  });
-
-  it('after the answer the SAME turn proceeds to its result', () => {
-    expect(completed(all)).toMatchObject({ status: 'completed', final_text: 'ALPHA' });
-  });
-});
-
-describe('approval card through one blocked turn (fixture replay)', () => {
-  const request = requestFromFixture('permission-deny.jsonl');
-
-  it('a non-ask can_use_tool normalizes to an approval card with tool/detail', () => {
-    const card = cardFromControlRequest(request);
-    expect(card).toEqual({
-      interaction_id: request.request_id,
-      kind: 'approval',
-      prompt: 'Allow Bash?',
-      options: [{ label: 'allow once' }, { label: 'allow always' }, { label: 'deny' }],
-      tool: 'Bash',
-      detail: 'touch probe-permission.txt',
-    });
-  });
-
-  it('deny composes the recorded stdin response (modulo the audit message)', () => {
-    const composed = composeControlResponse(request, 'deny') as {
-      response: { response: { message: string } };
-    };
-    const recorded = responseFromStdinFixture('permission-deny.stdin.jsonl') as {
-      response: { response: { message: string } };
-    };
-    composed.response.response.message = recorded.response.response.message;
-    expect(composed).toEqual(recorded);
-  });
-
-  it('allow once passes the original input through', () => {
-    expect(composeControlResponse(request, 'allow once')).toEqual({
-      type: 'control_response',
-      response: {
-        subtype: 'success',
-        request_id: request.request_id,
-        response: { behavior: 'allow', updatedInput: request.request.input },
-      },
-    });
-  });
-
-  it('allow always additionally carries the addRules permission update', () => {
-    const composed = composeControlResponse(request, 'allow always') as {
-      response: { response: { behavior: string; updatedPermissions: { type: string }[] } };
-    };
-    expect(composed.response.response.behavior).toBe('allow');
-    expect(composed.response.response.updatedPermissions).toEqual([
-      expect.objectContaining({ type: 'addRules' }),
-    ]);
-  });
-
-  it('the denied turn still completes (deny does not kill the run)', () => {
-    const { all } = replay(fixture('permission-deny.jsonl'));
-    expect(completed(all)).toMatchObject({ status: 'completed', final_text: 'DENIED' });
-  });
-});
-
-describe('crash boundaries (fixture replay)', () => {
-  it('killed-during-ask: card raised, no result, EOF synthesizes interrupted', () => {
-    const { events, all } = replay(fixture('kill-during-ask.jsonl'));
-    expect(events.at(-1)!.type).toBe('ask.raised');
-    expect(completed(all).status).toBe('interrupted');
-  });
-
-  it('the re-raised ask correlates semantically, never by native id', () => {
-    const before = requestFromFixture('kill-during-ask.jsonl');
-    const after = requestFromFixture('kill-during-ask-resume.jsonl');
-    expect(after.request_id).not.toBe(before.request_id);
-    // The model REGENERATES the tool call on resume: prompt and option labels
-    // are stable, but option descriptions drift (fixtures: "Select…" vs
-    // "Choose…") — so re-correlation must compare prompt + labels ONLY.
-    expect(cardFromControlRequest(after).prompt).toBe(cardFromControlRequest(before).prompt);
-    expect(cardFromControlRequest(after).options!.map((o) => o.label)).toEqual(
-      cardFromControlRequest(before).options!.map((o) => o.label),
-    );
-    expect(cardFromControlRequest(after).options![0]!.description).not.toBe(
-      cardFromControlRequest(before).options![0]!.description,
-    );
-  });
-
-  it('replaying the stored answer against the re-raise completes the turn', () => {
-    const { all } = replay(fixture('answered-then-kill-resume.jsonl'));
-    expect(completed(all)).toMatchObject({ status: 'completed', final_text: 'EPSILON' });
   });
 });
 

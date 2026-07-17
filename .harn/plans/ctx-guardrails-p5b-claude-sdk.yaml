@@ -1,0 +1,364 @@
+id: ctx-guardrails-p5b-claude-sdk
+title: Phase 5b context-ceiling guardrails - Claude Agent SDK session runtime
+notes: >-
+  Implement Phase 5b only from tmp/context-ceiling-guardrails/PLAN.md. Phase 5a
+  is cancelled: there is no persistent raw claude -p intermediate path and no
+  live probe. Replace Claude's per-turn child-process driver with the paseo
+  architecture: an injected ClaudeQueryFactory creates one Agent SDK query()
+  over a streaming async user-message input per member, the query pump spans
+  terminal results, and a failed/ended query is recreated with resume set to the
+  last native session id.
+
+  SDK canUseTool callbacks become Codor ask/approval cards and remain pending
+  until respondInteraction resolves the callback. SDK SubagentStart/Stop hook
+  callbacks remain the authoritative extension source. The SDK PostToolUse
+  callback executes the existing exact `codor inbox --new --consume --format
+  hook` delivery command and returns its parsed hook output, replacing the
+  generated settings file and loopback HTTP endpoint. Interrupt calls
+  query.interrupt() and retires that query so the next turn resumes cleanly.
+
+  The Phase 1-4 normalized translator continues to own usage, compaction,
+  failure, and timeline semantics, but consumes SDK message objects and carries
+  only session/context telemetry across fresh turn-scoped translators. Model,
+  canonical policy, effort, cwd, environment, Claude Code preset/settings
+  sources, and resume are expressed as SDK Options. Tests inject query and
+  inbox-hook factories and replay fixtures/mocks only; no Claude CLI probe,
+  model/API call, deployment, or daemon restart is in scope.
+assumptions:
+  retire:
+    - id: claude-control-protocol-pinned
+      reason: Raw claude -p control_request/control_response captures remain useful
+        historical message fixtures, but they are no longer the active adapter
+        contract; the installed Agent SDK types and injected Query mocks now own
+        permissions, hooks, message delivery, and lifecycle.
+    - id: extensions-hooks-authoritative
+      reason: Subagent hooks remain authoritative, but the generated --settings file
+        and ephemeral loopback HTTP endpoint are deleted in favor of Agent SDK
+        hook callbacks, making the old mechanism-specific statement false.
+    - id: interactions-answered-via-stdin-control
+      reason: respondInteraction no longer writes control_response JSONL to child
+        stdin; it settles the pending Agent SDK canUseTool callback with
+        PermissionResult.
+    - id: interaction-ack-requires-stream-progress
+      reason: The SDK owns transport acknowledgement. Codor can acknowledge once the
+        stored canUseTool resolver settles; waiting for a later stdout sequence
+        is an obsolete raw-protocol boundary.
+    - id: ask-normalization-blocks-run
+      reason: The blocking-card invariant remains, but cards now originate from
+        canUseTool callback arguments and Codor-generated interaction ids rather
+        than native stream-json control_request envelopes.
+  create:
+    - id: claude-agent-sdk-query-is-the-session-runtime
+      title: One supervised Agent SDK query is the Claude member runtime
+      statement: A Claude member must own one Agent SDK query() over a streaming
+        AsyncIterable of SDKUserMessage objects across multiple completed turns;
+        deliver pushes the next user object into that input, the sole pump
+        routes SDK messages to a fresh turn translator, interrupt calls
+        query.interrupt and retires the query, and unexpected iterator failure
+        or completion fails only the active turn then recreates a fresh query on
+        the next delivery with resume set to the last reported session id.
+      reason: Long-lived SDK sessions provide the engine-native auto-compaction and
+        warm context behavior Phase 5 exists to gain while preserving Codor's
+        one-inflight and exactly-once turn boundaries.
+      depends_on:
+        - one-inflight-turn-per-member
+        - revive-via-session-ref
+    - id: claude-sdk-message-contract-preserves-normalized-runs
+      title: Agent SDK message objects preserve Claude normalized run semantics
+      statement: Claude translation must consume Agent SDK message objects, keep tool,
+        pending-permission, and terminal state turn-scoped, carry only the
+        native session id and context-window telemetry across turns/query
+        recovery, and preserve normalized usage snapshots/live updates, native
+        compaction markers and post-token re-baselining, and native result
+        failures with error detail structurally separate from reply text;
+        fixture tests and injected Query mocks must never call the live CLI or
+        API.
+      reason: Replacing the transport cannot regress the already-approved Phase 1-4
+        wire contract or reintroduce the overflow-as-chat-reply incident.
+      depends_on:
+        - first-party-run-items-normalized
+        - normalized-agent-usage-telemetry
+        - claude-compaction-follows-native-system-events
+        - claude-result-errors-follow-native-signals
+    - id: claude-sdk-permissions-back-codor-interactions
+      title: Agent SDK canUseTool callbacks back Codor interactions
+      statement: Every Claude canUseTool callback must emit exactly one ask.raised for
+        AskUserQuestion or approval.raised for another tool and remain pending
+        until respondInteraction resolves it; AskUserQuestion answers update the
+        answers map keyed by question text, allow-once returns updatedInput,
+        allow-always also returns the SDK permission suggestions, deny returns a
+        message, and SDK abort, query exit, or interrupt rejects and removes
+        every unresolved callback.
+      reason: Codor keeps its durable interaction state machine while the SDK owns the
+        provider control transport and its acknowledgement boundary.
+      depends_on:
+        - interaction-state-machine-persisted
+        - approval-answer-is-atomic-and-chatless
+    - id: claude-sdk-hooks-are-authoritative
+      title: Agent SDK callbacks own Claude extensions and live inbox delivery
+      statement: Claude query Options must register SDK SubagentStart and SubagentStop
+        callbacks that emit extension lifecycle events with native agent ids,
+        plus a PostToolUse callback that executes `codor inbox --new --consume
+        --format hook` in the member cwd/environment and returns its parsed
+        HookJSONOutput; no generated settings file or loopback hook server may
+        remain.
+      reason: SDK callbacks are the paseo-faithful first-party hook channel and retain
+        Codor's existing exact live-inbox delivery contract without HTTP
+        plumbing.
+      depends_on:
+        - extension-events-use-native-identifiers
+        - extension-lifecycle-from-hooks
+        - adapter-children-inherit-session-env
+  reviewed:
+    - id: adapters-cli-only-no-sdk
+      outcome: unchanged
+      reason: Its active statement and anchors govern the codex and remaining
+        plain-CLI adapters; Phase 5b deliberately introduces a separate Claude
+        SDK assumption without altering those drivers.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: Plain-CLI adapters retain spawn/error/stderr/EOF/process-group
+        supervision; the Claude-specific anchor moves to the new query-session
+        lifecycle.
+    - id: attempt-start-evidence-persisted
+      outcome: unchanged
+      reason: The daemon still journals run.started before adapter output and persists
+        a reported native session ref immediately; SDK turns report no PID
+        because the child is intentionally SDK-owned.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Registry validation and the declared policy/thinking vocabulary are
+        unchanged; Claude maps the same native values through typed SDK Options
+        instead of constructing argv itself.
+    - id: harness-declares-what-a-policy-becomes
+      outcome: unchanged
+      reason: Claude continues to declare plan, acceptEdits, and bypassPermissions and
+        passes those exact values as SDK permissionMode options.
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: The SDK transport change does not alter the curated Claude alias catalog
+        or its zero-spend discovery rationale.
+    - id: codor-runtime-identity-is-a-clean-break
+      outcome: unchanged
+      reason: The SDK PostToolUse callback still invokes the codor binary and CODOR
+        member environment without introducing a legacy runtime alias.
+    - id: adapter-children-inherit-session-env
+      outcome: unchanged
+      reason: Claude passes inherited process.env with session.env overlaid through
+        SDK Options.env, while the other adapters keep their existing child env
+        merge.
+    - id: live-inbox-capability-is-evidence-backed
+      outcome: unchanged
+      reason: Claude alone still exposes live_inbox and still runs the exact
+        PostToolUse inbox command; only its registration moves from a settings
+        command hook to an SDK callback.
+    - id: extension-events-use-native-identifiers
+      outcome: unchanged
+      reason: SDK SubagentStart/Stop inputs carry the same native agent_id and parent
+        session identity used by the existing extension event mapping.
+    - id: extension-lifecycle-from-hooks
+      outcome: unchanged
+      reason: Only authoritative SubagentStart/Stop callbacks create and retire
+        extension members; Task/Agent stream items remain enrichment only.
+    - id: answered-approval-tools-can-register-live-waits
+      outcome: unchanged
+      reason: The daemon still marks the interaction acked only after
+        respondInteraction resolves, so approved tools can establish their
+        existing live wait before the callback-driven turn proceeds.
+    - id: first-party-run-items-normalized
+      outcome: unchanged
+      reason: The pure Claude translator receives equivalent typed SDK message objects
+        and retains every bounded text/reasoning/tool/result mapping.
+    - id: normalized-agent-usage-telemetry
+      outcome: unchanged
+      reason: SDK assistant/result messages carry the approved usage fields and the
+        translator retains the percentage-free live/snapshot shape and used/max
+        pair.
+    - id: claude-compaction-follows-native-system-events
+      outcome: unchanged
+      reason: SDK status compacting and compact_boundary messages are the same native
+        shapes already mapped in Phase 4, now reachable on the long-lived query.
+    - id: claude-result-errors-follow-native-signals
+      outcome: unchanged
+      reason: SDK result subtype/is_error/errors remains primary and failures continue
+        to use error rather than final_text.
+    - id: member-config-is-changed-not-respawned
+      outcome: unchanged
+      reason: The member and native conversation still survive configuration changes;
+        a rebuilt daemon Session causes the adapter to retire mismatched SDK
+        Options and recreate the query with resume before the next turn, without
+        disturbing the already-running turn.
+files:
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/claude-code/src/query.ts
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/claude-code/src/adapter.spec.ts
+  - packages/adapters/claude-code/src/live.spec.ts
+  - packages/adapters/claude-code/src/translate.ts
+  - packages/adapters/claude-code/src/translate.spec.ts
+  - packages/adapters/claude-code/src/fixtures.spec.ts
+  - packages/adapters/claude-code/src/index.ts
+  - packages/adapters/claude-code/NOTES.md
+  - packages/protocol/src/adapter.ts
+  - docs/ARCHITECTURE.md
+  - pnpm-lock.yaml
+anchors:
+  claude-agent-sdk-query-is-the-session-runtime:
+    claude-sdk-query-factory:
+      action: change
+      reason: Isolate the production query import behind the paseo-shaped injectable
+        ClaudeQueryFactory.
+    claude-sdk-session-lifecycle:
+      action: change
+      reason: Add the long-lived async input, sole message pump, resume recovery,
+        identity-bound query replacement, and query.interrupt cleanup.
+    claude-sdk-session-regression:
+      action: change
+      reason: Prove multi-turn single-query delivery, crash/exit resume recovery,
+        option mapping, and interrupt routing with mock Query objects.
+    adapter-runtime-contract:
+      action: change
+      reason: Generalize the adapter interface documentation from plain per-turn CLIs
+        to either supervised CLI turns or supervised long-lived provider
+        runtimes.
+  claude-sdk-message-contract-preserves-normalized-runs:
+    claude-sdk-message-translation:
+      action: change
+      reason: Accept SDK objects and retain fresh per-turn state with shared session
+        and context telemetry only.
+    claude-sdk-message-regression:
+      action: change
+      reason: Replay object fixtures for usage, compaction, failures, and ordinary run
+        items without invoking query().
+    claude-sdk-message-contract:
+      action: change
+      reason: Replace the raw driver contract notes with the typed SDK message
+        contract and record the fixture-only verification boundary.
+  claude-sdk-permissions-back-codor-interactions:
+    claude-sdk-permission-callback:
+      action: change
+      reason: Park canUseTool callbacks behind Codor cards and settle them from
+        respondInteraction with SDK PermissionResult values.
+    claude-sdk-permission-regression:
+      action: change
+      reason: Prove ask, allow-once, allow-always, deny, and abort cleanup against a
+        captured callback from mock Query Options.
+  claude-sdk-hooks-are-authoritative:
+    claude-sdk-hook-callbacks:
+      action: change
+      reason: Register SubagentStart/Stop and PostToolUse callbacks directly in query
+        Options and delete the settings-file/HTTP hook endpoint.
+    claude-sdk-hook-regression:
+      action: change
+      reason: Invoke captured SDK hooks and prove extension events plus parsed
+        live-inbox context without a command or network call.
+    claude-sdk-hook-contract:
+      action: change
+      reason: Document callback inputs/outputs and removal of the old hook transport.
+  claude-control-protocol-pinned:
+    claude-fixture-invariants:
+      action: remove
+      reason: Raw captures remain immutable historical fixtures but no longer anchor
+        the active permission/lifecycle contract.
+  extensions-hooks-authoritative:
+    hooks-endpoint-settings:
+      action: remove
+      reason: Delete the generated settings file and ephemeral HTTP endpoint.
+  interactions-answered-via-stdin-control:
+    respond-interaction-stdin:
+      action: remove
+      reason: Delete control_response composition and writes to child stdin.
+  interaction-ack-requires-stream-progress:
+    interaction-progress-ack:
+      action: remove
+      reason: Delete stdout-sequence acknowledgement waiters; SDK callback settlement
+        is the new acknowledgement.
+  ask-normalization-blocks-run:
+    control-request-normalization:
+      action: remove
+      reason: Replace stream control_request normalization with canUseTool callback
+        normalization.
+  adapter-process-lifecycle-supervised:
+    cli-process-supervision:
+      action: remove
+      reason: Claude is no longer a CLI adapter; other CLI lifecycle anchors remain.
+  canonical-spawn-controls-enforced:
+    claude-spawn-control-mapping:
+      action: change
+      reason: Map the same policy/thinking vocabulary into SDK permissionMode,
+        allowDangerouslySkipPermissions, thinking, effort, and ultracode
+        settings.
+  harness-declares-what-a-policy-becomes:
+    adapter-policy-declarations:
+      action: change
+      reason: Retain the declared mapping while moving its enforcement from argv to
+        SDK permissionMode.
+  adapters-own-their-model-catalog:
+    claude-code-model-catalog:
+      action: change
+      reason: Preserve the curated aliases while rewriting the adapter lifecycle.
+    claude-code-model-catalog-notes:
+      action: change
+      reason: Restate the unchanged zero-spend catalog rationale in the SDK notes.
+  codor-runtime-identity-is-a-clean-break:
+    adapter-runtime-identity:
+      action: change
+      reason: Move the anchor from a generated codor hook filename to the exact codor
+        inbox executable used by the SDK callback.
+  adapter-children-inherit-session-env:
+    claude-child-environment:
+      action: change
+      reason: Move the inherited/session overlay from child_process.spawn to SDK
+        Options.env.
+  live-inbox-capability-is-evidence-backed:
+    claude-post-tool-use-hook:
+      action: change
+      reason: Keep the exact inbox command behind the SDK PostToolUse callback.
+    claude-live-inbox-regression:
+      action: change
+      reason: Assert the injected inbox runner receives member cwd/env and its hook
+        output is returned to Claude.
+    claude-live-inbox-notes:
+      action: change
+      reason: Record the SDK callback channel as the evidence backing live_inbox.
+  first-party-run-items-normalized:
+    claude-normalized-run-items:
+      action: change
+      reason: Consume SDK message objects without changing normalized output evidence.
+  normalized-agent-usage-telemetry:
+    claude-usage-telemetry:
+      action: change
+      reason: Carry context state across SDK turns while retaining the approved shape.
+    claude-usage-telemetry-regression:
+      action: change
+      reason: Parse fixture lines into SDK-shaped objects before translation.
+  claude-compaction-follows-native-system-events:
+    claude-compaction-translation:
+      action: change
+      reason: Route SDK compacting/boundary objects through the existing mapping.
+    claude-compaction-regression:
+      action: change
+      reason: Replay contract-derived compaction objects under the SDK translator.
+    claude-compaction-system-contract:
+      action: change
+      reason: Cite the SDK runtime contract rather than a future-process caveat.
+  claude-result-errors-follow-native-signals:
+    claude-result-failure-translation:
+      action: change
+      reason: Accept SDK result objects while preserving the native failure classifier.
+    claude-result-error-contract:
+      action: change
+      reason: Record that SDK error results structurally omit reply text.
+  attempt-start-evidence-persisted:
+    adapter-turn-hooks:
+      action: change
+      reason: Clarify that SDK runtimes report accepted turn start without exposing a
+        child PID and still report session ids immediately.
+  member-config-is-changed-not-respawned:
+    configure-member-daemon:
+      action: change
+      reason: Generalize the comment from fresh-per-turn processes to cached adapter
+        runtimes that are replaced on the next turn while preserving resume
+        identity.
+applied:
+  applied_at: 2026-07-17T10:09:05.019Z

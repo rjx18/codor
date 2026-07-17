@@ -1,0 +1,14 @@
+id: claude-sdk-permissions-back-codor-interactions
+hash: a-775160cce0d7
+title: Agent SDK canUseTool callbacks back Codor interactions
+state: active
+statement: Every Claude canUseTool callback must emit exactly one ask.raised for
+  AskUserQuestion or approval.raised for another tool and remain pending until
+  respondInteraction resolves it; AskUserQuestion answers update the answers map
+  keyed by question text, allow-once returns updatedInput, allow-always also
+  returns the SDK permission suggestions, deny returns a message, and SDK abort,
+  query exit, or interrupt rejects and removes every unresolved callback.
+depends_on:
+  - interaction-state-machine-persisted
+  - approval-answer-is-atomic-and-chatless
+created_by: ctx-guardrails-p5b-claude-sdk

@@ -8,8 +8,9 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { ClaudeCodeAdapter } from './adapter.js';
 
 /**
- * Live smoke: one tiny PONG turn + one real AskUserQuestion answered through
- * respondInteraction on stdin. Spend-gated behind CODOR_LIVE_SMOKE=1.
+ * Optional live smoke: one tiny PONG turn + one real AskUserQuestion answered
+ * through the SDK canUseTool callback. Spend-gated behind CODOR_LIVE_SMOKE=1;
+ * Phase 5b validation deliberately leaves it skipped.
  */
 const LIVE = process.env.CODOR_LIVE_SMOKE === '1';
 
@@ -34,7 +35,7 @@ describe.skipIf(!LIVE)('claude live smoke (CODOR_LIVE_SMOKE=1)', () => {
     expect(session.session_ref).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it('a live AskUserQuestion is answered via stdin control', { timeout: 240_000 }, async () => {
+  it('a live AskUserQuestion resolves through the SDK permission callback', { timeout: 240_000 }, async () => {
     const session = adapter.spawn({ cwd: dir, model: 'haiku' });
     const events: WireEvent[] = [];
     for await (const event of adapter.deliver(

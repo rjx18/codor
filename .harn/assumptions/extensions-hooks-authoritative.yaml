@@ -1,7 +1,7 @@
 id: extensions-hooks-authoritative
 hash: a-2185c5cc9c51
 title: SubagentStart/Stop hooks are the authoritative extensions source
-state: active
+state: retired
 statement: Extension lifecycle events must come from SubagentStart and
   SubagentStop hooks injected via a generated --settings file that POSTs the
   hook JSON to the adapter's ephemeral loopback endpoint, mapping to
@@ -12,3 +12,4 @@ statement: Extension lifecycle events must come from SubagentStart and
 depends_on:
   - claude-control-protocol-pinned
 created_by: claude-adapter-stream-json
+retired_by: ctx-guardrails-p5b-claude-sdk

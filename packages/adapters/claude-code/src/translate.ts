@@ -1,30 +1,10 @@
-import type { AskCard, WireEvent } from '@codor/protocol';
+import type { WireEvent } from '@codor/protocol';
 
 /**
- * Pure translator: `claude -p` stream-json stdout lines → WireEvents.
- * Wire shapes pinned by the raw fixtures under ../fixtures/ (see NOTES.md).
+ * Pure translator: Claude Agent SDK message objects → WireEvents. String input
+ * remains accepted so the historical scrubbed JSONL captures can be replayed
+ * without creating an SDK query (see NOTES.md).
  */
-
-export interface ControlRequest {
-  request_id: string;
-  request: {
-    subtype: string;
-    tool_name?: string;
-    input?: Record<string, unknown> & {
-      questions?: {
-        question: string;
-        header?: string;
-        options?: { label: string; description?: string }[];
-        multiSelect?: boolean;
-      }[];
-      command?: string;
-      description?: string;
-    };
-    description?: string;
-    permission_suggestions?: unknown[];
-    tool_use_id?: string;
-  };
-}
 
 interface ClaudeContentBlock {
   type: string;
@@ -52,8 +32,6 @@ interface ClaudeEvent {
   status?: unknown;
   session_id?: string;
   model?: string;
-  request_id?: string;
-  request?: ControlRequest['request'];
   message?: {
     model?: string;
     content?: (ClaudeContentBlock | string)[];
@@ -270,82 +248,61 @@ export function toolTitle(tool: string, input: unknown): string {
   return chosen.length > TITLE_MAX ? `${chosen.slice(0, TITLE_MAX - 1)}…` : chosen;
 }
 
-export const APPROVAL_OPTIONS = [
-  { label: 'allow once' },
-  { label: 'allow always' },
-  { label: 'deny' },
-] as const;
-
-// harn:assume ask-normalization-blocks-run ref=control-request-normalization
-/**
- * can_use_tool → exactly one card. AskUserQuestion becomes an `ask` card
- * (prompt/options/multi straight from the tool input); every other tool is a
- * runtime `approval` card (tool + detail + the fixed allow/always/deny
- * options). The card's interaction_id IS the native request_id — but it is
- * only valid within this process lifetime (a re-raise after crash mints
- * fresh ids, so re-correlation is semantic). After emitting the card the CLI
- * goes silent: the turn is BLOCKED until a control_response lands on stdin.
- */
-export function cardFromControlRequest(event: ControlRequest): AskCard {
-  const request = event.request;
-  if (request.tool_name === 'AskUserQuestion') {
-    const question = request.input?.questions?.[0];
-    return {
-      interaction_id: event.request_id,
-      kind: 'ask',
-      prompt: question?.question ?? '',
-      options: question?.options?.map((o) => ({ label: o.label, description: o.description })),
-      multi: question?.multiSelect ?? false,
-    };
-  }
-  return {
-    interaction_id: event.request_id,
-    kind: 'approval',
-    prompt: `Allow ${request.tool_name ?? 'tool'}?`,
-    options: APPROVAL_OPTIONS.map((o) => ({ ...o })),
-    tool: request.tool_name,
-    detail:
-      request.input?.command ??
-      request.description ??
-      (request.input ? JSON.stringify(request.input) : undefined),
-  };
-}
-// harn:end ask-normalization-blocks-run
-
 export interface ClaudeTurnTranslator {
-  push(line: string): WireEvent[];
+  push(message: string | object): WireEvent[];
   end(): WireEvent[];
   sessionId(): string | undefined;
-  /** The full native request for a still-pending interaction id. */
-  pendingRequest(interactionId: string): ControlRequest | undefined;
 }
 
-export function createTurnTranslator(): ClaudeTurnTranslator {
-  let sessionId: string | undefined;
+export interface ClaudeTranslatorContext {
+  sessionId?: string;
+  contextWindowMaxTokens?: number;
+  contextWindowUsedTokens?: number;
+}
+
+// harn:assume claude-sdk-message-contract-preserves-normalized-runs ref=claude-sdk-message-translation
+export function createTurnTranslator(
+  context: ClaudeTranslatorContext = {},
+): ClaudeTurnTranslator {
+  let sessionId = context.sessionId;
   let terminal = false;
-  let contextWindowMaxTokens: number | undefined;
+  let contextWindowMaxTokens = context.contextWindowMaxTokens;
+  // Only current-turn observations live here. The shared context is the
+  // fallback when a terminal object omits a fresh context sample.
   let contextWindowUsedTokens: number | undefined;
   let lastLiveContextKey: string | undefined;
-  const pending = new Map<string, ControlRequest>();
   const tools = new Map<string, { name: string; input: unknown }>();
 
   const seedContextWindow = (model: string | undefined): void => {
     if (model === undefined) return;
     const seeded = CLAUDE_CONTEXT_WINDOWS.get(model);
-    if (seeded !== undefined) contextWindowMaxTokens = seeded;
+    if (seeded !== undefined) {
+      contextWindowMaxTokens = seeded;
+      context.contextWindowMaxTokens = seeded;
+    }
   };
 
   return {
     sessionId: () => sessionId,
-    pendingRequest: (id) => pending.get(id),
 
-    push(line: string): WireEvent[] {
-      if (line.trim() === '') return [];
+    push(message: string | object): WireEvent[] {
       let event: ClaudeEvent;
-      try {
-        event = JSON.parse(line) as ClaudeEvent;
-      } catch {
-        return []; // malformed line — skip
+      if (typeof message === 'string') {
+        if (message.trim() === '') return [];
+        try {
+          event = JSON.parse(message) as ClaudeEvent;
+        } catch {
+          return []; // malformed historical fixture line — skip
+        }
+      } else {
+        event = message as ClaudeEvent;
+      }
+      if (typeof event !== 'object' || event === null || typeof event.type !== 'string') {
+        return [];
+      }
+      if (typeof event.session_id === 'string' && event.session_id !== '') {
+        sessionId = event.session_id;
+        context.sessionId = event.session_id;
       }
       // harn:assume first-party-run-items-normalized ref=claude-normalized-run-items
       switch (event.type) {
@@ -360,6 +317,9 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
           if (event.subtype === 'compact_boundary') {
             const metadata = readCompactionMetadata(event);
             contextWindowUsedTokens = metadata?.postTokens;
+            if (contextWindowUsedTokens !== undefined) {
+              context.contextWindowUsedTokens = contextWindowUsedTokens;
+            }
             const usage = contextWindowMaxTokens !== undefined && contextWindowUsedTokens !== undefined
               ? { contextWindowMaxTokens, contextWindowUsedTokens }
               : {};
@@ -383,7 +343,6 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
           // init is NOT guaranteed first (user hooks precede it); every other
           // system subtype (hook_started, thinking_tokens, task_*) is noise.
           if (event.subtype === 'init') {
-            sessionId = event.session_id;
             seedContextWindow(event.model);
           }
           return [];
@@ -417,7 +376,10 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
             }
           }
           const used = contextWindowUsed(event.message?.usage);
-          if (used !== undefined) contextWindowUsedTokens = used;
+          if (used !== undefined) {
+            contextWindowUsedTokens = used;
+            context.contextWindowUsedTokens = used;
+          }
           if (used !== undefined && contextWindowMaxTokens !== undefined) {
             const contextKey = `${contextWindowMaxTokens}:${used}`;
             if (contextKey !== lastLiveContextKey) {
@@ -472,19 +434,6 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
           }
           return events;
         }
-        case 'control_request': {
-          if (event.request?.subtype !== 'can_use_tool' || event.request_id === undefined) {
-            return [];
-          }
-          const request: ControlRequest = { request_id: event.request_id, request: event.request };
-          pending.set(event.request_id, request);
-          const card = cardFromControlRequest(request);
-          return [
-            card.kind === 'ask'
-              ? { type: 'ask.raised', card }
-              : { type: 'approval.raised', card },
-          ];
-        }
         case 'result': {
           terminal = true;
           // harn:assume claude-result-errors-follow-native-signals ref=claude-result-failure-translation
@@ -492,7 +441,15 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
           // harn:end claude-result-errors-follow-native-signals
           // harn:assume normalized-agent-usage-telemetry ref=claude-usage-telemetry
           contextWindowMaxTokens = reportedContextWindow(event.modelUsage) ?? contextWindowMaxTokens;
+          if (contextWindowMaxTokens !== undefined) {
+            context.contextWindowMaxTokens = contextWindowMaxTokens;
+          }
           contextWindowUsedTokens ??= contextWindowUsed(event.usage);
+          if (contextWindowUsedTokens !== undefined) {
+            context.contextWindowUsedTokens = contextWindowUsedTokens;
+          }
+          const snapshotContextUsedTokens = contextWindowUsedTokens
+            ?? context.contextWindowUsedTokens;
           const inputTokens = tokenCount(event.usage?.input_tokens);
           const cachedInputTokens = tokenCount(event.usage?.cache_read_input_tokens);
           const outputTokens = tokenCount(event.usage?.output_tokens);
@@ -505,9 +462,9 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
             ...(cachedInputTokens !== undefined && { cachedInputTokens }),
             ...(outputTokens !== undefined && { outputTokens }),
             ...(totalCostUsd !== undefined && { totalCostUsd }),
-            ...(contextWindowMaxTokens !== undefined && contextWindowUsedTokens !== undefined && {
+            ...(contextWindowMaxTokens !== undefined && snapshotContextUsedTokens !== undefined && {
               contextWindowMaxTokens,
-              contextWindowUsedTokens,
+              contextWindowUsedTokens: snapshotContextUsedTokens,
             }),
           };
           // harn:end normalized-agent-usage-telemetry
@@ -566,6 +523,7 @@ export function createTurnTranslator(): ClaudeTurnTranslator {
     },
   };
 }
+// harn:end claude-sdk-message-contract-preserves-normalized-runs
 
 // ── hook payload mapping (extensions) ───────────────────────────────────
 

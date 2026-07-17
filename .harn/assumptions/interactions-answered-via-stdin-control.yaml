@@ -1,7 +1,7 @@
 id: interactions-answered-via-stdin-control
 hash: a-11d6a33ecdf7
 title: Interactions are answered by control_response on the child stdin
-state: active
+state: retired
 statement: respondInteraction must answer a pending interaction by writing a
   stream-json control_response to the SAME child process stdin - AskUserQuestion
   answers as updatedInput.answers keyed by question text, approvals as behavior
@@ -13,3 +13,4 @@ statement: respondInteraction must answer a pending interaction by writing a
 depends_on:
   - claude-control-protocol-pinned
 created_by: claude-adapter-stream-json
+retired_by: ctx-guardrails-p5b-claude-sdk

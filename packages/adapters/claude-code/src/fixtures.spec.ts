@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-// harn:assume claude-control-protocol-pinned ref=claude-fixture-invariants
-// These specs assert the invariants of the RAW captured `claude -p` stream-json
-// fixtures (see ../NOTES.md). `*.stdin.jsonl` files are the exact bytes written
-// to the CLI's stdin in the same probe. If they fail after a fixture change,
-// the change must have come from re-probing the CLI — never from hand-editing.
+// harn:assume claude-sdk-message-contract-preserves-normalized-runs ref=claude-sdk-message-regression
+// These immutable historical captures contain the same message-object envelopes
+// the Agent SDK yields. Runtime adapter tests use an injected Query factory; the
+// captures remain transport-free evidence for translator and resume semantics.
+// The stdin files below are historical protocol evidence only, not the active
+// permission implementation.
 
 type ClaudeEvent = {
   type: string;
@@ -227,4 +228,4 @@ describe('crash boundary: answered but not acked', () => {
     expect(finalText(resumed)).toBe('EPSILON');
   });
 });
-// harn:end claude-control-protocol-pinned
+// harn:end claude-sdk-message-contract-preserves-normalized-runs

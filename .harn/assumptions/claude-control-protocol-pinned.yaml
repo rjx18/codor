@@ -1,7 +1,7 @@
 id: claude-control-protocol-pinned
 hash: a-eceb86526019
 title: Recorded claude stream-json fixtures pin the control protocol
-state: active
+state: retired
 statement: The JSONL files under packages/adapters/claude-code/fixtures/ must be
   raw scrubbed captures of live claude -p stream-json sessions (system init
   session_id, assistant events, result usage and cost,
@@ -13,3 +13,4 @@ statement: The JSONL files under packages/adapters/claude-code/fixtures/ must be
   hand-edited.
 depends_on: []
 created_by: harness-conformance-fixtures
+retired_by: ctx-guardrails-p5b-claude-sdk

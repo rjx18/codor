@@ -1,0 +1,14 @@
+id: claude-sdk-hooks-are-authoritative
+hash: a-b5b0d4c626c2
+title: Agent SDK callbacks own Claude extensions and live inbox delivery
+state: active
+statement: Claude query Options must register SDK SubagentStart and SubagentStop
+  callbacks that emit extension lifecycle events with native agent ids, plus a
+  PostToolUse callback that executes `codor inbox --new --consume --format hook`
+  in the member cwd/environment and returns its parsed HookJSONOutput; no
+  generated settings file or loopback hook server may remain.
+depends_on:
+  - extension-events-use-native-identifiers
+  - extension-lifecycle-from-hooks
+  - adapter-children-inherit-session-env
+created_by: ctx-guardrails-p5b-claude-sdk

@@ -1,7 +1,7 @@
 id: ask-normalization-blocks-run
 hash: a-f7ab14e1b84d
 title: A control_request normalizes to one blocking ask/approval card
-state: active
+state: retired
 statement: Every can_use_tool control_request must normalize to exactly one
   ask.raised (AskUserQuestion) or approval.raised (any other tool) WireEvent
   whose card carries the native request_id as interaction_id plus
@@ -12,3 +12,4 @@ statement: Every can_use_tool control_request must normalize to exactly one
 depends_on:
   - claude-control-protocol-pinned
 created_by: claude-adapter-stream-json
+retired_by: ctx-guardrails-p5b-claude-sdk

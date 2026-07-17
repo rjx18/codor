@@ -1,228 +1,182 @@
-# Claude Code CLI — behavioral spec (probed 2026-07-10, claude 2.1.209)
+# Claude Agent SDK — behavioral spec
 
-Everything below was observed live against the installed CLI. The JSONL files under
-`fixtures/` are raw scrubbed captures (paths/usernames replaced, structure untouched) and are
-the normative wire shapes the adapter and its tests replay. `*.stdin.jsonl` files are the
-exact bytes the driver wrote to the CLI's stdin in the same probe. Contract drift must be
-re-probed — never hand-edited into the fixtures.
+Phase 5b (2026-07-17) replaces Codor's per-turn raw `claude -p` driver with the
+first-party `@anthropic-ai/claude-agent-sdk`. The implementation mirrors Paseo's
+provider architecture: one `query()` over streaming user input lives across
+multiple turns, with an injected `ClaudeQueryFactory` in tests.
 
-## Invocation
+No live Claude CLI or model/API call was made for Phase 5b. Runtime shapes are
+pinned by the installed SDK declarations and fixture-only Query mocks. The JSONL
+files under `fixtures/` remain immutable scrubbed captures from the earlier
+2026-07-10 CLI probe. Their parsed objects use the same system/assistant/user/result
+envelopes yielded by the SDK, so they remain translator evidence; their
+`*.stdin.jsonl` control responses are historical evidence only.
 
-```sh
-claude -p --output-format stream-json --input-format stream-json --verbose \
-  --permission-prompt-tool stdio [--permission-mode <mode>] [--effort <level>] \
-  [--resume <session_id>] [--settings <abs-path.json>]
+<!-- harn:assume claude-sdk-message-contract-preserves-normalized-runs ref=claude-sdk-message-contract -->
+## Query lifetime and message contract
+
+Production calls:
+
+```ts
+query({
+  prompt: asyncUserMessageIterable,
+  options: {
+    cwd,
+    model,
+    resume: sessionId,
+    permissionMode,
+    thinking: { type: 'adaptive' },
+    effort,
+    canUseTool,
+    hooks,
+    env,
+  },
+})
 ```
 
-### Canonical spawn controls (rechecked 2026-07-14)
+- The async prompt remains open. Each `deliver()` pushes one `SDKUserMessage`;
+  a single pump iterates the Query across terminal results.
+- `system/init.session_id` is persisted immediately. If the Query iterator
+  throws or ends, the active turn fails (unless explicitly interrupted) and the
+  next delivery creates a fresh Query with `resume` set to that session id.
+- A fresh translator handles each Codor turn. Only session id and context-window
+  max/used telemetry carry across turns and Query recreation; tool call maps,
+  pending terminal state, and interaction state never leak between turns.
+- The Claude Code preset plus `user`, `project`, and `local` setting sources are
+  enabled, matching Paseo. `process.env` is overlaid by the member session env.
+- `includePartialMessages` is enabled. Codor currently normalizes complete
+  assistant objects and safely ignores partial stream events.
 
-Claude Code 2.1.207 `--help` and the first-party
-[CLI reference](https://code.claude.com/docs/en/cli-usage) document both
-`--permission-mode` and `--effort`. Codor maps `read-only` to `plan`,
-`workspace-write` to `acceptEdits`, and `full-access` to
-`bypassPermissions`. It maps thinking `low`, `medium`, `high`, `xhigh`, `max`, and
-`ultracode` directly to `--effort <level>`; `ultracode` is the CLI's xhigh plus dynamic
-workflow-orchestration mode and requires workflows plus an xhigh-capable model. The adapter
-declares those exact choices. Whether a particular provider/model or organization honors an
-effort level is configuration-dependent. No model call was made for this verification, so a
-native rejection is surfaced as a normal failed turn.
+Message semantics retained from the SDK/captured envelopes:
 
-- `--verbose` is REQUIRED for stream-json output in print mode.
-- **`--permission-prompt-tool stdio` is the control-protocol enabler, not a fallback.**
-  Without it: `AskUserQuestion` is not even in the session's tool list (the model is told the
-  tool doesn't exist), and no `can_use_tool` control requests are emitted. With it: permission
-  prompts AND AskUserQuestion arrive as `control_request` lines on stdout, answered on stdin.
-  (docs/ARCHITECTURE.md corrected accordingly.)
-- User messages go in on stdin as JSONL:
-  `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"…"}]}}`.
-  Closing stdin after the result ends the process cleanly. One `-p` process = one turn
-  (`num_turns` counts assistant iterations within it).
-- `--settings <file>` path resolves relative to the child cwd — pass absolute.
-- `--resume <session_id>` KEEPS the same session_id (verified: init of `resume.jsonl` reports
-  the id of `pong.jsonl`); `--fork-session` exists for id-changing forks. Transcripts persist
-  under `~/.claude/projects/<cwd-slug>/<session_id>.jsonl` (the discovery store).
+- `system/init`: `{session_id, model, permissionMode, ...}`; hooks may precede it.
+- `assistant`: full API message envelope with content blocks and usage.
+- `user`: tool results returned by Claude Code.
+- `result`: the turn terminal object, including success/error subtype, usage,
+  cost, modelUsage, and session id.
+- `rate_limit_event`: reported provider windows; unknown shapes are ignored.
+<!-- harn:end claude-sdk-message-contract-preserves-normalized-runs -->
 
-## Output stream (stdout JSONL)
+## Canonical controls
 
-- `system/init` is NOT guaranteed first: user-config hooks emit `system/hook_started` +
-  `system/hook_response` BEFORE init (fixtures show a SessionStart hook pair). Tolerate
-  arbitrary `system` subtypes anywhere (`thinking_tokens`, `task_started`, `task_updated`,
-  `task_notification`, … observed).
-- `system/init`: `{cwd, session_id, tools[], mcp_servers[], model, permissionMode,
-  slash_commands[], apiKeySource, claude_code_version, agents[], skills[], plugins[], uuid,
-  memory_paths, …}`.
-- `assistant` events wrap FULL API message envelopes: `{type:"assistant", message:{id, model,
-  content:[…], usage, …}, parent_tool_use_id, session_id, uuid}` — one event per content
-  block delta batch; the same `message.id` can appear across several events (thinking block,
-  then text block). `user` events carry tool_results back.
-- `rate_limit_event`: `{rate_limit_info:{status, resetsAt, rateLimitType, …}}` — periodic,
-  ignore for routing.
-- `result`: `{subtype:"success"|…, is_error, result:"<final text>", stop_reason, session_id,
-  num_turns, duration_ms, total_cost_usd, usage:{input_tokens, output_tokens,
-  cache_creation_input_tokens, cache_read_input_tokens, …}, modelUsage:{<model>:{…costUSD…}},
-  permission_denials[], terminal_reason, uuid}` — the finalize signal; `result` is the
-  final text, `total_cost_usd` the dollar cost (present, unlike codex).
+Codor retains its canonical declarations and maps them to SDK Options:
+
+- `read-only` → `permissionMode: "plan"`
+- `workspace-write` → `permissionMode: "acceptEdits"`
+- `full-access` → `permissionMode: "bypassPermissions"` with
+  `allowDangerouslySkipPermissions: true`
+- `low`, `medium`, `high`, `xhigh`, and `max` → adaptive thinking plus the same
+  `effort` value
+- `ultracode` → adaptive thinking, `effort: "xhigh"`, and
+  `settings.ultracode: true`, matching Paseo
+
+Whether a provider/model/organization honors an effort level remains
+configuration-dependent; a native rejection is a normal failed turn.
 
 <!-- harn:assume claude-result-errors-follow-native-signals ref=claude-result-error-contract -->
-### Result failure contract (pinned without an API call)
+## Result failure contract
 
-Claude Code 2.1.212's embedded Agent SDK 0.3.185 declaration distinguishes
-`SDKResultSuccess` from `SDKResultError`. Error results have
-`subtype: "error_during_execution" | "error_max_turns" | "error_max_budget_usd" |
-"error_max_structured_output_retries"`, `is_error`, and `errors: string[]`; unlike
-success results, they do not have `result`. Paseo likewise treats every non-success
-result as a failed turn and takes its detail from `errors[]`.
+The Agent SDK distinguishes `SDKResultSuccess` from `SDKResultError`. Error
+results have a non-success subtype such as `error_during_execution`, `is_error`,
+and `errors: string[]`; success results carry `result`. Codor keys failure on
+those native fields, places detail in `run.completed.error`, and never promotes
+it to `final_text`. The known “Prompt is too long” match remains only a legacy
+secondary guard.
 
-`test-fixtures/context-overflow.jsonl` is a minimal contract-derived record for
-that declared shape, including the synthesized assistant API-error message seen in
-the incident. It is deliberately outside `fixtures/`: the files in `fixtures/`
-remain untouched raw scrubbed live captures under the contract above.
+`test-fixtures/context-overflow.jsonl` is a minimal contract-derived error object
+including the synthesized assistant API-error message from the incident. The
+regression proves that the terminal error is structurally separate from reply
+text.
 <!-- harn:end claude-result-errors-follow-native-signals -->
 
 <!-- harn:assume claude-compaction-follows-native-system-events ref=claude-compaction-system-contract -->
-### Compaction system-message contract (pinned without an API call)
+## Compaction messages
 
-Claude Code 2.1.212's embedded Agent SDK 0.3.185 declaration exposes compaction
-with two `system` messages. `SDKStatusMessage` has `subtype: "status"` and
-`status: "compacting" | "requesting" | null`. `SDKCompactBoundaryMessage` has
-`subtype: "compact_boundary"` and `compact_metadata: { trigger: "manual" |
-"auto", pre_tokens: number, post_tokens?: number, duration_ms?: number }`.
-The raw pinned fixtures already establish the same `type: "system"` plus
-`subtype` stream-json envelope, but contain no compaction boundary to replay.
+The SDK yields two native system objects:
 
-`test-fixtures/compaction.jsonl` records those declared stream-json shapes with
-both automatic and manual boundaries. It is contract-derived rather than a paid
-live capture, and intentionally lives beside the other synthetic contract
-fixtures. These events remain rare under one-process-per-turn CLI delivery; the
-same normalized plumbing is ready for the long-lived Phase 5 adapter.
+- `subtype: "status", status: "compacting"` → loading compaction timeline item
+- `subtype: "compact_boundary", compact_metadata: {trigger, pre_tokens,
+  post_tokens?}` → completed item plus context-usage re-baseline
+
+`test-fixtures/compaction.jsonl` records the declared automatic and manual
+shapes. The long-lived SDK Query makes the already-shipped Phase 4 plumbing
+reachable without any Codor threshold trigger; `/compact` is passed through as
+an ordinary user message and Claude owns when compaction occurs.
 <!-- harn:end claude-compaction-follows-native-system-events -->
-- Subagent (Task) internals are NOT streamed at the top level (no assistant events with
-  `parent_tool_use_id` set were observed around the Task call) — hooks are the authoritative
-  extension signal (below).
 
-## Control protocol (asks + permissions)
+<!-- harn:assume claude-sdk-permissions-back-codor-interactions ref=claude-sdk-permission-callback -->
+## Permissions and AskUserQuestion
 
-CLI → client, on stdout:
+The SDK's `canUseTool(toolName, input, options)` callback is the only active
+permission channel. Codor creates a unique interaction id, emits one
+`ask.raised` for `AskUserQuestion` or `approval.raised` for another tool, and
+parks the callback promise.
 
-```jsonl
-{"type":"control_request","request_id":"<uuid>","request":{
-  "subtype":"can_use_tool","tool_name":"AskUserQuestion","display_name":"AskUserQuestion",
-  "input":{"questions":[{"question":"…","header":"…","options":[{"label":"…","description":"…"},…],"multiSelect":false}]},
-  "tool_use_id":"toolu_…","requires_user_interaction":true}}
-```
+`respondInteraction()` settles that exact callback:
 
-Permission requests are the same envelope with the target tool
-(`tool_name:"Bash"`, `input:{command,…}`) plus `permission_suggestions[]`
-(addRules/addDirectories/setMode candidates) and `blocked_path`.
+- Ask answers return `behavior: "allow"` with `updatedInput.answers` keyed by
+  question text (arrays become comma-separated multi-select values).
+- `allow once` returns the original `updatedInput`.
+- `allow always` additionally returns the SDK's complete permission suggestions.
+- `deny` returns a denial message.
 
-Client → CLI, on stdin:
+SDK abort, Query failure/exit, or interrupt rejects and removes unresolved
+callbacks. A resolved callback is the acknowledgement boundary; the obsolete
+stdout-progress waiter and stdin `control_response` encoder are deleted.
+<!-- harn:end claude-sdk-permissions-back-codor-interactions -->
 
-```jsonl
-{"type":"control_response","response":{"subtype":"success","request_id":"<same uuid>","response":{
-  "behavior":"allow","updatedInput":{…original input…, "answers":{"<question text>":"<label>"}}}}}
-{"type":"control_response","response":{"subtype":"success","request_id":"…","response":{
-  "behavior":"deny","message":"denied by codor probe"}}}
-```
+<!-- harn:assume claude-sdk-hooks-are-authoritative ref=claude-sdk-hook-contract -->
+## Hooks
 
-- **AskUserQuestion answers ride `updatedInput.answers`**: a map keyed by the QUESTION TEXT,
-  value = chosen option label; multi-select answers are comma-separated (per the CLI's own
-  schema description). Free-text answers are allowed (the tool always offers a free-text
-  path). Replying `behavior:"allow"` with `updatedInput` lacking `answers` reads as
-  "dismissed without an answer" (probed) — the turn continues but no choice is recorded.
-- After a valid answer the tool executes, a `user` event carries the tool_result, and the turn
-  proceeds to `result` (fixture ends `result:"ALPHA"`). After a deny, the turn continues too —
-  the model sees the denial and wraps up (`result:"DENIED"`, and `permission_denials[]` in the
-  result is populated).
-- `interrupt` is also a client→CLI `control_request` subtype on stdin (not probed; SIGINT on
-  the child is the documented interrupt path we use).
+Programmatic SDK hook callbacks replace the generated `--settings` file and
+loopback HTTP endpoint entirely:
 
-## Hooks (extensions source)
+- `SubagentStart` and `SubagentStop` map their native `agent_id`, `agent_type`,
+  session id, summary, and transcript paths to the existing extension events.
+- `PostToolUse` runs `codor inbox --new --consume --format hook` in the member
+  cwd/environment. Empty stdout returns an empty hook result; non-empty stdout
+  is parsed and returned as the SDK `HookJSONOutput`, injecting Codor inbox
+  context exactly as before.
 
-`--settings` JSON injects hooks; matchers optional:
+Task/Agent tool-use stream objects remain enrichment only; hooks are the
+authoritative extension lifecycle source.
+<!-- harn:end claude-sdk-hooks-are-authoritative -->
 
-```json
-{"hooks":{"SubagentStart":[{"hooks":[{"type":"command","command":"cat >> /abs/log.jsonl"}]}],
-          "SubagentStop":[{"hooks":[{"type":"command","command":"cat >> /abs/log.jsonl"}]}]}}
-```
+## Interrupt and recovery
 
-Hook commands receive one JSON object on stdin (fixture `hooks-log.jsonl`):
+`interrupt(session)` completes the active Codor turn as interrupted, calls the
+active Query's `interrupt()`, closes its streaming input/Query, and rejects
+pending permissions. A later delivery starts a fresh Query with `resume`, so an
+operator interrupt or dead runtime cannot strand the member or lose its native
+conversation.
 
-- `SubagentStart`: `{session_id, transcript_path, cwd, prompt_id, agent_id, agent_type,
-  hook_event_name}`
-- `SubagentStop`: same + `{permission_mode, effort, stop_hook_active, agent_transcript_path,
-  last_assistant_message, background_tasks[], session_crons[]}`
-
-`agent_id` + `agent_type` name the extension member; `agent_transcript_path` points at the
-subagent's own transcript. Both fired reliably in `-p` mode with a Task-spawning prompt
-(fixture `hooks-subagent.jsonl` is the parent stream: the spawning tool_use IS visible — but
-under the API name `Agent`, not `Task` — while subagent internals are not streamed; hooks are
-authoritative, stream is enrichment only).
-
-## Crash boundaries (asks) — what P0.8 reconcile implements
-
-- **Kill while ask `pending`** (`kill-during-ask.jsonl` → SIGKILL right after the
-  `control_request` arrived, never answered): on `--resume` with a nudge user message
-  ("continue"), the model RE-RAISES the AskUserQuestion — as a NEW `tool_use_id` and NEW
-  `request_id` (`kill-during-ask-resume.jsonl`). Re-correlation therefore CANNOT match on
-  native ids; match on (member, tool_name, question content) or replace the card. Answering
-  the re-raised request completes the turn normally (`result:"GAMMA"`).
-- **Answered but not acked** (`answered-then-kill.jsonl` → control_response written to stdin,
-  process SIGKILLed immediately, ack never observed): the answer DID NOT survive — the CLI
-  had not persisted it; on resume the ask re-raises fresh (`answered-then-kill-resume.jsonl`),
-  and REPLAYING the persisted answer is safe and idempotent (same choice, no double-execution,
-  `result:"EPSILON"`). So: `answered`-but-not-`acked` + session re-raises ⇒ replay the stored
-  answer against the NEW request ids; if nothing re-raises and the transcript shows the turn
-  proceeded ⇒ mark `acked`; else orphan.
-- A killed `-p` process emits nothing on the way out (no result event); exit code/signal is
-  the only evidence. Resume requires a user message to start a new turn — nothing re-runs
-  spontaneously.
-
-The adapter persists confirmed spawn identity and the init `session_id` while the turn is
-live. It does not infer completion from undocumented transcript-store internals: recorded
-stream-json shapes remain normative, while an incomplete started process is held unless the
-documented interaction re-correlation path applies after that process is known dead.
-
-## Capabilities (for P0.7)
-
-`{resume: true, discover: true, interactiveAttach: true, ask: true, approvals: 'runtime',
-extensions: true, thinking: true, thinking_levels: ['low', 'medium', 'high', 'xhigh', 'max',
-'ultracode']}`.
-
-## Probe log (spend discipline)
-
-One live probe per fixture (subscription auth; `total_cost_usd` visible in captures). Extra
-probes beyond the plan's list: 2 failed ask-protocol attempts (one without
-`--permission-prompt-tool stdio` — AskUserQuestion absent from the tool list; one with the
-answer wrongly encoded per-question — read as "dismissed"), kept until the `answers`-map
-encoding was confirmed from the CLI binary's own schema strings. No quota/auth exhaustion; no
-fixture is MISSING. Probes ran with the user's global config (visible as SessionStart hook
-events + plugin/skill lists in init) — scrubbed of paths only.
-
+The older raw fixtures still document useful crash facts: a killed process emits
+no terminal result, and an unanswered/just-answered permission may re-raise with
+fresh native ids on resume. The SDK now owns that control replay; Codor keeps its
+semantic interaction reconciliation rather than depending on provider ids.
 
 <!-- harn:assume adapters-own-their-model-catalog ref=claude-code-model-catalog-notes -->
-## Model catalog (U3): curated aliases
+## Model catalog
 
-`claude` has NO model-listing subcommand, so `listModels()` returns a curated list rather
-than discovering one. Evidence: `claude --help` documents `--model <model>` as "Provide an
-alias for the latest model (e.g. 'fable', 'opus', or 'sonnet') or a model's full name
-(e.g. 'claude-fable-5')". Probed 2026-07-12; no model call was made.
-
-The catalog reports **aliases** (`haiku`, `sonnet`, `opus`, `fable`), not dated ids, and
-that is deliberate: an alias resolves to the latest model of its tier by definition, so it
-cannot go stale the way a pinned id does. An operator who needs a specific version uses the
-dialog's `Custom…` escape, which the CLI accepts as "a model's full name".
-
-Thinking is supported (`thinking:true`), so the thinking row is enabled.
+Claude Code has no stable zero-spend model-listing command suitable for the
+existing background catalog interface, so `listModels()` retains the curated
+aliases `haiku`, `sonnet`, `opus`, and `fable`. Aliases deliberately track the
+latest tier; operators may still enter a full custom model id.
 <!-- harn:end adapters-own-their-model-catalog -->
 
 <!-- harn:assume live-inbox-capability-is-evidence-backed ref=claude-live-inbox-notes -->
-## Live inbox (LC3)
+## Live inbox
 
-Claude Code 2.1.207 was rechecked on 2026-07-13 without a model call. A local fake Anthropic
-SSE endpoint proved that a second stream-json user frame written while `Bash` was running is
-included beside the tool result in the next model request. Codor does not use that steering
-path in this round because its adapter contract has no live-delivery ingress or consumption
-acknowledgement. Instead, the generated settings add the specified `PostToolUse` command
-`codor inbox --new --consume --format hook`; the member environment inherited by the child
-authorizes that command. Therefore this adapter declares `live_inbox:true`.
+Claude remains the only first-party adapter declaring `live_inbox: true`. The
+exact existing command, `codor inbox --new --consume --format hook`, now runs
+inside the SDK `PostToolUse` callback with the member environment. Its parsed
+hook output is returned to Claude. Other adapters retain their documented false
+capability.
 <!-- harn:end live-inbox-capability-is-evidence-backed -->
+
+## Probe/spend record
+
+The raw capture set was paid/probed once on 2026-07-10 and is unchanged. Phase
+5b added no empirical query, CLI probe, or model/API request: all lifecycle,
+permission, hook, usage, compaction, and failure tests use injected Query mocks
+or parsed local fixtures.

@@ -1,7 +1,7 @@
 id: interaction-ack-requires-stream-progress
 hash: a-fb6790edbc55
 title: Interaction acknowledgement requires later stream progress
-state: active
+state: retired
 statement: respondInteraction must register its acknowledgement boundary before
   writing stdin and resolve only after a subsequent output event proves the
   harness consumed the control response; EOF, child error, or exit must reject
@@ -9,3 +9,4 @@ statement: respondInteraction must register its acknowledgement boundary before
 depends_on:
   - interactions-answered-via-stdin-control
 created_by: m0fix-adapter-lifecycle
+retired_by: ctx-guardrails-p5b-claude-sdk

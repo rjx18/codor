@@ -103,15 +103,17 @@ export interface ModelCatalog {
 // harn:end adapters-own-their-model-catalog
 
 export interface AdapterTurnHooks {
-  /** Called only after the CLI child has emitted its spawn event. */
+  /** Called after the adapter runtime accepts the turn; process ids are optional for SDK runtimes. */
   onStarted?(process: { pid?: number; process_group_id?: number }): void;
-  /** Called as soon as stdout reveals the harness-native resume token. */
+  /** Called as soon as provider output reveals the harness-native resume token. */
   onSessionRef?(session_ref: SessionRef): void;
 }
 
+// harn:assume claude-agent-sdk-query-is-the-session-runtime ref=adapter-runtime-contract
 /**
- * Adapters drive plain CLIs, never SDKs (ARCHITECTURE §adapters): spawn a
- * subprocess, write JSONL, read JSONL. One deliver() call = one turn.
+ * Adapters normalize one harness turn at a time. A driver may supervise a
+ * per-turn CLI subprocess or retain a provider-owned streaming runtime across
+ * deliver() calls; either way one deliver() call still yields exactly one turn.
  */
 export interface HarnessAdapter {
   id: string; // 'claude-code' | 'codex' | …
@@ -133,3 +135,4 @@ export interface HarnessAdapter {
   interrupt(session: Session): void;
   discoverSessions(): SessionRef[];
 }
+// harn:end claude-agent-sdk-query-is-the-session-runtime

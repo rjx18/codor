@@ -1,0 +1,15 @@
+id: claude-agent-sdk-query-is-the-session-runtime
+hash: a-436012453f0d
+title: One supervised Agent SDK query is the Claude member runtime
+state: active
+statement: A Claude member must own one Agent SDK query() over a streaming
+  AsyncIterable of SDKUserMessage objects across multiple completed turns;
+  deliver pushes the next user object into that input, the sole pump routes SDK
+  messages to a fresh turn translator, interrupt calls query.interrupt and
+  retires the query, and unexpected iterator failure or completion fails only
+  the active turn then recreates a fresh query on the next delivery with resume
+  set to the last reported session id.
+depends_on:
+  - one-inflight-turn-per-member
+  - revive-via-session-ref
+created_by: ctx-guardrails-p5b-claude-sdk

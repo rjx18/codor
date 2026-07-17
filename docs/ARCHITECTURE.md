@@ -8,7 +8,7 @@
                     │   │  │  switchboard (daemon)         │           │
    iPhone app  ─────┼──▶│  │  · channels + message store      │  spawns/  │
                     │   │  │  · mention router             │  resumes  │
-   Apple Watch ──┐  │   │  │  · member lifecycle           │──────────▶│ claude -p (stream-json)
+   Apple Watch ──┐  │   │  │  · member lifecycle           │──────────▶│ Claude Agent SDK query()
    (via phone or │  │   │  │  · event journal (run blobs)  │           │ codex exec --json
     push relay)  │  │   │  │  · WS/REST API                │◀──────────│ (harness CLIs, local)
                  │  │   │  └───────┬──────────────┬───────┘           │
@@ -36,7 +36,7 @@ Single Node/TypeScript process (Bun-compatible; plain Node for widest reuse). Ow
 - **Router** — implements PROTOCOL §3 exactly (recipient selection from mentions, whole-message
   payloads, ref resolution, defaults, fan-out, batching, the opt-in brakes). Pure function over
   (message, channel state) → deliveries; unit-test heaven.
-- **Adapter host** — spawns/attaches harness sessions as child processes, supervises them,
+- **Adapter host** — spawns/attaches harness sessions through CLI or provider runtimes, supervises them,
   journals their events, marks members `dead` on crash (with a `system` message + push), and
   resumes them by `session_ref` on switchboard restart. Sessions are the durable thing;
   processes are cattle.
@@ -60,19 +60,19 @@ interface HarnessAdapter {
 }
 ```
 
-Design rule: **adapters drive plain CLIs, never SDKs.** An agent in Codor runs exactly as it
-would in your terminal — a normal subprocess in a shell runtime, addressed over stdin/stdout.
-This keeps every harness loosely coupled and identically shaped (spawn a process, write JSONL,
-read JSONL), which is also what makes new harnesses cheap and native-resume/jump-in trivial.
+Design rule: **adapters expose one normalized turn contract while using the provider-native
+runtime that preserves a session correctly.** Most harnesses remain plain supervised CLI
+subprocesses. Claude is the deliberate exception: its first-party Agent SDK owns a long-lived
+Claude Code process, streaming input, callbacks, and native auto-compaction. The switchboard
+still sees the same `deliver()`/interaction/interrupt/session-ref boundary.
 
-- **claude-code**: drives `claude -p --resume <session-id> --output-format stream-json
-  --input-format stream-json --verbose` — the same wire protocol the Agent SDK wraps, spoken
-  directly. Events, `AskUserQuestion`, and runtime permission prompts all arrive as JSONL on
-  stdout (control requests answered on stdin). **`--permission-prompt-tool stdio` is the
-  enabler, not a fallback** (probed, P0.2): without it the control-request path is off and
-  AskUserQuestion isn't even offered to the model. Extensions:
-  **`SubagentStart`/`SubagentStop` hooks are authoritative** (injected via `--settings`,
-  reporting agent id + transcript path); Task/Agent tool-call stream events only enrich.
+- **claude-code**: owns one first-party Agent SDK `query()` per member over streaming
+  `SDKUserMessage` input and recreates it with `resume` after an exit. SDK result/system
+  objects feed normalized usage, failure, and compaction events. `canUseTool` callbacks back
+  Codor's durable ask/approval cards; `SubagentStart`/`SubagentStop` callbacks are the
+  authoritative extension source; `PostToolUse` runs the member's exact live-inbox hook.
+  Interrupt uses `query.interrupt()`. The raw `claude -p` turn driver and its generated hook
+  settings/HTTP bridge are gone.
 - **codex**: drives `codex exec --json [--sandbox <policy>] resume <rollout-id> "<payload>"` —
   the exact pattern proven in months of manual use. Flags precede the subcommand (learned the
   hard way). Approvals are spawn-time sandbox policy → rendered as the member's policy chip.
@@ -82,7 +82,8 @@ read JSONL), which is also what makes new harnesses cheap and native-resume/jump
   usage is a session-cumulative `usage_update` notification with optional cost — per-turn
   token itemization is still a Draft RFD; **subagent visibility is absent by design** (no
   schema types, and the reference Claude adapter deliberately filters subagent traffic out).
-  Codex has only a third-party (JetBrains) adapter, `codex-acp`. Direct CLI drivers stay;
+  Codex has only a third-party (JetBrains) adapter, `codex-acp`. Direct CLI drivers stay for
+  the other built-ins;
   ACP (Apache-2.0) remains a candidate FOURTH adapter for harnesses we don't drive natively.
 
 <!-- harn:assume adapter-registry-sole-harness-source ref=acp-final-verdict -->
@@ -215,7 +216,7 @@ verified in M0 before any code lands (unverified entries marked ⚠).
 
 | Component | Reuse | Mode | Notes |
 | --- | --- | --- | --- |
-| Claude session driving | `claude` CLI (`-p --resume`, stream-json in/out) | depend | subprocess only — no SDK, by design (loose coupling; same shape as every other harness) |
+| Claude session driving | `@anthropic-ai/claude-agent-sdk` (`query()` streaming input + `resume`) | depend | one long-lived query per member; first-party callbacks for permissions/hooks; engine-native compaction |
 | Codex session driving | `codex` CLI (`exec --json`, `resume`) | depend | subprocess; proven pattern |
 | Harness normalization | Zed ACP (`agent-client-protocol` + `claude-agent-acp`, both Apache-2.0) | rejected as driver layer (M0 verdict) | P0.2 spike: resume OK, usage coarse (per-turn tokens still a Draft RFD), subagent visibility absent by design; codex adapter is third-party (JetBrains). CLI drivers stay; ACP = candidate future fourth adapter |
 | Additional harness adapters (Copilot CLI, OpenCode, Gemini, Pi, …) | paseo's adapter set as the *behavioral reference* (AGPL forbids copying code, not learning from it); ACP adapters where they exist (Apache/MIT); each harness's first-party headless docs | pattern / depend | per harness: read their connector → write a behavioral spec (`packages/adapters/<harness>/NOTES.md`: invocation, resume, session store, event format, quirks) → implement our small adapter from the spec against the six-method interface. No paseo code in this repo, in-process or sidecar |

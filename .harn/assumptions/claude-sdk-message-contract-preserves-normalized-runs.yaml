@@ -1,0 +1,17 @@
+id: claude-sdk-message-contract-preserves-normalized-runs
+hash: a-27a0a13449f9
+title: Agent SDK message objects preserve Claude normalized run semantics
+state: active
+statement: Claude translation must consume Agent SDK message objects, keep tool,
+  pending-permission, and terminal state turn-scoped, carry only the native
+  session id and context-window telemetry across turns/query recovery, and
+  preserve normalized usage snapshots/live updates, native compaction markers
+  and post-token re-baselining, and native result failures with error detail
+  structurally separate from reply text; fixture tests and injected Query mocks
+  must never call the live CLI or API.
+depends_on:
+  - first-party-run-items-normalized
+  - normalized-agent-usage-telemetry
+  - claude-compaction-follows-native-system-events
+  - claude-result-errors-follow-native-signals
+created_by: ctx-guardrails-p5b-claude-sdk
