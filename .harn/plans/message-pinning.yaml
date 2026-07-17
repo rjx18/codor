@@ -16,7 +16,11 @@ notes: >-
   or owner only (the roles-gate contract: agents and observers cannot pin),
   idempotent when the flag already matches, emits the message frame. Server:
   the ws act dispatch routes pin_message with the actor resolved from the
-  principal, same as the other room acts. Nothing about pinning re-routes
+  principal, same as the other room acts. Authorization: pin_message joins
+  HumanCapability automatically (the type derives from the Act union), so
+  CAPABILITY_MINIMUM_ROLE - a total record - gains a pin_message: admin row
+  (owner+admin allowed via ROLE_RANK; agents stay refused because
+  AGENT_CAPABILITIES does not gain the act). Nothing about pinning re-routes
   deliveries or touches run journals.
 
   Web-next (harnignored, same batch): hover pin/unpin action on message
@@ -34,7 +38,9 @@ assumptions:
     - id: roles-gate-human-acts-not-agents
       outcome: unchanged
       reason: pin_message joins the acts that roles gate; agents remain unable
-        to pin regardless of policy.
+        to pin regardless of policy. The capability matrix gains a
+        pin_message row at minimum role admin - a new entry under the same
+        rule, not a change to the rule.
     - id: changelog-covers-every-visible-entity
       outcome: unchanged
       reason: The pin flip is a message change appended to the room change log
@@ -59,6 +65,7 @@ assumptions:
       depends_on: []
 files:
   - packages/protocol/src/message.ts
+  - packages/switchboard/src/authorization.ts
   - packages/protocol/src/ws.ts
   - packages/protocol/src/schemas.spec.ts
   - packages/switchboard/src/store.ts
@@ -72,3 +79,9 @@ anchors:
       action: change
       reason: The act schema, store mutation, daemon authorization, and server
         dispatch define the pin contract.
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: change
+      reason: CAPABILITY_MINIMUM_ROLE is a total record over HumanCapability,
+        so the new act forces a pin_message row (minimum role admin) inside
+        this anchor. The gate rule itself is unchanged.
