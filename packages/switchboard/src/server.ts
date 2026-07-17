@@ -617,7 +617,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (!authorizeRoom(principal, room, 'read', reply)) return;
     if (!daemon.store.getRoom(room)) return reply.code(404).send({ error: `no such room ${room}` });
     try {
-      const query = req.query as { before?: string; limit?: string };
+      const query = req.query as { before?: string; limit?: string; pinned?: string };
+      // Pins are few; the strip hydrates the whole set at once, ignoring paging.
+      if (query.pinned === '1') {
+        const pinned = daemon.store.listPinnedMessages(room);
+        return reply.send({ messages: daemon.project(room, pinned), has_more: false });
+      }
       const limit = positiveInteger(query.limit, 50, 100, 'limit');
       const before = positiveInteger(
         query.before,

@@ -821,6 +821,9 @@ export class Daemon {
     }
     const message = this.store.getMessage(room, messageId);
     if (!message) throw new Error(`no such message: #${messageId}`);
+    if (pinned && message.deleted === true) {
+      throw new Error('cannot pin a deleted message'); // a tombstone is not a pin target
+    }
     if ((message.pinned === true) === pinned) return message; // idempotent — emit nothing
     const updated = this.store.setMessagePinned(room, messageId, pinned);
     this.emitMessage(room, updated);

@@ -48,9 +48,11 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
   const [spawning, setSpawning] = useState(false);
 
   // Interrupt is an owner/admin act (matrix gates it at admin), so only they see
-  // the Stop control — the server would refuse anyone else anyway.
+  // the Stop control — the server would refuse anyone else anyway. The lifecycle
+  // kebab is owner/admin too, for consistency with the newer controls.
   const selfRole = selfId !== undefined ? members[selfId]?.role : undefined;
   const canStop = selfRole === 'owner' || selfRole === 'admin';
+  const canManage = selfRole === 'owner' || selfRole === 'admin';
 
   const roster = useMemo(() => {
     // Extensions are transient run machinery — the roster lists durable members.
@@ -82,6 +84,7 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
             member={member}
             detail={details[member.id]}
             canStop={canStop}
+            canManage={canManage}
             connection={props.connection}
           />
         ))}
@@ -104,10 +107,12 @@ function MemberCard(props: {
   member: Member;
   detail: MemberDetail | undefined;
   canStop: boolean;
+  canManage: boolean;
   connection: Connection;
 }) {
   const { member, detail } = props;
-  const working = member.state === 'running' || member.state === 'queued';
+  // Stop interrupts an in-flight turn; a queued agent has nothing to interrupt.
+  const running = member.state === 'running';
   const [menu, setMenu] = useState(false);
   const [confirming, setConfirming] = useState<'kill' | 'remove'>();
   const [renaming, setRenaming] = useState(false);
@@ -152,7 +157,7 @@ function MemberCard(props: {
           />
         )}
         {/* harn:end member-context-window-meter-derived-from-last-usage */}
-        {member.kind === 'agent' && working && props.canStop && (
+        {member.kind === 'agent' && running && props.canStop && (
           <button
             type="button"
             className="nx-member-stop"
@@ -164,7 +169,7 @@ function MemberCard(props: {
             <Square size={13} aria-hidden="true" />
           </button>
         )}
-        {member.kind === 'agent' && (
+        {member.kind === 'agent' && props.canManage && (
           <div className="nx-member-menu" ref={menuRef}>
             <IconButton
               icon={MoreVertical}

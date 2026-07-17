@@ -1543,6 +1543,15 @@ export class Store {
     return row ? messageFromRow(row) : undefined;
   }
 
+  /** Every pinned message, id-ascending — the strip hydrates from this whole
+   *  set (pins are few) so a pin older than the loaded page still shows. */
+  listPinnedMessages(room: string): Message[] {
+    const rows = this.db
+      .prepare('SELECT * FROM messages WHERE room = ? AND pinned = 1 ORDER BY id')
+      .all(room) as MessageRow[];
+    return rows.map(messageFromRow);
+  }
+
   // harn:assume rail-summary-served-not-guessed ref=rooms-summary-store-queries
   /** Newest message in a room — the rail preview's single source. */
   latestMessage(room: string, options: { ignoreAcks?: boolean } = {}): Message | undefined {

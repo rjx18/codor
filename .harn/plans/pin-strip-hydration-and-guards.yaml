@@ -1,59 +1,56 @@
 id: pin-strip-hydration-and-guards
 title: Pinned-strip hydration endpoint and the pin-on-tombstone refusal.
 notes: >-
-  Polish round approved by Richard in #422. Two backend pieces; the rest of
-  the bundle (strip hydration UI with paging jumps, hiding Stop on
-  queued-only agents, role-gating the member kebab) is harnignored web-next
-  in the same batch.
+  Polish round approved by Richard in #422. Two backend pieces; the rest of the
+  bundle (strip hydration UI with paging jumps, hiding Stop on queued-only
+  agents, role-gating the member kebab) is harnignored web-next in the same
+  batch.
 
-  Piece one - pinned hydration. The web-next pinned strip derives from
-  loaded messages, so after a reload a pin older than the loaded page window
-  is invisible until its page happens to load. Server: GET
+  Piece one - pinned hydration. The web-next pinned strip derives from loaded
+  messages, so after a reload a pin older than the loaded page window is
+  invisible until its page happens to load. Server: GET
   /api/rooms/:room/messages accepts pinned=1 and then returns every pinned
-  message of the room ordered by id ascending, ignoring paging (pins are
-  few by nature). The endpoint lives inside the
-  permalink-ids-stable:message-history-rest anchor, so the pinned branch is
-  a declared mechanical crossing - ids and paging semantics are untouched.
-  Store: a new
-  listPinnedMessages(room) reading WHERE pinned = 1 - placed OUTSIDE the
-  collaboration-store-projection anchored span (which begins at
-  listMessages), so no anchor is crossed. Clients fetch it at room load and
-  union it with loaded pins; a chip whose target is not loaded jumps via
-  the existing bounded history-paging jump instead of a bare fragment.
+  message of the room ordered by id ascending, ignoring paging (pins are few by
+  nature). The endpoint lives inside the
+  permalink-ids-stable:message-history-rest anchor, so the pinned branch is a
+  declared mechanical crossing - ids and paging semantics are untouched. Store:
+  a new listPinnedMessages(room) reading WHERE pinned = 1 - placed OUTSIDE the
+  collaboration-store-projection anchored span (which begins at listMessages),
+  so no anchor is crossed. Clients fetch it at room load and union it with
+  loaded pins; a chip whose target is not loaded jumps via the existing bounded
+  history-paging jump instead of a bare fragment.
 
-  Piece two - tombstone pin guard. The web-next UI already hides pin
-  controls on deleted rows, but daemon.pinMessage would still accept a
-  direct act pinning a tombstone. It now refuses deleted messages with a
-  clear error, closing the gap server-side. This amends the pin contract
-  statement (a deleted message cannot be pinned) inside the
-  pin-message-contract anchor.
+  Piece two - tombstone pin guard. The web-next UI already hides pin controls on
+  deleted rows, but daemon.pinMessage would still accept a direct act pinning a
+  tombstone. It now refuses deleted messages with a clear error, closing the gap
+  server-side. This amends the pin contract statement (a deleted message cannot
+  be pinned) inside the pin-message-contract anchor.
 
   Tests: store - listPinnedMessages returns pins in id order, excludes
-  never-pinned and deleted-then-cleared rows; daemon - pinning a deleted
-  message is refused, unpin state unaffected; server - endpoint e2e:
-  authenticated pinned=1 fetch returns exactly the pinned set, unauthenticated
-  refused; web-next e2e - a pin far beyond the loaded window appears in the
-  strip after reload and its chip pages back and lands on the message, Stop
-  absent on a queued-but-not-running agent if the fixture can express one
-  (otherwise covered by unit), kebab hidden for the viewer role. Gate:
-  protocol + switchboard suites green; web-next unit + playwright green.
+  never-pinned and deleted-then-cleared rows; daemon - pinning a deleted message
+  is refused, unpin state unaffected; server - endpoint e2e: authenticated
+  pinned=1 fetch returns exactly the pinned set, unauthenticated refused;
+  web-next e2e - a pin far beyond the loaded window appears in the strip after
+  reload and its chip pages back and lands on the message, Stop absent on a
+  queued-but-not-running agent if the fixture can express one (otherwise covered
+  by unit), kebab hidden for the viewer role. Gate: protocol + switchboard
+  suites green; web-next unit + playwright green.
 assumptions:
   reviewed:
     - id: permalink-ids-stable
       outcome: unchanged
-      reason: Hydration reads pinned messages by their permanent ids; the
-        strip jump resolves through the same permalink contract.
+      reason: Hydration reads pinned messages by their permanent ids; the strip jump
+        resolves through the same permalink contract.
     - id: pins-are-durable-role-gated-markers
       outcome: changed
-      statement: Pinning sets a boolean on the message row through the room
-        change log, so live frames and reconnect sync agree on it forever;
-        only human members with role owner or admin may flip it, agents and
-        observers are refused, a deleted message cannot be pinned,
-        re-flipping to the same value changes nothing and emits nothing, and
-        pinning never re-routes deliveries, alters run journals, or affects
-        message ids.
-      reason: The guard closes the tombstone gap server-side; everything else
-        about the pin contract is unchanged.
+      statement: Pinning sets a boolean on the message row through the room change
+        log, so live frames and reconnect sync agree on it forever; only human
+        members with role owner or admin may flip it, agents and observers are
+        refused, a deleted message cannot be pinned, re-flipping to the same
+        value changes nothing and emits nothing, and pinning never re-routes
+        deliveries, alters run journals, or affects message ids.
+      reason: The guard closes the tombstone gap server-side; everything else about
+        the pin contract is unchanged.
 files:
   - packages/switchboard/src/store.ts
   - packages/switchboard/src/daemon.ts
@@ -64,11 +61,12 @@ anchors:
   pins-are-durable-role-gated-markers:
     pin-message-contract:
       action: change
-      reason: The refusal of deleted messages lives in daemon.pinMessage,
-        inside the anchor that defines the pin contract.
+      reason: The refusal of deleted messages lives in daemon.pinMessage, inside the
+        anchor that defines the pin contract.
   permalink-ids-stable:
     message-history-rest:
       action: change
-      reason: The messages endpoint lives inside this anchor and gains the
-        pinned=1 branch; ids, ordering, and paging semantics are unchanged
-        in meaning.
+      reason: The messages endpoint lives inside this anchor and gains the pinned=1
+        branch; ids, ordering, and paging semantics are unchanged in meaning.
+applied:
+  applied_at: 2026-07-17T15:59:10.405Z
