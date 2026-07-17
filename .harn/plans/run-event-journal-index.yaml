@@ -1,0 +1,84 @@
+id: run-event-journal-index
+title: Stamp live run_event frames with their journal index so mid-run viewers
+  merge exactly.
+notes: >-
+  Live-reproduced (Richard, codor-ui, run 339/342 after the service restart):
+  a browser that connects MID-RUN buffers streamed run events from local index
+  zero, while the fetched journal indexes from the run's true start. The
+  client merges the two by index, so the same text block renders twice and
+  duplicated tool_call rows sit at running forever (their results attached
+  only to the journal copies). The journal itself is clean - four calls, four
+  results, no orphans - this is purely a frame/merge misalignment.
+
+  Fix, end to end. Protocol: the run_event server frame gains an optional
+  index - the event's position in the run journal; absent on old daemons.
+  Daemon: the turn loop tracks the journal position (seeded from the existing
+  blob length when a retry reuses a run message) and stamps every run_event
+  frame it emits; non-journaled events (run.limits) do not advance it.
+  Shared client (packages/web/src, loaded by web-next at runtime): the run
+  event buffer gains an optional first_index - the journal index of its first
+  entry; the frame handler passes the frame index through; appendRunEvent
+  seeds first_index from the first stamped frame, drops exact re-deliveries
+  of already-buffered indices, resets the buffer forward on a gap (a gap can
+  only mean this socket missed events - the journal fetch owns that range),
+  and advances first_index when the bounded buffer trims overflow.
+  mergeRunEvents maps live entries to first_index + i, falling back to the
+  old dropped_count arithmetic when no index was ever stamped, so old daemons
+  and old buffers behave exactly as before.
+
+  Tests: protocol schema pin for the indexed frame; daemon spec observing
+  stamped, consecutive indices across a scripted turn (and correct seeding on
+  a reused run message); run-presenter spec proving a mid-run subscriber -
+  journal [0..n], live buffer starting at k>0 - merges with no duplicates and
+  results pair with their calls; plus the no-index legacy path staying
+  byte-identical. Gate: protocol + switchboard + web suites green.
+assumptions:
+  reviewed:
+    - id: live-run-event-cache-bounded
+      outcome: unchanged
+      reason: The buffer stays bounded exactly as promised; overflow trimming now
+        also advances the new first_index so the bound and the true journal
+        position stay consistent.
+  create:
+    - id: run-events-merge-by-journal-index
+      title: Live run events carry their journal index; clients merge streams
+        and journals exactly, never by guesswork
+      statement: Every run_event frame the daemon emits carries the event's
+        position in that run's journal, seeded from the existing blob when a
+        turn resumes a run message, and clients that buffer live events keep
+        the journal index of what they hold, so merging a fetched journal
+        with a live buffer aligns identical events at identical indices no
+        matter when the viewer connected. A client without stamped indices
+        falls back to the old local arithmetic rather than inventing
+        positions.
+      reason: >-
+        Mid-run viewers (every open tab after a restart, any late joiner)
+        rendered duplicated text and permanently-running tools because the
+        merge guessed indices; Richard hit both within an hour of the new
+        backend going live (#341, #343).
+      depends_on: []
+files:
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web/src/state.ts
+  - packages/web/src/run-presenter.ts
+  - packages/web/src/run-presenter.spec.ts
+anchors:
+  run-events-merge-by-journal-index:
+    indexed-run-event-frame:
+      action: change
+      reason: The frame schema carries the optional journal index.
+    daemon-journal-index-stamp:
+      action: change
+      reason: The turn loop tracks and stamps the journal position.
+    client-indexed-buffer-merge:
+      action: change
+      reason: appendRunEvent and mergeRunEvents align by stamped index with the
+        legacy fallback.
+  live-run-event-cache-bounded:
+    bounded-live-event-buffer:
+      action: change
+      reason: appendRunEvent gains index awareness while keeping the bound;
+        first_index advances with trimmed overflow.
