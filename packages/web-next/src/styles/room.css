@@ -730,6 +730,12 @@
 .nx-composer-bar:focus-within {
   border-color: var(--c-ink);
 }
+/* The bar owns its paint: any text surface inside it stays fully transparent,
+   so its rounded corners never mask an opaque square (light or dark). */
+.nx-composer-bar textarea,
+.nx-composer-bar input {
+  background: transparent;
+}
 .nx-composer-input {
   flex: 1;
   min-width: 0;

@@ -20,6 +20,39 @@ async function openRoom(page: Page): Promise<void> {
   await expect(page.getByTestId('connection')).toHaveText(/Connected/);
 }
 
+// ── Item 9: the composer bar owns its paint — every text surface inside it is
+// fully transparent so the bar's rounded corners never mask an opaque square.
+async function composerSurfacesTransparent(page: Page): Promise<void> {
+  const backgrounds = await page.evaluate(() =>
+    [...document.querySelectorAll('.nx-composer-bar textarea, .nx-composer-bar input')]
+      .map((node) => getComputedStyle(node).backgroundColor),
+  );
+  expect(backgrounds.length).toBeGreaterThan(0);
+  for (const background of backgrounds) expect(background).toBe('rgba(0, 0, 0, 0)');
+}
+
+test.describe('composer transparency — desktop', () => {
+  test('input surfaces stay transparent in light and dark', async ({ page }) => {
+    await openRoom(page);
+    await composerSurfacesTransparent(page);
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+    await composerSurfacesTransparent(page);
+  });
+});
+
+test.describe('composer transparency — mobile', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+  test('input surfaces stay transparent in light and dark on the canvas bar', async ({ page }) => {
+    // The connection pill lives in the rail, which the mobile room surface hides.
+    await page.goto(ROOM);
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId('msg-1')).toBeVisible();
+    await composerSurfacesTransparent(page);
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+    await composerSurfacesTransparent(page);
+  });
+});
+
 test.describe('members tab', () => {
   test('extension members stay out of the roster and the header count', async ({ page }) => {
     // A turn that reports a subagent: the daemon mints a kind=extension member.
