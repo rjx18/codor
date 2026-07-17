@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import type {
+  AgentLimit,
   ModelCatalog,
   AdapterTurnHooks,
   HarnessAdapter,
@@ -22,6 +23,7 @@ import {
   type HookPayload,
   wireEventFromHook,
 } from './translate.js';
+import { probeClaudeLimits } from './limits-probe.js';
 
 const SESSION_FILE_RE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/;
 
@@ -401,6 +403,10 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     }
   }
   // harn:end adapter-process-lifecycle-supervised
+
+  probeLimits(): Promise<AgentLimit[] | undefined> {
+    return probeClaudeLimits();
+  }
 
   // harn:assume interactions-answered-via-stdin-control ref=respond-interaction-stdin
   /**
