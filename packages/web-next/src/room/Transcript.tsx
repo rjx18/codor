@@ -1,5 +1,5 @@
 import type { Delivery, Member, Message } from '@codor/protocol';
-import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Pencil, Pin, PinOff, Quote, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
+import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -122,6 +122,8 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const canStop = selfRole === 'owner' || selfRole === 'admin';
   // Delete is an owner/admin act as well; the server refuses anyone else.
   const canDelete = selfRole === 'owner' || selfRole === 'admin';
+  // Retry (failed/interrupted runs) is owner/admin too.
+  const canRetry = selfRole === 'owner' || selfRole === 'admin';
 
   // Working agents drive the typing indicator. Derived with useMemo — a selector
   // returning a fresh array every snapshot would loop useSyncExternalStore forever.
@@ -273,6 +275,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
                 members={members}
                 canPin={canPin}
                 canDelete={canDelete}
+                canRetry={canRetry}
               />
             );
           })}
@@ -335,6 +338,7 @@ function TurnBlock(props: {
   grouped: boolean;
   canPin: boolean;
   canDelete: boolean;
+  canRetry: boolean;
   room: string;
   token: () => string;
   connection: Connection;
@@ -455,6 +459,17 @@ function TurnBlock(props: {
               )}
               {props.canDelete && message.kind === 'chat' && (
                 <DeleteButton messageId={message.id} connection={props.connection} />
+              )}
+              {props.canRetry && message.kind === 'run'
+                && (message.run?.status === 'failed' || message.run?.status === 'interrupted') && (
+                <button
+                  className="nx-iconbtn is-quiet"
+                  aria-label="Retry run"
+                  data-testid={`run-${message.id}-retry`}
+                  onClick={() => props.connection.act({ act: 'retry_run', message_id: message.id })}
+                >
+                  <RotateCcw size={14} aria-hidden="true" />
+                </button>
               )}
             </span>
           </div>

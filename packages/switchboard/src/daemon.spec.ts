@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { AgentLimit, HarnessAdapter, ServerFrame, Session, SpawnOpts } from '@codor/protocol';
+import type { AgentLimit, HarnessAdapter, Message, ServerFrame, Session, SpawnOpts } from '@codor/protocol';
 import { createTurnTranslator, wireEventFromHook } from '@codor/adapter-claude-code';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -4317,5 +4317,78 @@ describe('message deletion (deleted-messages-are-purged-tombstones)', () => {
     expect(tomb.body).toBe('');
     expect(store.getMessage('eng', msg.id)?.deleted).toBe(true);
     store.close();
+  });
+});
+
+describe('run retry (retried-runs-are-fresh-deliveries)', () => {
+  const failedRunFor = async (agentId: string): Promise<Message> => {
+    fake.enqueue({ kind: 'complete', status: 'failed', final_text: 'boom' });
+    daemon.postHumanMessage('eng', '@alpha do the thing');
+    await daemon.settle();
+    return runMessages().find((m) => m.author === agentId && m.run?.status === 'failed')!;
+  };
+
+  it('admin retries a failed run: bound delivery re-queues into a fresh run, the failed run untouched', async () => {
+    const alpha = spawnAgent('alpha');
+    const failed = await failedRunFor(alpha.id);
+    expect(daemon.store.getMember('eng', alpha.id)?.state).toBe('dead'); // failure killed it
+
+    fake.enqueue({ kind: 'complete', final_text: 'done this time' });
+    daemon.retryRun('eng', failed.id, daemon.ownerOf('eng').id);
+    await daemon.settle();
+
+    const runs = runMessages().filter((m) => m.author === alpha.id);
+    expect(runs).toHaveLength(2); // the failed one plus a fresh one
+    const fresh = runs.find((m) => m.id !== failed.id)!;
+    expect(fresh.run?.status).toBe('completed');
+    expect(daemon.store.getMessage('eng', failed.id)?.run?.status).toBe('failed'); // evidence stands
+    expect(daemon.store.getMember('eng', alpha.id)?.state).toBe('idle'); // revived, ran, settled
+  });
+
+  it('retries an interrupted run without needing a revive', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'die-silently' }); // EOF with no completion → interrupted
+    daemon.postHumanMessage('eng', '@alpha do the thing');
+    await daemon.settle();
+    const interrupted = runMessages().find((m) => m.author === alpha.id && m.run?.status === 'interrupted')!;
+    expect(interrupted).toBeDefined();
+
+    fake.enqueue({ kind: 'complete', final_text: 'recovered' });
+    daemon.retryRun('eng', interrupted.id, daemon.ownerOf('eng').id);
+    await daemon.settle();
+
+    expect(runMessages().filter((m) => m.author === alpha.id && m.run?.status === 'completed')).toHaveLength(1);
+  });
+
+  it('members, observers, and agents are refused', async () => {
+    const alpha = spawnAgent('alpha');
+    const failed = await failedRunFor(alpha.id);
+    const member = daemon.store.addMember('eng', { kind: 'human', handle: 'mate', display_name: 'Mate', role: 'member' });
+    const observer = daemon.store.addMember('eng', { kind: 'human', handle: 'watcher', display_name: 'Watcher', role: 'observer' });
+    expect(() => daemon.retryRun('eng', failed.id, member.id)).toThrow('only owners and admins');
+    expect(() => daemon.retryRun('eng', failed.id, observer.id)).toThrow('only owners and admins');
+    expect(() => daemon.retryRun('eng', failed.id, alpha.id)).toThrow('only owners and admins');
+  });
+
+  it('refuses completed runs and non-run messages', () => {
+    const owner = daemon.ownerOf('eng');
+    const chat = daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'not a run' });
+    expect(() => daemon.retryRun('eng', chat.id, owner.id)).toThrow('only run messages');
+    const completed = daemon.store.postMessage('eng', {
+      author: owner.id, kind: 'run', body: 'ok',
+      run: { status: 'completed', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: 'runs/c.jsonl' },
+    });
+    expect(() => daemon.retryRun('eng', completed.id, owner.id)).toThrow('only failed or interrupted');
+  });
+
+  it('skips deliveries whose trigger was deleted and refuses when none survive', async () => {
+    const alpha = spawnAgent('alpha');
+    const failed = await failedRunFor(alpha.id);
+    const owner = daemon.ownerOf('eng');
+    // Delete the triggering message; its snapshot must not resurrect on retry.
+    const trigger = daemon.store.listDeliveries('eng').find((d) => d.run_msg_id === failed.id)!;
+    daemon.deleteMessage('eng', trigger.message_id, owner.id);
+
+    expect(() => daemon.retryRun('eng', failed.id, owner.id)).toThrow('nothing to retry');
   });
 });

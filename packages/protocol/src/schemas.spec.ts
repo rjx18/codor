@@ -223,6 +223,12 @@ describe('messages', () => {
     expect(ActSchema.safeParse({ act: 'delete_message' }).success).toBe(false);
   });
 
+  it('accepts a retry_run act naming only the run message', () => {
+    expect(ActSchema.parse({ act: 'retry_run', message_id: 9 }))
+      .toEqual({ act: 'retry_run', message_id: 9 });
+    expect(ActSchema.safeParse({ act: 'retry_run' }).success).toBe(false);
+  });
+
   it('accepts a finalized run message (tokens-only usage, no cost_usd)', () => {
     const run = {
       ...chatMessage,

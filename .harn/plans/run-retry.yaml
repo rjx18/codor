@@ -1,80 +1,76 @@
 id: run-retry
 title: Retry a failed run - re-deliver its bound instructions as a fresh turn.
 notes: >-
-  P9 piece three (importance confirmed by Richard in #422). When an agent's
-  run fails or is interrupted, the operator today has no one-click way to
-  try again; the plumbing already exists - every delivery durably records
-  the run it fed (run_msg_id) and redeliver() re-queues a delivery cleanly.
+  P9 piece three (importance confirmed by Richard in #422). When an agent's run
+  fails or is interrupted, the operator today has no one-click way to try again;
+  the plumbing already exists - every delivery durably records the run it fed
+  (run_msg_id) and redeliver() re-queues a delivery cleanly.
 
-  Change. Protocol: the Act union gains {act: retry_run, message_id}.
-  Daemon: retryRun(room, messageId, byMemberId) - human owner/admin only
-  (defensive double-gate like pinMessage), the message must be a run-kind
-  message whose run status is failed or interrupted (running, completed,
-  and non-run messages refused with clear errors); it collects the
-  deliveries bound to that run (run_msg_id equal to the message id), skips
-  any whose trigger message has since been deleted (a snapshot must not
-  resurrect purged content), errors with nothing-to-retry when none remain,
-  and re-queues the rest through the existing redeliver path - producing a
-  fresh turn and a NEW run message; the failed run stays in history as
-  evidence, untouched. retryRun is a new method placed outside the
-  redeliver anchor; it calls redeliver without modifying it. Server: the ws
-  act dispatch routes retry_run like the other room acts. Authorization:
-  the derived HumanCapability forces a retry_run row (minimum role admin)
-  in CAPABILITY_MINIMUM_ROLE; AGENT_CAPABILITIES does not gain the act, so
-  agents stay refused. Anchor crossings: the shared ws listener dispatch
-  and the capability matrix row - the same two mechanical crossings every
-  new act makes.
+  Change. Protocol: the Act union gains {act: retry_run, message_id}. Daemon:
+  retryRun(room, messageId, byMemberId) - human owner/admin only (defensive
+  double-gate like pinMessage), the message must be a run-kind message whose run
+  status is failed or interrupted (running, completed, and non-run messages
+  refused with clear errors); it collects the deliveries bound to that run
+  (run_msg_id equal to the message id), skips any whose trigger message has
+  since been deleted (a snapshot must not resurrect purged content), errors with
+  nothing-to-retry when none remain, and re-queues the rest through the existing
+  redeliver path - producing a fresh turn and a NEW run message; the failed run
+  stays in history as evidence, untouched. retryRun is a new method placed
+  outside the redeliver anchor; it calls redeliver without modifying it. Server:
+  the ws act dispatch routes retry_run like the other room acts. Authorization:
+  the derived HumanCapability forces a retry_run row (minimum role admin) in
+  CAPABILITY_MINIMUM_ROLE; AGENT_CAPABILITIES does not gain the act, so agents
+  stay refused. Anchor crossings: the shared ws listener dispatch and the
+  capability matrix row - the same two mechanical crossings every new act makes.
 
-  Web-next (harnignored, same batch): a Retry action on failed and
-  interrupted run rows, owner/admin only, no confirm (retrying is additive,
-  not destructive); the new run appears live like any turn.
+  Web-next (harnignored, same batch): a Retry action on failed and interrupted
+  run rows, owner/admin only, no confirm (retrying is additive, not
+  destructive); the new run appears live like any turn.
 
-  Tests: daemon - admin retries a failed run and the bound delivery
-  re-queues then feeds a fresh run while the failed message is untouched,
+  Tests: daemon - admin retries a failed run and the bound delivery re-queues
+  then feeds a fresh run while the failed message is untouched,
   member/observer/agent refused, running and completed runs refused,
   deleted-trigger deliveries skipped (and nothing-to-retry when all are),
   interrupted runs retryable; server ws e2e through the act path incl. a
-  refusal; web-next e2e - Retry on a seeded failed run produces a new live
-  run row, viewer role sees no Retry, axe. Gate: protocol + switchboard
-  suites green; web-next unit + playwright green.
+  refusal; web-next e2e - Retry on a seeded failed run produces a new live run
+  row, viewer role sees no Retry, axe. Gate: protocol + switchboard suites
+  green; web-next unit + playwright green.
 assumptions:
   reviewed:
     - id: roles-gate-human-acts-not-agents
       outcome: unchanged
-      reason: retry_run joins the role-gated acts with a matrix row at
-        minimum role admin; agents remain unable to retry regardless of
-        policy.
+      reason: retry_run joins the role-gated acts with a matrix row at minimum role
+        admin; agents remain unable to retry regardless of policy.
     - id: unix-socket-same-protocol
       outcome: unchanged
-      reason: retry_run is one more branch in the act dispatch both
-        transports share; local and remote stay the same protocol.
+      reason: retry_run is one more branch in the act dispatch both transports share;
+        local and remote stay the same protocol.
     - id: redeliver-interrupts-stranded-run
       outcome: unchanged
-      reason: retryRun reuses redeliver exactly as it stands; on a terminal
-        failed or interrupted run there is no running run to retire, so the
-        retirement branch simply never fires.
+      reason: retryRun reuses redeliver exactly as it stands; on a terminal failed or
+        interrupted run there is no running run to retire, so the retirement
+        branch simply never fires.
     - id: deleted-messages-are-purged-tombstones
       outcome: unchanged
-      reason: Retry skips deliveries whose trigger message was deleted, so a
-        purge stays purged; the tombstone contract is untouched.
+      reason: Retry skips deliveries whose trigger message was deleted, so a purge
+        stays purged; the tombstone contract is untouched.
     - id: delivery-payload-snapshotted
       outcome: unchanged
-      reason: A retried delivery re-delivers its snapshotted payload, which
-        is the point - the same instruction reaches the agent again.
+      reason: A retried delivery re-delivers its snapshotted payload, which is the
+        point - the same instruction reaches the agent again.
   create:
     - id: retried-runs-are-fresh-deliveries
-      title: Retrying a terminal failed or interrupted run re-queues its
-        surviving bound deliveries into a new run
-      statement: retry_run applies only to run-kind messages in failed or
-        interrupted status and only for human owners or admins; it re-queues
-        the deliveries bound to that run through the ordinary redeliver
-        path, skipping deliveries whose trigger message was deleted and
-        refusing when none survive, so the agent receives the same
-        instructions as a fresh turn producing a new run message while the
-        original failed run remains in history unchanged.
-      reason: >-
-        P9 piece three (#422): operators need one-click recovery from failed
-        runs without re-typing instructions or losing the failure evidence.
+      title: Retrying a terminal failed or interrupted run re-queues its surviving
+        bound deliveries into a new run
+      statement: retry_run applies only to run-kind messages in failed or interrupted
+        status and only for human owners or admins; it re-queues the deliveries
+        bound to that run through the ordinary redeliver path, skipping
+        deliveries whose trigger message was deleted and refusing when none
+        survive, so the agent receives the same instructions as a fresh turn
+        producing a new run message while the original failed run remains in
+        history unchanged.
+      reason: "P9 piece three (#422): operators need one-click recovery from failed
+        runs without re-typing instructions or losing the failure evidence."
       depends_on: []
 files:
   - packages/protocol/src/ws.ts
@@ -88,17 +84,19 @@ anchors:
   retried-runs-are-fresh-deliveries:
     retry-run-contract:
       action: change
-      reason: The act schema, daemon authorization and delivery collection,
-        and server dispatch define the retry contract.
+      reason: The act schema, daemon authorization and delivery collection, and server
+        dispatch define the retry contract.
   roles-gate-human-acts-not-agents:
     role-matrix-source:
       action: change
-      reason: CAPABILITY_MINIMUM_ROLE is a total record over HumanCapability,
-        so the new act forces a retry_run row (minimum role admin) inside
-        this anchor. The gate rule itself is unchanged.
+      reason: CAPABILITY_MINIMUM_ROLE is a total record over HumanCapability, so the
+        new act forces a retry_run row (minimum role admin) inside this anchor.
+        The gate rule itself is unchanged.
   unix-socket-same-protocol:
     unix-websocket-listener:
       action: change
-      reason: The entire act dispatch lives inside this anchor, so the
-        retry_run branch necessarily touches it. Both transports keep the
-        identical protocol.
+      reason: The entire act dispatch lives inside this anchor, so the retry_run
+        branch necessarily touches it. Both transports keep the identical
+        protocol.
+applied:
+  applied_at: 2026-07-17T16:46:14.946Z
