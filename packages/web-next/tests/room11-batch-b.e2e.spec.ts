@@ -25,6 +25,36 @@ async function postToFable(page: Page, body: string): Promise<void> {
   await input.press('Enter');
 }
 
+test.describe('jump control', () => {
+  test('arrow-only when merely scrolled up; counts only arrivals while unpinned', async ({ page }) => {
+    await openRoom(page);
+    const timeline = page.getByTestId('timeline');
+    await timeline.evaluate((node) => { node.scrollTop = 0; });
+    const jump = page.locator('.nx-jump');
+    await expect(jump).toBeVisible();
+    await expect(jump).toHaveClass(/is-arrow/);
+    await expect(jump).toHaveAttribute('aria-label', 'Back to latest');
+    await expect(jump).toHaveText(''); // icon only — nothing arrived yet
+
+    // Messages arriving while unpinned turn it into a counter.
+    await enqueue([{ kind: 'complete', final_text: 'noted — standing by' }]);
+    await postToFable(page, '@fable acknowledge this while I read history');
+    await expect(jump).toHaveText(/\d+ new message/);
+    await expect(jump).not.toHaveClass(/is-arrow/);
+
+    // Jumping re-glues and resets the count; the next unpin is an arrow again.
+    await jump.click();
+    await expect(jump).toBeHidden();
+    await timeline.evaluate((node) => { node.scrollTop = 0; });
+    await expect(jump).toHaveClass(/is-arrow/);
+    await expect(jump).toHaveAttribute('aria-label', 'Back to latest');
+
+    // Scrolling back down re-glues without the button too.
+    await timeline.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+    await expect(jump).toBeHidden();
+  });
+});
+
 test.describe('sticky typing indicator', () => {
   test('one indicator survives scroll and leaves rooms where nobody works', async ({ page }) => {
     await openRoom(page);

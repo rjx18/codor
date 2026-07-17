@@ -67,6 +67,8 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const lastScrollTopRef = useRef(0);
   const upwardScrollRef = useRef(0);
   const [showJump, setShowJump] = useState(false);
+  const [newCount, setNewCount] = useState(0);
+  const maxSeenIdRef = useRef<number>();
   const [historyBusy, setHistoryBusy] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
 
@@ -96,6 +98,21 @@ export function Transcript(props: { room: string; token: () => string; connectio
     const latestRunning = ordered.filter((m) => m.kind === 'run' && m.run?.status === 'running').at(-1);
     return workingAgents.find((m) => m.id === latestRunning?.author) ?? workingAgents[0];
   }, [workingAgents, ordered]);
+
+  // Arrivals while unpinned drive the jump counter. Only ids above the
+  // highwater mark are new — history pages prepend OLD ids and never count.
+  useEffect(() => {
+    const maxId = visible.reduce((max, m) => Math.max(max, m.id), 0);
+    if (pinnedRef.current || maxSeenIdRef.current === undefined) {
+      maxSeenIdRef.current = maxId;
+      return;
+    }
+    const prior = maxSeenIdRef.current;
+    if (maxId > prior) {
+      setNewCount((count) => count + visible.filter((m) => m.id > prior).length);
+      maxSeenIdRef.current = maxId;
+    }
+  }, [visible]);
 
   // Follow the tail unless the reader scrolled up; then offer the jump chip instead.
   const lastId = visible.at(-1)?.id;
@@ -144,6 +161,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
     else if (upward < 0) upwardScrollRef.current = 0;
     if (distance < REGLUE_DISTANCE_PX) {
       pinnedRef.current = true;
+      setNewCount(0); // re-glued: everything below is seen again
     } else if (pinnedRef.current && upwardScrollRef.current >= RELEASE_PIN_DISTANCE_PX) {
       pinnedRef.current = false;
     }
@@ -206,16 +224,21 @@ export function Transcript(props: { room: string; token: () => string; connectio
         </div>
       </div>
       {showJump && (
+        // Merely scrolled up: a plain arrow back to the latest. Only arrivals
+        // while unpinned turn it into a counter.
         <button
-          className="nx-jump"
+          className={`nx-jump ${newCount === 0 ? 'is-arrow' : ''}`}
+          aria-label={newCount === 0 ? 'Back to latest' : undefined}
           onClick={() => {
             const node = scrollerRef.current;
             if (node) node.scrollTop = node.scrollHeight;
             pinnedRef.current = true;
+            setNewCount(0);
             setShowJump(false);
           }}
         >
-          <ArrowDown size={14} aria-hidden="true" /> new messages
+          <ArrowDown size={14} aria-hidden="true" />
+          {newCount > 0 && `${newCount} new message${newCount === 1 ? '' : 's'}`}
         </button>
       )}
     </div>

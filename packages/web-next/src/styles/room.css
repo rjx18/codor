@@ -537,6 +537,7 @@
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 6px 12px;
   border: 1px solid var(--c-line);
@@ -546,6 +547,12 @@
   font: var(--t-caption-strong);
   color: var(--c-ink);
   animation: nx-enter var(--m-fast) var(--m-ease);
+}
+/* No unseen arrivals: just an arrow back to the latest. */
+.nx-jump.is-arrow {
+  width: 36px;
+  height: 36px;
+  padding: 0;
 }
 
 /* ── Loading skeleton ────────────────────────────────────────────────── */
@@ -1448,16 +1455,17 @@
   }
   .nx-batch-line:hover { background: none; color: var(--c-secondary); }
 
-  /* Jump chip becomes the FAB. */
+  /* Jump control docks in the corner; the arrow-only form is a 44px FAB and
+     the counter keeps its text as a pill. */
   .nx-jump {
     left: auto;
     right: var(--sp-4);
     bottom: var(--sp-4);
+    transform: none;
+  }
+  .nx-jump.is-arrow {
     width: 44px;
     height: 44px;
-    justify-content: center;
-    padding: 0;
-    font-size: 0;
   }
   .nx-jump svg { width: 18px; height: 18px; }
 
