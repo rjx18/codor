@@ -82,7 +82,12 @@ function scanLines(lines: string[]): TailScan {
       continue;
     }
     const message = entry.message as { usage?: Record<string, unknown>; model?: unknown } | undefined;
-    if (typeof message?.model === 'string') scan.model = message.model;
+    // Synthetic entries (failure notices, no-response markers) carry
+    // model "<synthetic>" — marker values are not models and must not
+    // shadow the session's real model.
+    if (typeof message?.model === 'string' && !message.model.startsWith('<')) {
+      scan.model = message.model;
+    }
     if (entry.type === 'assistant' && message?.usage !== undefined) {
       const usage = message.usage;
       const total = (typeof usage.input_tokens === 'number' ? usage.input_tokens : 0) +

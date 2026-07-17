@@ -41,6 +41,17 @@ describe('peekClaudeContextUsage', () => {
     });
   });
 
+  it('ignores synthetic model markers so the real model still resolves the window', () => {
+    // The compacted fixture ends with a "<synthetic>" assistant entry, exactly
+    // like fable's real post-incident transcript. The window must still come
+    // from claude-fable-5, not fail to resolve.
+    install('peek-session-compacted.jsonl', 'ref-synthetic');
+    expect(peekClaudeContextUsage('ref-synthetic', claudeContextWindow)).toMatchObject({
+      contextWindowMaxTokens: 1_000_000,
+      estimated: true,
+    });
+  });
+
   it('switches to the compact-summary estimate when compaction follows the last usage', () => {
     install('peek-session-compacted.jsonl', 'ref-compacted');
     const peeked = peekClaudeContextUsage('ref-compacted', claudeContextWindow);

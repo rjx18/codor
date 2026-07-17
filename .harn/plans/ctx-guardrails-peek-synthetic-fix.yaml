@@ -1,0 +1,30 @@
+id: ctx-guardrails-peek-synthetic-fix
+title: Peek must ignore synthetic model markers in session transcripts
+notes: "Live bug found on fable's real session: the CLI records synthetic
+  assistant entries (failure notices, no-response markers) with model
+  \"<synthetic>\". The claude peek's model tracker takes the last model seen, so
+  a transcript ending in synthetic entries resolves no context window and the
+  peek returns undefined - fable's gauge stayed empty after deploy. Fix: the
+  scan ignores model values that are not real model ids (angle-bracket markers),
+  so the last REAL model wins. Regression: the compacted fixture gains a
+  trailing synthetic entry mirroring fable's file."
+assumptions:
+  reviewed:
+    - id: context-peek-reads-session-artifacts
+      outcome: unchanged
+      reason: Artifact-only derivation stands; the fix filters marker values that are
+        not models at all.
+files:
+  - packages/adapters/claude-code/src/peek.ts
+  - packages/adapters/claude-code/src/peek.spec.ts
+  - packages/adapters/claude-code/test-fixtures/peek-session-compacted.jsonl
+anchors:
+  context-peek-reads-session-artifacts:
+    claude-context-peek:
+      action: change
+      reason: Model tracker skips synthetic markers.
+    claude-context-peek-regression:
+      action: change
+      reason: Fixture and assertions cover the synthetic-tail shape.
+applied:
+  applied_at: 2026-07-17T13:04:55.463Z
