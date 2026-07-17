@@ -250,6 +250,44 @@
   gap: var(--sp-4);
 }
 
+/* Pinned strip: durable owner/admin markers docked above the timeline; each
+   chip jumps to its message by permalink. */
+.nx-pinned-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--c-line);
+  background: var(--c-raised);
+}
+.nx-pinned-mark { flex: none; color: var(--c-accent-text); }
+.nx-pinned-list {
+  display: flex;
+  gap: var(--sp-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+}
+.nx-pinned-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 260px;
+  padding: 2px 10px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-full);
+  background: var(--c-surface);
+  text-decoration: none;
+  color: var(--c-secondary);
+  white-space: nowrap;
+}
+.nx-pinned-item:hover { background: var(--c-muted); color: var(--c-ink); }
+.nx-pinned-who { flex: none; font: var(--t-caption-strong); }
+.nx-pinned-snippet { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--t-caption); }
+.nx-pin-glyph { flex: none; color: var(--c-accent-text); }
+
 .nx-empty {
   margin: var(--sp-6) 0;
   text-align: center;

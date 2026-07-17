@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS messages (
   ask TEXT,                    -- AskCard JSON
   origin TEXT,                 -- BridgeOrigin JSON
   ack INTEGER NOT NULL DEFAULT 0,
+  pinned INTEGER NOT NULL DEFAULT 0,
   ts TEXT NOT NULL,
   seq INTEGER NOT NULL,
   PRIMARY KEY (room, id)
@@ -344,6 +345,13 @@ function migrateMessageAck(db: Database.Database): void {
   }
 }
 
+function migrateMessagePinned(db: Database.Database): void {
+  const columns = db.pragma('table_info(messages)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'pinned')) {
+    db.exec('ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
+  }
+}
+
 // harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-migration
 function migrateApprovalDeliveryResolution(db: Database.Database): void {
   const columns = db.pragma('table_info(deliveries)') as { name: string }[];
@@ -472,6 +480,7 @@ interface MessageRow {
   ask: string | null;
   origin: string | null;
   ack: number;
+  pinned: number;
   ts: string;
   seq: number;
 }
@@ -608,6 +617,7 @@ function messageFromRow(row: MessageRow): Message {
     ask: row.ask ? JSON.parse(row.ask) : undefined,
     origin: row.origin ? JSON.parse(row.origin) : undefined,
     ack: toBool(row.ack) ? true : undefined,
+    pinned: toBool(row.pinned) ? true : undefined,
     ts: row.ts,
     seq: row.seq,
   });
@@ -812,6 +822,7 @@ export class Store {
     migrateMemberLimits(this.db);
     migrateMemberCredential(this.db);
     migrateMessageAck(this.db);
+    migrateMessagePinned(this.db);
     migrateApprovalDeliveryResolution(this.db);
     migrateDeliveryHopCount(this.db);
     migrateMeterUncostedTokens(this.db);
@@ -1274,8 +1285,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO messages (room, id, author, kind, body, mentions, refs, ledger_refs,
-             reply_to, run, ask, origin, ack, ts, seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             reply_to, run, ask, origin, ack, pinned, ts, seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           room,
@@ -1291,6 +1302,7 @@ export class Store {
           jsonOrNull(validated.ask),
           jsonOrNull(validated.origin),
           fromBool(validated.ack === true),
+          fromBool(validated.pinned === true),
           validated.ts,
           validated.seq,
         );
@@ -1456,6 +1468,24 @@ export class Store {
           room,
           id,
         );
+      return merged;
+    })();
+  }
+
+  /**
+   * Flip a message's pinned flag through the change log, so live frames and
+   * reconnect sync both carry it. Same id, new seq; nothing else on the row
+   * moves.
+   */
+  setMessagePinned(room: string, id: number, pinned: boolean): Message {
+    return this.db.transaction(() => {
+      const existing = this.getMessage(room, id);
+      if (!existing) throw new Error(`no such message: #${id}`);
+      const seq = this.appendChange(room, 'message', String(id));
+      const merged = MessageSchema.parse({ ...existing, pinned: pinned || undefined, seq });
+      this.db
+        .prepare('UPDATE messages SET pinned = ?, seq = ? WHERE room = ? AND id = ?')
+        .run(fromBool(pinned), seq, room, id);
       return merged;
     })();
   }

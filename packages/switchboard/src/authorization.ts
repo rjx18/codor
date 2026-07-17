@@ -40,6 +40,9 @@ export const CAPABILITY_MINIMUM_ROLE: Record<HumanCapability, Role> = {
   attach_complete: 'admin',
   configure_room: 'admin',
   spawn: 'admin',
+  // Pinning a message is an owner/admin marker (P9). Agents never gain it —
+  // AGENT_CAPABILITIES omits pin_message, so the roles gate refuses them.
+  pin_message: 'admin',
   // Changing what an agent may do to the machine is an admin act, like creating one.
   // NOTE for codor-live-collab: when members gain credentials, `configure` must be
   // EXCLUDED from what an agent may do — an agent must never raise its own permission.

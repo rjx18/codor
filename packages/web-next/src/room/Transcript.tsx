@@ -1,5 +1,5 @@
 import type { Delivery, Member, Message } from '@codor/protocol';
-import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Pencil, Quote, Search, TerminalSquare, X } from 'lucide-react';
+import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Pencil, Pin, PinOff, Quote, Search, TerminalSquare, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -86,6 +86,13 @@ export function Transcript(props: { room: string; token: () => string; connectio
       (m) => (m.kind !== 'ask' && m.kind !== 'approval') || pending.has(m.id),
     );
   }, [ordered, messages, inbox, members, selfId]);
+
+  // Pinned messages surface in a strip above the timeline, oldest first.
+  const pinned = useMemo(() => ordered.filter((m) => m.pinned === true), [ordered]);
+  // Only human owners/admins get the pin affordance — the server refuses anyone
+  // else, so showing the control to them would only earn an error.
+  const selfRole = selfId !== undefined ? members[selfId]?.role : undefined;
+  const canPin = selfRole === 'owner' || selfRole === 'admin';
 
   // Working agents drive the typing indicator. Derived with useMemo — a selector
   // returning a fresh array every snapshot would loop useSyncExternalStore forever.
@@ -186,6 +193,26 @@ export function Transcript(props: { room: string; token: () => string; connectio
 
   return (
     <div className="nx-transcript-wrap">
+      {pinned.length > 0 && (
+        <div className="nx-pinned-strip" data-testid="pinned-strip">
+          <Pin size={13} aria-hidden="true" className="nx-pinned-mark" />
+          <ul className="nx-pinned-list">
+            {pinned.map((message) => (
+              <li key={message.id}>
+                <a
+                  className="nx-pinned-item"
+                  href={`#${message.id}`}
+                  data-testid={`pinned-${message.id}`}
+                  title={message.body}
+                >
+                  <span className="nx-pinned-who">@{members[message.author]?.handle ?? '…'}</span>
+                  <span className="nx-pinned-snippet">{pinnedSnippet(message)}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div ref={scrollerRef} className="nx-transcript" data-testid="timeline" onScroll={onScroll} tabIndex={0}>
         <div ref={columnRef} className="nx-column">
           {!connected && ordered.length === 0 && <TranscriptSkeleton />}
@@ -212,6 +239,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
                 connection={props.connection}
                 deliveries={inbox}
                 members={members}
+                canPin={canPin}
               />
             );
           })}
@@ -247,6 +275,12 @@ export function Transcript(props: { room: string; token: () => string; connectio
   );
 }
 
+/** One-line preview for the pinned strip: the first non-empty body line. */
+function pinnedSnippet(message: Message): string {
+  const line = message.body.split('\n').find((l) => l.trim() !== '') ?? '';
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line || '(no text)';
+}
+
 // ── One turn: header (unless grouped) + body content ─────────────────────
 
 function TurnBlock(props: {
@@ -254,6 +288,7 @@ function TurnBlock(props: {
   author: Member | undefined;
   mine: boolean;
   grouped: boolean;
+  canPin: boolean;
   room: string;
   token: () => string;
   connection: Connection;
@@ -291,7 +326,7 @@ function TurnBlock(props: {
     <article
       id={String(message.id)}
       data-testid={message.kind === 'run' ? `run-${message.id}` : `msg-${message.id}`}
-      className={`nx-turn ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''}`}
+      className={`nx-turn ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''} ${message.pinned === true ? 'is-pinned' : ''}`}
     >
       {!props.grouped && !isMobile && (
         <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />
@@ -310,6 +345,9 @@ function TurnBlock(props: {
               </span>
             )}
             <time className="nx-turn-time" dateTime={message.ts}>{clockTime(message.ts)}</time>
+            {message.pinned === true && (
+              <Pin size={12} className="nx-pin-glyph" aria-label="Pinned" data-testid={`msg-${message.id}-pinned`} />
+            )}
             {author?.kind === 'human' && (
               <SeenTicks message={message} deliveries={props.deliveries} members={props.members} />
             )}
@@ -321,6 +359,23 @@ function TurnBlock(props: {
               </button>
               {message.kind !== 'run' && (
                 <CopyButton text={message.body} label="Copy message" testId={`msg-${message.id}-copy`} />
+              )}
+              {props.canPin && (
+                <button
+                  className="nx-iconbtn is-quiet"
+                  aria-label={message.pinned === true ? 'Unpin message' : 'Pin message'}
+                  aria-pressed={message.pinned === true}
+                  data-testid={`msg-${message.id}-pin`}
+                  onClick={() => props.connection.act({
+                    act: 'pin_message',
+                    message_id: message.id,
+                    pinned: message.pinned !== true,
+                  })}
+                >
+                  {message.pinned === true
+                    ? <PinOff size={14} aria-hidden="true" />
+                    : <Pin size={14} aria-hidden="true" />}
+                </button>
               )}
             </span>
           </div>

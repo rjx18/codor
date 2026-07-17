@@ -1,83 +1,80 @@
 id: message-pinning
-title: Pin messages - a durable owner/admin marker that syncs like any message
-  change.
+title: Pin messages - a durable owner/admin marker that syncs like any message change.
 notes: >-
-  P9 piece one (approved by Richard in #351; design in tmp/web-next/PLAN.md
-  P9). Operators need to mark the messages that matter in long agent
-  channels; today nothing in the protocol can hold that.
+  P9 piece one (approved by Richard in #351; design in tmp/web-next/PLAN.md P9).
+  Operators need to mark the messages that matter in long agent channels; today
+  nothing in the protocol can hold that.
 
   Change. Protocol: Message gains pinned?: boolean (absent means not pinned -
   additive, old rows untouched) and the Act union gains {act: pin_message,
-  message_id, pinned}. Store: messages gain a pinned INTEGER NOT NULL
-  DEFAULT 0 column (idempotent ALTER), a setMessagePinned(room, id, pinned)
-  mutation writing through the change log so live frames and reconnect sync
-  both carry the flip, and messageFromRow reads it back. Daemon:
-  pinMessage(room, messageId, pinned, byMemberId) - humans with role admin
-  or owner only (the roles-gate contract: agents and observers cannot pin),
-  idempotent when the flag already matches, emits the message frame. Server:
-  the ws act dispatch routes pin_message with the actor resolved from the
-  principal, same as the other room acts. Authorization: pin_message joins
-  HumanCapability automatically (the type derives from the Act union), so
+  message_id, pinned}. Store: messages gain a pinned INTEGER NOT NULL DEFAULT 0
+  column (idempotent ALTER), a setMessagePinned(room, id, pinned) mutation
+  writing through the change log so live frames and reconnect sync both carry
+  the flip, and messageFromRow reads it back. Daemon: pinMessage(room,
+  messageId, pinned, byMemberId) - humans with role admin or owner only (the
+  roles-gate contract: agents and observers cannot pin), idempotent when the
+  flag already matches, emits the message frame. Server: the ws act dispatch
+  routes pin_message with the actor resolved from the principal, same as the
+  other room acts. Authorization: pin_message joins HumanCapability
+  automatically (the type derives from the Act union), so
   CAPABILITY_MINIMUM_ROLE - a total record - gains a pin_message: admin row
   (owner+admin allowed via ROLE_RANK; agents stay refused because
-  AGENT_CAPABILITIES does not gain the act). Mirroring ack, the pinned
-  column also lands in the base messages CREATE TABLE and rides the
-  postMessage INSERT (new rows default unpinned), and the pin_message
-  branch joins the act dispatch inside the shared ws listener - three
-  anchored regions crossed mechanically without changing their contracts.
-  Nothing about pinning re-routes deliveries or touches run journals.
+  AGENT_CAPABILITIES does not gain the act). Mirroring ack, the pinned column
+  also lands in the base messages CREATE TABLE and rides the postMessage INSERT
+  (new rows default unpinned), and the pin_message branch joins the act dispatch
+  inside the shared ws listener - three anchored regions crossed mechanically
+  without changing their contracts. Nothing about pinning re-routes deliveries
+  or touches run journals.
 
-  Web-next (harnignored, same batch): hover pin/unpin action on message
-  meta; a pinned strip above the transcript listing pinned messages
-  (click scrolls to #id); pinned rows show a small pin glyph.
+  Web-next (harnignored, same batch): hover pin/unpin action on message meta; a
+  pinned strip above the transcript listing pinned messages (click scrolls to
+  #id); pinned rows show a small pin glyph.
 
-  Tests: store round-trip incl. migration on an existing db copy pattern;
-  daemon spec - admin pins and unpins with frames observed, member/observer
-  and agent principals refused, idempotent re-pin emits nothing; server act
-  e2e through the ws path; web-next e2e for the strip and the permalink
-  jump. Gate: protocol + switchboard suites green; web-next playwright
-  green.
+  Tests: store round-trip incl. migration on an existing db copy pattern; daemon
+  spec - admin pins and unpins with frames observed, member/observer and agent
+  principals refused, idempotent re-pin emits nothing; server act e2e through
+  the ws path; web-next e2e for the strip and the permalink jump. Gate: protocol
+  + switchboard suites green; web-next playwright green.
 assumptions:
   reviewed:
     - id: roles-gate-human-acts-not-agents
       outcome: unchanged
-      reason: pin_message joins the acts that roles gate; agents remain unable
-        to pin regardless of policy. The capability matrix gains a
-        pin_message row at minimum role admin - a new entry under the same
-        rule, not a change to the rule.
+      reason: pin_message joins the acts that roles gate; agents remain unable to pin
+        regardless of policy. The capability matrix gains a pin_message row at
+        minimum role admin - a new entry under the same rule, not a change to
+        the rule.
     - id: changelog-covers-every-visible-entity
       outcome: unchanged
-      reason: The pin flip is a message change appended to the room change log
-        like every other visible mutation.
+      reason: The pin flip is a message change appended to the room change log like
+        every other visible mutation.
     - id: permalink-ids-stable
       outcome: unchanged
       reason: Pinning mutates a flag on an existing message; ids and paging are
         untouched.
     - id: unix-socket-same-protocol
       outcome: unchanged
-      reason: pin_message is one more branch in the act dispatch both
-        transports share; local and remote stay the same protocol.
+      reason: pin_message is one more branch in the act dispatch both transports
+        share; local and remote stay the same protocol.
     - id: collaboration-groups-are-durable-state
       outcome: unchanged
-      reason: The messages table gains an additive defaulted column, mirroring
-        ack; group, round, and slot durability are untouched.
+      reason: The messages table gains an additive defaulted column, mirroring ack;
+        group, round, and slot durability are untouched.
     - id: message-id-txn-allocation
       outcome: unchanged
-      reason: The INSERT carries one more constant column; id allocation stays
-        inside the same transaction, dense and monotonic.
+      reason: The INSERT carries one more constant column; id allocation stays inside
+        the same transaction, dense and monotonic.
   create:
     - id: pins-are-durable-role-gated-markers
-      title: A pin is a durable message flag only owner or admin humans may
-        flip, synced like any message change
-      statement: Pinning sets a boolean on the message row through the room
-        change log, so live frames and reconnect sync agree on it forever;
-        only human members with role owner or admin may flip it, agents and
-        observers are refused, re-flipping to the same value changes nothing
-        and emits nothing, and pinning never re-routes deliveries, alters run
-        journals, or affects message ids.
-      reason: >-
-        P9 (#351): operators need durable markers in long agent channels; the
-        protocol had no way to hold one.
+      title: A pin is a durable message flag only owner or admin humans may flip,
+        synced like any message change
+      statement: Pinning sets a boolean on the message row through the room change
+        log, so live frames and reconnect sync agree on it forever; only human
+        members with role owner or admin may flip it, agents and observers are
+        refused, re-flipping to the same value changes nothing and emits
+        nothing, and pinning never re-routes deliveries, alters run journals, or
+        affects message ids.
+      reason: "P9 (#351): operators need durable markers in long agent channels; the
+        protocol had no way to hold one."
       depends_on: []
 files:
   - packages/protocol/src/message.ts
@@ -98,23 +95,25 @@ anchors:
   roles-gate-human-acts-not-agents:
     role-matrix-source:
       action: change
-      reason: CAPABILITY_MINIMUM_ROLE is a total record over HumanCapability,
-        so the new act forces a pin_message row (minimum role admin) inside
-        this anchor. The gate rule itself is unchanged.
+      reason: CAPABILITY_MINIMUM_ROLE is a total record over HumanCapability, so the
+        new act forces a pin_message row (minimum role admin) inside this
+        anchor. The gate rule itself is unchanged.
   unix-socket-same-protocol:
     unix-websocket-listener:
       action: change
-      reason: The entire act dispatch lives inside this anchor, so the
-        pin_message branch necessarily touches it. Both transports keep the
-        identical protocol.
+      reason: The entire act dispatch lives inside this anchor, so the pin_message
+        branch necessarily touches it. Both transports keep the identical
+        protocol.
   collaboration-groups-are-durable-state:
     collaboration-store-schema:
       action: change
-      reason: The messages CREATE TABLE gains pinned INTEGER NOT NULL
-        DEFAULT 0 next to ack; the migration ALTER outside the anchor covers
-        pre-existing databases.
+      reason: The messages CREATE TABLE gains pinned INTEGER NOT NULL DEFAULT 0 next
+        to ack; the migration ALTER outside the anchor covers pre-existing
+        databases.
   message-id-txn-allocation:
     message-id-allocation:
       action: change
-      reason: The postMessage INSERT names the new pinned column with a
-        constant 0, mirroring ack; allocation logic is untouched.
+      reason: The postMessage INSERT names the new pinned column with a constant 0,
+        mirroring ack; allocation logic is untouched.
+applied:
+  applied_at: 2026-07-17T14:04:18.318Z

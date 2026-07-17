@@ -7,8 +7,11 @@ import type { AgentLimit, HarnessAdapter, ServerFrame, Session, SpawnOpts } from
 import { createTurnTranslator, wireEventFromHook } from '@codor/adapter-claude-code';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import Database from 'better-sqlite3';
+
 import { Daemon } from './daemon.js';
 import { FakeAdapter } from './fake-adapter.js';
+import { Store } from './store.js';
 
 let dir: string;
 let fake: FakeAdapter;
@@ -4099,3 +4102,81 @@ describe('transient lastUsage telemetry', () => {
   });
 });
 // harn:end last-agent-usage-is-transient-and-seeded
+
+describe('message pinning (pins-are-durable-role-gated-markers)', () => {
+  const postChat = (author: string, body = 'decision worth keeping') =>
+    daemon.store.postMessage('eng', { author, kind: 'chat', body });
+
+  it('owner pins then unpins, each flip emitting one message frame', () => {
+    const owner = daemon.ownerOf('eng');
+    const msg = postChat(owner.id);
+    frames = [];
+
+    const pinned = daemon.pinMessage('eng', msg.id, true, owner.id);
+    expect(pinned.pinned).toBe(true);
+    expect(daemon.store.getMessage('eng', msg.id)?.pinned).toBe(true);
+
+    const unpinned = daemon.pinMessage('eng', msg.id, false, owner.id);
+    expect(unpinned.pinned).toBeUndefined();
+    expect(daemon.store.getMessage('eng', msg.id)?.pinned).toBeUndefined();
+
+    const pinFrames = frames.filter(({ frame }) =>
+      frame.type === 'message' && frame.message.id === msg.id);
+    expect(pinFrames).toHaveLength(2);
+    expect(pinFrames[0]!.frame.type === 'message' && pinFrames[0]!.frame.message.pinned).toBe(true);
+  });
+
+  it('an admin may pin; members, observers, and agents are refused', () => {
+    const owner = daemon.ownerOf('eng');
+    const admin = daemon.store.addMember('eng', {
+      kind: 'human', handle: 'boss', display_name: 'Boss', role: 'admin',
+    });
+    const member = daemon.store.addMember('eng', {
+      kind: 'human', handle: 'mate', display_name: 'Mate', role: 'member',
+    });
+    const observer = daemon.store.addMember('eng', {
+      kind: 'human', handle: 'watcher', display_name: 'Watcher', role: 'observer',
+    });
+    const agent = spawnAgent('alpha');
+    const msg = postChat(owner.id);
+
+    expect(daemon.pinMessage('eng', msg.id, true, admin.id).pinned).toBe(true);
+    expect(() => daemon.pinMessage('eng', msg.id, true, member.id)).toThrow('only owners and admins');
+    expect(() => daemon.pinMessage('eng', msg.id, true, observer.id)).toThrow('only owners and admins');
+    expect(() => daemon.pinMessage('eng', msg.id, false, agent.id)).toThrow('only owners and admins');
+  });
+
+  it('re-pinning to the same value changes nothing and emits nothing', () => {
+    const owner = daemon.ownerOf('eng');
+    const msg = postChat(owner.id);
+    daemon.pinMessage('eng', msg.id, true, owner.id);
+    const seqAfterFirst = daemon.store.getMessage('eng', msg.id)!.seq;
+    frames = [];
+
+    const again = daemon.pinMessage('eng', msg.id, true, owner.id);
+    expect(again.pinned).toBe(true);
+    expect(daemon.store.getMessage('eng', msg.id)!.seq).toBe(seqAfterFirst); // no new change-log seq
+    expect(frames.filter(({ frame }) => frame.type === 'message')).toHaveLength(0);
+  });
+
+  it('re-adds the pinned column on a pre-column database and round-trips the flag', () => {
+    const dbPath = join(dir, 'pin-migration.sqlite');
+    let store = new Store(dbPath);
+    const { owner } = store.createRoom({
+      id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' },
+    });
+    const msg = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'keep me' });
+    store.close();
+
+    // Simulate a database written before the pinned column existed.
+    const legacy = new Database(dbPath);
+    legacy.exec('ALTER TABLE messages DROP COLUMN pinned');
+    legacy.close();
+
+    store = new Store(dbPath); // reopening runs the idempotent migration
+    expect(store.getMessage('eng', msg.id)?.pinned).toBeUndefined();
+    expect(store.setMessagePinned('eng', msg.id, true).pinned).toBe(true);
+    expect(store.getMessage('eng', msg.id)?.pinned).toBe(true);
+    store.close();
+  });
+});
