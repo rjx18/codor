@@ -73,8 +73,16 @@ test.describe('usage limits', () => {
   test('member cards show the harness-reported windows; agents without reports show none', async ({ page }) => {
     await openRoom(page);
     const limits = page.getByTestId('member-fable-limits');
-    await expect(limits).toContainText('5h: allowed · resets');
-    await expect(limits).toContainText('weekly: 18% left');
+    // A window without a percentage keeps the text pill…
+    await expect(limits.locator('.nx-limit')).toContainText('5h: allowed · resets');
+    // …windows with used_percent render % LEFT gauges, tinted by what remains.
+    const warn = limits.locator('.nx-gauge.is-warn');
+    await expect(warn).toContainText('weekly');
+    await expect(warn).toContainText('18% left');
+    await expect(warn.locator('.nx-gauge-fill')).toHaveAttribute('style', /width: 18%/);
+    const ok = limits.locator('.nx-gauge.is-ok');
+    await expect(ok).toContainText('monthly');
+    await expect(ok).toContainText('80% left');
     await expect(page.getByTestId('member-scout-limits')).toHaveCount(0);
   });
 });

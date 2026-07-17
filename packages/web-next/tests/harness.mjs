@@ -115,8 +115,10 @@ fake.enqueue({
     {
       type: 'run.limits',
       limits: [
+        // Three shapes on purpose: no-percentage pill fallback, warn gauge, ok gauge.
         { window: 'five_hour', status: 'allowed', resets_at: new Date(Date.now() + 3 * 3_600_000).toISOString() },
         { window: 'weekly', status: 'allowed_warning', used_percent: 82 },
+        { window: 'monthly', status: 'allowed', used_percent: 20 },
       ],
     },
     {

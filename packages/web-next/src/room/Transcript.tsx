@@ -1,5 +1,6 @@
 import type { Delivery, Member, Message } from '@codor/protocol';
-import { ArrowDown, Check, CheckCheck, ChevronRight, Clock3, Copy, Quote, TerminalSquare } from 'lucide-react';
+import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Pencil, Quote, Search, TerminalSquare, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Connection } from '@legacy/ws.js';
@@ -67,6 +68,8 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const lastScrollTopRef = useRef(0);
   const upwardScrollRef = useRef(0);
   const [showJump, setShowJump] = useState(false);
+  const [newCount, setNewCount] = useState(0);
+  const maxSeenIdRef = useRef<number>();
   const [historyBusy, setHistoryBusy] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
 
@@ -83,12 +86,34 @@ export function Transcript(props: { room: string; token: () => string; connectio
     );
   }, [ordered, messages, inbox, members, selfId]);
 
-  // Working agents drive the typing indicator row. Derived with useMemo — a selector
+  // Working agents drive the typing indicator. Derived with useMemo — a selector
   // returning a fresh array every snapshot would loop useSyncExternalStore forever.
   const workingAgents = useMemo(
     () => Object.values(members).filter((m) => m.kind === 'agent' && (m.state === 'running' || m.state === 'queued')),
     [members],
   );
+  // ONE indicator for the whole room: the most recently started still-running
+  // run names the agent; queued-only work falls back to any working member.
+  const typingAgent = useMemo(() => {
+    if (workingAgents.length === 0) return undefined;
+    const latestRunning = ordered.filter((m) => m.kind === 'run' && m.run?.status === 'running').at(-1);
+    return workingAgents.find((m) => m.id === latestRunning?.author) ?? workingAgents[0];
+  }, [workingAgents, ordered]);
+
+  // Arrivals while unpinned drive the jump counter. Only ids above the
+  // highwater mark are new — history pages prepend OLD ids and never count.
+  useEffect(() => {
+    const maxId = visible.reduce((max, m) => Math.max(max, m.id), 0);
+    if (pinnedRef.current || maxSeenIdRef.current === undefined) {
+      maxSeenIdRef.current = maxId;
+      return;
+    }
+    const prior = maxSeenIdRef.current;
+    if (maxId > prior) {
+      setNewCount((count) => count + visible.filter((m) => m.id > prior).length);
+      maxSeenIdRef.current = maxId;
+    }
+  }, [visible]);
 
   // Follow the tail unless the reader scrolled up; then offer the jump chip instead.
   const lastId = visible.at(-1)?.id;
@@ -137,6 +162,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
     else if (upward < 0) upwardScrollRef.current = 0;
     if (distance < REGLUE_DISTANCE_PX) {
       pinnedRef.current = true;
+      setNewCount(0); // re-glued: everything below is seen again
     } else if (pinnedRef.current && upwardScrollRef.current >= RELEASE_PIN_DISTANCE_PX) {
       pinnedRef.current = false;
     }
@@ -188,25 +214,32 @@ export function Transcript(props: { room: string; token: () => string; connectio
               />
             );
           })}
-          {workingAgents.length > 0 && (
-            <div className="nx-working-row" data-testid="live-activity">
-              <Chip name={workingAgents[0]!.handle} accent={memberAccent(workingAgents[0]!)} size={24} />
-              <span className="nx-working-pill"><TypingDots label={`@${workingAgents[0]!.handle} is working`} /></span>
+          {typingAgent !== undefined && (
+            // Sticky floor of the scroller: visible at any scroll position,
+            // present only while someone is actually working.
+            <div className="nx-typing-bar" data-testid="live-activity">
+              <Chip name={typingAgent.handle} accent={memberAccent(typingAgent)} size={24} />
+              <TypingDots label={`@${typingAgent.handle} is working`} />
             </div>
           )}
         </div>
       </div>
       {showJump && (
+        // Merely scrolled up: a plain arrow back to the latest. Only arrivals
+        // while unpinned turn it into a counter.
         <button
-          className="nx-jump"
+          className={`nx-jump ${newCount === 0 ? 'is-arrow' : ''}`}
+          aria-label={newCount === 0 ? 'Back to latest' : undefined}
           onClick={() => {
             const node = scrollerRef.current;
             if (node) node.scrollTop = node.scrollHeight;
             pinnedRef.current = true;
+            setNewCount(0);
             setShowJump(false);
           }}
         >
-          <ArrowDown size={14} aria-hidden="true" /> new messages
+          <ArrowDown size={14} aria-hidden="true" />
+          {newCount > 0 && `${newCount} new message${newCount === 1 ? '' : 's'}`}
         </button>
       )}
     </div>
@@ -423,7 +456,6 @@ function RunContent(props: { message: Message; room: string; token: () => string
             )
           : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} />,
       )}
-      {running && rows.length === 0 && <TypingDots label="run starting" />}
       {running && <ElapsedSince ts={props.message.ts} />}
       {!running && !hasProse && finalText.length > 0 && (
         <RunTextBlock messageId={props.message.id} blockId="final" text={finalText} />
@@ -463,13 +495,11 @@ function ElapsedSince(props: { ts: string }) {
 }
 
 /** One aggregate line per tool batch — "Ran 4 tools · wrote 3 files +34 −76 ›" —
- *  expanding to the bordered cards. Counts update live while the batch runs. */
+ *  expanding to the one-line rows. Counts update live while the batch runs. */
 function ToolBatch(props: { rows: RunRow[] }) {
   const [expanded, setExpanded] = useState(false);
-  const isMobile = useIsMobile();
-  // On the phone every batch is a quiet disclosure line — no bare cards
-  // (2a re-composition); desktop shows a lone tool's card directly.
-  if (props.rows.length === 1 && !isMobile) return <ToolCard row={props.rows[0]!} />;
+  // A lone tool is its own line on every form factor — no "Ran 1 tool" wrapper.
+  if (props.rows.length === 1) return <ToolRow row={props.rows[0]!} />;
 
   const active = props.rows.some((row) => row.status === 'running');
   const diffs = props.rows.filter((row) => row.diff?.unified !== undefined);
@@ -500,16 +530,37 @@ function ToolBatch(props: { rows: RunRow[] }) {
       </button>
       {expanded && (
         <div className="nx-batch-cards">
-          {props.rows.map((row) => <ToolCard key={row.eventIndex} row={row} />)}
+          {props.rows.map((row) => <ToolRow key={row.eventIndex} row={row} />)}
         </div>
       )}
     </div>
   );
 }
 
-function ToolCard(props: { row: RunRow }) {
+const ROW_ICONS: Record<RunRow['icon'], LucideIcon> = {
+  terminal: TerminalSquare,
+  edit: Pencil,
+  search: Search,
+  web: Globe,
+  // No dedicated glyph in the batch-B set — task/other and commit fold into bot.
+  commit: Bot,
+  reasoning: Bot,
+  text: Bot,
+  tool: Bot,
+  generic: Bot,
+};
+
+/** The presenter's diff label is "+A −B file"; split the tinted counts back out. */
+const DIFF_LABEL = /^\+(\d+)\s−(\d+)\s(.*)$/;
+
+/** One line per tool: icon · what it did (± tinted) · a right-aligned ✓/✕ or
+ *  spinner. The whole row opens the inspector — no bordered card anywhere. */
+function ToolRow(props: { row: RunRow }) {
   const [inspecting, setInspecting] = useState(false);
   const compact = compactRunRow(props.row);
+  const Icon = ROW_ICONS[compact.icon];
+  const diff = DIFF_LABEL.exec(compact.label);
+  // Modal keeps its textual status; the row itself only wears the mark.
   const status = props.row.status === 'running'
     ? 'Running…'
     : props.row.status === 'error'
@@ -519,18 +570,28 @@ function ToolCard(props: { row: RunRow }) {
     <>
       <button
         type="button"
-        className={`nx-tool ${props.row.status === 'error' ? 'is-error' : ''}`}
+        className={`nx-tool is-${props.row.status}`}
         data-row-kind="tool"
         aria-label={`Inspect ${props.row.title}`}
         onClick={() => setInspecting(true)}
       >
-        <span className="nx-tool-head">
-          <TerminalSquare size={15} aria-hidden="true" />
-          <span className="nx-tool-name">{props.row.title}</span>
-          <span className="nx-tool-spacer" />
-          <span className={`nx-tool-status is-${props.row.status}`}>{status}</span>
+        <Icon className="nx-tool-icon" size={14} aria-hidden="true" />
+        <span className={`nx-tool-label ${compact.mono ? 'is-mono' : ''}`}>
+          {diff !== null ? (
+            <>
+              <span className="nx-stat-add">+{diff[1]}</span>{' '}
+              <span className="nx-stat-del">−{diff[2]}</span>{' '}
+              {diff[3]}
+            </>
+          ) : compact.label}
         </span>
-        <span className={`nx-tool-body ${compact.mono ? 'is-mono' : ''}`}>{compact.label}</span>
+        <span className={`nx-tool-mark is-${props.row.status}`}>
+          {props.row.status === 'running'
+            ? <LoaderCircle className="nx-spin" size={13} aria-label="running" />
+            : props.row.status === 'error'
+              ? <X size={13} aria-label="failed" />
+              : <Check size={13} aria-label="done" />}
+        </span>
       </button>
       {inspecting && (
         // The card re-renders as live events land, so an open inspector follows
