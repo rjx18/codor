@@ -282,6 +282,28 @@ describe('pin_message act (pins-are-durable-role-gated-markers)', () => {
   });
 });
 
+describe('pinned hydration endpoint (pin-strip-hydration-and-guards)', () => {
+  it('returns the whole pinned set in id order to a reader, and refuses anon', async () => {
+    const owner = daemon.ownerOf('eng').id;
+    const a = daemon.store.postMessage('eng', { author: owner, kind: 'chat', body: 'first pin' });
+    const b = daemon.store.postMessage('eng', { author: owner, kind: 'chat', body: 'second pin' });
+    daemon.store.postMessage('eng', { author: owner, kind: 'chat', body: 'never pinned' });
+    daemon.pinMessage('eng', b.id, true, owner); // pin later id first
+    daemon.pinMessage('eng', a.id, true, owner);
+
+    const res = await fetch(`${base}/api/rooms/eng/messages?pinned=1`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { messages: { id: number }[]; has_more: boolean };
+    expect(body.messages.map((message) => message.id)).toEqual([a.id, b.id]); // id order, pinned only
+    expect(body.has_more).toBe(false);
+
+    const anon = await fetch(`${base}/api/rooms/eng/messages?pinned=1`);
+    expect(anon.status).toBe(401);
+  });
+});
+
 describe('delete_message act (deleted-messages-are-purged-tombstones)', () => {
   it('an owner deletes over the ws and the tombstone syncs to subscribers', async () => {
     const posted = daemon.store.postMessage('eng', {

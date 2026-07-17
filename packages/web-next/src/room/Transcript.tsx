@@ -25,6 +25,7 @@ import { Button, Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
 import { DiffViewer } from './ContextPanel.js';
 import { CompactionMarker } from './CompactionMarker.js';
+import { jumpToMessage } from './panels.js';
 import { renderMarkdown } from './markdown.js';
 import { presentRunTimeline, type CompactionRunTimelineItem } from './run-timeline.js';
 
@@ -87,8 +88,32 @@ export function Transcript(props: { room: string; token: () => string; connectio
     );
   }, [ordered, messages, inbox, members, selfId]);
 
-  // Pinned messages surface in a strip above the timeline, oldest first.
-  const pinned = useMemo(() => ordered.filter((m) => m.pinned === true), [ordered]);
+  // Pins older than the loaded page are invisible from loaded messages alone, so
+  // hydrate the whole pinned set at room load and union it with loaded truth.
+  const [hydratedPins, setHydratedPins] = useState<Message[]>([]);
+  useEffect(() => {
+    let live = true;
+    setHydratedPins([]);
+    void fetch(`/api/rooms/${encodeURIComponent(props.room)}/messages?pinned=1`, {
+      headers: { authorization: `Bearer ${props.token()}` },
+    })
+      .then((res) => (res.ok ? res.json() as Promise<{ messages: Message[] }> : { messages: [] }))
+      .then((body) => { if (live) setHydratedPins(body.messages); })
+      .catch(() => undefined);
+    return () => { live = false; };
+  }, [props.room, props.token]);
+
+  // Strip = hydrated pins overlaid with loaded truth (a live unpin/delete on a
+  // loaded message drops it; a live pin adds it), oldest first.
+  const pinned = useMemo(() => {
+    const byId = new Map<number, Message>();
+    for (const message of hydratedPins) byId.set(message.id, message);
+    for (const message of ordered) {
+      if (message.pinned === true) byId.set(message.id, message);
+      else byId.delete(message.id);
+    }
+    return [...byId.values()].sort((left, right) => left.id - right.id);
+  }, [hydratedPins, ordered]);
   // Only human owners/admins get the pin affordance — the server refuses anyone
   // else, so showing the control to them would only earn an error.
   const selfRole = selfId !== undefined ? members[selfId]?.role : undefined;
@@ -203,15 +228,18 @@ export function Transcript(props: { room: string; token: () => string; connectio
           <ul className="nx-pinned-list">
             {pinned.map((message) => (
               <li key={message.id}>
-                <a
+                <button
+                  type="button"
                   className="nx-pinned-item"
-                  href={`#${message.id}`}
                   data-testid={`pinned-${message.id}`}
                   title={message.body}
+                  // A pin beyond the loaded window has no #id target yet; page
+                  // history back to it rather than jumping to a dead fragment.
+                  onClick={() => void jumpToMessage(props.room, message.id, props.token)}
                 >
                   <span className="nx-pinned-who">@{members[message.author]?.handle ?? '…'}</span>
                   <span className="nx-pinned-snippet">{pinnedSnippet(message)}</span>
-                </a>
+                </button>
               </li>
             ))}
           </ul>
@@ -254,7 +282,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
             <div className="nx-typing-bar" data-testid="live-activity">
               <Chip name={typingAgent.handle} accent={memberAccent(typingAgent)} size={24} />
               <TypingDots label={`@${typingAgent.handle} is working`} />
-              {canStop && (
+              {canStop && typingAgent.state === 'running' && (
                 <button
                   type="button"
                   className="nx-typing-stop"

@@ -4179,6 +4179,34 @@ describe('message pinning (pins-are-durable-role-gated-markers)', () => {
     expect(store.getMessage('eng', msg.id)?.pinned).toBe(true);
     store.close();
   });
+
+  it('lists pinned messages in id order, excluding never-pinned and deleted rows', () => {
+    const dbPath = join(dir, 'pinned-list.sqlite');
+    const store = new Store(dbPath);
+    const { owner } = store.createRoom({
+      id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' },
+    });
+    const post = (body: string) => store.postMessage('eng', { author: owner.id, kind: 'chat', body });
+    const a = post('a'); post('b'); const c = post('c'); const d = post('d');
+    store.setMessagePinned('eng', d.id, true); // pinned first, but a later id
+    store.setMessagePinned('eng', a.id, true);
+    store.setMessagePinned('eng', c.id, true);
+    store.deleteMessage('eng', c.id); // deletion clears c's pin
+
+    // a and d only, id-ascending; b never pinned, c's pin cleared by deletion.
+    expect(store.listPinnedMessages('eng').map((m) => m.id)).toEqual([a.id, d.id]);
+    store.close();
+  });
+
+  it('refuses to pin a deleted message and leaves its state unchanged', () => {
+    const owner = daemon.ownerOf('eng');
+    const msg = daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'purge then pin' });
+    daemon.deleteMessage('eng', msg.id, owner.id);
+
+    expect(() => daemon.pinMessage('eng', msg.id, true, owner.id)).toThrow('cannot pin a deleted message');
+    expect(daemon.store.getMessage('eng', msg.id)!.pinned).toBeUndefined();
+    expect(daemon.store.getMessage('eng', msg.id)!.deleted).toBe(true);
+  });
 });
 
 describe('message deletion (deleted-messages-are-purged-tombstones)', () => {
