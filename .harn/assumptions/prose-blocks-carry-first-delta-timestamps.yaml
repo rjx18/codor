@@ -1,0 +1,14 @@
+id: prose-blocks-carry-first-delta-timestamps
+hash: a-cd9bbe7e034a
+title: Every journaled run item is timestamped and a presented prose block
+  reports its first delta's stamp
+state: active
+statement: The daemon journals every run.item with a wall-clock ts (not only
+  tool events), and the presenter gives each row an optional ts equal to the
+  first contributing event's stamp - a coalesced prose block reports when its
+  text STARTED, tool rows their own event time - while rows built from
+  pre-upgrade ts-less journal entries leave ts undefined so clients order them
+  exactly as before; this exists so transcript blocks can interleave with other
+  messages by true time without ever reordering history.
+depends_on: []
+created_by: run-prose-block-timestamps

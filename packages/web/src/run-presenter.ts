@@ -38,6 +38,13 @@ export interface RunRow {
   diff?: RunItemDiff;
   image?: { media_type: string; data_b64: string };
   event: WireEvent;
+  // harn:assume prose-blocks-carry-first-delta-timestamps ref=prose-block-first-ts
+  /** The FIRST contributing event's wall-clock stamp — a coalesced prose block
+   *  reports when its text started, tool rows their own event time. Undefined for
+   *  rows built from pre-upgrade ts-less journals, which callers must order at the
+   *  run's terminal position exactly as before (history never reorders). */
+  ts?: string;
+  // harn:end prose-blocks-carry-first-delta-timestamps
 }
 
 const ITEM_LABELS: Record<RunItemType, string> = {
@@ -98,8 +105,13 @@ const fallbackRow = (item: IndexedRunEvent): RunRow => {
     detail: event.type === 'run.item' ? boundedDetail(event.payload) : undefined,
     status: 'info',
     event,
+    ts: eventTs(event),
   };
 };
+
+/** A run item's journaled wall-clock stamp, when the daemon recorded one. */
+const eventTs = (event: WireEvent): string | undefined =>
+  event.type === 'run.item' ? event.ts : undefined;
 
 // harn:assume normalized-run-items-presented-live ref=normalized-run-presenter
 export function presentRunEvents(items: readonly IndexedRunEvent[]): RunRow[] {
@@ -126,6 +138,7 @@ export function presentRunEvents(items: readonly IndexedRunEvent[]): RunRow[] {
         detail: parsed.data.title,
         status: 'running',
         event,
+        ts: event.ts,
       });
       continue;
     }
@@ -183,6 +196,7 @@ export function presentRunEvents(items: readonly IndexedRunEvent[]): RunRow[] {
           text: parsed.data.text,
           status: 'info',
           event,
+          ts: event.ts, // first delta of the block — coalescing preserves this
         });
       }
       continue;
@@ -203,6 +217,7 @@ export function presentRunEvents(items: readonly IndexedRunEvent[]): RunRow[] {
         text: parsed.data.text,
         status: 'info',
         event,
+        ts: event.ts,
       });
       continue;
     }
@@ -228,6 +243,7 @@ export function presentRunEvents(items: readonly IndexedRunEvent[]): RunRow[] {
         status: 'ok',
         diff: parsed.data.diff,
         event,
+        ts: event.ts,
       });
       continue;
     }
@@ -246,6 +262,7 @@ export function presentRunEvents(items: readonly IndexedRunEvent[]): RunRow[] {
       detail: parsed.data.message ?? parsed.data.sha ?? 'Recorded',
       status: 'ok',
       event,
+      ts: event.ts,
     });
   }
 

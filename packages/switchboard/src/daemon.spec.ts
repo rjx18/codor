@@ -4479,3 +4479,28 @@ describe('run retry (retried-runs-are-fresh-deliveries)', () => {
     expect(() => daemon.retryRun('eng', failed.id, owner.id)).toThrow('nothing to retry');
   });
 });
+
+describe('run item timestamps (prose-blocks-carry-first-delta-timestamps)', () => {
+  it('journals every run item with a ts — text and reasoning, not only tools', async () => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({
+      kind: 'complete',
+      final_text: 'done',
+      items: [
+        { type: 'run.item', item_type: 'reasoning_summary', payload: { text: 'thinking it through' } },
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 'starting now' } },
+        { type: 'run.item', item_type: 'tool_call', payload: { call_id: 't1', tool: 'Bash', title: 'ls', input: {} } },
+        { type: 'run.item', item_type: 'tool_result', payload: { call_id: 't1', status: 'ok', output_text: 'ok' } },
+      ],
+    });
+    daemon.postHumanMessage('eng', '@alpha go');
+    await daemon.settle();
+
+    const run = runMessages().find((m) => m.author === alpha.id)!;
+    const items = daemon.blobs.read('eng', run.run!.events_ref).filter((event) => event.type === 'run.item');
+    expect(items.length).toBeGreaterThanOrEqual(4);
+    for (const event of items) expect(event).toHaveProperty('ts'); // every item, not only tools
+    expect(items.find((event) => event.item_type === 'text_delta')).toHaveProperty('ts');
+    expect(items.find((event) => event.item_type === 'reasoning_summary')).toHaveProperty('ts');
+  });
+});
