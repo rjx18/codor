@@ -1469,10 +1469,14 @@ export class Store {
 
   // harn:assume rail-summary-served-not-guessed ref=rooms-summary-store-queries
   /** Newest message in a room — the rail preview's single source. */
-  latestMessage(room: string): Message | undefined {
+  latestMessage(room: string, options: { ignoreAcks?: boolean } = {}): Message | undefined {
     const row = this.db
-      .prepare('SELECT * FROM messages WHERE room = ? ORDER BY id DESC LIMIT 1')
-      .get(room) as MessageRow | undefined;
+      .prepare(
+        `SELECT * FROM messages
+         WHERE room = ? AND (? = 0 OR ack = 0)
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(room, options.ignoreAcks ? 1 : 0) as MessageRow | undefined;
     return row ? messageFromRow(row) : undefined;
   }
 

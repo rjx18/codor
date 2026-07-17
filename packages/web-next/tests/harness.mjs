@@ -65,11 +65,30 @@ const engOwner = daemon.ownerOf('eng');
 const fable = daemon.spawnMember('eng', { harness: 'fake', handle: 'fable', cwd: dir });
 const scout = daemon.spawnMember('eng', { harness: 'fake', handle: 'scout', cwd: dir });
 const muse = daemon.spawnMember('eng', { harness: 'fake', handle: 'muse', cwd: dir });
+const hydrate = daemon.spawnMember('eng', { harness: 'fake', handle: 'hydrate', cwd: dir });
+const restore = daemon.spawnMember('eng', { harness: 'fake', handle: 'restore', cwd: dir });
 
-// Ops carries the failure state: a dead agent and an unhappy last word.
+// Ops carries the failure state: its latest run failed and its author is dead.
 const relay = daemon.spawnMember('ops', { harness: 'fake', handle: 'relay', cwd: dir });
+const relayRunTs = new Date().toISOString();
+daemon.store.postMessage('ops', {
+  author: relay.id,
+  kind: 'run',
+  body: 'deploy job exited 1 — rollback applied, needs a human look',
+  run: {
+    status: 'failed',
+    started_ts: relayRunTs,
+    ended_ts: relayRunTs,
+    tool_calls: 0,
+    events_ref: 'runs/relay-failed.jsonl',
+    final_text: 'deploy job exited 1 — rollback applied, needs a human look',
+  },
+});
 daemon.store.updateMember('ops', relay.id, { state: 'dead' });
-daemon.postAgentMessage('ops', relay.id, 'deploy job exited 1 — rollback applied, needs a human look');
+
+// Design also has a dormant dead agent, which must not trip attention by itself.
+const retiredDesigner = daemon.spawnMember('design', { harness: 'fake', handle: 'retired-designer', cwd: dir });
+daemon.store.updateMember('design', retiredDesigner.id, { state: 'dead' });
 
 daemon.postHumanMessage('design', 'new pricing page comps are in figma, comments welcome', {
   author: daemon.ownerOf('design').id,
@@ -102,6 +121,11 @@ fake.enqueue({
     },
     {
       type: 'run.item',
+      item_type: 'text_delta',
+      payload: { text: 'Checking the auth queue before making changes.' },
+    },
+    {
+      type: 'run.item',
       item_type: 'tool_call',
       payload: {
         call_id: 't1',
@@ -114,6 +138,11 @@ fake.enqueue({
       type: 'run.item',
       item_type: 'tool_result',
       payload: { call_id: 't1', status: 'ok', output_text: 'Test Files  6 passed (6)\nTests  42 passed (42)' },
+    },
+    {
+      type: 'run.item',
+      item_type: 'reasoning_summary',
+      payload: { text: '' },
     },
     {
       type: 'run.item',
@@ -155,6 +184,11 @@ const musePost = daemon.postAgentMessage(
   muse.id,
   'I can pick up the pricing copy once the auth work lands.',
 );
+const chronologyProbe = daemon.store.postMessage('eng', {
+  author: engOwner.id,
+  kind: 'chat',
+  body: 'chronology probe between the grouped messages',
+});
 
 // Backdate the seeded history so relative times and grouping boundaries are real.
 const minutesAgo = (m) => new Date(Date.now() - m * 60_000).toISOString();
@@ -162,6 +196,7 @@ const backdate = (id, ts) =>
   daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?').run(ts, 'eng', id);
 const fableRun = daemon.store.listRunMessages('eng', { author: fable.id, limit: 1 })[0];
 backdate(m1.id, minutesAgo(26));
+backdate(chronologyProbe.id, minutesAgo(25.75));
 backdate(m2.id, minutesAgo(25.5));
 backdate(m3.id, minutesAgo(8));
 if (fableRun) backdate(fableRun.id, minutesAgo(7.5));
@@ -241,17 +276,41 @@ fake.enqueue({
 });
 daemon.postHumanMessage('eng', '@scout profile the slow dashboard query');
 await new Promise((resolve) => setTimeout(resolve, 300));
+daemon.store.postMessage('eng', {
+  author: engOwner.id,
+  kind: 'chat',
+  body: 'chronology probe posted after the running turn started',
+});
 
 // ── Control endpoint: tests script upcoming fake turns just-in-time ──────
 createServer((req, res) => {
   let raw = '';
   req.on('data', (chunk) => (raw += chunk));
-  req.on('end', () => {
+  req.on('end', async () => {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
       if (url.pathname === '/enqueue') {
         const body = raw === '' ? {} : JSON.parse(raw);
         for (const turn of body.turns ?? []) fake.enqueue(turn);
+      }
+      if (url.pathname === '/complete-agent') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const handle = String(body.handle ?? '');
+        const member = daemon.store.getMemberByHandle('eng', handle);
+        if (!member || member.kind !== 'agent') throw new Error(`no such agent: ${handle}`);
+        const previousRunId = daemon.store.listRunMessages('eng', { author: member.id, limit: 1 })[0]?.id;
+        fake.enqueue({ kind: 'complete', final_text: String(body.final_text ?? 'done') });
+        daemon.postHumanMessage('eng', `@${handle} ${String(body.prompt ?? 'hydrate default')}`);
+        let finalized = false;
+        for (let attempt = 0; attempt < 200; attempt++) {
+          const latestRun = daemon.store.listRunMessages('eng', { author: member.id, limit: 1 })[0];
+          if (latestRun?.id !== previousRunId && latestRun?.run?.status !== 'running') {
+            finalized = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        if (!finalized) throw new Error(`agent did not finalize: ${handle}`);
       }
       if (url.pathname === '/seed-bulk') {
         // A long back-catalog for virtualization/paging proofs: N backdated

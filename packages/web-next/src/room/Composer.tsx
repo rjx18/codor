@@ -74,17 +74,19 @@ export function Composer(props: { room: string; connection: Connection }) {
     [room, members, latestFinalizedAgentId],
   );
 
-  // A fresh draft opens addressed to whoever should hear it (latest agent chain).
+  // Until the operator edits, the seeded draft follows hydration as the latest
+  // agent chain becomes known. The first manual change locks that draft.
   useEffect(() => {
-    if (seededRef.current || draft !== '' || defaultRecipient === undefined) return;
-    seededRef.current = true;
-    setDraft(`@${defaultRecipient.handle} `);
+    if (seededRef.current || defaultRecipient === undefined) return;
+    const seededDraft = `@${defaultRecipient.handle} `;
+    if (draft !== seededDraft) setDraft(seededDraft);
   }, [draft, defaultRecipient]);
 
   // Quote buttons in the transcript prepend their text into the draft.
   useEffect(() => {
     const onQuote = (event: Event): void => {
       const text = (event as CustomEvent<string>).detail;
+      seededRef.current = true;
       setDraft((prior) => {
         const lead = prior !== '' && !prior.endsWith('\n') ? `${prior}\n` : prior;
         return `${lead}${text}\n`;
@@ -115,6 +117,7 @@ export function Composer(props: { room: string; connection: Connection }) {
 
   const insertMention = (member: Member): void => {
     if (!mention) return;
+    seededRef.current = true;
     const node = areaRef.current;
     const caret = node?.selectionStart ?? draft.length;
     const next = `${draft.slice(0, mention.start)}@${member.handle} ${draft.slice(caret)}`;
@@ -179,6 +182,7 @@ export function Composer(props: { room: string; connection: Connection }) {
           aria-label="Message"
           rows={1}
           value={draft}
+          onBeforeInput={() => { seededRef.current = true; }}
           onChange={(event) => {
             // The operator touched the draft: late hydration must never
             // re-seed over what they typed or deliberately cleared.
@@ -226,6 +230,7 @@ export function Composer(props: { room: string; connection: Connection }) {
               onClick={() => {
                 const node = areaRef.current;
                 if (!node) return;
+                seededRef.current = true;
                 const caret = node.selectionStart ?? draft.length;
                 const lead = caret === 0 || /\s/.test(draft[caret - 1] ?? '') ? '' : ' ';
                 setDraft(`${draft.slice(0, caret)}${lead}@${draft.slice(caret)}`);
