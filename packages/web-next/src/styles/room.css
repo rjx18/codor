@@ -364,6 +364,14 @@
 }
 .nx-prose.is-dim { color: var(--c-faded); }
 
+/* Deletion tombstone: the body is gone; a quiet italic marker holds its place. */
+.nx-deleted {
+  margin: 0;
+  font: var(--t-body);
+  font-style: italic;
+  color: var(--c-faded);
+}
+
 /* Markdown structure inside prose: chat-tight rhythm, tokens only — headings
    clamp well under the page scale and links paint --c-link, never browser blue. */
 .nx-prose > :first-child { margin-top: 0; }

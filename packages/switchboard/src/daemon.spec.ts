@@ -4180,3 +4180,114 @@ describe('message pinning (pins-are-durable-role-gated-markers)', () => {
     store.close();
   });
 });
+
+describe('message deletion (deleted-messages-are-purged-tombstones)', () => {
+  const postChat = (author: string, body = 'a mistaken message') =>
+    daemon.store.postMessage('eng', { author, kind: 'chat', body });
+
+  it('owner purges a chat message to a tombstone, emitting one frame', () => {
+    const owner = daemon.ownerOf('eng');
+    const msg = postChat(owner.id, 'delete me');
+    frames = [];
+
+    const tombstone = daemon.deleteMessage('eng', msg.id, owner.id);
+    expect(tombstone.deleted).toBe(true);
+    expect(tombstone.body).toBe('');
+    // id, author, kind, and timestamp survive so ordering/attribution hold.
+    expect(tombstone.id).toBe(msg.id);
+    expect(tombstone.author).toBe(owner.id);
+    expect(tombstone.ts).toBe(msg.ts);
+
+    const stored = daemon.store.getMessage('eng', msg.id)!;
+    expect(stored.body).toBe('');
+    expect(stored.mentions).toEqual([]);
+    expect(stored.deleted).toBe(true);
+
+    const deleteFrames = frames.filter(({ frame }) =>
+      frame.type === 'message' && frame.message.id === msg.id);
+    expect(deleteFrames).toHaveLength(1);
+  });
+
+  it('an admin may delete; members, observers, and agents are refused', () => {
+    const owner = daemon.ownerOf('eng');
+    const admin = daemon.store.addMember('eng', {
+      kind: 'human', handle: 'boss', display_name: 'Boss', role: 'admin',
+    });
+    const member = daemon.store.addMember('eng', {
+      kind: 'human', handle: 'mate', display_name: 'Mate', role: 'member',
+    });
+    const observer = daemon.store.addMember('eng', {
+      kind: 'human', handle: 'watcher', display_name: 'Watcher', role: 'observer',
+    });
+    const agent = spawnAgent('alpha');
+
+    expect(daemon.deleteMessage('eng', postChat(owner.id).id, admin.id).deleted).toBe(true);
+    expect(() => daemon.deleteMessage('eng', postChat(owner.id).id, member.id)).toThrow('only owners and admins');
+    expect(() => daemon.deleteMessage('eng', postChat(owner.id).id, observer.id)).toThrow('only owners and admins');
+    expect(() => daemon.deleteMessage('eng', postChat(owner.id).id, agent.id)).toThrow('only owners and admins');
+  });
+
+  it('refuses run and system messages — only chat qualifies', () => {
+    const owner = daemon.ownerOf('eng');
+    const agent = spawnAgent('runner');
+    const runMsg = daemon.store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: 'ran a tool',
+      run: { status: 'completed', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: 'runs/x.jsonl' },
+    });
+    expect(() => daemon.deleteMessage('eng', runMsg.id, owner.id)).toThrow('only chat messages');
+    const sysMsg = daemon.store.postMessage('eng', { author: owner.id, kind: 'system', body: 'system note' });
+    expect(() => daemon.deleteMessage('eng', sysMsg.id, owner.id)).toThrow('only chat messages');
+  });
+
+  it('re-deleting is a silent no-op', () => {
+    const owner = daemon.ownerOf('eng');
+    const msg = postChat(owner.id);
+    daemon.deleteMessage('eng', msg.id, owner.id);
+    const seqAfterFirst = daemon.store.getMessage('eng', msg.id)!.seq;
+    frames = [];
+
+    const again = daemon.deleteMessage('eng', msg.id, owner.id);
+    expect(again.deleted).toBe(true);
+    expect(daemon.store.getMessage('eng', msg.id)!.seq).toBe(seqAfterFirst);
+    expect(frames.filter(({ frame }) => frame.type === 'message')).toHaveLength(0);
+  });
+
+  it('clears a pin and cancels still-pending deliveries, leaving consumed ones', () => {
+    const owner = daemon.ownerOf('eng');
+    const agent = spawnAgent('beta');
+    const msg = postChat(owner.id, 'pinned, queued, then deleted');
+    daemon.pinMessage('eng', msg.id, true, owner.id);
+    const queued = daemon.store.createDelivery('eng', { message_id: msg.id, recipient: agent.id, state: 'queued' });
+    const consumed = daemon.store.createDelivery('eng', { message_id: msg.id, recipient: agent.id, state: 'consumed' });
+
+    daemon.deleteMessage('eng', msg.id, owner.id);
+
+    expect(daemon.store.getMessage('eng', msg.id)!.pinned).toBeUndefined(); // a tombstone cannot stay pinned
+    expect(daemon.store.getDelivery('eng', queued.id)!.state).toBe('consumed'); // cancelled — never delivers
+    expect(daemon.store.getDelivery('eng', consumed.id)!.state).toBe('consumed'); // untouched history
+  });
+
+  it('re-adds the deleted column on a pre-column database and purges in place', () => {
+    const dbPath = join(dir, 'delete-migration.sqlite');
+    let store = new Store(dbPath);
+    const { owner } = store.createRoom({
+      id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' },
+    });
+    const msg = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'keep then purge' });
+    store.close();
+
+    const legacy = new Database(dbPath);
+    legacy.exec('ALTER TABLE messages DROP COLUMN deleted');
+    legacy.close();
+
+    store = new Store(dbPath);
+    expect(store.getMessage('eng', msg.id)?.deleted).toBeUndefined();
+    const tomb = store.deleteMessage('eng', msg.id);
+    expect(tomb.deleted).toBe(true);
+    expect(tomb.body).toBe('');
+    expect(store.getMessage('eng', msg.id)?.deleted).toBe(true);
+    store.close();
+  });
+});

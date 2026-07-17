@@ -282,6 +282,43 @@ describe('pin_message act (pins-are-durable-role-gated-markers)', () => {
   });
 });
 
+describe('delete_message act (deleted-messages-are-purged-tombstones)', () => {
+  it('an owner deletes over the ws and the tombstone syncs to subscribers', async () => {
+    const posted = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id, kind: 'chat', body: 'a sensitive line',
+    });
+    const client = await connect();
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'delete_message', message_id: posted.id },
+    }));
+    const framed = await client.next((frame) =>
+      frame.type === 'message' && frame.message.id === posted.id && frame.message.deleted === true);
+    expect(framed).toMatchObject({ type: 'message', message: { id: posted.id, deleted: true, body: '' } });
+    expect(daemon.store.getMessage('eng', posted.id)?.body).toBe('');
+    client.ws.close();
+  });
+
+  it('refuses a non-privileged principal with an error frame', async () => {
+    const posted = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id, kind: 'chat', body: 'not yours to delete',
+    });
+    const client = await connectAs(OBSERVER_TOKEN);
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'delete_message', message_id: posted.id },
+    }));
+    expect(await client.next((frame) => frame.type === 'error'))
+      .toMatchObject({ type: 'error', ref: 'act' });
+    expect(daemon.store.getMessage('eng', posted.id)?.deleted).toBeUndefined();
+    client.ws.close();
+  });
+});
+
 afterEach(async () => {
   await server.close();
   await daemon.close();

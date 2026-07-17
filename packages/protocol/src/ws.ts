@@ -134,6 +134,10 @@ export const ActSchema = z.discriminatedUnion('act', [
     message_id: MessageIdSchema,
     pinned: z.boolean(),
   }),
+  z.object({
+    act: z.literal('delete_message'),
+    message_id: MessageIdSchema,
+  }),
 ]);
 export type Act = z.infer<typeof ActSchema>;
 

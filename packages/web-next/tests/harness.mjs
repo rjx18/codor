@@ -56,10 +56,24 @@ for (const [id, name] of [
   ['design', 'Design'],
   ['ops', 'Ops'],
   ['research', 'Research'],
+  ['trash', 'Scratch'],
 ]) {
   daemon.createRoom({ id, name, owner });
   crypto.roomKeys.ensureRoom(id);
 }
+
+// Scratch: an agent-free room of pre-seeded, non-grouped owner messages for the
+// deletion tests — deleting here creates no runs and cannot collide with eng.
+const trashOwner = daemon.ownerOf('trash');
+['alpha', 'beta', 'gamma', 'delta', 'epsilon'].forEach((tag, index) => {
+  const seeded = daemon.store.postMessage('trash', {
+    author: trashOwner.id, kind: 'chat', body: `delete target ${tag}`,
+  });
+  // Backdate with >2min gaps so each is its own turn with a header + actions.
+  daemon.store.db
+    .prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
+    .run(new Date(Date.now() - (60 - index * 5) * 60_000).toISOString(), 'trash', seeded.id);
+});
 
 const engOwner = daemon.ownerOf('eng');
 const fable = daemon.spawnMember('eng', { harness: 'fake', handle: 'fable', cwd: dir });

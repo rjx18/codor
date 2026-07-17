@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS messages (
   origin TEXT,                 -- BridgeOrigin JSON
   ack INTEGER NOT NULL DEFAULT 0,
   pinned INTEGER NOT NULL DEFAULT 0,
+  deleted INTEGER NOT NULL DEFAULT 0,
   ts TEXT NOT NULL,
   seq INTEGER NOT NULL,
   PRIMARY KEY (room, id)
@@ -352,6 +353,13 @@ function migrateMessagePinned(db: Database.Database): void {
   }
 }
 
+function migrateMessageDeleted(db: Database.Database): void {
+  const columns = db.pragma('table_info(messages)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'deleted')) {
+    db.exec('ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0');
+  }
+}
+
 // harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-migration
 function migrateApprovalDeliveryResolution(db: Database.Database): void {
   const columns = db.pragma('table_info(deliveries)') as { name: string }[];
@@ -481,6 +489,7 @@ interface MessageRow {
   origin: string | null;
   ack: number;
   pinned: number;
+  deleted: number;
   ts: string;
   seq: number;
 }
@@ -618,6 +627,7 @@ function messageFromRow(row: MessageRow): Message {
     origin: row.origin ? JSON.parse(row.origin) : undefined,
     ack: toBool(row.ack) ? true : undefined,
     pinned: toBool(row.pinned) ? true : undefined,
+    deleted: toBool(row.deleted) ? true : undefined,
     ts: row.ts,
     seq: row.seq,
   });
@@ -823,6 +833,7 @@ export class Store {
     migrateMemberCredential(this.db);
     migrateMessageAck(this.db);
     migrateMessagePinned(this.db);
+    migrateMessageDeleted(this.db);
     migrateApprovalDeliveryResolution(this.db);
     migrateDeliveryHopCount(this.db);
     migrateMeterUncostedTokens(this.db);
@@ -1285,8 +1296,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO messages (room, id, author, kind, body, mentions, refs, ledger_refs,
-             reply_to, run, ask, origin, ack, pinned, ts, seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             reply_to, run, ask, origin, ack, pinned, deleted, ts, seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           room,
@@ -1303,6 +1314,7 @@ export class Store {
           jsonOrNull(validated.origin),
           fromBool(validated.ack === true),
           fromBool(validated.pinned === true),
+          fromBool(validated.deleted === true),
           validated.ts,
           validated.seq,
         );
@@ -1486,6 +1498,40 @@ export class Store {
       this.db
         .prepare('UPDATE messages SET pinned = ?, seq = ? WHERE room = ? AND id = ?')
         .run(fromBool(pinned), seq, room, id);
+      return merged;
+    })();
+  }
+
+  /**
+   * Purge a message in place through the change log: body emptied, payload
+   * columns nulled, pin cleared (a tombstone cannot stay pinned), the deleted
+   * flag set. Same id and new seq keep ordering, attribution, and permalinks
+   * coherent; the purge is irreversible.
+   */
+  deleteMessage(room: string, id: number): Message {
+    return this.db.transaction(() => {
+      const existing = this.getMessage(room, id);
+      if (!existing) throw new Error(`no such message: #${id}`);
+      const seq = this.appendChange(room, 'message', String(id));
+      const merged = MessageSchema.parse({
+        ...existing,
+        body: '',
+        mentions: [],
+        refs: [],
+        ledger_refs: [],
+        ask: undefined,
+        origin: undefined,
+        pinned: undefined,
+        deleted: true,
+        seq,
+      });
+      this.db
+        .prepare(
+          `UPDATE messages SET body = '', mentions = '[]', refs = '[]', ledger_refs = '[]',
+             ask = NULL, origin = NULL, pinned = 0, deleted = 1, seq = ?
+           WHERE room = ? AND id = ?`,
+        )
+        .run(seq, room, id);
       return merged;
     })();
   }
