@@ -277,7 +277,10 @@ function ChatPanel(props: {
   const room = useRoomStore((s) => s.room);
   const meter = useRoomStore((s) => s.meter);
   const connected = useRoomStore((s) => s.connected);
-  const memberCount = useRoomStore((s) => Object.values(s.members).filter((m) => m.removed_ts === undefined).length);
+  const memberCount = useRoomStore((s) =>
+    // Extensions stay out of the count, mirroring the Members tab roster.
+    Object.values(s.members).filter((m) => m.removed_ts === undefined && m.kind !== 'extension').length,
+  );
   const workingAgent = useRoomStore((s) =>
     Object.values(s.members).find((m) => m.kind === 'agent' && (m.state === 'running' || m.state === 'queued'))?.handle,
   );

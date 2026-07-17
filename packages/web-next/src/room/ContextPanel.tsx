@@ -46,7 +46,10 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
   const [spawning, setSpawning] = useState(false);
 
   const roster = useMemo(() => {
-    const active = Object.values(members).filter((m) => m.removed_ts === undefined);
+    // Extensions are transient run machinery — the roster lists durable members.
+    const active = Object.values(members).filter(
+      (m) => m.removed_ts === undefined && m.kind !== 'extension',
+    );
     const humans = active.filter((m) => m.kind === 'human');
     const agents = active.filter((m) => m.kind !== 'human');
     return [...humans, ...agents];
