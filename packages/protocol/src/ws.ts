@@ -129,6 +129,11 @@ export const ActSchema = z.discriminatedUnion('act', [
     member_id: MemberIdSchema,
     role: z.enum(['owner', 'admin', 'member', 'observer']),
   }),
+  z.object({
+    act: z.literal('pin_message'),
+    message_id: MessageIdSchema,
+    pinned: z.boolean(),
+  }),
 ]);
 export type Act = z.infer<typeof ActSchema>;
 

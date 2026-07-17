@@ -805,6 +805,29 @@ export class Daemon {
     return updated;
   }
 
+  // harn:assume pins-are-durable-role-gated-markers ref=pin-message-contract
+  /**
+   * Pin or unpin a message. Only human owners/admins may flip it — the server's
+   * capability gate enforces the role, and this refuses non-humans/underprivileged
+   * callers defensively so a direct daemon call cannot bypass the contract.
+   * Idempotent: re-flipping to the same value changes nothing and emits nothing.
+   * The flip rides the change log like any message edit; it never re-routes
+   * deliveries or touches run journals.
+   */
+  pinMessage(room: string, messageId: number, pinned: boolean, byMemberId: string): Message {
+    const actor = this.store.getMember(room, byMemberId);
+    if (actor?.kind !== 'human' || (actor.role !== 'owner' && actor.role !== 'admin')) {
+      throw new Error('forbidden: only owners and admins can pin messages');
+    }
+    const message = this.store.getMessage(room, messageId);
+    if (!message) throw new Error(`no such message: #${messageId}`);
+    if ((message.pinned === true) === pinned) return message; // idempotent — emit nothing
+    const updated = this.store.setMessagePinned(room, messageId, pinned);
+    this.emitMessage(room, updated);
+    return updated;
+  }
+  // harn:end pins-are-durable-role-gated-markers
+
   memberDetails(room: string): MemberDetails[] {
     const messages = this.store.listMessages(room, { limit: Number.MAX_SAFE_INTEGER });
     return this.store.listMembers(room).map((member) => {

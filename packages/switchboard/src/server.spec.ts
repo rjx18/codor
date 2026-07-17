@@ -245,6 +245,43 @@ describe('agent queued inbox hydration', () => {
 });
 // harn:end agent-sync-hydrates-only-own-queued-inbox
 
+describe('pin_message act (pins-are-durable-role-gated-markers)', () => {
+  it('an owner pins over the ws and the flip syncs to subscribers', async () => {
+    const posted = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id, kind: 'chat', body: 'decision worth keeping',
+    });
+    const client = await connect();
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'pin_message', message_id: posted.id, pinned: true },
+    }));
+    const framed = await client.next((frame) =>
+      frame.type === 'message' && frame.message.id === posted.id && frame.message.pinned === true);
+    expect(framed).toMatchObject({ type: 'message', message: { id: posted.id, pinned: true } });
+    expect(daemon.store.getMessage('eng', posted.id)?.pinned).toBe(true);
+    client.ws.close();
+  });
+
+  it('refuses a non-privileged principal with an error frame', async () => {
+    const posted = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id, kind: 'chat', body: 'no pinning for you',
+    });
+    const client = await connectAs(OBSERVER_TOKEN);
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'pin_message', message_id: posted.id, pinned: true },
+    }));
+    expect(await client.next((frame) => frame.type === 'error'))
+      .toMatchObject({ type: 'error', ref: 'act' });
+    expect(daemon.store.getMessage('eng', posted.id)?.pinned).toBeUndefined();
+    client.ws.close();
+  });
+});
+
 afterEach(async () => {
   await server.close();
   await daemon.close();

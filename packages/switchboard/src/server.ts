@@ -1112,6 +1112,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             else if (act.act === 'unpause') daemon.unpauseMember(frame.room, act.member_id);
             else if (act.act === 'interrupt') daemon.interruptMember(frame.room, act.member_id);
             else if (act.act === 'set_role') daemon.setHumanRole(frame.room, act.member_id, act.role);
+            else if (act.act === 'pin_message') daemon.pinMessage(frame.room, act.message_id, act.pinned, actor.id);
           }
         } catch (error) {
           send({ type: 'error', message: String(error), ref: frame.type });

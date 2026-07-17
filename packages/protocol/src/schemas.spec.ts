@@ -201,6 +201,17 @@ describe('messages', () => {
     expect(MessageSchema.parse({ ...chatMessage, ack: true }).ack).toBe(true);
   });
 
+  it('treats pinned as an additive optional marker', () => {
+    expect(MessageSchema.parse(chatMessage).pinned).toBeUndefined();
+    expect(MessageSchema.parse({ ...chatMessage, pinned: true }).pinned).toBe(true);
+  });
+
+  it('accepts a pin_message act and rejects a missing pinned flag', () => {
+    expect(ActSchema.parse({ act: 'pin_message', message_id: 3, pinned: true }))
+      .toEqual({ act: 'pin_message', message_id: 3, pinned: true });
+    expect(ActSchema.safeParse({ act: 'pin_message', message_id: 3 }).success).toBe(false);
+  });
+
   it('accepts a finalized run message (tokens-only usage, no cost_usd)', () => {
     const run = {
       ...chatMessage,
