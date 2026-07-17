@@ -930,6 +930,34 @@
 .nx-limit.is-allowed_warning { color: var(--c-warn-text); background: var(--c-warn-tint); border-color: color-mix(in srgb, var(--c-warn) 30%, transparent); }
 .nx-limit.is-rejected { color: var(--c-error-text); background: var(--c-error-tint); border-color: color-mix(in srgb, var(--c-error) 30%, transparent); }
 
+/* Usage gauges: a window with used_percent renders as % LEFT, tinted by how
+   little remains; windows without a percentage keep the text pill above. */
+.nx-gauge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--t-caption);
+  color: var(--c-secondary);
+}
+.nx-gauge-label { font: var(--t-caption-strong); }
+.nx-gauge-track {
+  width: 72px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--c-muted);
+  overflow: hidden;
+}
+.nx-gauge-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-full);
+}
+.nx-gauge.is-ok .nx-gauge-fill { background: var(--c-live); }
+.nx-gauge.is-warn .nx-gauge-fill { background: var(--c-warn); }
+.nx-gauge.is-error .nx-gauge-fill { background: var(--c-error); }
+.nx-gauge.is-warn .nx-gauge-value { color: var(--c-warn-text); }
+.nx-gauge.is-error .nx-gauge-value { color: var(--c-error-text); }
+
 .nx-member-menu { position: relative; flex: none; }
 .nx-menu {
   position: absolute;

@@ -1,4 +1,4 @@
-import type { Member, RunItemDiff, WireEvent } from '@codor/protocol';
+import type { AgentLimit, Member, RunItemDiff, WireEvent } from '@codor/protocol';
 import { MoreVertical, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -180,14 +180,16 @@ function MemberCard(props: {
       )}
       {member.limits !== undefined && member.limits.length > 0 && (
         <p className="nx-member-limits" data-testid={`member-${member.handle}-limits`}>
-          {member.limits.map((limit) => (
-            <span key={limit.window} className={`nx-limit is-${limit.status}`}>
-              {limitWindowLabel(limit.window)}: {limit.used_percent !== undefined
-                ? `${Math.round(100 - limit.used_percent)}% left`
-                : limit.status.replace(/_/g, ' ')}
-              {limit.resets_at !== undefined ? ` · resets ${clockTime(limit.resets_at)}` : ''}
-            </span>
-          ))}
+          {member.limits.map((limit) =>
+            limit.used_percent !== undefined
+              ? <LimitGauge key={limit.window} limit={limit} />
+              : (
+                <span key={limit.window} className={`nx-limit is-${limit.status}`}>
+                  {limitWindowLabel(limit.window)}: {limit.status.replace(/_/g, ' ')}
+                  {limit.resets_at !== undefined ? ` · resets ${clockTime(limit.resets_at)}` : ''}
+                </span>
+              ),
+          )}
         </p>
       )}
 
@@ -259,6 +261,24 @@ function limitWindowLabel(window: string): string {
   if (window === 'five_hour') return '5h';
   if (window === 'seven_day' || window === 'weekly') return 'weekly';
   return window.replace(/_/g, ' ');
+}
+
+/** Mini horizontal gauge for a harness-reported window: how much is LEFT. */
+function LimitGauge(props: { limit: AgentLimit }) {
+  const left = Math.max(0, Math.round(100 - (props.limit.used_percent ?? 0)));
+  const tone = left < 15 ? 'error' : left < 40 ? 'warn' : 'ok';
+  return (
+    <span
+      className={`nx-gauge is-${tone}`}
+      title={props.limit.resets_at !== undefined ? `resets ${clockTime(props.limit.resets_at)}` : undefined}
+    >
+      <span className="nx-gauge-label">{limitWindowLabel(props.limit.window)}</span>
+      <span className="nx-gauge-track" aria-hidden="true">
+        <span className="nx-gauge-fill" style={{ width: `${left}%` }} />
+      </span>
+      <span className="nx-gauge-value">{left}% left</span>
+    </span>
+  );
 }
 
 function MemberStateWord(props: { state: Member['state'] }) {
