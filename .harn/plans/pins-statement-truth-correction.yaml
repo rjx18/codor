@@ -37,6 +37,11 @@ assumptions:
 files:
   - packages/switchboard/src/daemon.ts
 anchors:
+  pins-are-durable-role-gated-markers:
+    pin-message-contract:
+      action: remove
+      reason: The old-id anchor comments disappear as they rename to the
+        recreated assumption; the guarded code inside is untouched.
   pins-are-durable-owner-admin-markers:
     pin-message-contract:
       action: change
