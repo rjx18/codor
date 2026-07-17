@@ -4103,6 +4103,93 @@ describe('transient lastUsage telemetry', () => {
 });
 // harn:end last-agent-usage-is-transient-and-seeded
 
+describe('persisted context window (engine-reported-window-outlives-restarts)', () => {
+  it('round-trips the member context_window column and migrates a pre-column db', () => {
+    const dbPath = join(dir, 'ctx-window.sqlite');
+    let store = new Store(dbPath);
+    const { owner } = store.createRoom({
+      id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' },
+    });
+    expect(store.getMemberContextWindow('eng', owner.id)).toBeUndefined();
+    store.setMemberContextWindow('eng', owner.id, 1_000_000);
+    expect(store.getMemberContextWindow('eng', owner.id)).toBe(1_000_000);
+    store.close();
+
+    // Simulate a database written before the context_window column existed.
+    const legacy = new Database(dbPath);
+    legacy.exec('ALTER TABLE members DROP COLUMN context_window');
+    legacy.close();
+
+    store = new Store(dbPath); // reopening runs the idempotent migration
+    expect(store.getMemberContextWindow('eng', owner.id)).toBeUndefined();
+    store.setMemberContextWindow('eng', owner.id, 258_400);
+    expect(store.getMemberContextWindow('eng', owner.id)).toBe(258_400);
+    store.close();
+  });
+
+  it('persists an engine-reported window once and only rewrites on change', async () => {
+    const agent = spawnAgent('gauge');
+    const writes = vi.spyOn(daemon.store, 'setMemberContextWindow');
+    const usage = { contextWindowMaxTokens: 1_000_000, contextWindowUsedTokens: 90_000 };
+    fake.enqueue({
+      kind: 'complete', final_text: 'one',
+      items: [{ type: 'usage_updated', usage }], agent_usage: usage,
+    });
+    daemon.postHumanMessage('eng', '@gauge first');
+    await daemon.settle();
+    fake.enqueue({
+      kind: 'complete', final_text: 'two',
+      items: [{ type: 'usage_updated', usage }], agent_usage: usage,
+    });
+    daemon.postHumanMessage('eng', '@gauge second');
+    await daemon.settle();
+
+    expect(daemon.store.getMemberContextWindow('eng', agent.id)).toBe(1_000_000);
+    expect(writes).toHaveBeenCalledTimes(1);
+  });
+
+  it('a restarted daemon seeds the estimate with the persisted window over the peek guess', async () => {
+    const agent = spawnAgent('gauge');
+    fake.enqueue({
+      kind: 'complete', final_text: 'establish',
+      agent_usage: { contextWindowMaxTokens: 1_000_000, contextWindowUsedTokens: 80_000 },
+    });
+    daemon.postHumanMessage('eng', '@gauge go');
+    await daemon.settle();
+
+    await daemon.close();
+    daemon = newDaemon();
+    fake.peekUsage = { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 12_000, estimated: true };
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const detail = daemon.memberDetails('eng').find((d) => d.member.id === agent.id)!;
+    expect(detail.member.lastUsage).toEqual({
+      contextWindowMaxTokens: 1_000_000, // persisted engine truth beats the artifact-scan guess
+      contextWindowUsedTokens: 12_000,
+      estimated: true,
+    });
+  });
+
+  it('a member with no persisted window keeps the peek estimate untouched', async () => {
+    const agent = spawnAgent('fresh');
+    fake.enqueue({ kind: 'complete', final_text: 'no usage reported' });
+    daemon.postHumanMessage('eng', '@fresh go');
+    await daemon.settle();
+
+    fake.peekUsage = { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 5_000, estimated: true };
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const detail = daemon.memberDetails('eng').find((d) => d.member.id === agent.id)!;
+    expect(detail.member.lastUsage).toEqual({
+      contextWindowMaxTokens: 200_000,
+      contextWindowUsedTokens: 5_000,
+      estimated: true,
+    });
+  });
+});
+
 describe('message pinning (pins-are-durable-role-gated-markers)', () => {
   const postChat = (author: string, body = 'decision worth keeping') =>
     daemon.store.postMessage('eng', { author, kind: 'chat', body });

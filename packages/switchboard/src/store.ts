@@ -271,6 +271,13 @@ function migrateMemberLimits(db: Database.Database): void {
   }
 }
 
+function migrateMemberContextWindow(db: Database.Database): void {
+  const columns = db.pragma('table_info(members)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'context_window')) {
+    db.exec('ALTER TABLE members ADD COLUMN context_window INTEGER');
+  }
+}
+
 // harn:assume agent-member-credentials-stay-secret ref=member-credential-storage
 function migrateMemberCredential(db: Database.Database): void {
   const columns = db.pragma('table_info(members)') as { name: string }[];
@@ -830,6 +837,7 @@ export class Store {
     // again — and then every insert would fail on a column that no longer exists.
     migrateMemberAgentConfig(this.db);
     migrateMemberLimits(this.db);
+    migrateMemberContextWindow(this.db);
     migrateMemberCredential(this.db);
     migrateMessageAck(this.db);
     migrateMessagePinned(this.db);
@@ -1550,6 +1558,21 @@ export class Store {
       .prepare('SELECT * FROM messages WHERE room = ? AND pinned = 1 ORDER BY id')
       .all(room) as MessageRow[];
     return rows.map(messageFromRow);
+  }
+
+  /** Engine-reported context window, persisted so gauge estimates outlive
+   *  restarts (daemon-internal; not part of the protocol Member shape). */
+  getMemberContextWindow(room: string, id: string): number | undefined {
+    const row = this.db
+      .prepare('SELECT context_window FROM members WHERE room = ? AND id = ?')
+      .get(room, id) as { context_window: number | null } | undefined;
+    return row?.context_window ?? undefined;
+  }
+
+  setMemberContextWindow(room: string, id: string, contextWindow: number): void {
+    this.db
+      .prepare('UPDATE members SET context_window = ? WHERE room = ? AND id = ?')
+      .run(contextWindow, room, id);
   }
 
   // harn:assume rail-summary-served-not-guessed ref=rooms-summary-store-queries

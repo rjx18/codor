@@ -449,10 +449,15 @@ export class Daemon {
     this.track((async () => {
       const peeked = await adapter.peekContextUsage!(ref);
       if (peeked === undefined) return;
+      // The artifact scan cannot see settings-applied windows (e.g. the 1m
+      // beta), so an engine-reported window persisted on the member outranks
+      // the peek's curated guess; the used-tokens estimate stays the peek's.
+      const persisted = this.store.getMemberContextWindow(room, member.id);
+      const seeded = persisted === undefined ? peeked : { ...peeked, contextWindowMaxTokens: persisted };
       const current = this.lastUsage.get(member.id);
       if (current !== undefined && current.estimated !== true) return; // live won meanwhile
-      if (isDeepStrictEqual(current, peeked)) return;
-      this.lastUsage.set(member.id, { ...peeked });
+      if (isDeepStrictEqual(current, seeded)) return;
+      this.lastUsage.set(member.id, { ...seeded });
       const fresh = this.store.getMember(room, member.id);
       if (fresh !== undefined && fresh.removed_ts === undefined) this.emitMember(room, fresh);
     })().catch(() => undefined));
@@ -464,6 +469,17 @@ export class Daemon {
     return lastUsage === undefined ? member : { ...member, lastUsage: { ...lastUsage } };
   }
   // harn:end last-agent-usage-is-transient-and-seeded
+
+  // harn:assume engine-reported-window-outlives-restarts ref=persisted-window-seed
+  /** Persist the engine's reported window (a stable engine fact, unlike usage)
+   *  so estimated seeds after a restart present the true ceiling. */
+  private landContextWindow(room: string, memberId: string, usage: AgentUsage | undefined): void {
+    const window = usage?.contextWindowMaxTokens;
+    if (usage?.estimated === true || typeof window !== 'number' || window <= 0) return;
+    if (this.store.getMemberContextWindow(room, memberId) === window) return;
+    this.store.setMemberContextWindow(room, memberId, window);
+  }
+  // harn:end engine-reported-window-outlives-restarts
 
   private emitMember(room: string, member: Member): void {
     // harn:assume live-agent-waits-are-transient ref=wait-member-projection
@@ -2374,6 +2390,7 @@ export class Daemon {
         // Live usage is member runtime state: broadcast it, but do not append it
         // to the durable run journal or change log.
         if (event.type === 'usage_updated') {
+          this.landContextWindow(room, member.id, event.usage);
           // Keyed by bare member id like every sibling per-member map (ULIDs
           // never repeat, so no cross-room collision). Skip the re-broadcast
           // when the snapshot is unchanged — a full member frame per identical
@@ -2423,6 +2440,7 @@ export class Daemon {
           // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-runtime-registry
           if (event.agent_usage !== undefined) {
             this.lastUsage.set(member.id, { ...event.agent_usage });
+            this.landContextWindow(room, member.id, event.agent_usage);
           }
           // harn:end last-agent-usage-is-transient-and-seeded
           // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
