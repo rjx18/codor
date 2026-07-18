@@ -32,10 +32,25 @@ notes: >-
   path text, which stays valid until the message is deleted. Agents do not
   upload in v1 - runs already surface agent-produced artifacts.
 
+  Client send path: Connection.post in packages/web/src/ws.ts widens
+  additively (an options object carrying reply_to and attachment ids) so
+  the composer can send them - the interface line sits outside anchors but
+  the implementation sits INSIDE the client-syncs-by-seq resubscribe
+  anchor span, declared below; resubscribe-cursor semantics are untouched.
+  The post frame's body min-length relaxes so an attachments-only message
+  (a dragged screenshot with no caption) can send - the server refuses a
+  post with neither body text nor attachments, so empty messages remain
+  impossible. Upload staging: the on-disk name is a server-issued 32-hex
+  id (strictly validated, so traversal is structurally dead) with a
+  json sidecar carrying name/mime/size beside the bytes; upload is gated
+  on the post capability, serving on read; the boot sweep uses mtime plus
+  the referenced-id set from message rows.
+
   Anchor crossings: the messages CREATE TABLE (schema anchor), the
   postMessage INSERT (id-allocation anchor), the shared ws listener (post
-  frame handling lives inside it), and the delete contract (purge extends
-  to files). The http endpoint region carries no anchors.
+  frame handling lives inside it), the delete contract (purge extends
+  to files), and the client resubscribe span (post widening). The http
+  endpoint region carries no anchors.
 
   Web-next (harnignored, same batch): composer attach button + drag-drop
   onto the composer, pending chips with name/size and remove before send,
@@ -80,6 +95,11 @@ assumptions:
       outcome: unchanged
       reason: Attachment paths are part of the composed payload text and
         snapshot like the rest of it.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: Connection.post widens additively to carry attachment ids; the
+        resubscribe cursor and seq-sync semantics inside the anchored span
+        are untouched.
   retire:
     - id: deleted-messages-are-purged-tombstones
       reason: The purge contract now extends to unlinking attachment files
@@ -132,6 +152,7 @@ files:
   - packages/switchboard/src/daemon.spec.ts
   - packages/switchboard/src/server.ts
   - packages/switchboard/src/server.spec.ts
+  - packages/web/src/ws.ts
 anchors:
   attachments-are-data-dir-files-delivered-as-paths:
     attachment-contract:
@@ -167,3 +188,9 @@ anchors:
       reason: deleteMessage additionally unlinks attachment files and nulls
         the column inside the anchor that defines the purge; the anchor
         comments rename to this recreated assumption.
+  client-syncs-by-seq:
+    ws-resubscribe-cursor:
+      action: change
+      reason: Connection.post's implementation sits inside this anchored span
+        (lines 22-109) and widens additively to carry attachment ids; the
+        resubscribe cursor logic is untouched.
