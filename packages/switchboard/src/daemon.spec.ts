@@ -1514,7 +1514,9 @@ describe('adapter lifecycle evidence', () => {
     daemon = newDaemon();
     const run = runMessages()[0]!;
     expect(run.run!.status).toBe('interrupted');
-    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id })[0]!.state).toBe('consumed');
+    // The close re-queues what the interrupted turn was carrying, so the next boot
+    // re-takes it instead of the instruction being silently eaten (#492).
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id })[0]!.state).toBe('queued');
   });
 });
 
@@ -4754,5 +4756,83 @@ describe('shutdown-interrupted delivery requeue (boot recovery)', () => {
     const fresh = runMessages().find((m) => m.id !== runMsg.id)!;
     expect(fresh.run!.status).toBe('completed');
     expect(fresh.body).toBe('operator redeliver done @richard');
+  });
+});
+
+describe('graceful shutdown delivery requeue (close seam)', () => {
+  // A turn that is genuinely IN FLIGHT when the daemon stops: it blocks until
+  // close() interrupts it through the same adapter path SIGTERM drives, so the
+  // run finalizes before the store closes — the shape live fire exposed (#492).
+  const startBlockedTurn = async (body = '@alpha finish the deploy') => {
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'ask', card: { kind: 'ask', prompt: 'blocked mid-turn' }, reply: () => 'answered' });
+    const trigger = daemon.postHumanMessage('eng', body);
+    const running = await until(() => runMessages().find((m) => m.run?.status === 'running'));
+    const delivery = daemon.store.listDeliveries('eng').find((d) => d.run_msg_id === running.id)!;
+    return { alpha, trigger, running, delivery };
+  };
+
+  it('a graceful close re-queues the in-flight turn it interrupts; the next boot re-takes it', async () => {
+    const { alpha, running, delivery } = await startBlockedTurn();
+    expect(delivery.state).toBe('delivering');
+
+    await daemon.close(); // graceful (non-force) — the real restart path
+
+    daemon = newDaemon();
+    const healed = daemon.store.getDelivery('eng', delivery.id)!;
+    expect(healed.state).toBe('queued'); // not silently eaten
+    expect(healed.attempt_count).toBe(1); // preserved, not reset
+    expect(healed.run_msg_id).toBeUndefined();
+    expect(daemon.store.getMessage('eng', running.id)!.run!.status).toBe('interrupted');
+
+    fake.enqueue({ kind: 'complete', final_text: 'deploy finished after restart @richard' });
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const fresh = runMessages().find((m) =>
+      m.id !== running.id && m.author === alpha.id && m.run?.status === 'completed')!;
+    expect(fresh.body).toBe('deploy finished after restart @richard');
+    expect(daemon.store.getDelivery('eng', delivery.id)!.attempt_count).toBe(2); // 1 preserved + this turn
+  });
+
+  it('never re-queues a turn an operator deliberately stopped', async () => {
+    const { alpha, running, delivery } = await startBlockedTurn('@alpha stoppable work');
+    const before = fake.deliveries.length;
+
+    daemon.interruptMember('eng', alpha.id); // the operator's Stop
+    await until(() => (daemon.store.getMessage('eng', running.id)!.run!.status !== 'running' ? true : undefined));
+    await daemon.close();
+
+    daemon = newDaemon();
+    expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('consumed'); // a Stop stays stopped
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(before); // never re-taken
+  });
+
+  it('fences a delivery at the retry ceiling at the close seam, naming it', async () => {
+    const { running, delivery } = await startBlockedTurn('@alpha poison work');
+    // Pose it at the ceiling, as a repeat offender would be by now.
+    daemon.store.updateDelivery('eng', delivery.id, { attempt_count: RECOVERY_ATTEMPT_CEILING });
+
+    await daemon.close();
+
+    daemon = newDaemon();
+    expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('consumed'); // fenced
+    const fence = daemon.store.listMessages('eng', { limit: 200 })
+      .find((m) => m.kind === 'system' && m.body.includes('retry ceiling'));
+    expect(fence?.body).toContain('@alpha');
+    expect(fence?.body).toContain(`#${String(running.id)}`);
+  });
+
+  it('leaves a deleted trigger purged at the close seam', async () => {
+    const owner = daemon.ownerOf('eng');
+    const { trigger, delivery } = await startBlockedTurn('@alpha deleted work');
+    daemon.deleteMessage('eng', trigger.id, owner.id); // purge the instruction
+
+    await daemon.close();
+
+    daemon = newDaemon();
+    expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('consumed'); // purge stays purged
   });
 });

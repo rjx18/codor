@@ -1,0 +1,16 @@
+id: lifecycle-interrupted-deliveries-requeue
+hash: a-a10e6bf47e04
+title: Turns interrupted by the daemon's own lifecycle re-queue their deliveries
+  at the seam that caused them, bounded by the attempt ceiling
+state: active
+statement: A graceful close re-queues the deliveries bound to the in-flight runs
+  it interrupts before the store closes, and boot recovery re-queues the
+  deliveries of runs a crash left running - in both cases with attempt counts
+  preserved so the recipient re-takes the same instruction as a fresh turn, with
+  deliveries at the attempt ceiling or with deleted triggers left consumed and
+  surfaced through the stranded-run system message - while a turn an operator
+  deliberately stopped is never re-queued, so routine daemon lifecycle never
+  silently eats an instruction, a poisonous one cannot loop the service, and a
+  human's Stop stays stopped.
+depends_on: []
+created_by: graceful-shutdown-requeue

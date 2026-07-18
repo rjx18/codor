@@ -408,17 +408,109 @@ export class Daemon {
     clearInterval(this.limitsProbeTimer);
     this.stopResidencyReachability?.();
     if (options.force !== true) {
+      // harn:assume lifecycle-interrupted-deliveries-requeue ref=recovery-requeue-contract
+      // A graceful stop interrupts live turns through the same adapter path the
+      // Stop button uses, so those runs finalize `interrupted` BEFORE the store
+      // closes — at boot they are indistinguishable from a deliberate Stop (#492).
+      // Snapshot them HERE, where the cause is known to be lifecycle, and heal
+      // after settle so the next boot's ordinary drain re-takes the instruction.
+      const interruptedByShutdown = this.snapshotInFlightTurns();
+      // harn:end lifecycle-interrupted-deliveries-requeue
       for (const [memberId, session] of this.sessions) {
         const member = this.store.listRooms().find((room) => this.store.getMember(room.id, memberId));
         const persisted = member ? this.store.getMember(member.id, memberId) : undefined;
         if (persisted?.harness) this.requireAdapter(persisted.harness).interrupt(session);
       }
       await this.settle();
+      // harn:assume lifecycle-interrupted-deliveries-requeue ref=recovery-requeue-contract
+      // Those turns have finalized now; re-queue what they were carrying.
+      for (const turn of interruptedByShutdown) {
+        this.requeueLifecycleInterrupted(turn.room, turn.runMsgId, turn.deliveryIds);
+      }
+      // harn:end lifecycle-interrupted-deliveries-requeue
     }
     await this.ledger?.close();
     this.store.close();
     this.closed = true;
   }
+
+  // harn:assume lifecycle-interrupted-deliveries-requeue ref=recovery-requeue-contract
+  /** Deliveries bound to a run the daemon's lifecycle is about to interrupt (or
+   *  already has) — the set a re-queue may heal. */
+  private boundLifecycleDeliveries(room: string, runMsgId: number): Delivery[] {
+    return this.store
+      .listDeliveries(room)
+      .filter((delivery) => delivery.run_msg_id === runMsgId
+        && (delivery.state === 'consumed' || delivery.state === 'delivering'));
+  }
+
+  /** The in-flight turns a graceful close is about to interrupt, captured BEFORE
+   *  the interrupt so the cause is provably lifecycle. Scoped to turns THIS daemon
+   *  is actually running (`inflight`) — a run left `running` by an earlier crash is
+   *  not ours to heal here; boot recovery owns that seam. A turn an operator stopped
+   *  is excluded: its run already finalized, or its member is still marked as an
+   *  operator interrupt — either way a deliberate Stop must stay stopped. */
+  private snapshotInFlightTurns(): { room: string; runMsgId: number; deliveryIds: string[] }[] {
+    const snapshot: { room: string; runMsgId: number; deliveryIds: string[] }[] = [];
+    for (const room of this.store.listRooms()) {
+      for (const message of this.store.listMessages(room.id, { limit: Number.MAX_SAFE_INTEGER })) {
+        if (message.kind !== 'run' || message.run?.status !== 'running') continue;
+        if (!this.inflight.has(message.author)) continue; // not a turn this daemon is running
+        if (this.operatorInterrupts.has(message.author)) continue; // a Stop stays stopped
+        const bound = this.boundLifecycleDeliveries(room.id, message.id);
+        if (bound.length === 0) continue;
+        snapshot.push({
+          room: room.id,
+          runMsgId: message.id,
+          deliveryIds: bound.map((delivery) => delivery.id),
+        });
+      }
+    }
+    return snapshot;
+  }
+
+  /**
+   * Re-queue deliveries whose turn the daemon's OWN lifecycle interrupted, so the
+   * recipient re-takes the same instruction as a fresh turn. Shared by the graceful
+   * close() seam and boot recovery's crash seam. Attempt counts are PRESERVED
+   * (unlike operator redeliver) so a poisonous instruction is fenced at the ceiling
+   * instead of looping the service; a deleted trigger stays purged; a fenced
+   * delivery stays consumed and is named in a system message. State is re-read per
+   * delivery because close() snapshots ids before those turns finalize.
+   */
+  private requeueLifecycleInterrupted(room: string, runMsgId: number, deliveryIds: string[]): void {
+    const fenced: string[] = [];
+    for (const deliveryId of deliveryIds) {
+      const delivery = this.store.getDelivery(room, deliveryId);
+      if (!delivery) continue;
+      if (delivery.state !== 'consumed' && delivery.state !== 'delivering') continue;
+      // A deleted trigger stays purged (mirror retry_run's filter).
+      if (this.store.getMessage(room, delivery.message_id)?.deleted === true) continue;
+      // The poison-pill fence: an instruction at the retry ceiling stays consumed.
+      if (delivery.attempt_count >= RECOVERY_ATTEMPT_CEILING) {
+        fenced.push(delivery.recipient);
+        continue;
+      }
+      // redeliver mechanics WITHOUT the attempt-count reset — lifecycle collateral
+      // heals silently; it is not an operator asking for a fresh attempt.
+      const requeued = this.store.updateDelivery(room, delivery.id, {
+        state: 'queued',
+        run_msg_id: undefined,
+      });
+      this.store.setDeliveryAttemptProcess(room, [delivery.id], undefined);
+      this.emitInbox(room, requeued);
+    }
+    if (fenced.length > 0) {
+      const who = [...new Set(fenced)]
+        .map((recipient) => `@${this.store.getMember(room, recipient)?.handle ?? recipient}`)
+        .join(', ');
+      this.postSystemMessage(
+        room,
+        `delivery to ${who} not re-queued after restart (turn #${String(runMsgId)} hit the retry ceiling) — retry_run to force it`,
+      );
+    }
+  }
+  // harn:end lifecycle-interrupted-deliveries-requeue
 
   /** Tracks a fire-and-forget turn chain so settle() can await quiescence. */
   private track(promise: Promise<void>): void {
@@ -3212,19 +3304,15 @@ export class Daemon {
           this.holdAmbiguousTurn(room.id, member, group, runMsgId);
         }
       }
-      // harn:assume shutdown-interrupted-deliveries-requeue ref=recovery-requeue-contract
-      // A run still `running` here was stranded by a shutdown mid-turn (its
-      // deliveries never re-queued, so the instruction was silently eaten — #437,
-      // #483). Finalize it interrupted and re-queue its bound deliveries as a
-      // fresh turn, attempt count PRESERVED (unlike operator redeliver) so a
-      // poisonous instruction is fenced at the ceiling, not looped forever.
+      // harn:assume lifecycle-interrupted-deliveries-requeue ref=recovery-requeue-contract
+      // A run still `running` here was stranded by a CRASH mid-turn — a graceful
+      // stop heals its own turns in close(), before the store closes (#492), so
+      // anything left running got no chance to. Finalize it interrupted and
+      // re-queue what it was carrying through the shared lifecycle helper.
       for (const runMsg of this.store.listMessages(room.id, { limit: Number.MAX_SAFE_INTEGER })) {
         if (runMsg.kind !== 'run' || runMsg.run?.status !== 'running') continue;
         if (this.inflight.has(runMsg.author)) continue; // an in-flight reconcile retry owns this run
-        const bound = this.store
-          .listDeliveries(room.id)
-          .filter((delivery) => delivery.run_msg_id === runMsg.id
-            && (delivery.state === 'consumed' || delivery.state === 'delivering'));
+        const bound = this.boundLifecycleDeliveries(room.id, runMsg.id);
         if (bound.length === 0) continue;
         const interrupted = this.store.updateMessage(room.id, runMsg.id, {
           body: '',
@@ -3241,35 +3329,9 @@ export class Daemon {
         });
         this.runActivity.delete(`${room.id}:${runMsg.id}`);
         this.emitMessage(room.id, interrupted);
-        const fenced: string[] = [];
-        for (const delivery of bound) {
-          // A deleted trigger stays purged (mirror retry_run's filter).
-          if (this.store.getMessage(room.id, delivery.message_id)?.deleted === true) continue;
-          // The poison-pill fence: an instruction at the retry ceiling stays consumed.
-          if (delivery.attempt_count >= RECOVERY_ATTEMPT_CEILING) {
-            fenced.push(delivery.recipient);
-            continue;
-          }
-          // redeliver mechanics WITHOUT the attempt-count reset — recovery is not
-          // an operator redeliver, so a routine restart's collateral heals silently.
-          const requeued = this.store.updateDelivery(room.id, delivery.id, {
-            state: 'queued',
-            run_msg_id: undefined,
-          });
-          this.store.setDeliveryAttemptProcess(room.id, [delivery.id], undefined);
-          this.emitInbox(room.id, requeued);
-        }
-        if (fenced.length > 0) {
-          const who = [...new Set(fenced)]
-            .map((recipient) => `@${this.store.getMember(room.id, recipient)?.handle ?? recipient}`)
-            .join(', ');
-          this.postSystemMessage(
-            room.id,
-            `delivery to ${who} not re-queued after restart (turn #${String(runMsg.id)} hit the retry ceiling) — retry_run to force it`,
-          );
-        }
+        this.requeueLifecycleInterrupted(room.id, runMsg.id, bound.map((delivery) => delivery.id));
       }
-      // harn:end shutdown-interrupted-deliveries-requeue
+      // harn:end lifecycle-interrupted-deliveries-requeue
       this.reconcileCollaborationGroups(room.id);
       // drain anything still queued (tracked — a turn may block on an ask)
       for (const member of this.store.listMembers(room.id)) {
