@@ -1,0 +1,200 @@
+id: bounded-cold-hydration
+title: Cold loads hydrate a bounded tail atomically; reconnects still replay
+  every change.
+notes: >-
+  Codex's #516 defect 3, handed back by Richard. Today both browser
+  connectors subscribe with since_seq 0, the store replays the ENTIRE
+  change log, the server emits every message as an individual frame, and
+  the client inserts each into visible state - the transcript crawls in
+  one message at a time, the browser mounts and hydrates every historical
+  run (the amplifier behind the journal storm round 1 bounded), and only
+  at sync_complete does the client trim to a page. Richard wants roughly
+  the latest 20 messages appearing at once, bottom-anchored, with older
+  history paging in on upward scroll.
+
+  Change. Protocol: the subscribe frame gains hydrate_limit?: number
+  (positive int) and sync_complete gains history_floor?: number - both
+  optional and additive. A subscriber that sends no limit gets today's
+  behavior byte-identical (agents and the CLI depend on the full replay).
+  Store: sync() takes an optional hydrate limit honored ONLY when
+  since_seq is 0, and answers from ONE transaction with a bounded
+  snapshot built at the query (never fetch-all-then-filter): the
+  contiguous tail of the last N messages by id, plus the correctness
+  outliers - every running run message, the messages of unresolved
+  ask/approval interactions, the messages referenced by the subscriber's
+  own unread consumed deliveries (the round-1 inbox filter drops
+  deliveries whose message is absent, so the badge would undercount
+  without them), and the latest finalized non-ack agent message (the
+  default-recipient seed) - plus the FULL member roster, the inbox per
+  the existing subscriber rules, and the latest meter. history_floor is
+  the earliest id of the contiguous tail alone, outliers excluded, and
+  the returned seq stays the current room seq so later reconnects delta
+  correctly. Warm sync (since_seq > 0) is untouched: every changed
+  entity replays as today, or an in-place finalization could be missed.
+  Server: the subscribe block passes the frame's limit through and stamps
+  history_floor onto sync_complete. Daemon: pass-through only.
+
+  Client (packages/web, harn-tracked): both hydration phases become
+  atomic - between subscribe and sync_complete, frames accumulate in a
+  staging buffer OUTSIDE visible state; sync_complete commits the whole
+  snapshot in one store update, sets the history cursor from
+  history_floor (falling back to today's computation when absent), and
+  only then does the UI leave its loading skeleton, revealed
+  bottom-anchored. Live frames arriving after sync_complete flow exactly
+  as today. HISTORY_PAGE_SIZE aligns to 20 so the cold tail and upward
+  pages share one size. web/src/ws.ts sends hydrate_limit on its own
+  subscribe too so the legacy client benefits identically. Web-next
+  (harnignored, same batch): the connector sends hydrate_limit 20; the
+  transcript keeps its skeleton until the committed reveal and positions
+  at the bottom before first paint of content.
+
+  Anchor sweep (all declared below; several may prove untouched -
+  over-declaring is safe): store consistent-sync-snapshot; the server
+  subscribe block inside the shared ws listener and the agent inbox
+  overlay within it; the client resubscribe cursor in web/ws.ts; and in
+  web/state.ts the contiguous-history-state span with its nested
+  store-upsert-in-place, paged-message-cache, pending-survives-history-
+  trim, and web-effective-default-cache regions.
+
+  Tests: store - bounded cold sync returns exactly the tail plus each
+  outlier class from a seeded room (running run, unresolved ask, an
+  unread delivery referencing an old message, the recipient seed) with
+  history_floor excluding outliers, in one transaction; no-limit cold
+  sync byte-identical to today; warm sync unchanged with and without the
+  limit present. Server - a subscribe with hydrate_limit emits the
+  bounded set and a floor-stamped sync_complete; agents without the
+  limit see today's frames. Client - hydration frames do not touch
+  visible state until sync_complete, which commits once (a spy on the
+  store setter observes a single hydration commit); the cursor lands on
+  the floor; reconnect delta application unchanged. Web-next e2e (the
+  round-1 large room) - cold load shows only the last 20 ordinary
+  messages with no incremental crawl, first paint is bottom-anchored,
+  upward scroll pages in twenties preserving viewport, pending
+  interactions and pins and the default recipient survive, deep links to
+  old messages still page back, reconnect after a live change shows the
+  change. Gate: protocol + switchboard + web suites green; web-next unit
+  + playwright green; full workspace build green.
+assumptions:
+  reviewed:
+    - id: changelog-is-sync-cursor
+      outcome: unchanged
+      reason: The change log remains the one cursor for warm sync; the
+        bounded cold snapshot still reports the current seq so the next
+        delta starts exactly where hydration ended.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: The bounded snapshot is built inside the same single
+        transaction, and the client now commits it more atomically, not
+        less.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: Seq semantics and in-place upserts are untouched; hydration
+        frames stage before one commit, and live frames flow as today.
+    - id: history-cursor-tracks-only-the-contiguous-tail
+      outcome: unchanged
+      reason: history_floor makes the server state the contiguous-tail floor
+        explicitly; outliers still never move the cursor.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Ids, paging, and permalink jumps are untouched; deep links page
+        back exactly as before.
+    - id: the-inbox-badge-and-panel-are-one-truth
+      outcome: unchanged
+      reason: The unread-delivery-referenced messages ride the cold snapshot
+        precisely so the badge and panel stay one truth under bounding.
+    - id: default-recipient-fallback-chain
+      outcome: unchanged
+      reason: The latest finalized non-ack agent message is a named outlier
+        so the fallback chain seeds identically after a bounded load.
+    - id: agent-sync-hydrates-only-own-queued-inbox
+      outcome: unchanged
+      reason: Agents send no hydrate limit and their subscribe path replays
+        byte-identically, overlay included.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: Both transports parse the same widened subscribe frame; a
+        limit-less subscribe behaves identically on either.
+  create:
+    - id: cold-hydration-is-bounded-and-atomic
+      title: A limit-bearing cold subscribe hydrates a bounded tail plus
+        named correctness outliers from one snapshot, committed atomically
+      statement: When a subscriber sends a hydrate limit with since_seq 0,
+        the store answers from one transaction with the contiguous tail of
+        the last N messages plus every running run, the messages of
+        unresolved interactions, the messages referenced by that
+        subscriber's unread consumed deliveries, and the latest finalized
+        non-ack agent message, alongside the full roster, the
+        subscriber-scoped inbox, and the latest meter, with sync_complete
+        carrying the current seq and the contiguous tail's floor id;
+        clients stage hydration frames and commit them in a single store
+        update revealed bottom-anchored; a subscriber that sends no limit,
+        and every warm subscribe with since_seq above zero, receives
+        today's full replay byte-identically, so bounding can never hide
+        an in-place change from a reconnect.
+      reason: >-
+        #516 defect 3: full-room cold replay crawls the transcript, mounts
+        every historical run, and amplified the journal storm; the bound
+        must live in the query and the commit must be atomic.
+      depends_on: []
+files:
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web/src/ws.ts
+  - packages/web/src/state.ts
+  - packages/web/src/App.spec.ts
+anchors:
+  cold-hydration-is-bounded-and-atomic:
+    bounded-cold-hydration-contract:
+      action: change
+      reason: The store's bounded query and the client's staged single-commit
+        hydration define the contract, one anchor ref at both sites.
+  sync-cursor-commits-after-hydration:
+    consistent-sync-snapshot:
+      action: change
+      reason: sync() gains the bounded branch inside its single-transaction
+        anchor; snapshot consistency is the point, not a casualty.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: The subscribe block inside the shared listener passes the limit
+        through and stamps the floor; both transports stay identical.
+  agent-sync-hydrates-only-own-queued-inbox:
+    agent-own-queued-sync-overlay:
+      action: change
+      reason: The overlay code sits inside the reworked subscribe block; its
+        behavior for agents is byte-identical.
+  client-syncs-by-seq:
+    ws-resubscribe-cursor:
+      action: change
+      reason: The client subscribe gains hydrate_limit beside since_seq; the
+        cursor semantics are untouched.
+    store-upsert-in-place:
+      action: change
+      reason: The reducer's hydration handling stages frames before one
+        commit; live upserts inside the span are unchanged in meaning.
+  history-cursor-tracks-only-the-contiguous-tail:
+    contiguous-history-state:
+      action: change
+      reason: The hydration commit sets the cursor from the served floor
+        inside this span; the contiguous-tail rule is enforced, not
+        altered.
+  permalink-ids-stable:
+    paged-message-cache:
+      action: change
+      reason: The staged commit writes through the same paged cache; id and
+        paging semantics stay fixed.
+  the-inbox-badge-and-panel-are-one-truth:
+    pending-survives-history-trim:
+      action: change
+      reason: The trim-survival rules apply to the atomic commit path; the
+        badge/panel truth is preserved by the new outlier class.
+  default-recipient-fallback-chain:
+    web-effective-default-cache:
+      action: change
+      reason: The default-recipient cache seeds from the committed snapshot
+        exactly as it seeded from streamed frames.
