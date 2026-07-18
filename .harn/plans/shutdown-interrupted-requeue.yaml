@@ -1,0 +1,76 @@
+id: shutdown-interrupted-requeue
+title: Boot recovery re-queues deliveries whose turn a shutdown killed.
+notes: >-
+  Twice now (#437, #483) a scheduled daemon restart has killed an agent's
+  in-flight turn and silently eaten the instruction: crash recovery
+  finalizes the stranded run as interrupted, but the deliveries that turn
+  had consumed stay consumed - the agent never re-takes them, and the
+  operator only notices when an agent that should have answered goes
+  quiet. Retry (retry_run) exists as the manual recovery, but a restart
+  is a routine daemon operation and its collateral should heal without a
+  human noticing. The scheduling side cannot solve this: the restarting
+  agent's own final message routes fresh deliveries, so no timer window
+  is ever provably quiet.
+
+  Change (daemon boot recovery): when startup recovery finalizes a
+  stranded running run as interrupted, the deliveries bound to it
+  (run_msg_id equal to the run, state consumed or delivering) re-queue
+  through the existing redeliver mechanics - state queued, run binding
+  cleared - so the agent re-takes the same instruction as a fresh turn
+  once the daemon is up. Loop guard: recovery does NOT reset
+  attempt_count (unlike operator redeliver) and skips deliveries whose
+  attempt_count has reached the existing retry ceiling, so an
+  instruction that kills the daemon every time cannot ping-pong forever;
+  a skipped delivery is noted with the existing stranded-run system
+  message so the operator still sees it. Deliveries whose trigger
+  message was deleted are skipped (purges stay purged), mirroring
+  retry_run.
+
+  Tests: daemon - a running run with a consumed delivery, daemon closed
+  and reopened over the same store: the run finalizes interrupted AND
+  the delivery is queued again, feeding a fresh run that completes; a
+  delivery at the attempt ceiling is not re-queued and the system
+  message names it; a deleted-trigger delivery is not re-queued;
+  operator redeliver behavior unchanged. Gate: switchboard suite green;
+  full workspace build green.
+assumptions:
+  reviewed:
+    - id: redeliver-interrupts-stranded-run
+      outcome: unchanged
+      reason: Recovery reuses the redeliver mechanics on already-interrupted
+        runs; the operator-facing redeliver act and its stranded-run
+        retirement are untouched.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: A recovery-requeued delivery re-delivers its snapshotted
+        payload - the same instruction reaches the agent again.
+    - id: deleted-messages-purge-rows-and-files
+      outcome: unchanged
+      reason: Recovery skips deliveries whose trigger message was deleted; a
+        purge stays purged.
+  create:
+    - id: shutdown-interrupted-deliveries-requeue
+      title: A daemon restart re-queues the deliveries of turns it killed,
+        bounded by the attempt ceiling
+      statement: When boot recovery finalizes a stranded running run as
+        interrupted, the deliveries bound to that run re-queue with their
+        attempt count preserved so the recipient re-takes the same
+        instruction as a fresh turn, while deliveries at the attempt
+        ceiling or whose trigger message was deleted are left consumed and
+        surfaced through the stranded-run system message, so a routine
+        restart never silently eats an instruction and a poisonous one
+        cannot loop the daemon.
+      reason: >-
+        #437/#483: restarts are routine and their collateral must heal
+        without an operator noticing; manual retry_run stays for the
+        deliberate cases.
+      depends_on: []
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+anchors:
+  shutdown-interrupted-deliveries-requeue:
+    recovery-requeue-contract:
+      action: change
+      reason: The boot-recovery requeue loop and its ceiling guard define the
+        contract.
