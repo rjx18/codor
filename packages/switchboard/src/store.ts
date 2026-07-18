@@ -831,6 +831,11 @@ export interface DeliveryAttemptProcess {
   process_group_id?: number;
 }
 
+export type LifecycleRetryRefusalReason =
+  | 'attempt_ceiling'
+  | 'deleted_trigger'
+  | 'settled_collaboration';
+
 /**
  * The room store: better-sqlite3, synchronous, one file per switchboard.
  * Every mutation of a client-visible entity appends to the change log inside
@@ -1942,6 +1947,21 @@ export class Store {
           (delivery.state === 'queued' || boundToReusedRun(delivery)),
         );
 
+      // harn:assume unresolved-delivery-fences-fresh-member-turns ref=durable-delivery-turn-fence
+      // The in-memory inflight guard cannot survive a process boundary. Refuse a
+      // FRESH run while this member still owns another durably active attempt;
+      // runtime/boot reconciliation moves that attempt to held or consumed, and
+      // an explicit reused-run recovery is allowed to reclaim its own binding.
+      const ownsUnresolvedAttempt = opts.reuseRunMsgId === undefined && this
+        .listDeliveries(room, { recipient: opts.memberId, state: 'delivering' })
+        .some((delivery) => {
+          if (delivery.run_msg_id === undefined) return false;
+          const run = this.getMessage(room, delivery.run_msg_id);
+          return run?.kind === 'run' && run.run?.status === 'running';
+        });
+      if (ownsUnresolvedAttempt) return undefined;
+      // harn:end unresolved-delivery-fences-fresh-member-turns
+
       // harn:assume only-an-admissible-delivery-becomes-delivering ref=turn-start-with-nothing-admissible
       // Nothing left to say. An empty run message would be a defect of its own, so the
       // turn does not begin at all — no message, no attempt, and the caller idles the
@@ -2554,6 +2574,271 @@ export class Store {
   }
   // harn:end group-round-creation-is-atomic-and-idempotent
   // harn:end collaboration-groups-are-durable-state
+
+  // harn:assume failed-finalization-reconciles-at-runtime ref=finalization-repair-transaction
+  /**
+   * Settle a turn whose journal is terminal but whose NORMAL finalization could
+   * not commit — the #599 shape: a lifecycle retry rebound to a delivery whose
+   * participant already holds a terminal result, so completeTurn's participant
+   * write correctly refused and took the whole transaction down with it, leaving
+   * the row `running` and the delivery `delivering` after the in-memory guard
+   * had already cleared.
+   *
+   * This is deliberately NOT the normal path: it routes nothing, replaces no
+   * participant result, and keeps the original journal so the evidence of what
+   * the engine actually did survives. It only makes the durable state honest —
+   * the attempt failed, its input is settled, the member is not running.
+   *
+   * Idempotent by construction: a run that is no longer `running` has already
+   * been repaired (or finalized normally), so a second runtime or boot pass
+   * returns `repaired: false` and writes nothing — including the meter, which
+   * is why the rolled-back attempt is counted exactly once rather than never.
+   */
+  repairFailedFinalization(
+    room: string,
+    opts: {
+      runMsgId: number;
+      memberId: string;
+      deliveryIds: string[];
+      error: string;
+      endedTs: string;
+      meterDay: string;
+      meterDelta: {
+        turns?: number;
+        cost_usd?: number;
+        input_tokens?: number;
+        output_tokens?: number;
+        uncosted_tokens?: number;
+      };
+    },
+  ): {
+    repaired: boolean;
+    message?: Message;
+    member?: Member;
+    meter?: RoomMeter;
+    notice?: Message;
+    deliveries: Delivery[];
+    held: string[];
+  } {
+    return this.db.transaction(() => {
+      const runMsg = this.getMessage(room, opts.runMsgId);
+      if (!runMsg?.run || runMsg.run.status !== 'running') {
+        return { repaired: false, deliveries: [], held: [] };
+      }
+      const message = this.updateMessage(room, opts.runMsgId, {
+        body: '',
+        mentions: [],
+        refs: [],
+        ledger_refs: [],
+        run: {
+          ...runMsg.run,
+          status: 'failed',
+          ended_ts: opts.endedTs,
+          stalled_since: undefined,
+          final_text: undefined,
+          error: opts.error,
+        },
+      });
+
+      const deliveries: Delivery[] = [];
+      const held: string[] = [];
+      for (const deliveryId of opts.deliveryIds) {
+        const delivery = this.getDelivery(room, deliveryId);
+        if (!delivery || delivery.state !== 'delivering') continue;
+        // Consume only what is PROVABLY obsolete: this delivery's collaboration
+        // work already has a terminal result, or its round/group is closed, so
+        // re-running it could only duplicate an answer that already exists.
+        // Anything else is ambiguous and becomes the operator's call.
+        const obsolete = this.collaborationWorkIsSettled(room, delivery.id);
+        deliveries.push(
+          this.updateDelivery(room, delivery.id, {
+            state: obsolete ? 'consumed' : 'held',
+            batch_id: undefined,
+          }),
+        );
+        this.setDeliveryAttemptProcess(room, [delivery.id], undefined);
+        if (!obsolete) held.push(delivery.id);
+      }
+
+      const current = this.getMember(room, opts.memberId);
+      const member = current === undefined
+        ? undefined
+        : this.updateMember(room, opts.memberId, {
+          // A repaired attempt leaves the member reachable, not dead: nothing
+          // about a finalization rollback says the agent itself is gone.
+          state: current.state === 'dead' || current.state === 'paused' ? current.state : 'idle',
+        });
+
+      // completeTurn's rollback took its meter write with it, so this attempt's
+      // spend is currently recorded NOWHERE. Count it here, exactly once — and
+      // return it, so a connected UI sees the same total the database now holds.
+      const meter = this.bumpMeter(room, opts.meterDay, opts.meterDelta);
+      const system = this.listMembers(room).find((candidate) => candidate.kind === 'system');
+      if (!system) throw new Error(`room ${room} has no system member`);
+      const handle = `@${member?.handle ?? opts.memberId}`;
+      const detail = opts.error.replace(/^finalization could not commit:\s*/, '');
+      // The notice commits with the repair. A crash after this transaction can
+      // neither lose the explanation nor create a duplicate on the next pass.
+      const notice = this.postMessage(room, {
+        author: system.id,
+        kind: 'system',
+        body: held.length > 0
+          ? `turn #${String(opts.runMsgId)} for ${handle} could not finalize (${detail}) — its instruction is held; release_hold or redeliver to retry`
+          : `turn #${String(opts.runMsgId)} for ${handle} could not finalize (${detail}) — its work already had a result, so the duplicate instruction was consumed`,
+      });
+      return { repaired: true, message, member, meter, notice, deliveries, held };
+    })();
+  }
+
+  /**
+   * True when this delivery's collaboration work is already settled — a terminal
+   * participant, or a round/group that is no longer accepting work. A delivery
+   * with no collaboration context at all is NOT settled: an ordinary turn that
+   * failed to finalize is exactly the ambiguous case an operator should see.
+   *
+   * Public because it is the SAME predicate on both sides of the seam: the
+   * daemon asks it before attempting normal finalization, and repair asks it
+   * when deciding consume-vs-hold. A second copy of this rule that drifted
+   * would let a closed group accept a new result — `recordCollaboration-
+   * ParticipantTerminal` guards only the participant, never its round or group.
+   */
+  collaborationWorkIsSettled(room: string, deliveryId: string): boolean {
+    const participant = this.findCollaborationParticipantByDelivery(room, deliveryId);
+    if (!participant) return false;
+    if (participant.terminal_status !== undefined) return true;
+    const group = this.getCollaborationGroup(room, participant.group_id);
+    if (group !== undefined && group.state !== 'open') return true;
+    const round = this.getCollaborationRound(room, participant.group_id, participant.round_number);
+    return round !== undefined && round.state !== 'collecting';
+  }
+  // harn:end failed-finalization-reconciles-at-runtime
+
+  // harn:assume lifecycle-retries-only-live-collaboration-work ref=lifecycle-interruption-settlement
+  /**
+   * Settle a turn the daemon's OWN lifecycle interrupted, deciding retry
+   * eligibility and terminality as ONE fact.
+   *
+   * The #598/#599 bug was these being two facts: the attempt finalized as a
+   * terminal participant result, and only afterwards was its delivery re-queued
+   * — so the retry came back to a participant that already had an answer. Here
+   * a delivery is either durably re-queued (and its participant deliberately
+   * left nonterminal, its round still open, so the eventual retry produces the
+   * one result) or it is settled and its participant recorded `interrupted` so
+   * the barrier releases. Never both, never neither: a nonterminal participant
+   * may exist only with a queued retry behind it.
+   *
+   * Retry is admissible only while the work is genuinely still live — below the
+   * attempt ceiling, trigger not deleted, and collaboration work not settled.
+   * Operator Stop never reaches here; it is terminal by construction.
+   */
+  settleLifecycleInterruption(
+    room: string,
+    opts: {
+      runMsgId: number;
+      memberId: string;
+      deliveryIds: string[];
+      message: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run' | 'ack'>>;
+      memberPatch: Partial<Omit<Member, 'id' | 'kind'>>;
+      endedTs: string;
+      attemptCeiling: number;
+      meterDay: string;
+      meterDelta: {
+        turns?: number;
+        cost_usd?: number;
+        input_tokens?: number;
+        output_tokens?: number;
+        uncosted_tokens?: number;
+      };
+    },
+  ): {
+    message: Message;
+    member: Member;
+    meter: RoomMeter;
+    notice?: Message;
+    requeued: Delivery[];
+    settled: Delivery[];
+    refusals: { delivery: Delivery; reason: LifecycleRetryRefusalReason }[];
+  } {
+    return this.db.transaction(() => {
+      const message = this.updateMessage(room, opts.runMsgId, opts.message);
+      const member = this.updateMember(room, opts.memberId, opts.memberPatch);
+      const requeued: Delivery[] = [];
+      const settled: Delivery[] = [];
+      const refusals: { delivery: Delivery; reason: LifecycleRetryRefusalReason }[] = [];
+
+      for (const deliveryId of opts.deliveryIds) {
+        const delivery = this.getDelivery(room, deliveryId);
+        if (!delivery) continue;
+        if (delivery.state !== 'consumed' && delivery.state !== 'delivering') continue;
+
+        const atCeiling = delivery.attempt_count >= opts.attemptCeiling;
+        const triggerPurged = this.getMessage(room, delivery.message_id)?.deleted === true;
+        const workSettled = this.collaborationWorkIsSettled(room, delivery.id);
+        if (!atCeiling && !triggerPurged && !workSettled) {
+          // Live work: re-queue WITHOUT touching the participant, so the round
+          // stays open for the retry that will produce its one result.
+          requeued.push(this.updateDelivery(room, delivery.id, {
+            state: 'queued',
+            run_msg_id: undefined,
+            batch_id: undefined,
+          }));
+          this.setDeliveryAttemptProcess(room, [delivery.id], undefined);
+          continue;
+        }
+
+        // Refused: settle the input and release the barrier in the same commit.
+        // A participant left nonterminal here would block its round forever,
+        // because nothing is coming back to answer it.
+        const consumed = this.updateDelivery(room, delivery.id, {
+          state: 'consumed',
+          batch_id: undefined,
+        });
+        settled.push(consumed);
+        this.setDeliveryAttemptProcess(room, [delivery.id], undefined);
+        refusals.push({
+          delivery: consumed,
+          reason: atCeiling
+            ? 'attempt_ceiling'
+            : triggerPurged
+              ? 'deleted_trigger'
+              : 'settled_collaboration',
+        });
+        const participant = this.findCollaborationParticipantByDelivery(room, delivery.id);
+        if (participant !== undefined && participant.terminal_status === undefined) {
+          this.recordCollaborationParticipantTerminal(room, {
+            deliveryId: delivery.id,
+            status: 'interrupted',
+            resultMessageId: opts.runMsgId,
+            completedTs: opts.endedTs,
+          });
+        }
+      }
+      const meter = this.bumpMeter(room, opts.meterDay, opts.meterDelta);
+      let notice: Message | undefined;
+      if (refusals.length > 0) {
+        const system = this.listMembers(room).find((candidate) => candidate.kind === 'system');
+        if (!system) throw new Error(`room ${room} has no system member`);
+        const recipients = [...new Set(refusals.map(({ delivery }) => delivery.recipient))]
+          .map((recipient) => `@${this.getMember(room, recipient)?.handle ?? recipient}`)
+          .join(', ');
+        const reasons = [...new Set(refusals.map(({ reason }) => reason))]
+          .map((reason) => reason === 'attempt_ceiling'
+            ? 'the retry ceiling was reached'
+            : reason === 'deleted_trigger'
+              ? 'the instruction was deleted'
+              : 'the collaboration work was already settled')
+          .join('; ');
+        const mayForce = refusals.some(({ reason }) => reason === 'attempt_ceiling');
+        notice = this.postMessage(room, {
+          author: system.id,
+          kind: 'system',
+          body: `delivery to ${recipients} not re-queued after lifecycle interruption (turn #${String(opts.runMsgId)}: ${reasons}) — ${mayForce ? 'retry_run can force a fresh attempt' : 'the instruction was consumed'}`,
+        });
+      }
+      return { message, member, meter, notice, requeued, settled, refusals };
+    })();
+  }
+  // harn:end lifecycle-retries-only-live-collaboration-work
 
   // ── pending interactions ──────────────────────────────────────────────
 

@@ -298,6 +298,9 @@ export class Daemon {
   private readonly pendingAttach = new Set<string>();
   private readonly releasedDeliveries = new Set<string>();
   private readonly operatorInterrupts = new Set<string>();
+  /** Members whose in-flight turn THIS daemon's lifecycle is interrupting, so
+   *  finalization can tell retryable collateral from a deliberate Stop. */
+  private readonly lifecycleInterrupts = new Set<string>();
   private readonly memberWaits = new Map<string, NonNullable<Member['waiting']>>();
   // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-runtime-registry
   private readonly lastUsage = new Map<string, AgentUsage>();
@@ -408,35 +411,34 @@ export class Daemon {
     clearInterval(this.limitsProbeTimer);
     this.stopResidencyReachability?.();
     if (options.force !== true) {
-      // harn:assume lifecycle-interrupted-deliveries-requeue ref=recovery-requeue-contract
+      // harn:assume lifecycle-retries-only-live-collaboration-work ref=recovery-requeue-contract
       // A graceful stop interrupts live turns through the same adapter path the
       // Stop button uses, so those runs finalize `interrupted` BEFORE the store
       // closes — at boot they are indistinguishable from a deliberate Stop (#492).
-      // Snapshot them HERE, where the cause is known to be lifecycle, and heal
-      // after settle so the next boot's ordinary drain re-takes the instruction.
-      const interruptedByShutdown = this.snapshotInFlightTurns();
-      // harn:end lifecycle-interrupted-deliveries-requeue
+      // Mark them HERE, where the cause is provably lifecycle, so finalization
+      // takes the atomic retry-or-terminal settlement instead of committing a
+      // participant result and re-queueing behind it.
+      for (const turn of this.snapshotInFlightTurns()) {
+        this.lifecycleInterrupts.add(this.store.getMessage(turn.room, turn.runMsgId)!.author);
+      }
+      // harn:end lifecycle-retries-only-live-collaboration-work
       for (const [memberId, session] of this.sessions) {
         const member = this.store.listRooms().find((room) => this.store.getMember(room.id, memberId));
         const persisted = member ? this.store.getMember(member.id, memberId) : undefined;
         if (persisted?.harness) this.requireAdapter(persisted.harness).interrupt(session);
       }
+      // Each turn settled itself atomically as it finalized; there is no second
+      // healing pass to run, and nothing left half-committed if we stop here.
       await this.settle();
-      // harn:assume lifecycle-interrupted-deliveries-requeue ref=recovery-requeue-contract
-      // Those turns have finalized now; re-queue what they were carrying.
-      for (const turn of interruptedByShutdown) {
-        this.requeueLifecycleInterrupted(turn.room, turn.runMsgId, turn.deliveryIds);
-      }
-      // harn:end lifecycle-interrupted-deliveries-requeue
     }
     await this.ledger?.close();
     this.store.close();
     this.closed = true;
   }
 
-  // harn:assume lifecycle-interrupted-deliveries-requeue ref=recovery-requeue-contract
+  // harn:assume lifecycle-retries-only-live-collaboration-work ref=recovery-requeue-contract
   /** Deliveries bound to a run the daemon's lifecycle is about to interrupt (or
-   *  already has) — the set a re-queue may heal. */
+   *  already has) — the set the atomic settlement decides over. */
   private boundLifecycleDeliveries(room: string, runMsgId: number): Delivery[] {
     return this.store
       .listDeliveries(room)
@@ -468,53 +470,7 @@ export class Daemon {
     }
     return snapshot;
   }
-
-  /**
-   * Re-queue deliveries whose turn the daemon's OWN lifecycle interrupted, so the
-   * recipient re-takes the same instruction as a fresh turn. Shared by the graceful
-   * close() seam and boot recovery's crash seam. Attempt counts are PRESERVED
-   * (unlike operator redeliver) so a poisonous instruction is fenced at the ceiling
-   * instead of looping the service; a deleted trigger stays purged; a fenced
-   * delivery stays consumed and is named in a system message. State is re-read per
-   * delivery because close() snapshots ids before those turns finalize.
-   */
-  private requeueLifecycleInterrupted(room: string, runMsgId: number, deliveryIds: string[]): void {
-    // A turn can complete normally in the instant before close()'s interrupt
-    // lands; only a run that genuinely ended interrupted may re-queue — a
-    // completed instruction must never be answered twice.
-    if (this.store.getMessage(room, runMsgId)?.run?.status !== 'interrupted') return;
-    const fenced: string[] = [];
-    for (const deliveryId of deliveryIds) {
-      const delivery = this.store.getDelivery(room, deliveryId);
-      if (!delivery) continue;
-      if (delivery.state !== 'consumed' && delivery.state !== 'delivering') continue;
-      // A deleted trigger stays purged (mirror retry_run's filter).
-      if (this.store.getMessage(room, delivery.message_id)?.deleted === true) continue;
-      // The poison-pill fence: an instruction at the retry ceiling stays consumed.
-      if (delivery.attempt_count >= RECOVERY_ATTEMPT_CEILING) {
-        fenced.push(delivery.recipient);
-        continue;
-      }
-      // redeliver mechanics WITHOUT the attempt-count reset — lifecycle collateral
-      // heals silently; it is not an operator asking for a fresh attempt.
-      const requeued = this.store.updateDelivery(room, delivery.id, {
-        state: 'queued',
-        run_msg_id: undefined,
-      });
-      this.store.setDeliveryAttemptProcess(room, [delivery.id], undefined);
-      this.emitInbox(room, requeued);
-    }
-    if (fenced.length > 0) {
-      const who = [...new Set(fenced)]
-        .map((recipient) => `@${this.store.getMember(room, recipient)?.handle ?? recipient}`)
-        .join(', ');
-      this.postSystemMessage(
-        room,
-        `delivery to ${who} not re-queued after restart (turn #${String(runMsgId)} hit the retry ceiling) — retry_run to force it`,
-      );
-    }
-  }
-  // harn:end lifecycle-interrupted-deliveries-requeue
+  // harn:end lifecycle-retries-only-live-collaboration-work
 
   /** Tracks a fire-and-forget turn chain so settle() can await quiescence. */
   private track(promise: Promise<void>): void {
@@ -2740,7 +2696,193 @@ export class Daemon {
       completion = { ...completion, status: 'interrupted' };
     }
     // harn:end operator-interrupt-not-failure
-    this.finalizeTurn(room, member.id, runMsg.id, completion ?? { status: 'interrupted' }, bound, toolCalls);
+    // harn:assume lifecycle-retries-only-live-collaboration-work ref=recovery-requeue-contract
+    // Some harnesses report a SIGINT as a generic failure. Once close() has
+    // captured lifecycle cause, classify that native exit as interrupted so it
+    // reaches the atomic retry-or-terminal settlement instead of killing the
+    // member and consuming the instruction as an operator result.
+    if (this.lifecycleInterrupts.has(member.id) && completion?.status === 'failed') {
+      completion = { ...completion, status: 'interrupted' };
+    }
+    // harn:end lifecycle-retries-only-live-collaboration-work
+    // harn:assume failed-finalization-reconciles-at-runtime ref=runtime-finalization-reconcile
+    // The engine's journal is already terminal here. If normal finalization
+    // cannot commit — a lifecycle retry rebound to a delivery whose participant
+    // already holds a result — the rollback used to leave the row running and
+    // the delivery delivering while the in-memory guard cleared, so nothing
+    // noticed until a human went looking. Reconcile immediately instead.
+    const finalCompletion = completion ?? { status: 'interrupted' as const };
+    const lifecycleSettlement = finalCompletion.status === 'interrupted'
+      && this.lifecycleInterrupts.has(member.id);
+    if (!lifecycleSettlement && this.normalFinalizationIsIllegal(room, bound)) {
+      // Known-settled work never attempts normal completion: completeTurn would
+      // roll back anyway, and for a closed group it might not even refuse.
+      this.reconcileFailedFinalization(
+        room,
+        member.id,
+        runMsg.id,
+        bound,
+        finalCompletion,
+        new Error('its collaboration work was already settled'),
+      );
+      return;
+    }
+    try {
+      this.finalizeTurn(room, member.id, runMsg.id, finalCompletion, bound, toolCalls);
+    } catch (error) {
+      this.reconcileFailedFinalization(room, member.id, runMsg.id, bound, finalCompletion, error);
+    }
+    // harn:end failed-finalization-reconciles-at-runtime
+  }
+
+  // harn:assume failed-finalization-reconciles-at-runtime ref=runtime-finalization-reconcile
+  /**
+   * The one repair both runtime and boot use. It never routes and never
+   * replaces a participant result: it makes the durable state honest, streams
+   * the repaired rows, and says so once. A second pass finds nothing to do.
+   */
+  private reconcileFailedFinalization(
+    room: string,
+    memberId: string,
+    runMsgId: number,
+    batch: Delivery[],
+    completion: TurnCompletion | undefined,
+    error: unknown,
+  ): void {
+    const detail = error instanceof Error ? error.message : String(error);
+    const repaired = this.store.repairFailedFinalization(room, {
+      runMsgId,
+      memberId,
+      deliveryIds: batch.map((delivery) => delivery.id),
+      error: `finalization could not commit: ${detail}`,
+      endedTs: new Date().toISOString(),
+      meterDay: new Date().toISOString().slice(0, 10),
+      meterDelta: {
+        turns: 1,
+        cost_usd: completion?.usage?.cost_usd ?? 0,
+        input_tokens: completion?.usage?.input_tokens ?? 0,
+        output_tokens: completion?.usage?.output_tokens ?? 0,
+        uncosted_tokens:
+          completion?.usage !== undefined && completion.usage.cost_usd === undefined
+            ? completion.usage.input_tokens + completion.usage.output_tokens
+            : 0,
+      },
+    });
+    if (!repaired.repaired) {
+      // The run is already terminal, so the Store transaction DID commit and
+      // something after it threw — an emit or barrier step. That is a real
+      // failure with nothing to repair, and swallowing it here would hide it
+      // from background error reporting and from later reconciliation.
+      throw error instanceof Error ? error : new Error(detail);
+    }
+    if (repaired.message !== undefined) this.emitMessage(room, repaired.message);
+    if (repaired.member !== undefined) this.emitMember(room, repaired.member);
+    if (repaired.meter !== undefined) {
+      this.emit(room, { type: 'meter', seq: this.store.currentSeq(room), meter: repaired.meter });
+    }
+    for (const delivery of repaired.deliveries) this.emitInbox(room, delivery);
+    if (repaired.notice !== undefined) this.emitMessage(room, repaired.notice);
+    this.memberWaits.delete(memberId);
+    this.groupWaits.delete(memberId);
+    this.retireTerminalRunRuntime(room, memberId, runMsgId);
+  }
+  // harn:assume collaboration-lifecycle-interruption-is-nonterminal ref=lifecycle-collaboration-finalization
+  /**
+   * Commit the one lifecycle settlement and stream what it changed. Nothing is
+   * routed: an interrupted attempt produced no answer to deliver, and its retry
+   * (if admitted) will produce the one result the round is still waiting for.
+   */
+  private settleLifecycleInterruptedTurn(
+    room: string,
+    memberId: string,
+    runMsgId: number,
+    batch: Delivery[],
+    messagePatch: Parameters<Store['completeTurn']>[1]['message'],
+    endedTs: string,
+    preserveOtherActiveTurn = false,
+  ): void {
+    const current = this.store.getMember(room, memberId);
+    const usage = messagePatch.run?.usage;
+    const settlement = this.store.settleLifecycleInterruption(room, {
+      runMsgId,
+      memberId,
+      deliveryIds: batch.map((delivery) => delivery.id),
+      message: messagePatch,
+      memberPatch: {
+        state: preserveOtherActiveTurn
+          ? (current?.state ?? 'running')
+          : current?.state === 'dead' || current?.state === 'paused'
+            ? current.state
+            : 'idle',
+      },
+      endedTs,
+      attemptCeiling: RECOVERY_ATTEMPT_CEILING,
+      meterDay: endedTs.slice(0, 10),
+      meterDelta: {
+        turns: 1,
+        cost_usd: usage?.cost_usd ?? 0,
+        input_tokens: usage?.input_tokens ?? 0,
+        output_tokens: usage?.output_tokens ?? 0,
+        uncosted_tokens:
+          usage !== undefined && usage.cost_usd === undefined
+            ? usage.input_tokens + usage.output_tokens
+            : 0,
+      },
+    });
+    if (!preserveOtherActiveTurn) {
+      this.lifecycleInterrupts.delete(memberId);
+      this.memberWaits.delete(memberId);
+      this.groupWaits.delete(memberId);
+    }
+    this.emitMessage(room, settlement.message);
+    this.emitMember(room, settlement.member);
+    this.emit(room, { type: 'meter', seq: this.store.currentSeq(room), meter: settlement.meter });
+    for (const delivery of [...settlement.requeued, ...settlement.settled]) {
+      this.emitInbox(room, delivery);
+    }
+    if (settlement.notice !== undefined) this.emitMessage(room, settlement.notice);
+    const affectedRounds = new Map<string, { groupId: string; roundNumber: number }>();
+    for (const delivery of settlement.settled) {
+      if (delivery.group_id === undefined || delivery.group_round === undefined) continue;
+      affectedRounds.set(`${delivery.group_id}:${String(delivery.group_round)}`, {
+        groupId: delivery.group_id,
+        roundNumber: delivery.group_round,
+      });
+    }
+    for (const { groupId, roundNumber } of affectedRounds.values()) {
+      this.clearSatisfiedGroupWaits(room, groupId, roundNumber);
+      this.advanceCollaborationRound(room, groupId, roundNumber);
+    }
+    if (preserveOtherActiveTurn) {
+      this.runActivity.delete(`${room}:${runMsgId}`);
+    } else {
+      this.retireTerminalRunRuntime(room, memberId, runMsgId);
+    }
+  }
+  // harn:end collaboration-lifecycle-interruption-is-nonterminal
+
+  /**
+   * True when this batch cannot take the normal finalization path, because its
+   * collaboration work is already settled: a terminal participant, a closed
+   * group, or a closed round. It asks the Store the SAME question repair asks —
+   * a narrower check here would let a closed group accept a fresh result, since
+   * `recordCollaborationParticipantTerminal` guards the participant alone.
+   *
+   * Checked proactively before normal completion at both boot and runtime; the
+   * runtime catch stays for transaction failures this cannot foresee.
+   */
+  private normalFinalizationIsIllegal(room: string, batch: Delivery[]): boolean {
+    return batch.some((delivery) => this.store.collaborationWorkIsSettled(room, delivery.id));
+  }
+  // harn:end failed-finalization-reconciles-at-runtime
+
+  /** Clear transient evidence that must not outlive any terminalized attempt. */
+  private retireTerminalRunRuntime(room: string, memberId: string, runMsgId: number): void {
+    this.runActivity.delete(`${room}:${runMsgId}`);
+    for (const extension of this.store.listMembers(room)) {
+      if (extension.kind !== 'extension' || extension.parent !== memberId || extension.state !== 'running') continue;
+      this.emitMember(room, this.store.updateMember(room, extension.id, { state: 'dead' }));
+    }
   }
 
   private composeBatchPayload(room: string, recipient: Member, batch: Delivery[]): string {
@@ -2880,6 +3022,19 @@ export class Daemon {
       },
     } satisfies Parameters<Store['completeTurn']>[1]['message'];
     // harn:end substantive-routing-excludes-acknowledgements
+
+    // harn:assume collaboration-lifecycle-interruption-is-nonterminal ref=lifecycle-collaboration-finalization
+    // A turn THIS daemon's lifecycle interrupted is retryable work, not a
+    // result. Settle the run evidence, the delivery's retry decision, and the
+    // participant's barrier state as one fact — committing terminality first
+    // and re-queueing afterwards is exactly what resurrected #598 into #599.
+    // Operator Stop never reaches here: it is not marked as lifecycle.
+    if (completion.status === 'interrupted' && this.lifecycleInterrupts.has(memberId)) {
+      this.settleLifecycleInterruptedTurn(room, memberId, runMsgId, batch, messagePatch, endedTs);
+      return;
+    }
+    // harn:end collaboration-lifecycle-interruption-is-nonterminal
+
     const finalizedDraft: Message = { ...runMsg, ...messagePatch };
     const lastDelivery = batch.at(-1);
     const triggerAuthor = lastDelivery
@@ -3323,21 +3478,49 @@ export class Daemon {
         if (completed) {
           // Provably completed → finalize from the journal, never re-run.
           const toolCalls = events.filter((e) => e.type === 'run.item' && e.item_type === 'tool_call').length;
-          this.finalizeTurn(
-            room.id,
-            member.id,
-            runMsgId,
-            // harn:assume failed-run-details-never-route-as-replies ref=failed-run-recovery
-            {
-              status: completed.status,
-              final_text: completed.final_text,
-              error: completed.error,
-              usage: completed.usage,
-            },
-            // harn:end failed-run-details-never-route-as-replies
-            group,
-            toolCalls,
-          );
+          // A row like #599 cannot finalize normally: its participant already
+          // holds a terminal result, so completeTurn would refuse and roll the
+          // whole transaction back, leaving the row running exactly as it was
+          // found. Boot uses the SAME repair the runtime seam does instead.
+          if (this.normalFinalizationIsIllegal(room.id, group)) {
+            this.reconcileFailedFinalization(
+              room.id,
+              member.id,
+              runMsgId,
+              group,
+              { status: completed.status, usage: completed.usage },
+              new Error('its collaboration work was already settled'),
+            );
+            this.orphanLeftoverInteractions(room.id, member.id);
+            continue;
+          }
+          const completion = {
+            status: completed.status,
+            final_text: completed.final_text,
+            error: completed.error,
+            usage: completed.usage,
+          } satisfies TurnCompletion;
+          try {
+            this.finalizeTurn(
+              room.id,
+              member.id,
+              runMsgId,
+              // harn:assume failed-run-details-never-route-as-replies ref=failed-run-recovery
+              completion,
+              // harn:end failed-run-details-never-route-as-replies
+              group,
+              toolCalls,
+            );
+          } catch (error) {
+            this.reconcileFailedFinalization(
+              room.id,
+              member.id,
+              runMsgId,
+              group,
+              completion,
+              error,
+            );
+          }
           this.orphanLeftoverInteractions(room.id, member.id);
         } else if (processAlive) {
           this.holdAmbiguousTurn(room.id, member, group, runMsgId, 'its adapter process may still be alive');
@@ -3367,34 +3550,44 @@ export class Daemon {
           this.holdAmbiguousTurn(room.id, member, group, runMsgId);
         }
       }
-      // harn:assume lifecycle-interrupted-deliveries-requeue ref=recovery-requeue-contract
+      // harn:assume lifecycle-retries-only-live-collaboration-work ref=recovery-requeue-contract
       // A run still `running` here was stranded by a CRASH mid-turn — a graceful
-      // stop heals its own turns in close(), before the store closes (#492), so
-      // anything left running got no chance to. Finalize it interrupted and
-      // re-queue what it was carrying through the shared lifecycle helper.
+      // stop settles its own turns in close(), before the store closes (#492), so
+      // anything left running got no chance to. It takes the SAME atomic
+      // retry-or-terminal settlement, so a crash cannot resurrect closed work
+      // that a graceful stop would have refused.
       for (const runMsg of this.store.listMessages(room.id, { limit: Number.MAX_SAFE_INTEGER })) {
         if (runMsg.kind !== 'run' || runMsg.run?.status !== 'running') continue;
-        if (this.inflight.has(runMsg.author)) continue; // an in-flight reconcile retry owns this run
+        // Exact run, not author-wide: another turn by the same author being
+        // reconciled says nothing about whether THIS run is still owned.
+        if (byRunMsg.has(runMsg.id)) continue; // this pass already reconciled it
         const bound = this.boundLifecycleDeliveries(room.id, runMsg.id);
         if (bound.length === 0) continue;
-        const interrupted = this.store.updateMessage(room.id, runMsg.id, {
-          body: '',
-          mentions: [],
-          refs: [],
-          ledger_refs: [],
-          run: {
-            ...runMsg.run,
-            status: 'interrupted',
-            ended_ts: new Date().toISOString(),
-            stalled_since: undefined,
-            final_text: undefined,
-          },
-        });
+        const endedTs = new Date().toISOString();
         this.runActivity.delete(`${room.id}:${runMsg.id}`);
-        this.emitMessage(room.id, interrupted);
-        this.requeueLifecycleInterrupted(room.id, runMsg.id, bound.map((delivery) => delivery.id));
+        this.settleLifecycleInterruptedTurn(
+          room.id,
+          runMsg.author,
+          runMsg.id,
+          bound,
+          {
+            body: '',
+            mentions: [],
+            refs: [],
+            ledger_refs: [],
+            run: {
+              ...runMsg.run,
+              status: 'interrupted',
+              ended_ts: endedTs,
+              stalled_since: undefined,
+              final_text: undefined,
+            },
+          },
+          endedTs,
+          this.inflight.has(runMsg.author),
+        );
       }
-      // harn:end lifecycle-interrupted-deliveries-requeue
+      // harn:end lifecycle-retries-only-live-collaboration-work
       this.reconcileCollaborationGroups(room.id);
       // drain anything still queued (tracked — a turn may block on an ask)
       for (const member of this.store.listMembers(room.id)) {

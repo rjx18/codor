@@ -1,0 +1,14 @@
+id: unresolved-delivery-fences-fresh-member-turns
+hash: a-5627a7d04466
+title: A durable delivering attempt fences fresh turns without bricking operator
+  recovery
+state: active
+statement: A member may not start a fresh run while it owns a delivering
+  delivery bound to another unresolved run, even when the in-memory inflight set
+  is empty; runtime or boot reconciliation must first move that attempt to
+  consumed or held, after which redeliver, retry_run, and release_hold keep
+  their existing operator escape semantics and later queued work may run without
+  a daemon restart.
+depends_on:
+  - failed-finalization-reconciles-at-runtime
+created_by: runtime-delivery-reconciliation

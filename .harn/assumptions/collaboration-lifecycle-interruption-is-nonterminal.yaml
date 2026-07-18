@@ -1,0 +1,17 @@
+id: collaboration-lifecycle-interruption-is-nonterminal
+hash: a-433ba9c316b5
+title: A grouped attempt interrupted for daemon lifecycle retry is not a
+  participant result
+state: active
+statement: "Completed, failed, and operator-interrupted grouped turns atomically
+  finalize the run, consume its exact input, update member and meter, and record
+  the participant result. One atomic lifecycle settlement decides the exception:
+  only an attempt whose delivery is durably re-queued finalizes its run evidence
+  while leaving the participant and round nonterminal; a refused retry records
+  participant interrupted so the barrier releases. The admitted retry can then
+  produce the one eventual result without replacing or duplicating one."
+depends_on:
+  - group-participant-terminality-commits-with-the-turn
+  - lifecycle-retries-only-live-collaboration-work
+  - turn-finalization-transactional
+created_by: runtime-delivery-reconciliation

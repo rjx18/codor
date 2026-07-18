@@ -1,0 +1,15 @@
+id: lifecycle-retries-only-live-collaboration-work
+hash: a-e3db082f3c78
+title: Daemon lifecycle retries only collaboration work that remains nonterminal
+state: active
+statement: A daemon-lifecycle interruption may re-queue its delivery only while
+  the exact collaboration participant is nonterminal, its round and group remain
+  open, the trigger survives, and the attempt is below its ceiling; one atomic
+  settlement then records interrupted run evidence, queues the retry, and leaves
+  the participant nonterminal. If retry is refused for any reason, the same
+  settlement consumes/fences the delivery and records the participant
+  interrupted so its barrier releases. Operator Stop is always terminal and
+  never re-queues, and terminal/closed work is never resurrected.
+depends_on:
+  - open-collaboration-groups-reconcile-without-resurrection
+created_by: runtime-delivery-reconciliation

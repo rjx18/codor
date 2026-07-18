@@ -1,0 +1,17 @@
+id: failed-finalization-reconciles-at-runtime
+hash: a-b25ce6f6fbd6
+title: A terminal journal that cannot finalize reconciles immediately and idempotently
+state: active
+statement: Delivery attempt state is bound before spawn and consumed only by
+  normal atomic completion or explicit reconciliation; when a terminal journal
+  cannot finalize, runtime and boot use the same idempotent transaction to
+  retain the journal, fail the active run visibly, consume obsolete closed
+  collaboration work or hold ambiguous work, restore non-running member state,
+  route nothing, meter the rolled-back attempt exactly once, and emit one
+  actionable notice, so no in-memory guard may clear while durable work remains
+  silently active.
+depends_on:
+  - delivery-attempt-wal-reconcile
+  - turn-finalization-transactional
+  - lifecycle-retries-only-live-collaboration-work
+created_by: runtime-delivery-reconciliation

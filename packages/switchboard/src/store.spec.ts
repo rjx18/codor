@@ -731,6 +731,118 @@ describe('atomic turn lifecycle', () => {
   });
 });
 
+// harn:assume failed-finalization-reconciles-at-runtime ref=delivery-reconciliation-regression
+describe('failed finalization reconciliation transaction', () => {
+  it('fails the run, holds ambiguous input, meters and explains exactly once', () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'repair-alpha', display_name: 'Repair Alpha', state: 'running',
+    });
+    const trigger = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '@repair-alpha do the work',
+    });
+    const delivery = store.createDelivery('eng', {
+      message_id: trigger.id, recipient: alpha.id,
+    });
+    const started = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: [delivery.id],
+      startedTs: '2026-07-18T10:00:00.000Z',
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    })!;
+    store.setDeliveryAttemptProcess('eng', [delivery.id], { pid: 1234 });
+
+    const first = store.repairFailedFinalization('eng', {
+      runMsgId: started.runMessage.id,
+      memberId: alpha.id,
+      deliveryIds: [delivery.id],
+      error: 'finalization could not commit: injected transaction failure',
+      endedTs: '2026-07-18T10:01:00.000Z',
+      meterDay: '2026-07-18',
+      meterDelta: { turns: 1, input_tokens: 300, output_tokens: 20, uncosted_tokens: 320 },
+    });
+
+    expect(first).toMatchObject({ repaired: true, held: [delivery.id] });
+    expect(first.message?.run).toMatchObject({
+      status: 'failed',
+      error: 'finalization could not commit: injected transaction failure',
+    });
+    expect(first.message).toMatchObject({ body: '', mentions: [], refs: [], ledger_refs: [] });
+    expect(first.member?.state).toBe('idle');
+    expect(first.deliveries).toEqual([
+      expect.objectContaining({ id: delivery.id, state: 'held', run_msg_id: started.runMessage.id }),
+    ]);
+    expect(first.notice?.body).toContain('release_hold or redeliver');
+    expect(store.getDeliveryAttemptProcess('eng', delivery.id)).toBeUndefined();
+    expect(store.getMeter('eng', '2026-07-18')).toMatchObject({
+      turns: 1, input_tokens: 300, output_tokens: 20, uncosted_tokens: 320,
+    });
+
+    const beforeMessages = store.listMessages('eng', { limit: 100 }).length;
+    const second = store.repairFailedFinalization('eng', {
+      runMsgId: started.runMessage.id,
+      memberId: alpha.id,
+      deliveryIds: [delivery.id],
+      error: 'finalization could not commit: should not land',
+      endedTs: '2026-07-18T10:02:00.000Z',
+      meterDay: '2026-07-18',
+      meterDelta: { turns: 1, input_tokens: 999 },
+    });
+    expect(second).toEqual({ repaired: false, deliveries: [], held: [] });
+    expect(store.listMessages('eng', { limit: 100 })).toHaveLength(beforeMessages);
+    expect(store.getMeter('eng', '2026-07-18')).toMatchObject({
+      turns: 1, input_tokens: 300, output_tokens: 20, uncosted_tokens: 320,
+    });
+  });
+
+  it('treats a closed group or closed round as settled even with nonterminal participants', () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'closed-alpha', display_name: 'Closed Alpha', state: 'idle',
+    });
+    const beta = store.addMember('eng', {
+      kind: 'agent', handle: 'closed-beta', display_name: 'Closed Beta', state: 'idle',
+    });
+    const seed = (groupId: string) => {
+      const root = store.postMessage('eng', {
+        author: owner.id,
+        kind: 'chat',
+        body: `@closed-alpha @closed-beta ${groupId}`,
+      });
+      return store.createCollaborationGroup('eng', {
+        groupId,
+        rootMessageId: root.id,
+        participants: [
+          { memberId: alpha.id, payloadSnapshot: `${groupId} alpha` },
+          { memberId: beta.id, payloadSnapshot: `${groupId} beta` },
+        ],
+      });
+    };
+
+    const roundClosed = seed('round-closed');
+    const roundDelivery = roundClosed.deliveries[0]!;
+    expect(store.collaborationWorkIsSettled('eng', roundDelivery.id)).toBe(false);
+    store.updateCollaborationRound('eng', roundClosed.group.id, 1, {
+      state: 'closed', released_ts: '2026-07-18T10:10:00.000Z',
+    });
+    expect(store.findCollaborationParticipantByDelivery('eng', roundDelivery.id)?.terminal_status)
+      .toBeUndefined();
+    expect(store.collaborationWorkIsSettled('eng', roundDelivery.id)).toBe(true);
+
+    const groupClosed = seed('group-closed');
+    const groupDelivery = groupClosed.deliveries[0]!;
+    expect(store.collaborationWorkIsSettled('eng', groupDelivery.id)).toBe(false);
+    store.updateCollaborationGroup('eng', groupClosed.group.id, {
+      state: 'completed', completed_ts: '2026-07-18T10:11:00.000Z',
+    });
+    expect(store.findCollaborationParticipantByDelivery('eng', groupDelivery.id)?.terminal_status)
+      .toBeUndefined();
+    expect(store.getCollaborationRound('eng', groupClosed.group.id, 1)?.state).toBe('collecting');
+    expect(store.collaborationWorkIsSettled('eng', groupDelivery.id)).toBe(true);
+  });
+});
+// harn:end failed-finalization-reconciles-at-runtime
+
 // harn:assume every-channel-has-a-visible-accent ref=channel-accent-regression
 describe('channel accents', () => {
   it('gives a channel created without a colour one derived from its id', () => {
@@ -993,6 +1105,54 @@ describe('a consumed delivery is never resurrected into a turn', () => {
     expect(retried.deliveries.map((item) => item.id)).toEqual([delivery.id]);
     expect(retried.deliveries[0]!.attempt_count).toBe(2);
   });
+
+  // harn:assume unresolved-delivery-fences-fresh-member-turns ref=durable-delivery-turn-fence-regression
+  it('fences a fresh run behind another durable active attempt but permits exact-run recovery', () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'fenced-alpha', display_name: 'Fenced Alpha', state: 'running',
+    });
+    const staleTrigger = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '@fenced-alpha old work',
+    });
+    const staleDelivery = store.createDelivery('eng', {
+      message_id: staleTrigger.id, recipient: alpha.id,
+    });
+    const stale = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: [staleDelivery.id],
+      startedTs: '2026-07-18T10:00:00.000Z',
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    })!;
+    const freshTrigger = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '@fenced-alpha new work',
+    });
+    const freshDelivery = store.createDelivery('eng', {
+      message_id: freshTrigger.id, recipient: alpha.id,
+    });
+
+    const refused = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: [freshDelivery.id],
+      startedTs: '2026-07-18T10:01:00.000Z',
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    });
+    expect(refused).toBeUndefined();
+    expect(store.getDelivery('eng', freshDelivery.id)?.state).toBe('queued');
+    expect(store.listMessages('eng', { limit: 100 }).filter((message) => message.kind === 'run'))
+      .toHaveLength(1);
+
+    const resumed = store.beginTurn('eng', {
+      memberId: alpha.id,
+      deliveryIds: [staleDelivery.id],
+      startedTs: '2026-07-18T10:02:00.000Z',
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+      reuseRunMsgId: stale.runMessage.id,
+    });
+    expect(resumed?.runMessage.id).toBe(stale.runMessage.id);
+    expect(resumed?.deliveries[0]?.attempt_count).toBe(2);
+  });
+  // harn:end unresolved-delivery-fences-fresh-member-turns
 });
 
 // harn:assume approval-answer-is-atomic-and-chatless ref=approval-answer-store-regression

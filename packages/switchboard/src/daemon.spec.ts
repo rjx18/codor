@@ -4796,24 +4796,28 @@ describe('graceful shutdown delivery requeue (close seam)', () => {
   });
 
   it('never re-queues a turn that completed in the instant before the interrupt landed', async () => {
-    // close() snapshots BEFORE interrupting, so a turn can finish normally
-    // inside that window; the helper must skip a run whose final status is
-    // completed — a completed instruction is never answered twice.
+    // close() marks lifecycle cause BEFORE interrupting. This adapter turn does
+    // not react to interrupt and completes normally inside that window, so the
+    // status gate — not a post-finalization requeue helper — must keep it final.
     const alpha = spawnAgent('alpha');
-    fake.enqueue({ kind: 'complete', final_text: 'answered before the interrupt' });
+    fake.enqueue({
+      kind: 'complete',
+      final_text: 'answered before the interrupt',
+      delay_ms: 20,
+    });
     daemon.postHumanMessage('eng', '@alpha quick question');
-    await daemon.settle();
+    const running = await until(() => runMessages().find((message) =>
+      message.author === alpha.id && message.run?.status === 'running'));
+    await daemon.close();
 
-    const completed = runMessages().find((m) => m.author === alpha.id && m.run?.status === 'completed')!;
+    daemon = newDaemon();
+    expect(daemon.store.getMessage('eng', running.id)?.run?.status).toBe('completed');
     const consumed = daemon.store.listDeliveries('eng')
-      .find((d) => d.run_msg_id === completed.id && d.state === 'consumed')!;
-
-    // Deterministic exercise of the race outcome close() could snapshot.
-    (daemon as unknown as {
-      requeueLifecycleInterrupted(room: string, runMsgId: number, deliveryIds: string[]): void;
-    }).requeueLifecycleInterrupted('eng', completed.id, [consumed.id]);
-
-    expect(daemon.store.getDelivery('eng', consumed.id)!.state).toBe('consumed');
+      .find((delivery) => delivery.run_msg_id === running.id)!;
+    expect(consumed.state).toBe('consumed');
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(runMessages().filter((message) => message.author === alpha.id)).toHaveLength(1);
   });
 
   it('never re-queues a turn an operator deliberately stopped', async () => {
@@ -4855,8 +4859,407 @@ describe('graceful shutdown delivery requeue (close seam)', () => {
 
     daemon = newDaemon();
     expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('consumed'); // purge stays purged
+    expect(daemon.store.listMessages('eng', { limit: 200 }).some((message) =>
+      message.kind === 'system' && message.body.includes('the instruction was deleted'))).toBe(true);
   });
 });
+
+// harn:assume lifecycle-retries-only-live-collaboration-work ref=lifecycle-collaboration-retry-regression
+// harn:assume collaboration-lifecycle-interruption-is-nonterminal ref=lifecycle-collaboration-finalization-regression
+describe('lifecycle interruption and collaboration terminality', () => {
+  const startGroupedBlockedTurn = async (prefix: string) => {
+    const alpha = spawnAgent(`${prefix}-alpha`);
+    const beta = spawnAgent(`${prefix}-beta`);
+    fake.enqueue(
+      { kind: 'fail-on-interrupt', error: 'native process exited after lifecycle SIGINT' },
+      { kind: 'complete', final_text: `${prefix} beta completed` },
+    );
+    const root = daemon.postHumanMessage(
+      'eng',
+      `@${prefix}-alpha @${prefix}-beta compare lifecycle behavior`,
+    );
+    const running = await until(() => {
+      const alphaRun = runMessages().find((message) =>
+        message.author === alpha.id && message.run?.status === 'running');
+      const betaRun = runMessages().find((message) =>
+        message.author === beta.id && message.run?.status === 'completed');
+      return alphaRun && betaRun ? alphaRun : undefined;
+    });
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    const delivery = daemon.store.listDeliveries('eng').find((candidate) =>
+      candidate.group_id === group.id && candidate.recipient === alpha.id)!;
+    return { alpha, beta, root, group, running, delivery };
+  };
+
+  it('requeues a lifecycle-interrupted participant as nonterminal, then records only the retry result', async () => {
+    const seeded = await startGroupedBlockedTurn('retryable');
+    await daemon.close();
+
+    daemon = newDaemon();
+    expect(daemon.store.getMessage('eng', seeded.running.id)?.run?.status).toBe('interrupted');
+    expect(daemon.store.getDelivery('eng', seeded.delivery.id)).toMatchObject({
+      state: 'queued', attempt_count: 1, run_msg_id: undefined,
+    });
+    expect(daemon.store.findCollaborationParticipantByDelivery(
+      'eng', seeded.delivery.id,
+    )?.terminal_status).toBeUndefined();
+    expect(daemon.store.getCollaborationRound('eng', seeded.group.id, 1)?.state).toBe('collecting');
+
+    fake.enqueue({ kind: 'complete', final_text: 'retryable alpha completed once' });
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const retriedDelivery = daemon.store.getDelivery('eng', seeded.delivery.id)!;
+    const participant = daemon.store.findCollaborationParticipantByDelivery(
+      'eng', seeded.delivery.id,
+    )!;
+    expect(retriedDelivery).toMatchObject({ state: 'consumed', attempt_count: 2 });
+    expect(participant.terminal_status).toBe('completed');
+    expect(participant.result_message_id).not.toBe(seeded.running.id);
+    expect(daemon.store.getMessage('eng', participant.result_message_id!)?.body)
+      .toBe('retryable alpha completed once');
+    expect(daemon.store.getCollaborationGroup('eng', seeded.group.id)?.state).toBe('completed');
+    expect(daemon.store.getCollaborationRound('eng', seeded.group.id, 1)?.state).toBe('closed');
+  });
+
+  it('terminalizes a ceiling-refused lifecycle participant and releases its barrier', async () => {
+    const seeded = await startGroupedBlockedTurn('ceiling');
+    daemon.store.updateDelivery('eng', seeded.delivery.id, {
+      attempt_count: RECOVERY_ATTEMPT_CEILING,
+    });
+
+    await daemon.close();
+    daemon = newDaemon();
+
+    expect(daemon.store.getDelivery('eng', seeded.delivery.id)?.state).toBe('consumed');
+    expect(daemon.store.findCollaborationParticipantByDelivery(
+      'eng', seeded.delivery.id,
+    )).toMatchObject({
+      terminal_status: 'interrupted', result_message_id: seeded.running.id,
+    });
+    expect(daemon.store.getCollaborationRound('eng', seeded.group.id, 1)?.state).toBe('closed');
+    expect(daemon.store.getCollaborationGroup('eng', seeded.group.id)?.state).toBe('completed');
+    expect(daemon.store.listMessages('eng', { limit: 200 }).filter((message) =>
+      message.kind === 'system' && message.body.includes('retry ceiling'))).toHaveLength(1);
+    const before = fake.deliveries.length;
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(before);
+  });
+
+  it('uses lifecycle refusal for a newly closed group instead of failed-finalization repair', async () => {
+    const seeded = await startGroupedBlockedTurn('closed-work');
+    daemon.store.updateCollaborationGroup('eng', seeded.group.id, {
+      state: 'completed', completed_ts: '2026-07-18T10:20:00.000Z',
+    });
+
+    await daemon.close();
+    daemon = newDaemon();
+
+    expect(daemon.store.getMessage('eng', seeded.running.id)?.run?.status).toBe('interrupted');
+    expect(daemon.store.getDelivery('eng', seeded.delivery.id)?.state).toBe('consumed');
+    expect(daemon.store.findCollaborationParticipantByDelivery(
+      'eng', seeded.delivery.id,
+    )).toMatchObject({
+      terminal_status: 'interrupted', result_message_id: seeded.running.id,
+    });
+    expect(daemon.store.listMessages('eng', { limit: 200 }).some((message) =>
+      message.kind === 'system'
+      && message.body.includes('collaboration work was already settled'))).toBe(true);
+    expect(daemon.store.listMessages('eng', { limit: 200 }).some((message) =>
+      message.kind === 'system' && message.body.includes('could not finalize'))).toBe(false);
+  });
+
+  it('keeps an operator Stop terminal and never turns it into lifecycle retry', async () => {
+    const seeded = await startGroupedBlockedTurn('operator');
+    daemon.interruptMember('eng', seeded.alpha.id);
+    await daemon.settle();
+
+    expect(daemon.store.getMessage('eng', seeded.running.id)?.run?.status).toBe('interrupted');
+    expect(daemon.store.getDelivery('eng', seeded.delivery.id)?.state).toBe('consumed');
+    expect(daemon.store.findCollaborationParticipantByDelivery(
+      'eng', seeded.delivery.id,
+    )).toMatchObject({
+      terminal_status: 'interrupted', result_message_id: seeded.running.id,
+    });
+    expect(daemon.store.getCollaborationGroup('eng', seeded.group.id)?.state).toBe('completed');
+    const before = fake.deliveries.length;
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(before);
+  });
+});
+// harn:end collaboration-lifecycle-interruption-is-nonterminal
+// harn:end lifecycle-retries-only-live-collaboration-work
+
+// harn:assume lifecycle-retries-only-live-collaboration-work ref=lifecycle-collaboration-retry-regression
+describe('exact-run lifecycle crash settlement', () => {
+  it('settles a stranded run even while another run by the same author is being retried', async () => {
+    const alpha = spawnAgent('same-author-alpha');
+    const owner = daemon.ownerOf('eng');
+    const seedRun = (body: string, state: 'delivering' | 'consumed') => {
+      const trigger = daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body });
+      const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+      const run = daemon.store.updateMessage('eng', posted.id, {
+        run: {
+          status: 'running',
+          started_ts: '2026-07-18T09:00:00.000Z',
+          tool_calls: 0,
+          events_ref: `runs/${String(posted.id)}.jsonl`,
+        },
+      });
+      const delivery = daemon.store.createDelivery('eng', {
+        message_id: trigger.id, recipient: alpha.id,
+      });
+      daemon.store.updateDelivery('eng', delivery.id, {
+        state, attempt_count: 1, run_msg_id: run.id,
+      });
+      return { run, delivery };
+    };
+    const retrying = seedRun('@same-author-alpha retry this run', 'delivering');
+    const stranded = seedRun('@same-author-alpha settle this other run', 'consumed');
+    daemon.store.updateMember('eng', alpha.id, { state: 'running' });
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'hold the first recovered run open' },
+      reply: () => 'first recovered run answered',
+    });
+
+    await daemon.reconcile();
+
+    expect(daemon.store.getMessage('eng', retrying.run.id)?.run?.status).toBe('running');
+    expect(daemon.store.getMessage('eng', stranded.run.id)?.run?.status).toBe('interrupted');
+    expect(daemon.store.getDelivery('eng', stranded.delivery.id)).toMatchObject({
+      state: 'queued', attempt_count: 1, run_msg_id: undefined,
+    });
+    expect(daemon.store.getMember('eng', alpha.id)?.state).not.toBe('idle');
+    await until(() => daemon.store.getMember('eng', alpha.id)?.state === 'awaiting_input'
+      ? true
+      : undefined);
+
+    daemon.interruptMember('eng', alpha.id);
+    await daemon.settle();
+  });
+});
+// harn:end lifecycle-retries-only-live-collaboration-work
+
+// harn:assume failed-finalization-reconciles-at-runtime ref=delivery-reconciliation-regression
+describe('failed turn finalization reconciliation', () => {
+  const seedClosedDuplicateAttempt = () => {
+    const alpha = spawnAgent('duplicate-alpha');
+    const beta = spawnAgent('duplicate-beta');
+    const owner = daemon.ownerOf('eng');
+    const root = daemon.store.postMessage('eng', {
+      author: owner.id,
+      kind: 'chat',
+      body: '@duplicate-alpha @duplicate-beta compare the repair',
+    });
+    const projection = daemon.store.createCollaborationGroup('eng', {
+      groupId: 'duplicate-group',
+      rootMessageId: root.id,
+      participants: [
+        { memberId: alpha.id, payloadSnapshot: 'alpha payload' },
+        { memberId: beta.id, payloadSnapshot: 'beta payload' },
+      ],
+    });
+    const alphaDelivery = projection.deliveries.find((delivery) => delivery.recipient === alpha.id)!;
+    const betaDelivery = projection.deliveries.find((delivery) => delivery.recipient === beta.id)!;
+    const resultFor = (author: string, status: 'completed' | 'interrupted') => {
+      const posted = daemon.store.postMessage('eng', { author, kind: 'run', body: '' });
+      return daemon.store.updateMessage('eng', posted.id, {
+        run: {
+          status,
+          started_ts: '2026-07-18T08:30:00.000Z',
+          ended_ts: '2026-07-18T08:31:00.000Z',
+          tool_calls: 0,
+          events_ref: `runs/${String(posted.id)}.jsonl`,
+        },
+      });
+    };
+    const originalResult = resultFor(alpha.id, 'interrupted');
+    const betaResult = resultFor(beta.id, 'completed');
+    daemon.store.updateDelivery('eng', alphaDelivery.id, {
+      state: 'consumed', attempt_count: 1, run_msg_id: originalResult.id,
+    });
+    daemon.store.updateDelivery('eng', betaDelivery.id, {
+      state: 'consumed', attempt_count: 1, run_msg_id: betaResult.id,
+    });
+    daemon.store.recordCollaborationParticipantTerminal('eng', {
+      deliveryId: alphaDelivery.id,
+      status: 'interrupted',
+      resultMessageId: originalResult.id,
+      completedTs: '2026-07-18T08:31:00.000Z',
+    });
+    daemon.store.recordCollaborationParticipantTerminal('eng', {
+      deliveryId: betaDelivery.id,
+      status: 'completed',
+      resultMessageId: betaResult.id,
+      completedTs: '2026-07-18T08:31:00.000Z',
+    });
+    daemon.store.updateCollaborationRound('eng', projection.group.id, 1, {
+      state: 'closed', released_ts: '2026-07-18T08:32:00.000Z',
+    });
+    daemon.store.updateCollaborationGroup('eng', projection.group.id, {
+      state: 'completed', completed_ts: '2026-07-18T08:32:00.000Z',
+    });
+
+    const postedRetry = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+    const retry = daemon.store.updateMessage('eng', postedRetry.id, {
+      run: {
+        status: 'running',
+        started_ts: '2026-07-18T08:34:00.000Z',
+        tool_calls: 0,
+        events_ref: `runs/${String(postedRetry.id)}.jsonl`,
+      },
+    });
+    daemon.store.updateMember('eng', alpha.id, { state: 'running' });
+    daemon.store.updateDelivery('eng', alphaDelivery.id, {
+      state: 'delivering',
+      attempt_count: RECOVERY_ATTEMPT_CEILING,
+      run_msg_id: retry.id,
+      batch_id: `batch-${String(retry.id)}`,
+    });
+    daemon.blobs.append('eng', retry.run!.events_ref, {
+      type: 'run.completed',
+      status: 'completed',
+      final_text: '@duplicate-beta this obsolete answer must never route',
+      usage: { input_tokens: 30_320, output_tokens: 41 },
+    });
+    return {
+      alpha,
+      beta,
+      projection,
+      alphaDelivery,
+      originalResult,
+      retry,
+    };
+  };
+
+  it('repairs the copied-live closed-result topology on boot, once, without routing', async () => {
+    const seeded = seedClosedDuplicateAttempt();
+    const beforeMessages = daemon.store.listMessages('eng', { limit: 100 }).length;
+    await daemon.close({ force: true });
+
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const repaired = daemon.store.getMessage('eng', seeded.retry.id)!;
+    expect(repaired.run).toMatchObject({
+      status: 'failed',
+      error: 'finalization could not commit: its collaboration work was already settled',
+    });
+    const retainedTerminal = daemon.blobs.read('eng', repaired.run!.events_ref).at(-1)!;
+    expect(retainedTerminal).toMatchObject({
+      type: 'run.completed',
+      status: 'completed',
+      usage: { input_tokens: 30_320, output_tokens: 41 },
+    });
+    expect(daemon.store.getDelivery('eng', seeded.alphaDelivery.id)).toMatchObject({
+      state: 'consumed', run_msg_id: seeded.retry.id,
+    });
+    expect(daemon.store.findCollaborationParticipantByDelivery(
+      'eng', seeded.alphaDelivery.id,
+    )).toMatchObject({
+      terminal_status: 'interrupted', result_message_id: seeded.originalResult.id,
+    });
+    expect(daemon.store.getCollaborationGroup('eng', seeded.projection.group.id)?.state)
+      .toBe('completed');
+    expect(daemon.store.getCollaborationRound('eng', seeded.projection.group.id, 1)?.state)
+      .toBe('closed');
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.listDeliveries('eng').filter((delivery) =>
+      delivery.message_id === repaired.id)).toHaveLength(0);
+    const notices = daemon.store.listMessages('eng', { limit: 100 }).filter((message) =>
+      message.kind === 'system' && message.body.includes('duplicate instruction was consumed'));
+    expect(notices).toHaveLength(1);
+    expect(daemon.store.listMessages('eng', { limit: 100 })).toHaveLength(beforeMessages + 1);
+    const day = new Date().toISOString().slice(0, 10);
+    expect(daemon.store.getMeter('eng', day)).toMatchObject({
+      turns: 1, input_tokens: 30_320, output_tokens: 41, uncosted_tokens: 30_361,
+    });
+
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(daemon.store.listMessages('eng', { limit: 100 }).filter((message) =>
+      message.kind === 'system' && message.body.includes('duplicate instruction was consumed')))
+      .toHaveLength(1);
+    expect(daemon.store.getMeter('eng', day)).toMatchObject({
+      turns: 1, input_tokens: 30_320, output_tokens: 41, uncosted_tokens: 30_361,
+    });
+
+    fake.enqueue({ kind: 'complete', final_text: 'later work is admitted' });
+    daemon.postHumanMessage('eng', '@duplicate-alpha later work');
+    await daemon.settle();
+    expect(runMessages().some((message) =>
+      message.author === seeded.alpha.id && message.run?.status === 'completed'
+      && message.body === 'later work is admitted')).toBe(true);
+  });
+
+  it('holds a generic runtime finalization failure and redeliver clears the fence', async () => {
+    const alpha = spawnAgent('runtime-repair');
+    const completeTurn = vi.spyOn(daemon.store, 'completeTurn');
+    completeTurn.mockImplementationOnce(() => {
+      throw new Error('injected completeTurn failure');
+    });
+    fake.enqueue({
+      kind: 'complete',
+      final_text: '@richard output that must not route',
+      usage: { input_tokens: 333, output_tokens: 22 },
+    });
+    const trigger = daemon.postHumanMessage('eng', '@runtime-repair do fragile work');
+    await daemon.settle();
+
+    const failed = runMessages().find((message) => message.author === alpha.id)!;
+    const delivery = daemon.store.listDeliveries('eng').find((candidate) =>
+      candidate.message_id === trigger.id && candidate.recipient === alpha.id)!;
+    expect(failed.run).toMatchObject({
+      status: 'failed',
+      error: 'finalization could not commit: injected completeTurn failure',
+    });
+    expect(delivery.state).toBe('held');
+    expect(daemon.store.getMember('eng', alpha.id)?.state).toBe('idle');
+    expect(daemon.store.listDeliveries('eng').filter((candidate) =>
+      candidate.message_id === failed.id)).toHaveLength(0);
+    expect(daemon.store.listMessages('eng', { limit: 100 }).filter((message) =>
+      message.kind === 'system' && message.body.includes('release_hold or redeliver')))
+      .toHaveLength(1);
+    expect(frames.some(({ frame }) => frame.type === 'meter'
+      && frame.meter.input_tokens === 333 && frame.meter.output_tokens === 22)).toBe(true);
+
+    fake.enqueue({ kind: 'complete', final_text: 'operator recovery completed' });
+    daemon.redeliver('eng', delivery.id);
+    await daemon.settle();
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(runMessages().filter((message) =>
+      message.author === alpha.id && message.run?.status === 'completed'
+      && message.body === 'operator recovery completed')).toHaveLength(1);
+  });
+
+  it('rethrows a post-commit error instead of misreporting the committed run as repaired', async () => {
+    const backgroundErrors: Error[] = [];
+    vi.spyOn(daemon as unknown as { onBackgroundError(error: Error): void }, 'onBackgroundError')
+      .mockImplementation((error) => backgroundErrors.push(error));
+    const actualComplete = daemon.store.completeTurn.bind(daemon.store);
+    vi.spyOn(daemon.store, 'completeTurn').mockImplementationOnce((room, opts) => {
+      actualComplete(room, opts);
+      throw new Error('injected after-commit failure');
+    });
+    const alpha = spawnAgent('post-commit-alpha');
+    fake.enqueue({ kind: 'complete', final_text: 'durably completed' });
+    daemon.postHumanMessage('eng', '@post-commit-alpha finish durably');
+    await daemon.settle();
+
+    const run = runMessages().find((message) => message.author === alpha.id)!;
+    expect(run.run?.status).toBe('completed');
+    expect(backgroundErrors.map((error) => error.message)).toContain('injected after-commit failure');
+    expect(daemon.store.listMessages('eng', { limit: 100 }).some((message) =>
+      message.kind === 'system' && message.body.includes('could not finalize'))).toBe(false);
+  });
+});
+// harn:end failed-finalization-reconciles-at-runtime
 
 describe('bounded cold hydration (store)', () => {
   /** A room with a long tail plus one of each correctness outlier, all OLD
