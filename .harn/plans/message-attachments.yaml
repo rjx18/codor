@@ -100,6 +100,11 @@ assumptions:
       reason: Connection.post widens additively to carry attachment ids; the
         resubscribe cursor and seq-sync semantics inside the anchored span
         are untouched.
+    - id: eligible-multi-agent-routing-starts-one-group
+      outcome: unchanged
+      reason: The routed message object gains its attachments metadata inside
+        the ingress anchor - the only seam that both stamps the row and
+        routes deliveries; grouping and routing semantics are untouched.
   retire:
     - id: deleted-messages-are-purged-tombstones
       reason: The purge contract now extends to unlinking attachment files
@@ -194,3 +199,9 @@ anchors:
       reason: Connection.post's implementation sits inside this anchored span
         (lines 22-109) and widens additively to carry attachment ids; the
         resubscribe cursor logic is untouched.
+  eligible-multi-agent-routing-starts-one-group:
+    multi-agent-group-ingress:
+      action: change
+      reason: postChatMessage's routed message literal lives inside this
+        anchor and carries the attachments field; the same mechanical shape
+        as the id-allocation crossing, one level up.
