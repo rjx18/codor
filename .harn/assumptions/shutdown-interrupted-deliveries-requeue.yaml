@@ -2,7 +2,7 @@ id: shutdown-interrupted-deliveries-requeue
 hash: a-a40846670986
 title: A daemon restart re-queues the deliveries of turns it killed, bounded by
   the attempt ceiling
-state: active
+state: retired
 statement: When boot recovery finalizes a stranded running run as interrupted,
   the deliveries bound to that run re-queue with their attempt count preserved
   so the recipient re-takes the same instruction as a fresh turn, while
@@ -12,3 +12,4 @@ statement: When boot recovery finalizes a stranded running run as interrupted,
   loop the daemon.
 depends_on: []
 created_by: shutdown-interrupted-requeue
+retired_by: graceful-shutdown-requeue
