@@ -151,7 +151,8 @@ files:
   - packages/switchboard/src/daemon.spec.ts
   - packages/web/src/ws.ts
   - packages/web/src/state.ts
-  - packages/web/src/App.spec.ts
+  - packages/web/src/state.spec.ts
+  - packages/web/src/App.tsx
 anchors:
   cold-hydration-is-bounded-and-atomic:
     bounded-cold-hydration-contract:
@@ -202,6 +203,11 @@ anchors:
       reason: The hydration commit sets the cursor from the served floor
         inside this span; the contiguous-tail rule is enforced, not
         altered.
+    contiguous-history-app:
+      action: change
+      reason: App.tsx's loadOlder, scroll-restore, and backfill latch span
+        may need to read the staged-hydration flag; pre-declared so an
+        edit there is accounted for, and it may prove untouched.
   permalink-ids-stable:
     paged-message-cache:
       action: change
