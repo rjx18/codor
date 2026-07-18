@@ -62,6 +62,7 @@ for (const [id, name] of [
   ['interleave', 'Interleave'],
   ['workspace', 'Workspace'],
   ['files', 'Files'],
+  ['hydration', 'Hydration'],
 ]) {
   daemon.createRoom({ id, name, owner });
   crypto.roomKeys.ensureRoom(id);
@@ -303,6 +304,28 @@ daemon.store.postMessage('files', {
   attachments: [seededImage, seededDoc],
 });
 
+// Hydration: the large-room regression room (codex #516). It carries a LIVE run
+// with prose that must be fetched first and survive a reload, plus an empty
+// interrupted run sitting seconds after a completed one by the same agent — the
+// shape that used to group away and read as deleted. The e2e seeds the hundreds
+// of archived runs on demand through /seed-runs.
+daemon.spawnMember('hydration', { harness: 'fake', handle: 'archivist', cwd: dir });
+const archivist = daemon.store.getMemberByHandle('hydration', 'archivist');
+const seedRun = (body, run, events = []) => {
+  const posted = daemon.store.postMessage('hydration', { author: archivist.id, kind: 'run', body });
+  const eventsRef = `runs/${posted.id}.jsonl`;
+  daemon.store.updateMessage('hydration', posted.id, { run: { ...run, tool_calls: 0, events_ref: eventsRef } });
+  for (const event of events) daemon.blobs.append('hydration', eventsRef, event);
+  return posted.id;
+};
+const proseEvent = (text, ts) => ({
+  type: 'run.item', item_type: 'text_delta', payload: { text }, ts,
+});
+const minutesAgoIso = (m) => new Date(Date.now() - m * 60_000).toISOString();
+// The three shapes under test are created by /seed-runs AFTER the archived bulk,
+// so they hold the newest ids and survive the client's last-page trim.
+let hydrationIds;
+
 const musePost = daemon.postAgentMessage(
   'eng',
   muse.id,
@@ -484,6 +507,38 @@ createServer((req, res) => {
           (event) => event.type === 'run.item' && event.item_type === 'text_delta',
         ).length;
         payload = { runId: runMsg?.id ?? null, status: runMsg?.run?.status ?? null, blocks };
+      }
+      if (url.pathname === '/seed-runs') {
+        // Hundreds of archived runs with journals — the large-room shape whose
+        // hydration used to melt the browser's connection pool. Idempotent so a
+        // spec can call it per run without re-seeding.
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const count = Math.min(400, Number(body.count ?? 180));
+        if (hydrationIds === undefined) {
+          const base = Date.now() - (count + 30) * 60_000;
+          for (let i = 0; i < count; i++) {
+            const ts = new Date(base + i * 60_000).toISOString();
+            seedRun(`archived run ${i + 1}`, {
+              status: 'completed', started_ts: ts, ended_ts: ts, final_text: `archived run ${i + 1}`,
+            }, [proseEvent(`archived run ${i + 1}`, ts)]);
+          }
+          const liveRunId = seedRun('', { status: 'running', started_ts: minutesAgoIso(1) }, [
+            proseEvent('live hydration prose that must survive a reload', minutesAgoIso(1)),
+          ]);
+          const neighbourRunId = seedRun('neighbouring completed run', {
+            status: 'completed', started_ts: minutesAgoIso(10), ended_ts: minutesAgoIso(10),
+            final_text: 'neighbouring completed run',
+          }, [proseEvent('neighbouring completed run', minutesAgoIso(10))]);
+          // Empty + interrupted, half a minute after its neighbour by the same
+          // agent: the same-author grouping window that used to swallow its
+          // header and #id, making it read as deleted.
+          const orphanRunId = seedRun('', {
+            status: 'interrupted', started_ts: minutesAgoIso(10), ended_ts: minutesAgoIso(9.5),
+            error: 'restarted mid-turn',
+          });
+          hydrationIds = { liveRunId, neighbourRunId, orphanRunId };
+        }
+        payload = hydrationIds;
       }
       if (url.pathname === '/seed-bulk') {
         // A long back-catalog for virtualization/paging proofs: N backdated
