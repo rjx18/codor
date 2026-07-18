@@ -8,12 +8,16 @@ async function openRoom(page: Page): Promise<void> {
   await expect(page.getByTestId('connection')).toHaveText(/Connected/);
 }
 
+async function openChronology(page: Page): Promise<void> {
+  await page.goto('/?room=chronology&token=next-e2e-token');
+  await expect(page.getByTestId('timeline')).toBeVisible();
+}
+
 test.describe('rail anatomy', () => {
   test('rows carry preview, working, attention, and unread states from the summary', async ({ page }) => {
-    // A seeded cursor makes research's unread pill deterministic (2 messages, cursor at 1).
-    await page.addInitScript(() => {
-      localStorage.setItem('nx-room-cursors', JSON.stringify({ research: 1 }));
-    });
+    // Research has one incoming collaborator message after the owner's durable
+    // cursor baseline; the owner's own newer post remains the preview but does
+    // not count as unread.
     await openRoom(page);
 
     const research = page.getByTestId('room-link-research');
@@ -48,25 +52,28 @@ test.describe('header', () => {
 
 test.describe('transcript grouping', () => {
   test('chronological sort happens before same-sender grouping', async ({ page }) => {
-    await openRoom(page);
+    await openChronology(page);
+    await expect(page.getByText('morning chronology marker')).toBeVisible();
     const turns = page.locator('.nx-column > .nx-turn');
     const texts = await turns.allTextContents();
     const indexOf = (part: string) => texts.findIndex((text) => text.includes(part));
 
     // This probe was inserted later by id, but its timestamp lies between m1/m2.
-    expect(indexOf('morning — can we')).toBeLessThan(indexOf('chronology probe between'));
-    expect(indexOf('chronology probe between')).toBeLessThan(indexOf('staging deploy is green'));
-    await expect(page.getByTestId('msg-1').locator('.nx-turn-meta')).toHaveCount(1);
+    expect(indexOf('morning chronology marker')).toBeLessThan(indexOf('chronology probe between'));
+    expect(indexOf('chronology probe between')).toBeLessThan(indexOf('staging chronology marker'));
+    const first = page.locator('article', { hasText: 'morning chronology marker' });
+    await expect(first.locator('.nx-turn-meta')).toHaveCount(1);
     await expect(page.locator('article', { hasText: 'chronology probe between' })).toHaveClass(/is-grouped/);
-    await expect(page.getByTestId('msg-2')).toHaveClass(/is-grouped/);
+    await expect(page.locator('article', { hasText: 'staging chronology marker' })).toHaveClass(/is-grouped/);
     // m3 came 18 minutes later from the same sender: fresh header.
-    await expect(page.getByTestId('msg-3')).not.toHaveClass(/is-grouped/);
-    await expect(page.getByTestId('msg-3').locator('.nx-turn-meta')).toHaveCount(1);
+    const fresh = page.locator('article', { hasText: 'later chronology marker' });
+    await expect(fresh).not.toHaveClass(/is-grouped/);
+    await expect(fresh.locator('.nx-turn-meta')).toHaveCount(1);
 
     // A finalized run follows ended_ts even though @muse's chat has a newer id;
     // the still-running @scout turn stays behind a chat posted after it began.
-    expect(indexOf('I can pick up the pricing copy')).toBeLessThan(indexOf('Queue is short'));
-    expect(indexOf('chronology probe posted after the running')).toBeLessThan(indexOf('running ·'));
+    expect(indexOf('chronology muse before')).toBeLessThan(indexOf('chronology completed run'));
+    expect(indexOf('chronology chat after the running')).toBeLessThan(indexOf('running ·'));
   });
 });
 

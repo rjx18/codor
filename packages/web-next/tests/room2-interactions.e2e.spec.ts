@@ -53,6 +53,10 @@ test.describe('composer addressing', () => {
   test('an unaddressed send is blocked with a friendly hint', async ({ page }) => {
     await openRoom(page);
     const input = page.getByTestId('composer-input');
+    // Socket-open precedes the atomic room commit. Wait until the addressed
+    // seed proves the member roster/default projection is ready before testing
+    // the operator's deliberate removal of that recipient.
+    await expect(input).toHaveValue(/@\w+ /);
     await input.fill('ship it please');
     await input.press('Enter');
     await expect(page.getByTestId('composer-hint')).toContainText('Say who this is for');

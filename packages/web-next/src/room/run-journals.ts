@@ -59,6 +59,13 @@ function switchRoom(room: string): void {
   bump();
 }
 
+/** Promote one room as the only journal namespace. Calling this even for a
+ * room with no runs clears stale journals and in-flight arrivals from the room
+ * the reader just demoted. */
+export function activateRunJournalRoom(room: string): void {
+  if (room !== currentRoom) switchRoom(room);
+}
+
 function pump(token: () => string): void {
   while (active < MAX_CONCURRENT && queue.length > 0) {
     // Running runs first: a reader watching a live turn must not wait behind a

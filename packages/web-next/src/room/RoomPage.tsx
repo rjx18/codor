@@ -1,8 +1,6 @@
-import type { Member, Message } from '@codor/protocol';
 import { ChevronLeft, MoreVertical, Plus, Search, Settings, Share2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { sortedMessages, unreadCount, useRoomStore } from '@legacy/state.js';
 import type { Connection } from '@legacy/ws.js';
 
 import { createConnector, type RoomConnector } from '../app/connector.js';
@@ -13,6 +11,7 @@ import {
   useMinuteTick,
 } from '../app/session.js';
 import { useRoomSummaries, type RoomSummary } from '../app/summary.js';
+import { roomSlice, useClientStore } from '../app/store.js';
 import { ContextPanel } from './ContextPanel.js';
 import { Chip, IconButton, Eyebrow, StatusPill } from '../primitives/primitives.js';
 import { compactCount, memberAccent, relativeTime, usd } from '../primitives/identity.js';
@@ -35,7 +34,8 @@ export function RoomPage(props: { token: string; refreshToken?: () => Promise<st
   }
   const connection = connectorRef.current;
 
-  // In-place channel switching: socket resubscribes, store resets, URL follows.
+  // In-place channel switching: select the room's keyed slice, keep the shared
+  // socket and every background subscription alive, and let the URL follow.
   const switchRoom = (next: string): void => {
     if (next === room) return;
     connection.switchRoom(next);
@@ -111,17 +111,15 @@ function ChannelRail(props: {
   onSwitch: (room: string) => void;
 }) {
   const [creating, setCreating] = useState(false);
-  const summaries = useRoomSummaries(props.activeRoom, props.token);
-  const connected = useRoomStore((s) => s.connected);
-  const room = useRoomStore((s) => s.room);
-  const members = useRoomStore((s) => s.members);
-  const selfId = useRoomStore((s) => s.selfMemberId);
-  const liveUnread = useRoomStore((s) => unreadCount(s));
-  const messages = useRoomStore((s) => s.messages);
+  const summaries = useRoomSummaries(props.token);
+  const connected = useClientStore((state) => state.connected);
+  const active = useClientStore((state) => roomSlice(state, props.activeRoom));
+  const room = active.room;
+  const members = active.members;
+  const selfId = active.selfMemberId;
   useMinuteTick();
 
   const self = selfId !== undefined ? members[selfId] : undefined;
-  const latest = useMemo(() => sortedMessages(messages).at(-1), [messages]);
   const working = useMemo(() => {
     const workingMember = Object.values(members).find((m) => m.kind === 'agent' && (m.state === 'running' || m.state === 'queued'));
     return workingMember;
@@ -170,11 +168,9 @@ function ChannelRail(props: {
         {entries.map((entry) => {
           const active = entry.id === props.activeRoom;
           const isWorking = active ? working !== undefined : entry.working;
-          const unread = active ? liveUnread : entry.unread;
-          const lastTs = active ? latest?.ts ?? entry.latest?.ts : entry.latest?.ts;
-          const preview = active && latest
-            ? livePreview(latest, members, selfId)
-            : summaryPreview(entry);
+          const unread = entry.unread;
+          const lastTs = entry.latest?.ts;
+          const preview = summaryPreview(entry);
           return (
             <li key={entry.id}>
               <a
@@ -248,15 +244,6 @@ function ChannelRail(props: {
   );
 }
 
-function livePreview(message: Message, members: Record<string, Member>, selfId: string | undefined): string {
-  const author = members[message.author];
-  const name = message.author === selfId ? 'You' : `@${author?.handle ?? '…'}`;
-  const body = message.body.length > 0
-    ? message.body.split('\n', 1)[0] ?? ''
-    : message.kind === 'run' ? 'run in progress' : '…';
-  return `${name}: ${body}`;
-}
-
 function summaryPreview(entry: RoomSummary): string {
   if (!entry.latest) return 'No messages yet';
   const name = entry.latest.author_handle === '' ? '…' : `@${entry.latest.author_handle}`;
@@ -274,15 +261,17 @@ function ChatPanel(props: {
   token: () => string;
   mobile?: { onBack: () => void; onContext: () => void };
 }) {
-  const room = useRoomStore((s) => s.room);
-  const meter = useRoomStore((s) => s.meter);
-  const connected = useRoomStore((s) => s.connected);
-  const memberCount = useRoomStore((s) =>
+  const room = useClientStore((state) => roomSlice(state, props.room).room);
+  const meter = useClientStore((state) => roomSlice(state, props.room).meter);
+  const connected = useClientStore((state) => state.connected);
+  const memberCount = useClientStore((state) =>
     // Extensions stay out of the count, mirroring the Members tab roster.
-    Object.values(s.members).filter((m) => m.removed_ts === undefined && m.kind !== 'extension').length,
+    Object.values(roomSlice(state, props.room).members)
+      .filter((member) => member.removed_ts === undefined && member.kind !== 'extension').length,
   );
-  const workingAgent = useRoomStore((s) =>
-    Object.values(s.members).find((m) => m.kind === 'agent' && (m.state === 'running' || m.state === 'queued'))?.handle,
+  const workingAgent = useClientStore((state) =>
+    Object.values(roomSlice(state, props.room).members)
+      .find((member) => member.kind === 'agent' && (member.state === 'running' || member.state === 'queued'))?.handle,
   );
   const [searching, setSearching] = useState(false);
 
@@ -299,7 +288,7 @@ function ChatPanel(props: {
           </div>
           <IconButton icon={MoreVertical} label="Channel details" data-testid="mobile-kebab" onClick={props.mobile.onContext} />
         </header>
-        <HoldBanner connection={props.connection} />
+        <HoldBanner room={props.room} connection={props.connection} />
         <Transcript room={props.room} token={props.token} connection={props.connection} />
         <Composer room={props.room} token={props.token} connection={props.connection} />
       </main>
@@ -325,7 +314,7 @@ function ChatPanel(props: {
           <IconButton icon={Settings} label="Channel settings" data-testid="room-settings" onClick={() => { window.location.href = `/settings?room=${props.room}`; }} />
         </div>
       </header>
-      <HoldBanner connection={props.connection} />
+      <HoldBanner room={props.room} connection={props.connection} />
       <Transcript room={props.room} token={props.token} connection={props.connection} />
       <Composer room={props.room} token={props.token} connection={props.connection} />
       {searching && <SearchOverlay room={props.room} token={props.token} onClose={() => setSearching(false)} />}

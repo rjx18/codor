@@ -9,18 +9,19 @@ import {
   type AdapterRegistration,
   type LocalDirectoryListing,
 } from '@legacy/api.js';
-import { me, useRoomStore } from '@legacy/state.js';
 
 import { Button, Code, Modal } from '../primitives/primitives.js';
 import { useAdapters } from '../app/session.js';
+import { me, roomSlice, useClientStore } from '../app/store.js';
 
 export function CreateChannelDialog(props: {
   token: () => string;
   onClose: () => void;
   onCreated: (room: Room) => void;
 }) {
-  const members = useRoomStore((s) => s.members);
-  const selfId = useRoomStore((s) => s.selfMemberId);
+  const activeRoom = useClientStore((state) => state.activeRoom);
+  const members = useClientStore((state) => roomSlice(state, activeRoom).members);
+  const selfId = useClientStore((state) => roomSlice(state, activeRoom).selfMemberId);
   const adapters = useAdapters(props.token);
   const [name, setName] = useState('');
   const [cwd, setCwd] = useState('');

@@ -1,26 +1,28 @@
-import type { Delivery, Member, Message } from '@codor/protocol';
+import type { Message, RoomInboxItem } from '@codor/protocol';
 import { Inbox as InboxIcon, PauseCircle, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchMessageHistory, searchMessages } from '@legacy/api.js';
-import { HISTORY_PAGE_SIZE, heldDeliveries, useRoomStore } from '@legacy/state.js';
 import type { Connection } from '@legacy/ws.js';
 
+import { HISTORY_PAGE_SIZE, heldDeliveries, roomSlice, useClientStore } from '../app/store.js';
 import { clockTime } from '../primitives/identity.js';
 import { Button, IconButton, Modal } from '../primitives/primitives.js';
+
+const EMPTY_INBOX_ITEMS: RoomInboxItem[] = [];
 
 /** Scroll a permalink target into view, paging history back (bounded) until the
  *  message is loaded. */
 export async function jumpToMessage(room: string, id: number, token: () => string): Promise<void> {
-  const store = useRoomStore.getState();
+  const store = roomSlice(useClientStore.getState(), room);
   for (let hops = 0; hops < 10; hops++) {
-    if (useRoomStore.getState().messages[id] !== undefined) break;
-    const cursor = useRoomStore.getState().historyCursor ?? store.historyCursor;
+    if (roomSlice(useClientStore.getState(), room).messages[id] !== undefined) break;
+    const cursor = roomSlice(useClientStore.getState(), room).historyCursor ?? store.historyCursor;
     if (cursor === undefined || cursor <= 1) break;
     try {
       const page = await fetchMessageHistory(room, { before: cursor, limit: HISTORY_PAGE_SIZE }, { token: token() });
       if (page.messages.length === 0) break;
-      useRoomStore.getState().mergeHistoryPage(page.messages);
+      useClientStore.getState().mergeHistoryPage(room, page.messages);
     } catch {
       break;
     }
@@ -31,10 +33,10 @@ export async function jumpToMessage(room: string, id: number, token: () => strin
 
 // ── Hold banner: parked deliveries wait above the transcript ──────────────
 
-export function HoldBanner(props: { connection: Connection }) {
-  const inbox = useRoomStore((s) => s.inbox);
-  const members = useRoomStore((s) => s.members);
-  const messages = useRoomStore((s) => s.messages);
+export function HoldBanner(props: { room: string; connection: Connection }) {
+  const inbox = useClientStore((state) => roomSlice(state, props.room).inbox);
+  const members = useClientStore((state) => roomSlice(state, props.room).members);
+  const messages = useClientStore((state) => roomSlice(state, props.room).messages);
   const held = useMemo(() => heldDeliveries(inbox), [inbox]);
   if (held.length === 0) return null;
 
@@ -77,26 +79,8 @@ export function HoldBanner(props: { connection: Connection }) {
 
 export function InboxControl(props: { room: string; connection: Connection; token: () => string }) {
   const [open, setOpen] = useState(false);
-  const inbox = useRoomStore((s) => s.inbox);
-  const members = useRoomStore((s) => s.members);
-  const selfId = useRoomStore((s) => s.selfMemberId);
-  const messages = useRoomStore((s) => s.messages);
-
-  // Only what actually needs the viewer: an @-mention of them, or a question/
-  // approval addressed to them — not every message that merely reached them.
-  const rows = useMemo(() => {
-    const self = selfId !== undefined ? members[selfId] : undefined;
-    if (!self) return [];
-    return Object.values(inbox)
-      .filter((d) => d.recipient === self.id && d.state === 'consumed' && d.read_ts === undefined)
-      .filter((d) => {
-        const message = messages[d.message_id];
-        if (message === undefined) return false;
-        return message.kind === 'ask' || message.kind === 'approval'
-          || message.mentions.some((mention) => mention.member_id === self.id);
-      })
-      .sort((a, b) => b.message_id - a.message_id);
-  }, [inbox, members, selfId, messages]);
+  const support = useClientStore((state) => roomSlice(state, props.room).support);
+  const rows = support?.inbox ?? EMPTY_INBOX_ITEMS;
   const count = rows.length;
 
   return (
@@ -113,17 +97,17 @@ export function InboxControl(props: { room: string; connection: Connection; toke
       {open && (
         <InboxPanel
           rows={rows}
-          members={members}
-          messages={messages}
           onClose={() => setOpen(false)}
           onMarkAllRead={() => {
-            for (const delivery of rows) props.connection.act({ act: 'mark_read', delivery_id: delivery.id });
+            for (const row of rows) {
+              props.connection.act({ act: 'mark_read', delivery_id: row.delivery.id });
+            }
             setOpen(false);
           }}
-          onOpenRow={(delivery) => {
-            props.connection.act({ act: 'mark_read', delivery_id: delivery.id });
+          onOpenRow={(row) => {
+            props.connection.act({ act: 'mark_read', delivery_id: row.delivery.id });
             setOpen(false);
-            void jumpToMessage(props.room, delivery.message_id, props.token);
+            void jumpToMessage(props.room, row.delivery.message_id, props.token);
           }}
         />
       )}
@@ -132,12 +116,10 @@ export function InboxControl(props: { room: string; connection: Connection; toke
 }
 
 function InboxPanel(props: {
-  rows: Delivery[];
-  members: Record<string, Member>;
-  messages: Record<number, Message>;
+  rows: RoomInboxItem[];
   onClose: () => void;
   onMarkAllRead: () => void;
-  onOpenRow: (delivery: Delivery) => void;
+  onOpenRow: (row: RoomInboxItem) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -171,27 +153,19 @@ function InboxPanel(props: {
         <p className="nx-inbox-empty" data-testid="inbox-empty">Nothing needs you.</p>
       ) : (
         <ul className="nx-inbox-list">
-          {props.rows.map((delivery) => {
-            const message = props.messages[delivery.message_id];
-            const author = message !== undefined ? props.members[message.author] : undefined;
-            return (
-              <li key={delivery.id}>
-                <button
-                  className="nx-inbox-row"
-                  data-testid={`inbox-row-${delivery.id}`}
-                  onClick={() => props.onOpenRow(delivery)}
-                >
-                  <strong>@{author?.handle ?? '…'}</strong>
-                  <span className="nx-inbox-preview">
-                    {message !== undefined
-                      ? (message.body.split('\n', 1)[0] ?? '').slice(0, 90) || message.kind
-                      : `message #${delivery.message_id}`}
-                  </span>
-                  {message !== undefined && <time>{clockTime(message.ts)}</time>}
-                </button>
-              </li>
-            );
-          })}
+          {props.rows.map((row) => (
+            <li key={row.delivery.id}>
+              <button
+                className="nx-inbox-row"
+                data-testid={`inbox-row-${row.delivery.id}`}
+                onClick={() => props.onOpenRow(row)}
+              >
+                <strong>@{row.author_handle}</strong>
+                <span className="nx-inbox-preview">{row.preview || row.message_kind}</span>
+                <time>{clockTime(row.ts)}</time>
+              </button>
+            </li>
+          ))}
         </ul>
       )}
     </div>
@@ -204,7 +178,7 @@ export function SearchOverlay(props: { room: string; token: () => string; onClos
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Message[]>();
   const [busy, setBusy] = useState(false);
-  const members = useRoomStore((s) => s.members);
+  const members = useClientStore((state) => roomSlice(state, props.room).members);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {

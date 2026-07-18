@@ -1,7 +1,7 @@
 import type { Attachment, Delivery, Member, Message, WireEvent } from '@codor/protocol';
 import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Paperclip, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import type { Connection } from '@legacy/ws.js';
@@ -14,20 +14,16 @@ import {
   mergeRunEvents,
   type RunRow,
 } from '@legacy/run-presenter.js';
-import {
-  HISTORY_PAGE_SIZE,
-  pendingInteractions,
-  useRoomStore,
-} from '@legacy/state.js';
 
 import { useIsMobile } from '../app/session.js';
+import { HISTORY_PAGE_SIZE, roomSlice, useClientStore } from '../app/store.js';
 import { Button, Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
 import { OPEN_DIFF_EVENT } from './ContextPanel.js';
 import { CompactionMarker } from './CompactionMarker.js';
 import { jumpToMessage } from './panels.js';
 import { renderMarkdown } from './markdown.js';
-import { getRunJournal, requestRunJournal, useRunJournalVersion } from './run-journals.js';
+import { activateRunJournalRoom, getRunJournal, requestRunJournal, useRunJournalVersion } from './run-journals.js';
 import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attachments.js';
 import { presentRunTimeline, type CompactionRunTimelineItem } from './run-timeline.js';
 
@@ -59,12 +55,17 @@ function transcriptMessages(messages: Record<number, Message>): Message[] {
 }
 
 export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
-  const messages = useRoomStore((s) => s.messages);
-  const members = useRoomStore((s) => s.members);
-  const selfId = useRoomStore((s) => s.selfMemberId);
-  const historyCursor = useRoomStore((s) => s.historyCursor);
-  const mergeHistoryPage = useRoomStore((s) => s.mergeHistoryPage);
-  const hydrated = useRoomStore((s) => s.hydrated);
+  const slice = useClientStore((state) => roomSlice(state, props.room));
+  const messages = slice.messages;
+  const members = slice.members;
+  const selfId = slice.selfMemberId;
+  const historyCursor = slice.historyCursor;
+  const hydrated = slice.hydrated;
+  const support = slice.support;
+  const roomSeq = slice.seq;
+  const connected = useClientStore((state) => state.connected);
+
+  useEffect(() => activateRunJournalRoom(props.room), [props.room]);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
@@ -77,18 +78,21 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const [historyBusy, setHistoryBusy] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
 
-  const inbox = useRoomStore((s) => s.inbox);
+  const inbox = slice.inbox;
   const ordered = useMemo(() => transcriptMessages(messages), [messages]);
-  // Interaction cards stay in the timeline only while they need the operator;
-  // resolved ones leave. pendingInteractions is the legacy single source of truth.
+  // Support state owns actionability; transcript messages stay the exact
+  // contiguous history window and never absorb old correctness outliers.
   const visible = useMemo(() => {
-    const pending = new Set(
-      pendingInteractions({ messages, inbox, members, selfMemberId: selfId }).map((m) => m.id),
-    );
+    if (support === undefined) return ordered;
+    const pending = new Set(support.interactions.map((message) => message.id));
     return ordered.filter(
-      (m) => (m.kind !== 'ask' && m.kind !== 'approval') || pending.has(m.id),
+      (message) => (message.kind !== 'ask' && message.kind !== 'approval') || pending.has(message.id),
     );
-  }, [ordered, messages, inbox, members, selfId]);
+  }, [ordered, support]);
+  const detachedInteractions = useMemo(
+    () => support?.interactions.filter((message) => messages[message.id] === undefined) ?? [],
+    [messages, support],
+  );
 
   // Pins older than the loaded page are invisible from loaded messages alone, so
   // hydrate the whole pinned set at room load and union it with loaded truth.
@@ -132,12 +136,22 @@ export function Transcript(props: { room: string; token: () => string; connectio
   // posted mid-run lands between the run's blocks; running runs stay whole.
   const finalizedRunIds = useMemo(
     () => visible
-      .filter((m) => m.kind === 'run' && m.run !== undefined && m.run.status !== 'running')
+      .filter((message) => message.kind === 'run'
+        && message.run !== undefined
+        && message.run.status !== 'running'
+        && message.ack !== true)
       .map((m) => m.id),
     [visible],
   );
   const runSegments = useFinalizedRunSegments(props.room, props.token, finalizedRunIds);
   const entries = useMemo(() => buildTimelineEntries(visible, runSegments), [visible, runSegments]);
+  const initialBarrier = useRef({ room: props.room, ready: false });
+  if (initialBarrier.current.room !== props.room) {
+    initialBarrier.current = { room: props.room, ready: false };
+  }
+  const journalsReady = finalizedRunIds.every((id) => getRunJournal(props.room, id) !== undefined);
+  if (hydrated && journalsReady) initialBarrier.current.ready = true;
+  const transcriptReady = hydrated && initialBarrier.current.ready;
 
   // Working agents drive the typing indicator. Derived with useMemo — a selector
   // returning a fresh array every snapshot would loop useSyncExternalStore forever.
@@ -177,11 +191,54 @@ export function Transcript(props: { room: string; token: () => string; connectio
     if (!node) return;
     if (pinnedRef.current) {
       node.scrollTop = node.scrollHeight;
+      lastScrollTopRef.current = node.scrollTop;
       setShowJump(false);
     } else {
       setShowJump(true);
     }
   }, [lastId]);
+
+  // Durable read edges are about observation, not delivery. Only the active,
+  // focused, visible transcript at its tail advances the room cursor.
+  const lastMarkedSeqRef = useRef(0);
+  const readRoomRef = useRef(props.room);
+  if (readRoomRef.current !== props.room) {
+    readRoomRef.current = props.room;
+    lastMarkedSeqRef.current = 0;
+    pinnedRef.current = true;
+  }
+  const markReadIfSeen = useCallback((): void => {
+    const node = scrollerRef.current;
+    if (
+      !transcriptReady
+      || !connected
+      || support === undefined
+      || !pinnedRef.current
+      || document.visibilityState !== 'visible'
+      || !document.hasFocus()
+      || node === null
+      || node.scrollHeight - node.scrollTop - node.clientHeight >= REGLUE_DISTANCE_PX
+      || roomSeq <= lastMarkedSeqRef.current
+    ) return;
+    lastMarkedSeqRef.current = roomSeq;
+    props.connection.act({ act: 'mark_room_read', through_seq: roomSeq });
+  }, [connected, props.connection, roomSeq, support, transcriptReady]);
+
+  useEffect(() => {
+    if (!connected) lastMarkedSeqRef.current = 0;
+  }, [connected]);
+
+  useEffect(() => {
+    const onVisible = (): void => markReadIfSeen();
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    const frame = requestAnimationFrame(markReadIfSeen);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [markReadIfSeen]);
 
   // Run prose and evidence can grow without creating a new message. While the
   // reader is pinned, follow that column growth too; an upward scroll past the
@@ -197,7 +254,9 @@ export function Transcript(props: { room: string; token: () => string; connectio
       frame = requestAnimationFrame(() => {
         if (!pinnedRef.current) return;
         node.scrollTop = node.scrollHeight;
+        lastScrollTopRef.current = node.scrollTop;
         setShowJump(false);
+        markReadIfSeen();
       });
     });
     observer.observe(column);
@@ -205,7 +264,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
       observer.disconnect();
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [markReadIfSeen]);
 
   // A permalink jump means the reader is deliberately looking away from the tail.
   // Bounded hydration made this load-bearing: an old target now pages in, and the
@@ -231,6 +290,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
     if (distance < REGLUE_DISTANCE_PX) {
       pinnedRef.current = true;
       setNewCount(0); // re-glued: everything below is seen again
+      requestAnimationFrame(markReadIfSeen);
     } else if (pinnedRef.current && upwardScrollRef.current >= RELEASE_PIN_DISTANCE_PX) {
       pinnedRef.current = false;
     }
@@ -241,7 +301,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
       void fetchMessageHistory(props.room, { before: historyCursor, limit: HISTORY_PAGE_SIZE }, { token: props.token() })
         .then((page) => {
           if (page.messages.length === 0) setHasOlder(false);
-          mergeHistoryPage(page.messages);
+          useClientStore.getState().mergeHistoryPage(props.room, page.messages);
           requestAnimationFrame(() => {
             node.scrollTop = prior.top + node.scrollHeight - prior.height;
           });
@@ -281,15 +341,25 @@ export function Transcript(props: { room: string; token: () => string; connectio
           {/* The skeleton holds until hydration COMMITS. `connected` flips at
               socket-open, before a single frame lands, so gating on it flashed an
               empty transcript and then crawled rows in one at a time. */}
-          {!hydrated && ordered.length === 0 && <TranscriptSkeleton />}
-          {hydrated && visible.length === 0 && (
+          {!transcriptReady && <TranscriptSkeleton />}
+          {transcriptReady && visible.length === 0 && (
             <p className="nx-empty" data-testid="timeline-empty">No messages yet — say something.</p>
           )}
-          {renderTimeline(entries, {
+          {transcriptReady && renderTimeline(entries, {
             members, selfId, selfHandle, inbox,
             room: props.room, token: props.token, connection: props.connection,
             canPin, canDelete, canRetry,
           })}
+          {transcriptReady && detachedInteractions.length > 0 && (
+            <section className="nx-action-tray" aria-label="Needs your response" data-testid="interaction-tray">
+              <p className="nx-action-tray-label">Needs your response</p>
+              {renderTimeline(buildTimelineEntries(detachedInteractions, new Map()), {
+                members, selfId, selfHandle, inbox,
+                room: props.room, token: props.token, connection: props.connection,
+                canPin, canDelete, canRetry,
+              })}
+            </section>
+          )}
           {workingAgents.length > 0 && (
             // Sticky floor of the scroller: visible at any scroll position, one
             // chip per working agent, present only while someone is working.
@@ -324,7 +394,10 @@ export function Transcript(props: { room: string; token: () => string; connectio
           aria-label={newCount === 0 ? 'Back to latest' : undefined}
           onClick={() => {
             const node = scrollerRef.current;
-            if (node) node.scrollTop = node.scrollHeight;
+            if (node) {
+              node.scrollTop = node.scrollHeight;
+              lastScrollTopRef.current = node.scrollTop;
+            }
             pinnedRef.current = true;
             setNewCount(0);
             setShowJump(false);
@@ -419,7 +492,9 @@ function TurnBlock(props: {
 
   const quote = (): void => {
     const line = message.body.split('\n', 1)[0] ?? '';
-    window.dispatchEvent(new CustomEvent('nx-quote', { detail: `@${handle} > ${line}` }));
+    window.dispatchEvent(new CustomEvent('nx-quote', {
+      detail: { text: `@${handle} > ${line}`, replyTo: message.id },
+    }));
   };
 
   return (
@@ -740,7 +815,9 @@ function useFinalizedRunSegments(
 }
 
 function RunContent(props: { message: Message; room: string; token: () => string }) {
-  const live = useRoomStore((s) => s.runEvents[props.message.id]);
+  const live = useClientStore(
+    (state) => roomSlice(state, props.room).runEvents[props.message.id],
+  );
   const running = props.message.run?.status === 'running';
   const version = useRunJournalVersion();
 
@@ -973,7 +1050,9 @@ function RunStretch(props: {
   const runError = message.run?.error;
   const quote = (): void => {
     const line = message.body.split('\n', 1)[0] ?? '';
-    window.dispatchEvent(new CustomEvent('nx-quote', { detail: `@${handle} > ${line}` }));
+    window.dispatchEvent(new CustomEvent('nx-quote', {
+      detail: { text: `@${handle} > ${line}`, replyTo: message.id },
+    }));
   };
   return (
     <article

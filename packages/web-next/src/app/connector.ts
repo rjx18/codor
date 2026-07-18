@@ -6,11 +6,12 @@
 import type { Act, ServerFrame } from '@codor/protocol';
 
 import { setActiveBrowserAccessToken } from '@legacy/crypto.js';
-import { HISTORY_PAGE_SIZE, useRoomStore } from '@legacy/state.js';
 import type { Connection } from '@legacy/ws.js';
 
+import { HISTORY_PAGE_SIZE, roomSlice, useClientStore } from './store.js';
+
 export interface RoomConnector extends Connection {
-  /** Close, reset the store, and resubscribe to another room in place. */
+  /** Select another already-multiplexed room without replacing the socket. */
   switchRoom(room: string): void;
   room(): string;
 }
@@ -22,37 +23,53 @@ export interface ConnectorOptions {
 }
 
 export function createConnector(options: ConnectorOptions): RoomConnector {
-  const { applyFrame, setConnected } = useRoomStore.getState();
   const origin = window.location.origin.replace(/^http/, 'ws');
   let currentRoom = options.room;
   let socket: WebSocket | undefined;
+  let subscribed = new Set<string>();
   let manuallyClosed = false;
   let retryMs = 500;
   let token = options.token;
 
+  useClientStore.getState().setActiveRoom(currentRoom);
+
+  const send = (frame: unknown): void => {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
+  };
+
+  const subscribe = (room: string): void => {
+    if (subscribed.has(room) || socket?.readyState !== WebSocket.OPEN) return;
+    subscribed.add(room);
+    send({
+      type: 'subscribe',
+      room,
+      since_seq: roomSlice(useClientStore.getState(), room).seq,
+      hydrate_limit: HISTORY_PAGE_SIZE,
+      room_addressed: true,
+    });
+  };
+
   const open = (): void => {
     manuallyClosed = false;
+    subscribed = new Set();
     socket = new WebSocket(`${origin}/ws?token=${encodeURIComponent(token)}`);
-    const openedFor = currentRoom;
     socket.onopen = () => {
       retryMs = 500;
-      setConnected(true);
-      socket!.send(JSON.stringify({
-        type: 'subscribe',
-        room: openedFor,
-        since_seq: useRoomStore.getState().seq,
-        // Cold loads want the tail, not the whole room. The server ignores this
-        // on a warm resubscribe, so a reconnect still replays every change.
-        hydrate_limit: HISTORY_PAGE_SIZE,
-      }));
+      useClientStore.getState().setConnected(true);
+      // The selected room hydrates first; the rooms listing then fans the same
+      // socket out to every other authorized room.
+      subscribe(currentRoom);
+      send({ type: 'list_rooms' });
     };
     socket.onmessage = (event) => {
-      // A frame racing in for a room we already left must not pollute the store.
-      if (openedFor !== currentRoom) return;
-      applyFrame(JSON.parse(event.data as string) as ServerFrame);
+      const frame = JSON.parse(event.data as string) as ServerFrame;
+      useClientStore.getState().applyFrame(frame, currentRoom);
+      if (frame.type === 'rooms') {
+        for (const room of frame.rooms) subscribe(room.id);
+      }
     };
     socket.onclose = (event) => {
-      setConnected(false);
+      useClientStore.getState().setConnected(false);
       if (manuallyClosed) return;
       if (event.code === 4403) {
         setActiveBrowserAccessToken('');
@@ -76,10 +93,6 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   };
   open();
 
-  const send = (frame: unknown): void => {
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
-  };
-
   const connector: RoomConnector = {
     room: () => currentRoom,
     post: (body: string, opts?: { replyTo?: number; attachments?: string[] }) =>
@@ -101,11 +114,9 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     },
     switchRoom: (room: string) => {
       if (room === currentRoom) return;
-      manuallyClosed = true;
-      socket?.close();
       currentRoom = room;
-      useRoomStore.getState().reset();
-      open();
+      useClientStore.getState().setActiveRoom(room);
+      subscribe(room);
     },
   };
   // e2e hook, same contract as the legacy module exposed

@@ -15,9 +15,10 @@ import {
   setActiveBrowserAccessToken,
   storeBrowserAccess,
 } from '@legacy/crypto.js';
-import { useRoomStore } from '@legacy/state.js';
 import { connect, type Connection } from '@legacy/ws.js';
 import type { Room } from '@codor/protocol';
+
+import { useClientStore } from './store.js';
 
 export function pageParams(): { room: string } {
   const params = new URLSearchParams(window.location.search);
@@ -63,7 +64,7 @@ export const useAccessToken = (fallback: string): (() => string) =>
   useCallback(() => currentBrowserAccessToken(fallback), [fallback]);
 
 export function useConnected(): boolean {
-  return useRoomStore((state) => state.connected);
+  return useClientStore((state) => state.connected);
 }
 
 /** Adapter catalog with the legacy retry contract: discovery is asynchronous, so keep

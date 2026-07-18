@@ -2,7 +2,6 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { revealOlder } from './history.js';
 
-const ROOM = '/?room=eng&token=next-e2e-token';
 const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
 
 async function enqueue(turns: unknown[]): Promise<void> {
@@ -14,8 +13,8 @@ async function enqueue(turns: unknown[]): Promise<void> {
   if (!res.ok) throw new Error(`enqueue failed: ${await res.text()}`);
 }
 
-async function openRoom(page: Page): Promise<void> {
-  await page.goto(ROOM);
+async function openRoom(page: Page, room = 'eng'): Promise<void> {
+  await page.goto(`/?room=${room}&token=next-e2e-token`);
   await expect(page.getByTestId('timeline')).toBeVisible();
   await expect(page.getByTestId('connection')).toHaveText(/Connected/);
 }
@@ -29,7 +28,10 @@ async function postToFable(page: Page, body: string): Promise<void> {
 
 test.describe('one-line tool rows', () => {
   test('expanded batch rows carry icons, tinted counts, and a done mark', async ({ page }) => {
-    await openRoom(page);
+    // The assertion is about one immutable evidence journal. Keep it in the
+    // fixture room instead of paging through shared eng state that other specs
+    // intentionally mutate during a full-suite run.
+    await openRoom(page, 'fixtures');
     const batch = page.getByTestId('tool-batch');
     await revealOlder(page, batch);
     await batch.locator('.nx-batch-line').click();
@@ -83,6 +85,13 @@ test.describe('jump control', () => {
   test('arrow-only when merely scrolled up; counts only arrivals while unpinned', async ({ page }) => {
     await openRoom(page);
     const timeline = page.getByTestId('timeline');
+    await expect.poll(async () => {
+      await timeline.evaluate((node) => {
+        node.scrollTop = 0;
+        node.dispatchEvent(new Event('scroll'));
+      });
+      return timeline.evaluate((node) => node.scrollHeight - node.clientHeight);
+    }).toBeGreaterThan(120);
     await timeline.evaluate((node) => { node.scrollTop = 0; });
     const jump = page.locator('.nx-jump');
     await expect(jump).toBeVisible();

@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@legacy/api.js';
 import { presentRunEvents, type RunRow } from '@legacy/run-presenter.js';
-import { sortedMessages, useRoomStore } from '@legacy/state.js';
 import type { Connection } from '@legacy/ws.js';
 
+import { roomSlice, sortedMessages, useClientStore } from '../app/store.js';
 import { clockTime, compactCount, memberAccent, usd } from '../primitives/identity.js';
 import { Button, Chip, Eyebrow, IconButton, Modal, Segmented, StatusPill } from '../primitives/primitives.js';
 import { useAdapters, useMemberDetails } from '../app/session.js';
@@ -62,8 +62,8 @@ export function ContextPanel(props: { room: string; token: () => string; connect
 // lifecycle actions live in a kebab dropdown with confirm flows. ────────────
 
 function MembersTab(props: { room: string; token: () => string; connection: Connection }) {
-  const members = useRoomStore((s) => s.members);
-  const selfId = useRoomStore((s) => s.selfMemberId);
+  const members = useClientStore((state) => roomSlice(state, props.room).members);
+  const selfId = useClientStore((state) => roomSlice(state, props.room).selfMemberId);
   const details = useMemberDetails(props.room, props.token);
   const adapters = useAdapters(props.token);
   const [spawning, setSpawning] = useState(false);
@@ -107,6 +107,7 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
             canStop={canStop}
             canManage={canManage}
             connection={props.connection}
+            room={props.room}
           />
         ))}
       </ul>
@@ -130,6 +131,7 @@ function MemberCard(props: {
   canStop: boolean;
   canManage: boolean;
   connection: Connection;
+  room: string;
 }) {
   const { member, detail } = props;
   // Stop interrupts an in-flight turn; a queued agent has nothing to interrupt.
@@ -158,7 +160,7 @@ function MemberCard(props: {
   // successful compaction — or on a new action error, which is the other way
   // the request can end. Both are edges, so a stale spinner cannot survive.
   const [compacting, setCompacting] = useState(false);
-  const errorCount = useRoomStore((state) => state.errors.length);
+  const errorCount = useClientStore((state) => roomSlice(state, props.room).errors.length);
   const startedAt = useRef<{ errors: number; member: Member } | null>(null);
   useEffect(() => {
     const started = startedAt.current;
@@ -583,7 +585,7 @@ function SpawnDialog(props: {
 
 /** Image artifacts from recent run evidence — the Preview tab's source. */
 function useRunImages(room: string, token: () => string): { images: { msgId: number; media_type: string; data_b64: string }[] } {
-  const messages = useRoomStore((s) => s.messages);
+  const messages = useClientStore((state) => roomSlice(state, room).messages);
   const [images, setImages] = useState<{ msgId: number; media_type: string; data_b64: string }[]>([]);
   const fetched = useRef(new Set<number>());
   const rowsByMsg = useRef(new Map<number, RunRow[]>());
@@ -630,7 +632,7 @@ function useGitWorkingState(
   cwd: string | undefined,
   refreshKey: number,
 ): { state: GitWorkingState | undefined; failed: boolean; refreshing: boolean } {
-  const messages = useRoomStore((s) => s.messages);
+  const messages = useClientStore((state) => roomSlice(state, room).messages);
   const finalizedRuns = useMemo(
     () => Object.values(messages)
       .filter((m) => m.kind === 'run' && m.run !== undefined && m.run.status !== 'running').length,

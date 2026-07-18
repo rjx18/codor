@@ -13,7 +13,6 @@ import {
 } from '@legacy/api.js';
 import { currentBrowserAccessToken, ensureBrowserIdentity, unpairBrowser } from '@legacy/crypto.js';
 import { enablePushNotifications, notificationPermission } from '@legacy/notifications.js';
-import { useRoomStore } from '@legacy/state.js';
 import {
   applyThemeChoice,
   readThemeChoice,
@@ -23,6 +22,7 @@ import {
 
 import { createConnector, type RoomConnector } from '../app/connector.js';
 import { pageParams } from '../app/session.js';
+import { roomSlice, useClientStore } from '../app/store.js';
 import { clockTime } from '../primitives/identity.js';
 import { Button, Code, Eyebrow, Modal, Segmented } from '../primitives/primitives.js';
 
@@ -161,8 +161,9 @@ function NotificationsSection(props: { token: () => string }) {
 // ── Channel brakes ─────────────────────────────────────────────────────────
 
 function BrakesSection(props: { connection: RoomConnector }) {
-  const room = useRoomStore((s) => s.room);
-  const connected = useRoomStore((s) => s.connected);
+  const roomId = props.connection.room();
+  const room = useClientStore((state) => roomSlice(state, roomId).room);
+  const connected = useClientStore((state) => state.connected);
   const [turnEnabled, setTurnEnabled] = useState(false);
   const [turnBrake, setTurnBrake] = useState('3');
   const [spendEnabled, setSpendEnabled] = useState(false);

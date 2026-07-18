@@ -2,10 +2,10 @@ import type { Member } from '@codor/protocol';
 import { ArrowUp, AtSign, Paperclip, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { effectiveDefaultRecipient, useRoomStore } from '@legacy/state.js';
 import type { Connection } from '@legacy/ws.js';
 
 import { useIsMobile } from '../app/session.js';
+import { effectiveDefaultRecipient, roomSlice, useClientStore } from '../app/store.js';
 import { Chip, IconButton } from '../primitives/primitives.js';
 import { memberAccent } from '../primitives/identity.js';
 import {
@@ -20,6 +20,7 @@ const MAX_ROWS = 8;
 
 /** Transcript quote buttons talk to the composer through this event. */
 export const QUOTE_EVENT = 'nx-quote';
+export interface QuoteRequest { text: string; replyTo: number }
 
 function mentionQuery(draft: string, caret: number): { start: number; query: string } | undefined {
   const upToCaret = draft.slice(0, caret);
@@ -37,11 +38,13 @@ function mentionQuery(draft: string, caret: number): { start: number; query: str
  *  leaving the room to guess (Richard #302). */
 export function Composer(props: { room: string; token: () => string; connection: Connection }) {
   const isMobile = useIsMobile();
-  const connected = useRoomStore((s) => s.connected);
-  const members = useRoomStore((s) => s.members);
-  const room = useRoomStore((s) => s.room);
-  const latestFinalizedAgentId = useRoomStore((s) => s.latestFinalizedAgentId);
+  const connected = useClientStore((state) => state.connected);
+  const slice = useClientStore((state) => roomSlice(state, props.room));
+  const members = slice.members;
+  const room = slice.room;
+  const hydrated = slice.hydrated;
   const [draft, setDraft] = useState('');
+  const [replyTo, setReplyTo] = useState<number>();
   const [hint, setHint] = useState<string>();
   const [mention, setMention] = useState<{ start: number; query: string }>();
   const [highlighted, setHighlighted] = useState(0);
@@ -68,7 +71,8 @@ export function Composer(props: { room: string; token: () => string; connection:
   }, [draft]);
 
   const roster = useMemo(
-    () => Object.values(members).filter((m) => m.removed_ts === undefined),
+    () => Object.values(members)
+      .filter((member) => member.removed_ts === undefined && member.kind !== 'extension'),
     [members],
   );
   const mentionables = useMemo(() => {
@@ -80,8 +84,8 @@ export function Composer(props: { room: string; token: () => string; connection:
   }, [mention, roster]);
 
   const defaultRecipient = useMemo(
-    () => effectiveDefaultRecipient({ room, members, latestFinalizedAgentId }),
-    [room, members, latestFinalizedAgentId],
+    () => effectiveDefaultRecipient(slice),
+    [slice],
   );
 
   // Until the operator edits, the seeded draft follows hydration as the latest
@@ -95,7 +99,9 @@ export function Composer(props: { room: string; token: () => string; connection:
   // Quote buttons in the transcript prepend their text into the draft.
   useEffect(() => {
     const onQuote = (event: Event): void => {
-      const text = (event as CustomEvent<string>).detail;
+      const detail = (event as CustomEvent<QuoteRequest | string>).detail;
+      const text = typeof detail === 'string' ? detail : detail.text;
+      if (typeof detail !== 'string') setReplyTo(detail.replyTo);
       seededRef.current = true;
       setDraft((prior) => {
         const lead = prior !== '' && !prior.endsWith('\n') ? `${prior}\n` : prior;
@@ -108,7 +114,7 @@ export function Composer(props: { room: string; token: () => string; connection:
     return () => window.removeEventListener(QUOTE_EVENT, onQuote);
   }, []);
 
-  const canSend = connected && !uploading && (draft.trim().length > 0 || pending.length > 0);
+  const canSend = connected && hydrated && !uploading && (draft.trim().length > 0 || pending.length > 0);
 
   // Attach files: enforce the caps with plain messaging, then upload each so the
   // post frame can reference server ids. Chips show what will ride the message.
@@ -171,8 +177,12 @@ export function Composer(props: { room: string; token: () => string; connection:
   };
 
   const send = (): void => {
-    const body = draft.trim();
-    if (!canSend) return; // needs body text or at least one attachment
+    // Enter can follow an input event before React has committed the matching
+    // state render under load. Read the controlled element at the action edge
+    // so an overwritten seeded @mention can never be submitted from a stale
+    // closure.
+    const body = (areaRef.current?.value ?? draft).trim();
+    if (!connected || !hydrated || uploading || (body.length === 0 && pending.length === 0)) return;
     const addressed = roster.some((m) => new RegExp(`@${m.handle}\\b`, 'i').test(body));
     if (!addressed && roster.some((m) => m.kind === 'agent')) {
       setHint(
@@ -182,8 +192,12 @@ export function Composer(props: { room: string; token: () => string; connection:
       );
       return;
     }
-    props.connection.post(body, pending.length > 0 ? { attachments: pending.map((a) => a.id) } : undefined);
+    props.connection.post(body, {
+      ...(replyTo !== undefined && { replyTo }),
+      ...(pending.length > 0 && { attachments: pending.map((attachment) => attachment.id) }),
+    });
     setDraft('');
+    setReplyTo(undefined);
     setPending([]);
     setHint(undefined);
     seededRef.current = false; // the next draft re-seeds its recipient
@@ -200,6 +214,14 @@ export function Composer(props: { room: string; token: () => string; connection:
         addFiles(Array.from(event.dataTransfer.files));
       }}
     >
+      {replyTo !== undefined && (
+        <p className="nx-composer-reply" data-testid="composer-reply">
+          Replying to #{replyTo}
+          <button type="button" aria-label="Cancel reply" onClick={() => setReplyTo(undefined)}>
+            <X size={12} aria-hidden="true" />
+          </button>
+        </p>
+      )}
       {hint !== undefined && (
         <p className="nx-composer-hint" role="alert" data-testid="composer-hint">{hint}</p>
       )}

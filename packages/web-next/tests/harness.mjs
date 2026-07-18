@@ -64,6 +64,9 @@ for (const [id, name] of [
   ['files', 'Files'],
   ['hydration', 'Hydration'],
   ['fixtures', 'Fixtures'],
+  ['acks', 'Acknowledgements'],
+  ['inbox', 'Inbox Fixtures'],
+  ['chronology', 'Chronology'],
 ]) {
   daemon.createRoom({ id, name, owner });
   crypto.roomKeys.ensureRoom(id);
@@ -120,8 +123,11 @@ daemon.store.updateMember('design', retiredDesigner.id, { state: 'dead' });
 daemon.postHumanMessage('design', 'new pricing page comps are in figma, comments welcome', {
   author: daemon.ownerOf('design').id,
 });
+const analyst = daemon.store.addMember('research', {
+  kind: 'human', handle: 'analyst', display_name: 'Analyst', role: 'member',
+});
 daemon.postHumanMessage('research', 'collected the retrieval eval traces for tomorrow', {
-  author: daemon.ownerOf('research').id,
+  author: analyst.id,
 });
 daemon.postHumanMessage('research', 'first pass: recall is fine, precision drops on long docs', {
   author: daemon.ownerOf('research').id,
@@ -340,6 +346,105 @@ for (const event of [
   { type: 'run.item', item_type: 'text_delta', payload: { text: 'Queue is short: session rotation is refactored.' } },
 ]) daemon.blobs.append('fixtures', evidenceRef, { ...event, ts: new Date().toISOString() });
 
+// Acknowledgements are finalized runs but remain dedicated quiet transcript
+// rows after a cold refresh; they never enter the journal-segmentation path.
+const acknowledger = daemon.spawnMember('acks', { harness: 'fake', handle: 'acknowledger', cwd: dir });
+const ackTs = new Date().toISOString();
+daemon.store.postMessage('acks', {
+  author: acknowledger.id,
+  kind: 'run',
+  body: '<ACK_OK>',
+  ack: true,
+  run: {
+    status: 'completed',
+    started_ts: ackTs,
+    ended_ts: ackTs,
+    tool_calls: 0,
+    events_ref: 'runs/ack.jsonl',
+    final_text: '<ACK_OK>',
+  },
+});
+
+// Inbox support must be self-contained even when the source mention sits far
+// outside the strict transcript tail. A second, newest mention exercises the
+// true reply_to path without opening/marking the inbox row first.
+const inboxOwner = daemon.ownerOf('inbox');
+const inboxAnalyst = daemon.store.addMember('inbox', {
+  kind: 'human', handle: 'inbox-analyst', display_name: 'Inbox Analyst', role: 'member',
+});
+daemon.store.addMember('inbox', {
+  kind: 'human', handle: 'inbox-reviewer', display_name: 'Inbox Reviewer', role: 'member',
+});
+const oldInboxMention = daemon.postHumanMessage(
+  'inbox',
+  '@richard old incident report needs your review',
+  { author: inboxAnalyst.id },
+);
+for (let index = 0; index < 25; index += 1) {
+  daemon.store.postMessage('inbox', {
+    author: inboxOwner.id,
+    kind: 'chat',
+    body: `inbox filler ${String(index + 1)}`,
+  });
+}
+const newInboxMention = daemon.postHumanMessage(
+  'inbox',
+  '@richard newest incident report needs your reply',
+  { author: inboxAnalyst.id },
+);
+
+// Chronology is isolated from the busy eng room so strict 20-row hydration
+// never pushes the ordering/grouping subjects out of the initial window.
+const chronologyOwner = daemon.ownerOf('chronology');
+const chronologyAgent = daemon.spawnMember('chronology', { harness: 'fake', handle: 'chronos', cwd: dir });
+const chronologyMuse = daemon.spawnMember('chronology', { harness: 'fake', handle: 'chronology-muse', cwd: dir });
+const chronologyScout = daemon.spawnMember('chronology', { harness: 'fake', handle: 'chronology-scout', cwd: dir });
+const chronoTs = (minutes) => new Date(Date.now() - minutes * 60_000).toISOString();
+const chronoMessage = (body) => daemon.store.postMessage('chronology', {
+  author: chronologyOwner.id, kind: 'chat', body,
+});
+const chronoOne = chronoMessage('morning chronology marker');
+const chronoProbe = chronoMessage('chronology probe between the grouped messages');
+const chronoTwo = chronoMessage('staging chronology marker');
+const chronoFresh = chronoMessage('later chronology marker');
+for (const [id, ts] of [
+  [chronoOne.id, chronoTs(26)],
+  [chronoProbe.id, chronoTs(25.75)],
+  [chronoTwo.id, chronoTs(25.5)],
+  [chronoFresh.id, chronoTs(8)],
+]) daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?').run(ts, 'chronology', id);
+const chronoMusePost = daemon.store.postMessage('chronology', {
+  author: chronologyMuse.id, kind: 'chat', body: 'chronology muse before the completed run',
+});
+daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
+  .run(chronoTs(5), 'chronology', chronoMusePost.id);
+const chronoRunTs = chronoTs(4);
+const chronoRunRef = 'runs/chronology-complete.jsonl';
+const chronoRun = daemon.store.postMessage('chronology', {
+  author: chronologyAgent.id,
+  kind: 'run',
+  body: 'chronology completed run',
+  run: {
+    status: 'completed', started_ts: chronoRunTs, ended_ts: chronoRunTs,
+    tool_calls: 0, events_ref: chronoRunRef, final_text: 'chronology completed run',
+  },
+});
+daemon.blobs.append('chronology', chronoRunRef, {
+  type: 'run.item', item_type: 'text_delta', payload: { text: 'chronology completed run' }, ts: chronoRunTs,
+});
+const chronoRunning = daemon.store.postMessage('chronology', {
+  author: chronologyScout.id,
+  kind: 'run',
+  body: '',
+  run: {
+    status: 'running', started_ts: chronoTs(3), tool_calls: 0,
+    events_ref: 'runs/chronology-running.jsonl',
+  },
+});
+const chronoAfter = chronoMessage('chronology chat after the running turn started');
+daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
+  .run(chronoTs(2), 'chronology', chronoAfter.id);
+
 // Hydration: the large-room regression room (codex #516). It carries a LIVE run
 // with prose that must be fetched first and survive a reload, plus an empty
 // interrupted run sitting seconds after a completed one by the same agent — the
@@ -519,8 +624,31 @@ createServer((req, res) => {
         // `message` frame — the arrival that a pinned transcript scrolls to.
         const body = raw === '' ? {} : JSON.parse(raw);
         const roomId = String(body.room ?? 'eng');
-        const message = daemon.postHumanMessage(roomId, String(body.body ?? 'live arrival'));
+        const author = body.author === undefined
+          ? daemon.ownerOf(roomId)
+          : daemon.store.getMemberByHandle(roomId, String(body.author));
+        if (!author) throw new Error(`no such author: ${String(body.author)}`);
+        const message = author.kind === 'agent'
+          ? daemon.postAgentMessage(roomId, author.id, String(body.body ?? 'live arrival'))
+          : daemon.postHumanMessage(roomId, String(body.body ?? 'live arrival'), { author: author.id });
         payload = { id: message.id, ts: message.ts };
+      }
+      if (url.pathname === '/tail-ids') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const roomId = String(body.room ?? 'eng');
+        const limit = Math.max(1, Math.min(100, Number(body.limit ?? 20)));
+        payload = { ids: daemon.store.listMessages(roomId, { limit }).map((message) => message.id) };
+      }
+      if (url.pathname === '/room-support') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const roomId = String(body.room ?? 'eng');
+        payload = daemon.store.roomSupport(roomId, daemon.ownerOf(roomId).id);
+      }
+      if (url.pathname === '/fixture-ids') {
+        payload = {
+          oldInboxMention: oldInboxMention.id,
+          newInboxMention: newInboxMention.id,
+        };
       }
       if (url.pathname === '/post-chat') {
         // Insert a plain human chat straight into the store — NO routing, so it

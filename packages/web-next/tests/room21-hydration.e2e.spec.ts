@@ -37,9 +37,11 @@ async function openRoom(page: Page): Promise<void> {
 }
 
 let ids: SeedIds;
+let tailIds: number[];
 
 test.beforeAll(async () => {
   ids = await control<SeedIds>('/seed-runs', { count: 180 });
+  tailIds = (await control<{ ids: number[] }>('/tail-ids', { room: 'hydration', limit: 20 })).ids;
 });
 
 test.describe('large-room hydration', () => {
@@ -55,6 +57,7 @@ test.describe('large-room hydration', () => {
     await page.waitForTimeout(2000); // let hydration finish issuing whatever it will
 
     expect(requests).toContain(ids.liveRunId);
+    expect(requests.every((id) => tailIds.includes(id))).toBe(true);
     // Deduplicated: no journal is fetched more than twice (a running run may be
     // re-read once when it settles), where the storm hit /runs/2 181 times.
     const perId = new Map<number, number>();
@@ -88,16 +91,33 @@ test.describe('large-room hydration', () => {
   });
 
   test('a cold load shows only the bounded tail, at the bottom, with no crawl', async ({ page }) => {
-    // Count how many distinct message counts the transcript passes through: an
-    // incremental crawl grows one row at a time, a committed hydration does not.
+    await page.addInitScript(() => {
+      const counts: number[] = [];
+      (window as unknown as { __timelineCounts: number[] }).__timelineCounts = counts;
+      const record = (): void => {
+        const column = document.querySelector('.nx-column');
+        if (!column) return;
+        const count = column.querySelectorAll(':scope > .nx-turn[id], :scope > .nx-system[id]').length;
+        if (count > 0 && counts.at(-1) !== count) counts.push(count);
+      };
+      const start = (): void => {
+        new MutationObserver(record).observe(document.body, { childList: true, subtree: true });
+        record();
+      };
+      if (document.body) start();
+      else document.addEventListener('DOMContentLoaded', start, { once: true });
+    });
     await page.goto(HYDRATION);
     await expect(page.getByTestId('timeline')).toBeVisible();
     await expect(page.locator('article.nx-turn').first()).toBeVisible();
 
-    // Bounded: the room holds 180+ runs; the cold view holds the tail, not all.
-    const turns = await page.locator('.nx-column > .nx-turn').count();
-    expect(turns).toBeLessThanOrEqual(40);
-    expect(turns).toBeGreaterThan(0);
+    const renderedIds = await page.locator(
+      '.nx-column > .nx-turn[id], .nx-column > .nx-system[id]',
+    ).evaluateAll((nodes) => nodes.map((node) => Number(node.id)).sort((a, b) => a - b));
+    expect(renderedIds).toEqual([...tailIds].sort((a, b) => a - b));
+    expect(await page.evaluate(
+      () => (window as unknown as { __timelineCounts: number[] }).__timelineCounts,
+    )).toEqual([20]);
 
     // Bottom-anchored once the committed tail has painted. Polled, not sampled:
     // run rows keep growing as their journals render, and under a loaded machine
