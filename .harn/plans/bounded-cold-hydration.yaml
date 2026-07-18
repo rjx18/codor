@@ -208,6 +208,11 @@ anchors:
       reason: App.tsx's loadOlder, scroll-restore, and backfill latch span
         may need to read the staged-hydration flag; pre-declared so an
         edit there is accounted for, and it may prove untouched.
+    contiguous-history-state-regression:
+      action: change
+      reason: The regression test's page-size arithmetic was hardcoded to 50
+        and rewrites generically in terms of HISTORY_PAGE_SIZE; the
+        assumption statement is unchanged and still enforced.
   permalink-ids-stable:
     paged-message-cache:
       action: change
