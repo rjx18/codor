@@ -639,12 +639,20 @@ function segmentTs(segment: RunSegment): string | undefined {
 
 /** Journals for a set of FINALIZED runs (complete, no live buffer needed),
  *  presented into segments so the transcript can interleave their blocks. */
+const EMPTY_JOURNALS = new Map<number, WireEvent[]>();
+
 function useFinalizedRunSegments(
   room: string,
   token: () => string,
   runIds: readonly number[],
 ): Map<number, RunSegment[]> {
-  const [journals, setJournals] = useState<Map<number, WireEvent[]>>(new Map());
+  // Message ids are room-local, so a cache surviving an in-place room switch
+  // would serve the PREVIOUS room's journal for a colliding id. The cache is
+  // tagged with its room and reads empty the moment the room changes.
+  const [cache, setCache] = useState<{ room: string; journals: Map<number, WireEvent[]> }>(
+    () => ({ room, journals: new Map() }),
+  );
+  const journals = cache.room === room ? cache.journals : EMPTY_JOURNALS;
   const key = runIds.join(',');
   useEffect(() => {
     let live = true;
@@ -656,10 +664,10 @@ function useFinalizedRunSegments(
         .catch(() => [id, [] as WireEvent[]] as const),
     )).then((pairs) => {
       if (!live) return;
-      setJournals((prev) => {
-        const next = new Map(prev);
+      setCache((prev) => {
+        const next = new Map(prev.room === room ? prev.journals : undefined);
         for (const [id, events] of pairs) next.set(id, events);
-        return next;
+        return { room, journals: next };
       });
     });
     return () => { live = false; };
@@ -843,6 +851,7 @@ function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[]
           isLastStretch={isLastStretch}
           anchored={anchored}
           mine={entry.message.author === ctx.selfId}
+          canPin={ctx.canPin}
           canRetry={ctx.canRetry}
           connection={ctx.connection}
         />,
@@ -892,6 +901,7 @@ function RunStretch(props: {
   isLastStretch: boolean;
   anchored: boolean;
   mine: boolean;
+  canPin: boolean;
   canRetry: boolean;
   connection: Connection;
 }) {
@@ -900,6 +910,10 @@ function RunStretch(props: {
   const handle = author?.handle ?? '…';
   const status = message.run?.status;
   const runError = message.run?.error;
+  const quote = (): void => {
+    const line = message.body.split('\n', 1)[0] ?? '';
+    window.dispatchEvent(new CustomEvent('nx-quote', { detail: `@${handle} > ${line}` }));
+  };
   return (
     <article
       id={props.anchored ? String(message.id) : undefined}
@@ -912,20 +926,47 @@ function RunStretch(props: {
           {isMobile && <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={24} />}
           <strong className="nx-turn-author">@{handle}</strong>
           <time className="nx-turn-time" dateTime={message.ts}>{clockTime(message.ts)}</time>
+          {props.anchored && message.pinned === true && (
+            <Pin size={12} className="nx-pin-glyph" aria-label="Pinned" data-testid={`msg-${message.id}-pinned`} />
+          )}
           <span className="nx-turn-spacer" />
           <a className="nx-permalink" href={`#${message.id}`}>#{message.id}</a>
-          <span className="nx-turn-actions">
-            {props.canRetry && (status === 'failed' || status === 'interrupted') && (
-              <button
-                className="nx-iconbtn is-quiet"
-                aria-label="Retry run"
-                data-testid={`run-${message.id}-retry`}
-                onClick={() => props.connection.act({ act: 'retry_run', message_id: message.id })}
-              >
-                <RotateCcw size={14} aria-hidden="true" />
+          {/* Affordances live on the anchored (first) stretch only, so a split
+              run never duplicates its controls or their testids. */}
+          {props.anchored && (
+            <span className="nx-turn-actions">
+              <button className="nx-iconbtn is-quiet" aria-label="Quote message" data-testid={`msg-${message.id}-quote`} onClick={quote}>
+                <Quote size={14} aria-hidden="true" />
               </button>
-            )}
-          </span>
+              {props.canPin && (
+                <button
+                  className="nx-iconbtn is-quiet"
+                  aria-label={message.pinned === true ? 'Unpin message' : 'Pin message'}
+                  aria-pressed={message.pinned === true}
+                  data-testid={`msg-${message.id}-pin`}
+                  onClick={() => props.connection.act({
+                    act: 'pin_message',
+                    message_id: message.id,
+                    pinned: message.pinned !== true,
+                  })}
+                >
+                  {message.pinned === true
+                    ? <PinOff size={14} aria-hidden="true" />
+                    : <Pin size={14} aria-hidden="true" />}
+                </button>
+              )}
+              {props.canRetry && (status === 'failed' || status === 'interrupted') && (
+                <button
+                  className="nx-iconbtn is-quiet"
+                  aria-label="Retry run"
+                  data-testid={`run-${message.id}-retry`}
+                  onClick={() => props.connection.act({ act: 'retry_run', message_id: message.id })}
+                >
+                  <RotateCcw size={14} aria-hidden="true" />
+                </button>
+              )}
+            </span>
+          )}
         </div>
         <div className="nx-run" data-run-status={status ?? 'running'}>
           {props.segments.map((segment, index) =>
