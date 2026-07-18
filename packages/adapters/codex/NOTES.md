@@ -103,8 +103,18 @@ Codex 0.144.5 documents `thread/compacted` as deprecated in favor of the
 `contextCompaction` item, but can expose both completion channels. Following
 Paseo, per-turn unpaired counters suppress the second completion regardless of
 arrival order. Item start emits `loading`; the single completion emits
-`completed`. Both are `trigger:"auto"` because manual compact routing and slash
-commands are outside Phase 5c.
+`completed`. Auto-compaction reports `trigger:"auto"`.
+
+Manual compaction IS in this adapter (`compactSession`). `thread/compact/start`
+returns `{}` immediately and the work runs as a STANDALONE native turn, so the
+sequence to observe is: `turn/started` (its `turn.id` is the compact turn) ->
+`item/started` + `item/completed` for the canonical `contextCompaction` item
+(both carry `threadId` and `turnId`, with top-level `startedAtMs` and
+`completedAtMs` respectively) -> any
+`thread/tokenUsage/updated` for that `turnId` -> the authoritative
+`turn/completed`. The re-baseline is whatever that correlated usage reported;
+`thread/compacted` is exactly `{threadId, turnId}` and is compatibility
+evidence only — it never carries usage and never settles a compaction.
 
 ## Deliberate divergences from Paseo
 
@@ -118,9 +128,10 @@ commands are outside Phase 5c.
 - Paseo uses `thread/loaded/list` before some resumes because it manages a
   larger provider session surface. A fresh Codor process directly issues
   `thread/resume` for its one persisted member thread.
-- Paseo exposes runtime approvals, steering, manual compact, goals, rollback,
-  and subagent surfaces. Those are intentionally not added here. Phase 5c keeps
-  Codor's existing spawn-time-only approval capability and no slash routing.
+- Paseo exposes runtime approvals, steering, goals, rollback, and subagent
+  surfaces. Those are intentionally not added here. Codor keeps its existing
+  spawn-time-only approval capability and no slash routing. Manual compaction is
+  the exception: it is exposed, as an operator-only act (see `compactSession`).
 
 The in-memory fake app-server copies Paseo's harness shape: paired PassThrough
 streams, automatic request responses, notification injection, server-request

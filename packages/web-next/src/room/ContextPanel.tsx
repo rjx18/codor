@@ -1,5 +1,5 @@
 import type { AgentLimit, Member, RunItemDiff, WireEvent } from '@codor/protocol';
-import { LoaderCircle, MoreVertical, Plus, Square } from 'lucide-react';
+import { LoaderCircle, Minimize2, MoreVertical, Plus, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@legacy/api.js';
@@ -152,6 +152,28 @@ function MemberCard(props: {
   const spend = detail?.spend;
   const tokens = spend !== undefined ? spend.input_tokens + spend.output_tokens : undefined;
 
+  // Compaction is a round trip to the engine with no run to watch, so the card
+  // owns the only evidence the operator has that their click did anything. It
+  // clears on the completion edge the daemon emits for this member after every
+  // successful compaction — or on a new action error, which is the other way
+  // the request can end. Both are edges, so a stale spinner cannot survive.
+  const [compacting, setCompacting] = useState(false);
+  const errorCount = useRoomStore((state) => state.errors.length);
+  const startedAt = useRef<{ errors: number; member: Member } | null>(null);
+  useEffect(() => {
+    const started = startedAt.current;
+    if (!compacting || started === null) return;
+    // Watch the MEMBER's identity, not its usage: a successful compaction that
+    // re-baselines nothing leaves lastUsage undefined, and watching that field
+    // would hang the spinner on exactly the case the daemon's edge exists for.
+    // The completion frame round-trips through JSON and a store upsert, so the
+    // member object is always a new reference.
+    if (errorCount > started.errors || member !== started.member) {
+      startedAt.current = null;
+      setCompacting(false);
+    }
+  }, [compacting, errorCount, member]);
+
   return (
     <li className="nx-member" data-testid={`member-${member.handle}`}>
       <div className="nx-member-row">
@@ -178,6 +200,35 @@ function MemberCard(props: {
           />
         )}
         {/* harn:end member-context-window-meter-derived-from-last-usage */}
+        {member.kind === 'agent' && props.canManage && (
+          // Beside the ring, because the ring is what makes an operator want it.
+          // Never hidden while running — hiding it would read as "not available
+          // here"; disabled with the reason keeps the lever discoverable.
+          <button
+            type="button"
+            className="nx-member-compact"
+            aria-label={`Compact @${member.handle}'s context`}
+            data-testid={`member-${member.handle}-compact`}
+            disabled={member.state !== 'idle' || compacting}
+            title={running
+              ? 'Stop the run first — compacting mid-turn would race the engine'
+              : member.state !== 'idle'
+                ? `Only an idle agent can be compacted — @${member.handle} is ${member.state}`
+                : compacting
+                  ? 'Compacting this agent\u2019s engine session…'
+                  : 'Compact this agent\u2019s engine session'}
+            data-compacting={compacting ? 'true' : undefined}
+            onClick={() => {
+              startedAt.current = { errors: errorCount, member };
+              setCompacting(true);
+              props.connection.act({ act: 'compact_member', member_id: member.id });
+            }}
+          >
+            {compacting
+              ? <LoaderCircle size={13} className="nx-spin" aria-hidden="true" />
+              : <Minimize2 size={13} aria-hidden="true" />}
+          </button>
+        )}
         {member.kind === 'agent' && running && props.canStop && (
           <button
             type="button"

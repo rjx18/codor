@@ -2163,3 +2163,45 @@ describe('bounded cold hydration (subscribe)', () => {
     client.ws.close();
   });
 });
+
+describe('compact_member act (manual-compaction-is-an-operator-act)', () => {
+  it('an owner compacts an idle agent and the re-baseline reaches subscribers', async () => {
+    const agent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'compactable', cwd: testCwd('compactable'),
+    });
+    fake.compactUsage = { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 7_500 };
+    const client = await connect();
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'compact_member', member_id: agent.id },
+    }));
+
+    // The ring updates from the member frame the re-baseline rides out on.
+    const framed = await client.next((frame) =>
+      frame.type === 'member' &&
+      frame.member.id === agent.id &&
+      frame.member.lastUsage?.contextWindowUsedTokens === 7_500);
+    expect(framed).toMatchObject({ type: 'member' });
+    expect(fake.compactions).toHaveLength(1);
+    client.ws.close();
+  });
+
+  it('refuses a non-privileged principal with an error frame, never touching the engine', async () => {
+    const agent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'untouchable', cwd: testCwd('untouchable'),
+    });
+    const client = await connectAs(OBSERVER_TOKEN);
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'compact_member', member_id: agent.id },
+    }));
+    expect(await client.next((frame) => frame.type === 'error'))
+      .toMatchObject({ type: 'error', ref: 'act' });
+    expect(fake.compactions).toHaveLength(0);
+    client.ws.close();
+  });
+});

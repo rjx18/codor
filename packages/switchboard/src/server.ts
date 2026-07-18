@@ -1229,6 +1229,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             else if (act.act === 'pause') daemon.pauseMember(frame.room, act.member_id);
             else if (act.act === 'unpause') daemon.unpauseMember(frame.room, act.member_id);
             else if (act.act === 'interrupt') daemon.interruptMember(frame.room, act.member_id);
+            // Compaction is a round trip to the engine: report its refusal or
+            // failure back on this connection like any other act.
+            else if (act.act === 'compact_member') {
+              void daemon
+                .compactMember(frame.room, act.member_id, actor.id)
+                .catch((error: unknown) =>
+                  send({ type: 'error', message: String(error), ref: 'compact_member' }),
+                );
+            }
             else if (act.act === 'set_role') daemon.setHumanRole(frame.room, act.member_id, act.role);
             else if (act.act === 'pin_message') daemon.pinMessage(frame.room, act.message_id, act.pinned, actor.id);
             else if (act.act === 'delete_message') daemon.deleteMessage(frame.room, act.message_id, actor.id);

@@ -4943,3 +4943,99 @@ describe('bounded cold hydration (store)', () => {
     expect(warmBounded.messages.map((m) => m.id)).toContain(seeded.runningRunId);
   });
 });
+
+// harn:assume manual-compaction-is-an-operator-act ref=compact-member-contract-spec
+describe('manual engine compaction', () => {
+  const owner = () => daemon.ownerOf('eng');
+
+  const human = (handle: string, role: 'observer' | 'member' | 'admin') =>
+    daemon.store.addMember('eng', {
+      kind: 'human', handle, display_name: handle, role,
+    });
+
+  it('compacts an idle agent and lands the engine re-baseline on the ring', async () => {
+    const agent = spawnAgent('alpha');
+    fake.compactUsage = { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 12_000 };
+
+    // The ring updates because a member frame carries the re-baseline out.
+    const frames: Member[] = [];
+    const stop = daemon.onFrame((_room, frame) => {
+      if (frame.type === 'member') frames.push(frame.member);
+    });
+    await daemon.compactMember('eng', agent.id, owner().id);
+    stop();
+
+    expect(fake.compactions).toHaveLength(1); // the harness did the compacting
+    const landed = frames.filter((member) => member.id === agent.id).at(-1);
+    expect(landed?.lastUsage?.contextWindowUsedTokens).toBe(12_000);
+  });
+
+  it('refuses an agent principal, so an agent can never compact itself', async () => {
+    const agent = spawnAgent('alpha');
+    await expect(daemon.compactMember('eng', agent.id, agent.id))
+      .rejects.toThrow(/only owners and admins/);
+    expect(fake.compactions).toHaveLength(0);
+  });
+
+  it('refuses a member and an observer, admitting only owner and admin', async () => {
+    const agent = spawnAgent('alpha');
+    for (const role of ['observer', 'member'] as const) {
+      const principal = human(`h-${role}`, role);
+      await expect(daemon.compactMember('eng', agent.id, principal.id))
+        .rejects.toThrow(/only owners and admins/);
+    }
+    const admin = human('h-admin', 'admin');
+    await daemon.compactMember('eng', agent.id, admin.id);
+    expect(fake.compactions).toHaveLength(1);
+  });
+
+  it('refuses a running member — compaction mid-turn races the engine', async () => {
+    const agent = spawnAgent('alpha');
+    fake.enqueue({ kind: 'ask', question: 'may I?' });
+    daemon.postHumanMessage('eng', `@alpha rotate the keys`);
+    await vi.waitFor(() => {
+      expect(runMessages().some((m) => m.run?.status === 'running')).toBe(true);
+    });
+
+    await expect(daemon.compactMember('eng', agent.id, owner().id))
+      .rejects.toThrow(/is running — stop the turn before compacting/);
+    expect(fake.compactions).toHaveLength(0);
+  });
+
+  it('refuses a paused agent — a retained session is not evidence of idle', async () => {
+    const agent = spawnAgent('alpha');
+    daemon.pauseMember('eng', agent.id);
+    await expect(daemon.compactMember('eng', agent.id, owner().id))
+      .rejects.toThrow(/only an idle agent can be compacted/);
+    expect(fake.compactions).toHaveLength(0);
+  });
+
+  it('refuses a non-agent target', async () => {
+    const bystander = human('bystander', 'member');
+    await expect(daemon.compactMember('eng', bystander.id, owner().id))
+      .rejects.toThrow(/no such agent member/);
+  });
+
+  it('tells the operator plainly when the harness cannot compact', async () => {
+    const agent = spawnAgent('alpha');
+    Reflect.deleteProperty(fake, 'compactSession'); // a harness without the capability
+    await expect(daemon.compactMember('eng', agent.id, owner().id))
+      .rejects.toThrow(/does not support compaction/);
+  });
+
+  it('leaves the ring alone when the engine reports no re-baseline', async () => {
+    const agent = spawnAgent('alpha');
+    fake.compactUsage = undefined;
+    const frames: Member[] = [];
+    const stop = daemon.onFrame((_room, frame) => {
+      if (frame.type === 'member') frames.push(frame.member);
+    });
+    await daemon.compactMember('eng', agent.id, owner().id);
+    stop();
+    expect(fake.compactions).toHaveLength(1);
+    expect(frames.some((member) => member.lastUsage !== undefined)).toBe(false);
+    // Still exactly one completion edge: silence would leave a UI spinning.
+    expect(frames.filter((member) => member.id === agent.id)).toHaveLength(1);
+  });
+});
+// harn:end manual-compaction-is-an-operator-act

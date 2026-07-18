@@ -1674,6 +1674,65 @@ export class Daemon {
     }
   }
 
+  // harn:assume manual-compaction-is-an-operator-act ref=compact-member-contract
+  /**
+   * Compact an agent's engine session on an operator's explicit request. Codor
+   * never triggers compaction itself; this is the on-demand lever for a human
+   * watching the context ring climb. Owner/admin humans only (the server gate
+   * enforces the role, this refuses others defensively), and only for an IDLE
+   * agent with a live session: compacting mid-turn races the engine rewriting
+   * the same history, so an in-flight member is refused and told to stop first.
+   * The harness does the compaction natively — a harness that cannot say so
+   * clearly rather than silently doing nothing. When the engine reports its
+   * re-baselined context, it lands as transient member usage exactly like live
+   * turn telemetry, so the ring reflects the compaction immediately.
+   */
+  async compactMember(room: string, memberId: string, byMemberId: string): Promise<void> {
+    const actor = this.store.getMember(room, byMemberId);
+    if (actor?.kind !== 'human' || (actor.role !== 'owner' && actor.role !== 'admin')) {
+      throw new Error('forbidden: only owners and admins can compact an agent session');
+    }
+    const member = this.store.getMember(room, memberId);
+    if (member?.kind !== 'agent' || member.removed_ts !== undefined) {
+      throw new Error(`no such agent member: ${memberId}`);
+    }
+    if (member.harness === undefined) throw new Error(`@${member.handle} has no harness to compact`);
+    // Idle-only, and the two refusals are distinct on purpose: a turn in flight
+    // is a "stop it first" the operator can act on, while paused/queued/dead is
+    // a different problem entirely. A retained session is NOT evidence of idle —
+    // a dead or paused member can still hold one.
+    if (this.inflight.has(memberId) || member.state === 'running') {
+      throw new Error(`@${member.handle} is running — stop the turn before compacting`);
+    }
+    if (member.state !== 'idle') {
+      throw new Error(`@${member.handle} is ${member.state} — only an idle agent can be compacted`);
+    }
+    const session = this.sessions.get(memberId);
+    if (session === undefined) throw new Error(`@${member.handle} has no live session to compact`);
+    const adapter = this.requireAdapter(member.harness);
+    if (adapter.compactSession === undefined) {
+      throw new Error(`harness '${member.harness}' does not support compaction`);
+    }
+    const usage = await adapter.compactSession(session);
+    this.landCompactedUsage(room, memberId, usage);
+  }
+
+  /**
+   * The re-baseline takes the same transient path live turn telemetry does.
+   * A member frame goes out on EVERY successful compaction, even when the
+   * engine reported no usage: the UI needs a completion edge to stop showing
+   * the operator a spinner, and silence is indistinguishable from still-working.
+   */
+  private landCompactedUsage(room: string, memberId: string, usage?: AgentUsage): void {
+    if (usage !== undefined) {
+      this.lastUsage.set(memberId, { ...usage });
+      this.landContextWindow(room, memberId, usage);
+    }
+    const current = this.store.getMember(room, memberId);
+    if (current !== undefined) this.emitMember(room, current);
+  }
+  // harn:end manual-compaction-is-an-operator-act
+
   // harn:assume rename-preserves-mention-resolution ref=member-rename-stable-mentions
   renameMember(room: string, memberId: string, handle: string, displayName?: string): Member {
     const before = this.store.getMember(room, memberId);

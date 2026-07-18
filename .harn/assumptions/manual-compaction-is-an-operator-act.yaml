@@ -1,0 +1,16 @@
+id: manual-compaction-is-an-operator-act
+hash: a-1062318a76d6
+title: Manual engine compaction is an idle-only, human owner/admin act the
+  harness executes natively
+state: active
+statement: compact_member applies only to idle agent members with a live session
+  and only for human owners or admins - agents are refused by construction and a
+  running member is refused until stopped - and the daemon delegates to the
+  harness's native compaction (an unwrapped slash command for the claude SDK
+  session, the compact RPC for the codex app server), landing the engine's
+  re-baselined context as transient member usage so the ring reflects it
+  immediately, while harnesses without the capability refuse clearly, native
+  failure or a three-minute missing boundary fails clearly without leaving
+  observer state behind, and codor still never triggers compaction on its own.
+depends_on: []
+created_by: manual-compact-act

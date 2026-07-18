@@ -627,6 +627,26 @@
 .nx-typing-stop:hover { background: var(--c-error-tint); }
 .nx-typing-stop { width: 22px; height: 22px; }
 
+/* Compact control: sits beside the ring it answers to. Quiet by default — it is
+   an occasional lever, not a primary action — and visibly inert while a turn is
+   in flight rather than vanishing, so it never reads as unavailable here. */
+.nx-member-compact {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-pill);
+  color: var(--c-text-muted);
+  transition: background-color var(--m-fast) var(--m-ease), color var(--m-fast) var(--m-ease);
+}
+.nx-member-compact:hover:not(:disabled) {
+  background: var(--c-surface-active);
+  color: var(--c-text);
+}
+.nx-member-compact:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* The typing indicators stick to the scroller's floor, reading as sitting just
    above the composer at any scroll — one pill per working agent, wrapping. */
 .nx-typing-bar {

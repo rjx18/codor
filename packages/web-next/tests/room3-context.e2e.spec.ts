@@ -110,6 +110,99 @@ test.describe('context window meter', () => {
 });
 // harn:end member-context-window-meter-derived-from-last-usage
 
+test.describe('manual compaction', () => {
+  const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
+
+  const control = async (path: string, body: unknown = {}): Promise<void> => {
+    const res = await fetch(`${CONTROL}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`${path} failed: ${await res.text()}`);
+  };
+
+  test('compacting shows busy, then lands a new ring reading and re-enables', async ({ page }) => {
+    // Hold the compaction so the in-flight state is a fact this test controls,
+    // and stage a re-baseline well below fable's seeded 150K/200K.
+    await control('/hold-compactions', {
+      usage: { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 40_000 },
+    });
+    try {
+      await openRoom(page);
+      const ring = page.getByTestId('member-fable-context-window');
+      await expect(ring).toHaveAttribute('data-percentage', '75');
+
+      const compact = page.getByTestId('member-fable-compact');
+      await expect(compact).toBeEnabled(); // fable is idle
+      await compact.click();
+
+      // Busy: the operator has evidence their click did something.
+      await expect(compact).toHaveAttribute('data-compacting', 'true');
+      await expect(compact).toBeDisabled();
+      await expect(compact).toHaveAttribute('title', /Compacting this agent/);
+
+      await control('/hold-compactions', { held: false });
+
+      // The ring re-reads from the engine's re-baseline and the lever returns.
+      await expect(ring).toHaveAttribute('data-percentage', '20');
+      await expect(compact).toBeEnabled();
+      await expect(compact).not.toHaveAttribute('data-compacting', 'true');
+    } finally {
+      await control('/hold-compactions', { held: false }); // leave nothing parked
+    }
+  });
+
+  test('a running agent keeps the lever, disabled, and says why', async ({ page }) => {
+    // A turn this test CREATES, not one it finds: @scout carries the harness's
+    // seeded long-running fixture, so asserting there would pass on a state the
+    // test never made — and stopping it would destroy a shared fixture.
+    await control('/enqueue', { turns: [{ kind: 'fail-on-interrupt' }] });
+    await openRoom(page);
+    await page.getByTestId('composer-input').fill('@fable hold this turn open');
+    await page.getByTestId('composer-send').click();
+    await expect(page.getByTestId('member-fable')).toContainText('Working', { timeout: 15_000 });
+
+    const compact = page.getByTestId('member-fable-compact');
+    await expect(compact).toBeDisabled();
+    await expect(compact).toHaveAttribute(
+      'title', /Stop the run first — compacting mid-turn would race the engine/,
+    );
+
+    // Leave the room as found: stop the run and let fable settle back to idle.
+    await page.getByTestId('member-fable-stop').click();
+    await expect(page.getByTestId('member-fable')).toContainText('Idle', { timeout: 15_000 });
+  });
+
+  test('a non-privileged member is not offered the lever at all', async ({ page }) => {
+    await page.goto('/?room=eng&token=next-e2e-viewer-token');
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId('connection')).toHaveText(/Connected/);
+    // Role gating is absence, not a disabled control: a viewer never manages.
+    await expect(page.getByTestId('member-fable-context-window')).toBeVisible();
+    await expect(page.getByTestId('member-fable-compact')).toHaveCount(0);
+  });
+
+  test('the compacting state is axe-clean', async ({ page }) => {
+    await control('/hold-compactions', {
+      usage: { contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 40_000 },
+    });
+    try {
+      await openRoom(page);
+      const compact = page.getByTestId('member-fable-compact');
+      await compact.click();
+      await expect(compact).toHaveAttribute('data-compacting', 'true');
+      await page.waitForTimeout(300);
+
+      const { default: AxeBuilder } = await import('@axe-core/playwright');
+      const { violations } = await new AxeBuilder({ page }).analyze();
+      expect(violations.map((v) => `${v.id}: ${v.nodes[0]?.target[0]}`)).toEqual([]);
+    } finally {
+      await control('/hold-compactions', { held: false });
+    }
+  });
+});
+
 test.describe('member lifecycle', () => {
   test('kill confirms into Dead; revive brings the agent back', async ({ page }) => {
     await openRoom(page);

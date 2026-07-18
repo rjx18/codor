@@ -148,7 +148,7 @@ export function createTurnTranslator(
         return usageEvent(usage);
       }
 
-      // harn:assume codex-app-server-compaction-follows-native-events ref=codex-app-server-compaction-translation
+      // harn:assume codex-turn-and-manual-compaction-follow-native-events ref=codex-app-server-compaction-translation
       if (method === 'thread/compacted') {
         if (unpairedItemCompletions > 0) {
           unpairedItemCompletions -= 1;
@@ -184,7 +184,7 @@ export function createTurnTranslator(
             item: { type: 'compaction', status: 'completed', trigger: 'auto' },
           }];
         }
-        // harn:end codex-app-server-compaction-follows-native-events
+        // harn:end codex-turn-and-manual-compaction-follow-native-events
 
         if (itemType === 'agentMessage') {
           if (method !== 'item/completed') return [];

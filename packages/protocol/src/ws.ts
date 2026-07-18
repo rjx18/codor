@@ -106,6 +106,8 @@ export const ActSchema = z.discriminatedUnion('act', [
   z.object({ act: z.literal('pause'), member_id: MemberIdSchema }),
   z.object({ act: z.literal('unpause'), member_id: MemberIdSchema }),
   z.object({ act: z.literal('interrupt'), member_id: MemberIdSchema }),
+  // Manual engine compaction: the daemon gates it (idle agent, owner/admin).
+  z.object({ act: z.literal('compact_member'), member_id: MemberIdSchema }),
   // harn:assume live-delivery-consumption-is-idempotent ref=consume-act-contract
   z.object({ act: z.literal('consume_delivery'), delivery_id: z.string().uuid() }),
   // harn:end live-delivery-consumption-is-idempotent

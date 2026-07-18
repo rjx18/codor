@@ -1,5 +1,5 @@
 import type { Session, WireEvent } from '@codor/protocol';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   CODEX_THINKING_LEVELS,
@@ -409,3 +409,202 @@ describe('member environment inheritance', () => {
   });
 });
 // harn:end adapter-children-inherit-session-env
+
+describe('manual compaction', () => {
+  /**
+   * thread/compact/start returns {} immediately and the real work happens as a
+   * STANDALONE native turn, so turn/completed is the authority. Shapes here are
+   * the installed 0.144.5 ones: item notifications carry threadId and turnId,
+   * with top-level startedAtMs and completedAtMs respectively; token usage
+   * carries turnId. thread/compacted is
+   * exactly {threadId, turnId} — compatibility evidence, never a usage carrier.
+   */
+  const COMPACT_TURN = 'compact-turn';
+
+  const startCompactTurn = (server: FakeCodexAppServer, turnId = COMPACT_TURN): void => {
+    server.notify('turn/started', { threadId: 'thread-1', turn: { id: turnId } });
+    server.notify('item/started', {
+      threadId: 'thread-1',
+      turnId,
+      startedAtMs: 1_000,
+      item: { type: 'contextCompaction', id: `${turnId}-item` },
+    });
+  };
+
+  const finishCompactItem = (server: FakeCodexAppServer, turnId = COMPACT_TURN): void => {
+    server.notify('item/completed', {
+      threadId: 'thread-1',
+      turnId,
+      completedAtMs: 2_000,
+      item: { type: 'contextCompaction', id: `${turnId}-item` },
+    });
+  };
+
+  const reportUsage = (
+    server: FakeCodexAppServer, usedTokens: number, turnId = COMPACT_TURN,
+  ): void => {
+    server.notify('thread/tokenUsage/updated', {
+      threadId: 'thread-1',
+      turnId,
+      tokenUsage: {
+        modelContextWindow: 200_000,
+        last: { inputTokens: 10, outputTokens: 1, totalTokens: usedTokens },
+      },
+    });
+  };
+
+  const endTurn = (
+    server: FakeCodexAppServer,
+    status: 'completed' | 'failed' | 'interrupted' = 'completed',
+    turnId = COMPACT_TURN,
+  ): void => {
+    server.notify('turn/completed', {
+      threadId: 'thread-1',
+      turn: {
+        id: turnId, status, items: [],
+        error: status === 'failed' ? { message: 'compaction blew up' } : null,
+      },
+    });
+  };
+
+  const ranOneTurn = async (server: FakeCodexAppServer): Promise<{
+    adapter: CodexAdapter; session: Session;
+  }> => {
+    const { adapter } = fixtureAdapter(server);
+    const session = adapter.spawn({ cwd: process.cwd(), policy: 'read-only' });
+    const events = collect(adapter, session, 'first');
+    await server.waitForRequest('turn/start');
+    completeTurn(server, 'turn-1', 'first turn done');
+    await events;
+    return { adapter, session };
+  };
+
+  const compactServer = () =>
+    createFakeCodexAppServer({ 'thread/compact/start': () => ({}) });
+
+  it('runs the native compact turn and returns its correlated re-baseline', async () => {
+    const server = compactServer();
+    const { adapter, session } = await ranOneTurn(server);
+
+    const pending = adapter.compactSession(session);
+    await server.waitForRequest('thread/compact/start');
+    startCompactTurn(server);
+    reportUsage(server, 8_000);
+    finishCompactItem(server);
+    server.notify('thread/compacted', { threadId: 'thread-1', turnId: COMPACT_TURN });
+    endTurn(server);
+
+    await expect(pending).resolves.toEqual(
+      expect.objectContaining({ contextWindowUsedTokens: 8_000, contextWindowMaxTokens: 200_000 }),
+    );
+  });
+
+  it('ignores another turn\u2019s usage and completion while a compact is pending', async () => {
+    const server = compactServer();
+    const { adapter, session } = await ranOneTurn(server);
+
+    const pending = adapter.compactSession(session);
+    await server.waitForRequest('thread/compact/start');
+
+    // The unrelated turn starts FIRST, so binding to the earliest turn/started
+    // would adopt it — identity has to come from the canonical item instead.
+    server.notify('turn/started', { threadId: 'thread-1', turn: { id: 'unrelated-turn' } });
+    startCompactTurn(server);
+
+    // Unrelated traffic on the same thread must neither poison the re-baseline
+    // nor settle this compaction.
+    reportUsage(server, 199_000, 'unrelated-turn');
+    server.notify('item/completed', {
+      threadId: 'thread-1', turnId: 'unrelated-turn', completedAtMs: 1_500,
+      item: { type: 'agentMessage', id: 'unrelated-item' },
+    });
+    endTurn(server, 'completed', 'unrelated-turn');
+
+    reportUsage(server, 8_000);
+    finishCompactItem(server);
+    endTurn(server);
+
+    await expect(pending).resolves.toEqual(
+      expect.objectContaining({ contextWindowUsedTokens: 8_000 }),
+    );
+  });
+
+  it('resolves undefined when the compact turn reports no usage', async () => {
+    const server = compactServer();
+    const { adapter, session } = await ranOneTurn(server);
+
+    const pending = adapter.compactSession(session);
+    await server.waitForRequest('thread/compact/start');
+    startCompactTurn(server);
+    finishCompactItem(server);
+    server.notify('thread/compacted', { threadId: 'thread-1', turnId: COMPACT_TURN });
+    endTurn(server);
+
+    await expect(pending).resolves.toBeUndefined();
+  });
+
+  it('refuses to call a turn that compacted nothing a success', async () => {
+    const server = compactServer();
+    const { adapter, session } = await ranOneTurn(server);
+
+    const pending = adapter.compactSession(session);
+    const assertion = expect(pending).rejects
+      .toThrow(/completed without compacting anything/);
+    await server.waitForRequest('thread/compact/start');
+    startCompactTurn(server);
+    reportUsage(server, 8_000);
+    endTurn(server); // terminal, but the canonical item never completed
+    await assertion;
+  });
+
+  it('rejects when the compact turn ends failed, reporting no re-baseline', async () => {
+    const server = compactServer();
+    const { adapter, session } = await ranOneTurn(server);
+
+    const pending = adapter.compactSession(session);
+    const assertion = expect(pending).rejects.toThrow(/Codex compaction failed: compaction blew up/);
+    await server.waitForRequest('thread/compact/start');
+    startCompactTurn(server);
+    reportUsage(server, 8_000);
+    finishCompactItem(server);
+    endTurn(server, 'failed');
+    await assertion;
+  });
+
+  it('rejects on timeout, and leaves the session able to compact again', async () => {
+    const server = compactServer();
+    const { adapter, session } = await ranOneTurn(server);
+    vi.useFakeTimers();
+    try {
+      const timedOut = adapter.compactSession(session);
+      const assertion = expect(timedOut).rejects.toThrow(/Codex compaction timed out/);
+      await vi.advanceTimersByTimeAsync(180_000);
+      await assertion;
+
+      // Cleanup is proven by the NEXT compaction succeeding, not by the first
+      // rejection: a leaked pending would refuse this outright.
+      const second = adapter.compactSession(session);
+      await server.waitForRequest('thread/compact/start', 2);
+      startCompactTurn(server, 'second-compact');
+      reportUsage(server, 5_000, 'second-compact');
+      finishCompactItem(server, 'second-compact');
+      endTurn(server, 'completed', 'second-compact');
+      await expect(second).resolves.toEqual(
+        expect.objectContaining({ contextWindowUsedTokens: 5_000 }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects the pending compaction when the app-server client closes', async () => {
+    const server = compactServer();
+    const { adapter, session } = await ranOneTurn(server);
+
+    const pending = adapter.compactSession(session);
+    const assertion = expect(pending).rejects.toThrow(/exited/);
+    await server.waitForRequest('thread/compact/start');
+    server.exit(0, null);
+    await assertion;
+  });
+});

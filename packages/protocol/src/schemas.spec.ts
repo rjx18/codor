@@ -213,6 +213,13 @@ describe('messages', () => {
     expect(ActSchema.safeParse({ act: 'pin_message', message_id: 3 }).success).toBe(false);
   });
 
+  it('accepts a compact_member act and rejects one without a target', () => {
+    const memberId = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    expect(ActSchema.parse({ act: 'compact_member', member_id: memberId }))
+      .toEqual({ act: 'compact_member', member_id: memberId });
+    expect(ActSchema.safeParse({ act: 'compact_member' }).success).toBe(false);
+  });
+
   it('treats deleted as an additive optional marker', () => {
     expect(MessageSchema.parse(chatMessage).deleted).toBeUndefined();
     expect(MessageSchema.parse({ ...chatMessage, deleted: true }).deleted).toBe(true);

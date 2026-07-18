@@ -477,6 +477,15 @@ createServer((req, res) => {
         const body = raw === '' ? {} : JSON.parse(raw);
         for (const turn of body.turns ?? []) fake.enqueue(turn);
       }
+      if (url.pathname === '/hold-compactions') {
+        // Arm/release, not a timing race: the spec decides exactly how long a
+        // compaction is in flight, so the busy state is observable on purpose.
+        const body = raw === '' ? {} : JSON.parse(raw);
+        if (body.held === false) fake.releaseCompactions();
+        else fake.holdCompactions();
+        if (body.usage !== undefined) fake.compactUsage = body.usage;
+        payload = { held: body.held !== false };
+      }
       if (url.pathname === '/complete-agent') {
         const body = raw === '' ? {} : JSON.parse(raw);
         const handle = String(body.handle ?? '');

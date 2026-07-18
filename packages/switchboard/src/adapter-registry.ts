@@ -137,8 +137,12 @@ function withSpawnValidation(adapter: HarnessAdapter): HarnessAdapter {
     // it vanishes, while every test that builds the adapter directly still passes.
     // U3 lost model discovery here for exactly that reason.
     ...(adapter.listModels && { listModels: () => adapter.listModels!() }),
+    ...(adapter.probeLimits && { probeLimits: () => adapter.probeLimits!() }),
     ...(adapter.peekContextUsage && {
       peekContextUsage: (sessionRef) => adapter.peekContextUsage!(sessionRef),
+    }),
+    ...(adapter.compactSession && {
+      compactSession: (session) => adapter.compactSession!(session),
     }),
     // harn:end adapter-wrappers-preserve-the-whole-contract
   };

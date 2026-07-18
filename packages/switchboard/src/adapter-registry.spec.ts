@@ -101,13 +101,25 @@ describe('the registry wrapper preserves the whole adapter contract', () => {
     await expect(claude.peekContextUsage!('no-such-session-ref')).resolves.toBeUndefined();
   });
 
+  it('forwards compactSession so the operator lever reaches the engine', async () => {
+    // Same class as the peekContextUsage bug: the compact act only ever calls
+    // WRAPPED adapters, so a dropped member makes the button silently useless
+    // while every direct-construction adapter test still passes.
+    const adapters = await loadAdapterRegistry();
+    const claude = adapters.find((adapter) => adapter.id === 'claude-code')!;
+    expect(claude.compactSession).toBeTypeOf('function');
+    await expect(claude.compactSession!({ harness: 'claude-code', cwd: '/' }))
+      .rejects.toThrow(/no live Claude session/);
+  });
+
   it('carries every declared member of the contract through the wrapper', async () => {
     // Guards the next member somebody adds to HarnessAdapter and forgets here.
     const [wrapped] = await loadAdapterRegistry();
     for (const member of [
       'id', 'capabilities', 'spawn', 'attach', 'deliver',
       'respondInteraction', 'interrupt', 'discoverSessions', 'listModels',
-      'peekContextUsage',
+      // Existence only — probing here would hit a real provider.
+      'probeLimits', 'peekContextUsage', 'compactSession',
     ]) {
       expect(wrapped, `wrapper must carry ${member}`).toHaveProperty(member);
     }

@@ -263,6 +263,40 @@ export class FakeAdapter implements HarnessAdapter {
     await new Promise((r) => setImmediate(r)); // ack after the turn resumed
   }
 
+  /**
+   * Observable stand-in for a harness's native compaction: records the call and
+   * returns whatever re-baseline the test staged, so the daemon's gate and the
+   * ring update can be proven without a real engine. It is an own property, so
+   * a test can delete it to model a harness that cannot compact at all.
+   */
+  compactUsage: AgentUsage | undefined;
+  readonly compactions: Session[] = [];
+  /**
+   * When held, compactSession parks until released. A UI test needs the
+   * in-flight state to be a fact it controls, not a race it hopes to observe.
+   */
+  private compactionHold: (() => void) | null = null;
+  private heldCompactions: Array<() => void> = [];
+
+  holdCompactions(): void {
+    this.compactionHold = () => undefined;
+  }
+
+  releaseCompactions(): void {
+    this.compactionHold = null;
+    const waiting = this.heldCompactions;
+    this.heldCompactions = [];
+    for (const release of waiting) release();
+  }
+
+  compactSession = async (session: Session): Promise<AgentUsage | undefined> => {
+    this.compactions.push(session);
+    if (this.compactionHold !== null) {
+      await new Promise<void>((resolve) => this.heldCompactions.push(resolve));
+    }
+    return await Promise.resolve(this.compactUsage);
+  };
+
   interrupt(session: Session): void {
     const nativeId = this.pendingBySession.get(session);
     if (!nativeId) return;

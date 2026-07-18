@@ -48,6 +48,10 @@ export const CAPABILITY_MINIMUM_ROLE: Record<HumanCapability, Role> = {
   // Retrying a failed/interrupted run re-delivers its instructions (P9);
   // owner/admin only, agents refused (AGENT_CAPABILITIES omits it).
   retry_run: 'admin',
+  // Compacting an agent's engine session spends the operator's context on their
+  // behalf; owner/admin only, and AGENT_CAPABILITIES omits it so an agent can
+  // never compact itself or a peer.
+  compact_member: 'admin',
   // Changing what an agent may do to the machine is an admin act, like creating one.
   // NOTE for codor-live-collab: when members gain credentials, `configure` must be
   // EXCLUDED from what an agent may do — an agent must never raise its own permission.

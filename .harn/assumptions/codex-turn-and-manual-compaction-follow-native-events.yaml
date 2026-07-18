@@ -1,0 +1,18 @@
+id: codex-turn-and-manual-compaction-follow-native-events
+hash: a-9b01b187962f
+title: Codex automatic and operator compaction share native events without
+  sharing run evidence
+state: active
+statement: During a delivered turn, Codex contextCompaction item
+  start/completion and the thread/compacted compatibility notification must
+  still produce one deduplicated automatic compaction timeline item; outside a
+  delivered turn, compactSession must send thread/compact/start, observe that
+  standalone compact turn's canonical item and terminal notifications before the
+  three-minute bound, return only a thread/tokenUsage/updated snapshot emitted
+  during that compact, and journal no timeline item because the operator act is
+  member state, not run evidence.
+depends_on:
+  - codex-app-server-contract-is-pinned-to-0-144-5
+  - compaction-timeline-items-are-durable-run-evidence
+  - manual-compaction-is-an-operator-act
+created_by: manual-compact-act

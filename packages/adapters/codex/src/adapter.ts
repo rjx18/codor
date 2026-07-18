@@ -25,6 +25,7 @@ import {
 import { probeCodexLimits } from './limits-probe.js';
 import { peekCodexContextUsage } from './peek.js';
 import {
+  agentUsageFromTokenUsage,
   createTurnTranslator,
   type CodexTranslatorContext,
 } from './translate.js';
@@ -126,7 +127,32 @@ interface CodexRuntime {
   active: TurnState | null;
   threadId?: string;
   context: CodexTranslatorContext;
+  /** An operator-requested compaction awaiting its native compact turn. */
+  pendingCompaction: PendingCompaction | null;
 }
+
+interface PendingCompaction {
+  settle: (usage: AgentUsage | undefined) => void;
+  fail: (error: Error) => void;
+  /** Turn ids seen started while pending; identity is not claimed from these. */
+  startedTurnIds: Set<string>;
+  /** The compact turn, bound when a canonical contextCompaction item opens. */
+  turnId?: string;
+  /** The canonical contextCompaction item that turn opened. */
+  itemId?: string;
+  /** Whether that item reached completed — a turn alone does not prove work. */
+  itemCompleted: boolean;
+  /** The newest usage correlated to THIS compact turn. */
+  usage?: AgentUsage;
+  timer: NodeJS.Timeout;
+}
+
+/**
+ * Manual compaction runs as a STANDALONE native turn that can legitimately take
+ * minutes on a long thread; bound it so an engine that accepts the command and
+ * then goes quiet surfaces as an error instead of a spinner that never stops.
+ */
+const COMPACTION_TIMEOUT_MS = 180_000;
 
 export interface CodexAdapterOptions {
   command?: string;
@@ -330,6 +356,7 @@ export class CodexAdapter implements HarnessAdapter {
     const existing = memberKey === undefined ? undefined : this.memberRuntimes.get(memberKey);
     const runtime: CodexRuntime = existing ?? {
       session,
+      pendingCompaction: null,
       ...(memberKey !== undefined && { memberKey }),
       client: null,
       child: null,
@@ -449,6 +476,9 @@ export class CodexAdapter implements HarnessAdapter {
     if (threadId !== undefined && runtime.threadId !== undefined && threadId !== runtime.threadId) {
       return;
     }
+    // A manual compaction runs with no turn open, and the branch below drops
+    // every notification in that state — so observe its turn before that.
+    this.observeCompaction(runtime, method, params);
     const turn = runtime.active;
     if (turn === null || turn.done) return;
     const events = turn.translator.push(method, params);
@@ -467,6 +497,7 @@ export class CodexAdapter implements HarnessAdapter {
     error: Error,
   ): void {
     if (runtime.client !== client) return;
+    this.failCompaction(runtime, error);
     runtime.client = null;
     runtime.child = null;
     const turn = runtime.active;
@@ -492,6 +523,7 @@ export class CodexAdapter implements HarnessAdapter {
   }
 
   private retireRuntime(runtime: CodexRuntime, removeRuntime = false): void {
+    this.failCompaction(runtime, new Error('Codex session retired before compaction completed'));
     const client = runtime.client;
     runtime.client = null;
     runtime.child = null;
@@ -503,11 +535,166 @@ export class CodexAdapter implements HarnessAdapter {
     }
   }
 
-  interrupt(session: Session): void {
-    const runtime = this.runtimes.get(session)
+  /**
+   * Compact this thread using the app server's own compaction RPC. Only ever
+   * called for an idle session: compacting mid-turn races the engine rewriting
+   * the same history. The RPC returns {} at once and the work runs as a
+   * standalone native turn, so the result comes from observing that turn (see
+   * observeCompaction) — resolving with the usage correlated to it, so the ring
+   * updates without waiting for a next turn.
+   */
+  async compactSession(session: Session): Promise<AgentUsage | undefined> {
+    const runtime = this.liveRuntime(session);
+    if (runtime === undefined) throw new Error('no live Codex session to compact');
+    if (runtime.active !== null && !runtime.active.terminal) {
+      throw new Error('cannot compact while a turn is in flight');
+    }
+    if (runtime.pendingCompaction !== null) throw new Error('a compaction is already in flight');
+    await this.ensureClient(runtime);
+    const threadId = runtime.threadId;
+    if (threadId === undefined) throw new Error('no Codex thread to compact');
+
+    const settled = new Promise<AgentUsage | undefined>((resolve, reject) => {
+      const timer = setTimeout(
+        () => this.failCompaction(runtime, new Error('Codex compaction timed out')),
+        COMPACTION_TIMEOUT_MS,
+      );
+      timer.unref?.();
+      runtime.pendingCompaction = {
+        settle: resolve, fail: reject,
+        startedTurnIds: new Set<string>(), itemCompleted: false, timer,
+      };
+    });
+    try {
+      await runtime.client!.request('thread/compact/start', { threadId });
+    } catch (error) {
+      // The RPC itself failed (a dead client rejects it). Fail the observer's
+      // promise too and consume it here: the caller learns about this through
+      // the throw below, and an unconsumed rejection would surface as an
+      // unhandled rejection instead of an error the operator sees.
+      const failure = error instanceof Error ? error : new Error(String(error));
+      this.failCompaction(runtime, failure);
+      void settled.catch(() => undefined);
+      throw failure;
+    }
+    return await settled;
+  }
+
+  /**
+   * Watch the standalone turn `thread/compact/start` kicks off. The RPC returns
+   * {} immediately and the work happens as a native turn, so the authority on
+   * whether compaction happened is that turn's `turn/completed` — not
+   * `thread/compacted`, which is exactly {threadId, turnId} and never carries a
+   * usage payload.
+   *
+   * Everything is CORRELATED to the compact turn. A thread can be carrying other
+   * traffic, and an uncorrelated observer would happily adopt a stranger's token
+   * usage as the re-baseline or settle on a stranger's completion — and turn
+   * ORDER proves nothing, so the first turn/started is not it either. Identity
+   * comes from the canonical item: bind to whichever started turn opens a
+   * contextCompaction item, then accept item and usage notifications only for
+   * that turn and settle only on its terminal. A terminal without a completed
+   * canonical item did not compact anything, and is reported as a failure
+   * rather than a success with nothing behind it.
+   */
+  private observeCompaction(runtime: CodexRuntime, method: string, params: unknown): void {
+    const pending = runtime.pendingCompaction;
+    if (pending === null) return;
+    const record = typeof params === 'object' && params !== null
+      ? (params as Record<string, unknown>)
+      : undefined;
+    if (record === undefined) return;
+    const turnId = (value: unknown): string | undefined =>
+      typeof value === 'string' ? value : undefined;
+
+    if (method === 'turn/started') {
+      // Merely noted, never adopted: a thread can start turns that have nothing
+      // to do with this compaction, and adopting one would let a stranger's
+      // usage become the re-baseline and a stranger's terminal settle us.
+      const turn = record.turn as { id?: unknown } | undefined;
+      const started = turnId(turn?.id);
+      if (started !== undefined) pending.startedTurnIds.add(started);
+      return;
+    }
+
+    // Identity is established by the canonical item, not by turn order: the
+    // compact turn is the started turn that opens a contextCompaction item.
+    if (method === 'item/started') {
+      const item = record.item as { id?: unknown; type?: unknown } | undefined;
+      if (item?.type !== 'contextCompaction' || pending.turnId !== undefined) return;
+      const owner = turnId(record.turnId);
+      if (owner === undefined || !pending.startedTurnIds.has(owner)) return;
+      pending.turnId = owner;
+      pending.itemId = turnId(item.id);
+      return;
+    }
+    // Until bound, nothing on this thread belongs to us. Item and usage
+    // notifications name their turn at the top level; turn/completed names it
+    // inside `turn`, so read both rather than silently dropping the terminal.
+    const owner = turnId(record.turnId)
+      ?? turnId((record.turn as { id?: unknown } | undefined)?.id);
+    if (pending.turnId === undefined || owner !== pending.turnId) return;
+
+    if (method === 'item/completed') {
+      const item = record.item as { id?: unknown; type?: unknown } | undefined;
+      if (item?.type !== 'contextCompaction') return;
+      const id = turnId(item.id);
+      if (id !== undefined && id === pending.itemId) pending.itemCompleted = true;
+      return;
+    }
+    if (method === 'thread/tokenUsage/updated') {
+      const usage = agentUsageFromTokenUsage(record.tokenUsage);
+      if (usage !== undefined) pending.usage = usage;
+      return;
+    }
+    if (method !== 'turn/completed') return;
+
+    const turn = record.turn as
+      { status?: unknown; error?: { message?: unknown } } | undefined;
+    const status = turn?.status;
+    if (status !== 'completed') {
+      const detail = typeof turn?.error?.message === 'string' ? turn.error.message : undefined;
+      this.failCompaction(runtime, new Error(
+        `Codex compaction ${status === 'interrupted' ? 'was interrupted' : 'failed'}` +
+        `${detail === undefined ? '' : `: ${detail}`}`,
+      ));
+      return;
+    }
+    if (!pending.itemCompleted) {
+      this.failCompaction(runtime, new Error(
+        'Codex compaction turn completed without compacting anything',
+      ));
+      return;
+    }
+    const usage = pending.usage;
+    this.clearCompaction(runtime);
+    if (usage !== undefined) runtime.context.latestUsage = usage;
+    pending.settle(usage);
+  }
+
+  /** Every terminal path clears the pending state; none may leak a promise. */
+  private clearCompaction(runtime: CodexRuntime): PendingCompaction | null {
+    const pending = runtime.pendingCompaction;
+    if (pending === null) return null;
+    clearTimeout(pending.timer);
+    runtime.pendingCompaction = null;
+    return pending;
+  }
+
+  private failCompaction(runtime: CodexRuntime, error: Error): void {
+    this.clearCompaction(runtime)?.fail(error);
+  }
+
+  /** Find-only: the runtime this session already has, never creating one. */
+  private liveRuntime(session: Session): CodexRuntime | undefined {
+    return this.runtimes.get(session)
       ?? (session.env?.CODOR_MEMBER_ID === undefined
         ? undefined
         : this.memberRuntimes.get(session.env.CODOR_MEMBER_ID));
+  }
+
+  interrupt(session: Session): void {
+    const runtime = this.liveRuntime(session);
     if (runtime === undefined) return;
     const turn = runtime.active;
     if (turn === null || turn.terminal) {

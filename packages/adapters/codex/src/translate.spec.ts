@@ -82,7 +82,7 @@ describe('Codex 0.144.5 app-server fixture translation', () => {
     });
   });
 
-  // harn:assume codex-app-server-compaction-follows-native-events ref=codex-app-server-compaction-regression
+  // harn:assume codex-turn-and-manual-compaction-follow-native-events ref=codex-app-server-compaction-regression
   it('deduplicates the canonical item completion and compatibility notification', () => {
     expect(events.filter((event) => event.type === 'timeline')).toEqual([
       {
@@ -108,7 +108,7 @@ describe('Codex 0.144.5 app-server fixture translation', () => {
     ]);
     expect(events.filter((event) => event.type === 'timeline')).toHaveLength(2);
   });
-  // harn:end codex-app-server-compaction-follows-native-events
+  // harn:end codex-turn-and-manual-compaction-follow-native-events
 
   // harn:assume normalized-agent-usage-telemetry-with-estimates ref=codex-usage-telemetry-regression
   // harn:assume codex-app-server-usage-is-context-aware-and-uncosted ref=codex-app-server-usage-regression

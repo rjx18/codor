@@ -143,6 +143,15 @@ export interface HarnessAdapter {
   /** Resolves on adapter acknowledgement (the interaction is truly answered). */
   respondInteraction(session: Session, interaction_id: string, answer: unknown): Promise<void>;
   interrupt(session: Session): void;
+  /**
+   * Optional: compact this session's context using the harness's OWN
+   * compaction — an unwrapped slash command for a persistent SDK session, a
+   * native RPC for an app server. Codor never calls this on its own: it exists
+   * so an operator watching the ring can ask, and only for an idle session.
+   * Resolves with the engine's re-baselined usage when it reports one, so the
+   * ring updates without waiting for the next turn; undefined when it does not.
+   */
+  compactSession?(session: Session): Promise<AgentUsage | undefined>;
   discoverSessions(): SessionRef[];
 }
 // harn:end claude-agent-sdk-query-is-the-session-runtime

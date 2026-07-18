@@ -1,7 +1,7 @@
 id: codex-app-server-compaction-follows-native-events
 hash: a-c53521c95421
 title: Codex compaction follows canonical items and compatibility notifications
-state: active
+state: retired
 statement: Codex contextCompaction item start/completion must emit loading and
   completed auto compaction timeline items, thread/compacted must remain a
   completed compatibility source, and per-turn unpaired item/notification
@@ -11,3 +11,4 @@ depends_on:
   - codex-app-server-contract-is-pinned-to-0-144-5
   - compaction-timeline-items-are-durable-run-evidence
 created_by: ctx-guardrails-p5c-codex-app-server
+retired_by: manual-compact-act

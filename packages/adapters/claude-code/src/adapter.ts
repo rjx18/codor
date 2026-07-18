@@ -188,7 +188,23 @@ interface ClaudeRuntime {
   active: TurnState | null;
   context: ClaudeTranslatorContext;
   pendingPermissions: Map<string, PendingPermission>;
+  /** An operator-requested compaction awaiting the engine's native boundary. */
+  pendingCompaction: PendingCompaction | null;
 }
+
+interface PendingCompaction {
+  translator: ReturnType<typeof createTurnTranslator>;
+  settle: (usage: AgentUsage | undefined) => void;
+  fail: (error: Error) => void;
+  timer: NodeJS.Timeout;
+}
+
+/**
+ * Compaction runs as its own engine turn and can legitimately take minutes on a
+ * long session; bound it so an engine that accepts `/compact` and then goes
+ * quiet surfaces as an error instead of a spinner that never resolves.
+ */
+const COMPACTION_TIMEOUT_MS = 180_000;
 
 export interface InboxHookContext {
   cwd: string;
@@ -500,6 +516,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
         ...(session.session_ref !== undefined && { sessionId: session.session_ref }),
       },
       pendingPermissions: new Map<string, PendingPermission>(),
+      pendingCompaction: null,
     };
     runtime.session = session;
     this.runtimes.set(session, runtime);
@@ -640,6 +657,11 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
         runtime.query = null;
         runtime.input?.end();
         runtime.input = null;
+        // A query that ended can never deliver the boundary: fail now with the
+        // real reason instead of leaving the operator on a 180s timeout.
+        this.failCompaction(runtime, failure ?? new Error(
+          'Claude query closed before compaction completed',
+        ));
         this.rejectPendingPermissions(
           runtime,
           failure ?? new Error('Claude SDK query ended before permission resolution'),
@@ -660,7 +682,10 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
 
   private routeMessage(runtime: ClaudeRuntime, message: SDKMessage): void {
     const turn = runtime.active;
-    if (turn === null || turn.done) return;
+    if (turn === null || turn.done) {
+      this.observeCompaction(runtime, message);
+      return;
+    }
     const events = turn.translator.push(message);
     this.push(turn, events);
     const discovered = turn.translator.sessionId();
@@ -702,6 +727,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
 
   private async retireQuery(runtime: ClaudeRuntime, removeRuntime = false): Promise<void> {
     if (runtime.retiring !== null) return await runtime.retiring;
+    this.failCompaction(runtime, new Error('Claude query retired before compaction completed'));
     const query = runtime.query;
     const input = runtime.input;
     const pump = runtime.pump;
@@ -786,11 +812,102 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   }
   // harn:end claude-sdk-permissions-back-codor-interactions
 
-  interrupt(session: Session): void {
-    const runtime = this.runtimes.get(session)
+  /**
+   * Compact this session using Claude's OWN compaction: an unwrapped `/compact`
+   * pushed into the persistent SDK query, exactly as a human typing it would.
+   * Only ever called for an idle session — a turn in flight is refused rather
+   * than raced, because compaction rewrites the very history the turn is using.
+   * Resolves with the re-baselined context the compact_boundary reports, so the
+   * ring updates without waiting for a next turn; the boundary's timeline items
+   * are NOT journaled — compaction outside a run is member state, not evidence.
+   */
+  async compactSession(session: Session): Promise<AgentUsage | undefined> {
+    const runtime = this.liveRuntime(session);
+    if (runtime === undefined) throw new Error('no live Claude session to compact');
+    if (runtime.active !== null && !runtime.active.terminal) {
+      throw new Error('cannot compact while a turn is in flight');
+    }
+    if (runtime.pendingCompaction !== null) throw new Error('a compaction is already in flight');
+
+    await this.ensureQuery(runtime);
+    this.startQueryPump(runtime);
+    const settled = new Promise<AgentUsage | undefined>((resolve, reject) => {
+      const timer = setTimeout(
+        () => this.failCompaction(runtime, new Error('Claude compaction timed out')),
+        COMPACTION_TIMEOUT_MS,
+      );
+      timer.unref?.();
+      runtime.pendingCompaction = {
+        translator: createTurnTranslator(runtime.context),
+        settle: resolve,
+        fail: reject,
+        timer,
+      };
+    });
+    try {
+      runtime.input!.push({
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'text', text: '/compact' }] },
+        parent_tool_use_id: null,
+        uuid: randomUUID(),
+        session_id: session.session_ref ?? '',
+      });
+    } catch (error) {
+      this.clearCompaction(runtime);
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+    return await settled;
+  }
+
+  /**
+   * The pump drops every message while no turn is active — which is precisely
+   * when a manual compaction runs — so the boundary is observed here instead.
+   * Only the engine's own re-baseline settles it: a boundary that reports no
+   * post-token count resolves undefined rather than clobbering a good gauge.
+   */
+  private observeCompaction(runtime: ClaudeRuntime, message: SDKMessage): void {
+    const pending = runtime.pendingCompaction;
+    if (pending === null) return;
+    let events: WireEvent[];
+    try {
+      events = pending.translator.push(message);
+    } catch (error) {
+      this.failCompaction(runtime, error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
+    const usage = events.find((event) => event.type === 'usage_updated');
+    const completed = events.some((event) =>
+      event.type === 'timeline' &&
+      event.item.type === 'compaction' &&
+      event.item.status === 'completed');
+    if (!completed) return;
+    this.clearCompaction(runtime);
+    pending.settle(usage?.type === 'usage_updated' ? usage.usage : undefined);
+  }
+
+  /** Every terminal path clears the pending state; none may leak a promise. */
+  private clearCompaction(runtime: ClaudeRuntime): PendingCompaction | null {
+    const pending = runtime.pendingCompaction;
+    if (pending === null) return null;
+    clearTimeout(pending.timer);
+    runtime.pendingCompaction = null;
+    return pending;
+  }
+
+  private failCompaction(runtime: ClaudeRuntime, error: Error): void {
+    this.clearCompaction(runtime)?.fail(error);
+  }
+
+  /** Find-only: the runtime this session already has, never creating one. */
+  private liveRuntime(session: Session): ClaudeRuntime | undefined {
+    return this.runtimes.get(session)
       ?? (session.env?.CODOR_MEMBER_ID === undefined
         ? undefined
         : this.memberRuntimes.get(session.env.CODOR_MEMBER_ID));
+  }
+
+  interrupt(session: Session): void {
+    const runtime = this.liveRuntime(session);
     if (runtime === undefined) return;
     const turn = runtime.active;
     if (turn !== null && !turn.terminal) {

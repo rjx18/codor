@@ -494,3 +494,96 @@ describe('Agent SDK hooks', () => {
 });
 // harn:end live-inbox-capability-is-evidence-backed
 // harn:end claude-sdk-hooks-are-authoritative
+
+describe('manual compaction', () => {
+  const compactBoundary = (metadata: Record<string, unknown>) => message({
+    type: 'system',
+    subtype: 'compact_boundary',
+    session_id: SESSION_ID,
+    compact_metadata: { trigger: 'manual', pre_tokens: 120_000, ...metadata },
+  });
+
+  /**
+   * A session only has a runtime once it has taken a turn — which is also the
+   * only state an operator can compact from, since the ring they are reacting
+   * to is drawn from turn telemetry. Each fixture runs one turn, then compacts.
+   */
+  const boundaryFor: { value: () => SDKMessage | undefined } = { value: () => undefined };
+
+  const ranOneTurn = async (
+    boundary: () => SDKMessage | undefined,
+  ): Promise<{ adapter: ClaudeCodeAdapter; session: Session; users: unknown[] }> => {
+    boundaryFor.value = boundary;
+    const records: MockQueryRecord[] = [];
+    const users: unknown[] = [];
+    const factory = queryFactory(async function* (input) {
+      let turn = 0;
+      yield init();
+      for await (const user of input.prompt) {
+        users.push(user);
+        if (turn++ === 0) { yield result('first turn done'); continue; }
+        const event = boundaryFor.value();
+        if (event !== undefined) yield event;
+      }
+    }, records);
+    const adapter = new ClaudeCodeAdapter({ queryFactory: factory });
+    const session = tracked(adapter, adapter.spawn({ cwd: process.cwd(), policy: 'full-access' }));
+    await collect(adapter.deliver(session, 'first', {}));
+    return { adapter, session, users };
+  };
+
+  it('injects an unwrapped /compact and returns the engine re-baseline', async () => {
+    const { adapter, session, users } = await ranOneTurn(() => compactBoundary({ post_tokens: 9_000 }));
+
+    const usage = await adapter.compactSession(session);
+
+    // The command reaches the engine verbatim — no codor envelope around it.
+    const sent = users.at(-1) as { message: { content: Array<{ text: string }> } };
+    expect(sent.message.content[0]?.text).toBe('/compact');
+    expect(usage?.contextWindowUsedTokens).toBe(9_000);
+  });
+
+  it('resolves undefined when the boundary re-baselines nothing', async () => {
+    // A boundary without post_tokens must not clobber a good gauge with a guess.
+    const { adapter, session } = await ranOneTurn(() => compactBoundary({}));
+    await expect(adapter.compactSession(session)).resolves.toBeUndefined();
+  });
+
+  it('rejects rather than hanging when the engine never reports a boundary', async () => {
+    const { adapter, session } = await ranOneTurn(() => undefined);
+    vi.useFakeTimers();
+    try {
+      const pending = adapter.compactSession(session);
+      const assertion = expect(pending).rejects.toThrow(/Claude compaction timed out/);
+      await vi.advanceTimersByTimeAsync(180_000);
+      await assertion;
+
+      // Cleanup is proven by the NEXT compaction being admitted and settling,
+      // not by the first rejection: a leaked pending would refuse this outright.
+      boundaryFor.value = () => compactBoundary({ post_tokens: 4_000 });
+      await expect(adapter.compactSession(session)).resolves.toEqual(
+        expect.objectContaining({ contextWindowUsedTokens: 4_000 }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects with the native reason when the SDK query dies mid-compaction', async () => {
+    const records: MockQueryRecord[] = [];
+    const factory = queryFactory(async function* (input) {
+      let turn = 0;
+      yield init();
+      for await (const _user of input.prompt) {
+        if (turn++ === 0) { yield result('first turn done'); continue; }
+        throw new Error('claude transport died');
+      }
+    }, records);
+    const adapter = new ClaudeCodeAdapter({ queryFactory: factory });
+    const session = tracked(adapter, adapter.spawn({ cwd: process.cwd(), policy: 'full-access' }));
+    await collect(adapter.deliver(session, 'first', {}));
+
+    await expect(adapter.compactSession(session)).rejects.toThrow(/claude transport died/);
+  });
+
+});
