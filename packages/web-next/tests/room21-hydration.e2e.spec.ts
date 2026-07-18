@@ -181,6 +181,38 @@ test.describe('large-room hydration', () => {
     await expect.poll(() => historyRequests).toBe(2);
   });
 
+  test('loaded tall runs keep one stable scrollbar height while traversing downward', async ({ page }) => {
+    await openRoom(page);
+    const timeline = page.getByTestId('timeline');
+    const rows = page.locator('.nx-column > .nx-turn[id], .nx-column > .nx-system[id]');
+
+    // Make the archived run blocks decisively taller than the old 64px
+    // content-visibility estimate. The real room has this shape naturally from
+    // long prose and tool batches; the fixture pins it without huge journals.
+    await page.addStyleTag({ content: '.nx-run-block { min-height: 240px; }' });
+    await page.evaluate(() => document.fonts.ready);
+
+    for (let pageIndex = 0; pageIndex < 4; pageIndex += 1) {
+      const before = await rows.count();
+      await timeline.evaluate((node) => { node.scrollTop = 0; });
+      await expect(rows).toHaveCount(before + 20, { timeout: 10_000 });
+      await expect(timeline).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 });
+    }
+
+    const beforeTraversal = await rows.count();
+    const heights: number[] = [];
+    for (const ratio of [0.2, 0.4, 0.6, 0.8, 1]) {
+      heights.push(await timeline.evaluate(async (node, position) => {
+        node.scrollTop = (node.scrollHeight - node.clientHeight) * position;
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        return node.scrollHeight;
+      }, ratio));
+    }
+
+    expect(await rows.count()).toBe(beforeTraversal);
+    expect(new Set(heights)).toEqual(new Set([heights[0]]));
+  });
+
   test('a deep link to a message beyond the tail pages back to it', async ({ page }) => {
     // Bounding cold hydration created this case: the target sits hundreds of ids
     // below the tail, so a permalink can only land by paging history back.
