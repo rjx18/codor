@@ -63,6 +63,7 @@ for (const [id, name] of [
   ['workspace', 'Workspace'],
   ['files', 'Files'],
   ['hydration', 'Hydration'],
+  ['fixtures', 'Fixtures'],
 ]) {
   daemon.createRoom({ id, name, owner });
   crypto.roomKeys.ensureRoom(id);
@@ -304,6 +305,41 @@ daemon.store.postMessage('files', {
   attachments: [seededImage, seededDoc],
 });
 
+// Fixtures: a STABLE room for specs whose subject is a seeded message or run.
+// The shared eng room accretes as other specs post into it, which pushes boot
+// fixtures out of the bounded cold tail — a spec then pages two-plus pages just
+// to reach its subject, testing paging instead of itself. Ids here are
+// deterministic (1 = quote target, 2 = search target, 3 = the evidence run).
+const fixturesOwner = daemon.ownerOf('fixtures');
+daemon.store.postMessage('fixtures', {
+  author: fixturesOwner.id, kind: 'chat',
+  body: 'morning — can we get the auth refactor over the line today?',
+});
+daemon.store.postMessage('fixtures', {
+  author: fixturesOwner.id, kind: 'chat',
+  body: 'staging deploy is green, so no blockers from infra',
+});
+const archiver = daemon.spawnMember('fixtures', { harness: 'fake', handle: 'archiver', cwd: dir });
+const evidencePost = daemon.store.postMessage('fixtures', {
+  author: archiver.id, kind: 'run', body: 'Queue is short: session rotation is refactored.',
+});
+const evidenceRef = `runs/${evidencePost.id}.jsonl`;
+daemon.store.updateMessage('fixtures', evidencePost.id, {
+  run: {
+    status: 'completed', started_ts: new Date().toISOString(), ended_ts: new Date().toISOString(),
+    tool_calls: 2, events_ref: evidenceRef,
+    final_text: 'Queue is short: session rotation is refactored.',
+  },
+});
+for (const event of [
+  { type: 'run.item', item_type: 'text_delta', payload: { text: 'Checking the auth queue before making changes.' } },
+  { type: 'run.item', item_type: 'tool_call', payload: { call_id: 'x1', tool: 'Bash', title: 'pnpm test --filter auth', input: { command: 'pnpm test --filter auth' } } },
+  { type: 'run.item', item_type: 'tool_result', payload: { call_id: 'x1', status: 'ok', output_text: 'Test Files  6 passed (6)\nTests  42 passed (42)' } },
+  { type: 'run.item', item_type: 'tool_call', payload: { call_id: 'x2', tool: 'Edit', title: 'src/auth/session.ts', input: { file_path: 'src/auth/session.ts' } } },
+  { type: 'run.item', item_type: 'tool_result', payload: { call_id: 'x2', status: 'ok', diff: { path: 'src/auth/session.ts', unified: '@@ -18,7 +18,9 @@\n-  const ttl = 3600;\n+  const ttl = config.refreshTtlSeconds;\n+  rotateOnUse(session);\n   persist(session);\n' } } },
+  { type: 'run.item', item_type: 'text_delta', payload: { text: 'Queue is short: session rotation is refactored.' } },
+]) daemon.blobs.append('fixtures', evidenceRef, { ...event, ts: new Date().toISOString() });
+
 // Hydration: the large-room regression room (codex #516). It carries a LIVE run
 // with prose that must be fetched first and survive a reload, plus an empty
 // interrupted run sitting seconds after a completed one by the same agent — the
@@ -469,6 +505,14 @@ createServer((req, res) => {
         const handle = String(body.handle ?? '');
         daemon.postHumanMessage(roomId, `@${handle} ${String(body.prompt ?? 'go')}`);
       }
+      if (url.pathname === '/live-chat') {
+        // Like /post-chat but through the daemon, so subscribers get the live
+        // `message` frame — the arrival that a pinned transcript scrolls to.
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const roomId = String(body.room ?? 'eng');
+        const message = daemon.postHumanMessage(roomId, String(body.body ?? 'live arrival'));
+        payload = { id: message.id, ts: message.ts };
+      }
       if (url.pathname === '/post-chat') {
         // Insert a plain human chat straight into the store — NO routing, so it
         // starts no run and cannot default-route to the room's last agent. The
@@ -516,8 +560,24 @@ createServer((req, res) => {
         const count = Math.min(400, Number(body.count ?? 180));
         if (hydrationIds === undefined) {
           const base = Date.now() - (count + 30) * 60_000;
+          // A uniquely-worded oldest message, hundreds of ids below the bounded
+          // cold tail: the target for the beyond-the-tail deep-link assertion.
+          const oldestId = daemon.store.postMessage('hydration', {
+            author: daemon.ownerOf('hydration').id, kind: 'chat',
+            body: 'oldest archive note: mariner beacon logged at the very start',
+          }).id;
+          // A second sentinel ~40 messages from the end: past the bounded tail, but
+          // with plenty of history BELOW it, so "parked on the target" and
+          // "snapped back to the tail" are visibly different positions.
+          let nearTailId = 0;
           for (let i = 0; i < count; i++) {
             const ts = new Date(base + i * 60_000).toISOString();
+            if (i === count - 40) {
+              nearTailId = daemon.store.postMessage('hydration', {
+                author: daemon.ownerOf('hydration').id, kind: 'chat',
+                body: 'midway archive note: pelican waypoint, well above the tail',
+              }).id;
+            }
             seedRun(`archived run ${i + 1}`, {
               status: 'completed', started_ts: ts, ended_ts: ts, final_text: `archived run ${i + 1}`,
             }, [proseEvent(`archived run ${i + 1}`, ts)]);
@@ -536,7 +596,7 @@ createServer((req, res) => {
             status: 'interrupted', started_ts: minutesAgoIso(10), ended_ts: minutesAgoIso(9.5),
             error: 'restarted mid-turn',
           });
-          hydrationIds = { liveRunId, neighbourRunId, orphanRunId };
+          hydrationIds = { liveRunId, neighbourRunId, orphanRunId, oldestId, nearTailId };
         }
         payload = hydrationIds;
       }

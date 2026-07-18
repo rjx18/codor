@@ -2125,3 +2125,41 @@ describe('message attachment endpoints (attachments-are-capped-files-served-iner
     client.ws.close();
   });
 });
+
+describe('bounded cold hydration (subscribe)', () => {
+  const seedTail = (count: number): number[] => {
+    const owner = daemon.ownerOf('eng');
+    const ids: number[] = [];
+    for (let i = 0; i < count; i++) {
+      ids.push(daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: `m${String(i)}` }).id);
+    }
+    return ids;
+  };
+
+  it('honours a hydrate limit and stamps the served floor on sync_complete', async () => {
+    const ids = seedTail(30);
+    const client = await connectAs(TOKEN);
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, hydrate_limit: 5 }));
+    const complete = await client.next((frame) => frame.type === 'sync_complete');
+
+    const messages = client.frames.filter((frame) => frame.type === 'message');
+    expect(messages.length).toBeLessThan(30); // bounded, not the whole room
+    expect(messages.length).toBeGreaterThanOrEqual(5); // the tail at least
+    expect(complete).toHaveProperty('history_floor', ids.slice(-5)[0]);
+    client.ws.close();
+  });
+
+  it('replays everything for a subscriber that sends no limit', async () => {
+    const ids = seedTail(30);
+    const client = await connectAs(TOKEN);
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    const complete = await client.next((frame) => frame.type === 'sync_complete');
+
+    const seen = client.frames
+      .filter((frame): frame is Extract<ServerFrame, { type: 'message' }> => frame.type === 'message')
+      .map((frame) => frame.message.id);
+    for (const id of ids) expect(seen).toContain(id); // byte-identical replay
+    expect(complete).not.toHaveProperty('history_floor');
+    client.ws.close();
+  });
+});

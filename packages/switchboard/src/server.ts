@@ -1055,7 +1055,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           } else if (frame.type === 'subscribe') {
             const actor = assertRoomCapability(principal, frame.room, 'read');
             subscriptions.get(socket)!.add(frame.room);
-            const sync = daemon.sync(frame.room, frame.since_seq);
+            // The bound is the subscriber's own: passed straight through, honoured
+            // only on a cold subscribe, and scoped to this actor so their unread
+            // deliveries' messages ride along. Omit it and the replay is today's.
+            const sync = daemon.sync(frame.room, frame.since_seq, {
+              hydrateLimit: frame.hydrate_limit,
+              subscriber: actor.id,
+            });
             const hydrationCursor = frame.since_seq;
             send({ type: 'self', member_id: actor.id });
             send({ type: 'room', seq: hydrationCursor, room: sync.room });
@@ -1076,7 +1082,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             for (const delivery of inbox) send({ type: 'inbox', seq: hydrationCursor, delivery });
             // harn:end agent-sync-hydrates-only-own-queued-inbox
             for (const meter of sync.meters) send({ type: 'meter', seq: hydrationCursor, meter });
-            send({ type: 'sync_complete', seq: sync.seq });
+            send({
+              type: 'sync_complete',
+              seq: sync.seq,
+              // The floor is the server's, not a guess from what happened to arrive.
+              ...(sync.history_floor !== undefined && { history_floor: sync.history_floor }),
+            });
           } else if (frame.type === 'post') {
             const actor = assertRoomCapability(principal, frame.room, 'post');
             if (principal.kind === 'agent') {

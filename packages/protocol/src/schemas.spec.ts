@@ -824,6 +824,15 @@ describe('WS client frames', () => {
     expect(ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r' }).success).toBe(false);
   });
 
+  it('carries an optional cold-hydration bound on subscribe', () => {
+    // Omitted (agents, CLI) and present (browsers) both parse; the bound must be
+    // a positive integer so a limit can never mean "everything" by accident.
+    expect(ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0 }).success).toBe(true);
+    expect(ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0, hydrate_limit: 20 }).success).toBe(true);
+    expect(ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0, hydrate_limit: 0 }).success).toBe(false);
+    expect(ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0, hydrate_limit: 1.5 }).success).toBe(false);
+  });
+
   it('accepts a post with an optional threading hint', () => {
     expect(
       ClientFrameSchema.safeParse({ type: 'post', room: 'r', body: 'hi', reply_to: 3 }).success,
@@ -993,6 +1002,14 @@ describe('WS server frames', () => {
   it('live entity frames carry the producing seq', () => {
     const parsed = ServerFrameSchema.parse({ type: 'message', seq: 9, message: chatMessage });
     expect(parsed).toHaveProperty('seq', 9);
+  });
+
+  it('sync_complete may carry the served contiguous-tail floor', () => {
+    // Absent on an unbounded replay; present when a bound was honoured.
+    expect(ServerFrameSchema.parse({ type: 'sync_complete', seq: 6 }))
+      .not.toHaveProperty('history_floor');
+    expect(ServerFrameSchema.parse({ type: 'sync_complete', seq: 6, history_floor: 41 }))
+      .toHaveProperty('history_floor', 41);
   });
 });
 

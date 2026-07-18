@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { revealOlder } from './history.js';
+
 const ROOM = '/?room=eng&token=next-e2e-token';
 const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
 
@@ -29,6 +31,7 @@ test.describe('one-line tool rows', () => {
   test('expanded batch rows carry icons, tinted counts, and a done mark', async ({ page }) => {
     await openRoom(page);
     const batch = page.getByTestId('tool-batch');
+    await revealOlder(page, batch);
     await batch.locator('.nx-batch-line').click();
     const rows = batch.locator('.nx-tool');
     await expect(rows).toHaveCount(2);

@@ -458,22 +458,31 @@ describe('contiguous history cursor', () => {
     useRoomStore.setState({ messages, inbox: { d10: { message_id: 10, recipient: 'me', state: 'consumed' } as never }, seq: 0 });
     useRoomStore.getState().applyFrame({ type: 'sync_complete', seq: 161 });
 
+    // Arithmetic derives from the page size so the contract survives retuning it.
+    const firstFloor = 161 - HISTORY_PAGE_SIZE + 1;
     let state = useRoomStore.getState();
-    expect(state.historyCursor).toBe(112);
+    expect(state.historyCursor).toBe(firstFloor);
     expect(sortedMessages(state.messages).map((item) => item.id)).toEqual([10, ...Array.from(
-      { length: 50 },
-      (_, index) => index + 112,
+      { length: HISTORY_PAGE_SIZE },
+      (_, index) => index + firstFloor,
     )]);
 
-    state.mergeHistoryPage(Array.from({ length: 50 }, (_, index) => messages[index + 62]!));
-    state = useRoomStore.getState();
-    expect(state.historyCursor).toBe(62);
-    expect(state.messages[111]).toBeDefined();
-
-    state.mergeHistoryPage(Array.from({ length: 50 }, (_, index) => messages[index + 12]!));
-    state.mergeHistoryPage(Array.from({ length: 11 }, (_, index) => messages[index + 1]!));
-    state.mergeHistoryPage([messages[1]!, messages[10]!]);
-    state = useRoomStore.getState();
+    // Page upward one window at a time; the cursor descends and never repeats.
+    let floor = firstFloor;
+    let firstPageBack = true;
+    while (floor > 1) {
+      const start = Math.max(1, floor - HISTORY_PAGE_SIZE);
+      state.mergeHistoryPage(
+        Array.from({ length: floor - start }, (_, index) => messages[start + index]!),
+      );
+      state = useRoomStore.getState();
+      floor = start;
+      expect(state.historyCursor).toBe(floor);
+      if (firstPageBack) {
+        expect(state.messages[firstFloor - 1]).toBeDefined(); // the page just loaded
+        firstPageBack = false;
+      }
+    }
     expect(state.historyCursor).toBe(1);
     expect(sortedMessages(state.messages).map((item) => item.id)).toEqual(
       Array.from({ length: 161 }, (_, index) => index + 1),
@@ -522,3 +531,74 @@ describe('durable approval visibility', () => {
   });
 });
 // harn:end approval-cards-follow-durable-resolution
+
+describe('bounded atomic cold hydration', () => {
+  it('stages hydration frames and publishes them in a single commit', () => {
+    const store = useRoomStore.getState();
+    let commits = 0;
+    const stop = useRoomStore.subscribe(() => { commits += 1; });
+
+    store.applyFrame({ type: 'self', member_id: richard.id });
+    store.applyFrame({ type: 'room', seq: 0, room: room() });
+    store.applyFrame({ type: 'member', seq: 0, member: richard });
+    store.applyFrame({ type: 'message', seq: 1, message: message({ id: 1, seq: 1 }) });
+    store.applyFrame({ type: 'message', seq: 2, message: message({ id: 2, seq: 2 }) });
+
+    // Nothing is visible yet: the transcript must not crawl in a row at a time.
+    expect(commits).toBe(0);
+    expect(Object.keys(useRoomStore.getState().messages)).toHaveLength(0);
+    expect(useRoomStore.getState().hydrated).toBe(false);
+
+    store.applyFrame({ type: 'sync_complete', seq: 2, history_floor: 1 });
+
+    expect(commits).toBe(1); // exactly one store update for the whole snapshot
+    const state = useRoomStore.getState();
+    expect(sortedMessages(state.messages).map((m) => m.id)).toEqual([1, 2]);
+    expect(state.selfMemberId).toBe(richard.id);
+    expect(state.members[richard.id]).toBeDefined();
+    expect(state.historyCursor).toBe(1); // the SERVER's floor, not a guess
+    expect(state.hydrated).toBe(true);
+    stop();
+  });
+
+  it('falls back to the computed tail floor when the server sent no bound', () => {
+    const store = useRoomStore.getState();
+    store.applyFrame({ type: 'self', member_id: richard.id });
+    for (let id = 1; id <= HISTORY_PAGE_SIZE + 5; id++) {
+      store.applyFrame({ type: 'message', seq: id, message: message({ id, seq: id }) });
+    }
+    store.applyFrame({ type: 'sync_complete', seq: HISTORY_PAGE_SIZE + 5 });
+
+    const state = useRoomStore.getState();
+    expect(state.historyCursor).toBe(6); // trimmed to the last page, floor computed
+    expect(Object.keys(state.messages)).toHaveLength(HISTORY_PAGE_SIZE);
+  });
+
+  it('applies a warm reconnect live, never staging it', () => {
+    const store = useRoomStore.getState();
+    store.applyFrame({ type: 'self', member_id: richard.id });
+    store.applyFrame({ type: 'message', seq: 1, message: message({ id: 1, seq: 1 }) });
+    store.applyFrame({ type: 'sync_complete', seq: 1, history_floor: 1 });
+
+    // A reconnect re-sends self; nothing may be withheld after that.
+    let commits = 0;
+    const stop = useRoomStore.subscribe(() => { commits += 1; });
+    store.applyFrame({ type: 'self', member_id: richard.id });
+    store.applyFrame({ type: 'message', seq: 9, message: message({ id: 9, seq: 9 }) });
+
+    expect(useRoomStore.getState().messages[9]).toBeDefined(); // visible immediately
+    expect(commits).toBeGreaterThan(0);
+    stop();
+  });
+
+  it('drops staged frames on reset so a room switch cannot commit the old room', () => {
+    const store = useRoomStore.getState();
+    store.applyFrame({ type: 'self', member_id: richard.id });
+    store.applyFrame({ type: 'message', seq: 1, message: message({ id: 1, seq: 1 }) });
+
+    useRoomStore.getState().reset();
+    useRoomStore.getState().applyFrame({ type: 'sync_complete', seq: 0 });
+
+    expect(Object.keys(useRoomStore.getState().messages)).toHaveLength(0);
+  });
+});

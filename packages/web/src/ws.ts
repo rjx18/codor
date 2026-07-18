@@ -1,7 +1,7 @@
 import type { Act, ServerFrame } from '@codor/protocol';
 
 import { setActiveBrowserAccessToken } from './crypto.js';
-import { useRoomStore } from './state.js';
+import { HISTORY_PAGE_SIZE, useRoomStore } from './state.js';
 
 export interface Connection {
   post(body: string, opts?: { replyTo?: number; attachments?: string[] }): void;
@@ -53,6 +53,9 @@ export function connect(options: ConnectOptions): Connection {
           type: 'subscribe',
           room: options.room,
           since_seq: useRoomStore.getState().seq,
+          // A viewer wants the tail, not the room's whole history. Ignored by the
+          // server on a warm resubscribe, so a reconnect still replays every change.
+          hydrate_limit: HISTORY_PAGE_SIZE,
         }),
       );
     };

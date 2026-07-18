@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test';
 const HYDRATION = '/?room=hydration&token=next-e2e-token';
 const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
 
-interface SeedIds { liveRunId: number; neighbourRunId: number; orphanRunId: number }
+interface SeedIds { liveRunId: number; neighbourRunId: number; orphanRunId: number; oldestId: number; nearTailId: number }
 
 async function control<T>(path: string, body: unknown = {}): Promise<T> {
   const res = await fetch(`${CONTROL}${path}`, {
@@ -85,6 +85,79 @@ test.describe('large-room hydration', () => {
     await expect(orphan.locator('.nx-permalink')).toHaveText(`#${String(ids.orphanRunId)}`);
     await expect(orphan.getByTestId(`run-${String(ids.orphanRunId)}-status`)).toContainText('run interrupted');
     await expect(orphan.getByTestId('run-error')).toContainText('restarted mid-turn');
+  });
+
+  test('a cold load shows only the bounded tail, at the bottom, with no crawl', async ({ page }) => {
+    // Count how many distinct message counts the transcript passes through: an
+    // incremental crawl grows one row at a time, a committed hydration does not.
+    await page.goto(HYDRATION);
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.locator('article.nx-turn').first()).toBeVisible();
+
+    // Bounded: the room holds 180+ runs; the cold view holds the tail, not all.
+    const turns = await page.locator('.nx-column > .nx-turn').count();
+    expect(turns).toBeLessThanOrEqual(40);
+    expect(turns).toBeGreaterThan(0);
+
+    // Bottom-anchored once the committed tail has painted. Polled, not sampled:
+    // run rows keep growing as their journals render, and under a loaded machine
+    // the sample could land between a growth and the tail-follow that answers it.
+    await expect
+      .poll(async () => page.getByTestId('timeline').evaluate(
+        (node) => node.scrollHeight - node.scrollTop - node.clientHeight,
+      ), { timeout: 5000 })
+      .toBeLessThan(80);
+  });
+
+  test('scrolling up pages older history back in', async ({ page }) => {
+    await openRoom(page);
+    const before = await page.locator('.nx-column > .nx-turn').count();
+
+    await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = 0; });
+    await expect
+      .poll(async () => page.locator('.nx-column > .nx-turn').count(), { timeout: 5000 })
+      .toBeGreaterThan(before);
+  });
+
+  test('a deep link to a message beyond the tail pages back to it', async ({ page }) => {
+    // Bounding cold hydration created this case: the target sits hundreds of ids
+    // below the tail, so a permalink can only land by paging history back.
+    await openRoom(page);
+    const target = page.getByTestId(`msg-${ids.oldestId}`);
+    await expect(target).toHaveCount(0); // genuinely outside the hydrated tail
+
+    await page.getByTestId('toggle-message-search').click();
+    await page.getByTestId('search-input').fill('mariner beacon');
+    const hit = page.getByTestId(`search-hit-${ids.oldestId}`);
+    await expect(hit).toContainText('mariner beacon');
+    await hit.click();
+
+    await expect(page).toHaveURL(new RegExp(`#${ids.oldestId}$`));
+    await expect(target).toBeInViewport({ timeout: 15_000 });
+  });
+
+  test('a permalink jump releases the tail pin instead of snapping back', async ({ page }) => {
+    // Paging in older history used to re-anchor the view to the newest message,
+    // yanking the operator off the message they had just jumped to.
+    // Jump to a target that sits above the tail but with ~40 messages BELOW it,
+    // so staying put and snapping back to the tail are different positions.
+    await openRoom(page);
+    await page.getByTestId('toggle-message-search').click();
+    await page.getByTestId('search-input').fill('pelican waypoint');
+    await page.getByTestId(`search-hit-${ids.nearTailId}`).click();
+    const target = page.getByTestId(`msg-${ids.nearTailId}`);
+    await expect(target).toBeInViewport({ timeout: 15_000 });
+
+    // The regression: the transcript stayed pinned across the jump, so the next
+    // arrival re-anchored the view to the tail and yanked the operator off the
+    // message they had just opened. A live message must not move them now.
+    // (This pins the BEHAVIOUR. Two mechanisms now deliver it — the hashchange
+    // release and the upward-scroll release — so it does not isolate either.)
+    const arrival = await control<{ id: number }>('/live-chat', {
+      room: 'hydration', body: 'arrival after the permalink jump',
+    });
+    await expect(page.getByTestId(`msg-${arrival.id}`)).toHaveCount(1, { timeout: 10_000 });
+    await expect(target).toBeInViewport();
   });
 
   test('an attachment upload during hydration still reaches the server', async ({ page }) => {
