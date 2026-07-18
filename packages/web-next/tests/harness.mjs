@@ -67,6 +67,7 @@ for (const [id, name] of [
   ['acks', 'Acknowledgements'],
   ['inbox', 'Inbox Fixtures'],
   ['chronology', 'Chronology'],
+  ['continuations', 'Continuation Fixtures'],
 ]) {
   daemon.createRoom({ id, name, owner });
   crypto.roomKeys.ensureRoom(id);
@@ -445,6 +446,89 @@ const chronoAfter = chronoMessage('chronology chat after the running turn starte
 daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
   .run(chronoTs(2), 'chronology', chronoAfter.id);
 
+// Continuations: dormant reader-first data only. The production daemon still
+// writes one run row. The control endpoint inserts and fans out a future
+// writer's three durable rows on demand, then reload proves the same store data.
+const continuationOwner = daemon.ownerOf('continuations');
+const continuationAgent = daemon.spawnMember('continuations', {
+  harness: 'fake', handle: 'continuator', cwd: dir,
+});
+let continuationIds;
+const seedContinuation = () => {
+  if (continuationIds !== undefined) return continuationIds;
+  const continuationTs = new Date().toISOString();
+  const continuationRef = 'runs/continuation-root.jsonl';
+  const root = daemon.store.postMessage('continuations', {
+    author: continuationAgent.id,
+    kind: 'run',
+    body: 'First durable stretch before the operator replied.',
+    run: {
+      status: 'completed',
+      started_ts: continuationTs,
+      ended_ts: continuationTs,
+      tool_calls: 2,
+      events_ref: continuationRef,
+      final_text: 'First durable stretch before the operator replied. Second durable stretch after the operator replied.',
+      output_mode: 'messages',
+      result_message_id: 3,
+    },
+  });
+  const interjection = daemon.store.postMessage('continuations', {
+    author: continuationOwner.id,
+    kind: 'chat',
+    body: 'Operator interjection must stay between both stretches.',
+  });
+  const tail = daemon.store.postMessage('continuations', {
+    author: continuationAgent.id,
+    kind: 'run',
+    body: 'Second durable stretch after the operator replied.',
+    run_parent_id: root.id,
+  });
+  for (const event of [
+    {
+      type: 'run.item', item_type: 'text_delta', output_message_id: root.id,
+      payload: { text: 'First durable stretch before the operator replied.' }, ts: continuationTs,
+    },
+    {
+      type: 'run.item', item_type: 'tool_call', output_message_id: root.id,
+      payload: { call_id: 'continuation-read', tool: 'Read', title: 'Read source fixture', input: { file_path: 'src/input.ts' } },
+      ts: continuationTs,
+    },
+    {
+      type: 'run.item', item_type: 'reasoning_summary', output_message_id: root.id,
+      payload: { text: '' }, ts: continuationTs,
+    },
+    {
+      type: 'run.item', item_type: 'tool_result', output_message_id: root.id,
+      payload: { call_id: 'continuation-read', status: 'ok', output_text: 'source ready' }, ts: continuationTs,
+    },
+    {
+      type: 'run.item', item_type: 'tool_call', output_message_id: root.id,
+      payload: { call_id: 'continuation-edit', tool: 'Edit', title: 'Edit continuation fixture', input: { file_path: 'src/output.ts' } },
+      ts: continuationTs,
+    },
+    {
+      type: 'run.item', item_type: 'tool_result', output_message_id: root.id,
+      payload: { call_id: 'continuation-edit', status: 'ok', output_text: 'fixture updated' }, ts: continuationTs,
+    },
+    {
+      type: 'run.item', item_type: 'text_delta', output_message_id: tail.id,
+      payload: { text: 'Second durable stretch after the operator replied.' }, ts: continuationTs,
+    },
+    {
+      type: 'run.completed', status: 'completed', output_message_id: tail.id,
+      final_text: 'First durable stretch before the operator replied. Second durable stretch after the operator replied.',
+    },
+  ]) daemon.blobs.append('continuations', continuationRef, event);
+  if (root.id !== 1 || interjection.id !== 2 || tail.id !== 3) {
+    throw new Error('continuation fixture ids must remain 1/2/3');
+  }
+  // Test-only fanout: the production writer is deliberately dormant in 6B1.
+  for (const message of [root, interjection, tail]) daemon.emitMessage('continuations', message);
+  continuationIds = { root: root.id, interjection: interjection.id, tail: tail.id };
+  return continuationIds;
+};
+
 // Hydration: the large-room regression room (codex #516). It carries a LIVE run
 // with prose that must be fetched first and survive a reload, plus an empty
 // interrupted run sitting seconds after a completed one by the same agent — the
@@ -649,6 +733,9 @@ createServer((req, res) => {
           oldInboxMention: oldInboxMention.id,
           newInboxMention: newInboxMention.id,
         };
+      }
+      if (url.pathname === '/seed-continuation') {
+        payload = seedContinuation();
       }
       if (url.pathname === '/post-chat') {
         // Insert a plain human chat straight into the store — NO routing, so it

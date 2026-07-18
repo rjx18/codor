@@ -27,6 +27,43 @@ body {
   font: var(--t-body);
 }
 
+.nx-upgrade {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-6);
+  background:
+    radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--c-accent) 12%, transparent), transparent 42%),
+    var(--c-canvas);
+}
+
+.nx-upgrade-card {
+  width: min(100%, 460px);
+  display: grid;
+  justify-items: start;
+  gap: var(--sp-3);
+  padding: clamp(28px, 6vw, 48px);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-panel);
+  background: var(--c-surface);
+  box-shadow: var(--e-float);
+}
+
+.nx-upgrade-mark {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--r-full);
+  color: var(--c-accent-text);
+  background: var(--c-accent-tint);
+}
+
+.nx-upgrade-card h1 { margin: 0; font: var(--t-heading); letter-spacing: -0.025em; }
+.nx-upgrade-card > p { margin: 0; color: var(--c-secondary); line-height: 1.6; }
+.nx-upgrade-action { min-height: 42px; margin-top: var(--sp-2); gap: var(--sp-2); }
+.nx-upgrade-version { font: var(--t-mono-small); }
+
 button,
 input,
 textarea,

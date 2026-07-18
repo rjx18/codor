@@ -1226,6 +1226,95 @@ describe('atomic approval answers', () => {
 });
 // harn:end approval-answer-is-atomic-and-chatless
 
+// harn:assume continuation-output-schema-is-reader-first ref=continuation-reader-regression
+describe('continuation message storage', () => {
+  it('migrates a legacy database idempotently without losing messages', () => {
+    const { owner } = openRoom(store);
+    store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'preserve me' });
+    const path = join(dir, 'test.sqlite');
+    store.close();
+
+    const legacy = new Database(path);
+    legacy.exec('DROP INDEX IF EXISTS message_run_continuations; ALTER TABLE messages DROP COLUMN run_parent_id;');
+    expect((legacy.prepare('SELECT COUNT(*) AS count FROM messages').get() as { count: number }).count)
+      .toBe(1);
+    legacy.close();
+
+    store = new Store(path);
+    expect(store.listMessages('eng', { limit: 10 }).map((message) => message.body))
+      .toEqual(['preserve me']);
+    store.close();
+    store = new Store(path);
+    expect(store.listMessages('eng', { limit: 10 })).toHaveLength(1);
+
+    const reopened = new Database(path, { readonly: true });
+    const columns = reopened.pragma('table_info(messages)') as { name: string }[];
+    expect(columns.map((column) => column.name)).toContain('run_parent_id');
+    expect(reopened.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'message_run_continuations'",
+    ).get()).toBeTruthy();
+    reopened.close();
+  });
+
+  it('round-trips permanent root/interjection/continuation ids while the current turn writer stays root-only', () => {
+    const { owner } = openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'codex', display_name: 'Codex', state: 'idle',
+    });
+    const root = store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: 'first stretch',
+      run: {
+        status: 'completed',
+        started_ts: '2026-07-18T00:00:00.000Z',
+        ended_ts: '2026-07-18T00:01:00.000Z',
+        tool_calls: 0,
+        events_ref: 'runs/1.jsonl',
+        final_text: 'first stretch\ncontinuation stretch',
+        output_mode: 'messages',
+        result_message_id: 3,
+      },
+    });
+    const interjection = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: 'please keep going',
+    });
+    const continuation = store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: 'continuation stretch',
+      run_parent_id: root.id,
+    });
+    expect([root.id, interjection.id, continuation.id]).toEqual([1, 2, 3]);
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.listMessages('eng', { limit: 10 }).map((message) => ({
+      id: message.id,
+      body: message.body,
+      parent: message.run_parent_id,
+      mode: message.run?.output_mode,
+      result: message.run?.result_message_id,
+    }))).toEqual([
+      { id: 1, body: 'first stretch', parent: undefined, mode: 'messages', result: 3 },
+      { id: 2, body: 'please keep going', parent: undefined, mode: undefined, result: undefined },
+      { id: 3, body: 'continuation stretch', parent: 1, mode: undefined, result: undefined },
+    ]);
+
+    const trigger = store.postMessage('eng', { author: owner.id, kind: 'chat', body: '@codex next' });
+    const delivery = store.createDelivery('eng', { message_id: trigger.id, recipient: agent.id });
+    const current = store.beginTurn('eng', {
+      memberId: agent.id,
+      deliveryIds: [delivery.id],
+      startedTs: '2026-07-18T00:02:00.000Z',
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    });
+    expect(current?.runMessage.run).not.toHaveProperty('output_mode');
+    expect(current?.runMessage.run_parent_id).toBeUndefined();
+  });
+});
+// harn:end continuation-output-schema-is-reader-first
+
 // harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-store-regression
 describe('approval delivery resolution migration', () => {
   it('backfills a pre-column answered approval and remains idempotent on reopen', () => {

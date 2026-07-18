@@ -1,0 +1,18 @@
+id: browser-protocol-epoch-blocks-only-stale-browser-ui
+hash: a-d64f6f5b9071
+title: A browser protocol epoch blocks stale app bundles without silencing agents
+state: active
+statement: A browser UI must report its protocol epoch before room hydration;
+  when browser minimum enforcement is enabled, an authenticated or explicitly
+  declared browser below that minimum must receive UpgradeRequired, receive no
+  hydration, and close with 4406, while agent principals and Unix/CLI
+  subscribers without an epoch retain normal unbounded hydration; the
+  application must turn REST 426 or UpgradeRequired into one full-screen
+  service-worker refresh gate, and writer activation is forbidden until the
+  observe-only server has positively recorded the current live browser epoch.
+depends_on:
+  - unix-socket-same-protocol
+  - agent-network-authority-is-narrow
+  - sync-cursor-commits-after-hydration
+  - sw-injectmanifest-owned-worker
+created_by: continuation-reader

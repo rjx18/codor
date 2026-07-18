@@ -5,6 +5,7 @@ import {
   AgentUsageSchema,
   AssignableHandleSchema,
   AttachmentSchema,
+  BROWSER_PROTOCOL_EPOCH,
   ChangeLogEntrySchema,
   ClientFrameSchema,
   CommitPayloadSchema,
@@ -840,6 +841,32 @@ describe('WS client frames', () => {
     expect(ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0, hydrate_limit: 1.5 }).success).toBe(false);
   });
 
+  // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-regression
+  it('negotiates a positive browser epoch without requiring it from agents or CLI', () => {
+    expect(ClientFrameSchema.parse({ type: 'subscribe', room: 'r', since_seq: 0 }))
+      .not.toHaveProperty('browser_protocol');
+    expect(ClientFrameSchema.parse({
+      type: 'subscribe', room: 'r', since_seq: 0,
+      browser_protocol: BROWSER_PROTOCOL_EPOCH, client_kind: 'browser',
+    })).toMatchObject({
+      browser_protocol: BROWSER_PROTOCOL_EPOCH,
+      client_kind: 'browser',
+    });
+    expect(ClientFrameSchema.safeParse({
+      type: 'subscribe', room: 'r', since_seq: 0, browser_protocol: 0,
+    }).success).toBe(false);
+    expect(ServerFrameSchema.parse({
+      type: 'upgrade_required',
+      minimum_browser_protocol: 2,
+      current_browser_protocol: 1,
+    })).toEqual({
+      type: 'upgrade_required',
+      minimum_browser_protocol: 2,
+      current_browser_protocol: 1,
+    });
+  });
+  // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
+
   // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-protocol-regression
   it('negotiates room-addressed subscription frames without changing legacy subscribe', () => {
     expect(ClientFrameSchema.parse({ type: 'subscribe', room: 'r', since_seq: 0 }))
@@ -955,6 +982,59 @@ describe('WS client frames', () => {
     }).success).toBe(true);
   });
 });
+
+// harn:assume continuation-output-schema-is-reader-first ref=continuation-reader-regression
+describe('continuation output protocol', () => {
+  const root = {
+    ...chatMessage,
+    kind: 'run' as const,
+    body: 'first stretch',
+    run: {
+      status: 'completed' as const,
+      started_ts: TS,
+      ended_ts: TS,
+      tool_calls: 0,
+      events_ref: 'runs/1.jsonl',
+      final_text: 'first stretch\ncontinuation',
+      output_mode: 'messages' as const,
+      result_message_id: 3,
+    },
+  };
+
+  it('round-trips a lifecycle root, continuation parent, and event targets', () => {
+    expect(MessageSchema.parse(root).run).toMatchObject({
+      output_mode: 'messages', result_message_id: 3,
+    });
+    const continuation = MessageSchema.parse({
+      ...chatMessage, id: 3, kind: 'run', body: 'continuation', run_parent_id: 1,
+    });
+    expect(continuation).toMatchObject({ id: 3, run_parent_id: 1 });
+    expect(continuation).not.toHaveProperty('run');
+    for (const event of [
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'later' }, output_message_id: 3 },
+      { type: 'timeline', item: { type: 'compaction', status: 'loading' }, output_message_id: 3 },
+      { type: 'run.completed', status: 'completed', output_message_id: 3 },
+    ]) {
+      expect(WireEventSchema.parse(event)).toHaveProperty('output_message_id', 3);
+    }
+  });
+
+  it('keeps every field absent on existing stored runs and events', () => {
+    const legacy = MessageSchema.parse({
+      ...root,
+      run: {
+        status: 'completed', started_ts: TS, ended_ts: TS,
+        tool_calls: 0, events_ref: 'runs/1.jsonl', final_text: 'legacy',
+      },
+    });
+    expect(legacy).not.toHaveProperty('run_parent_id');
+    expect(legacy.run).not.toHaveProperty('output_mode');
+    expect(WireEventSchema.parse({
+      type: 'run.item', item_type: 'text_delta', payload: { text: 'legacy' },
+    })).not.toHaveProperty('output_message_id');
+  });
+});
+// harn:end continuation-output-schema-is-reader-first
 
 describe('WS server frames', () => {
   const member = MemberSchema.parse({

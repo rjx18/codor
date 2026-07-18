@@ -95,6 +95,9 @@ CREATE TABLE IF NOT EXISTS messages (
   ledger_refs TEXT NOT NULL,   -- string[] JSON
   reply_to INTEGER,
   run TEXT,                    -- RunSummary JSON: events_ref pointer only, no events
+  -- harn:assume continuation-output-schema-is-reader-first ref=continuation-message-storage
+  run_parent_id INTEGER,       -- lifecycle root for a permanent continuation row
+  -- harn:end continuation-output-schema-is-reader-first
   ask TEXT,                    -- AskCard JSON
   origin TEXT,                 -- BridgeOrigin JSON
   attachments TEXT,            -- Attachment[] JSON (metadata; files live under the data dir)
@@ -382,6 +385,19 @@ function migrateMessageAttachments(db: Database.Database): void {
   }
 }
 
+// harn:assume continuation-output-schema-is-reader-first ref=continuation-message-storage
+function migrateMessageContinuations(db: Database.Database): void {
+  const columns = db.pragma('table_info(messages)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'run_parent_id')) {
+    db.exec('ALTER TABLE messages ADD COLUMN run_parent_id INTEGER');
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS message_run_continuations
+    ON messages (room, run_parent_id, id) WHERE run_parent_id IS NOT NULL
+  `);
+}
+// harn:end continuation-output-schema-is-reader-first
+
 // harn:assume message-activity-drives-unread ref=message-activity-storage
 function migrateMessageActivity(db: Database.Database): void {
   const columns = db.pragma('table_info(messages)') as { name: string }[];
@@ -560,6 +576,7 @@ interface MessageRow {
   ledger_refs: string;
   reply_to: number | null;
   run: string | null;
+  run_parent_id: number | null;
   ask: string | null;
   origin: string | null;
   attachments: string | null;
@@ -700,6 +717,7 @@ function messageFromRow(row: MessageRow): Message {
     ledger_refs: JSON.parse(row.ledger_refs),
     reply_to: row.reply_to ?? undefined,
     run: row.run ? JSON.parse(row.run) : undefined,
+    run_parent_id: row.run_parent_id ?? undefined,
     ask: row.ask ? JSON.parse(row.ask) : undefined,
     origin: row.origin ? JSON.parse(row.origin) : undefined,
     ack: toBool(row.ack) ? true : undefined,
@@ -818,6 +836,7 @@ export interface NewMessage {
   ledger_refs?: string[];
   reply_to?: number;
   run?: RunSummary;
+  run_parent_id?: number;
   ask?: Message['ask'];
   origin?: Message['origin'];
   ack?: boolean;
@@ -924,6 +943,7 @@ export class Store {
     migrateMessagePinned(this.db);
     migrateMessageDeleted(this.db);
     migrateMessageAttachments(this.db);
+    migrateMessageContinuations(this.db);
     migrateMessageActivity(this.db);
     migrateRoomReadCursors(this.db);
     migrateApprovalDeliveryResolution(this.db);
@@ -1388,6 +1408,7 @@ export class Store {
         ledger_refs: message.ledger_refs ?? [],
         reply_to: message.reply_to,
         run: message.run,
+        run_parent_id: message.run_parent_id,
         ask: message.ask,
         origin: message.origin,
         ack: message.ack,
@@ -1400,8 +1421,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO messages (room, id, author, kind, body, mentions, refs, ledger_refs,
-             reply_to, run, ask, origin, attachments, ack, pinned, deleted, ts, seq, activity_seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             reply_to, run, run_parent_id, ask, origin, attachments, ack, pinned, deleted, ts, seq, activity_seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           room,
@@ -1414,6 +1435,7 @@ export class Store {
           JSON.stringify(validated.ledger_refs),
           orNull(validated.reply_to),
           jsonOrNull(validated.run),
+          orNull(validated.run_parent_id),
           jsonOrNull(validated.ask),
           jsonOrNull(validated.origin),
           jsonOrNull(validated.attachments),

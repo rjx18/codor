@@ -3,12 +3,13 @@
 // its own connector with the SAME wire semantics: subscribe with the store's seq
 // cursor, apply frames, exponential backoff, 4401 token refresh, 4403 park.
 // Switching rooms closes the socket, resets the store, and resubscribes fresh.
-import type { Act, ServerFrame } from '@codor/protocol';
+import { BROWSER_PROTOCOL_EPOCH, type Act, type ServerFrame } from '@codor/protocol';
 
 import { setActiveBrowserAccessToken } from '@legacy/crypto.js';
 import type { Connection } from '@legacy/ws.js';
 
 import { HISTORY_PAGE_SIZE, roomSlice, useClientStore } from './store.js';
+import { requireBrowserUpgrade } from './compatibility.js';
 
 export interface RoomConnector extends Connection {
   /** Select another already-multiplexed room without replacing the socket. */
@@ -46,6 +47,8 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       since_seq: roomSlice(useClientStore.getState(), room).seq,
       hydrate_limit: HISTORY_PAGE_SIZE,
       room_addressed: true,
+      browser_protocol: BROWSER_PROTOCOL_EPOCH,
+      client_kind: 'browser',
     });
   };
 
@@ -63,6 +66,13 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     };
     socket.onmessage = (event) => {
       const frame = JSON.parse(event.data as string) as ServerFrame;
+      if (frame.type === 'upgrade_required') {
+        manuallyClosed = true;
+        useClientStore.getState().setConnected(false);
+        requireBrowserUpgrade(frame);
+        socket?.close(4406, 'browser upgrade required');
+        return;
+      }
       useClientStore.getState().applyFrame(frame, currentRoom);
       if (frame.type === 'rooms') {
         for (const room of frame.rooms) subscribe(room.id);

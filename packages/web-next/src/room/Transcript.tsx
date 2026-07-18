@@ -26,6 +26,7 @@ import { renderMarkdown } from './markdown.js';
 import { activateRunJournalRoom, getRunJournal, requestRunJournal, useRunJournalVersion } from './run-journals.js';
 import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attachments.js';
 import { presentRunTimeline, type CompactionRunTimelineItem } from './run-timeline.js';
+import { continuationFloor, transcriptMessages, transcriptTime } from './transcript-order.js';
 
 /** Consecutive same-author messages within this window collapse their header. */
 const GROUP_WINDOW_MS = 2 * 60_000;
@@ -42,28 +43,6 @@ interface HistoryRestore {
   fallbackHeight: number;
   fallbackTop: number;
   merged: boolean;
-}
-
-function transcriptTime(message: Message): number {
-  if (message.kind === 'run' && message.run?.status === 'running') {
-    return Number.POSITIVE_INFINITY;
-  }
-  if (message.kind === 'run' && message.run?.status !== 'running') {
-    return Date.parse(message.run?.ended_ts ?? message.ts);
-  }
-  return Date.parse(message.ts);
-}
-
-function transcriptMessages(messages: Record<number, Message>): Message[] {
-  return Object.values(messages).sort((left, right) => {
-    const leftRunning = left.kind === 'run' && left.run?.status === 'running';
-    const rightRunning = right.kind === 'run' && right.run?.status === 'running';
-    if (leftRunning !== rightRunning) return leftRunning ? 1 : -1;
-    const byTime = leftRunning && rightRunning
-      ? Date.parse(left.ts) - Date.parse(right.ts)
-      : transcriptTime(left) - transcriptTime(right);
-    return byTime === 0 ? left.id - right.id : byTime;
-  });
 }
 
 /** Highest durable activity sequence the reader can meaningfully see. A tall
@@ -178,13 +157,20 @@ export function Transcript(props: { room: string; token: () => string; connectio
   // Finalized runs are flattened into per-segment entries so a human message
   // posted mid-run lands between the run's blocks; running runs stay whole.
   const finalizedRunIds = useMemo(
-    () => visible
-      .filter((message) => message.kind === 'run'
+    () => [...new Set(visible.flatMap((message) => {
+      if (message.ack === true) return [];
+      if (message.run_parent_id !== undefined) {
+        const root = messages[message.run_parent_id]
+          ?? support?.active_runs.find((candidate) => candidate.id === message.run_parent_id);
+        return root?.run?.status === 'running' ? [] : [message.run_parent_id];
+      }
+      return message.kind === 'run'
         && message.run !== undefined
         && message.run.status !== 'running'
-        && message.ack !== true)
-      .map((m) => m.id),
-    [visible],
+        ? [message.id]
+        : [];
+    }))],
+    [messages, support, visible],
   );
   const { segments: runSegments, version: journalVersion } = useFinalizedRunSegments(
     props.room,
@@ -1048,10 +1034,20 @@ function useFinalizedRunSegments(
 }
 
 function RunContent(props: { message: Message; room: string; token: () => string }) {
+  const rootId = props.message.run_parent_id ?? props.message.id;
+  const root = useClientStore((state) => {
+    const slice = roomSlice(state, props.room);
+    return slice.messages[rootId]
+      ?? slice.support?.active_runs.find((message) => message.id === rootId);
+  });
+  const rootRun = root?.run ?? props.message.run;
+  const outputMessages = props.message.run_parent_id !== undefined
+    || rootRun?.output_mode === 'messages';
   const live = useClientStore(
-    (state) => roomSlice(state, props.room).runEvents[props.message.id],
+    (state) => roomSlice(state, props.room).runEvents[rootId],
   );
-  const running = props.message.run?.status === 'running';
+  const running = rootRun?.status === 'running';
+  const isRoot = rootId === props.message.id;
   const version = useRunJournalVersion();
 
   // The journal covers whatever the live buffer missed (late joins, trimmed
@@ -1059,35 +1055,47 @@ function RunContent(props: { message: Message; room: string; token: () => string
   // A live run jumps the queue; when it settles, the effect re-runs once with
   // terminal=true so the cache picks up the completed journal exactly once.
   useEffect(() => {
-    requestRunJournal(props.room, props.token, props.message.id, {
+    requestRunJournal(props.room, props.token, rootId, {
       terminal: !running,
       priority: running,
     });
-  }, [props.room, props.token, props.message.id, running]);
+  }, [props.room, props.token, rootId, running]);
 
-  const journalEvents = getRunJournal(props.room, props.message.id);
+  const journalEvents = getRunJournal(props.room, rootId);
   const timeline = useMemo(() => {
     const merged = mergeRunEvents(journalEvents, live ?? { events: [], dropped_count: 0 });
-    return presentRunTimeline(merged);
+    const targeted = outputMessages
+      ? merged.filter(({ event }) => {
+          const target = event.type === 'run.item'
+            || event.type === 'timeline'
+            || event.type === 'run.completed'
+            ? event.output_message_id
+            : undefined;
+          return (target ?? rootId) === props.message.id;
+        })
+      : merged;
+    return presentRunTimeline(targeted);
     // The cached journal is a stable reference, so identity keying is correct
     // here; `live` is a fresh object per streamed frame, so it stays keyed on
     // counts to avoid re-presenting an unchanged list on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [journalEvents, live?.events.length, live?.dropped_count, version]);
+  }, [journalEvents, live?.events.length, live?.dropped_count, outputMessages, props.message.id, rootId, version]);
   const segments = useMemo(() => segmentTimeline(timeline), [timeline]);
 
   // The prose already streams through text rows; only a run that produced no
   // prose at all (e.g. a failure) falls back to the settled final text.
   const hasProse = segments.some((s) => s.kind === 'prose');
-  const finalText = props.message.run?.final_text ?? props.message.body;
+  const finalText = outputMessages
+    ? props.message.body
+    : props.message.run?.final_text ?? props.message.body;
   // harn:assume run-failure-evidence-is-surfaced ref=web-next-run-error-evidence
   // Failed/interrupted runs have empty bodies by design — their reason lives
   // on run.error and must render, or failures are silently blank.
-  const runError = props.message.run?.error;
+  const runError = isRoot ? rootRun?.error : undefined;
   // harn:end run-failure-evidence-is-surfaced
 
   return (
-    <div className="nx-run" data-run-status={props.message.run?.status ?? 'running'}>
+    <div className="nx-run" data-run-status={rootRun?.status ?? (isRoot ? 'running' : 'completed')}>
       {segments.map((segment, index) =>
         segment.kind === 'compaction'
           ? (
@@ -1109,13 +1117,13 @@ function RunContent(props: { message: Message; room: string; token: () => string
             )
           : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} />,
       )}
-      {running && <ElapsedSince ts={props.message.ts} />}
+      {isRoot && running && <ElapsedSince ts={props.message.ts} />}
       {/* A terminal run that produced no reply (e.g. interrupted by a restart)
           reads as a quiet status marker, never a blank bubble. */}
       {!running && !hasProse && finalText.length === 0
-        && (props.message.run?.status === 'interrupted' || props.message.run?.status === 'failed') && (
-        <p className={`nx-run-status is-${props.message.run.status}`} data-testid={`run-${props.message.id}-status`}>
-          run {props.message.run.status}
+        && isRoot && (rootRun?.status === 'interrupted' || rootRun?.status === 'failed') && (
+        <p className={`nx-run-status is-${rootRun.status}`} data-testid={`run-${props.message.id}-status`}>
+          run {rootRun.status}
         </p>
       )}
       {!running && !hasProse && finalText.length > 0 && (
@@ -1143,8 +1151,13 @@ type TimelineEntry =
   | { kind: 'runseg'; message: Message; segment: RunSegment; isLast: boolean; ts: number; order: number };
 
 function buildTimelineEntries(visible: Message[], runSegments: Map<number, RunSegment[]>): TimelineEntry[] {
+  const floor = continuationFloor(visible);
+  const legacy = floor === undefined ? visible : visible.filter((message) => message.id < floor);
+  const strict = floor === undefined
+    ? []
+    : visible.filter((message) => message.id >= floor).sort((left, right) => left.id - right.id);
   const list: TimelineEntry[] = [];
-  visible.forEach((message, index) => {
+  legacy.forEach((message, index) => {
     const base = index * 1000;
     const finalized = message.kind === 'run' && message.run !== undefined && message.run.status !== 'running';
     const segments = finalized ? runSegments.get(message.id) : undefined;
@@ -1165,7 +1178,16 @@ function buildTimelineEntries(visible: Message[], runSegments: Map<number, RunSe
       list.push({ kind: 'turn', message, ts: transcriptTime(message), order: base });
     }
   });
-  return list.sort((left, right) => (left.ts - right.ts) || (left.order - right.order));
+  const legacyEntries = list.sort((left, right) => (left.ts - right.ts) || (left.order - right.order));
+  return [
+    ...legacyEntries,
+    ...strict.map((message, index): TimelineEntry => ({
+      kind: 'turn',
+      message,
+      ts: Date.parse(message.ts),
+      order: (legacy.length + index) * 1000,
+    })),
+  ];
 }
 
 interface TimelineCtx {

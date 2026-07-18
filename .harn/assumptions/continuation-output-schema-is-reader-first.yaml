@@ -1,0 +1,18 @@
+id: continuation-output-schema-is-reader-first
+hash: a-2c98b27fc851
+title: Durable continuation output is readable before any writer emits it
+state: active
+statement: Message and run-event schemas may identify one lifecycle root and
+  permanent continuation output rows, SQLite must round-trip those optional
+  links, and an output_mode=messages reader must render the rows strictly in
+  message-id order with journal evidence attached to its annotated output row,
+  while roots without that mode retain the existing stored-run presentation; no
+  production writer may emit a continuation until a later locked plan replaces
+  the one-run- message and finalized-reply contracts.
+depends_on:
+  - runs-are-one-message
+  - reply-is-finalized-run-message
+  - message-id-txn-allocation
+  - run-events-merge-by-journal-index
+  - permalink-ids-stable
+created_by: continuation-reader

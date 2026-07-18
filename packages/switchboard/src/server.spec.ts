@@ -2510,3 +2510,131 @@ describe('compact_member act (manual-compaction-is-an-operator-act)', () => {
     client.ws.close();
   });
 });
+
+// harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-regression
+describe('browser protocol epoch', () => {
+  const currentBrowserProtocol = 1;
+  const enrollBrowser = (label: string): CryptoVault => {
+    const device = new CryptoVault(join(dir, label));
+    const peer = crypto.keys.enrollPeer({
+      ...device.keys.publicIdentity(),
+      kind: 'device',
+      label,
+    });
+    crypto.roomKeys.enrollPeer(peer);
+    return device;
+  };
+
+  it('observes without enforcing during the reader-first bootstrap', async () => {
+    const device = enrollBrowser('observe-browser');
+    const browserToken = await authenticateDevice(device);
+    const browser = await connectAs(browserToken);
+    browser.ws.send(JSON.stringify({
+      type: 'subscribe', room: 'eng', since_seq: 0,
+      room_addressed: true, client_kind: 'browser',
+      browser_protocol: currentBrowserProtocol,
+    }));
+    expect(await browser.next((frame) => frame.type === 'sync_complete'))
+      .toMatchObject({ type: 'sync_complete', room: 'eng' });
+    expect(server.observedBrowserProtocols()).toEqual([currentBrowserProtocol]);
+    browser.ws.close();
+
+    const preEpoch = await connectAs(browserToken);
+    preEpoch.ws.send(JSON.stringify({
+      type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true,
+    }));
+    expect(await preEpoch.next((frame) => frame.type === 'sync_complete'))
+      .toMatchObject({ type: 'sync_complete', room: 'eng' });
+    preEpoch.ws.close();
+
+    const compatibility = await fetch(
+      `${base}/api/client-compatibility?browser_protocol=${String(currentBrowserProtocol)}&client_kind=browser`,
+      { headers: { authorization: `Bearer ${browserToken}` } },
+    );
+    expect(compatibility.status).toBe(200);
+    expect(compatibility.headers.get('cache-control')).toBe('no-store');
+    expect(await compatibility.json()).toEqual({
+      browser_protocol: currentBrowserProtocol,
+      minimum_browser_protocol: 0,
+      compatible: true,
+    });
+    device.close();
+  });
+
+  it('refuses only stale browsers before hydration while epoch-less agent and Unix clients hydrate', async () => {
+    const device = enrollBrowser('gated-browser');
+    const browserToken = await authenticateDevice(device);
+    const { agent, token: agentToken } = spawnAgentWithToken('epoch-agent');
+    const socketPath = join(dir, 'epoch.sock');
+    const observed: number[] = [];
+    await server.close();
+    server = await startServer({
+      daemon,
+      token: TOKEN,
+      principals: [
+        { token: ADMIN_TOKEN, member_id: admin.id },
+        { token: MEMBER_TOKEN, member_id: member.id },
+        { token: OBSERVER_TOKEN, member_id: observer.id },
+      ],
+      crypto,
+      pushSubscriptions,
+      homeDir: dir,
+      socketPath,
+      minimumBrowserProtocol: currentBrowserProtocol,
+      onBrowserProtocolObserved: (protocol) => observed.push(protocol),
+    });
+    base = `http://127.0.0.1:${server.port}`;
+
+    const stale = await connectAs(browserToken);
+    const staleClosed = new Promise<number>((resolve) => stale.ws.once('close', resolve));
+    stale.ws.send(JSON.stringify({
+      type: 'subscribe', room: 'eng', since_seq: 0,
+      room_addressed: true, client_kind: 'browser',
+    }));
+    expect(await stale.next((frame) => frame.type === 'upgrade_required')).toEqual({
+      type: 'upgrade_required',
+      minimum_browser_protocol: currentBrowserProtocol,
+      current_browser_protocol: currentBrowserProtocol,
+    });
+    expect(await staleClosed).toBe(4406);
+    expect(stale.frames.map((frame) => frame.type)).toEqual(['upgrade_required']);
+
+    const current = await connectAs(browserToken);
+    current.ws.send(JSON.stringify({
+      type: 'subscribe', room: 'eng', since_seq: 0,
+      room_addressed: true, client_kind: 'browser',
+      browser_protocol: currentBrowserProtocol,
+    }));
+    expect(await current.next((frame) => frame.type === 'sync_complete'))
+      .toMatchObject({ type: 'sync_complete', room: 'eng' });
+    current.ws.close();
+    expect(observed).toContain(currentBrowserProtocol);
+
+    const agentClient = await connectUrl(`ws+unix://${socketPath}:/ws?token=${agentToken}`);
+    agentClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    expect(await agentClient.next((frame) => frame.type === 'self'))
+      .toEqual({ type: 'self', member_id: agent.id });
+    expect(await agentClient.next((frame) => frame.type === 'sync_complete'))
+      .toMatchObject({ type: 'sync_complete' });
+    agentClient.ws.close();
+
+    const ownerClient = await connectUrl(`ws+unix://${socketPath}:/ws`);
+    ownerClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    expect(await ownerClient.next((frame) => frame.type === 'sync_complete'))
+      .toMatchObject({ type: 'sync_complete' });
+    ownerClient.ws.close();
+
+    const refused = await fetch(`${base}/api/client-compatibility?client_kind=browser`, {
+      headers: { authorization: `Bearer ${browserToken}` },
+    });
+    expect(refused.status).toBe(426);
+    expect(await refused.json()).toMatchObject({ compatible: false });
+    const agentCompatibility = await fetch(`${base}/api/client-compatibility?client_kind=browser`, {
+      headers: { authorization: `Bearer ${agentToken}` },
+    });
+    expect(agentCompatibility.status).toBe(200);
+    expect(await agentCompatibility.json()).toMatchObject({ compatible: true });
+    device.close();
+  });
+});
+// harn:end browser-protocol-epoch-blocks-only-stale-browser-ui

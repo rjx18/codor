@@ -9,6 +9,7 @@ import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
+  BROWSER_PROTOCOL_EPOCH,
   ClientFrameSchema,
   CreateRoomRequestSchema,
   type BridgeOrigin,
@@ -55,12 +56,17 @@ export interface ServerOptions {
   trustTailscaleServe?: boolean;
   /** Testable operator-home boundary; defaults to the process home. */
   homeDir?: string;
+  /** Observe-only when omitted/zero; a positive value gates browser UI hydration. */
+  minimumBrowserProtocol?: number;
+  /** Test/operations hook fired when a browser reports a positive protocol epoch. */
+  onBrowserProtocolObserved?: (protocol: number) => void;
 }
 
 export interface RunningServer {
   app: FastifyInstance;
   port: number;
   socketPath?: string;
+  observedBrowserProtocols(): number[];
   close(): Promise<void>;
 }
 
@@ -137,6 +143,10 @@ async function listenUnix(server: HttpServer, socketPath: string): Promise<void>
  */
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
   const { daemon, token } = options;
+  const minimumBrowserProtocol = options.minimumBrowserProtocol ?? 0;
+  if (!Number.isInteger(minimumBrowserProtocol) || minimumBrowserProtocol < 0) {
+    throw new Error('minimumBrowserProtocol must be a non-negative integer');
+  }
   // harn:assume server-token-required ref=token-validation
   if (typeof token !== 'string' || token.trim() === '') {
     throw new Error('startServer requires a non-empty authentication token');
@@ -270,6 +280,47 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     return daemon.store.getMember(room.id, principal.memberId)?.kind === 'human';
   });
   // harn:end agent-network-authority-is-narrow
+
+  // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-compatibility-rest
+  const observedBrowserProtocols = new Set<number>();
+  const observeBrowserProtocol = (protocol: number | undefined): void => {
+    if (protocol === undefined || !Number.isInteger(protocol) || protocol < 1) return;
+    options.onBrowserProtocolObserved?.(protocol);
+    if (observedBrowserProtocols.has(protocol)) return;
+    observedBrowserProtocols.add(protocol);
+    // This is the deploy precondition's live evidence. It contains no token,
+    // device id, room, or other browser identity.
+    if (options.onBrowserProtocolObserved === undefined) {
+      console.info(`[codor] observed browser protocol ${String(protocol)}`);
+    }
+  };
+  const browserCompatibility = (protocol: number | undefined) => ({
+    browser_protocol: BROWSER_PROTOCOL_EPOCH,
+    minimum_browser_protocol: minimumBrowserProtocol,
+    compatible: minimumBrowserProtocol === 0
+      || (protocol !== undefined && protocol >= minimumBrowserProtocol),
+  });
+
+  app.get('/api/client-compatibility', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const query = req.query as { browser_protocol?: string; client_kind?: string };
+    const parsed = query.browser_protocol === undefined
+      ? undefined
+      : Number(query.browser_protocol);
+    const protocol = Number.isInteger(parsed) && (parsed ?? 0) > 0 ? parsed : undefined;
+    const browserClient = principal.kind === 'browser'
+      || (principal.kind !== 'agent' && query.client_kind === 'browser');
+    if (browserClient) observeBrowserProtocol(protocol);
+    const compatibility = browserClient
+      ? browserCompatibility(protocol)
+      : { ...browserCompatibility(protocol), compatible: true };
+    return reply
+      .header('cache-control', 'no-store')
+      .code(browserClient && !compatibility.compatible ? 426 : 200)
+      .send(compatibility);
+  });
+  // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
 
   // harn:assume paired-browser-challenge-session ref=browser-device-session-rest
   app.post('/api/auth/challenge', (req, reply) => {
@@ -1122,6 +1173,24 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               rooms: roomsFor(principal).map((room) => daemon.project(room.id, room)),
             });
           } else if (frame.type === 'subscribe') {
+            // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-admission
+            const browserClient = principal.kind === 'browser'
+              || (principal.kind !== 'agent' && frame.client_kind === 'browser');
+            if (browserClient) observeBrowserProtocol(frame.browser_protocol);
+            if (
+              browserClient
+              && minimumBrowserProtocol > 0
+              && (frame.browser_protocol ?? 0) < minimumBrowserProtocol
+            ) {
+              send({
+                type: 'upgrade_required',
+                minimum_browser_protocol: minimumBrowserProtocol,
+                current_browser_protocol: BROWSER_PROTOCOL_EPOCH,
+              });
+              socket.close(4406, 'browser upgrade required');
+              return;
+            }
+            // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
             const actor = assertRoomCapability(principal, frame.room, 'read');
             // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
             const roomAddressed = frame.room_addressed === true;
@@ -1378,6 +1447,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     app,
     port,
     socketPath: options.socketPath,
+    observedBrowserProtocols: () => [...observedBrowserProtocols].sort((left, right) => left - right),
     close: async () => {
       unsubscribeFrames();
       stopDeviceRevocations?.();

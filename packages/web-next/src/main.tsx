@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { applyThemeChoice } from '@legacy/theme.js';
 
 import { resolveAccessToken } from './app/session.js';
+import { checkBrowserCompatibility, CompatibilityGate } from './app/compatibility.js';
 import { RoomPage } from './room/RoomPage.js';
 import './styles/tokens.css';
 import './styles/base.css';
@@ -18,6 +19,7 @@ const rootElement = root;
 
 async function render(): Promise<void> {
   const token = await resolveAccessToken();
+  if (token !== '') await checkBrowserCompatibility(token);
   const path = window.location.pathname;
   const returnTo = `${path}${window.location.search}${window.location.hash}`;
   const page = await (async () => {
@@ -39,7 +41,17 @@ async function render(): Promise<void> {
     }
     return <RoomPage token={token} refreshToken={resolveAccessToken} />;
   })();
-  createRoot(rootElement).render(<StrictMode>{page}</StrictMode>);
+  createRoot(rootElement).render(
+    <StrictMode><CompatibilityGate>{page}</CompatibilityGate></StrictMode>,
+  );
+}
+
+// The cache-buster has already done its navigation job by the time this bundle
+// runs. Keep copied links and later reloads clean.
+const loadedUrl = new URL(window.location.href);
+if (loadedUrl.searchParams.has('_codor_update')) {
+  loadedUrl.searchParams.delete('_codor_update');
+  window.history.replaceState(null, '', `${loadedUrl.pathname}${loadedUrl.search}${loadedUrl.hash}`);
 }
 
 void render();

@@ -11,6 +11,11 @@ import { RoomMeterSchema, RoomSchema, RoomSupportSchema } from './room.js';
 
 // ── client → server ────────────────────────────────────────────────────────
 
+// harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-epoch-contract
+/** Increment only when a browser/server cutover cannot be read compatibly. */
+export const BROWSER_PROTOCOL_EPOCH = 1;
+// harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
+
 // harn:assume changelog-is-sync-cursor ref=ws-subscribe-cursor
 /** Reconnect/delta-sync always cursors on `since_seq` — never message ids. */
 export const SubscribeFrameSchema = z.object({
@@ -31,6 +36,12 @@ export const SubscribeFrameSchema = z.object({
    */
   room_addressed: z.literal(true).optional(),
   // harn:end multiplexed-subscriptions-identify-their-room
+  // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-epoch-contract
+  /** Browser-only compatibility epoch. Agents and CLI subscribers omit it. */
+  browser_protocol: z.number().int().positive().optional(),
+  /** Stable declaration for owner-token development browsers. */
+  client_kind: z.literal('browser').optional(),
+  // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
 });
 // harn:end changelog-is-sync-cursor
 export type SubscribeFrame = z.infer<typeof SubscribeFrameSchema>;
@@ -219,6 +230,13 @@ export type AttachLease = z.infer<typeof AttachLeaseSchema>;
  * commits the consistent snapshot cursor. `run_event` frames are ephemeral.
  */
 export const ServerFrameSchema = z.discriminatedUnion('type', [
+  // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-epoch-contract
+  z.object({
+    type: z.literal('upgrade_required'),
+    minimum_browser_protocol: z.number().int().positive(),
+    current_browser_protocol: z.number().int().positive(),
+  }),
+  // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
   z.object({ type: z.literal('rooms'), rooms: z.array(RoomSchema) }),
   // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-frame-contract
   z.object({ type: z.literal('self'), member_id: MemberIdSchema, room: RoomIdSchema.optional() }),

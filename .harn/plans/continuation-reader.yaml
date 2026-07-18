@@ -1,0 +1,275 @@
+id: continuation-reader
+title: A version-gated browser reads chronological continuation messages before
+  the writer changes
+notes: >-
+  Reader-first prerequisite for Richard's transcript rule: an agent output that
+  is interrupted by another durable room message must never move its earlier
+  output below that interjection. The durable target is one reusable lifecycle
+  root per turn plus additional run messages for later uninterrupted visible
+  output stretches. Message ids remain the permalink and chronological order.
+  Same-author grouping becomes only adjacent visual header suppression. The
+  daemon writer does NOT change in this round: every production run remains
+  today's one root message until the separately locked writer/finalization
+  round.
+
+  Richard explicitly chose a pre-launch cutover instead of indefinite legacy
+  browser projection. There will be one continuation writer and one wire truth:
+  once the later writer round activates, every subscriber receives the durable
+  continuation rows and annotated run events. Existing stored one-message runs
+  remain readable because their output_mode is absent; that is durable-data
+  compatibility, not a second writer or a per-subscriber projection. In
+  particular, do not build the previously considered legacy root-body rewrite,
+  continuation filtering, event retargeting, or browser/CLI dual transcript.
+
+  Add dormant optional protocol/storage fields now.
+  RunSummary.output_mode='messages' selects the new reader and result_message_id
+  identifies the permanent terminal output row. Message.run_parent_id links a
+  continuation to its lifecycle root. Renderable run.item, timeline, and
+  run.completed journal events may carry output_message_id. Persist
+  run_parent_id in SQLite and round-trip it through Message, but no daemon
+  production path calls the continuation insert in this round. The new web-next
+  reader renders output_mode='messages' roots and their continuations strictly
+  by message id; journal blocks attach to their annotated output message; old
+  roots retain today's ended_ts/tail-pinned/journal-flatten fallback. Permalinks
+  stay on each durable message id and sender grouping is computed only after
+  this final sorted order.
+
+  Because today's deployed PWA cannot understand an upgrade-required response,
+  establish a permanent browser protocol epoch before the writer cutover.
+  Browser subscribe carries browser_protocol; an additive UpgradeRequired frame
+  is the transport-stable incompatibility response. The gate is browser-only:
+  the server's authenticated browser principal (and an explicit browser marker
+  used by an owner-token development browser) is subject to a configured
+  minimum, while agent principals and the shared Unix socket continue hydrating
+  without an epoch. Agent/CLI cold sync is explicitly named unbounded agent/CLI
+  hydration: it omits hydrate_limit and follows the normal change-log replay
+  from seq zero. It is load-bearing current behavior, not legacy code, and must
+  not be removed.
+
+  The full web-next application is wrapped in an upgrade gate. A no-store
+  compatibility preflight and the WebSocket UpgradeRequired frame both enter the
+  same blocking screen before incompatible room data is used. Its single Refresh
+  action calls ServiceWorkerRegistration.update(), waits for the existing
+  skipWaiting/clientsClaim worker to take control (with a bounded fallback), and
+  reloads with a cache buster. A server enforcing a minimum sends
+  UpgradeRequired, sends no hydration frames, and closes 4406 so even a pre-gate
+  bundle has a visible offline/reconnecting failure rather than an indefinite
+  skeleton.
+
+  Deployment is deliberately three operational stages. First deploy the new
+  static reader/gate against the old daemon; the old z.object subscribe parser
+  strips the additive browser_protocol field and the absent compatibility
+  endpoint is treated as a pre-epoch server. Second, after copied-live migration
+  proof, restart with this round's observe-only backend: minimum enforcement
+  remains disabled and the writer is unchanged, but the server records/logs the
+  first current browser epoch it actually receives. Verify that Richard's live
+  browser was observed and that an epoch-less agent subscription still hydrates.
+  Only a later locked writer round may raise the minimum and activate
+  continuation writing. This positive observation is a release precondition, not
+  an assumption that a cached PWA refreshed.
+
+  The writer round must retire-and-recreate runs-are-one-message as one reusable
+  lifecycle root plus continuation output messages, and likewise replace the
+  finalized-reply statement. It must allocate and insert each continuation id
+  inside the same transaction before appending a journal event that references
+  the id and before broadcasting either; choosing/journaling an uninserted id is
+  forbidden. It must snapshot the full aggregate response into onward delivery
+  payloads so a collaboration result_message_id may name the final stretch
+  without peers losing earlier output. There is no legacy writer after that
+  cutover.
+
+  Tests: protocol schemas pin optional dormant fields, browser epoch, and
+  UpgradeRequired. Store migration reopens a pre-column database with message
+  count intact and round-trips a seeded continuation without changing current
+  writer behavior. Server tests prove an enforced stale browser receives
+  UpgradeRequired, no self/message/member/sync frames, then close 4406; a
+  current browser hydrates; observe-only accepts and records both current and
+  pre-epoch browsers; and an epoch-less agent plus Unix subscriber still
+  complete normal unbounded hydration. Web unit/browser tests prove old stored
+  runs retain current flattening, new roots and continuations stay in id order
+  across an interjection live and after reload, journal blocks target the
+  annotated row, tool batches are not split, grouping is adjacency-only,
+  permalinks remain exact, and paging does not duplicate or reorder. A
+  compatibility E2E intercepts 426 before app construction, proves the
+  whole-screen gate and no room socket, clicks Refresh, then proves the updated
+  app loads. Gate: protocol, store, switchboard, CLI, web-next unit, full
+  rebuilt Playwright at 28337/28338, full workspace test/build, copied-live
+  migration proof, and harn check.
+assumptions:
+  reviewed:
+    - id: runs-are-one-message
+      outcome: unchanged
+      reason: The production writer remains one reusable run root in this reader-first
+        round. Its statement is explicitly scheduled for retire-and-recreate in
+        the writer round before any continuation is produced.
+    - id: reply-is-finalized-run-message
+      outcome: unchanged
+      reason: Routing and finalization still use today's finalized root message until
+        the writer round atomically introduces aggregate replies and result
+        segments.
+    - id: message-id-txn-allocation
+      outcome: unchanged
+      reason: The dormant persistence surface and test fixture use postMessage, whose
+        MAX+1 allocation and insert remain one synchronous transaction. The
+        writer round is required to preserve this order for real continuations.
+    - id: message-activity-drives-unread
+      outcome: unchanged
+      reason: No production continuation is written, so unread activity semantics do
+        not change in this reader prerequisite; segment activity belongs to the
+        writer plan.
+    - id: changelog-is-sync-cursor
+      outcome: unchanged
+      reason: Browser epoch is admission metadata and run_parent_id is message data;
+        reconnect and hydration continue cursoring exclusively on room seq.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: Compatible clients still publish only at sync_complete; incompatible
+        browsers receive no hydration and therefore have no cursor to commit.
+    - id: multiplexed-subscriptions-identify-their-room
+      outcome: unchanged
+      reason: The current browser still requests room_addressed and every room-keyed
+        frame remains attributable; epoch admission happens before room
+        hydration.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: TCP and Unix listeners still share bindProtocol, but browser minimum
+        enforcement keys on the authenticated/declared browser client rather
+        than penalizing epoch-less agent or CLI subscribers.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Agent credentials remain restricted to their own room and now have an
+        explicit regression proving the browser upgrade gate cannot silence
+        them.
+    - id: agent-sync-hydrates-only-own-queued-inbox
+      outcome: unchanged
+      reason: Epoch-less agent subscribers keep the current unbounded seq-zero replay
+        and own-queued inbox overlay byte-for-byte.
+    - id: run-events-merge-by-journal-index
+      outcome: unchanged
+      reason: output_message_id adds a durable display target but journal index
+        remains the sole replay/live deduplication key.
+    - id: run-blobs-off-db
+      outcome: unchanged
+      reason: Events remain JSONL blobs; SQLite gains only a parent id on message rows
+        and optional pointers inside the existing RunSummary JSON.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Every root and continuation uses its permanent room-local message id for
+        links, refs, history, and search; the reader never synthesizes ids.
+    - id: sw-injectmanifest-owned-worker
+      outcome: unchanged
+      reason: The gate invokes the existing update lifecycle; the worker already owns
+        skipWaiting and clientsClaim and remains otherwise unchanged.
+  create:
+    - id: browser-protocol-epoch-blocks-only-stale-browser-ui
+      title: A browser protocol epoch blocks stale app bundles without silencing
+        agents
+      statement: A browser UI must report its protocol epoch before room hydration;
+        when browser minimum enforcement is enabled, an authenticated or
+        explicitly declared browser below that minimum must receive
+        UpgradeRequired, receive no hydration, and close with 4406, while agent
+        principals and Unix/CLI subscribers without an epoch retain normal
+        unbounded hydration; the application must turn REST 426 or
+        UpgradeRequired into one full-screen service-worker refresh gate, and
+        writer activation is forbidden until the observe-only server has
+        positively recorded the current live browser epoch.
+      reason: Pre-launch can choose one transcript model, but a cached PWA must fail
+        with actionable instructions rather than silently misrendering a
+        breaking protocol, and a browser safeguard must never take the agent
+        transport down with it.
+      depends_on:
+        - unix-socket-same-protocol
+        - agent-network-authority-is-narrow
+        - sync-cursor-commits-after-hydration
+        - sw-injectmanifest-owned-worker
+    - id: continuation-output-schema-is-reader-first
+      title: Durable continuation output is readable before any writer emits it
+      statement: Message and run-event schemas may identify one lifecycle root and
+        permanent continuation output rows, SQLite must round-trip those
+        optional links, and an output_mode=messages reader must render the rows
+        strictly in message-id order with journal evidence attached to its
+        annotated output row, while roots without that mode retain the existing
+        stored-run presentation; no production writer may emit a continuation
+        until a later locked plan replaces the one-run- message and
+        finalized-reply contracts.
+      reason: Reader-first deployment prevents a broken intermediate state while
+        keeping existing durable history readable without implementing a second
+        live projection.
+      depends_on:
+        - runs-are-one-message
+        - reply-is-finalized-run-message
+        - message-id-txn-allocation
+        - run-events-merge-by-journal-index
+        - permalink-ids-stable
+files:
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/events.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/main.tsx
+  - packages/web-next/src/app/compatibility.tsx
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/transcript-order.ts
+  - packages/web-next/src/room/run-journals.ts
+  - packages/web-next/src/styles/base.css
+  - packages/web-next/src/app/compatibility.spec.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room23-continuations.e2e.spec.ts
+  - packages/web-next/tests/room24-upgrade.e2e.spec.ts
+anchors:
+  message-id-txn-allocation:
+    message-id-allocation:
+      action: change
+      reason: The dormant fixture-capable postMessage insert carries optional
+        run_parent_id without changing in-transaction allocation or exposing a
+        writer.
+  message-activity-drives-unread:
+    message-activity-storage:
+      action: change
+      reason: Schema/insert round-trip the dormant parent column while current
+        activity classification remains unchanged until the writer round.
+  browser-protocol-epoch-blocks-only-stale-browser-ui:
+    browser-protocol-epoch-contract:
+      action: change
+      reason: Protocol constants, subscribe metadata, and UpgradeRequired define the
+        permanent browser-only compatibility handshake.
+    browser-protocol-compatibility-rest:
+      action: change
+      reason: No-store preflight reports current/minimum epochs and observe-only
+        receipt before any incompatible page constructs its room connector.
+    browser-protocol-admission:
+      action: change
+      reason: Shared WebSocket admission observes browser epochs, optionally refuses
+        only stale browser UI, sends no hydration, and closes 4406 without
+        gating agents.
+    browser-protocol-regression:
+      action: change
+      reason: Protocol/server tests pin observe-only, enforced browser refusal, close
+        behavior, agent and Unix hydration, and absence of hydration on
+        mismatch.
+  continuation-output-schema-is-reader-first:
+    continuation-message-schema:
+      action: change
+      reason: Optional root mode/result id and continuation parent id define durable
+        rows.
+    continuation-event-target-schema:
+      action: change
+      reason: Renderable journal events gain an optional permanent output-message
+        target.
+    continuation-message-storage:
+      action: change
+      reason: SQLite schema, idempotent migration, row mapping, and dormant insert
+        support round-trip run_parent_id without activating the daemon writer.
+    continuation-reader-regression:
+      action: change
+      reason: Schema/store/browser regressions prove migration, dual durable-history
+        reading, chronological rows, journal targeting, grouping, paging, and
+        permalinks.
+applied:
+  applied_at: 2026-07-18T18:33:49.804Z
