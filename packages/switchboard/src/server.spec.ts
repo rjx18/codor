@@ -2027,7 +2027,7 @@ describe('git working state endpoint (room-git-state-read-only-from-known-cwds)'
   });
 });
 
-describe('message attachment endpoints (attachments-are-data-dir-files-delivered-as-paths)', () => {
+describe('message attachment endpoints (attachments-are-capped-files-served-inert)', () => {
   const upload = (
     room: string,
     name: string,
@@ -2054,8 +2054,34 @@ describe('message attachment endpoints (attachments-are-data-dir-files-delivered
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(got.status).toBe(200);
-    expect(got.headers.get('content-type')).toContain('text/plain');
+    // Non-raster mimes serve inert: the stored mime lives in metadata only.
+    expect(got.headers.get('content-type')).toContain('application/octet-stream');
     expect(await got.text()).toBe('hello attachments');
+  });
+
+  it('serves raster images inline but every scriptable type as an inert download', async () => {
+    const serve = async (name: string, body: string, mime: string) => {
+      const meta = await (await upload('eng', name, body, { token: TOKEN, mime })).json() as { id: string };
+      return fetch(`${base}/api/rooms/eng/attachments/${meta.id}`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+    };
+
+    const png = await serve('pixel.png', 'not-really-png-bytes', 'image/png');
+    expect(png.headers.get('content-type')).toContain('image/png');
+    expect(png.headers.get('content-disposition')).toContain('inline');
+    expect(png.headers.get('x-content-type-options')).toBe('nosniff');
+
+    // An uploaded html document must never render same-origin.
+    const html = await serve('evil.html', '<script>fetch("/api")</script>', 'text/html');
+    expect(html.headers.get('content-type')).toContain('application/octet-stream');
+    expect(html.headers.get('content-disposition')).toContain('attachment');
+    expect(html.headers.get('x-content-type-options')).toBe('nosniff');
+
+    // svg is an image type that scripts — it is NOT in the inline set.
+    const svg = await serve('sneaky.svg', '<svg onload="alert(1)"/>', 'image/svg+xml');
+    expect(svg.headers.get('content-type')).toContain('application/octet-stream');
+    expect(svg.headers.get('content-disposition')).toContain('attachment');
   });
 
   it('refuses anonymous upload and download', async () => {

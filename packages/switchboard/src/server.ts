@@ -705,7 +705,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end room-git-state-read-only-from-known-cwds
 
-  // harn:assume attachments-are-data-dir-files-delivered-as-paths ref=attachment-contract
+  // harn:assume attachments-are-capped-files-served-inert ref=attachment-contract
   // Upload streams one file to disk under the room's attachment dir keyed by a
   // server-issued id (the client filename is metadata only), refusing >25 MB.
   app.post('/api/rooms/:room/attachments', { bodyLimit: MAX_ATTACHMENT_BYTES + 4096 }, async (req, reply) => {
@@ -760,12 +760,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (!meta) return reply.code(404).send({ error: 'no such attachment' });
     const path = daemon.attachmentPath(room, id);
     if (!existsSync(path)) return reply.code(404).send({ error: 'no such attachment' });
+    // Inertness: the mime came from the uploader, so only raster images (not
+    // svg, which scripts) render inline with it; everything else downloads as
+    // an opaque octet-stream. Uploaded content can never execute same-origin.
+    const inline = /^image\/(png|jpe?g|gif|webp|avif)$/.test(meta.mime);
     void reply
-      .header('content-type', meta.mime)
-      .header('content-disposition', `inline; filename*=UTF-8''${encodeURIComponent(meta.name)}`)
+      .header('x-content-type-options', 'nosniff')
+      .header('content-type', inline ? meta.mime : 'application/octet-stream')
+      .header(
+        'content-disposition',
+        `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(meta.name)}`,
+      )
       .send(createReadStream(path));
   });
-  // harn:end attachments-are-data-dir-files-delivered-as-paths
+  // harn:end attachments-are-capped-files-served-inert
 
   // harn:assume graph-derived-from-vault-links-readonly-v5 ref=ledger-graph-rest
   app.get('/api/rooms/:room/ledger', (req, reply) => {

@@ -1,0 +1,16 @@
+id: attachments-are-capped-files-served-inert
+hash: a-51756ceb7ec5
+title: Attachments are room-scoped capped files under the data directory, served
+  inert, and handed to agents as absolute paths
+state: active
+statement: A message attachment is one uploaded file of any type up to 25 MB
+  stored under the daemon data directory keyed by a server-issued id (never the
+  client filename), at most 8 per message, posted only by referencing prior
+  authenticated uploads in the same room, served back only through the
+  authenticated endpoint which renders raster image types inline with their
+  stored mime and every other type as an octet-stream download with nosniff so
+  uploaded content can never execute same-origin, appended to agent delivery
+  payloads as an absolute path line, unlinked from disk when its message is
+  deleted, and swept at boot when no message referenced it within a day.
+depends_on: []
+created_by: attachment-serve-mime-hardening

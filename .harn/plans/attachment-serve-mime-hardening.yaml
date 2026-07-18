@@ -1,58 +1,54 @@
 id: attachment-serve-mime-hardening
-title: Served attachments can never execute same-origin - raster images
-  inline, everything else inert.
+title: Served attachments can never execute same-origin - raster images inline,
+  everything else inert.
 notes: >-
-  Review finding on the attachments round (fable, merge ddb6531). The
-  serve endpoint replayed the upload's client-supplied mime with an
-  inline disposition, so any member holding the post capability could
-  upload text/html (or svg, which scripts) and have it RENDER same-origin
-  when its url opens - same-origin means access to the browser's stored
-  credential. Low exposure today (one operator's own rooms) but wrong for
-  every direction the product is heading (pairing, static hosting, a
-  relay).
+  Review finding on the attachments round (fable, merge ddb6531). The serve
+  endpoint replayed the upload's client-supplied mime with an inline
+  disposition, so any member holding the post capability could upload text/html
+  (or svg, which scripts) and have it RENDER same-origin when its url opens -
+  same-origin means access to the browser's stored credential. Low exposure
+  today (one operator's own rooms) but wrong for every direction the product is
+  heading (pairing, static hosting, a relay).
 
-  Change (server.ts serve endpoint, inside the attachment-contract
-  anchor): only raster image mimes (png, jpeg, gif, webp, avif - NOT
-  svg+xml, which is scriptable) serve inline with their stored mime;
-  every other type serves as application/octet-stream with an attachment
-  disposition; every attachment response carries
-  x-content-type-options nosniff. The stored mime stays in the metadata
-  untouched - chips still show the real type and downloads keep the real
-  name. Harn cannot amend a statement through reviewed outcomes, so the
-  assumption retires and returns with the inertness clause; the anchor
-  comments in server.ts and daemon.ts rename to the recreated id.
+  Change (server.ts serve endpoint, inside the attachment-contract anchor): only
+  raster image mimes (png, jpeg, gif, webp, avif - NOT svg+xml, which is
+  scriptable) serve inline with their stored mime; every other type serves as
+  application/octet-stream with an attachment disposition; every attachment
+  response carries x-content-type-options nosniff. The stored mime stays in the
+  metadata untouched - chips still show the real type and downloads keep the
+  real name. Harn cannot amend a statement through reviewed outcomes, so the
+  assumption retires and returns with the inertness clause; the anchor comments
+  in server.ts and daemon.ts rename to the recreated id.
 
-  Web-next (harnignored, same commit): the transcript renders an inline
-  img only for the same raster set, so a scriptable image type shows as a
-  download chip instead of a broken img.
+  Web-next (harnignored, same commit): the transcript renders an inline img only
+  for the same raster set, so a scriptable image type shows as a download chip
+  instead of a broken img.
 
   Tests: server - an uploaded text/html file serves as octet-stream with
-  attachment disposition and nosniff; an uploaded png serves inline as
-  image/png with nosniff; an uploaded svg serves inert. Gate: switchboard
-  suite green; web-next unit + playwright green.
+  attachment disposition and nosniff; an uploaded png serves inline as image/png
+  with nosniff; an uploaded svg serves inert. Gate: switchboard suite green;
+  web-next unit + playwright green.
 assumptions:
   retire:
     - id: attachments-are-data-dir-files-delivered-as-paths
-      reason: The serving clause must state inertness; the contract continues
-        under attachments-are-capped-files-served-inert with the clause
-        (statement amendment means retire and recreate).
+      reason: The serving clause must state inertness; the contract continues under
+        attachments-are-capped-files-served-inert with the clause (statement
+        amendment means retire and recreate).
   create:
     - id: attachments-are-capped-files-served-inert
-      title: Attachments are room-scoped capped files under the data
-        directory, served inert, and handed to agents as absolute paths
-      statement: A message attachment is one uploaded file of any type up to
-        25 MB stored under the daemon data directory keyed by a
-        server-issued id (never the client filename), at most 8 per
-        message, posted only by referencing prior authenticated uploads in
-        the same room, served back only through the authenticated endpoint
-        which renders raster image types inline with their stored mime and
-        every other type as an octet-stream download with nosniff so
-        uploaded content can never execute same-origin, appended to agent
-        delivery payloads as an absolute path line, unlinked from disk
-        when its message is deleted, and swept at boot when no message
+      title: Attachments are room-scoped capped files under the data directory, served
+        inert, and handed to agents as absolute paths
+      statement: A message attachment is one uploaded file of any type up to 25 MB
+        stored under the daemon data directory keyed by a server-issued id
+        (never the client filename), at most 8 per message, posted only by
+        referencing prior authenticated uploads in the same room, served back
+        only through the authenticated endpoint which renders raster image types
+        inline with their stored mime and every other type as an octet-stream
+        download with nosniff so uploaded content can never execute same-origin,
+        appended to agent delivery payloads as an absolute path line, unlinked
+        from disk when its message is deleted, and swept at boot when no message
         referenced it within a day.
-      reason: >-
-        Serving client-declared mimes inline is a stored-XSS primitive; the
+      reason: Serving client-declared mimes inline is a stored-XSS primitive; the
         contract must promise inertness, not just authentication.
       depends_on: []
 files:
@@ -63,10 +59,12 @@ anchors:
   attachments-are-data-dir-files-delivered-as-paths:
     attachment-contract:
       action: remove
-      reason: The old-id anchor comments rename to the recreated assumption;
-        the code inside is hardened, not removed.
+      reason: The old-id anchor comments rename to the recreated assumption; the code
+        inside is hardened, not removed.
   attachments-are-capped-files-served-inert:
     attachment-contract:
       action: change
-      reason: The serve endpoint's mime gating defines the inertness clause;
-        anchor comments rename to this recreated assumption.
+      reason: The serve endpoint's mime gating defines the inertness clause; anchor
+        comments rename to this recreated assumption.
+applied:
+  applied_at: 2026-07-18T03:34:36.060Z

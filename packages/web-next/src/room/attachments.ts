@@ -34,7 +34,10 @@ export async function uploadAttachment(room: string, token: string, file: File):
 export const attachmentUrl = (room: string, id: string, token: string): string =>
   `/api/rooms/${encodeURIComponent(room)}/attachments/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`;
 
-export const isImageAttachment = (mime: string): boolean => mime.startsWith('image/');
+// Mirrors the server's inline-render set: raster images only. Scriptable image
+// types (svg) are served as downloads, so rendering them as <img> would break.
+export const isImageAttachment = (mime: string): boolean =>
+  /^image\/(png|jpe?g|gif|webp|avif)$/.test(mime);
 
 export function formatAttachmentSize(size: number): string {
   if (size < 1024) return `${String(size)} B`;

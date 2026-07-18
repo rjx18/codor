@@ -3769,7 +3769,7 @@ export class Daemon {
   }
   // harn:end room-git-state-read-only-from-known-cwds
 
-  // harn:assume attachments-are-data-dir-files-delivered-as-paths ref=attachment-contract
+  // harn:assume attachments-are-capped-files-served-inert ref=attachment-contract
   // The attachment contract: files live under the data dir keyed by a server-issued
   // hex id (never a client path), staged by upload, validated on post, delivered to
   // agents as absolute path lines, unlinked on delete, and swept when orphaned.
@@ -3883,5 +3883,5 @@ export class Daemon {
     );
     return `\n\nAttachments:\n${lines.join('\n')}`;
   }
-  // harn:end attachments-are-data-dir-files-delivered-as-paths
+  // harn:end attachments-are-capped-files-served-inert
 }
