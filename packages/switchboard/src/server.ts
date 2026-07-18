@@ -1,7 +1,9 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync } from 'node:fs';
+import { chmodSync, createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, rmSync } from 'node:fs';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import { connect as connectSocket } from 'node:net';
 import { dirname } from 'node:path';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
@@ -25,7 +27,7 @@ import {
 } from './authorization.js';
 import { constantTimeEqual, hashTranscript } from './crypto/challenge.js';
 import type { CryptoVault, PairingRequest } from './crypto/pairing.js';
-import type { Daemon } from './daemon.js';
+import { type Daemon, MAX_ATTACHMENT_BYTES } from './daemon.js';
 import { listLocalDirectories, LocalDirectoryError } from './local-dirs.js';
 import type { PushSubscriptionStore } from './push/subscriptions.js';
 
@@ -150,6 +152,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   }
   // harn:end server-token-required
   const app = Fastify();
+  // Attachment uploads arrive as raw binary bodies (any content-type). This
+  // catch-all parser hands the route the untouched request stream to pipe to
+  // disk; it only fires for non-JSON bodies, which only the upload sends.
+  app.addContentTypeParser('*', (_req, payload, done) => done(null, payload));
   const allowPairingCodeAttempt = pairingCodeAttemptLimiter(Date.now);
   const browserAuthTranscript = options.crypto
     ? hashTranscript(Buffer.from(
@@ -699,6 +705,68 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end room-git-state-read-only-from-known-cwds
 
+  // harn:assume attachments-are-data-dir-files-delivered-as-paths ref=attachment-contract
+  // Upload streams one file to disk under the room's attachment dir keyed by a
+  // server-issued id (the client filename is metadata only), refusing >25 MB.
+  app.post('/api/rooms/:room/attachments', { bodyLimit: MAX_ATTACHMENT_BYTES + 4096 }, async (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeRoom(principal, room, 'post', reply)) return;
+    if (!daemon.store.getRoom(room)) return reply.code(404).send({ error: `no such room ${room}` });
+    const declared = Number(req.headers['content-length'] ?? 0);
+    if (Number.isFinite(declared) && declared > MAX_ATTACHMENT_BYTES) {
+      return reply.code(413).send({ error: 'attachment exceeds 25 MB' });
+    }
+    const { name } = req.query as { name?: string };
+    const filename = (name ?? 'file').slice(0, 255) || 'file';
+    const mime = (req.headers['content-type'] ?? 'application/octet-stream').split(';')[0]?.trim()
+      || 'application/octet-stream';
+    const id = daemon.newAttachmentId();
+    daemon.ensureAttachmentDir(room);
+    const path = daemon.attachmentPath(room, id);
+    let size = 0;
+    let tooBig = false;
+    const counter = new Transform({
+      transform(chunk: Buffer, _enc, callback) {
+        size += chunk.length;
+        if (size > MAX_ATTACHMENT_BYTES) {
+          tooBig = true;
+          callback(new Error('attachment exceeds 25 MB'));
+          return;
+        }
+        callback(null, chunk);
+      },
+    });
+    try {
+      await pipeline(req.body as NodeJS.ReadableStream, counter, createWriteStream(path));
+    } catch (error) {
+      rmSync(path, { force: true });
+      return reply.code(tooBig ? 413 : 400).send({ error: String(error) });
+    }
+    const meta = { id, name: filename, mime, size };
+    daemon.recordAttachment(room, meta);
+    return reply.send(meta);
+  });
+
+  // Serve a stored attachment with its recorded mime and name. The id is
+  // validated (hex handle) before it ever touches a path — traversal is dead.
+  app.get('/api/rooms/:room/attachments/:id', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room, id } = req.params as { room: string; id: string };
+    if (!authorizeRoom(principal, room, 'read', reply)) return;
+    const meta = daemon.getAttachmentMeta(room, id);
+    if (!meta) return reply.code(404).send({ error: 'no such attachment' });
+    const path = daemon.attachmentPath(room, id);
+    if (!existsSync(path)) return reply.code(404).send({ error: 'no such attachment' });
+    void reply
+      .header('content-type', meta.mime)
+      .header('content-disposition', `inline; filename*=UTF-8''${encodeURIComponent(meta.name)}`)
+      .send(createReadStream(path));
+  });
+  // harn:end attachments-are-data-dir-files-delivered-as-paths
+
   // harn:assume graph-derived-from-vault-links-readonly-v5 ref=ledger-graph-rest
   app.get('/api/rooms/:room/ledger', (req, reply) => {
     const principal = authed(req, reply);
@@ -1012,9 +1080,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 frame.awaiting_reply,
               );
             } else {
+              // Resolve prior uploads to metadata (refuses unknown/cross-room ids
+              // and over-count); refuse a post with neither body nor attachments.
+              const attachments = daemon.resolveAttachmentsForPost(frame.room, frame.attachments);
+              if (frame.body.trim().length === 0 && attachments.length === 0) {
+                throw new Error('a post needs body text or at least one attachment');
+              }
               daemon.postHumanMessage(frame.room, frame.body, {
                 author: actor.id,
                 reply_to: frame.reply_to,
+                attachments,
               });
             }
           } else if (frame.type === 'act') {

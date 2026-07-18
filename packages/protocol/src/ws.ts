@@ -24,8 +24,10 @@ export type SubscribeFrame = z.infer<typeof SubscribeFrameSchema>;
 export const PostFrameSchema = z.object({
   type: z.literal('post'),
   room: RoomIdSchema,
-  body: z.string().min(1),
+  body: z.string(), // may be empty when attachments carry the message (server refuses truly empty)
   reply_to: MessageIdSchema.optional(),
+  // ids of files uploaded to this room beforehand; capped at 8 per message
+  attachments: z.array(z.string().min(1)).max(8).optional(),
   // harn:assume awaiting-reply-marker-is-delivery-context ref=awaiting-reply-post-contract
   awaiting_reply: z.boolean().optional(),
   // harn:end awaiting-reply-marker-is-delivery-context

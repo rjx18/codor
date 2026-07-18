@@ -4,6 +4,7 @@ import {
   ActSchema,
   AgentUsageSchema,
   AssignableHandleSchema,
+  AttachmentSchema,
   ChangeLogEntrySchema,
   ClientFrameSchema,
   CommitPayloadSchema,
@@ -215,6 +216,19 @@ describe('messages', () => {
   it('treats deleted as an additive optional marker', () => {
     expect(MessageSchema.parse(chatMessage).deleted).toBeUndefined();
     expect(MessageSchema.parse({ ...chatMessage, deleted: true }).deleted).toBe(true);
+  });
+
+  it('carries optional attachment metadata', () => {
+    expect(MessageSchema.parse(chatMessage).attachments).toBeUndefined();
+    const attachment = { id: 'a'.repeat(32), name: 'shot.png', mime: 'image/png', size: 2048 };
+    expect(MessageSchema.parse({ ...chatMessage, attachments: [attachment] }).attachments)
+      .toEqual([attachment]);
+  });
+
+  it('rejects an attachment missing its metadata fields', () => {
+    expect(AttachmentSchema.safeParse({ id: 'x', name: 'f', mime: 'text/plain', size: 0 }).success).toBe(true);
+    expect(AttachmentSchema.safeParse({ id: 'x', name: 'f', mime: 'text/plain' }).success).toBe(false);
+    expect(AttachmentSchema.safeParse({ id: '', name: 'f', mime: 'text/plain', size: 1 }).success).toBe(false);
   });
 
   it('accepts a delete_message act naming only the message', () => {
@@ -814,6 +828,19 @@ describe('WS client frames', () => {
     expect(
       ClientFrameSchema.safeParse({ type: 'post', room: 'r', body: 'hi', reply_to: 3 }).success,
     ).toBe(true);
+  });
+
+  it('carries attachment ids and allows an attachments-only (empty body) post', () => {
+    expect(ClientFrameSchema.safeParse({ type: 'post', room: 'r', body: 'see this', attachments: ['a1'] }).success).toBe(true);
+    expect(ClientFrameSchema.safeParse({ type: 'post', room: 'r', body: '', attachments: ['a1'] }).success).toBe(true);
+  });
+
+  it('allows an empty body at the schema level (the server refuses truly empty) and caps attachments at 8', () => {
+    // Empty body parses here; the neither-body-nor-attachments refusal is server-side.
+    expect(ClientFrameSchema.safeParse({ type: 'post', room: 'r', body: '' }).success).toBe(true);
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => `id-${String(i)}`);
+    expect(ClientFrameSchema.safeParse({ type: 'post', room: 'r', body: '', attachments: ids(8) }).success).toBe(true);
+    expect(ClientFrameSchema.safeParse({ type: 'post', room: 'r', body: '', attachments: ids(9) }).success).toBe(false);
   });
 
   const acts: [string, unknown][] = [

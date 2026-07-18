@@ -61,6 +61,7 @@ for (const [id, name] of [
   ['recovery', 'Recovery'],
   ['interleave', 'Interleave'],
   ['workspace', 'Workspace'],
+  ['files', 'Files'],
 ]) {
   daemon.createRoom({ id, name, owner });
   crypto.roomKeys.ensureRoom(id);
@@ -277,6 +278,30 @@ fake.enqueue({
 daemon.postHumanMessage('workspace', '@builder bump app.ts to version 2');
 await daemon.settle();
 dirtyWorkspace();
+
+// Files: an agent-free room seeded with a message carrying a rendered image and a
+// download chip (bytes + sidecars on disk) so the attachments e2e has real files
+// to render, delete, and axe-check without a live upload.
+const filesDir = join(dir, 'attachments', 'files');
+mkdirSync(filesDir, { recursive: true });
+const seedAttachment = (id, name, mime, bytes) => {
+  writeFileSync(join(filesDir, id), bytes);
+  const meta = { id, name, mime, size: bytes.length };
+  writeFileSync(join(filesDir, `${id}.json`), JSON.stringify(meta));
+  return meta;
+};
+const onePixelPng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+);
+const seededImage = seedAttachment(`${'0'.repeat(31)}1`, 'diagram.png', 'image/png', onePixelPng);
+const seededDoc = seedAttachment(`${'0'.repeat(31)}2`, 'notes.txt', 'text/plain', Buffer.from('build log\nmore lines\n'));
+daemon.store.postMessage('files', {
+  author: daemon.ownerOf('files').id,
+  kind: 'chat',
+  body: 'here are the files',
+  attachments: [seededImage, seededDoc],
+});
 
 const musePost = daemon.postAgentMessage(
   'eng',

@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
@@ -9,6 +10,7 @@ import type {
   AgentUsage,
   ModelCatalog,
   AskCard,
+  Attachment,
   Policy,
   ThinkingLevel,
   AttachLease,
@@ -28,6 +30,7 @@ import type {
 } from '@codor/protocol';
 
 import {
+  AttachmentSchema,
   MemberStatusResponseSchema,
   deriveRoomId,
   parseRunItemPayload,
@@ -69,6 +72,18 @@ const execFileAsync = promisify(execFile);
 // interpolation). The directory is always one the room already recorded — never
 // a free path from the client. Per-file diffs are capped so a large working tree
 // cannot balloon the response. See gitWorkingState / readGitWorkingFiles below.
+// ── Message attachments ────────────────────────────────────────────────────
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const MAX_ATTACHMENTS_PER_MESSAGE = 8;
+const ORPHAN_ATTACHMENT_MS = 24 * 60 * 60 * 1000;
+const ATTACHMENT_ID = /^[0-9a-f]{32}$/;
+
+function formatBytes(size: number): string {
+  if (size < 1024) return `${String(size)} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_BUFFER = 16 * 1024 * 1024;
 const MAX_FILE_DIFF_CHARS = 40_000;
@@ -296,6 +311,7 @@ export class Daemon {
   private readonly onBackgroundError: (error: Error) => void;
   private readonly homeDir: string;
   private readonly socketPath: string;
+  private readonly attachmentsRoot: string;
   private readonly stopResidencyReachability?: () => void;
   private closing = false;
   private closed = false;
@@ -310,6 +326,8 @@ export class Daemon {
     this.onBackgroundError = options.onBackgroundError ?? (() => undefined);
     this.homeDir = options.homeDir ?? homedir();
     this.socketPath = options.socketPath ?? join(dirname(options.dbPath), 'codor.sock');
+    this.attachmentsRoot = join(dirname(options.dbPath), 'attachments');
+    this.sweepOrphanAttachments(); // boot-time: drop uploads no message ever claimed
     this.ledger?.setRoomValidator((room) => this.store.getRoom(room) !== undefined);
     this.ledger?.setRemoteWriteAuthorizer((peerId, room, author) => {
       const members = this.store.listMembers(room);
@@ -919,7 +937,7 @@ export class Daemon {
   }
   // harn:end pins-are-durable-owner-admin-markers
 
-  // harn:assume deleted-messages-are-purged-tombstones ref=delete-message-contract
+  // harn:assume deleted-messages-purge-rows-and-files ref=delete-message-contract
   /**
    * Purge a chat message, leaving a durable [deleted] tombstone. Only human
    * owners/admins may delete (the server gate enforces the role; this refuses
@@ -927,7 +945,8 @@ export class Daemon {
    * — run rows are journal evidence and system rows are daemon speech, both
    * refused. Idempotent when already deleted (emits nothing). Still-pending
    * deliveries (queued or held) of the message are cancelled so purged content
-   * never delivers late; already-consumed deliveries keep their snapshots.
+   * never delivers late; already-consumed deliveries keep their snapshots. Any
+   * attachment files are unlinked from disk (the store nulls their metadata).
    * Deletion never renumbers messages or touches run journals.
    */
   deleteMessage(room: string, messageId: number, byMemberId: string): Message {
@@ -942,6 +961,8 @@ export class Daemon {
     }
     if (message.deleted === true) return message; // idempotent — emit nothing
     const tombstone = this.store.deleteMessage(room, messageId);
+    // The store nulled the metadata column; remove the bytes from disk too.
+    this.unlinkAttachments(room, message.attachments);
     // Cancel still-pending deliveries so the purged body is never delivered.
     for (const delivery of this.store.listDeliveries(room)) {
       if (delivery.message_id !== messageId) continue;
@@ -951,7 +972,7 @@ export class Daemon {
     this.emitMessage(room, tombstone);
     return tombstone;
   }
-  // harn:end deleted-messages-are-purged-tombstones
+  // harn:end deleted-messages-purge-rows-and-files
 
   memberDetails(room: string): MemberDetails[] {
     const messages = this.store.listMessages(room, { limit: Number.MAX_SAFE_INTEGER });
@@ -1674,6 +1695,7 @@ export class Daemon {
     replyTo?: number,
     awaitingReply = false,
     interim = false,
+    attachments?: Attachment[],
   ): Message {
     const parsed = parseBody(body, this.store.listMembers(room));
     // harn:assume eligible-multi-agent-routing-starts-one-group ref=multi-agent-group-ingress
@@ -1686,6 +1708,7 @@ export class Daemon {
         refs: parsed.refs,
         ledger_refs: parsed.ledger_refs,
         reply_to: replyTo,
+        ...(attachments !== undefined && attachments.length > 0 && { attachments }),
       },
       plan: (message) => this.planRoutedMessage(
         room,
@@ -1702,11 +1725,15 @@ export class Daemon {
     return committed.message;
   }
 
-  postHumanMessage(room: string, body: string, opts: { author?: string; reply_to?: number } = {}): Message {
+  postHumanMessage(
+    room: string,
+    body: string,
+    opts: { author?: string; reply_to?: number; attachments?: Attachment[] } = {},
+  ): Message {
     const authorId = opts.author ?? this.ownerOf(room).id;
     const author = this.store.getMember(room, authorId);
     if (author?.kind !== 'human') throw new Error(`no such human author: ${authorId}`);
-    return this.postChatMessage(room, body, authorId, opts.reply_to);
+    return this.postChatMessage(room, body, authorId, opts.reply_to, false, false, opts.attachments);
   }
 
   // harn:assume agent-network-authority-is-narrow ref=agent-interim-post-ingress
@@ -2626,7 +2653,11 @@ export class Daemon {
         );
       }
     }
-    return payloads.join('\n');
+    // Attachment path lines ride each delivery's text (outside the briefing
+    // anchors), recomputed from the live message so they vanish on delete.
+    return payloads
+      .map((payload, index) => payload + this.attachmentPayloadLines(room, batch[index]!.message_id))
+      .join('\n');
   }
 
   // harn:assume reply-is-finalized-run-message ref=finalize-and-route
@@ -3737,4 +3768,120 @@ export class Daemon {
     return files;
   }
   // harn:end room-git-state-read-only-from-known-cwds
+
+  // harn:assume attachments-are-data-dir-files-delivered-as-paths ref=attachment-contract
+  // The attachment contract: files live under the data dir keyed by a server-issued
+  // hex id (never a client path), staged by upload, validated on post, delivered to
+  // agents as absolute path lines, unlinked on delete, and swept when orphaned.
+
+  /** A fresh, path-safe attachment id — also the on-disk file name. */
+  newAttachmentId(): string {
+    return randomBytes(16).toString('hex');
+  }
+
+  /** Absolute path to an attachment's bytes; throws unless id is a valid handle,
+   *  so a client-supplied id can never escape the room's attachment directory. */
+  attachmentPath(room: string, id: string): string {
+    if (!ATTACHMENT_ID.test(id)) throw new Error('invalid attachment id');
+    return join(this.attachmentsRoot, room, id);
+  }
+
+  private attachmentMetaPath(room: string, id: string): string {
+    return `${this.attachmentPath(room, id)}.json`;
+  }
+
+  /** Ensure a room's attachment directory exists before an upload writes into it. */
+  ensureAttachmentDir(room: string): string {
+    const dir = join(this.attachmentsRoot, room);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  /** Persist an uploaded file's metadata sidecar (name/mime/size by id). */
+  recordAttachment(room: string, meta: Attachment): void {
+    writeFileSync(this.attachmentMetaPath(room, meta.id), JSON.stringify(meta));
+  }
+
+  /** An attachment's stored metadata, or undefined if it was never staged here. */
+  getAttachmentMeta(room: string, id: string): Attachment | undefined {
+    if (!ATTACHMENT_ID.test(id)) return undefined;
+    try {
+      return AttachmentSchema.parse(JSON.parse(readFileSync(this.attachmentMetaPath(room, id), 'utf8')));
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Validate post-time attachment ids against this room's staging and return
+   *  their metadata to stamp onto the message. Throws on any unknown id (which
+   *  also refuses another room's ids) or over the per-message cap. */
+  resolveAttachmentsForPost(room: string, ids: readonly string[] | undefined): Attachment[] {
+    if (ids === undefined || ids.length === 0) return [];
+    if (ids.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+      throw new Error(`at most ${String(MAX_ATTACHMENTS_PER_MESSAGE)} attachments per message`);
+    }
+    return ids.map((id) => {
+      const meta = this.getAttachmentMeta(room, id);
+      if (meta === undefined) throw new Error(`unknown attachment ${id}`);
+      return meta;
+    });
+  }
+
+  /** Unlink a deleted message's attachment files (bytes + sidecar) from disk. */
+  private unlinkAttachments(room: string, attachments: Attachment[] | undefined): void {
+    for (const attachment of attachments ?? []) {
+      if (!ATTACHMENT_ID.test(attachment.id)) continue;
+      rmSync(this.attachmentPath(room, attachment.id), { force: true });
+      rmSync(this.attachmentMetaPath(room, attachment.id), { force: true });
+    }
+  }
+
+  /** Boot-time sweep: unlink staged files that no message referenced within the
+   *  orphan window. Referenced files stay until their message is deleted. */
+  sweepOrphanAttachments(now = Date.now()): void {
+    let rooms: string[];
+    try {
+      rooms = readdirSync(this.attachmentsRoot);
+    } catch {
+      return; // nothing staged yet
+    }
+    for (const room of rooms) {
+      const dir = join(this.attachmentsRoot, room);
+      const referenced = new Set<string>();
+      if (this.store.getRoom(room) !== undefined) {
+        for (const message of this.store.listMessages(room, { limit: Number.MAX_SAFE_INTEGER })) {
+          for (const attachment of message.attachments ?? []) referenced.add(attachment.id);
+        }
+      }
+      let entries: string[];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const id = entry.endsWith('.json') ? entry.slice(0, -'.json'.length) : entry;
+        if (!ATTACHMENT_ID.test(id) || referenced.has(id)) continue;
+        const path = join(dir, entry);
+        try {
+          if (now - statSync(path).mtimeMs > ORPHAN_ATTACHMENT_MS) rmSync(path, { force: true });
+        } catch {
+          // raced away — nothing to unlink
+        }
+      }
+    }
+  }
+
+  /** Absolute-path lines appended to an agent's delivered text for a message's
+   *  files — agents share this machine, so a path is the honest delivery form. */
+  private attachmentPayloadLines(room: string, messageId: number): string {
+    const attachments = this.store.getMessage(room, messageId)?.attachments ?? [];
+    if (attachments.length === 0) return '';
+    const lines = attachments.map(
+      (attachment) =>
+        `- ${this.attachmentPath(room, attachment.id)} (${attachment.name}, ${formatBytes(attachment.size)})`,
+    );
+    return `\n\nAttachments:\n${lines.join('\n')}`;
+  }
+  // harn:end attachments-are-data-dir-files-delivered-as-paths
 }
