@@ -84,6 +84,12 @@ function formatBytes(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Boot-recovery requeue fence: a delivery whose turn has been started this many
+// times without completing is left consumed instead of re-queued, so a poisonous
+// instruction that kills the daemon on every start cannot ping-pong the service.
+// Matches the existing give-up bound (residency retries stop at attempt_count 2).
+export const RECOVERY_ATTEMPT_CEILING = 2;
+
 const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_BUFFER = 16 * 1024 * 1024;
 const MAX_FILE_DIFF_CHARS = 40_000;
@@ -3206,6 +3212,64 @@ export class Daemon {
           this.holdAmbiguousTurn(room.id, member, group, runMsgId);
         }
       }
+      // harn:assume shutdown-interrupted-deliveries-requeue ref=recovery-requeue-contract
+      // A run still `running` here was stranded by a shutdown mid-turn (its
+      // deliveries never re-queued, so the instruction was silently eaten — #437,
+      // #483). Finalize it interrupted and re-queue its bound deliveries as a
+      // fresh turn, attempt count PRESERVED (unlike operator redeliver) so a
+      // poisonous instruction is fenced at the ceiling, not looped forever.
+      for (const runMsg of this.store.listMessages(room.id, { limit: Number.MAX_SAFE_INTEGER })) {
+        if (runMsg.kind !== 'run' || runMsg.run?.status !== 'running') continue;
+        if (this.inflight.has(runMsg.author)) continue; // an in-flight reconcile retry owns this run
+        const bound = this.store
+          .listDeliveries(room.id)
+          .filter((delivery) => delivery.run_msg_id === runMsg.id
+            && (delivery.state === 'consumed' || delivery.state === 'delivering'));
+        if (bound.length === 0) continue;
+        const interrupted = this.store.updateMessage(room.id, runMsg.id, {
+          body: '',
+          mentions: [],
+          refs: [],
+          ledger_refs: [],
+          run: {
+            ...runMsg.run,
+            status: 'interrupted',
+            ended_ts: new Date().toISOString(),
+            stalled_since: undefined,
+            final_text: undefined,
+          },
+        });
+        this.runActivity.delete(`${room.id}:${runMsg.id}`);
+        this.emitMessage(room.id, interrupted);
+        const fenced: string[] = [];
+        for (const delivery of bound) {
+          // A deleted trigger stays purged (mirror retry_run's filter).
+          if (this.store.getMessage(room.id, delivery.message_id)?.deleted === true) continue;
+          // The poison-pill fence: an instruction at the retry ceiling stays consumed.
+          if (delivery.attempt_count >= RECOVERY_ATTEMPT_CEILING) {
+            fenced.push(delivery.recipient);
+            continue;
+          }
+          // redeliver mechanics WITHOUT the attempt-count reset — recovery is not
+          // an operator redeliver, so a routine restart's collateral heals silently.
+          const requeued = this.store.updateDelivery(room.id, delivery.id, {
+            state: 'queued',
+            run_msg_id: undefined,
+          });
+          this.store.setDeliveryAttemptProcess(room.id, [delivery.id], undefined);
+          this.emitInbox(room.id, requeued);
+        }
+        if (fenced.length > 0) {
+          const who = [...new Set(fenced)]
+            .map((recipient) => `@${this.store.getMember(room.id, recipient)?.handle ?? recipient}`)
+            .join(', ');
+          this.postSystemMessage(
+            room.id,
+            `delivery to ${who} not re-queued after restart (turn #${String(runMsg.id)} hit the retry ceiling) — retry_run to force it`,
+          );
+        }
+      }
+      // harn:end shutdown-interrupted-deliveries-requeue
       this.reconcileCollaborationGroups(room.id);
       // drain anything still queued (tracked — a turn may block on an ask)
       for (const member of this.store.listMembers(room.id)) {
