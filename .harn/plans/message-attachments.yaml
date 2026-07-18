@@ -80,8 +80,18 @@ assumptions:
       outcome: unchanged
       reason: Attachment paths are part of the composed payload text and
         snapshot like the rest of it.
+  retire:
     - id: deleted-messages-are-purged-tombstones
-      outcome: changed
+      reason: The purge contract now extends to unlinking attachment files
+        from disk; the contract continues under
+        deleted-messages-purge-rows-and-files with that clause (harn does
+        not propagate statement text through reviewed outcomes - the pins
+        round proved it - so amendment means retire and recreate).
+  create:
+    - id: deleted-messages-purge-rows-and-files
+      title: Deletion purges a chat message body and its attachment files in
+        place, leaving a durable tombstone only owner or admin humans may
+        create
       statement: Deleting a message empties its body and payload columns,
         unlinks its attachment files from disk and nulls their metadata,
         and sets a durable deleted flag on the same row through the room
@@ -92,9 +102,10 @@ assumptions:
         re-deleting is a silent no-op, still-pending deliveries of the
         message are cancelled while consumed deliveries keep their
         snapshots, and there is no undelete.
-      reason: The purge now genuinely removes attachment bytes from disk,
-        not just the row's columns; everything else stands.
-  create:
+      reason: >-
+        The purge must genuinely remove attachment bytes from disk, not just
+        the row's columns; everything else in the tombstone contract stands.
+      depends_on: []
     - id: attachments-are-data-dir-files-delivered-as-paths
       title: Attachments are room-scoped files under the data directory,
         capped, served authenticated, and handed to agents as absolute
@@ -147,6 +158,12 @@ anchors:
         allocation logic is untouched.
   deleted-messages-are-purged-tombstones:
     delete-message-contract:
+      action: remove
+      reason: The old-id anchor comments in daemon.ts rename to the recreated
+        assumption; the purge code inside is extended, not removed.
+  deleted-messages-purge-rows-and-files:
+    delete-message-contract:
       action: change
       reason: deleteMessage additionally unlinks attachment files and nulls
-        the column inside the anchor that defines the purge.
+        the column inside the anchor that defines the purge; the anchor
+        comments rename to this recreated assumption.
