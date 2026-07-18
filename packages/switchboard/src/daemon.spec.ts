@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import Database from 'better-sqlite3';
 
-import { Daemon } from './daemon.js';
+import { Daemon, RECOVERY_ATTEMPT_CEILING } from './daemon.js';
 import { FakeAdapter } from './fake-adapter.js';
 import { Store } from './store.js';
 
@@ -4671,5 +4671,88 @@ describe('message attachments', () => {
     expect(existsSync(daemon.attachmentPath('eng', referenced.id))).toBe(true); // referenced: kept
     expect(existsSync(daemon.attachmentPath('eng', orphanFresh.id))).toBe(true); // fresh orphan: kept
     expect(existsSync(oldPath)).toBe(false); // old orphan: swept
+  });
+});
+
+describe('shutdown-interrupted delivery requeue (boot recovery)', () => {
+  // Build a run left `running` at boot with a bound delivery in the given state —
+  // the state a shutdown mid-turn strands. No live turn runs; the store is posed.
+  const strand = (opts: { body?: string; state?: 'consumed' | 'delivering'; attempt?: number }) => {
+    const alpha = spawnAgent('alpha');
+    const trigger = daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id, kind: 'chat', body: opts.body ?? '@alpha do the thing',
+    });
+    const posted = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+    const runMsg = daemon.store.updateMessage('eng', posted.id, {
+      run: { status: 'running', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: `runs/${posted.id}.jsonl` },
+    });
+    const delivery = daemon.store.createDelivery('eng', { message_id: trigger.id, recipient: alpha.id });
+    daemon.store.updateDelivery('eng', delivery.id, {
+      state: opts.state ?? 'consumed', attempt_count: opts.attempt ?? 1, run_msg_id: runMsg.id,
+    });
+    return { alpha, trigger, runMsg, delivery };
+  };
+
+  it('re-queues a stranded delivery into a fresh completing turn, run finalized interrupted', async () => {
+    const { runMsg, delivery, alpha } = strand({ body: '@alpha finish the deploy', attempt: 1 });
+    await daemon.close();
+
+    daemon = newDaemon();
+    fake.enqueue({ kind: 'complete', final_text: 'deploy finished after restart @richard' });
+    await daemon.reconcile();
+    await daemon.settle();
+
+    expect(daemon.store.getMessage('eng', runMsg.id)!.run!.status).toBe('interrupted');
+    expect(fake.deliveries.at(-1)!.payload).toContain('finish the deploy');
+    const fresh = runMessages().find((m) => m.id !== runMsg.id && m.author === alpha.id)!;
+    expect(fresh.run!.status).toBe('completed');
+    expect(fresh.body).toBe('deploy finished after restart @richard');
+    expect(daemon.store.getDelivery('eng', delivery.id)!.attempt_count).toBe(2); // preserved 1 → +1 this turn
+  });
+
+  it('does not re-queue a delivery at the retry ceiling, and names it in a system message', async () => {
+    const { runMsg, delivery } = strand({ body: '@alpha poison', attempt: RECOVERY_ATTEMPT_CEILING });
+    await daemon.close();
+
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    expect(daemon.store.getMessage('eng', runMsg.id)!.run!.status).toBe('interrupted');
+    expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('consumed'); // fenced
+    expect(fake.deliveries).toHaveLength(0); // never re-ran
+    const fence = daemon.store.listMessages('eng', { limit: 100 })
+      .find((m) => m.kind === 'system' && m.body.includes('retry ceiling'));
+    expect(fence?.body).toContain('@alpha');
+  });
+
+  it('does not re-queue a delivery whose trigger message was deleted', async () => {
+    const owner = daemon.ownerOf('eng');
+    const { runMsg, delivery, trigger } = strand({ body: '@alpha deleted instruction', attempt: 1 });
+    daemon.deleteMessage('eng', trigger.id, owner.id); // purge the trigger
+    await daemon.close();
+
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    expect(daemon.store.getMessage('eng', runMsg.id)!.run!.status).toBe('interrupted');
+    expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('consumed'); // purge stays purged
+    expect(fake.deliveries).toHaveLength(0);
+  });
+
+  it('leaves operator redeliver unchanged — it resets and re-runs even past the recovery ceiling', async () => {
+    // Above the recovery fence: recovery would leave this consumed, but operator
+    // redeliver resets the attempt count, so it must still re-run to completion.
+    const { runMsg, delivery } = strand({ body: '@alpha redeliver me', state: 'held', attempt: RECOVERY_ATTEMPT_CEILING + 1 });
+    fake.enqueue({ kind: 'complete', final_text: 'operator redeliver done @richard' });
+
+    daemon.redeliver('eng', delivery.id);
+    await daemon.settle();
+
+    expect(daemon.store.getMessage('eng', runMsg.id)!.run!.status).toBe('interrupted');
+    const fresh = runMessages().find((m) => m.id !== runMsg.id)!;
+    expect(fresh.run!.status).toBe('completed');
+    expect(fresh.body).toBe('operator redeliver done @richard');
   });
 });
