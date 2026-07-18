@@ -24,7 +24,10 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
   },
   webServer: {
-    command: 'node tests/harness.mjs',
+    // The harness imports built workspace packages and serves web-next/dist.
+    // Build them in the same command so a source checkout can never run its
+    // current tests against a stale client or switchboard artifact.
+    command: 'pnpm -r build && node tests/harness.mjs',
     url: `http://127.0.0.1:${String(apiPort)}/`,
     // Every run owns a fresh fixture database. Reusing an orphaned harness
     // silently couples runs through mutated messages, cursors, and adapter
