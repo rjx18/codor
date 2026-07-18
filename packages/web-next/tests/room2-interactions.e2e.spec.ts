@@ -67,6 +67,10 @@ test.describe('composer addressing', () => {
   test('the @ popover lists members and keyboard-inserts a mention', async ({ page }) => {
     await openRoom(page);
     const input = page.getByTestId('composer-input');
+    // Socket-open precedes the atomic room commit. Clearing an already-empty
+    // textarea fires no input event, so wait for the hydrated seed before the
+    // deliberate clear locks the draft against later default-recipient updates.
+    await expect(input).toHaveValue(/@\w+ /);
     await input.fill('');
     await input.pressSequentially('@mu');
     const popover = page.getByTestId('mention-popover');

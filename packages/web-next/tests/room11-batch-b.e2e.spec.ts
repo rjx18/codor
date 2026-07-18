@@ -85,14 +85,19 @@ test.describe('jump control', () => {
   test('arrow-only when merely scrolled up; counts only arrivals while unpinned', async ({ page }) => {
     await openRoom(page);
     const timeline = page.getByTestId('timeline');
-    await expect.poll(async () => {
-      await timeline.evaluate((node) => {
-        node.scrollTop = 0;
-        node.dispatchEvent(new Event('scroll'));
-      });
-      return timeline.evaluate((node) => node.scrollHeight - node.clientHeight);
-    }).toBeGreaterThan(120);
-    await timeline.evaluate((node) => { node.scrollTop = 0; });
+    await expect.poll(async () => timeline.evaluate(
+      (node) => node.scrollHeight - node.clientHeight,
+    )).toBeGreaterThan(120);
+    // Let initial journal growth finish its tail-follow before the deliberate
+    // upward gesture. Otherwise the growth observer can legitimately re-pin
+    // the reader after this test's premature scroll.
+    await expect.poll(async () => timeline.evaluate(
+      (node) => node.scrollHeight - node.scrollTop - node.clientHeight,
+    )).toBeLessThan(80);
+    await timeline.evaluate((node) => {
+      node.scrollTop = 0;
+      node.dispatchEvent(new Event('scroll'));
+    });
     const jump = page.locator('.nx-jump');
     await expect(jump).toBeVisible();
     await expect(jump).toHaveClass(/is-arrow/);
@@ -108,7 +113,10 @@ test.describe('jump control', () => {
     // Jumping re-glues and resets the count; the next unpin is an arrow again.
     await jump.click();
     await expect(jump).toBeHidden();
-    await timeline.evaluate((node) => { node.scrollTop = 0; });
+    await timeline.evaluate((node) => {
+      node.scrollTop = 0;
+      node.dispatchEvent(new Event('scroll'));
+    });
     await expect(jump).toHaveClass(/is-arrow/);
     await expect(jump).toHaveAttribute('aria-label', 'Back to latest');
 

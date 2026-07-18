@@ -43,7 +43,10 @@ test.describe('long rooms', () => {
     expect(before).toBeLessThan(120);
 
     // Scrolling to the top pages one more window in with the scroll anchored.
-    await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = 0; });
+    await page.getByTestId('timeline').evaluate((node) => {
+      node.scrollTop = 0;
+      node.dispatchEvent(new Event('scroll'));
+    });
     await expect
       .poll(async () => page.locator('.nx-turn, .nx-system').count(), { timeout: 10_000 })
       .toBeGreaterThan(before);

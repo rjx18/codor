@@ -26,7 +26,10 @@ export default defineConfig({
   webServer: {
     command: 'node tests/harness.mjs',
     url: `http://127.0.0.1:${String(apiPort)}/`,
-    reuseExistingServer: true,
+    // Every run owns a fresh fixture database. Reusing an orphaned harness
+    // silently couples runs through mutated messages, cursors, and adapter
+    // queues, producing failures that cannot occur in a clean browser session.
+    reuseExistingServer: false,
     stdout: 'pipe',
     stderr: 'pipe',
   },
