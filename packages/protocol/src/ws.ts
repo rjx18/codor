@@ -17,6 +17,13 @@ export const SubscribeFrameSchema = z.object({
   type: z.literal('subscribe'),
   room: RoomIdSchema,
   since_seq: SeqSchema, // 0 = full hydrate
+  /**
+   * Cold-hydration bound: how many trailing messages a viewer wants on a
+   * since_seq 0 subscribe. Additive and optional — a subscriber that omits it
+   * (agents, the CLI) gets the full replay byte-identically, and it is ignored
+   * on a warm subscribe so a reconnect can never miss an in-place change.
+   */
+  hydrate_limit: z.number().int().positive().optional(),
 });
 // harn:end changelog-is-sync-cursor
 export type SubscribeFrame = z.infer<typeof SubscribeFrameSchema>;
@@ -228,7 +235,16 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('meter'), seq: SeqSchema, meter: RoomMeterSchema }),
   z.object({ type: z.literal('room'), seq: SeqSchema, room: RoomSchema }),
   // harn:assume sync-cursor-commits-after-hydration ref=sync-complete-frame
-  z.object({ type: z.literal('sync_complete'), seq: SeqSchema }),
+  z.object({
+    type: z.literal('sync_complete'),
+    seq: SeqSchema,
+    /**
+     * Earliest id of the CONTIGUOUS tail this hydration served (correctness
+     * outliers excluded), so the client's history cursor is the server's floor
+     * rather than a guess from whatever arrived. Absent on an unbounded replay.
+     */
+    history_floor: MessageIdSchema.optional(),
+  }),
   // harn:end sync-cursor-commits-after-hydration
   // harn:assume run-events-merge-by-journal-index ref=indexed-run-event-frame
   z.object({

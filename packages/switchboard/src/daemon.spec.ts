@@ -4857,3 +4857,89 @@ describe('graceful shutdown delivery requeue (close seam)', () => {
     expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('consumed'); // purge stays purged
   });
 });
+
+describe('bounded cold hydration (store)', () => {
+  /** A room with a long tail plus one of each correctness outlier, all OLD
+   *  enough to fall outside a small bound. */
+  const seedBoundedRoom = () => {
+    const owner = daemon.ownerOf('eng');
+    const alpha = spawnAgent('alpha');
+    // Outlier: a finalized non-ack agent run — the default-recipient seed.
+    const seedPost = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: 'old agent reply' });
+    const recipientSeedId = daemon.store.updateMessage('eng', seedPost.id, {
+      run: {
+        status: 'completed', started_ts: new Date().toISOString(), ended_ts: new Date().toISOString(),
+        tool_calls: 0, events_ref: `runs/${seedPost.id}.jsonl`, final_text: 'old agent reply',
+      },
+    }).id;
+    // Outlier: a run still running.
+    const runningPost = daemon.store.postMessage('eng', { author: alpha.id, kind: 'run', body: '' });
+    const runningRunId = daemon.store.updateMessage('eng', runningPost.id, {
+      run: {
+        status: 'running', started_ts: new Date().toISOString(),
+        tool_calls: 0, events_ref: `runs/${runningPost.id}.jsonl`,
+      },
+    }).id;
+    // Outlier: the card of an unresolved ask.
+    const askId = daemon.store.postMessage('eng', { author: alpha.id, kind: 'ask', body: 'which one?' }).id;
+    daemon.store.upsertInteraction({
+      id: 'int-old', room: 'eng', member_id: alpha.id, message_id: askId,
+      native_id: 'native-old', kind: 'ask', targets: [owner.id], state: 'pending',
+    });
+    // Outlier: a message the subscriber has an unread consumed delivery for.
+    const unreadId = daemon.store.postMessage('eng', { author: alpha.id, kind: 'chat', body: 'unread mention' }).id;
+    const delivery = daemon.store.createDelivery('eng', { message_id: unreadId, recipient: owner.id });
+    daemon.store.updateDelivery('eng', delivery.id, { state: 'consumed' });
+    // A long contiguous tail on top of them.
+    const tailIds: number[] = [];
+    for (let i = 0; i < 30; i++) {
+      tailIds.push(daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: `tail ${i}` }).id);
+    }
+    return { owner, recipientSeedId, runningRunId, askId, unreadId, tailIds };
+  };
+
+  it('serves the contiguous tail plus every outlier class, with the floor excluding outliers', () => {
+    const seeded = seedBoundedRoom();
+    const sync = daemon.store.sync('eng', 0, { hydrateLimit: 10, subscriber: seeded.owner.id });
+
+    const ids = sync.messages.map((message) => message.id);
+    const tail = seeded.tailIds.slice(-10);
+    for (const id of tail) expect(ids).toContain(id); // the whole contiguous tail
+    expect(ids).toContain(seeded.runningRunId); // a live turn, however old
+    expect(ids).toContain(seeded.askId); // an unresolved card stays answerable
+    expect(ids).toContain(seeded.unreadId); // or the inbox badge undercounts
+    expect(ids).toContain(seeded.recipientSeedId); // the default-recipient seed
+    // Bounded: the tail plus outliers only, not the whole room.
+    expect(ids.length).toBeLessThan(seeded.tailIds.length);
+    // The floor is the tail's alone — an outlier must not drag the cursor back.
+    expect(sync.history_floor).toBe(tail[0]);
+    expect(sync.members.length).toBeGreaterThan(0); // full roster
+  });
+
+  it('leaves a cold sync without a bound byte-identical to today', () => {
+    seedBoundedRoom();
+    const bounded = daemon.store.sync('eng', 0, {});
+    const legacy = daemon.store.sync('eng', 0);
+    expect(bounded).toEqual(legacy);
+    expect(legacy.history_floor).toBeUndefined();
+    // Everything replays: the bound is what shrinks it, and there is none.
+    expect(legacy.messages.length).toBeGreaterThan(30);
+  });
+
+  it('ignores a bound on a warm sync so a reconnect can never miss a change', () => {
+    const seeded = seedBoundedRoom();
+    const cold = daemon.store.sync('eng', 0);
+    // An in-place finalization after the cursor.
+    daemon.store.updateMessage('eng', seeded.runningRunId, {
+      run: {
+        status: 'interrupted', started_ts: new Date().toISOString(), ended_ts: new Date().toISOString(),
+        tool_calls: 0, events_ref: `runs/${seeded.runningRunId}.jsonl`,
+      },
+    });
+    const warmBounded = daemon.store.sync('eng', cold.seq, { hydrateLimit: 1, subscriber: seeded.owner.id });
+    const warmPlain = daemon.store.sync('eng', cold.seq);
+    expect(warmBounded).toEqual(warmPlain);
+    expect(warmBounded.history_floor).toBeUndefined();
+    expect(warmBounded.messages.map((m) => m.id)).toContain(seeded.runningRunId);
+  });
+});

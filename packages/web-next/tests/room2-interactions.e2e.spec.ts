@@ -1,6 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 
 const ROOM = '/?room=eng&token=next-e2e-token';
+// Specs whose subject IS a seeded message or run open the stable fixtures room:
+// eng accretes as other specs post into it, so its boot fixtures fall outside the
+// bounded cold tail and the spec would end up exercising paging, not itself.
+const FIXTURES = '/?room=fixtures&token=next-e2e-token';
 const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
 
 async function enqueue(turns: unknown[]): Promise<void> {
@@ -21,8 +25,8 @@ async function completeAgent(handle: string, finalText: string): Promise<void> {
   if (!res.ok) throw new Error(`complete agent failed: ${await res.text()}`);
 }
 
-async function openRoom(page: Page): Promise<void> {
-  await page.goto(ROOM);
+async function openRoom(page: Page, url = ROOM): Promise<void> {
+  await page.goto(url);
   await expect(page.getByTestId('timeline')).toBeVisible();
   await expect(page.getByTestId('connection')).toHaveText(/Connected/);
 }
@@ -83,7 +87,7 @@ test.describe('composer addressing', () => {
   });
 
   test('quote inserts the line addressed to its author', async ({ page }) => {
-    await openRoom(page);
+    await openRoom(page, FIXTURES);
     const input = page.getByTestId('composer-input');
     await input.fill('');
     await page.getByTestId('msg-1').hover();
@@ -138,7 +142,7 @@ test.describe('inbox', () => {
 
 test.describe('search', () => {
   test('results jump to the permalinked message', async ({ page }) => {
-    await openRoom(page);
+    await openRoom(page, FIXTURES);
     await page.getByTestId('toggle-message-search').click();
     await page.getByTestId('search-input').fill('staging deploy');
     const hit = page.getByTestId('search-hit-2');
@@ -153,7 +157,7 @@ test.describe('search', () => {
 test.describe('reduced motion', () => {
   test('expanding evidence and jumping still work without animation', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await openRoom(page);
+    await openRoom(page, FIXTURES);
     const batch = page.getByTestId('tool-batch');
     await batch.locator('.nx-batch-line').click();
     await expect(batch.locator('.nx-tool')).toHaveCount(2);

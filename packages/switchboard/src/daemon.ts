@@ -3745,8 +3745,12 @@ export class Daemon {
 
   /** Delta-sync straight off the change log, redacted like every fanout. */
   // harn:assume live-agent-waits-are-transient ref=wait-member-projection
-  sync(room: string, sinceSeq: number): ReturnType<Store['sync']> {
-    const sync = this.store.sync(room, sinceSeq);
+  sync(
+    room: string,
+    sinceSeq: number,
+    opts: { hydrateLimit?: number; subscriber?: string } = {},
+  ): ReturnType<Store['sync']> {
+    const sync = this.store.sync(room, sinceSeq, opts);
     const members = new Map(sync.members.map((member) => [member.id, member]));
     for (const member of this.store.listMembers(room)) members.set(member.id, member);
     return this.project(room, {

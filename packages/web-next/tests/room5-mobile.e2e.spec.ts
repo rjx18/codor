@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { revealOlder } from './history.js';
+
 const ROOM = '/?room=eng&token=next-e2e-token';
 
 test.use({ viewport: { width: 390, height: 844 } });
@@ -38,6 +40,7 @@ test.describe('mobile transcript re-composition', () => {
   test('turn headers carry a small inline chip and tool activity is a quiet disclosure line', async ({ page }) => {
     await openRoom(page);
     // The chip column folds into a 24px chip beside the handle in the header.
+    await revealOlder(page, page.locator('.nx-batch-line').first());
     await expect(page.locator('.nx-turn > .nx-chip')).toHaveCount(0);
     const headerChip = page.locator('.nx-turn-meta .nx-chip').first();
     await expect(headerChip).toBeVisible();

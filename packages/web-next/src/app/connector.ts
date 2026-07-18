@@ -6,7 +6,7 @@
 import type { Act, ServerFrame } from '@codor/protocol';
 
 import { setActiveBrowserAccessToken } from '@legacy/crypto.js';
-import { useRoomStore } from '@legacy/state.js';
+import { HISTORY_PAGE_SIZE, useRoomStore } from '@legacy/state.js';
 import type { Connection } from '@legacy/ws.js';
 
 export interface RoomConnector extends Connection {
@@ -41,6 +41,9 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         type: 'subscribe',
         room: openedFor,
         since_seq: useRoomStore.getState().seq,
+        // Cold loads want the tail, not the whole room. The server ignores this
+        // on a warm resubscribe, so a reconnect still replays every change.
+        hydrate_limit: HISTORY_PAGE_SIZE,
       }));
     };
     socket.onmessage = (event) => {

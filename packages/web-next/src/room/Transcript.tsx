@@ -64,7 +64,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const selfId = useRoomStore((s) => s.selfMemberId);
   const historyCursor = useRoomStore((s) => s.historyCursor);
   const mergeHistoryPage = useRoomStore((s) => s.mergeHistoryPage);
-  const connected = useRoomStore((s) => s.connected);
+  const hydrated = useRoomStore((s) => s.hydrated);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
@@ -207,6 +207,19 @@ export function Transcript(props: { room: string; token: () => string; connectio
     };
   }, []);
 
+  // A permalink jump means the reader is deliberately looking away from the tail.
+  // Bounded hydration made this load-bearing: an old target now pages in, and the
+  // growth that paging causes would otherwise snap the tail-follow straight back
+  // over the message they just jumped to.
+  useEffect(() => {
+    const release = (): void => {
+      pinnedRef.current = false;
+      setShowJump(true);
+    };
+    window.addEventListener('hashchange', release);
+    return () => window.removeEventListener('hashchange', release);
+  }, []);
+
   const onScroll = (): void => {
     const node = scrollerRef.current;
     if (!node) return;
@@ -265,8 +278,11 @@ export function Transcript(props: { room: string; token: () => string; connectio
       )}
       <div ref={scrollerRef} className="nx-transcript" data-testid="timeline" onScroll={onScroll} tabIndex={0}>
         <div ref={columnRef} className="nx-column">
-          {!connected && ordered.length === 0 && <TranscriptSkeleton />}
-          {connected && visible.length === 0 && (
+          {/* The skeleton holds until hydration COMMITS. `connected` flips at
+              socket-open, before a single frame lands, so gating on it flashed an
+              empty transcript and then crawled rows in one at a time. */}
+          {!hydrated && ordered.length === 0 && <TranscriptSkeleton />}
+          {hydrated && visible.length === 0 && (
             <p className="nx-empty" data-testid="timeline-empty">No messages yet — say something.</p>
           )}
           {renderTimeline(entries, {

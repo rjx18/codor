@@ -1,9 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 
 const ROOM = '/?room=eng&token=next-e2e-token';
+// The tool-evidence tests read a seeded run, so they open the stable fixtures
+// room rather than paging eng's growing history back to reach the same run.
+const FIXTURES = '/?room=fixtures&token=next-e2e-token';
 
-async function openRoom(page: Page): Promise<void> {
-  await page.goto(ROOM);
+async function openRoom(page: Page, url = ROOM): Promise<void> {
+  await page.goto(url);
   await expect(page.getByTestId('timeline')).toBeVisible();
   await expect(page.getByTestId('connection')).toHaveText(/Connected/);
 }
@@ -26,7 +29,7 @@ test.describe('diff tab', () => {
 
 test.describe('run inspector', () => {
   test('a non-diff tool card opens the inspector with output and no diff pane', async ({ page }) => {
-    await openRoom(page);
+    await openRoom(page, FIXTURES);
     const batch = page.getByTestId('tool-batch');
     await batch.locator('.nx-batch-line').click();
     await batch.locator('.nx-tool', { hasText: 'pnpm test' }).click();
@@ -39,7 +42,7 @@ test.describe('run inspector', () => {
   });
 
   test('a diff chip routes to the Diff tab, noting no current changes when clean', async ({ page }) => {
-    await openRoom(page);
+    await openRoom(page, FIXTURES);
     const batch = page.getByTestId('tool-batch');
     await batch.locator('.nx-batch-line').click();
     await batch.locator('.nx-tool', { hasText: 'session.ts' }).click();

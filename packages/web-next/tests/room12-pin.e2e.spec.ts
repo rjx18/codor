@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { revealOlder } from './history.js';
+
 const ROOM = '/?room=eng&token=next-e2e-token';
 
 async function openRoom(page: Page): Promise<void> {
@@ -15,6 +17,7 @@ test.describe('message pinning', () => {
     await expect(page.getByTestId('pinned-strip')).toHaveCount(0); // nothing pinned yet
 
     const target = page.getByTestId('msg-1');
+    await revealOlder(page, target);
     await target.hover();
     await page.getByTestId('msg-1-pin').click();
 
@@ -40,6 +43,7 @@ test.describe('message pinning', () => {
 
   test('the pinned state stays axe-clean', async ({ page }) => {
     await openRoom(page);
+    await revealOlder(page, page.getByTestId('msg-1'));
     await page.getByTestId('msg-1').hover();
     await page.getByTestId('msg-1-pin').click();
     await expect(page.getByTestId('pinned-strip')).toBeVisible();

@@ -767,6 +767,9 @@ export interface NewMessage {
 export interface SyncResult {
   seq: number;
   room: Room;
+  /** Earliest id of the CONTIGUOUS tail a bounded cold hydration served, with
+   *  correctness outliers excluded. Absent on an unbounded replay. */
+  history_floor?: number;
   messages: Message[];
   members: Member[];
   inbox: Delivery[];
@@ -2755,9 +2758,21 @@ export class Store {
 
   // harn:assume sync-cursor-commits-after-hydration ref=consistent-sync-snapshot
   /** Delta-sync: hydrate rows and its final cursor from one SQLite snapshot. */
-  sync(room: string, sinceSeq: number): SyncResult {
+  sync(
+    room: string,
+    sinceSeq: number,
+    opts: { hydrateLimit?: number; subscriber?: string } = {},
+  ): SyncResult {
     return this.db.transaction(() => {
       const seq = this.currentSeq(room);
+      // A bound is honoured ONLY on a cold subscribe that asked for one. Every
+      // warm sync replays every change as before, or an in-place finalization
+      // could be missed; a subscriber that sends no bound is untouched too.
+      if (sinceSeq === 0 && opts.hydrateLimit !== undefined) {
+        const roomRow = this.getRoom(room);
+        if (!roomRow) throw new Error(`no such room: ${room}`);
+        return this.boundedColdSnapshot(room, roomRow, seq, opts.hydrateLimit, opts.subscriber);
+      }
       const changes = this.getChangesSince(room, sinceSeq);
       const wanted = new Map<ChangeEntity, Set<string>>();
       for (const change of changes) {
@@ -2786,6 +2801,101 @@ export class Store {
     })();
   }
   // harn:end sync-cursor-commits-after-hydration
+
+  // harn:assume cold-hydration-is-bounded-and-atomic ref=bounded-cold-hydration-contract
+  /**
+   * A cold viewer's bounded snapshot, built INSIDE sync()'s transaction and
+   * bounded at the query — never fetch-all-then-filter, which is the
+   * amplification that made the transcript crawl and mounted every historical
+   * run. It serves the contiguous tail of the last N messages plus the outliers
+   * a bound would otherwise silently drop:
+   *   - every running run, so a live turn renders however old it is;
+   *   - the cards of unresolved interactions, so an ask that scrolled past the
+   *     tail is still answerable;
+   *   - the messages this subscriber's unread deliveries point at, because the
+   *     inbox filter drops deliveries whose message is absent and the badge
+   *     would undercount;
+   *   - the latest finalized non-ack agent run, the default-recipient seed.
+   * `history_floor` is the tail's floor ALONE — an outlier must never drag the
+   * client's cursor backwards past a gap it did not receive.
+   */
+  private boundedColdSnapshot(
+    room: string,
+    roomRow: Room,
+    seq: number,
+    limit: number,
+    subscriber?: string,
+  ): SyncResult {
+    const tail = (this.db
+      .prepare('SELECT * FROM messages WHERE room = ? ORDER BY id DESC LIMIT ?')
+      .all(room, limit) as MessageRow[])
+      .map(messageFromRow)
+      .reverse();
+
+    const byId = new Map<number, Message>(tail.map((message) => [message.id, message]));
+    const includeOutliers = (rows: MessageRow[]): void => {
+      for (const row of rows) {
+        const message = messageFromRow(row);
+        if (!byId.has(message.id)) byId.set(message.id, message);
+      }
+    };
+
+    includeOutliers(this.db
+      .prepare(
+        `SELECT * FROM messages
+          WHERE room = ? AND kind = 'run' AND json_extract(run, '$.status') = 'running'`,
+      )
+      .all(room) as MessageRow[]);
+
+    includeOutliers(this.db
+      .prepare(
+        `SELECT messages.* FROM messages
+           JOIN pending_interactions ON pending_interactions.room = messages.room
+            AND pending_interactions.message_id = messages.id
+          WHERE messages.room = ? AND pending_interactions.state IN ('pending', 'answered')`,
+      )
+      .all(room) as MessageRow[]);
+
+    if (subscriber !== undefined) {
+      includeOutliers(this.db
+        .prepare(
+          `SELECT messages.* FROM messages
+             JOIN deliveries ON deliveries.room = messages.room
+              AND deliveries.message_id = messages.id
+            WHERE messages.room = ? AND deliveries.recipient = ?
+              AND deliveries.read_ts IS NULL AND deliveries.state = 'consumed'`,
+        )
+        .all(room, subscriber) as MessageRow[]);
+    }
+
+    includeOutliers(this.db
+      .prepare(
+        `SELECT messages.* FROM messages
+           JOIN members ON members.room = messages.room AND members.id = messages.author
+          WHERE messages.room = ? AND messages.kind = 'run' AND members.kind = 'agent'
+            AND members.removed_ts IS NULL AND messages.ack = 0
+            AND json_extract(messages.run, '$.status') <> 'running'
+          ORDER BY messages.id DESC LIMIT 1`,
+      )
+      .all(room) as MessageRow[]);
+
+    const latestMeter = this.db
+      .prepare('SELECT * FROM meters WHERE room = ? ORDER BY day DESC LIMIT 1')
+      .get(room) as MeterRow | undefined;
+
+    return {
+      seq,
+      room: roomRow,
+      history_floor: tail[0]?.id,
+      messages: [...byId.values()].sort((left, right) => left.id - right.id),
+      // The full roster and the subscriber's inbox stay whole: bounding history
+      // must not shrink who is in the room or what is waiting for them.
+      members: this.listMembers(room, { includeRemoved: true }),
+      inbox: this.listDeliveries(room),
+      meters: latestMeter ? [meterFromRow(latestMeter)] : [],
+    };
+  }
+  // harn:end cold-hydration-is-bounded-and-atomic
 
   // ── helpers ───────────────────────────────────────────────────────────
 
