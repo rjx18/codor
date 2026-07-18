@@ -1,0 +1,144 @@
+id: manual-compact-act
+title: An operator can compact an idle agent's engine session from its
+  member card.
+notes: >-
+  Requested by Richard in #525/#527. The guardrails effort made engines
+  auto-compact near their ceiling and codor never self-triggers - but the
+  operator watching a context ring at 77% has no on-demand lever: no act
+  exists, and a chat message cannot reach the engine as a slash command
+  because deliveries are envelope-wrapped. This adds the lever without
+  changing the no-auto-spend stance: compaction runs only when a human
+  asks.
+
+  Change. Protocol: the Act union gains {act: compact_member, member_id};
+  HarnessAdapter gains optional compactSession(session) - the interface
+  lives inside the adapter-runtime-contract anchor, declared below.
+  Authorization: compact_member lands at minimum role admin in the total
+  matrix; AGENT_CAPABILITIES does not gain it, so agents stay refused by
+  construction. Daemon: compactMember(room, memberId, byMemberId) - human
+  owner/admin double-gate; the target must be an agent with a harness and
+  session; REFUSED while a turn is in flight (stop it first - compaction
+  mid-turn races the engine); an adapter without compactSession earns a
+  clear does-not-support error. Claude adapter: compactSession injects an
+  unwrapped /compact into the persistent SDK session (this is the
+  passthrough 5b specified that never got a surface) and, when the engine
+  reports the compact boundary, the re-baselined context lands as the
+  member's transient lastUsage exactly like live turn telemetry, so the
+  ring updates without waiting for the next turn. Codex adapter:
+  compactSession calls the thread/compact/start RPC from 5c; the
+  thread/compacted notification lands the re-baseline the same way.
+  Registry: the wrapper forwards the new optional method - the
+  peekContextUsage forwarding regression (fixed in 8658273) is the class
+  to not repeat, and the registry spec's wrapper-members list grows by
+  one. Server: the ws dispatch routes compact_member like the other acts.
+  Manual compaction outside a run journals no timeline item (those are
+  run evidence); the ring is the record, and the next turn's engine
+  telemetry re-confirms it.
+
+  Web-next (harnignored, same batch): a compact control on agent member
+  cards beside the context ring - owner/admin only, disabled with an
+  explanatory title while the agent is running, spinner while in flight,
+  ring refreshing from the member frame when the re-baseline lands.
+
+  Tests: protocol - act parse; daemon - admin compacts an idle fake agent
+  and the adapter call is observed, member/observer/agent principals
+  refused, running member refused, non-agent refused, harness without
+  support earns the clear error; registry - the wrapper forwards
+  compactSession (regression class of 8658273); adapters - claude fixture
+  proves the injected command and the lastUsage re-baseline landing,
+  codex fixture proves the RPC; server - ws act e2e incl. a refusal;
+  web-next e2e - button gated and disabled states, compacting a fake
+  agent refreshes its ring, axe. Gate: protocol + switchboard + both
+  adapter suites green; web-next unit + playwright green; full workspace
+  build green.
+assumptions:
+  reviewed:
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: compact_member joins the role-gated acts with a matrix row at
+        minimum role admin; agents remain unable to trigger it.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: compact_member is one more branch in the dispatch both
+        transports share.
+    - id: claude-agent-sdk-query-is-the-session-runtime
+      outcome: unchanged
+      reason: The interface gains an optional method; the SDK query remains
+        the one session runtime and the passthrough uses it.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The registry stays the sole source; its wrapper forwards one
+        more optional member.
+    - id: last-agent-usage-is-transient-and-seeded
+      outcome: unchanged
+      reason: The post-compact re-baseline lands through the same transient
+        lastUsage path as live turn telemetry; nothing persists.
+    - id: compaction-timeline-items-are-durable-run-evidence
+      outcome: unchanged
+      reason: Timeline items remain run evidence; an outside-run manual
+        compact records itself on the ring, not the journal.
+  create:
+    - id: manual-compaction-is-an-operator-act
+      title: Manual engine compaction is an idle-only, human owner/admin act
+        the harness executes natively
+      statement: compact_member applies only to idle agent members with a
+        live session and only for human owners or admins - agents are
+        refused by construction and a running member is refused until
+        stopped - and the daemon delegates to the harness's native
+        compaction (an unwrapped slash command for the claude SDK session,
+        the compact RPC for the codex app server), landing the engine's
+        re-baselined context as transient member usage so the ring
+        reflects it immediately, while harnesses without the capability
+        refuse clearly and codor still never triggers compaction on its
+        own.
+      reason: >-
+        #525/#527: the operator needs an on-demand compaction lever; the
+        guardrails design named the passthrough but no surface existed.
+      depends_on: []
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/authorization.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/claude-code/src/adapter.spec.ts
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/adapter.spec.ts
+anchors:
+  manual-compaction-is-an-operator-act:
+    compact-member-contract:
+      action: change
+      reason: The daemon's gate-and-delegate method defines the act's
+        contract.
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: change
+      reason: The total matrix gains a compact_member row at minimum role
+        admin; the gate rule is unchanged.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: The dispatch inside the shared listener gains the
+        compact_member branch.
+  claude-agent-sdk-query-is-the-session-runtime:
+    adapter-runtime-contract:
+      action: change
+      reason: The HarnessAdapter interface inside this anchor gains the
+        optional compactSession member.
+  adapter-registry-sole-harness-source:
+    configured-adapter-registry:
+      action: change
+      reason: The registry wrapper forwards the new optional method inside
+        this anchor.
+  last-agent-usage-is-transient-and-seeded:
+    last-usage-runtime-registry:
+      action: change
+      reason: The post-compact re-baseline may land inside the transient
+        usage registry regions; pre-declared, may prove untouched.
