@@ -24,7 +24,7 @@ import {
 import { useIsMobile } from '../app/session.js';
 import { Button, Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
-import { DiffViewer } from './ContextPanel.js';
+import { OPEN_DIFF_EVENT } from './ContextPanel.js';
 import { CompactionMarker } from './CompactionMarker.js';
 import { jumpToMessage } from './panels.js';
 import { renderMarkdown } from './markdown.js';
@@ -1095,6 +1095,12 @@ function ToolRow(props: { row: RunRow }) {
   const compact = compactRunRow(props.row);
   const Icon = ROW_ICONS[compact.icon];
   const diff = DIFF_LABEL.exec(compact.label);
+  // A file-edit chip routes to the Diff tab focused on that file's CURRENT diff
+  // (not this historical one); every other tool opens the input/output inspector.
+  const diffPath = props.row.diff?.path;
+  const openDiff = (): void => {
+    window.dispatchEvent(new CustomEvent(OPEN_DIFF_EVENT, { detail: { path: diffPath } }));
+  };
   // Modal keeps its textual status; the row itself only wears the mark.
   const status = props.row.status === 'running'
     ? 'Running…'
@@ -1107,8 +1113,8 @@ function ToolRow(props: { row: RunRow }) {
         type="button"
         className={`nx-tool is-${props.row.status}`}
         data-row-kind="tool"
-        aria-label={`Inspect ${props.row.title}`}
-        onClick={() => setInspecting(true)}
+        aria-label={diffPath !== undefined ? `Open diff for ${diffPath}` : `Inspect ${props.row.title}`}
+        onClick={diffPath !== undefined ? openDiff : () => setInspecting(true)}
       >
         <Icon className="nx-tool-icon" size={14} aria-hidden="true" />
         <span className={`nx-tool-label ${compact.mono ? 'is-mono' : ''}`}>
@@ -1143,7 +1149,6 @@ function ToolRow(props: { row: RunRow }) {
           {props.row.output_text !== undefined && props.row.output_text !== '' && (
             <pre className="nx-inspect-block" data-testid="inspector-output">{props.row.output_text}</pre>
           )}
-          {props.row.diff?.unified !== undefined && <DiffViewer diff={props.row.diff} />}
         </Modal>
       )}
     </>

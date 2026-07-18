@@ -680,6 +680,25 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     void reply.send({ events: daemon.readRunBlob(room, Number(msgId)) });
   });
 
+  // harn:assume room-git-state-read-only-from-known-cwds ref=room-git-state-contract
+  // The diff explorer's live git working-state. `cwd` is a SELECTOR into the
+  // room's known directories, never a free path — the daemon refuses anything
+  // outside that set before running any (read-only) git command.
+  app.get('/api/rooms/:room/git-diff', async (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeRoom(principal, room, 'read', reply)) return;
+    if (!daemon.store.getRoom(room)) return reply.code(404).send({ error: `no such room ${room}` });
+    try {
+      const { cwd } = req.query as { cwd?: string };
+      return reply.send(await daemon.gitWorkingState(room, cwd));
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+  // harn:end room-git-state-read-only-from-known-cwds
+
   // harn:assume graph-derived-from-vault-links-readonly-v5 ref=ledger-graph-rest
   app.get('/api/rooms/:room/ledger', (req, reply) => {
     const principal = authed(req, reply);

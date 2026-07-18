@@ -3,7 +3,7 @@ import { MoreVertical, Plus, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@legacy/api.js';
-import { diffStat, presentRunEvents, type RunRow } from '@legacy/run-presenter.js';
+import { presentRunEvents, type RunRow } from '@legacy/run-presenter.js';
 import { sortedMessages, useRoomStore } from '@legacy/state.js';
 import type { Connection } from '@legacy/ws.js';
 
@@ -11,11 +11,32 @@ import { clockTime, compactCount, memberAccent, usd } from '../primitives/identi
 import { Button, Chip, Eyebrow, IconButton, Modal, Segmented, StatusPill } from '../primitives/primitives.js';
 import { useAdapters, useMemberDetails } from '../app/session.js';
 import { ContextWindowMeter } from './ContextWindowMeter.js';
+import { fetchGitWorkingState, shortenCwd, statusLetter, type GitWorkingState } from './git-diff.js';
 
 type Tab = 'members' | 'diff' | 'preview';
 
+/** A chat diff chip asks the Diff tab to focus a file's CURRENT working-tree
+ *  diff. Carried as a window CustomEvent, like nx-quote. */
+export const OPEN_DIFF_EVENT = 'nx-open-diff';
+
 export function ContextPanel(props: { room: string; token: () => string; connection: Connection }) {
   const [tab, setTab] = useState<Tab>('members');
+  const [focus, setFocus] = useState<{ path: string; nonce: number }>();
+  const focusCount = useRef(0);
+
+  // A diff chip anywhere in the transcript opens this tab focused on its file.
+  useEffect(() => {
+    const onOpenDiff = (event: Event): void => {
+      const path = (event as CustomEvent<{ path: string }>).detail?.path;
+      if (path === undefined) return;
+      focusCount.current += 1;
+      setTab('diff');
+      setFocus({ path, nonce: focusCount.current });
+    };
+    window.addEventListener(OPEN_DIFF_EVENT, onOpenDiff);
+    return () => window.removeEventListener(OPEN_DIFF_EVENT, onOpenDiff);
+  }, []);
+
   return (
     <aside className="nx-context" aria-label="Channel context">
       <div className="nx-context-tabs">
@@ -31,7 +52,7 @@ export function ContextPanel(props: { room: string; token: () => string; connect
         />
       </div>
       {tab === 'members' && <MembersTab room={props.room} token={props.token} connection={props.connection} />}
-      {tab === 'diff' && <DiffTab room={props.room} token={props.token} />}
+      {tab === 'diff' && <DiffTab room={props.room} token={props.token} focus={focus} />}
       {tab === 'preview' && <PreviewTab room={props.room} token={props.token} />}
     </aside>
   );
@@ -506,18 +527,13 @@ function SpawnDialog(props: {
   );
 }
 
-// ── Diff tab: run evidence — file rows with ± counts → tinted diff viewer ──
+// ── Diff tab: the room's LIVE git working tree — file rows with a status letter
+// and ± counts feeding the tinted viewer. A clean or non-git repo reads quiet. ──
 
-interface EvidenceDiff {
-  msgId: number;
-  diff: RunItemDiff;
-  added: number;
-  removed: number;
-}
-
-function useRunEvidence(room: string, token: () => string): { diffs: EvidenceDiff[]; images: { msgId: number; media_type: string; data_b64: string }[] } {
+/** Image artifacts from recent run evidence — the Preview tab's source. */
+function useRunImages(room: string, token: () => string): { images: { msgId: number; media_type: string; data_b64: string }[] } {
   const messages = useRoomStore((s) => s.messages);
-  const [evidence, setEvidence] = useState<{ diffs: EvidenceDiff[]; images: { msgId: number; media_type: string; data_b64: string }[] }>({ diffs: [], images: [] });
+  const [images, setImages] = useState<{ msgId: number; media_type: string; data_b64: string }[]>([]);
   const fetched = useRef(new Set<number>());
   const rowsByMsg = useRef(new Map<number, RunRow[]>());
 
@@ -543,58 +559,123 @@ function useRunEvidence(room: string, token: () => string): { diffs: EvidenceDif
         }
       }
       if (!changed || cancelled) return;
-      const diffs: EvidenceDiff[] = [];
-      const images: { msgId: number; media_type: string; data_b64: string }[] = [];
+      const next: { msgId: number; media_type: string; data_b64: string }[] = [];
       for (const [msgId, rows] of [...rowsByMsg.current.entries()].sort(([a], [b]) => a - b)) {
-        for (const row of rows) {
-          if (row.diff?.unified !== undefined) {
-            const { added, removed } = diffStat(row.diff.unified);
-            diffs.push({ msgId, diff: row.diff, added, removed });
-          }
-          if (row.image !== undefined) images.push({ msgId, ...row.image });
-        }
+        for (const row of rows) if (row.image !== undefined) next.push({ msgId, ...row.image });
       }
-      setEvidence({ diffs, images });
+      setImages(next);
     })();
     return () => { cancelled = true; };
   }, [messages, room, token]);
 
-  return evidence;
+  return { images };
 }
 
-function DiffTab(props: { room: string; token: () => string }) {
-  const { diffs } = useRunEvidence(props.room, props.token);
-  const [selected, setSelected] = useState<number>();
-  const active = selected !== undefined ? diffs[selected] : diffs.at(-1);
+/** The room's live git working state, refetched on cwd change, explicit refresh,
+ *  and whenever a run finalizes (its edits may have changed the tree). */
+function useGitWorkingState(
+  room: string,
+  token: () => string,
+  cwd: string | undefined,
+  refreshKey: number,
+): { state: GitWorkingState | undefined; failed: boolean; loading: boolean } {
+  const messages = useRoomStore((s) => s.messages);
+  const finalizedRuns = useMemo(
+    () => Object.values(messages)
+      .filter((m) => m.kind === 'run' && m.run !== undefined && m.run.status !== 'running').length,
+    [messages],
+  );
+  const [state, setState] = useState<GitWorkingState>();
+  const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setFailed(false);
+    void fetchGitWorkingState(room, token(), cwd)
+      .then((next) => { if (!cancelled) { setState(next); setLoading(false); } })
+      .catch(() => { if (!cancelled) { setFailed(true); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [room, token, cwd, refreshKey, finalizedRuns]);
+  return { state, failed, loading };
+}
 
-  if (diffs.length === 0) {
-    return <EmptyState testid="diff-empty">No file changes yet — run evidence lands here.</EmptyState>;
+function DiffTab(props: { room: string; token: () => string; focus?: { path: string; nonce: number } }) {
+  const [selectedCwd, setSelectedCwd] = useState<string>();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [pickedPath, setPickedPath] = useState<string>();
+  const { state, failed, loading } = useGitWorkingState(props.room, props.token, selectedCwd, refreshKey);
+
+  // Each chat diff-chip click focuses its file (nonce re-fires on repeats).
+  useEffect(() => {
+    if (props.focus !== undefined) setPickedPath(props.focus.path);
+  }, [props.focus]);
+
+  if (failed) {
+    return <EmptyState testid="diff-error">Couldn’t read the repository.</EmptyState>;
   }
+  if (state === undefined) {
+    return <EmptyState testid="diff-loading">{loading ? 'Reading the working tree…' : 'No repository.'}</EmptyState>;
+  }
+
+  const files = state.files;
+  const focusMissing = pickedPath !== undefined && !files.some((file) => file.path === pickedPath);
+  const active = files.find((file) => file.path === pickedPath) ?? files[0];
+
   return (
     <div className="nx-diff">
-      <ul className="nx-diff-files" data-testid="diff-files">
-        {diffs.map((entry, index) => (
-          <li key={`${entry.msgId}-${index}`}>
-            <button
-              className={`nx-diff-file ${entry === active ? 'is-active' : ''}`}
-              onClick={() => setSelected(index)}
-            >
-              <span className="nx-diff-path">{entry.diff.path}</span>
-              <span className="nx-diff-stat">
-                <em className="is-add">+{entry.added}</em> <em className="is-del">−{entry.removed}</em>
-              </span>
-              <a
-                className="nx-diff-source"
-                href={`#${entry.msgId}`}
-                onClick={(e) => e.stopPropagation()}
+      <div className="nx-diff-toolbar">
+        {state.cwds.length > 1 && (
+          <select
+            className="nx-diff-cwd"
+            data-testid="diff-cwd"
+            aria-label="Working directory"
+            value={state.selected ?? ''}
+            onChange={(event) => { setSelectedCwd(event.target.value); setPickedPath(undefined); }}
+          >
+            {state.cwds.map((cwd) => <option key={cwd} value={cwd}>{shortenCwd(cwd)}</option>)}
+          </select>
+        )}
+        <button
+          type="button"
+          className="nx-diff-refresh"
+          data-testid="diff-refresh"
+          onClick={() => setRefreshKey((key) => key + 1)}
+        >
+          Refresh
+        </button>
+      </div>
+
+      {files.length === 0 && !focusMissing && (
+        <EmptyState testid="diff-clean">Working tree clean — no uncommitted changes.</EmptyState>
+      )}
+      {files.length > 0 && (
+        <ul className="nx-diff-files" data-testid="diff-files">
+          {files.map((file) => (
+            <li key={file.path}>
+              <button
+                className={`nx-diff-file ${file === active && !focusMissing ? 'is-active' : ''}`}
+                onClick={() => setPickedPath(file.path)}
               >
-                #{entry.msgId}
-              </a>
-            </button>
-          </li>
-        ))}
-      </ul>
-      {active !== undefined && <DiffViewer diff={active.diff} />}
+                <span className={`nx-diff-status is-${file.status}`} title={file.status}>
+                  {statusLetter(file.status)}
+                </span>
+                <span className="nx-diff-path">{file.path}</span>
+                <span className="nx-diff-stat">
+                  <em className="is-add">+{file.additions}</em> <em className="is-del">−{file.deletions}</em>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {focusMissing ? (
+        <p className="nx-diff-note" data-testid="diff-no-current">
+          No current changes for {pickedPath}.
+        </p>
+      ) : (
+        active !== undefined && <DiffViewer diff={{ path: active.path, unified: active.diff }} />
+      )}
     </div>
   );
 }
@@ -606,11 +687,13 @@ export function DiffViewer(props: { diff: RunItemDiff }) {
       {lines.map((line, index) => {
         const kind = line.startsWith('@@')
           ? 'hunk'
-          : line.startsWith('+')
-            ? 'add'
-            : line.startsWith('-')
-              ? 'del'
-              : 'ctx';
+          : line.startsWith('+++') || line.startsWith('---')
+            ? 'meta' // file headers of a real `git diff`, not add/del content
+            : line.startsWith('+')
+              ? 'add'
+              : line.startsWith('-')
+                ? 'del'
+                : 'ctx';
         return <span key={index} className={`nx-diff-line is-${kind}`}>{line || ' '}</span>;
       })}
     </pre>
@@ -620,7 +703,7 @@ export function DiffViewer(props: { diff: RunItemDiff }) {
 // ── Preview tab: image artifacts from run evidence; dot-grid empty state ───
 
 function PreviewTab(props: { room: string; token: () => string }) {
-  const { images } = useRunEvidence(props.room, props.token);
+  const { images } = useRunImages(props.room, props.token);
   const latest = images.at(-1);
   if (latest === undefined) {
     return <EmptyState testid="preview-empty">Nothing to preview yet — artifacts agents produce appear here.</EmptyState>;

@@ -1,7 +1,7 @@
-import { spawn as spawnProcess } from 'node:child_process';
+import { execFileSync, spawn as spawnProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import type { AgentLimit, HarnessAdapter, Message, ServerFrame, Session, SpawnOpts } from '@codor/protocol';
 import { createTurnTranslator, wireEventFromHook } from '@codor/adapter-claude-code';
@@ -4502,5 +4502,98 @@ describe('run item timestamps (prose-blocks-carry-first-delta-timestamps)', () =
     for (const event of items) expect(event).toHaveProperty('ts'); // every item, not only tools
     expect(items.find((event) => event.item_type === 'text_delta')).toHaveProperty('ts');
     expect(items.find((event) => event.item_type === 'reasoning_summary')).toHaveProperty('ts');
+  });
+});
+
+describe('git working state (diff explorer)', () => {
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Test',
+    GIT_AUTHOR_EMAIL: 'test@example.com',
+    GIT_COMMITTER_NAME: 'Test',
+    GIT_COMMITTER_EMAIL: 'test@example.com',
+  };
+  const git = (repo: string, args: string[]): void => {
+    execFileSync('git', args, { cwd: repo, env: gitEnv });
+  };
+  const initRepo = (name = 'repo'): string => {
+    const repo = join(dir, name);
+    mkdirSync(repo, { recursive: true });
+    git(repo, ['init', '-q']);
+    writeFileSync(join(repo, 'keep.txt'), 'one\ntwo\nthree\n');
+    writeFileSync(join(repo, 'gone.txt'), 'delete me\n');
+    git(repo, ['add', '.']);
+    git(repo, ['commit', '-q', '-m', 'initial']);
+    return repo;
+  };
+
+  it('reports modified, untracked, and deleted files with statuses and counts', async () => {
+    const repo = initRepo();
+    daemon.configureRoom('eng', { cwd: repo });
+    writeFileSync(join(repo, 'keep.txt'), 'one\ntwo\nthree\nfour\n'); // +1 line
+    writeFileSync(join(repo, 'new.txt'), 'brand new\nlines\n'); // untracked, +2
+    rmSync(join(repo, 'gone.txt')); // deleted from the working tree
+
+    const state = await daemon.gitWorkingState('eng');
+    expect(state.clean).toBe(false);
+    expect(state.selected).toBe(resolve(repo));
+    const byPath = new Map(state.files.map((file) => [file.path, file]));
+
+    expect(byPath.get('keep.txt')?.status).toBe('modified');
+    expect(byPath.get('keep.txt')?.additions).toBe(1);
+    expect(byPath.get('keep.txt')?.diff).toContain('four');
+    expect(byPath.get('new.txt')?.status).toBe('untracked');
+    expect(byPath.get('new.txt')?.additions).toBe(2);
+    expect(byPath.get('gone.txt')?.status).toBe('deleted');
+    expect(byPath.get('gone.txt')?.deletions).toBeGreaterThanOrEqual(1);
+  });
+
+  it('returns a clean, empty state for a repo with no working changes', async () => {
+    daemon.configureRoom('eng', { cwd: initRepo() });
+    const state = await daemon.gitWorkingState('eng');
+    expect(state.clean).toBe(true);
+    expect(state.files).toEqual([]);
+  });
+
+  it('returns a clean, empty state for a non-git directory', async () => {
+    const plain = join(dir, 'plain');
+    mkdirSync(plain, { recursive: true });
+    daemon.configureRoom('eng', { cwd: plain });
+    const state = await daemon.gitWorkingState('eng');
+    expect(state.clean).toBe(true);
+    expect(state.files).toEqual([]);
+  });
+
+  it('offers the distinct cwds of the room\'s agent members', async () => {
+    const repo = initRepo();
+    daemon.spawnMember('eng', { harness: 'fake', handle: 'coder', cwd: repo });
+    const state = await daemon.gitWorkingState('eng');
+    expect(state.cwds).toContain(resolve(repo));
+    expect(state.selected).toBe(resolve(repo));
+  });
+
+  it("refuses a cwd outside the room's known set", async () => {
+    daemon.configureRoom('eng', { cwd: initRepo() });
+    await expect(daemon.gitWorkingState('eng', join(dir, 'not-a-known-cwd')))
+      .rejects.toThrow(/known directories/);
+  });
+
+  it('never mutates the working tree (read-only git surface)', async () => {
+    const repo = initRepo();
+    daemon.configureRoom('eng', { cwd: repo });
+    writeFileSync(join(repo, 'keep.txt'), 'one\ntwo\nthree\nfour\n');
+    writeFileSync(join(repo, 'new.txt'), 'untracked\n');
+    const snapshot = () => ({
+      status: execFileSync('git', ['status', '--porcelain=v1'], { cwd: repo }).toString(),
+      head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo }).toString(),
+      staged: execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: repo }).toString(),
+    });
+
+    const before = snapshot();
+    await daemon.gitWorkingState('eng');
+    const after = snapshot();
+
+    expect(after).toEqual(before);
+    expect(after.staged).toBe(''); // the read never staged anything
   });
 });

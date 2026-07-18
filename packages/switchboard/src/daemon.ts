@@ -1,7 +1,8 @@
+import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, promisify } from 'node:util';
 
 import type {
   AgentLimit,
@@ -60,6 +61,77 @@ import {
 } from './router.js';
 import { Store, type FanoutDelivery, type RoutedMessagePlan } from './store.js';
 import { normalizeWorkingDirectory } from './working-directory.js';
+
+const execFileAsync = promisify(execFile);
+
+// ── Room git working-state (diff explorer) ─────────────────────────────────
+// Every git call is read-only and runs through execFileAsync (no shell, no
+// interpolation). The directory is always one the room already recorded — never
+// a free path from the client. Per-file diffs are capped so a large working tree
+// cannot balloon the response. See gitWorkingState / readGitWorkingFiles below.
+const GIT_TIMEOUT_MS = 5_000;
+const GIT_MAX_BUFFER = 16 * 1024 * 1024;
+const MAX_FILE_DIFF_CHARS = 40_000;
+const DIFF_TRUNCATED_MARKER = '\n… diff truncated …\n';
+
+export type RoomGitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked';
+
+export interface RoomGitFile {
+  path: string;
+  status: RoomGitFileStatus;
+  additions: number;
+  deletions: number;
+  diff: string;
+  truncated: boolean;
+}
+
+export interface RoomGitWorkingState {
+  cwds: string[];
+  selected: string | null;
+  clean: boolean;
+  files: RoomGitFile[];
+}
+
+interface PorcelainEntry {
+  path: string;
+  status: RoomGitFileStatus;
+}
+
+function porcelainStatus(x: string, y: string): RoomGitFileStatus {
+  if (x === '?' && y === '?') return 'untracked';
+  if (x === 'R' || y === 'R' || x === 'C' || y === 'C') return 'renamed';
+  if (x === 'D' || y === 'D') return 'deleted';
+  if (x === 'A' || y === 'A') return 'added';
+  return 'modified';
+}
+
+/** Parse `git status --porcelain=v1 -z` into per-file entries. A rename/copy
+ *  record carries a trailing original-path field, which is consumed (skipped). */
+function parsePorcelainStatus(output: string): PorcelainEntry[] {
+  const tokens = output.split('\0');
+  const entries: PorcelainEntry[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === undefined || token.length < 4) continue;
+    const x = token[0]!;
+    const y = token[1]!;
+    if (x === 'R' || x === 'C' || y === 'R' || y === 'C') i++; // skip original path
+    entries.push({ path: token.slice(3), status: porcelainStatus(x, y) });
+  }
+  return entries;
+}
+
+/** Additions/deletions counted from a unified diff — the fallback for sources
+ *  `--numstat` does not cover (untracked files diffed via --no-index). */
+function countDiffLines(diff: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+') && !line.startsWith('+++')) additions++;
+    else if (line.startsWith('-') && !line.startsWith('---')) deletions++;
+  }
+  return { additions, deletions };
+}
 
 /**
  * Untrusted CLI stdout: only these shapes become buttons, and never many.
@@ -3538,4 +3610,131 @@ export class Daemon {
     if (!message?.run) return [];
     return this.project(room, this.blobs.read(room, message.run.events_ref));
   }
+
+  // harn:assume room-git-state-read-only-from-known-cwds ref=room-git-state-contract
+  /**
+   * The diff explorer's live git working-state for one of the room's known
+   * directories. `requestedCwd` is a SELECTOR into the room's recorded cwd set,
+   * never a free path: a value outside the set is refused before any git runs.
+   * A non-git or clean directory yields an empty, clean state.
+   */
+  async gitWorkingState(room: string, requestedCwd?: string): Promise<RoomGitWorkingState> {
+    const cwds = this.roomKnownCwds(room);
+    if (requestedCwd !== undefined && !cwds.includes(requestedCwd)) {
+      throw new Error("cwd is not one of the room's known directories");
+    }
+    const selected = requestedCwd ?? cwds[0] ?? null;
+    if (selected === null) return { cwds, selected, clean: true, files: [] };
+    const files = await this.readGitWorkingFiles(selected);
+    return { cwds, selected, clean: files.length === 0, files };
+  }
+
+  /** The room's known directories: distinct existing cwds of its agent members
+   *  plus the room's recorded folder, canonicalized. Missing dirs are dropped so
+   *  a stale cwd is never offered and never reaches git. */
+  private roomKnownCwds(room: string): string[] {
+    const raw: string[] = [];
+    for (const member of this.store.listMembers(room)) {
+      if (member.kind === 'agent' && member.cwd !== undefined) raw.push(member.cwd);
+    }
+    const roomCwd = this.store.getRoom(room)?.config.cwd;
+    if (roomCwd !== undefined) raw.push(roomCwd);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const value of raw) {
+      let normalized: string;
+      try {
+        normalized = normalizeWorkingDirectory(value, this.homeDir);
+      } catch {
+        continue; // a removed/invalid directory is simply not offered
+      }
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        out.push(normalized);
+      }
+    }
+    return out;
+  }
+
+  /** Read-only git working-tree read for one already-validated directory. Only
+   *  read-only subcommands run, each via execFile with a timeout — no shell, no
+   *  mutation. A non-git or clean directory returns no files. */
+  private async readGitWorkingFiles(cwd: string): Promise<RoomGitFile[]> {
+    const git = async (args: string[], tolerateDiff = false): Promise<string> => {
+      try {
+        const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
+          timeout: GIT_TIMEOUT_MS,
+          maxBuffer: GIT_MAX_BUFFER,
+          windowsHide: true,
+        });
+        return stdout;
+      } catch (error) {
+        // `diff --no-index` exits 1 when the files differ — expected, not failure.
+        const code = (error as { code?: unknown }).code;
+        const stdout = (error as { stdout?: unknown }).stdout;
+        if (tolerateDiff && code === 1 && typeof stdout === 'string') return stdout;
+        throw error;
+      }
+    };
+
+    try {
+      if ((await git(['rev-parse', '--is-inside-work-tree'])).trim() !== 'true') return [];
+    } catch {
+      return []; // not a git repository (or git unavailable)
+    }
+
+    let statusOut: string;
+    try {
+      statusOut = await git(['status', '--porcelain=v1', '-z']);
+    } catch {
+      return [];
+    }
+    const entries = parsePorcelainStatus(statusOut);
+    if (entries.length === 0) return [];
+
+    const numstat = new Map<string, { additions: number; deletions: number }>();
+    try {
+      const out = await git(['diff', 'HEAD', '--numstat']);
+      for (const line of out.split('\n')) {
+        const match = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(line);
+        if (!match) continue;
+        const raw = match[3]!;
+        const path = raw.includes(' => ') ? raw.replace(/^.* => /, '') : raw;
+        numstat.set(path, {
+          additions: match[1] === '-' ? 0 : Number(match[1]),
+          deletions: match[2] === '-' ? 0 : Number(match[2]),
+        });
+      }
+    } catch {
+      // No HEAD yet (empty repo): counts fall back to per-file line counting.
+    }
+
+    const files: RoomGitFile[] = [];
+    for (const entry of entries) {
+      let diff = '';
+      try {
+        diff = entry.status === 'untracked'
+          ? await git(['diff', '--no-index', '--', '/dev/null', entry.path], true)
+          : await git(['diff', 'HEAD', '--', entry.path]);
+      } catch {
+        diff = '';
+      }
+      let truncated = false;
+      if (diff.length > MAX_FILE_DIFF_CHARS) {
+        diff = diff.slice(0, MAX_FILE_DIFF_CHARS) + DIFF_TRUNCATED_MARKER;
+        truncated = true;
+      }
+      const counts = numstat.get(entry.path) ?? countDiffLines(diff);
+      files.push({
+        path: entry.path,
+        status: entry.status,
+        additions: counts.additions,
+        deletions: counts.deletions,
+        diff,
+        truncated,
+      });
+    }
+    return files;
+  }
+  // harn:end room-git-state-read-only-from-known-cwds
 }

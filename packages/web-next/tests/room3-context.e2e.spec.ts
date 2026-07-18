@@ -9,19 +9,12 @@ async function openRoom(page: Page): Promise<void> {
 }
 
 test.describe('diff tab', () => {
-  test('file rows carry ± counts and select into the tinted viewer', async ({ page }) => {
+  test('a repo with no working changes shows the clean working-tree state', async ({ page }) => {
+    // eng's agents run in a plain (non-git) cwd, so the live git tab reads clean —
+    // the diff tab now mirrors the repository, not historical run evidence.
     await openRoom(page);
     await page.getByTestId('context-tab-diff').click();
-    const files = page.getByTestId('diff-files');
-    const row = files.locator('.nx-diff-file', { hasText: 'session.ts' }).first();
-    await expect(row).toContainText('+2');
-    await expect(row).toContainText('−1');
-    await expect(row.locator('.nx-diff-source')).toHaveText(/#\d+/);
-    await row.click();
-    const view = page.getByTestId('diff-view');
-    await expect(view.locator('.nx-diff-line.is-hunk').first()).toContainText('@@');
-    await expect(view.locator('.nx-diff-line.is-add').first()).toContainText('refreshTtlSeconds');
-    await expect(view.locator('.nx-diff-line.is-del').first()).toContainText('ttl = 3600');
+    await expect(page.getByTestId('diff-clean')).toContainText('Working tree clean');
   });
 
   test('preview tab shows the dot-grid empty state without artifacts', async ({ page }) => {
@@ -32,16 +25,26 @@ test.describe('diff tab', () => {
 });
 
 test.describe('run inspector', () => {
-  test('a tool card opens evidence detail with output and diff', async ({ page }) => {
+  test('a non-diff tool card opens the inspector with output and no diff pane', async ({ page }) => {
+    await openRoom(page);
+    const batch = page.getByTestId('tool-batch');
+    await batch.locator('.nx-batch-line').click();
+    await batch.locator('.nx-tool', { hasText: 'pnpm test' }).click();
+    const inspector = page.getByTestId('run-inspector');
+    await expect(inspector).toBeVisible();
+    await expect(inspector.getByTestId('inspector-output')).toContainText('42 passed');
+    await expect(inspector.getByTestId('diff-view')).toHaveCount(0); // diff pane dropped
+    await page.keyboard.press('Escape');
+    await expect(inspector).toBeHidden();
+  });
+
+  test('a diff chip routes to the Diff tab, noting no current changes when clean', async ({ page }) => {
     await openRoom(page);
     const batch = page.getByTestId('tool-batch');
     await batch.locator('.nx-batch-line').click();
     await batch.locator('.nx-tool', { hasText: 'session.ts' }).click();
-    const inspector = page.getByTestId('run-inspector');
-    await expect(inspector).toBeVisible();
-    await expect(inspector.getByTestId('diff-view')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(inspector).toBeHidden();
+    // The chip opens the live Diff tab focused on that file; eng's tree is clean.
+    await expect(page.getByTestId('diff-no-current')).toContainText('session.ts');
   });
 });
 

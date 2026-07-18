@@ -47,11 +47,11 @@ test.describe('one-line tool rows', () => {
     const delColor = await edit.locator('.nx-stat-del').evaluate((n) => getComputedStyle(n).color);
     expect(addColor).not.toBe(delColor);
 
-    // The row still opens the inspector.
+    // A diff row routes to the live Diff tab focused on its file, not the
+    // inspector; eng's tree is clean, so it reports no current changes.
     await edit.click();
-    await expect(page.getByTestId('run-inspector')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('run-inspector')).toBeHidden();
+    await expect(page.getByTestId('diff-no-current')).toContainText('session.ts');
+    await expect(page.getByTestId('run-inspector')).toHaveCount(0);
   });
 
   test('a single-tool batch renders the line directly with its status mark', async ({ page }) => {

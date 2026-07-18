@@ -4,8 +4,9 @@
 // tool + diff evidence, a live running run, a pending approval, and a held delivery.
 // Playwright and the screenshot pipeline point the dev server (or the built SPA this
 // serves) at it.
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,6 +60,7 @@ for (const [id, name] of [
   ['trash', 'Scratch'],
   ['recovery', 'Recovery'],
   ['interleave', 'Interleave'],
+  ['workspace', 'Workspace'],
 ]) {
   daemon.createRoom({ id, name, owner });
   crypto.roomKeys.ensureRoom(id);
@@ -229,6 +231,53 @@ await daemon.settle();
 // between the blocks via the control port, and prove it lands between them.
 daemon.spawnMember('interleave', { harness: 'fake', handle: 'weaver', cwd: dir });
 
+// Workspace: a room bound to a REAL git repo so the diff explorer has a live
+// working tree to read. Seeded dirty — a modified, a deleted, and an untracked
+// file — with a committed run whose Edit chip points at the modified file.
+const workspaceRepo = join(dir, 'workspace-repo');
+const gitEnv = {
+  ...process.env,
+  GIT_AUTHOR_NAME: 'Codor', GIT_AUTHOR_EMAIL: 'codor@example.com',
+  GIT_COMMITTER_NAME: 'Codor', GIT_COMMITTER_EMAIL: 'codor@example.com',
+};
+const gitIn = (args) => execFileSync('git', args, { cwd: workspaceRepo, env: gitEnv });
+mkdirSync(join(workspaceRepo, 'src'), { recursive: true });
+writeFileSync(join(workspaceRepo, 'src', 'app.ts'), 'export const version = 1;\n');
+writeFileSync(join(workspaceRepo, 'legacy.ts'), 'export const old = true;\n');
+writeFileSync(join(workspaceRepo, 'README.md'), '# Workspace\n');
+gitIn(['init', '-q']);
+gitIn(['add', '.']);
+gitIn(['commit', '-q', '-m', 'initial workspace']);
+const dirtyWorkspace = () => {
+  writeFileSync(join(workspaceRepo, 'src', 'app.ts'), 'export const version = 2;\nexport const patched = true;\n');
+  rmSync(join(workspaceRepo, 'legacy.ts'), { force: true });
+  writeFileSync(join(workspaceRepo, 'notes.md'), 'scratch notes\nmore notes\n');
+};
+daemon.spawnMember('workspace', { harness: 'fake', handle: 'builder', cwd: workspaceRepo });
+// A completed run whose Edit chip references the file the working tree changed,
+// so clicking the chip lands on that file's CURRENT diff.
+fake.enqueue({
+  kind: 'complete',
+  final_text: 'Bumped src/app.ts to version 2 and added a patch flag.',
+  items: [
+    { type: 'run.item', item_type: 'text_delta', payload: { text: 'Bumping the version and adding a patch flag.' } },
+    {
+      type: 'run.item', item_type: 'tool_call',
+      payload: { call_id: 'w1', tool: 'Edit', title: 'src/app.ts', input: { file_path: 'src/app.ts' } },
+    },
+    {
+      type: 'run.item', item_type: 'tool_result',
+      payload: {
+        call_id: 'w1', status: 'ok',
+        diff: { path: 'src/app.ts', unified: '@@ -1 +1,2 @@\n-export const version = 1;\n+export const version = 2;\n+export const patched = true;\n' },
+      },
+    },
+  ],
+});
+daemon.postHumanMessage('workspace', '@builder bump app.ts to version 2');
+await daemon.settle();
+dirtyWorkspace();
+
 const musePost = daemon.postAgentMessage(
   'eng',
   muse.id,
@@ -384,6 +433,16 @@ createServer((req, res) => {
           body: String(body.body ?? ''),
         });
         payload = { id: message.id, ts: message.ts };
+      }
+      if (url.pathname === '/git-reset') {
+        // Revert the workspace repo to a clean tree so a test can prove the
+        // working-tree-clean state after changes are resolved.
+        execFileSync('git', ['checkout', '--', '.'], { cwd: workspaceRepo, env: gitEnv });
+        execFileSync('git', ['clean', '-fd', '-q'], { cwd: workspaceRepo, env: gitEnv });
+      }
+      if (url.pathname === '/git-dirty') {
+        // Re-dirty the workspace repo (inverse of /git-reset) for re-runs.
+        dirtyWorkspace();
       }
       if (url.pathname === '/run-progress') {
         // Report an agent's latest run: its id, status, and how many prose

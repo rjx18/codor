@@ -1,0 +1,14 @@
+id: room-git-state-read-only-from-known-cwds
+hash: a-c6a7b9587d15
+title: The diff explorer serves live git state only from the room's recorded
+  directories via read-only commands
+state: active
+statement: The daemon answers the room git-diff endpoint by running exclusively
+  read-only git subcommands through execFile with a timeout in a directory that
+  exactly matches the room's known cwd set (distinct agent member cwds plus the
+  room's recorded folder if any), never a client-supplied free path and never a
+  mutating git command, behind the room read capability; a clean or non-git
+  directory yields an empty clean state, and oversized per-file diffs are
+  truncated with an explicit marker rather than streamed unbounded.
+depends_on: []
+created_by: room-git-diff-explorer
