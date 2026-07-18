@@ -1,0 +1,14 @@
+id: human-room-read-cursors-are-durable-and-monotonic
+hash: a-9eff9b3c3954
+title: Human room read positions are durable, shared, and never regress
+state: active
+statement: Every human membership must have one persisted room read seq shared
+  by all paired devices, initially baselined to the room's current seq for
+  migrated and newly added humans; mark_room_read may advance it only through an
+  existing room seq, never backward, is idempotent under concurrent tabs, and
+  marks visible consumed inbox deliveries read, while agents cannot mutate human
+  read state.
+depends_on:
+  - message-activity-drives-unread
+  - roles-gate-human-acts-not-agents
+created_by: durable-read-support

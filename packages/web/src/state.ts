@@ -54,7 +54,7 @@ export interface RoomState {
 export const HISTORY_PAGE_SIZE = 20;
 export const RUN_EVENT_LIMIT = 500;
 
-// harn:assume cold-hydration-is-bounded-and-atomic ref=bounded-cold-hydration-contract
+// harn:assume addressed-cold-hydration-is-strict-and-legacy-safe ref=addressed-hydration-contract
 /**
  * Cold hydration is staged OUTSIDE the store and committed once. Applying each
  * hydration frame straight into visible state made the transcript crawl in a row
@@ -84,7 +84,7 @@ const freshStaging = (): HydrationStaging => ({ members: {}, messages: {}, inbox
 export function clearHydrationStaging(): void {
   staging = undefined;
 }
-// harn:end cold-hydration-is-bounded-and-atomic
+// harn:end addressed-cold-hydration-is-strict-and-legacy-safe
 
 // harn:assume live-run-event-cache-bounded ref=bounded-live-event-buffer
 // harn:assume run-events-merge-by-journal-index ref=client-indexed-buffer-merge
@@ -144,7 +144,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   // existing message row (same #N, new content). Hydration frames retain the
   // prior cursor; sync_complete advances it only after the full snapshot lands.
   applyFrame: (frame) => {
-    // harn:assume cold-hydration-is-bounded-and-atomic ref=bounded-cold-hydration-contract
+    // harn:assume addressed-cold-hydration-is-strict-and-legacy-safe ref=addressed-hydration-contract
     // A cold hydration stages without touching the store AT ALL — no set(), so no
     // render per frame. Warm reconnects (seq > 0) fall straight through, and
     // run_event/error keep flowing so live evidence is never withheld.
@@ -179,7 +179,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         }
       }
     }
-    // harn:end cold-hydration-is-bounded-and-atomic
+    // harn:end addressed-cold-hydration-is-strict-and-legacy-safe
     set((state) => {
       const bump = 'seq' in frame ? Math.max(state.seq, frame.seq) : state.seq;
       switch (frame.type) {
@@ -189,7 +189,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
           return { seq: bump, room: frame.room };
         case 'sync_complete': {
           if (state.seq !== 0) return { seq: bump };
-          // harn:assume cold-hydration-is-bounded-and-atomic ref=bounded-cold-hydration-contract
+          // harn:assume addressed-cold-hydration-is-strict-and-legacy-safe ref=addressed-hydration-contract
           // THE hydration commit: everything staged becomes visible together, and
           // the transcript may finally reveal itself.
           const staged = staging;
@@ -237,7 +237,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
           if (frame.history_floor !== undefined) {
             return { ...committed, messages: merged, historyCursor: frame.history_floor };
           }
-          // harn:end cold-hydration-is-bounded-and-atomic
+          // harn:end addressed-cold-hydration-is-strict-and-legacy-safe
           const sorted = Object.values(merged).sort((a, b) => a.id - b.id);
           if (sorted.length <= HISTORY_PAGE_SIZE) {
             return { ...committed, messages: merged, historyCursor: sorted[0]?.id };

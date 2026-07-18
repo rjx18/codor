@@ -1,0 +1,416 @@
+id: durable-read-support
+title: Durable human read state and separate room support make addressed cold
+  transcripts strictly contiguous.
+notes: >-
+  Integrated backend/protocol round for Richard's bounded history, real
+  cross-room unread, streaming rail, and actionable inbox requirements. The live
+  defect is now measured at hydrate_limit 3 returning 140 message frames. The
+  bounded-cold-hydration implementation is faithful to its locked plan; that
+  plan's specification was wrong. Its author added every unread consumed
+  delivery as a transcript outlier to preserve the inbox badge, allowing support
+  state to consume the bound without limit. The same coupling also injects old
+  running turns, interaction cards, and the default-recipient seed into the
+  transcript map.
+
+  Read state must be durable and human-scoped, not browser-local. Add
+  room_read_cursors keyed by (room, member_id), shared by every paired device
+  for that human. Cursors are monotonic and carry a room change seq, not a
+  message id. Existing humans are migrated to each room's current seq so
+  deployment does not manufacture hundreds of unread messages; a newly added
+  human starts at the room's current seq too. mark_room_read is an
+  observer-or-higher human act carrying through_seq, rejects a future seq, never
+  moves backward, and marks consumed human deliveries whose source row was
+  visible by that seq read, so reading the transcript clears matching inbox
+  entries across devices. Agents cannot call it.
+
+  Raw room seq is not itself an unread signal: member state, pinning, inbox, and
+  meter changes also consume it. Message ids are not sufficient either: a run is
+  inserted running and finalized in place, so an id cursor can pass it before
+  its answer exists. Add messages.activity_seq. Chat insertion records its
+  insertion seq. A non-ack run records the seq only when it becomes finalized
+  (completed, failed, or interrupted). Running runs, asks, approvals, system
+  rows, acknowledgements, deleted rows, and self-authored activity never count;
+  pin/unpin and unrelated mutations never rewrite activity_seq. Unread is the
+  count of nondeleted incoming message rows whose activity_seq is above the
+  human's durable read seq. This follows the rail's existing ignore-ack preview
+  precedent and makes an in-place finalization unread only when it actually
+  becomes a result.
+
+  Separate support from transcript history for addressed subscribers. Add
+  protocol RoomSummary, RoomInboxItem, and RoomSupport projections plus a
+  room_support server frame. One bounded redacted support snapshot carries the
+  authoritative summary, latest finalized non-ack active-agent id (composer
+  routing seed), every currently running run, pending interaction card messages
+  targeted to this human, and actionable inbox items enriched with author,
+  message kind, timestamp, and bounded preview. Actionable inbox means an unread
+  consumed delivery whose source is an ask/approval or explicitly mentions the
+  human; untagged default-routed deliveries are not inbox work. A formal
+  self-authored reply_to the source also removes it, so the later client round
+  can make Quote a true reply instead of rebuilding transcript coupling.
+
+  room_addressed is the capability gate established by the prior round. A cold
+  addressed subscribe with hydrate_limit receives exactly the latest N
+  contiguous message frames, with no outliers, plus room_support before its
+  addressed sync_complete. Warm addressed sync still replays every changed
+  entity and refreshes support. A subscriber that omits room_addressed remains
+  byte-identical: its bounded cold replay keeps today's outliers, receives no
+  room_support, and the CLI/agent full replay is unchanged. This conditional
+  cutover is load-bearing because the deployed client still derives interaction
+  cards and routing seed from transcript messages.
+
+  The existing one-socket fan-out streams room_support change-only to each
+  addressed human subscription after message/member/inbox/room changes and after
+  mark_room_read. Capability and viewer identity stay per socket-room pair, so
+  unread/inbox from one human or room cannot leak into another. The support
+  builder is also the one source for GET /api/rooms/summary when
+  read_state=durable; legacy ?cursors behavior stays unchanged as the old-client
+  fallback. Phase 4 will subscribe every authorized room, consume these support
+  frames in a room-keyed client store, use the durable REST mode only as cold
+  fallback, and remove the 30-second poll.
+
+  Tests: protocol schemas pin the new act/projections/frame and legacy omission.
+  Store migration tests reopen a legacy database, preserve messages, backfill
+  activity, baseline existing humans, seed new humans, and prove repeated open
+  idempotent. Activity tests distinguish chat, running-to-finalized run, ack,
+  self, system, ask/approval, pin, and delete. Cursor tests prove future
+  refusal, monotonic concurrent/idempotent marks, transcript-read delivery
+  clearing, and a running run finalized after an earlier read becomes unread.
+  Support tests prove active-run/card/routing projections, enriched mention-only
+  inbox, reply/read removal, preview bounds, and redaction. Server tests prove
+  hydrate_limit 3 yields exactly three message frames for addressed subscribers
+  despite every legacy outlier class, while a legacy subscriber remains
+  unchanged; two addressed rooms stream support without polling; two sockets for
+  one human converge after mark_room_read; another human sees only its own
+  unread/inbox; agent act refusal; durable REST and legacy cursor REST both
+  work; change-only suppresses member updates that do not alter support. Gate:
+  protocol, authorization, store, daemon, server, CLI, and full workspace
+  tests/build. Before deploy, open a copied live SQLite+WAL with the new Store
+  and assert message count unchanged, every human cursor baselined, activity
+  rows classified, second open a no-op, then run a copied-live addressed hydrate
+  with limit 3 and assert exactly 3 message frames plus support. Never mutate
+  live DB.
+assumptions:
+  retire:
+    - id: cold-hydration-is-bounded-and-atomic
+      reason: Its named unread/running/interaction/routing outliers are the root cause
+        of the unbounded live replay; addressed clients now receive those
+        concerns through a separate support projection while legacy behavior is
+        preserved only as a conditional compatibility mode.
+    - id: rail-summary-served-not-guessed
+      reason: The claim that the switchboard keeps no per-viewer read state and must
+        trust caller message-id cursors becomes false. Durable human cursors and
+        streamed support become primary while caller cursors remain a legacy
+        fallback.
+  reviewed:
+    - id: changelog-is-sync-cursor
+      outcome: unchanged
+      reason: Entity reconnect still cursors only on room seq. Private read state is
+        sent through a targeted derived support projection rather than
+        pretending to be a globally visible changelog entity.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: Messages, members, inbox, meter, and room mutations still append
+        changes. Human-private read cursor updates target only that human's
+        derived support and do not belong in the room-global entity log.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: Strict transcript and support are read inside the same synchronous
+        snapshot and commit only at addressed sync_complete; warm entity replay
+        remains lossless.
+    - id: multiplexed-subscriptions-identify-their-room
+      outcome: unchanged
+      reason: The existing per-socket-room capability record gains the human identity
+        and cached support projection without weakening attribution or legacy
+        omission.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: TCP and Unix listeners continue sharing bindProtocol; CLI omits
+        room_addressed and therefore sees no new frames or hydration behavior.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Agents retain read/full replay in their one room but cannot mutate human
+        read state or receive another human's support projection.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: mark_room_read is observer-or-higher for humans and remains absent from
+        the agent capability matrix.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: RoomSupport is passed through the daemon's existing deep projection
+        before WebSocket or REST serialization; raw bodies stay in the store.
+    - id: default-recipient-fallback-chain
+      outcome: unchanged
+      reason: The same latest finalized non-ack active-agent query remains the routing
+        rule; support carries its member id without requiring that old run
+        message in the transcript tail.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: Exact acknowledgement runs remain durable evidence but neither routing
+        defaults nor previews nor unread activity.
+    - id: history-cursor-tracks-only-the-contiguous-tail
+      outcome: unchanged
+      reason: Addressed history_floor is now even stricter - it is the first of
+        exactly N contiguous rows, and support items never enter the message map
+        or influence pagination.
+    - id: the-inbox-badge-and-panel-are-one-truth
+      outcome: unchanged
+      reason: The deployed legacy client still uses its existing selector until Phase
+        4. This round provides the recipient-scoped server truth that will
+        replace it without removing the old path prematurely.
+    - id: approval-cards-follow-durable-resolution
+      outcome: unchanged
+      reason: Pending approvals remain actionable by interaction resolution,
+        independent of delivery read_ts; support includes only unresolved
+        targeted cards and resolution removes them for every viewer.
+    - id: agent-sync-hydrates-only-own-queued-inbox
+      outcome: unchanged
+      reason: Agent subscribers omit the capability and retain the exact existing
+        queued-inbox overlay and full replay.
+  create:
+    - id: message-activity-drives-unread
+      title: Only substantive incoming message activity creates channel unread
+      statement: Each chat insertion and each transition of a non-ack run into a
+        finalized status must record that message's room activity seq, while
+        running runs, asks, approvals, system rows, acknowledgements, pinning,
+        deletion, and non-message mutations must not; a human's unread count is
+        the nondeleted activity above their read seq whose author is not them,
+        so in-place run finalization is visible without unrelated changes
+        becoming unread.
+      reason: Message-id cursors miss answers finalized in place, while raw room seq
+        counts roster and UI metadata changes as messages.
+      depends_on:
+        - substantive-routing-excludes-acknowledgements
+        - changelog-is-sync-cursor
+    - id: human-room-read-cursors-are-durable-and-monotonic
+      title: Human room read positions are durable, shared, and never regress
+      statement: Every human membership must have one persisted room read seq shared
+        by all paired devices, initially baselined to the room's current seq for
+        migrated and newly added humans; mark_room_read may advance it only
+        through an existing room seq, never backward, is idempotent under
+        concurrent tabs, and marks visible consumed inbox deliveries read, while
+        agents cannot mutate human read state.
+      reason: Browser-local cursors advanced on arrival rather than observation, froze
+        for inactive rooms, disagreed across devices, and could not clear inbox
+        entries when transcript content was actually read.
+      depends_on:
+        - message-activity-drives-unread
+        - roles-gate-human-acts-not-agents
+    - id: room-support-is-bounded-recipient-scoped-state
+      title: Routing, live work, interactions, inbox, and summaries travel outside
+        transcript history
+      statement: An addressed human subscription must receive one redacted,
+        recipient-scoped RoomSupport snapshot containing the authoritative room
+        summary, latest finalized non-ack active-agent id, active run rows,
+        pending targeted interaction card rows, and enriched actionable inbox
+        previews; changes stream on that room only when the derived projection
+        changes, and another room, human, agent, or legacy subscriber must never
+        receive or influence it.
+      reason: Injecting support messages into bounded transcript history caused the
+        3-to-140 amplification and made inbox, routing, and live work depend on
+        accidental message-cache contents.
+      depends_on:
+        - human-room-read-cursors-are-durable-and-monotonic
+        - multiplexed-subscriptions-identify-their-room
+        - redaction-before-fanout
+        - default-recipient-fallback-chain
+    - id: actionable-inbox-clears-on-read-or-reply
+      title: The human inbox contains only explicit unresolved work and clears on
+        observation or response
+      statement: RoomSupport inbox items must include only unread consumed deliveries
+        whose source is an ask, approval, or explicit mention of that human,
+        enriched without consulting the transcript cache; mark_read or a
+        room-read position through the source removes the item, and a formal
+        self-authored reply_to the source also removes it, while untagged
+        default-routed traffic never appears as inbox work.
+      reason: Today's panel depends on old transcript rows, retains mentions after
+        they are read or answered, and confuses routing delivery with work that
+        needs the operator.
+      depends_on:
+        - room-support-is-bounded-recipient-scoped-state
+        - approval-cards-follow-durable-resolution
+    - id: addressed-cold-hydration-is-strict-and-legacy-safe
+      title: Addressed cold transcripts are exact contiguous tails with a safe legacy
+        cutover
+      statement: A room_addressed cold subscribe with hydrate_limit N must return
+        exactly the newest N contiguous message rows and their history_floor
+        plus separate RoomSupport from the same snapshot, while warm addressed
+        sync replays every entity change; until the client cutover, a subscriber
+        that omits room_addressed receives the prior outlier-bearing bounded
+        replay and no support frame byte-identically, so server and client
+        phases remain independently deployable.
+      reason: Strict removal before the new client consumes support would silently
+        lose routing seeds and old interaction cards, while leaving outliers in
+        the new transcript makes the bound fictitious.
+      depends_on:
+        - room-support-is-bounded-recipient-scoped-state
+        - sync-cursor-commits-after-hydration
+        - history-cursor-tracks-only-the-contiguous-tail
+    - id: durable-room-summaries-stream-and-fallback
+      title: Cross-room summaries stream durable unread with a shared REST fallback
+      statement: One server-side summary builder must derive preview, working,
+        attention, and durable recipient unread for each room the human may
+        read; addressed subscriptions stream it inside change-only RoomSupport
+        even for inactive rooms, GET summary with read_state=durable uses the
+        same builder, and the legacy caller-cursor query retains its exact old
+        result until the client cutover.
+      reason: Thirty-second polling hides concurrent project flow, and the active room
+        used delivery unread while inactive rooms used a local cursor count,
+        producing two incompatible definitions.
+      depends_on:
+        - room-support-is-bounded-recipient-scoped-state
+        - message-activity-drives-unread
+files:
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/protocol/src/index.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/authorization.ts
+  - packages/switchboard/src/authorization.spec.ts
+  - packages/web/src/state.ts
+anchors:
+  cold-hydration-is-bounded-and-atomic:
+    bounded-cold-hydration-contract:
+      action: remove
+      reason: Migrate the server and legacy staging anchors to the conditional
+        strict-addressed/legacy-safe contract that states support is separate.
+  rail-summary-served-not-guessed:
+    rooms-summary-rest:
+      action: remove
+      reason: Replace caller-cursor-only REST truth with durable primary plus explicit
+        legacy fallback.
+    rooms-summary-store-queries:
+      action: remove
+      reason: Replace message-id-only unread arithmetic with activity/read seq queries
+        and the shared support summary builder.
+  message-activity-drives-unread:
+    message-activity-storage:
+      action: change
+      reason: Schema, migration, message insert/finalization, and unread query
+        maintain content activity independently from unrelated seq changes.
+    message-activity-regression:
+      action: change
+      reason: Store and migration tests pin every eligible and excluded class.
+  human-room-read-cursors-are-durable-and-monotonic:
+    durable-room-read-storage:
+      action: change
+      reason: Schema/migration, human seeding, monotonic advance, future-seq guard,
+        and visible-inbox clearing define durable shared read state.
+    mark-room-read-contract:
+      action: change
+      reason: Protocol act, daemon operation, authorization row, and server dispatch
+        expose the human-only monotonic transition.
+    durable-room-read-regression:
+      action: change
+      reason: Protocol/store/daemon/server/auth tests prove migration, authorization,
+        concurrency, and multi-device convergence.
+  room-support-is-bounded-recipient-scoped-state:
+    room-support-protocol:
+      action: change
+      reason: New summary, inbox item, support schemas and room_support frame are
+        additive protocol surfaces.
+    room-support-projection:
+      action: change
+      reason: Store/daemon build and redact the bounded recipient projection from
+        durable truth, never the transcript cache.
+    room-support-fanout:
+      action: change
+      reason: Server caches and change-only streams support per socket-room-human.
+    room-support-regression:
+      action: change
+      reason: Protocol/store/daemon/server tests prove scope, redaction, live updates,
+        and suppression of unchanged support.
+  actionable-inbox-clears-on-read-or-reply:
+    actionable-inbox-projection:
+      action: change
+      reason: Projection filters explicit work, enriches previews, and excludes read
+        or formally replied sources.
+    actionable-inbox-regression:
+      action: change
+      reason: Tests cover mentions, default routes, cards, read, reply, and bounds.
+  addressed-cold-hydration-is-strict-and-legacy-safe:
+    addressed-hydration-contract:
+      action: change
+      reason: Store strict branch, legacy branch, support snapshot, and client staging
+        comments encode the independently deployable cutover.
+    addressed-hydration-regression:
+      action: change
+      reason: Store/server tests reproduce every outlier and prove exact N versus
+        byte-compatible legacy and lossless warm sync.
+  durable-room-summaries-stream-and-fallback:
+    durable-room-summary:
+      action: change
+      reason: One builder supplies support streams and durable REST while retaining
+        the explicit legacy cursor mode.
+    durable-room-summary-regression:
+      action: change
+      reason: Server/store tests pin unread semantics, inactive live flow, REST
+        compatibility, and authorization.
+  changelog-is-sync-cursor:
+    ws-subscribe-cursor:
+      action: keep
+      reason: Subscribe cursor schema is unchanged; new act/frame fields live outside
+        the since_seq contract.
+  sync-cursor-commits-after-hydration:
+    consistent-sync-snapshot:
+      action: change
+      reason: Sync options select strict addressed mode and include support in the
+        same synchronous snapshot while warm replay stays exhaustive.
+    sync-complete-frame:
+      action: keep
+      reason: Addressed sync_complete already carries room and floor; its schema does
+        not need another change.
+  multiplexed-subscriptions-identify-their-room:
+    room-addressed-live-fanout:
+      action: change
+      reason: Per-room subscription state gains viewer identity and support cache, and
+        relevant room frames schedule a coalesced support refresh.
+    room-addressed-hydration:
+      action: change
+      reason: Addressed human hydration requests strict/support mode and sends its
+        support snapshot before sync_complete.
+    room-addressed-frame-contract:
+      action: keep
+      reason: Existing room addressing fields and opt-in flag stay unchanged.
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: change
+      reason: Add observer-minimum mark_room_read beside mark_read.
+    role-matrix-integration:
+      action: change
+      reason: Prove humans may mark their room while the agent matrix refuses it.
+  redaction-before-fanout:
+    redacted-frame-emit:
+      action: keep
+      reason: Existing emit/project implementation is reused unchanged.
+    redaction-projection:
+      action: keep
+      reason: Redaction engine patterns are unchanged.
+  default-recipient-fallback-chain:
+    substantive-default-recipient:
+      action: keep
+      reason: Existing latest finalized agent query is reused unchanged by support.
+  substantive-routing-excludes-acknowledgements:
+    exact-ack-finalization:
+      action: keep
+      reason: Existing ack classification remains the activity exclusion source.
+  history-cursor-tracks-only-the-contiguous-tail:
+    contiguous-history-state:
+      action: keep
+      reason: Client pagination logic is unchanged in this server prerequisite.
+  agent-sync-hydrates-only-own-queued-inbox:
+    agent-own-queued-sync-overlay:
+      action: keep
+      reason: Legacy agent overlay remains byte-identical.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Shared bindProtocol dispatches the additive act/support behavior on both
+        transports while legacy CLI traffic remains unchanged.
+applied:
+  applied_at: 2026-07-18T12:52:42.896Z

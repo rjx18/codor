@@ -2042,6 +2042,39 @@ describe('human inbox lifecycle + sync', () => {
     expect(daemon.store.getDelivery('eng', delivery.id)?.read_ts).toBeDefined();
   });
 
+  // harn:assume human-room-read-cursors-are-durable-and-monotonic ref=durable-room-read-regression
+  // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-regression
+  it('advances the durable room edge, emits cleared deliveries, and returns projected support', () => {
+    const owner = daemon.ownerOf('eng');
+    const agent = spawnAgent('room-reader');
+    const body = '@richard inspect sk-proj-abcdef1234567890abcdef';
+    const message = daemon.store.postMessage('eng', {
+      author: agent.id,
+      kind: 'chat',
+      body,
+      mentions: [{ member_id: owner.id, start: 0, end: 8 }],
+    });
+    const delivery = daemon.store.createDelivery('eng', {
+      message_id: message.id, recipient: owner.id, state: 'consumed',
+    });
+    expect(daemon.roomSupport('eng', owner.id).inbox[0]?.preview).toContain('[redacted]');
+    frames.length = 0;
+
+    const support = daemon.markRoomRead('eng', daemon.store.currentSeq('eng'), owner.id);
+    expect(support.summary.unread).toBe(0);
+    expect(support.inbox).toEqual([]);
+    expect(frames).toContainEqual({
+      room: 'eng',
+      frame: expect.objectContaining({
+        type: 'inbox',
+        delivery: expect.objectContaining({ id: delivery.id, read_ts: expect.any(String) }),
+      }),
+    });
+    expect(daemon.store.getMessage('eng', message.id)?.body).toContain('sk-proj-');
+  });
+  // harn:end room-support-is-bounded-recipient-scoped-state
+  // harn:end human-room-read-cursors-are-durable-and-monotonic
+
   it('sync across a run finalization returns the message once, in final state', async () => {
     spawnAgent('alpha');
     fake.enqueue({ kind: 'complete', final_text: 'all wrapped up' });

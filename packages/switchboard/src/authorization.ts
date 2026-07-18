@@ -27,6 +27,7 @@ const ROLE_RANK: Record<Role, number> = {
 export const CAPABILITY_MINIMUM_ROLE: Record<HumanCapability, Role> = {
   read: 'observer',
   mark_read: 'observer',
+  mark_room_read: 'observer',
   consume_delivery: 'member',
   post: 'member',
   answer_interaction: 'member',

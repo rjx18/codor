@@ -22,6 +22,7 @@ import type {
   Message,
   PendingInteraction,
   Role,
+  RoomSupport,
   RunSearchHit,
   ServerFrame,
   Session,
@@ -3861,6 +3862,15 @@ export class Daemon {
     return updated;
   }
 
+  // harn:assume human-room-read-cursors-are-durable-and-monotonic ref=durable-room-read-storage
+  markRoomRead(room: string, throughSeq: number, byMemberId?: string): RoomSupport {
+    const by = byMemberId ?? this.ownerOf(room).id;
+    const result = this.store.markRoomRead(room, by, throughSeq);
+    for (const delivery of result.deliveries) this.emitInbox(room, delivery);
+    return this.roomSupport(room, by);
+  }
+  // harn:end human-room-read-cursors-are-durable-and-monotonic
+
   // harn:assume live-delivery-consumption-is-idempotent ref=consume-delivery-daemon
   consumeDelivery(
     room: string,
@@ -3995,7 +4005,25 @@ export class Daemon {
       .filter((d) => d.read_ts === undefined && d.state === 'consumed').length;
   }
 
+  // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-projection
+  roomSupport(room: string, memberId: string): RoomSupport {
+    return this.project(room, this.store.roomSupport(room, memberId));
+  }
+  // harn:end room-support-is-bounded-recipient-scoped-state
+
   /** Delta-sync straight off the change log, redacted like every fanout. */
+  // harn:assume addressed-cold-hydration-is-strict-and-legacy-safe ref=addressed-hydration-contract
+  sync(
+    room: string,
+    sinceSeq: number,
+    opts?: {
+      hydrateLimit?: number;
+      subscriber?: string;
+      strictTail?: boolean;
+      supportFor?: string;
+    },
+  ): ReturnType<Store['sync']>;
+  // harn:end addressed-cold-hydration-is-strict-and-legacy-safe
   // harn:assume live-agent-waits-are-transient ref=wait-member-projection
   sync(
     room: string,

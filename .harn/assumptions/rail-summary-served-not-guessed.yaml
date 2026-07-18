@@ -2,7 +2,7 @@ id: rail-summary-served-not-guessed
 hash: a-91884d1613e4
 title: The channel rail's preview, working, and unread states are served truth,
   never client guesses
-state: active
+state: retired
 statement: The rooms summary endpoint is the single server-side source for
   cross-room rail state. It reports, per room the principal may read and never
   for any other room, the newest message as a bounded preview projection,
@@ -14,3 +14,4 @@ statement: The rooms summary endpoint is the single server-side source for
   have.
 depends_on: []
 created_by: rooms-summary-endpoint
+retired_by: durable-read-support

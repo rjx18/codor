@@ -2,7 +2,7 @@ id: cold-hydration-is-bounded-and-atomic
 hash: a-070479625404
 title: A limit-bearing cold subscribe hydrates a bounded tail plus named
   correctness outliers from one snapshot, committed atomically
-state: active
+state: retired
 statement: When a subscriber sends a hydrate limit with since_seq 0, the store
   answers from one transaction with the contiguous tail of the last N messages
   plus every running run, the messages of unresolved interactions, the messages
@@ -16,3 +16,4 @@ statement: When a subscriber sends a hydrate limit with since_seq 0, the store
   hide an in-place change from a reconnect.
 depends_on: []
 created_by: bounded-cold-hydration
+retired_by: durable-read-support

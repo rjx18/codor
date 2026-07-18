@@ -19,6 +19,7 @@ const actSamples = {
   redeliver: { act: 'redeliver', delivery_id: 'd' },
   release_hold: { act: 'release_hold', delivery_id: 'd' },
   mark_read: { act: 'mark_read', delivery_id: 'd' },
+  mark_room_read: { act: 'mark_room_read', through_seq: 1 },
   join: { act: 'join', harness: 'fake', handle: 'joined', session_ref: 's', cwd: '/w' },
   adopt: { act: 'adopt', member_id: '01J00000000000000000000000' },
   attach_acquire: { act: 'attach_acquire', member_id: '01J00000000000000000000000', cli_pid: 1 },

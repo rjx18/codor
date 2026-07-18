@@ -463,10 +463,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     void reply.send({ rooms: roomsFor(principal) });
   });
 
-  // harn:assume rail-summary-served-not-guessed ref=rooms-summary-rest
-  // Rail state for every readable room: bounded preview projection, working /
-  // attention from live agent and latest-run state, and unread computed ONLY against the
-  // caller's ?cursors=<room>:<msgId>,... — no cursor, no invented read state.
+  // harn:assume durable-room-summaries-stream-and-fallback ref=durable-room-summary
+  // Durable summaries share the exact RoomSupport builder used by streaming
+  // subscriptions. The caller-cursor mode stays byte-compatible for clients
+  // that have not opted into room-addressed support yet.
   app.get('/api/rooms/summary', (req, reply) => {
     const principal = authed(req, reply);
     if (!principal) return;
@@ -474,8 +474,24 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (!authorizeRoom(principal, principal.room, 'read', reply)) return;
     } else if (!authorizeGlobal(principal, 'read', reply)) return;
 
+    const query = req.query as { cursors?: string; read_state?: string };
+    if (query.read_state !== undefined && query.read_state !== 'durable') {
+      return reply.code(400).send({ error: `unsupported read_state: ${query.read_state}` });
+    }
+    if (query.read_state === 'durable') {
+      if (principal.kind === 'agent') {
+        return reply.code(400).send({ error: 'durable room summaries require a human principal' });
+      }
+      return reply.send({
+        rooms: roomsFor(principal).map((room) => {
+          const actor = memberForRoom(principal, room.id);
+          return daemon.roomSupport(room.id, actor.id).summary;
+        }),
+      });
+    }
+
     const cursors = new Map<string, number>();
-    const rawCursors = (req.query as { cursors?: string }).cursors;
+    const rawCursors = query.cursors;
     if (rawCursors !== undefined && rawCursors !== '') {
       for (const entry of rawCursors.split(',')) {
         const split = entry.lastIndexOf(':');
@@ -525,7 +541,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       }),
     });
   });
-  // harn:end rail-summary-served-not-guessed
+  // harn:end durable-room-summaries-stream-and-fallback
 
   app.get('/api/adapters', (req, reply) => {
     const principal = authed(req, reply);
@@ -967,12 +983,43 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   let ipcServer: HttpServer | undefined;
   let ipcWss: WebSocketServer | undefined;
   // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-live-fanout
-  type RoomSubscription = { roomAddressed: boolean };
+  // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-fanout
+  type RoomSubscription = {
+    roomAddressed: boolean;
+    memberId?: string;
+    lastSupport?: string;
+  };
   const subscriptions = new Map<WebSocket, Map<string, RoomSubscription>>();
   const projectLiveFrame = (room: string, frame: ServerFrame, subscription: RoomSubscription): ServerFrame => {
     if (!subscription.roomAddressed || frame.type !== 'member') return frame;
     return { ...frame, room };
   };
+  const pendingSupportRooms = new Set<string>();
+  const sendRoomSupport = (
+    socket: WebSocket,
+    room: string,
+    subscription: RoomSubscription,
+    seq = daemon.store.currentSeq(room),
+  ): void => {
+    if (subscription.memberId === undefined || socket.readyState !== socket.OPEN) return;
+    const support = daemon.roomSupport(room, subscription.memberId);
+    const serialized = JSON.stringify(support);
+    if (serialized === subscription.lastSupport) return;
+    subscription.lastSupport = serialized;
+    socket.send(JSON.stringify({ type: 'room_support', seq, support } satisfies ServerFrame));
+  };
+  const scheduleRoomSupport = (room: string): void => {
+    if (pendingSupportRooms.has(room)) return;
+    pendingSupportRooms.add(room);
+    queueMicrotask(() => {
+      pendingSupportRooms.delete(room);
+      for (const [socket, rooms] of subscriptions) {
+        const subscription = rooms.get(room);
+        if (subscription) sendRoomSupport(socket, room, subscription);
+      }
+    });
+  };
+  // harn:end room-support-is-bounded-recipient-scoped-state
   // harn:end multiplexed-subscriptions-identify-their-room
   const deviceSockets = new Map<string, Set<WebSocket>>();
   // harn:assume paired-browser-challenge-session ref=browser-device-session-socket
@@ -992,6 +1039,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         socket.send(JSON.stringify(projectLiveFrame(room, frame, subscription)));
       }
     }
+    // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-fanout
+    if (
+      frame.type === 'message'
+      || frame.type === 'member'
+      || frame.type === 'inbox'
+      || frame.type === 'room'
+    ) {
+      scheduleRoomSupport(room);
+    }
+    // harn:end room-support-is-bounded-recipient-scoped-state
   });
   // harn:end multiplexed-subscriptions-identify-their-room
 
@@ -1068,7 +1125,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             const actor = assertRoomCapability(principal, frame.room, 'read');
             // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
             const roomAddressed = frame.room_addressed === true;
-            subscriptions.get(socket)!.set(frame.room, { roomAddressed });
+            // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-fanout
+            const supportMemberId = roomAddressed && actor.kind === 'human'
+              ? actor.id
+              : undefined;
+            const subscription: RoomSubscription = {
+              roomAddressed,
+              ...(supportMemberId !== undefined && { memberId: supportMemberId }),
+            };
+            subscriptions.get(socket)!.set(frame.room, subscription);
+            // harn:end room-support-is-bounded-recipient-scoped-state
             const address = roomAddressed ? { room: frame.room } : {};
             // harn:end multiplexed-subscriptions-identify-their-room
             // The bound is the subscriber's own: passed straight through, honoured
@@ -1077,6 +1143,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             const sync = daemon.sync(frame.room, frame.since_seq, {
               hydrateLimit: frame.hydrate_limit,
               subscriber: actor.id,
+              strictTail: roomAddressed,
+              supportFor: supportMemberId,
             });
             const hydrationCursor = frame.since_seq;
             // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
@@ -1102,6 +1170,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             for (const delivery of inbox) send({ type: 'inbox', seq: hydrationCursor, delivery });
             // harn:end agent-sync-hydrates-only-own-queued-inbox
             for (const meter of sync.meters) send({ type: 'meter', seq: hydrationCursor, meter });
+            // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-fanout
+            if (sync.support !== undefined) {
+              subscription.lastSupport = JSON.stringify(sync.support);
+              send({ type: 'room_support', seq: hydrationCursor, support: sync.support });
+            }
+            // harn:end room-support-is-bounded-recipient-scoped-state
             send({
               type: 'sync_complete',
               seq: sync.seq,
@@ -1209,6 +1283,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             else if (act.act === 'redeliver') daemon.redeliver(frame.room, act.delivery_id);
             else if (act.act === 'release_hold') daemon.releaseHold(frame.room, act.delivery_id);
             else if (act.act === 'mark_read') daemon.markRead(frame.room, act.delivery_id, actor.id);
+            // harn:assume human-room-read-cursors-are-durable-and-monotonic ref=durable-room-read-storage
+            else if (act.act === 'mark_room_read') {
+              daemon.markRoomRead(frame.room, act.through_seq, actor.id);
+              scheduleRoomSupport(frame.room);
+            }
+            // harn:end human-room-read-cursors-are-durable-and-monotonic
             // harn:assume live-delivery-consumption-is-idempotent ref=consume-act-dispatch
             else if (act.act === 'consume_delivery') {
               const consumed = daemon.consumeDelivery(frame.room, act.delivery_id, actor.id);

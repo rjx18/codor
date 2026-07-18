@@ -1,0 +1,17 @@
+id: addressed-cold-hydration-is-strict-and-legacy-safe
+hash: a-f054a40ae6e0
+title: Addressed cold transcripts are exact contiguous tails with a safe legacy
+  cutover
+state: active
+statement: A room_addressed cold subscribe with hydrate_limit N must return
+  exactly the newest N contiguous message rows and their history_floor plus
+  separate RoomSupport from the same snapshot, while warm addressed sync replays
+  every entity change; until the client cutover, a subscriber that omits
+  room_addressed receives the prior outlier-bearing bounded replay and no
+  support frame byte-identically, so server and client phases remain
+  independently deployable.
+depends_on:
+  - room-support-is-bounded-recipient-scoped-state
+  - sync-cursor-commits-after-hydration
+  - history-cursor-tracks-only-the-contiguous-tail
+created_by: durable-read-support

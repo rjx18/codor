@@ -1,0 +1,14 @@
+id: durable-room-summaries-stream-and-fallback
+hash: a-e54ce0bd413d
+title: Cross-room summaries stream durable unread with a shared REST fallback
+state: active
+statement: One server-side summary builder must derive preview, working,
+  attention, and durable recipient unread for each room the human may read;
+  addressed subscriptions stream it inside change-only RoomSupport even for
+  inactive rooms, GET summary with read_state=durable uses the same builder, and
+  the legacy caller-cursor query retains its exact old result until the client
+  cutover.
+depends_on:
+  - room-support-is-bounded-recipient-scoped-state
+  - message-activity-drives-unread
+created_by: durable-read-support

@@ -1668,3 +1668,262 @@ describe('atomic collaboration participant skipping', () => {
   });
 });
 // harn:end open-collaboration-groups-reconcile-without-resurrection
+
+// harn:assume message-activity-drives-unread ref=message-activity-regression
+// harn:assume human-room-read-cursors-are-durable-and-monotonic ref=durable-room-read-regression
+describe('durable room read activity', () => {
+  it('counts only incoming chat and finalized non-ack runs at their content edge', () => {
+    const { owner, system } = openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'coder', display_name: 'Coder', state: 'idle',
+    });
+    const started = '2026-07-18T10:00:00.000Z';
+
+    const incoming = store.postMessage('eng', {
+      author: agent.id, kind: 'chat', body: 'first result',
+    });
+    store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'my own note' });
+    store.postMessage('eng', { author: system.id, kind: 'system', body: 'maintenance' });
+    store.postMessage('eng', {
+      author: agent.id, kind: 'ask', body: 'choose',
+      ask: { interaction_id: 'ask-read', kind: 'ask', prompt: 'choose' },
+    });
+    store.postMessage('eng', {
+      author: agent.id, kind: 'approval', body: 'approve',
+      ask: { interaction_id: 'approval-read', kind: 'approval', prompt: 'approve' },
+    });
+    const run = store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: '',
+      run: { status: 'running', started_ts: started, tool_calls: 0, events_ref: 'runs/read.jsonl' },
+    });
+    store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: '<ACK_OK>',
+      ack: true,
+      run: {
+        status: 'completed', started_ts: started, ended_ts: started,
+        tool_calls: 0, events_ref: 'runs/ack.jsonl', final_text: '<ACK_OK>',
+      },
+    });
+
+    expect(store.countUnreadMessages('eng', owner.id)).toBe(1);
+    store.setMessagePinned('eng', incoming.id, true);
+    expect(store.countUnreadMessages('eng', owner.id)).toBe(1);
+
+    store.updateMessage('eng', run.id, {
+      body: 'second result',
+      run: {
+        ...run.run!, status: 'completed', ended_ts: started, final_text: 'second result',
+      },
+    });
+    expect(store.countUnreadMessages('eng', owner.id)).toBe(2);
+
+    store.deleteMessage('eng', incoming.id);
+    expect(store.countUnreadMessages('eng', owner.id)).toBe(1);
+    const read = store.markRoomRead('eng', owner.id, store.currentSeq('eng'));
+    expect(read.read_seq).toBe(store.currentSeq('eng'));
+    expect(store.countUnreadMessages('eng', owner.id)).toBe(0);
+
+    const late = store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: '',
+      run: { status: 'running', started_ts: started, tool_calls: 0, events_ref: 'runs/late.jsonl' },
+    });
+    store.markRoomRead('eng', owner.id, store.currentSeq('eng'));
+    store.updateMessage('eng', late.id, {
+      body: 'arrived after the read edge',
+      run: {
+        ...late.run!, status: 'completed', ended_ts: started,
+        final_text: 'arrived after the read edge',
+      },
+    });
+    expect(store.countUnreadMessages('eng', owner.id)).toBe(1);
+  });
+
+  it('advances monotonically, rejects the future, and clears visible consumed deliveries', () => {
+    const { owner } = openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'coder', display_name: 'Coder', state: 'idle',
+    });
+    const body = 'Need @richard';
+    const message = store.postMessage('eng', {
+      author: agent.id,
+      kind: 'chat',
+      body,
+      mentions: [{ member_id: owner.id, start: 5, end: 13 }],
+    });
+    const delivery = store.createDelivery('eng', {
+      message_id: message.id, recipient: owner.id, state: 'consumed',
+    });
+    const through = store.currentSeq('eng');
+    expect(store.roomSupport('eng', owner.id).inbox.map((item) => item.delivery.id))
+      .toEqual([delivery.id]);
+
+    const first = store.markRoomRead('eng', owner.id, through);
+    expect(first.deliveries.map((item) => item.id)).toEqual([delivery.id]);
+    expect(store.getDelivery('eng', delivery.id)?.read_ts).toBeDefined();
+    expect(store.roomSupport('eng', owner.id).inbox).toEqual([]);
+
+    expect(store.markRoomRead('eng', owner.id, through - 1)).toEqual({
+      read_seq: through,
+      deliveries: [],
+    });
+    expect(store.markRoomRead('eng', owner.id, through)).toEqual({
+      read_seq: through,
+      deliveries: [],
+    });
+    expect(() => store.markRoomRead('eng', owner.id, store.currentSeq('eng') + 1))
+      .toThrow('ahead of current seq');
+    expect(() => store.markRoomRead('eng', agent.id, through)).toThrow('no human member');
+  });
+
+  it('migrates legacy activity and baselines every existing and new human idempotently', () => {
+    const { owner, system } = openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'coder', display_name: 'Coder', state: 'idle',
+    });
+    store.postMessage('eng', { author: agent.id, kind: 'chat', body: 'legacy result' });
+    store.postMessage('eng', { author: system.id, kind: 'system', body: 'legacy notice' });
+    store.postMessage('eng', {
+      author: agent.id, kind: 'run', body: '<ACK_OK>', ack: true,
+      run: {
+        status: 'completed', started_ts: '2026-07-18T10:00:00.000Z',
+        ended_ts: '2026-07-18T10:00:01.000Z', tool_calls: 0,
+        events_ref: 'runs/legacy-ack.jsonl', final_text: '<ACK_OK>',
+      },
+    });
+    const expectedMessages = store.listMessages('eng').length;
+    const expectedSeq = store.currentSeq('eng');
+    const path = join(dir, 'test.sqlite');
+    store.close();
+
+    const legacy = new Database(path);
+    legacy.exec('DROP INDEX IF EXISTS message_unread_activity; DROP TABLE room_read_cursors; ALTER TABLE messages DROP COLUMN activity_seq;');
+    legacy.close();
+
+    store = new Store(path);
+    expect(store.listMessages('eng')).toHaveLength(expectedMessages);
+    expect(store.getRoomReadSeq('eng', owner.id)).toBe(expectedSeq);
+    expect(store.countUnreadMessages('eng', owner.id)).toBe(0);
+    const newcomer = store.addMember('eng', {
+      kind: 'human', handle: 'viewer', display_name: 'Viewer', role: 'observer',
+    });
+    expect(store.getRoomReadSeq('eng', newcomer.id)).toBe(store.currentSeq('eng'));
+    store.close();
+
+    store = new Store(path);
+    expect(store.getRoomReadSeq('eng', owner.id)).toBe(expectedSeq);
+    expect(store.getRoomReadSeq('eng', newcomer.id)).toBe(store.currentSeq('eng'));
+    const migrated = new Database(path, { readonly: true });
+    const activities = migrated.prepare(
+      'SELECT kind, ack, activity_seq FROM messages ORDER BY id',
+    ).all() as { kind: string; ack: number; activity_seq: number | null }[];
+    migrated.close();
+    expect(activities.map((row) => row.activity_seq !== null)).toEqual([true, false, false]);
+  });
+});
+// harn:end human-room-read-cursors-are-durable-and-monotonic
+// harn:end message-activity-drives-unread
+
+// harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-regression
+// harn:assume actionable-inbox-clears-on-read-or-reply ref=actionable-inbox-regression
+// harn:assume addressed-cold-hydration-is-strict-and-legacy-safe ref=addressed-hydration-regression
+describe('recipient-scoped room support and strict addressed hydration', () => {
+  it('keeps routing, live work, interactions, and actionable inbox outside the exact tail', () => {
+    const { owner } = openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'coder', display_name: 'Coder', state: 'running',
+    });
+    const started = '2026-07-18T10:00:00.000Z';
+    const live = store.postMessage('eng', {
+      author: agent.id, kind: 'run', body: '',
+      run: { status: 'running', started_ts: started, tool_calls: 0, events_ref: 'runs/live.jsonl' },
+    });
+    const card = store.postMessage('eng', {
+      author: agent.id, kind: 'ask', body: 'Which path?',
+      ask: { interaction_id: 'support-ask', kind: 'ask', prompt: 'Which path?' },
+    });
+    store.upsertInteraction({
+      id: 'support-ask', room: 'eng', member_id: agent.id, message_id: card.id,
+      native_id: 'native-support-ask', kind: 'ask', targets: [owner.id], state: 'pending',
+    });
+    const mentionBody = 'Review @richard';
+    const mention = store.postMessage('eng', {
+      author: agent.id,
+      kind: 'chat',
+      body: mentionBody,
+      mentions: [{ member_id: owner.id, start: 7, end: 15 }],
+    });
+    const actionable = store.createDelivery('eng', {
+      message_id: mention.id, recipient: owner.id, state: 'consumed',
+    });
+    const untagged = store.postMessage('eng', {
+      author: agent.id, kind: 'chat', body: 'default-routed noise',
+    });
+    store.createDelivery('eng', {
+      message_id: untagged.id, recipient: owner.id, state: 'consumed',
+    });
+    const finalized = store.postMessage('eng', {
+      author: agent.id, kind: 'run', body: 'routing seed',
+      run: {
+        status: 'completed', started_ts: started, ended_ts: started,
+        tool_calls: 0, events_ref: 'runs/final.jsonl', final_text: 'routing seed',
+      },
+    });
+    store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'tail one' });
+    store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'tail two' });
+    store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'tail three' });
+
+    const strict = store.sync('eng', 0, {
+      hydrateLimit: 3, subscriber: owner.id, strictTail: true, supportFor: owner.id,
+    });
+    expect(strict.messages.map((message) => message.body)).toEqual(['tail one', 'tail two', 'tail three']);
+    expect(strict.messages).toHaveLength(3);
+    expect(strict.history_floor).toBe(strict.messages[0]?.id);
+    expect(strict.support?.active_runs.map((message) => message.id)).toEqual([live.id]);
+    expect(strict.support?.interactions.map((message) => message.id)).toEqual([card.id]);
+    expect(strict.support?.latest_finalized_agent_id).toBe(agent.id);
+    expect(strict.support?.inbox.map((item) => item.delivery.id)).toEqual([actionable.id]);
+    expect(strict.support?.inbox[0]).toMatchObject({
+      author_handle: 'coder', message_kind: 'chat', preview: mentionBody,
+    });
+    expect(strict.support?.summary.working).toBe(true);
+    expect(strict.support?.summary.latest?.id).toBe(strict.messages.at(-1)?.id);
+
+    const legacy = store.sync('eng', 0, { hydrateLimit: 3, subscriber: owner.id });
+    expect(legacy.messages.length).toBeGreaterThan(3);
+    expect(legacy.messages.map((message) => message.id)).toContain(live.id);
+    expect(legacy.messages.map((message) => message.id)).toContain(card.id);
+    expect(legacy.messages.map((message) => message.id)).toContain(finalized.id);
+    expect(legacy.support).toBeUndefined();
+  });
+
+  it('removes mention work after a formal self reply and bounds every preview', () => {
+    const { owner } = openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'coder', display_name: 'Coder', state: 'idle',
+    });
+    const body = `@richard ${'x'.repeat(300)}`;
+    const source = store.postMessage('eng', {
+      author: agent.id,
+      kind: 'chat',
+      body,
+      mentions: [{ member_id: owner.id, start: 0, end: 8 }],
+    });
+    store.createDelivery('eng', {
+      message_id: source.id, recipient: owner.id, state: 'consumed',
+    });
+    expect(store.roomSupport('eng', owner.id).inbox[0]?.preview).toHaveLength(140);
+    store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: 'Handled', reply_to: source.id,
+    });
+    expect(store.roomSupport('eng', owner.id).inbox).toEqual([]);
+  });
+});
+// harn:end addressed-cold-hydration-is-strict-and-legacy-safe
+// harn:end actionable-inbox-clears-on-read-or-reply
+// harn:end room-support-is-bounded-recipient-scoped-state

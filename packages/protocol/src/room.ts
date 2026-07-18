@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
-import { RoomIdSchema, TimestampSchema } from './ids.js';
-import { AssignableHandleSchema } from './member.js';
+import { DeliverySchema } from './delivery.js';
+import { MemberIdSchema, RoomIdSchema, TimestampSchema } from './ids.js';
+import { AssignableHandleSchema, MemberKindSchema } from './member.js';
+import { MessageKindSchema, MessageSchema } from './message.js';
 import { PolicySchema, ThinkingLevelSchema } from './adapter.js';
 
 // harn:assume brakes-default-off ref=room-config-brakes
@@ -37,6 +39,55 @@ export const RoomSchema = z.object({
   config: RoomConfigSchema.prefault({}),
 });
 export type Room = z.infer<typeof RoomSchema>;
+
+// harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-protocol
+// harn:assume durable-room-summaries-stream-and-fallback ref=durable-room-summary
+export const RoomSummaryLatestSchema = z.object({
+  id: z.number().int().positive(),
+  ts: TimestampSchema,
+  kind: MessageKindSchema,
+  author_handle: z.string(),
+  author_kind: MemberKindSchema,
+  preview: z.string().max(140),
+});
+export type RoomSummaryLatest = z.infer<typeof RoomSummaryLatestSchema>;
+
+export const RoomSummarySchema = z.object({
+  id: RoomIdSchema,
+  name: z.string().min(1),
+  created_ts: TimestampSchema,
+  color: z.string().min(1).optional(),
+  working: z.boolean(),
+  attention: z.boolean(),
+  latest: RoomSummaryLatestSchema.optional(),
+  unread: z.number().int().nonnegative(),
+});
+export type RoomSummary = z.infer<typeof RoomSummarySchema>;
+
+// harn:assume actionable-inbox-clears-on-read-or-reply ref=actionable-inbox-projection
+export const RoomInboxItemSchema = z.object({
+  delivery: DeliverySchema,
+  author_id: MemberIdSchema,
+  author_handle: z.string(),
+  author_kind: MemberKindSchema,
+  message_kind: MessageKindSchema,
+  preview: z.string().max(140),
+  ts: TimestampSchema,
+});
+export type RoomInboxItem = z.infer<typeof RoomInboxItemSchema>;
+// harn:end actionable-inbox-clears-on-read-or-reply
+
+export const RoomSupportSchema = z.object({
+  room: RoomIdSchema,
+  summary: RoomSummarySchema,
+  latest_finalized_agent_id: MemberIdSchema.optional(),
+  active_runs: z.array(MessageSchema),
+  interactions: z.array(MessageSchema),
+  inbox: z.array(RoomInboxItemSchema),
+});
+export type RoomSupport = z.infer<typeof RoomSupportSchema>;
+// harn:end durable-room-summaries-stream-and-fallback
+// harn:end room-support-is-bounded-recipient-scoped-state
 
 // harn:assume channel-create-request-contract ref=channel-create-request-schema
 export const StartingAgentSchema = z.object({

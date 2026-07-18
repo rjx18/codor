@@ -7,7 +7,7 @@ import { MemberIdSchema, MessageIdSchema, RoomIdSchema, SeqSchema, TimestampSche
 import { AssignableHandleSchema } from './member.js';
 import { MemberSchema } from './member.js';
 import { MessageSchema } from './message.js';
-import { RoomMeterSchema, RoomSchema } from './room.js';
+import { RoomMeterSchema, RoomSchema, RoomSupportSchema } from './room.js';
 
 // ── client → server ────────────────────────────────────────────────────────
 
@@ -60,6 +60,9 @@ export const ActSchema = z.discriminatedUnion('act', [
   z.object({ act: z.literal('redeliver'), delivery_id: z.string().min(1) }),
   z.object({ act: z.literal('release_hold'), delivery_id: z.string().min(1) }),
   z.object({ act: z.literal('mark_read'), delivery_id: z.string().min(1) }),
+  // harn:assume human-room-read-cursors-are-durable-and-monotonic ref=mark-room-read-contract
+  z.object({ act: z.literal('mark_room_read'), through_seq: SeqSchema }),
+  // harn:end human-room-read-cursors-are-durable-and-monotonic
   z.object({
     act: z.literal('join'),
     harness: z.string().min(1),
@@ -247,6 +250,9 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   // harn:end live-delivery-consumption-is-idempotent
   z.object({ type: z.literal('meter'), seq: SeqSchema, meter: RoomMeterSchema }),
   z.object({ type: z.literal('room'), seq: SeqSchema, room: RoomSchema }),
+  // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-protocol
+  z.object({ type: z.literal('room_support'), seq: SeqSchema, support: RoomSupportSchema }),
+  // harn:end room-support-is-bounded-recipient-scoped-state
   // harn:assume sync-cursor-commits-after-hydration ref=sync-complete-frame
   z.object({
     type: z.literal('sync_complete'),

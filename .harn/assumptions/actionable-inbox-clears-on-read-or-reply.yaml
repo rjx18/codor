@@ -1,0 +1,15 @@
+id: actionable-inbox-clears-on-read-or-reply
+hash: a-2881436103da
+title: The human inbox contains only explicit unresolved work and clears on
+  observation or response
+state: active
+statement: RoomSupport inbox items must include only unread consumed deliveries
+  whose source is an ask, approval, or explicit mention of that human, enriched
+  without consulting the transcript cache; mark_read or a room-read position
+  through the source removes the item, and a formal self-authored reply_to the
+  source also removes it, while untagged default-routed traffic never appears as
+  inbox work.
+depends_on:
+  - room-support-is-bounded-recipient-scoped-state
+  - approval-cards-follow-durable-resolution
+created_by: durable-read-support

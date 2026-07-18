@@ -1,0 +1,18 @@
+id: room-support-is-bounded-recipient-scoped-state
+hash: a-d0e763dc4d87
+title: Routing, live work, interactions, inbox, and summaries travel outside
+  transcript history
+state: active
+statement: An addressed human subscription must receive one redacted,
+  recipient-scoped RoomSupport snapshot containing the authoritative room
+  summary, latest finalized non-ack active-agent id, active run rows, pending
+  targeted interaction card rows, and enriched actionable inbox previews;
+  changes stream on that room only when the derived projection changes, and
+  another room, human, agent, or legacy subscriber must never receive or
+  influence it.
+depends_on:
+  - human-room-read-cursors-are-durable-and-monotonic
+  - multiplexed-subscriptions-identify-their-room
+  - redaction-before-fanout
+  - default-recipient-fallback-chain
+created_by: durable-read-support

@@ -1871,7 +1871,7 @@ describe('Phase 3 REST boundaries', () => {
   // harn:end unpaired-browser-always-has-enrollment-path
 });
 
-// harn:assume rail-summary-served-not-guessed ref=rooms-summary-rest
+// harn:assume durable-room-summaries-stream-and-fallback ref=durable-room-summary-regression
 describe('rooms summary', () => {
   it('serves preview, working, attention, and cursor-driven unread per readable room', async () => {
     daemon.postHumanMessage('eng', 'first message');
@@ -1979,8 +1979,40 @@ describe('rooms summary', () => {
       expect(res.status).toBe(400);
     }
   });
+
+  it('serves durable activity unread from the shared projection while preserving legacy cursors', async () => {
+    const { agent, token: agentToken } = spawnAgentWithToken('durable-summary-agent');
+    const message = daemon.postAgentMessage('eng', agent.id, 'a substantive update');
+
+    const durable = await fetch(`${base}/api/rooms/summary?read_state=durable`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(durable.status).toBe(200);
+    const durableBody = await durable.json() as { rooms: { id: string; unread: number }[] };
+    expect(durableBody.rooms.find((room) => room.id === 'eng')?.unread).toBe(1);
+
+    const legacyNoCursor = await fetch(`${base}/api/rooms/summary`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect((await legacyNoCursor.json() as { rooms: { id: string; unread: number }[] }).rooms
+      .find((room) => room.id === 'eng')?.unread).toBe(0);
+    const legacyCursor = await fetch(`${base}/api/rooms/summary?cursors=eng:${String(message.id - 1)}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect((await legacyCursor.json() as { rooms: { id: string; unread: number }[] }).rooms
+      .find((room) => room.id === 'eng')?.unread).toBe(1);
+
+    const agentDurable = await fetch(`${base}/api/rooms/summary?read_state=durable`, {
+      headers: { authorization: `Bearer ${agentToken}` },
+    });
+    expect(agentDurable.status).toBe(400);
+    const badMode = await fetch(`${base}/api/rooms/summary?read_state=browser`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(badMode.status).toBe(400);
+  });
 });
-// harn:end rail-summary-served-not-guessed
+// harn:end durable-room-summaries-stream-and-fallback
 
 describe('git working state endpoint (room-git-state-read-only-from-known-cwds)', () => {
   const initRepo = (): string => {
@@ -2213,6 +2245,191 @@ describe('room-addressed multiplexed subscriptions', () => {
   });
 });
 // harn:end multiplexed-subscriptions-identify-their-room
+
+// harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-regression
+// harn:assume actionable-inbox-clears-on-read-or-reply ref=actionable-inbox-regression
+// harn:assume addressed-cold-hydration-is-strict-and-legacy-safe ref=addressed-hydration-regression
+describe('addressed room support', () => {
+  it('sends exactly the requested tail plus redacted support while legacy keeps every outlier', async () => {
+    const owner = daemon.ownerOf('eng');
+    const agent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'support-agent', cwd: testCwd('support-agent'),
+    });
+    const started = '2026-07-18T10:00:00.000Z';
+    const live = daemon.store.postMessage('eng', {
+      author: agent.id, kind: 'run', body: '',
+      run: { status: 'running', started_ts: started, tool_calls: 0, events_ref: 'runs/support-live.jsonl' },
+    });
+    const card = daemon.store.postMessage('eng', {
+      author: agent.id, kind: 'ask', body: 'Choose a path',
+      ask: { interaction_id: 'server-support-ask', kind: 'ask', prompt: 'Choose a path' },
+    });
+    daemon.store.upsertInteraction({
+      id: 'server-support-ask', room: 'eng', member_id: agent.id, message_id: card.id,
+      native_id: 'server-native-ask', kind: 'ask', targets: [owner.id], state: 'pending',
+    });
+    const secret = 'sk-proj-abcdef1234567890abcdef';
+    const mentionBody = `@richard review ${secret}`;
+    const mention = daemon.store.postMessage('eng', {
+      author: agent.id,
+      kind: 'chat',
+      body: mentionBody,
+      mentions: [{ member_id: owner.id, start: 0, end: 8 }],
+    });
+    daemon.store.createDelivery('eng', {
+      message_id: mention.id, recipient: owner.id, state: 'consumed',
+    });
+    const finalized = daemon.store.postMessage('eng', {
+      author: agent.id, kind: 'run', body: 'routing seed',
+      run: {
+        status: 'completed', started_ts: started, ended_ts: started, tool_calls: 0,
+        events_ref: 'runs/support-final.jsonl', final_text: 'routing seed',
+      },
+    });
+    const tail = ['tail one', 'tail two', 'tail three'].map((body) =>
+      daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body }));
+
+    const addressed = await connect();
+    addressed.ws.send(JSON.stringify({
+      type: 'subscribe', room: 'eng', since_seq: 0,
+      hydrate_limit: 3, room_addressed: true,
+    }));
+    await addressed.next((frame) => frame.type === 'sync_complete' && frame.room === 'eng');
+    const addressedMessages = addressed.frames.filter(
+      (frame): frame is Extract<ServerFrame, { type: 'message' }> => frame.type === 'message',
+    );
+    expect(addressedMessages.map((frame) => frame.message.id)).toEqual(tail.map((message) => message.id));
+    const support = addressed.frames.find(
+      (frame): frame is Extract<ServerFrame, { type: 'room_support' }> => frame.type === 'room_support',
+    );
+    expect(support?.support.active_runs.map((message) => message.id)).toEqual([live.id]);
+    expect(support?.support.interactions.map((message) => message.id)).toEqual([card.id]);
+    expect(support?.support.latest_finalized_agent_id).toBe(agent.id);
+    expect(support?.support.inbox).toHaveLength(1);
+    expect(support?.support.inbox[0]?.preview).toContain('[redacted]');
+    expect(JSON.stringify(support)).not.toContain(secret);
+    addressed.ws.close();
+
+    const legacy = await connect();
+    legacy.ws.send(JSON.stringify({
+      type: 'subscribe', room: 'eng', since_seq: 0, hydrate_limit: 3,
+    }));
+    await legacy.next((frame) => frame.type === 'sync_complete');
+    const legacyIds = legacy.frames
+      .filter((frame): frame is Extract<ServerFrame, { type: 'message' }> => frame.type === 'message')
+      .map((frame) => frame.message.id);
+    expect(legacyIds.length).toBeGreaterThan(3);
+    expect(legacyIds).toEqual(expect.arrayContaining([live.id, card.id, mention.id, finalized.id]));
+    expect(legacy.frames.some((frame) => frame.type === 'room_support')).toBe(false);
+    legacy.ws.close();
+  });
+
+  it('streams two rooms without polling and suppresses irrelevant member changes', async () => {
+    daemon.createRoom({
+      id: 'other', name: 'Other', owner: { handle: 'other-owner', display_name: 'Other Owner' },
+    });
+    const engAgent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'quiet-agent', cwd: testCwd('quiet-agent'),
+    });
+    const otherAgent = daemon.spawnMember('other', {
+      harness: 'fake', handle: 'other-agent', cwd: testCwd('other-agent'),
+    });
+    const client = await connect();
+    for (const room of ['eng', 'other']) {
+      client.ws.send(JSON.stringify({
+        type: 'subscribe', room, since_seq: 0, hydrate_limit: 3, room_addressed: true,
+      }));
+      await client.next((frame) => frame.type === 'sync_complete' && frame.room === room);
+    }
+    const engSupportBefore = client.frames.filter(
+      (frame) => frame.type === 'room_support' && frame.support.room === 'eng',
+    ).length;
+
+    daemon.postAgentMessage('other', otherAgent.id, 'background project result');
+    const streamed = await client.next((frame) =>
+      frame.type === 'room_support'
+      && frame.support.room === 'other'
+      && frame.support.summary.unread === 1);
+    expect(streamed).toMatchObject({ type: 'room_support', support: { room: 'other' } });
+
+    const memberFramesBefore = client.frames.filter(
+      (frame) => frame.type === 'member' && frame.member.id === engAgent.id,
+    ).length;
+    daemon.configureMember('eng', engAgent.id, {});
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(client.frames.filter(
+      (frame) => frame.type === 'member' && frame.member.id === engAgent.id,
+    ).length).toBeGreaterThan(memberFramesBefore);
+    expect(client.frames.filter(
+      (frame) => frame.type === 'room_support' && frame.support.room === 'eng',
+    )).toHaveLength(engSupportBefore);
+    client.ws.close();
+  });
+
+  it('converges paired sockets, isolates another human, clears inbox, and refuses agents', async () => {
+    const { agent, token: agentToken } = spawnAgentWithToken('support-principal-agent');
+    const ownerA = await connect();
+    const ownerB = await connect();
+    const observerClient = await connectAs(OBSERVER_TOKEN);
+    for (const client of [ownerA, ownerB, observerClient]) {
+      client.ws.send(JSON.stringify({
+        type: 'subscribe', room: 'eng', since_seq: 0, hydrate_limit: 3, room_addressed: true,
+      }));
+      await client.next((frame) => frame.type === 'sync_complete' && frame.room === 'eng');
+    }
+
+    daemon.postAgentMessage('eng', agent.id, '@richard needs review');
+    for (const client of [ownerA, ownerB]) {
+      const support = await client.next((frame) =>
+        frame.type === 'room_support'
+        && frame.support.room === 'eng'
+        && frame.support.summary.unread === 1
+        && frame.support.inbox.length === 1);
+      expect(support).toBeDefined();
+    }
+    const observerSupport = await observerClient.next((frame) =>
+      frame.type === 'room_support'
+      && frame.support.room === 'eng'
+      && frame.support.summary.unread === 1);
+    expect(observerSupport.type === 'room_support' && observerSupport.support.inbox).toEqual([]);
+
+    const throughSeq = daemon.store.currentSeq('eng');
+    ownerA.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'mark_room_read', through_seq: throughSeq },
+    }));
+    for (const client of [ownerA, ownerB]) {
+      const cleared = await client.next((frame) =>
+        frame.type === 'room_support'
+        && frame.seq > 0
+        && frame.support.room === 'eng'
+        && frame.support.summary.unread === 0
+        && frame.support.inbox.length === 0);
+      expect(cleared).toBeDefined();
+    }
+    expect(daemon.roomSupport('eng', observer.id).summary.unread).toBe(1);
+
+    const agentClient = await connectAs(agentToken);
+    agentClient.ws.send(JSON.stringify({
+      type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true,
+    }));
+    await agentClient.next((frame) => frame.type === 'sync_complete' && frame.room === 'eng');
+    expect(agentClient.frames.some((frame) => frame.type === 'room_support')).toBe(false);
+    agentClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', act: { act: 'mark_room_read', through_seq: throughSeq },
+    }));
+    expect(await agentClient.next((frame) =>
+      frame.type === 'error' && frame.message.includes('agent cannot mark room read')))
+      .toMatchObject({ type: 'error', ref: 'act' });
+
+    ownerA.ws.close();
+    ownerB.ws.close();
+    observerClient.ws.close();
+    agentClient.ws.close();
+  });
+});
+// harn:end addressed-cold-hydration-is-strict-and-legacy-safe
+// harn:end actionable-inbox-clears-on-read-or-reply
+// harn:end room-support-is-bounded-recipient-scoped-state
 
 describe('bounded cold hydration (subscribe)', () => {
   const seedTail = (count: number): number[] => {

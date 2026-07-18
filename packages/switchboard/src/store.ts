@@ -21,9 +21,12 @@ import {
   type Room,
   type RoomConfig,
   RoomConfigSchema,
+  type RoomInboxItem,
   type RoomMeter,
   RoomMeterSchema,
   RoomSchema,
+  type RoomSupport,
+  RoomSupportSchema,
   type RunSummary,
   deriveRoomColor,
 } from '@codor/protocol';
@@ -48,6 +51,7 @@ import {
 // one-message-per-run structural.
 // harn:assume attach-custody-lease-tracks-child-pid ref=attach-lease-store
 // harn:assume collaboration-groups-are-durable-state ref=collaboration-store-schema
+// harn:assume message-activity-drives-unread ref=message-activity-storage
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
@@ -99,6 +103,7 @@ CREATE TABLE IF NOT EXISTS messages (
   deleted INTEGER NOT NULL DEFAULT 0,
   ts TEXT NOT NULL,
   seq INTEGER NOT NULL,
+  activity_seq INTEGER,
   PRIMARY KEY (room, id)
 );
 CREATE TABLE IF NOT EXISTS deliveries (
@@ -200,6 +205,7 @@ CREATE TABLE IF NOT EXISTS changes (
   PRIMARY KEY (room_id, seq)
 );
 `;
+// harn:end message-activity-drives-unread
 // harn:end collaboration-groups-are-durable-state
 // harn:end attach-custody-lease-tracks-child-pid
 // harn:end run-blobs-off-db
@@ -376,6 +382,51 @@ function migrateMessageAttachments(db: Database.Database): void {
   }
 }
 
+// harn:assume message-activity-drives-unread ref=message-activity-storage
+function migrateMessageActivity(db: Database.Database): void {
+  const columns = db.pragma('table_info(messages)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'activity_seq')) {
+    db.exec('ALTER TABLE messages ADD COLUMN activity_seq INTEGER');
+  }
+  db.exec(`
+    UPDATE messages
+    SET activity_seq = seq
+    WHERE activity_seq IS NULL
+      AND deleted = 0
+      AND ack = 0
+      AND (
+        kind = 'chat'
+        OR (
+          kind = 'run'
+          AND run IS NOT NULL
+          AND json_extract(run, '$.status') <> 'running'
+        )
+      );
+    CREATE INDEX IF NOT EXISTS message_unread_activity
+      ON messages (room, activity_seq) WHERE activity_seq IS NOT NULL;
+  `);
+}
+// harn:end message-activity-drives-unread
+
+// harn:assume human-room-read-cursors-are-durable-and-monotonic ref=durable-room-read-storage
+function migrateRoomReadCursors(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS room_read_cursors (
+      room TEXT NOT NULL REFERENCES rooms(id),
+      member_id TEXT NOT NULL REFERENCES members(id),
+      read_seq INTEGER NOT NULL,
+      updated_ts TEXT NOT NULL,
+      PRIMARY KEY (room, member_id)
+    );
+    INSERT OR IGNORE INTO room_read_cursors (room, member_id, read_seq, updated_ts)
+    SELECT members.room, members.id, rooms.seq, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    FROM members
+    JOIN rooms ON rooms.id = members.room
+    WHERE members.kind = 'human';
+  `);
+}
+// harn:end human-room-read-cursors-are-durable-and-monotonic
+
 // harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-migration
 function migrateApprovalDeliveryResolution(db: Database.Database): void {
   const columns = db.pragma('table_info(deliveries)') as { name: string }[];
@@ -465,6 +516,14 @@ const fromBool = (b: boolean): number => (b ? 1 : 0);
 const orNull = <T>(v: T | undefined): T | null => (v === undefined ? null : v);
 const jsonOrNull = (v: unknown): string | null => (v === undefined ? null : JSON.stringify(v));
 
+const messageDrivesUnread = (message: Message): boolean =>
+  message.deleted !== true
+  && message.ack !== true
+  && (
+    message.kind === 'chat'
+    || (message.kind === 'run' && message.run !== undefined && message.run.status !== 'running')
+  );
+
 interface MemberRow {
   id: string;
   room: string;
@@ -509,6 +568,7 @@ interface MessageRow {
   deleted: number;
   ts: string;
   seq: number;
+  activity_seq: number | null;
 }
 
 interface DeliveryRow {
@@ -774,6 +834,7 @@ export interface SyncResult {
   members: Member[];
   inbox: Delivery[];
   meters: RoomMeter[];
+  support?: RoomSupport;
 }
 
 export interface FanoutDelivery {
@@ -863,6 +924,8 @@ export class Store {
     migrateMessagePinned(this.db);
     migrateMessageDeleted(this.db);
     migrateMessageAttachments(this.db);
+    migrateMessageActivity(this.db);
+    migrateRoomReadCursors(this.db);
     migrateApprovalDeliveryResolution(this.db);
     migrateDeliveryHopCount(this.db);
     migrateMeterUncostedTokens(this.db);
@@ -989,7 +1052,16 @@ export class Store {
         fromBool(validated.roster_stale),
         orNull(validated.removed_ts),
       );
-    this.appendChange(room, 'member', validated.id);
+    const seq = this.appendChange(room, 'member', validated.id);
+    // harn:assume human-room-read-cursors-are-durable-and-monotonic ref=durable-room-read-storage
+    if (validated.kind === 'human') {
+      this.db.prepare(
+        `INSERT INTO room_read_cursors (room, member_id, read_seq, updated_ts)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (room, member_id) DO NOTHING`,
+      ).run(room, validated.id, seq, new Date().toISOString());
+    }
+    // harn:end human-room-read-cursors-are-durable-and-monotonic
     return validated;
   }
 
@@ -1323,11 +1395,13 @@ export class Store {
         ts: new Date().toISOString(),
         seq,
       });
+      // harn:assume message-activity-drives-unread ref=message-activity-storage
+      const activitySeq = messageDrivesUnread(validated) ? seq : null;
       this.db
         .prepare(
           `INSERT INTO messages (room, id, author, kind, body, mentions, refs, ledger_refs,
-             reply_to, run, ask, origin, attachments, ack, pinned, deleted, ts, seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             reply_to, run, ask, origin, attachments, ack, pinned, deleted, ts, seq, activity_seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           room,
@@ -1348,7 +1422,9 @@ export class Store {
           fromBool(validated.deleted === true),
           validated.ts,
           validated.seq,
+          activitySeq,
         );
+      // harn:end message-activity-drives-unread
       return validated;
     })();
   }
@@ -1493,10 +1569,19 @@ export class Store {
       if (!existing) throw new Error(`no such message: #${id}`);
       const seq = this.appendChange(room, 'message', String(id));
       const merged = MessageSchema.parse({ ...existing, ...patch, seq });
+      // harn:assume message-activity-drives-unread ref=message-activity-storage
+      const storedActivity = this.db.prepare(
+        'SELECT activity_seq FROM messages WHERE room = ? AND id = ?',
+      ).get(room, id) as { activity_seq: number | null };
+      const activitySeq = !messageDrivesUnread(merged)
+        ? null
+        : merged.kind === 'chat'
+          ? (storedActivity.activity_seq ?? seq)
+          : seq;
       this.db
         .prepare(
           `UPDATE messages SET body = ?, mentions = ?, refs = ?, ledger_refs = ?,
-             run = ?, ask = ?, ack = ?, seq = ?
+             run = ?, ask = ?, ack = ?, seq = ?, activity_seq = ?
            WHERE room = ? AND id = ?`,
         )
         .run(
@@ -1508,9 +1593,11 @@ export class Store {
           jsonOrNull(merged.ask),
           fromBool(merged.ack === true),
           seq,
+          activitySeq,
           room,
           id,
         );
+      // harn:end message-activity-drives-unread
       return merged;
     })();
   }
@@ -1599,7 +1686,7 @@ export class Store {
       .run(contextWindow, room, id);
   }
 
-  // harn:assume rail-summary-served-not-guessed ref=rooms-summary-store-queries
+  // harn:assume durable-room-summaries-stream-and-fallback ref=durable-room-summary
   /** Newest message in a room — the rail preview's single source. */
   latestMessage(room: string, options: { ignoreAcks?: boolean } = {}): Message | undefined {
     const row = this.db
@@ -1612,15 +1699,203 @@ export class Store {
     return row ? messageFromRow(row) : undefined;
   }
 
-  /** Unread arithmetic against a CALLER-provided cursor; the store keeps no
-   *  per-viewer read state of its own. */
+  /** Legacy caller-cursor arithmetic retained until every client opts into
+   *  durable room support. */
   countMessagesAfter(room: string, afterId: number): number {
     const row = this.db
       .prepare('SELECT COUNT(*) AS n FROM messages WHERE room = ? AND id > ?')
       .get(room, afterId) as { n: number };
     return row.n;
   }
-  // harn:end rail-summary-served-not-guessed
+  // harn:end durable-room-summaries-stream-and-fallback
+
+  // harn:assume human-room-read-cursors-are-durable-and-monotonic ref=durable-room-read-storage
+  getRoomReadSeq(room: string, memberId: string): number {
+    const member = this.getMember(room, memberId);
+    if (member?.kind !== 'human') throw new Error(`no human member ${memberId} in ${room}`);
+    const row = this.db.prepare(
+      'SELECT read_seq FROM room_read_cursors WHERE room = ? AND member_id = ?',
+    ).get(room, memberId) as { read_seq: number } | undefined;
+    if (!row) throw new Error(`human member ${memberId} has no room read cursor`);
+    return row.read_seq;
+  }
+
+  markRoomRead(
+    room: string,
+    memberId: string,
+    throughSeq: number,
+  ): { read_seq: number; deliveries: Delivery[] } {
+    return this.db.transaction(() => {
+      if (!Number.isInteger(throughSeq) || throughSeq < 0) {
+        throw new Error('room read seq must be a non-negative integer');
+      }
+      const roomSeq = this.currentSeq(room);
+      if (throughSeq > roomSeq) {
+        throw new Error(`room read seq ${throughSeq} is ahead of current seq ${roomSeq}`);
+      }
+      const previous = this.getRoomReadSeq(room, memberId);
+      const readSeq = Math.max(previous, throughSeq);
+      if (readSeq > previous) {
+        this.db.prepare(
+          `UPDATE room_read_cursors SET read_seq = ?, updated_ts = ?
+           WHERE room = ? AND member_id = ?`,
+        ).run(readSeq, new Date().toISOString(), room, memberId);
+      }
+
+      const candidates = this.db.prepare(
+        `SELECT deliveries.id
+         FROM deliveries
+         JOIN messages ON messages.room = deliveries.room
+          AND messages.id = deliveries.message_id
+         WHERE deliveries.room = ?
+           AND deliveries.recipient = ?
+           AND deliveries.state = 'consumed'
+           AND deliveries.read_ts IS NULL
+           AND messages.seq <= ?
+         ORDER BY deliveries.queue_seq, deliveries.id`,
+      ).all(room, memberId, readSeq) as { id: string }[];
+      const readTs = new Date().toISOString();
+      const deliveries = candidates.map(({ id }) =>
+        this.updateDelivery(room, id, { read_ts: readTs }));
+      return { read_seq: readSeq, deliveries };
+    })();
+  }
+  // harn:end human-room-read-cursors-are-durable-and-monotonic
+
+  // harn:assume message-activity-drives-unread ref=message-activity-storage
+  countUnreadMessages(room: string, memberId: string): number {
+    const readSeq = this.getRoomReadSeq(room, memberId);
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS n
+       FROM messages
+       WHERE room = ?
+         AND deleted = 0
+         AND activity_seq IS NOT NULL
+         AND activity_seq > ?
+         AND author <> ?`,
+    ).get(room, readSeq, memberId) as { n: number };
+    return row.n;
+  }
+  // harn:end message-activity-drives-unread
+
+  // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-projection
+  // harn:assume actionable-inbox-clears-on-read-or-reply ref=actionable-inbox-projection
+  private actionableInbox(room: string, memberId: string): RoomInboxItem[] {
+    const rows = this.db.prepare(
+      `SELECT deliveries.*
+       FROM deliveries
+       JOIN messages ON messages.room = deliveries.room
+        AND messages.id = deliveries.message_id
+       WHERE deliveries.room = ?
+         AND deliveries.recipient = ?
+         AND deliveries.state = 'consumed'
+         AND deliveries.read_ts IS NULL
+         AND messages.deleted = 0
+         AND (
+           messages.kind IN ('ask', 'approval')
+           OR EXISTS (
+             SELECT 1 FROM json_each(messages.mentions) AS mention
+             WHERE json_extract(mention.value, '$.member_id') = ?
+           )
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM messages AS reply
+           WHERE reply.room = messages.room
+             AND reply.reply_to = messages.id
+             AND reply.author = ?
+             AND reply.deleted = 0
+         )
+       ORDER BY deliveries.queue_seq DESC, deliveries.id DESC`,
+    ).all(room, memberId, memberId, memberId) as DeliveryRow[];
+
+    return rows.flatMap((row) => {
+      const delivery = deliveryFromRow(row);
+      const message = this.getMessage(room, delivery.message_id);
+      if (!message) return [];
+      const author = this.getMember(room, message.author);
+      if (!author) return [];
+      return [{
+        delivery,
+        author_id: author.id,
+        author_handle: author.handle,
+        author_kind: author.kind,
+        message_kind: message.kind,
+        preview: (message.body.split('\n', 1)[0] ?? '').slice(0, 140),
+        ts: message.ts,
+      } satisfies RoomInboxItem];
+    });
+  }
+  // harn:end actionable-inbox-clears-on-read-or-reply
+
+  roomSupport(room: string, memberId: string): RoomSupport {
+    const viewer = this.getMember(room, memberId);
+    if (viewer?.kind !== 'human') throw new Error(`no human member ${memberId} in ${room}`);
+    const roomRow = this.getRoom(room);
+    if (!roomRow) throw new Error(`no such room: ${room}`);
+    const members = this.listMembers(room);
+    const latest = this.latestMessage(room, { ignoreAcks: true });
+    const latestRun = this.listRunMessages(room, { limit: 1 })[0];
+    const latestAuthor = latest ? this.getMember(room, latest.author) : undefined;
+    const latestRunAuthor = latestRun
+      ? this.getMember(room, latestRun.author)
+      : undefined;
+    const working = members.some(
+      (member) => member.kind === 'agent'
+        && (member.state === 'running' || member.state === 'queued'),
+    );
+
+    const activeRows = this.db.prepare(
+      `SELECT * FROM messages
+       WHERE room = ? AND deleted = 0 AND kind = 'run'
+         AND json_extract(run, '$.status') = 'running'
+       ORDER BY id`,
+    ).all(room) as MessageRow[];
+    const interactionRows = this.db.prepare(
+      `SELECT messages.*
+       FROM pending_interactions
+       JOIN messages ON messages.room = pending_interactions.room
+        AND messages.id = pending_interactions.message_id
+       WHERE pending_interactions.room = ?
+         AND pending_interactions.state = 'pending'
+         AND messages.deleted = 0
+         AND EXISTS (
+           SELECT 1 FROM json_each(pending_interactions.targets) AS target
+           WHERE target.value = ?
+         )
+       ORDER BY messages.id`,
+    ).all(room, memberId) as MessageRow[];
+
+    return RoomSupportSchema.parse({
+      room,
+      summary: {
+        id: roomRow.id,
+        name: roomRow.name,
+        created_ts: roomRow.created_ts,
+        color: roomRow.config.color,
+        working,
+        attention: !working
+          && latestRun?.run?.status === 'failed'
+          && latestRunAuthor?.kind === 'agent'
+          && latestRunAuthor.state === 'dead',
+        ...(latest !== undefined && {
+          latest: {
+            id: latest.id,
+            ts: latest.ts,
+            kind: latest.kind,
+            author_handle: latestAuthor?.handle ?? '',
+            author_kind: latestAuthor?.kind ?? 'human',
+            preview: (latest.body.split('\n', 1)[0] ?? '').slice(0, 140),
+          },
+        }),
+        unread: this.countUnreadMessages(room, memberId),
+      },
+      latest_finalized_agent_id: this.latestFinalizedAgentAuthor(room),
+      active_runs: activeRows.map(messageFromRow),
+      interactions: interactionRows.map(messageFromRow),
+      inbox: this.actionableInbox(room, memberId),
+    });
+  }
+  // harn:end room-support-is-bounded-recipient-scoped-state
 
   // harn:assume permalink-ids-stable ref=message-history-search
   listMessages(room: string, opts: { limit?: number; before?: number } = {}): Message[] {
@@ -3046,7 +3321,12 @@ export class Store {
   sync(
     room: string,
     sinceSeq: number,
-    opts: { hydrateLimit?: number; subscriber?: string } = {},
+    opts: {
+      hydrateLimit?: number;
+      subscriber?: string;
+      strictTail?: boolean;
+      supportFor?: string;
+    } = {},
   ): SyncResult {
     return this.db.transaction(() => {
       const seq = this.currentSeq(room);
@@ -3056,7 +3336,15 @@ export class Store {
       if (sinceSeq === 0 && opts.hydrateLimit !== undefined) {
         const roomRow = this.getRoom(room);
         if (!roomRow) throw new Error(`no such room: ${room}`);
-        return this.boundedColdSnapshot(room, roomRow, seq, opts.hydrateLimit, opts.subscriber);
+        return this.boundedColdSnapshot(
+          room,
+          roomRow,
+          seq,
+          opts.hydrateLimit,
+          opts.subscriber,
+          opts.strictTail === true,
+          opts.supportFor,
+        );
       }
       const changes = this.getChangesSince(room, sinceSeq);
       const wanted = new Map<ChangeEntity, Set<string>>();
@@ -3082,18 +3370,20 @@ export class Store {
         meters: [...(wanted.get('meter') ?? [])]
           .map((day) => this.getMeter(room, day))
           .filter((meter): meter is RoomMeter => meter !== undefined),
+        ...(opts.supportFor !== undefined && {
+          support: this.roomSupport(room, opts.supportFor),
+        }),
       };
     })();
   }
   // harn:end sync-cursor-commits-after-hydration
 
-  // harn:assume cold-hydration-is-bounded-and-atomic ref=bounded-cold-hydration-contract
+  // harn:assume addressed-cold-hydration-is-strict-and-legacy-safe ref=addressed-hydration-contract
   /**
-   * A cold viewer's bounded snapshot, built INSIDE sync()'s transaction and
-   * bounded at the query — never fetch-all-then-filter, which is the
-   * amplification that made the transcript crawl and mounted every historical
-   * run. It serves the contiguous tail of the last N messages plus the outliers
-   * a bound would otherwise silently drop:
+   * A cold viewer's bounded snapshot, built INSIDE sync()'s transaction. An
+   * addressed subscriber gets exactly the contiguous tail and a separate
+   * support projection. A legacy subscriber keeps the prior outlier-bearing
+   * shape until the client cutover:
    *   - every running run, so a live turn renders however old it is;
    *   - the cards of unresolved interactions, so an ask that scrolled past the
    *     tail is still answerable;
@@ -3110,6 +3400,8 @@ export class Store {
     seq: number,
     limit: number,
     subscriber?: string,
+    strictTail = false,
+    supportFor?: string,
   ): SyncResult {
     const tail = (this.db
       .prepare('SELECT * FROM messages WHERE room = ? ORDER BY id DESC LIMIT ?')
@@ -3125,44 +3417,46 @@ export class Store {
       }
     };
 
-    includeOutliers(this.db
-      .prepare(
-        `SELECT * FROM messages
-          WHERE room = ? AND kind = 'run' AND json_extract(run, '$.status') = 'running'`,
-      )
-      .all(room) as MessageRow[]);
+    if (!strictTail) {
+      includeOutliers(this.db
+        .prepare(
+          `SELECT * FROM messages
+            WHERE room = ? AND kind = 'run' AND json_extract(run, '$.status') = 'running'`,
+        )
+        .all(room) as MessageRow[]);
 
-    includeOutliers(this.db
-      .prepare(
-        `SELECT messages.* FROM messages
-           JOIN pending_interactions ON pending_interactions.room = messages.room
-            AND pending_interactions.message_id = messages.id
-          WHERE messages.room = ? AND pending_interactions.state IN ('pending', 'answered')`,
-      )
-      .all(room) as MessageRow[]);
-
-    if (subscriber !== undefined) {
       includeOutliers(this.db
         .prepare(
           `SELECT messages.* FROM messages
-             JOIN deliveries ON deliveries.room = messages.room
-              AND deliveries.message_id = messages.id
-            WHERE messages.room = ? AND deliveries.recipient = ?
-              AND deliveries.read_ts IS NULL AND deliveries.state = 'consumed'`,
+             JOIN pending_interactions ON pending_interactions.room = messages.room
+              AND pending_interactions.message_id = messages.id
+            WHERE messages.room = ? AND pending_interactions.state IN ('pending', 'answered')`,
         )
-        .all(room, subscriber) as MessageRow[]);
-    }
+        .all(room) as MessageRow[]);
 
-    includeOutliers(this.db
-      .prepare(
-        `SELECT messages.* FROM messages
-           JOIN members ON members.room = messages.room AND members.id = messages.author
-          WHERE messages.room = ? AND messages.kind = 'run' AND members.kind = 'agent'
-            AND members.removed_ts IS NULL AND messages.ack = 0
-            AND json_extract(messages.run, '$.status') <> 'running'
-          ORDER BY messages.id DESC LIMIT 1`,
-      )
-      .all(room) as MessageRow[]);
+      if (subscriber !== undefined) {
+        includeOutliers(this.db
+          .prepare(
+            `SELECT messages.* FROM messages
+               JOIN deliveries ON deliveries.room = messages.room
+                AND deliveries.message_id = messages.id
+              WHERE messages.room = ? AND deliveries.recipient = ?
+                AND deliveries.read_ts IS NULL AND deliveries.state = 'consumed'`,
+          )
+          .all(room, subscriber) as MessageRow[]);
+      }
+
+      includeOutliers(this.db
+        .prepare(
+          `SELECT messages.* FROM messages
+             JOIN members ON members.room = messages.room AND members.id = messages.author
+            WHERE messages.room = ? AND messages.kind = 'run' AND members.kind = 'agent'
+              AND members.removed_ts IS NULL AND messages.ack = 0
+              AND json_extract(messages.run, '$.status') <> 'running'
+            ORDER BY messages.id DESC LIMIT 1`,
+        )
+        .all(room) as MessageRow[]);
+    }
 
     const latestMeter = this.db
       .prepare('SELECT * FROM meters WHERE room = ? ORDER BY day DESC LIMIT 1')
@@ -3178,9 +3472,10 @@ export class Store {
       members: this.listMembers(room, { includeRemoved: true }),
       inbox: this.listDeliveries(room),
       meters: latestMeter ? [meterFromRow(latestMeter)] : [],
+      ...(supportFor !== undefined && { support: this.roomSupport(room, supportFor) }),
     };
   }
-  // harn:end cold-hydration-is-bounded-and-atomic
+  // harn:end addressed-cold-hydration-is-strict-and-legacy-safe
 
   // ── helpers ───────────────────────────────────────────────────────────
 

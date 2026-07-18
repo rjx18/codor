@@ -877,6 +877,7 @@ describe('WS client frames', () => {
     ['redeliver', { act: 'redeliver', delivery_id: 'd' }],
     ['release_hold', { act: 'release_hold', delivery_id: 'd' }],
     ['mark_read', { act: 'mark_read', delivery_id: 'd' }],
+    ['mark_room_read', { act: 'mark_room_read', through_seq: 42 }],
     ['join', { act: 'join', harness: 'codex', handle: 'planner', session_ref: 's-1', cwd: '/w' }],
     ['adopt', { act: 'adopt', member_id: ULID_A }],
     ['attach_acquire', { act: 'attach_acquire', member_id: ULID_A, cli_pid: 123 }],
@@ -898,6 +899,15 @@ describe('WS client frames', () => {
   it.each(acts)('accepts act %s', (_name, act) => {
     expect(ClientFrameSchema.safeParse({ type: 'act', room: 'r', act }).success).toBe(true);
   });
+
+  // harn:assume human-room-read-cursors-are-durable-and-monotonic ref=durable-room-read-regression
+  it('requires a nonnegative room seq for mark_room_read', () => {
+    expect(ActSchema.parse({ act: 'mark_room_read', through_seq: 0 }))
+      .toEqual({ act: 'mark_room_read', through_seq: 0 });
+    expect(ActSchema.safeParse({ act: 'mark_room_read', through_seq: -1 }).success).toBe(false);
+    expect(ActSchema.safeParse({ act: 'mark_room_read', through_seq: 1.5 }).success).toBe(false);
+  });
+  // harn:end human-room-read-cursors-are-durable-and-monotonic
 
   it('rejects spawning or renaming onto a reserved handle', () => {
     expect(
@@ -976,6 +986,22 @@ describe('WS server frames', () => {
       },
     ],
     ['room', { type: 'room', seq: 5, room: { id: 'r', name: 'R', created_ts: TS, config: {} } }],
+    [
+      'room_support',
+      {
+        type: 'room_support',
+        seq: 5,
+        support: {
+          room: 'r',
+          summary: {
+            id: 'r', name: 'R', created_ts: TS, working: false, attention: false, unread: 0,
+          },
+          active_runs: [],
+          interactions: [],
+          inbox: [],
+        },
+      },
+    ],
     ['sync_complete', { type: 'sync_complete', seq: 6 }],
     [
       'run_event',
@@ -1031,6 +1057,38 @@ describe('WS server frames', () => {
     expect(ServerFrameSchema.parse({ type: 'sync_complete', seq: 6, history_floor: 41 }))
       .toHaveProperty('history_floor', 41);
   });
+
+  // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-regression
+  it('bounds enriched inbox previews inside recipient-scoped room support', () => {
+    const support = {
+      type: 'room_support',
+      seq: 9,
+      support: {
+        room: 'r',
+        summary: {
+          id: 'r', name: 'R', created_ts: TS, working: true, attention: false, unread: 2,
+        },
+        latest_finalized_agent_id: ULID_B,
+        active_runs: [],
+        interactions: [],
+        inbox: [{
+          delivery: {
+            id: 'd', room: 'r', message_id: 1, recipient: ULID_A, state: 'consumed', ts: TS,
+          },
+          author_id: ULID_B,
+          author_handle: 'codex',
+          author_kind: 'agent',
+          message_kind: 'chat',
+          preview: 'needs review',
+          ts: TS,
+        }],
+      },
+    };
+    expect(ServerFrameSchema.safeParse(support).success).toBe(true);
+    support.support.inbox[0]!.preview = 'x'.repeat(141);
+    expect(ServerFrameSchema.safeParse(support).success).toBe(false);
+  });
+  // harn:end room-support-is-bounded-recipient-scoped-state
 
   // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-protocol-regression
   it('accepts optional room ids on only the ambiguous subscription frames', () => {
