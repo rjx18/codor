@@ -1,0 +1,98 @@
+id: graceful-shutdown-requeue
+title: Graceful shutdown re-queues the deliveries of the turns it interrupts.
+notes: >-
+  Live-fire follow-up to shutdown-interrupted-requeue (#492): the first
+  restart under the new build still ate fable's in-flight turn. Diagnosis
+  (verified against the live store): the boot requeue only triggers on
+  runs still `running` at startup - the CRASH shape - but a systemd
+  restart is a graceful SIGTERM, and Daemon.close() interrupts every live
+  session through the same adapter path the Stop button uses, so runs are
+  already finalized `interrupted` one second before the store closes
+  (run 491 ended_ts 12:08:27.566, boot 12:08:28). At boot nothing is
+  `running`, the loop finds nothing, and the delivery stays consumed. The
+  boot loop cannot be widened to interrupted runs, because at boot an
+  operator's deliberate Stop is indistinguishable from shutdown
+  collateral - and a Stop must never cause a re-take.
+
+  Change (Daemon.close, non-force branch): close() knows its interrupts
+  are lifecycle-caused, so it heals them itself. Before interrupting the
+  live sessions it snapshots, per room, the deliveries bound to in-flight
+  runs (state consumed or delivering with run_msg_id set to one); after
+  settle() finalizes those runs, it re-queues the snapshot through the
+  same mechanics as the boot loop - state queued, run binding cleared,
+  attempt_count PRESERVED, the existing ceiling fence with its system
+  message, deleted-trigger deliveries skipped - so the next boot's
+  ordinary drain re-takes them. The requeue logic is extracted into one
+  private helper shared by close() and the boot loop; the boot loop stays
+  exactly as shipped for true crashes. Operator interruptMember is
+  untouched - close() calls adapter.interrupt directly and never marks
+  operatorInterrupts, so the seams stay distinct.
+
+  The day-old assumption retires and returns as
+  lifecycle-interrupted-deliveries-requeue stating both seams and the
+  operator exclusion.
+
+  Tests: daemon - graceful close with an in-flight consumed delivery,
+  reopened over the same store: the delivery is queued (attempt count
+  preserved) and feeds a fresh completing run; force close leaves the
+  crash shape and the existing boot-loop test keeps covering it; an
+  operator interruptMember followed by close and reopen does NOT re-queue
+  that turn's delivery; the ceiling fence and deleted-trigger skips hold
+  at the close() seam too. Gate: switchboard suite green; full workspace
+  build green.
+assumptions:
+  reviewed:
+    - id: redeliver-interrupts-stranded-run
+      outcome: unchanged
+      reason: Both seams reuse the redeliver mechanics without touching the
+        operator-facing act or its stranded-run retirement.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: A requeued delivery re-delivers its snapshotted payload at
+        either seam.
+    - id: deleted-messages-purge-rows-and-files
+      outcome: unchanged
+      reason: Both seams skip deliveries whose trigger message was deleted; a
+        purge stays purged.
+  retire:
+    - id: shutdown-interrupted-deliveries-requeue
+      reason: The statement only covered the boot/crash seam; live fire
+        proved graceful shutdown finalizes runs before the store closes,
+        so the contract continues under
+        lifecycle-interrupted-deliveries-requeue covering both seams and
+        the operator exclusion.
+  create:
+    - id: lifecycle-interrupted-deliveries-requeue
+      title: Turns interrupted by the daemon's own lifecycle re-queue their
+        deliveries at the seam that caused them, bounded by the attempt
+        ceiling
+      statement: A graceful close re-queues the deliveries bound to the
+        in-flight runs it interrupts before the store closes, and boot
+        recovery re-queues the deliveries of runs a crash left running -
+        in both cases with attempt counts preserved so the recipient
+        re-takes the same instruction as a fresh turn, with deliveries at
+        the attempt ceiling or with deleted triggers left consumed and
+        surfaced through the stranded-run system message - while a turn an
+        operator deliberately stopped is never re-queued, so routine
+        daemon lifecycle never silently eats an instruction, a poisonous
+        one cannot loop the service, and a human's Stop stays stopped.
+      reason: >-
+        #492 live fire: the crash-only seam missed the routine graceful
+        restart; the contract must name both seams and the operator
+        exclusion explicitly.
+      depends_on: []
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+anchors:
+  shutdown-interrupted-deliveries-requeue:
+    recovery-requeue-contract:
+      action: remove
+      reason: The old-id anchor comments rename to the recreated assumption;
+        the boot-loop code inside is kept, not removed.
+  lifecycle-interrupted-deliveries-requeue:
+    recovery-requeue-contract:
+      action: change
+      reason: The shared requeue helper, the close() seam, and the boot loop
+        define the two-seam contract; anchor comments rename to the
+        recreated assumption and additionally wrap the close() seam.
