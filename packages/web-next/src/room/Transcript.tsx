@@ -1,7 +1,8 @@
-import type { Delivery, Member, Message } from '@codor/protocol';
+import type { Delivery, Member, Message, WireEvent } from '@codor/protocol';
 import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import type { Connection } from '@legacy/ws.js';
 
@@ -125,6 +126,17 @@ export function Transcript(props: { room: string; token: () => string; connectio
   // Retry (failed/interrupted runs) is owner/admin too.
   const canRetry = selfRole === 'owner' || selfRole === 'admin';
   const selfHandle = selfId !== undefined ? members[selfId]?.handle : undefined;
+
+  // Finalized runs are flattened into per-segment entries so a human message
+  // posted mid-run lands between the run's blocks; running runs stay whole.
+  const finalizedRunIds = useMemo(
+    () => visible
+      .filter((m) => m.kind === 'run' && m.run !== undefined && m.run.status !== 'running')
+      .map((m) => m.id),
+    [visible],
+  );
+  const runSegments = useFinalizedRunSegments(props.room, props.token, finalizedRunIds);
+  const entries = useMemo(() => buildTimelineEntries(visible, runSegments), [visible, runSegments]);
 
   // Working agents drive the typing indicator. Derived with useMemo — a selector
   // returning a fresh array every snapshot would loop useSyncExternalStore forever.
@@ -256,33 +268,10 @@ export function Transcript(props: { room: string; token: () => string; connectio
           {connected && visible.length === 0 && (
             <p className="nx-empty" data-testid="timeline-empty">No messages yet — say something.</p>
           )}
-          {visible.map((message, index) => {
-            const previous = visible[index - 1];
-            const grouped = previous !== undefined
-              && previous.author === message.author
-              && previous.kind !== 'system' && message.kind !== 'system'
-              && Number.isFinite(transcriptTime(previous))
-              && Number.isFinite(transcriptTime(message))
-              && transcriptTime(message) - transcriptTime(previous) < GROUP_WINDOW_MS;
-            return (
-              <TurnBlock
-                key={message.id}
-                message={message}
-                author={members[message.author]}
-                mine={message.author === selfId}
-                grouped={grouped}
-                room={props.room}
-                token={props.token}
-                connection={props.connection}
-                deliveries={inbox}
-                members={members}
-                canPin={canPin}
-                canDelete={canDelete}
-                canRetry={canRetry}
-                viewerId={selfId}
-                viewerHandle={selfHandle}
-              />
-            );
+          {renderTimeline(entries, {
+            members, selfId, selfHandle, inbox,
+            room: props.room, token: props.token, connection: props.connection,
+            canPin, canDelete, canRetry,
           })}
           {workingAgents.length > 0 && (
             // Sticky floor of the scroller: visible at any scroll position, one
@@ -640,6 +629,55 @@ function segmentTimeline(timeline: ReturnType<typeof presentRunTimeline>): RunSe
   return segments;
 }
 
+/** A segment's ordering time — the first row's journal stamp; undefined for a
+ *  compaction marker or rows from pre-upgrade ts-less journals. */
+function segmentTs(segment: RunSegment): string | undefined {
+  if (segment.kind === 'prose') return segment.row.ts;
+  if (segment.kind === 'tools') return segment.rows.find((row) => row.ts !== undefined)?.ts;
+  return undefined;
+}
+
+/** Journals for a set of FINALIZED runs (complete, no live buffer needed),
+ *  presented into segments so the transcript can interleave their blocks. */
+function useFinalizedRunSegments(
+  room: string,
+  token: () => string,
+  runIds: readonly number[],
+): Map<number, RunSegment[]> {
+  const [journals, setJournals] = useState<Map<number, WireEvent[]>>(new Map());
+  const key = runIds.join(',');
+  useEffect(() => {
+    let live = true;
+    const missing = runIds.filter((id) => !journals.has(id));
+    if (missing.length === 0) return;
+    void Promise.all(missing.map((id) =>
+      fetchRunEvents(room, id, { token: token() })
+        .then((events) => [id, events] as const)
+        .catch(() => [id, [] as WireEvent[]] as const),
+    )).then((pairs) => {
+      if (!live) return;
+      setJournals((prev) => {
+        const next = new Map(prev);
+        for (const [id, events] of pairs) next.set(id, events);
+        return next;
+      });
+    });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room, key]);
+
+  return useMemo(() => {
+    const map = new Map<number, RunSegment[]>();
+    for (const id of runIds) {
+      const events = journals.get(id);
+      if (events === undefined) continue;
+      map.set(id, segmentTimeline(presentRunTimeline(events.map((event, index) => ({ index, event })))));
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [journals, key]);
+}
+
 function RunContent(props: { message: Message; room: string; token: () => string }) {
   const live = useRoomStore((s) => s.runEvents[props.message.id]);
   const [journal, setJournal] = useState<RunEventBuffer>();
@@ -723,6 +761,202 @@ function RunContent(props: { message: Message; room: string; token: () => string
   );
 }
 // harn:end web-compaction-markers-upgrade-in-place
+
+// ── Timeline flattening: a finalized run's segments become top-level entries
+// ordered by their journal time, so a human message posted mid-run lands between
+// the run's blocks. A non-interrupted run's segments stay contiguous and render
+// as one stretch, identical to before. Running/empty runs stay whole turns. ──
+
+type TimelineEntry =
+  | { kind: 'turn'; message: Message; ts: number; order: number }
+  | { kind: 'runseg'; message: Message; segment: RunSegment; isLast: boolean; ts: number; order: number };
+
+function buildTimelineEntries(visible: Message[], runSegments: Map<number, RunSegment[]>): TimelineEntry[] {
+  const list: TimelineEntry[] = [];
+  visible.forEach((message, index) => {
+    const base = index * 1000;
+    const finalized = message.kind === 'run' && message.run !== undefined && message.run.status !== 'running';
+    const segments = finalized ? runSegments.get(message.id) : undefined;
+    // Only runs that produced prose can be split around a mid-run message.
+    // Tools-only / empty / compaction-only runs stay whole turns so RunContent
+    // keeps rendering their final-text fallback and status marker unchanged.
+    if (finalized && segments !== undefined && segments.some((s) => s.kind === 'prose')) {
+      let lastTs = Date.parse(message.run!.ended_ts ?? message.ts);
+      segments.forEach((segment, segIndex) => {
+        const stamp = segmentTs(segment);
+        // A ts-less segment inherits its predecessor's time — pre-upgrade runs
+        // (all ts-less) collapse to ended_ts and stay together, as before.
+        const ts = stamp !== undefined ? Date.parse(stamp) : lastTs;
+        lastTs = ts;
+        list.push({ kind: 'runseg', message, segment, isLast: segIndex === segments.length - 1, ts, order: base + segIndex });
+      });
+    } else {
+      list.push({ kind: 'turn', message, ts: transcriptTime(message), order: base });
+    }
+  });
+  return list.sort((left, right) => (left.ts - right.ts) || (left.order - right.order));
+}
+
+interface TimelineCtx {
+  members: Record<string, Member>;
+  selfId: string | undefined;
+  selfHandle: string | undefined;
+  inbox: Record<string, Delivery>;
+  room: string;
+  token: () => string;
+  connection: Connection;
+  canPin: boolean;
+  canDelete: boolean;
+  canRetry: boolean;
+}
+
+function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[] {
+  const out: ReactNode[] = [];
+  // A split run yields several stretches sharing one message id; only the first
+  // carries the DOM id + permalink target so ids stay unique and #id resolves.
+  const anchoredRunIds = new Set<number>();
+  let prevAuthor: string | undefined;
+  let prevTs = Number.NEGATIVE_INFINITY;
+  let index = 0;
+  while (index < entries.length) {
+    const entry = entries[index]!;
+    if (entry.kind === 'runseg') {
+      const runId = entry.message.id;
+      const segments: RunSegment[] = [];
+      let isLastStretch = false;
+      while (index < entries.length) {
+        const next = entries[index];
+        if (next?.kind !== 'runseg' || next.message.id !== runId) break;
+        segments.push(next.segment);
+        isLastStretch = next.isLast;
+        prevTs = next.ts;
+        index += 1;
+      }
+      const anchored = !anchoredRunIds.has(runId);
+      anchoredRunIds.add(runId);
+      out.push(
+        <RunStretch
+          key={`run-${runId}-${entry.order}`}
+          message={entry.message}
+          author={ctx.members[entry.message.author]}
+          segments={segments}
+          isLastStretch={isLastStretch}
+          anchored={anchored}
+          mine={entry.message.author === ctx.selfId}
+          canRetry={ctx.canRetry}
+          connection={ctx.connection}
+        />,
+      );
+      prevAuthor = entry.message.author;
+    } else {
+      const message = entry.message;
+      const grouped = prevAuthor !== undefined
+        && prevAuthor === message.author
+        && message.kind !== 'system'
+        && Number.isFinite(entry.ts) && Number.isFinite(prevTs)
+        && entry.ts - prevTs < GROUP_WINDOW_MS;
+      out.push(
+        <TurnBlock
+          key={`turn-${message.id}`}
+          message={message}
+          author={ctx.members[message.author]}
+          mine={message.author === ctx.selfId}
+          grouped={grouped}
+          room={ctx.room}
+          token={ctx.token}
+          connection={ctx.connection}
+          deliveries={ctx.inbox}
+          members={ctx.members}
+          canPin={ctx.canPin}
+          canDelete={ctx.canDelete}
+          canRetry={ctx.canRetry}
+          viewerId={ctx.selfId}
+          viewerHandle={ctx.selfHandle}
+        />,
+      );
+      prevAuthor = message.kind === 'system' ? undefined : message.author;
+      prevTs = entry.ts;
+      index += 1;
+    }
+  }
+  return out;
+}
+
+/** One contiguous stretch of a finalized run's segments, with its header and
+ *  Retry affordance — the interleave splits a run into one stretch per stretch
+ *  of blocks uninterrupted by another author. */
+function RunStretch(props: {
+  message: Message;
+  author: Member | undefined;
+  segments: RunSegment[];
+  isLastStretch: boolean;
+  anchored: boolean;
+  mine: boolean;
+  canRetry: boolean;
+  connection: Connection;
+}) {
+  const { message, author } = props;
+  const isMobile = useIsMobile();
+  const handle = author?.handle ?? '…';
+  const status = message.run?.status;
+  const runError = message.run?.error;
+  return (
+    <article
+      id={props.anchored ? String(message.id) : undefined}
+      data-testid={`run-${message.id}`}
+      className={`nx-turn ${props.mine ? 'is-mine' : ''}`}
+    >
+      {!isMobile && <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />}
+      <div className="nx-turn-main">
+        <div className="nx-turn-meta">
+          {isMobile && <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={24} />}
+          <strong className="nx-turn-author">@{handle}</strong>
+          <time className="nx-turn-time" dateTime={message.ts}>{clockTime(message.ts)}</time>
+          <span className="nx-turn-spacer" />
+          <a className="nx-permalink" href={`#${message.id}`}>#{message.id}</a>
+          <span className="nx-turn-actions">
+            {props.canRetry && (status === 'failed' || status === 'interrupted') && (
+              <button
+                className="nx-iconbtn is-quiet"
+                aria-label="Retry run"
+                data-testid={`run-${message.id}-retry`}
+                onClick={() => props.connection.act({ act: 'retry_run', message_id: message.id })}
+              >
+                <RotateCcw size={14} aria-hidden="true" />
+              </button>
+            )}
+          </span>
+        </div>
+        <div className="nx-run" data-run-status={status ?? 'running'}>
+          {props.segments.map((segment, index) =>
+            segment.kind === 'compaction'
+              ? (
+                  <CompactionMarker
+                    key={segment.item.id}
+                    status={segment.item.status}
+                    trigger={segment.item.trigger}
+                    preTokens={segment.item.preTokens}
+                  />
+                )
+              : segment.kind === 'prose'
+                ? (
+                    <RunTextBlock
+                      key={segment.row.eventIndex}
+                      messageId={message.id}
+                      blockId={segment.row.eventIndex}
+                      text={segment.row.text ?? ''}
+                    />
+                  )
+                : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} />,
+          )}
+          {props.isLastStretch && runError !== undefined && runError !== '' && (
+            <p className="nx-field-note is-error" role="alert" data-testid="run-error">{runError}</p>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
 
 function RunTextBlock(props: { messageId: number; blockId: number | 'final'; text: string }) {
   return (

@@ -58,6 +58,7 @@ for (const [id, name] of [
   ['research', 'Research'],
   ['trash', 'Scratch'],
   ['recovery', 'Recovery'],
+  ['interleave', 'Interleave'],
 ]) {
   daemon.createRoom({ id, name, owner });
   crypto.roomKeys.ensureRoom(id);
@@ -223,6 +224,11 @@ fake.enqueue({ kind: 'complete', status: 'failed', final_text: 'deploy step expl
 daemon.postHumanMessage('recovery', '@medic run the deploy');
 await daemon.settle();
 
+// Interleave: an isolated room whose only agent (@weaver) the interleave e2e
+// drives live — enqueue a two-prose-block turn, start it, drop a human message
+// between the blocks via the control port, and prove it lands between them.
+daemon.spawnMember('interleave', { harness: 'fake', handle: 'weaver', cwd: dir });
+
 const musePost = daemon.postAgentMessage(
   'eng',
   muse.id,
@@ -331,6 +337,7 @@ createServer((req, res) => {
   let raw = '';
   req.on('data', (chunk) => (raw += chunk));
   req.on('end', async () => {
+    let payload = {};
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
       if (url.pathname === '/enqueue') {
@@ -356,6 +363,44 @@ createServer((req, res) => {
         }
         if (!finalized) throw new Error(`agent did not finalize: ${handle}`);
       }
+      if (url.pathname === '/start-run') {
+        // Fire an agent turn and return immediately (no wait for finalize) so a
+        // test can act while the run is mid-stream. The next queued fake turn
+        // drives it, so /enqueue its shape first.
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const roomId = String(body.room ?? 'eng');
+        const handle = String(body.handle ?? '');
+        daemon.postHumanMessage(roomId, `@${handle} ${String(body.prompt ?? 'go')}`);
+      }
+      if (url.pathname === '/post-chat') {
+        // Insert a plain human chat straight into the store — NO routing, so it
+        // starts no run and cannot default-route to the room's last agent. The
+        // interleave test reloads to read it back, so no live broadcast needed.
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const roomId = String(body.room ?? 'eng');
+        const message = daemon.store.postMessage(roomId, {
+          author: daemon.ownerOf(roomId).id,
+          kind: 'chat',
+          body: String(body.body ?? ''),
+        });
+        payload = { id: message.id, ts: message.ts };
+      }
+      if (url.pathname === '/run-progress') {
+        // Report an agent's latest run: its id, status, and how many prose
+        // (text_delta) blocks are journaled so far. Journaling is live per event,
+        // so a test can poll for block one, interject, then wait for completion.
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const roomId = String(body.room ?? 'eng');
+        const member = daemon.store.getMemberByHandle(roomId, String(body.handle ?? ''));
+        const runMsg = member
+          ? daemon.store.listRunMessages(roomId, { author: member.id, limit: 1 })[0]
+          : undefined;
+        const events = runMsg ? daemon.readRunBlob(roomId, runMsg.id) : [];
+        const blocks = events.filter(
+          (event) => event.type === 'run.item' && event.item_type === 'text_delta',
+        ).length;
+        payload = { runId: runMsg?.id ?? null, status: runMsg?.run?.status ?? null, blocks };
+      }
       if (url.pathname === '/seed-bulk') {
         // A long back-catalog for virtualization/paging proofs: N backdated
         // owner messages inserted straight into the store.
@@ -375,7 +420,7 @@ createServer((req, res) => {
             .run(new Date(base + i * 60_000).toISOString(), roomId, message.id);
         }
       }
-      res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(payload));
     } catch (error) {
       res.writeHead(400).end(String(error));
     }
