@@ -69,6 +69,11 @@ assumptions:
       outcome: unchanged
       reason: The registry stays the sole source; its wrapper forwards one
         more optional member.
+    - id: adapter-wrappers-preserve-the-whole-contract
+      outcome: unchanged
+      reason: Forwarding compactSession is this assumption being upheld - the
+        wrapper omitting a member is exactly the vanishing-capability
+        failure its statement forbids.
     - id: last-agent-usage-is-transient-and-seeded
       outcome: unchanged
       reason: The post-compact re-baseline lands through the same transient
@@ -137,6 +142,12 @@ anchors:
       action: change
       reason: The registry wrapper forwards the new optional method inside
         this anchor.
+  adapter-wrappers-preserve-the-whole-contract:
+    registry-wrapper-completeness:
+      action: change
+      reason: The forwarding lines sit inside this nested anchor, which
+        exists precisely so a new adapter member cannot be omitted from
+        the wrapper; the statement is enforced, not altered.
   last-agent-usage-is-transient-and-seeded:
     last-usage-runtime-registry:
       action: change
