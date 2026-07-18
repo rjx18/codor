@@ -2126,6 +2126,94 @@ describe('message attachment endpoints (attachments-are-capped-files-served-iner
   });
 });
 
+// harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-server-regression
+describe('room-addressed multiplexed subscriptions', () => {
+  const createOtherRoom = () => daemon.createRoom({
+    id: 'other', name: 'Other', owner: { handle: 'other-owner', display_name: 'Other Owner' },
+  });
+
+  it('attributes two addressed room hydrations, distinct selves, and live member fan-out on one socket', async () => {
+    createOtherRoom();
+    const client = await connect();
+
+    client.ws.send(JSON.stringify({
+      type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true,
+    }));
+    await client.next((frame) => frame.type === 'sync_complete' && frame.room === 'eng');
+    client.ws.send(JSON.stringify({
+      type: 'subscribe', room: 'other', since_seq: 0, room_addressed: true,
+    }));
+    await client.next((frame) => frame.type === 'sync_complete' && frame.room === 'other');
+
+    const selves = client.frames.filter(
+      (frame): frame is Extract<ServerFrame, { type: 'self' }> => frame.type === 'self',
+    );
+    expect(selves).toEqual(expect.arrayContaining([
+      { type: 'self', room: 'eng', member_id: daemon.ownerOf('eng').id },
+      { type: 'self', room: 'other', member_id: daemon.ownerOf('other').id },
+    ]));
+    expect(daemon.ownerOf('eng').id).not.toBe(daemon.ownerOf('other').id);
+    expect(client.frames
+      .filter((frame) => frame.type === 'member')
+      .every((frame) => frame.room === 'eng' || frame.room === 'other')).toBe(true);
+
+    const engLive = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'eng-live', cwd: testCwd('eng-live'),
+    });
+    const otherLive = daemon.spawnMember('other', {
+      harness: 'fake', handle: 'other-live', cwd: testCwd('other-live'),
+    });
+    await expect(client.next((frame) =>
+      frame.type === 'member' && frame.member.id === engLive.id && frame.room === 'eng'))
+      .resolves.toBeDefined();
+    await expect(client.next((frame) =>
+      frame.type === 'member' && frame.member.id === otherLive.id && frame.room === 'other'))
+      .resolves.toBeDefined();
+    client.ws.close();
+  });
+
+  it('keeps capability state per room and preserves legacy frames on the same socket', async () => {
+    createOtherRoom();
+    const client = await connect();
+
+    client.ws.send(JSON.stringify({
+      type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true,
+    }));
+    await client.next((frame) => frame.type === 'sync_complete' && frame.room === 'eng');
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'other', since_seq: 0 }));
+    const legacyComplete = await client.next(
+      (frame) => frame.type === 'sync_complete' && !('room' in frame),
+    );
+
+    const legacySelf = client.frames.find(
+      (frame) => frame.type === 'self' && frame.member_id === daemon.ownerOf('other').id,
+    );
+    expect(legacySelf).toEqual({ type: 'self', member_id: daemon.ownerOf('other').id });
+    expect(legacyComplete).toEqual({
+      type: 'sync_complete', seq: daemon.store.currentSeq('other'),
+    });
+    const otherHydratedMembers = client.frames.filter((frame) =>
+      frame.type === 'member' && frame.seq === 0 && frame.member.id === daemon.ownerOf('other').id);
+    expect(otherHydratedMembers).toHaveLength(1);
+    expect(otherHydratedMembers[0]).not.toHaveProperty('room');
+
+    const engLive = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'eng-mixed-live', cwd: testCwd('eng-mixed-live'),
+    });
+    const otherLive = daemon.spawnMember('other', {
+      harness: 'fake', handle: 'other-mixed-live', cwd: testCwd('other-mixed-live'),
+    });
+    const addressed = await client.next((frame) =>
+      frame.type === 'member' && frame.member.id === engLive.id);
+    const legacy = await client.next((frame) =>
+      frame.type === 'member' && frame.member.id === otherLive.id);
+    expect(addressed).toHaveProperty('room', 'eng');
+    expect(legacy).not.toHaveProperty('room');
+    client.ws.close();
+  });
+});
+// harn:end multiplexed-subscriptions-identify-their-room
+
 describe('bounded cold hydration (subscribe)', () => {
   const seedTail = (count: number): number[] => {
     const owner = daemon.ownerOf('eng');

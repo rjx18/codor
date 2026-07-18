@@ -1,0 +1,115 @@
+id: room-addressed-subscriptions
+title: Opt-in room addressing makes existing WebSocket multiplexing attributable
+  without changing legacy subscribers.
+notes: >-
+  Prerequisite for Richard's multi-room browser architecture. The switchboard
+  already stores a Set of subscribed rooms per WebSocket and fans live frames
+  from every subscribed room over that one connection, with authorization
+  checked independently on every subscribe. The client cannot safely consume
+  that capability yet: self carries only member_id even though a paired owner
+  has a distinct owner member in every room; member carries no room; and
+  sync_complete carries only seq even though seq and hydration staging are
+  room-local. Message, inbox, meter, room, and run_event are already
+  attributable through their envelope or payload.
+
+  Widen SubscribeFrame with room_addressed?: true. When absent, preserve today's
+  raw JSON byte-for-byte for browser, agent, CLI, TCP, and Unix-socket clients.
+  When present, self, member, and sync_complete frames for that subscription
+  carry an outer room id. Store capability state per socket AND room, not once
+  per socket, so a mixed legacy/addressed connection cannot leak one room's
+  framing choice into another. Hydration stamps the three ambiguous frame types;
+  live daemon member fan-out projects the room only for subscribers that opted
+  in for that exact room. No browser sends the capability in this round: this is
+  an independently deployable server prerequisite, and the later room-keyed
+  client round will opt every authorized room in only after it can route all
+  frames into per-room slices.
+
+  Protocol regressions prove the optional capability and optional room fields
+  parse while omitted legacy shapes remain accepted. Server regressions use one
+  owner socket subscribed to two rooms, prove each room's distinct self member
+  id, every hydrated member and each sync_complete is tagged, and live member
+  changes keep their source room. A separate legacy subscription proves self,
+  hydrated/live member, and sync_complete still omit room exactly. The shared
+  Unix listener remains the same protocol implementation, and the CLI continues
+  to omit the capability. Gate: protocol and switchboard suites, CLI suite, full
+  workspace tests/build, and harn check.
+assumptions:
+  reviewed:
+    - id: changelog-is-sync-cursor
+      outcome: unchanged
+      reason: Each room still syncs exclusively by its own since_seq; the optional
+        capability changes attribution, not cursor meaning or replay contents.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: sync_complete still commits the one consistent room snapshot at its
+        snapshot seq; an opted-in client merely gains the room needed to select
+        the correct staging buffer.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: TCP and Unix WebSockets still share bindProtocol and parse the same
+        widened schemas. Capability omission preserves existing CLI frames.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Every subscribe still passes the existing per-room authorization check,
+        and an agent credential remains unable to subscribe outside its one
+        room.
+  create:
+    - id: multiplexed-subscriptions-identify-their-room
+      title: Opted-in multiplexed subscriptions make every room-local frame
+        attributable
+      statement: When a subscribe frame requests room addressing, every self, member,
+        and sync_complete frame emitted for that subscription must carry its
+        room id, including live member fan-out, and capability state must be
+        isolated per socket and subscribed room; a subscriber that omits the
+        capability receives the legacy frame JSON without room fields, so one
+        WebSocket can safely mix or migrate subscriptions without cross-room
+        identity, roster, or hydration-cursor collisions.
+      reason: A paired human has a distinct self member per room and room-local member
+        ids and seq values cannot be attributed on today's multiplexed wire.
+      depends_on:
+        - changelog-is-sync-cursor
+        - sync-cursor-commits-after-hydration
+        - unix-socket-same-protocol
+        - agent-network-authority-is-narrow
+files:
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+anchors:
+  changelog-is-sync-cursor:
+    ws-subscribe-cursor:
+      action: change
+      reason: SubscribeFrameSchema gains the optional literal capability while
+        since_seq and hydrate_limit semantics remain unchanged.
+  sync-cursor-commits-after-hydration:
+    sync-complete-frame:
+      action: change
+      reason: sync_complete gains an optional room field used only by an opted-in
+        server projection; snapshot and commit semantics stay intact.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: The shared listener records capability per room and projects addressed
+        hydration frames identically on TCP and Unix transports.
+  multiplexed-subscriptions-identify-their-room:
+    room-addressed-frame-contract:
+      action: change
+      reason: New protocol fields define the additive opt-in wire contract.
+    room-addressed-live-fanout:
+      action: change
+      reason: Subscription state and daemon member fan-out apply the capability
+        independently for each socket-room pair.
+    room-addressed-hydration:
+      action: change
+      reason: self, hydrated members, and sync_complete receive the subscribed room
+        only when that subscribe requested it.
+    room-addressed-protocol-regression:
+      action: change
+      reason: Schema tests pin both addressed and legacy shapes.
+    room-addressed-server-regression:
+      action: change
+      reason: Server tests pin two-room attribution, live fan-out, distinct self
+        identities, and byte-identical legacy omission.
+applied:
+  applied_at: 2026-07-18T11:56:50.664Z

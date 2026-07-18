@@ -966,7 +966,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const wss = new WebSocketServer({ server: app.server, path: '/ws' });
   let ipcServer: HttpServer | undefined;
   let ipcWss: WebSocketServer | undefined;
-  const subscriptions = new Map<WebSocket, Set<string>>();
+  // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-live-fanout
+  type RoomSubscription = { roomAddressed: boolean };
+  const subscriptions = new Map<WebSocket, Map<string, RoomSubscription>>();
+  const projectLiveFrame = (room: string, frame: ServerFrame, subscription: RoomSubscription): ServerFrame => {
+    if (!subscription.roomAddressed || frame.type !== 'member') return frame;
+    return { ...frame, room };
+  };
+  // harn:end multiplexed-subscriptions-identify-their-room
   const deviceSockets = new Map<string, Set<WebSocket>>();
   // harn:assume paired-browser-challenge-session ref=browser-device-session-socket
   const stopDeviceRevocations = options.crypto?.keys.onPeerRevoked((deviceId) => {
@@ -977,13 +984,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end paired-browser-challenge-session
 
+  // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-live-fanout
   const unsubscribeFrames = daemon.onFrame((room, frame) => {
     for (const [socket, rooms] of subscriptions) {
-      if (rooms.has(room) && socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify(frame));
+      const subscription = rooms.get(room);
+      if (subscription && socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify(projectLiveFrame(room, frame, subscription)));
       }
     }
   });
+  // harn:end multiplexed-subscriptions-identify-their-room
 
   // harn:assume unix-socket-same-protocol ref=unix-websocket-listener
   const bindProtocol = (
@@ -997,7 +1007,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         socket.close(4401, 'unauthorized');
         return;
       }
-      subscriptions.set(socket, new Set());
+      // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-live-fanout
+      subscriptions.set(socket, new Map());
+      // harn:end multiplexed-subscriptions-identify-their-room
       if (principal.kind === 'browser') {
         const sockets = deviceSockets.get(principal.deviceId) ?? new Set<WebSocket>();
         sockets.add(socket);
@@ -1054,7 +1066,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             });
           } else if (frame.type === 'subscribe') {
             const actor = assertRoomCapability(principal, frame.room, 'read');
-            subscriptions.get(socket)!.add(frame.room);
+            // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
+            const roomAddressed = frame.room_addressed === true;
+            subscriptions.get(socket)!.set(frame.room, { roomAddressed });
+            const address = roomAddressed ? { room: frame.room } : {};
+            // harn:end multiplexed-subscriptions-identify-their-room
             // The bound is the subscriber's own: passed straight through, honoured
             // only on a cold subscribe, and scoped to this actor so their unread
             // deliveries' messages ride along. Omit it and the replay is today's.
@@ -1063,9 +1079,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               subscriber: actor.id,
             });
             const hydrationCursor = frame.since_seq;
-            send({ type: 'self', member_id: actor.id });
+            // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
+            send({ type: 'self', member_id: actor.id, ...address });
             send({ type: 'room', seq: hydrationCursor, room: sync.room });
-            for (const member of sync.members) send({ type: 'member', seq: hydrationCursor, member });
+            for (const member of sync.members) {
+              send({ type: 'member', seq: hydrationCursor, member, ...address });
+            }
+            // harn:end multiplexed-subscriptions-identify-their-room
             for (const message of sync.messages) send({ type: 'message', seq: hydrationCursor, message });
             // harn:assume agent-sync-hydrates-only-own-queued-inbox ref=agent-own-queued-sync-overlay
             const inbox = principal.kind === 'agent'
@@ -1085,6 +1105,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             send({
               type: 'sync_complete',
               seq: sync.seq,
+              // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
+              ...address,
+              // harn:end multiplexed-subscriptions-identify-their-room
               // The floor is the server's, not a guess from what happened to arrive.
               ...(sync.history_floor !== undefined && { history_floor: sync.history_floor }),
             });

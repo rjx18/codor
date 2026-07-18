@@ -1,0 +1,17 @@
+id: multiplexed-subscriptions-identify-their-room
+hash: a-44a16b61b51d
+title: Opted-in multiplexed subscriptions make every room-local frame attributable
+state: active
+statement: When a subscribe frame requests room addressing, every self, member,
+  and sync_complete frame emitted for that subscription must carry its room id,
+  including live member fan-out, and capability state must be isolated per
+  socket and subscribed room; a subscriber that omits the capability receives
+  the legacy frame JSON without room fields, so one WebSocket can safely mix or
+  migrate subscriptions without cross-room identity, roster, or hydration-cursor
+  collisions.
+depends_on:
+  - changelog-is-sync-cursor
+  - sync-cursor-commits-after-hydration
+  - unix-socket-same-protocol
+  - agent-network-authority-is-narrow
+created_by: room-addressed-subscriptions

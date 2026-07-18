@@ -24,6 +24,13 @@ export const SubscribeFrameSchema = z.object({
    * on a warm subscribe so a reconnect can never miss an in-place change.
    */
   hydrate_limit: z.number().int().positive().optional(),
+  // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-frame-contract
+  /**
+   * Opt into outer room ids on the otherwise ambiguous self, member, and
+   * sync_complete frames. Omission is the legacy wire contract.
+   */
+  room_addressed: z.literal(true).optional(),
+  // harn:end multiplexed-subscriptions-identify-their-room
 });
 // harn:end changelog-is-sync-cursor
 export type SubscribeFrame = z.infer<typeof SubscribeFrameSchema>;
@@ -210,7 +217,9 @@ export type AttachLease = z.infer<typeof AttachLeaseSchema>;
  */
 export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('rooms'), rooms: z.array(RoomSchema) }),
-  z.object({ type: z.literal('self'), member_id: MemberIdSchema }),
+  // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-frame-contract
+  z.object({ type: z.literal('self'), member_id: MemberIdSchema, room: RoomIdSchema.optional() }),
+  // harn:end multiplexed-subscriptions-identify-their-room
   z.object({
     type: z.literal('attach_lease'),
     status: z.enum(['acquired', 'child_recorded', 'completed', 'uncertain']),
@@ -225,7 +234,9 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
     adopted: z.boolean().optional(),
   }),
   z.object({ type: z.literal('message'), seq: SeqSchema, message: MessageSchema }),
-  z.object({ type: z.literal('member'), seq: SeqSchema, member: MemberSchema }),
+  // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-frame-contract
+  z.object({ type: z.literal('member'), seq: SeqSchema, member: MemberSchema, room: RoomIdSchema.optional() }),
+  // harn:end multiplexed-subscriptions-identify-their-room
   z.object({ type: z.literal('inbox'), seq: SeqSchema, delivery: DeliverySchema }),
   // harn:assume live-delivery-consumption-is-idempotent ref=consume-result-frame
   z.object({
@@ -240,6 +251,9 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('sync_complete'),
     seq: SeqSchema,
+    // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-frame-contract
+    room: RoomIdSchema.optional(),
+    // harn:end multiplexed-subscriptions-identify-their-room
     /**
      * Earliest id of the CONTIGUOUS tail this hydration served (correctness
      * outliers excluded), so the client's history cursor is the server's floor

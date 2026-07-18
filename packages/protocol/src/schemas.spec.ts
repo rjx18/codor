@@ -840,6 +840,19 @@ describe('WS client frames', () => {
     expect(ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0, hydrate_limit: 1.5 }).success).toBe(false);
   });
 
+  // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-protocol-regression
+  it('negotiates room-addressed subscription frames without changing legacy subscribe', () => {
+    expect(ClientFrameSchema.parse({ type: 'subscribe', room: 'r', since_seq: 0 }))
+      .not.toHaveProperty('room_addressed');
+    expect(ClientFrameSchema.parse({
+      type: 'subscribe', room: 'r', since_seq: 0, room_addressed: true,
+    })).toHaveProperty('room_addressed', true);
+    expect(ClientFrameSchema.safeParse({
+      type: 'subscribe', room: 'r', since_seq: 0, room_addressed: false,
+    }).success).toBe(false);
+  });
+  // harn:end multiplexed-subscriptions-identify-their-room
+
   it('accepts a post with an optional threading hint', () => {
     expect(
       ClientFrameSchema.safeParse({ type: 'post', room: 'r', body: 'hi', reply_to: 3 }).success,
@@ -1018,6 +1031,24 @@ describe('WS server frames', () => {
     expect(ServerFrameSchema.parse({ type: 'sync_complete', seq: 6, history_floor: 41 }))
       .toHaveProperty('history_floor', 41);
   });
+
+  // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-protocol-regression
+  it('accepts optional room ids on only the ambiguous subscription frames', () => {
+    for (const frame of [
+      { type: 'self', member_id: ULID_A, room: 'r' },
+      { type: 'member', seq: 2, member, room: 'r' },
+      { type: 'sync_complete', seq: 6, room: 'r' },
+    ]) {
+      expect(ServerFrameSchema.safeParse(frame).success).toBe(true);
+    }
+    expect(ServerFrameSchema.parse({ type: 'self', member_id: ULID_A }))
+      .not.toHaveProperty('room');
+    expect(ServerFrameSchema.parse({ type: 'member', seq: 2, member }))
+      .not.toHaveProperty('room');
+    expect(ServerFrameSchema.parse({ type: 'sync_complete', seq: 6 }))
+      .not.toHaveProperty('room');
+  });
+  // harn:end multiplexed-subscriptions-identify-their-room
 });
 
 // harn:assume live-delivery-consumption-is-idempotent ref=consumption-protocol-regression
