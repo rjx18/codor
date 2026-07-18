@@ -114,6 +114,11 @@ assumptions:
       outcome: unchanged
       reason: Both transports parse the same widened subscribe frame; a
         limit-less subscribe behaves identically on either.
+    - id: live-agent-waits-are-transient
+      outcome: unchanged
+      reason: daemon.sync's signature widens to pass the hydrate limit
+        through; the wait and usage projection inside its anchor is
+        untouched.
   create:
     - id: cold-hydration-is-bounded-and-atomic
       title: A limit-bearing cold subscribe hydrates a bounded tail plus
@@ -153,11 +158,25 @@ anchors:
       action: change
       reason: The store's bounded query and the client's staged single-commit
         hydration define the contract, one anchor ref at both sites.
+  changelog-is-sync-cursor:
+    ws-subscribe-cursor:
+      action: change
+      reason: SubscribeFrameSchema sits wholly inside this anchor and gains
+        the optional hydrate_limit field; cursor semantics untouched.
   sync-cursor-commits-after-hydration:
     consistent-sync-snapshot:
       action: change
       reason: sync() gains the bounded branch inside its single-transaction
         anchor; snapshot consistency is the point, not a casualty.
+    sync-complete-frame:
+      action: change
+      reason: The sync_complete frame schema gains the optional history_floor
+        field inside this anchor.
+  live-agent-waits-are-transient:
+    wait-member-projection:
+      action: change
+      reason: daemon.sync lives inside this anchor and widens its signature
+        to pass the limit through; projection overlays are untouched.
   unix-socket-same-protocol:
     unix-websocket-listener:
       action: change
