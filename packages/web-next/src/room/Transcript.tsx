@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 
 import type { Connection } from '@legacy/ws.js';
 
-import { fetchMessageHistory, fetchRunEvents } from '@legacy/api.js';
+import { fetchMessageHistory } from '@legacy/api.js';
 import {
   compactRunRow,
   diffStat,
@@ -18,7 +18,6 @@ import {
   HISTORY_PAGE_SIZE,
   pendingInteractions,
   useRoomStore,
-  type RunEventBuffer,
 } from '@legacy/state.js';
 
 import { useIsMobile } from '../app/session.js';
@@ -28,6 +27,7 @@ import { OPEN_DIFF_EVENT } from './ContextPanel.js';
 import { CompactionMarker } from './CompactionMarker.js';
 import { jumpToMessage } from './panels.js';
 import { renderMarkdown } from './markdown.js';
+import { getRunJournal, requestRunJournal, useRunJournalVersion } from './run-journals.js';
 import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attachments.js';
 import { presentRunTimeline, type CompactionRunTimelineItem } from './run-timeline.js';
 
@@ -679,79 +679,75 @@ function segmentTs(segment: RunSegment): string | undefined {
 }
 
 /** Journals for a set of FINALIZED runs (complete, no live buffer needed),
- *  presented into segments so the transcript can interleave their blocks. */
-const EMPTY_JOURNALS = new Map<number, WireEvent[]>();
-
+ *  presented into segments so the transcript can interleave their blocks. Reads
+ *  go through the shared room-scoped cache, so asking for the same journal from
+ *  here and from a RunContent costs exactly one request. */
 function useFinalizedRunSegments(
   room: string,
   token: () => string,
   runIds: readonly number[],
 ): Map<number, RunSegment[]> {
-  // Message ids are room-local, so a cache surviving an in-place room switch
-  // would serve the PREVIOUS room's journal for a colliding id. The cache is
-  // tagged with its room and reads empty the moment the room changes.
-  const [cache, setCache] = useState<{ room: string; journals: Map<number, WireEvent[]> }>(
-    () => ({ room, journals: new Map() }),
-  );
-  const journals = cache.room === room ? cache.journals : EMPTY_JOURNALS;
+  const version = useRunJournalVersion();
   const key = runIds.join(',');
   useEffect(() => {
-    let live = true;
-    const missing = runIds.filter((id) => !journals.has(id));
-    if (missing.length === 0) return;
-    void Promise.all(missing.map((id) =>
-      fetchRunEvents(room, id, { token: token() })
-        .then((events) => [id, events] as const)
-        .catch(() => [id, [] as WireEvent[]] as const),
-    )).then((pairs) => {
-      if (!live) return;
-      setCache((prev) => {
-        const next = new Map(prev.room === room ? prev.journals : undefined);
-        for (const [id, events] of pairs) next.set(id, events);
-        return { room, journals: next };
-      });
-    });
-    return () => { live = false; };
+    for (const id of runIds) requestRunJournal(room, token, id, { terminal: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room, key]);
+  }, [room, token, key]);
 
+  // Segments are memoized per run: a journal commit recomputes only that run,
+  // not every run in the room (which would be quadratic in a large transcript).
+  const segmentsRef = useRef(new Map<number, { events: WireEvent[]; segments: RunSegment[] }>());
+  const segmentsRoomRef = useRef(room);
   return useMemo(() => {
+    if (segmentsRoomRef.current !== room) {
+      segmentsRef.current.clear(); // ids are room-local; never reuse across rooms
+      segmentsRoomRef.current = room;
+    }
     const map = new Map<number, RunSegment[]>();
     for (const id of runIds) {
-      const events = journals.get(id);
+      const events = getRunJournal(room, id);
       if (events === undefined) continue;
-      map.set(id, segmentTimeline(presentRunTimeline(events.map((event, index) => ({ index, event })))));
+      const cached = segmentsRef.current.get(id);
+      if (cached?.events === events) {
+        map.set(id, cached.segments);
+        continue;
+      }
+      const segments = segmentTimeline(
+        presentRunTimeline(events.map((event, index) => ({ index, event }))),
+      );
+      segmentsRef.current.set(id, { events, segments });
+      map.set(id, segments);
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [journals, key]);
+  }, [room, key, version]);
 }
 
 function RunContent(props: { message: Message; room: string; token: () => string }) {
   const live = useRoomStore((s) => s.runEvents[props.message.id]);
-  const [journal, setJournal] = useState<RunEventBuffer>();
   const running = props.message.run?.status === 'running';
+  const version = useRunJournalVersion();
 
   // The journal covers whatever the live buffer missed (late joins, trimmed
   // buffers) — for running runs too, so a fresh viewer sees the evidence so far.
+  // A live run jumps the queue; when it settles, the effect re-runs once with
+  // terminal=true so the cache picks up the completed journal exactly once.
   useEffect(() => {
-    let current = true;
-    void fetchRunEvents(props.room, props.message.id, { token: props.token() })
-      .then((events) => {
-        if (current) setJournal({ events, dropped_count: 0 });
-      })
-      .catch(() => undefined);
-    return () => { current = false; };
-  }, [props.message.id, props.message.run?.status, props.room, props.token]);
+    requestRunJournal(props.room, props.token, props.message.id, {
+      terminal: !running,
+      priority: running,
+    });
+  }, [props.room, props.token, props.message.id, running]);
 
+  const journalEvents = getRunJournal(props.room, props.message.id);
   const timeline = useMemo(() => {
-    const merged = mergeRunEvents(journal?.events, live ?? { events: [], dropped_count: 0 });
+    const merged = mergeRunEvents(journalEvents, live ?? { events: [], dropped_count: 0 });
     return presentRunTimeline(merged);
-    // Keyed on counts, not object identity: run events are append-only, and
-    // `live` is a fresh object per streamed frame — identity keying re-ran the
-    // presenter over the full unchanged list on every render.
+    // The cached journal is a stable reference, so identity keying is correct
+    // here; `live` is a fresh object per streamed frame, so it stays keyed on
+    // counts to avoid re-presenting an unchanged list on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [journal?.events.length, live?.events.length, live?.dropped_count]);
+  }, [journalEvents, live?.events.length, live?.dropped_count, version]);
   const segments = useMemo(() => segmentTimeline(timeline), [timeline]);
 
   // The prose already streams through text rows; only a run that produced no
@@ -900,7 +896,15 @@ function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[]
       prevAuthor = entry.message.author;
     } else {
       const message = entry.message;
-      const grouped = prevAuthor !== undefined
+      // A failed/interrupted run that produced no prose renders as a quiet status
+      // marker. Grouped under a neighbouring turn by the same author it loses its
+      // header and #id entirely and reads as deleted (codex #516: that is how run
+      // #501 "disappeared"). Such a run always stands alone, keeping its number,
+      // permalink, status and error evidence. Ordering is untouched.
+      const standaloneRun = message.kind === 'run'
+        && (message.run?.status === 'failed' || message.run?.status === 'interrupted');
+      const grouped = !standaloneRun
+        && prevAuthor !== undefined
         && prevAuthor === message.author
         && message.kind !== 'system'
         && Number.isFinite(entry.ts) && Number.isFinite(prevTs)
