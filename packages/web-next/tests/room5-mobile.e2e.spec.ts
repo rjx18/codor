@@ -111,8 +111,14 @@ test.describe('mobile transcript re-composition', () => {
 });
 
 test.describe('mobile composer', () => {
-  test('two rows: the @ affordance opens mentions and the peach send posts', async ({ page }) => {
-    await enqueueTurn();
+  test('two rows: the @ affordance opens mentions and the peach send posts', async ({ page }, testInfo) => {
+    // repeat-each shares one harness database, so every attempt needs its own
+    // prompt/result identity. Waiting for the matching agent response also
+    // drains the enqueued fake turn before the next attempt starts.
+    const marker = `${String(testInfo.repeatEachIndex)}-${String(testInfo.retry)}`;
+    const prompt = `ping from the phone ${marker}`;
+    const response = `ack from fable ${marker}`;
+    await enqueueTurn(response);
     await openRoom(page);
     const input = page.getByTestId('composer-input');
     // Wait out the draft seeding effect — clearing before it lands would let
@@ -126,14 +132,15 @@ test.describe('mobile composer', () => {
     await expect(page.getByTestId('mention-popover')).toContainText('@fable');
     await input.press('Enter'); // accept @fable
     await expect(input).toHaveValue('@fable ');
-    await input.pressSequentially('ping from the phone');
-    await expect(input).toHaveValue('@fable ping from the phone');
+    await input.pressSequentially(prompt);
+    await expect(input).toHaveValue(`@fable ${prompt}`);
 
     const send = page.getByTestId('composer-send');
     const box = await send.boundingBox();
     expect(box!.width).toBeGreaterThanOrEqual(44);
     await send.click();
-    await expect(page.locator('.nx-prose', { hasText: 'ping from the phone' })).toBeVisible();
+    await expect(page.locator('.nx-prose', { hasText: prompt })).toBeVisible();
+    await expect(page.locator('.nx-prose', { hasText: response })).toBeVisible();
   });
 });
 
@@ -152,12 +159,12 @@ test.describe('accessibility', () => {
   });
 });
 
-async function enqueueTurn(): Promise<void> {
+async function enqueueTurn(finalText: string): Promise<void> {
   const control = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
   const res = await fetch(`${control}/enqueue`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ turns: [{ kind: 'complete', final_text: 'ack from fable' }] }),
+    body: JSON.stringify({ turns: [{ kind: 'complete', final_text: finalText }] }),
   });
   if (!res.ok) throw new Error(await res.text());
 }
