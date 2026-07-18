@@ -10,6 +10,7 @@ import { clockTime } from '../primitives/identity.js';
 import { Button, IconButton, Modal } from '../primitives/primitives.js';
 
 const EMPTY_INBOX_ITEMS: RoomInboxItem[] = [];
+export const JUMP_ANCHOR_EVENT = 'nx-jump-anchor';
 
 /** Scroll a permalink target into view, paging history back (bounded) until the
  *  message is loaded. */
@@ -28,7 +29,19 @@ export async function jumpToMessage(room: string, id: number, token: () => strin
     }
   }
   window.location.hash = `#${id}`;
-  document.getElementById(String(id))?.scrollIntoView({ block: 'center' });
+  // Store merges and React's DOM commit are different steps. Looking up the row
+  // in the same microtask intermittently found nothing, leaving a loaded deep
+  // link stranded offscreen. Wait a bounded number of paint frames for the
+  // committed target, then center it after the hashchange has released tail pinning.
+  for (let frame = 0; frame < 30; frame += 1) {
+    const target = document.getElementById(String(id));
+    if (target !== null) {
+      target.scrollIntoView({ block: 'center' });
+      window.dispatchEvent(new CustomEvent(JUMP_ANCHOR_EVENT, { detail: { room, id } }));
+      break;
+    }
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
 }
 
 // ── Hold banner: parked deliveries wait above the transcript ──────────────

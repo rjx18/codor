@@ -14,11 +14,12 @@ import { fetchRunEvents } from '@legacy/api.js';
 // The fix is structural: one in-flight request per run id, each journal
 // committed the moment it lands (never batched), bounded concurrency so a large
 // room cannot saturate the pool, running runs served first, and a single refresh
-// when a run turns terminal. Requests from a room the reader has left are
-// ignored on arrival — message ids are room-local, so a stale journal must never
-// be served for a colliding id.
+// when a run turns terminal. Recently read rooms stay in a bounded room-keyed
+// LRU: ids are room-local, but returning to a channel must not pay for the same
+// evidence again.
 
 const MAX_CONCURRENT = 4;
+const MAX_CACHED_ROOMS = 3;
 
 interface Entry {
   events: WireEvent[];
@@ -33,14 +34,17 @@ interface Pending {
   priority: boolean;
 }
 
+interface RoomCache {
+  active: number;
+  queue: Pending[];
+  journals: Map<number, Entry>;
+  inflight: Map<number, boolean>;
+  wantTerminal: Set<number>;
+}
+
 let currentRoom = '';
-let generation = 0;
 let version = 0;
-let active = 0;
-let queue: Pending[] = [];
-const journals = new Map<number, Entry>();
-const inflight = new Map<number, boolean>(); // id → whether that read is the terminal one
-const wantTerminal = new Set<number>();
+const rooms = new Map<string, RoomCache>();
 const listeners = new Set<() => void>();
 
 function bump(): void {
@@ -48,52 +52,72 @@ function bump(): void {
   for (const listener of listeners) listener();
 }
 
-function switchRoom(room: string): void {
+function freshRoomCache(): RoomCache {
+  return {
+    active: 0,
+    queue: [],
+    journals: new Map(),
+    inflight: new Map(),
+    wantTerminal: new Set(),
+  };
+}
+
+/** Get and touch a room in insertion-order LRU order. */
+function roomCache(room: string): RoomCache {
+  const cached = rooms.get(room) ?? freshRoomCache();
+  rooms.delete(room);
+  rooms.set(room, cached);
+  while (rooms.size > MAX_CACHED_ROOMS) {
+    const oldest = rooms.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    rooms.delete(oldest);
+  }
+  return cached;
+}
+
+/** Promote one room as the only namespace allowed to START journal reads.
+ * Recently visited room caches remain addressable by their room id, so returning
+ * to a channel is immediate without allowing room-local message ids to collide. */
+export function activateRunJournalRoom(room: string): void {
+  if (room === currentRoom) return;
   currentRoom = room;
-  generation += 1; // in-flight reads from the previous room are dropped on arrival
-  journals.clear();
-  inflight.clear();
-  wantTerminal.clear();
-  queue = [];
-  active = 0;
+  roomCache(room);
   bump();
 }
 
-/** Promote one room as the only journal namespace. Calling this even for a
- * room with no runs clears stale journals and in-flight arrivals from the room
- * the reader just demoted. */
-export function activateRunJournalRoom(room: string): void {
-  if (room !== currentRoom) switchRoom(room);
-}
-
-function pump(token: () => string): void {
-  while (active < MAX_CONCURRENT && queue.length > 0) {
+function pump(room: string, cache: RoomCache, token: () => string): void {
+  // Demoted rooms may finish reads already on the wire, but they never start
+  // queued work until selected again.
+  if (room !== currentRoom || rooms.get(room) !== cache) return;
+  while (cache.active < MAX_CONCURRENT && cache.queue.length > 0) {
     // Running runs first: a reader watching a live turn must not wait behind a
     // backlog of archived journals.
-    const priorityIndex = queue.findIndex((pending) => pending.priority);
-    const next = queue.splice(priorityIndex === -1 ? 0 : priorityIndex, 1)[0]!;
-    const mine = generation;
-    const room = currentRoom;
-    active += 1;
-    inflight.set(next.id, next.terminal);
+    const priorityIndex = cache.queue.findIndex((pending) => pending.priority);
+    const next = cache.queue.splice(priorityIndex === -1 ? 0 : priorityIndex, 1)[0]!;
+    cache.active += 1;
+    cache.inflight.set(next.id, next.terminal);
     void fetchRunEvents(room, next.id, { token: token() })
       .then((events) => {
-        if (mine === generation) journals.set(next.id, { events, terminal: next.terminal });
+        if (rooms.get(room) === cache) {
+          cache.journals.set(next.id, { events, terminal: next.terminal });
+        }
       })
       .catch(() => {
         // Remember the failure at this terminality so it retries at most once
         // more (when the run settles), never in a loop.
-        if (mine === generation) journals.set(next.id, { events: [], terminal: next.terminal });
+        if (rooms.get(room) === cache) {
+          cache.journals.set(next.id, { events: [], terminal: next.terminal });
+        }
       })
       .finally(() => {
-        active -= 1;
-        if (mine !== generation) return; // stale room — drop it entirely
-        inflight.delete(next.id);
-        if (wantTerminal.delete(next.id)) {
-          queue.push({ id: next.id, terminal: true, priority: false });
+        cache.active -= 1;
+        if (rooms.get(room) !== cache) return; // evicted while the read was in flight
+        cache.inflight.delete(next.id);
+        if (cache.wantTerminal.delete(next.id)) {
+          cache.queue.push({ id: next.id, terminal: true, priority: false });
         }
-        bump();
-        pump(token);
+        if (room === currentRoom) bump();
+        pump(room, cache, token);
       });
   }
 }
@@ -110,25 +134,30 @@ export function requestRunJournal(
   id: number,
   opts: { terminal: boolean; priority?: boolean },
 ): void {
-  if (room !== currentRoom) switchRoom(room);
-  const have = journals.get(id);
+  // Effects belonging to a room that was just demoted must not steal the active
+  // namespace back. Its queued work resumes when activateRunJournalRoom selects it.
+  if (room !== currentRoom) return;
+  const cache = roomCache(room);
+  const have = cache.journals.get(id);
   if (have?.terminal === true) return; // settled and read — never again
   if (have !== undefined && !opts.terminal) return; // the running snapshot still serves
-  const running = inflight.get(id);
+  const running = cache.inflight.get(id);
   if (running !== undefined) {
     // A terminal read is worth one refresh once the in-flight running read lands.
-    if (opts.terminal && !running) wantTerminal.add(id);
+    if (opts.terminal && !running) cache.wantTerminal.add(id);
     return;
   }
-  if (queue.some((pending) => pending.id === id && pending.terminal === opts.terminal)) return;
-  queue.push({ id, terminal: opts.terminal, priority: opts.priority === true });
-  pump(token);
+  if (cache.queue.some((pending) => pending.id === id && pending.terminal === opts.terminal)) {
+    pump(room, cache, token);
+    return;
+  }
+  cache.queue.push({ id, terminal: opts.terminal, priority: opts.priority === true });
+  pump(room, cache, token);
 }
 
 /** The cached journal for a run, or undefined while it is still unread. */
 export function getRunJournal(room: string, id: number): WireEvent[] | undefined {
-  if (room !== currentRoom) return undefined;
-  return journals.get(id)?.events;
+  return rooms.get(room)?.journals.get(id)?.events;
 }
 
 function subscribe(listener: () => void): () => void {
@@ -147,5 +176,7 @@ export function useRunJournalVersion(): number {
 
 /** Test seam: forget everything (used by unit tests, never by the app). */
 export function resetRunJournalsForTest(): void {
-  switchRoom('');
+  currentRoom = '';
+  rooms.clear();
+  bump();
 }

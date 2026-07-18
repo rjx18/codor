@@ -1,7 +1,7 @@
 import type { Attachment, Delivery, Member, Message, WireEvent } from '@codor/protocol';
 import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Paperclip, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import type { Connection } from '@legacy/ws.js';
@@ -21,7 +21,7 @@ import { Button, Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
 import { OPEN_DIFF_EVENT } from './ContextPanel.js';
 import { CompactionMarker } from './CompactionMarker.js';
-import { jumpToMessage } from './panels.js';
+import { JUMP_ANCHOR_EVENT, jumpToMessage } from './panels.js';
 import { renderMarkdown } from './markdown.js';
 import { activateRunJournalRoom, getRunJournal, requestRunJournal, useRunJournalVersion } from './run-journals.js';
 import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attachments.js';
@@ -31,6 +31,18 @@ import { presentRunTimeline, type CompactionRunTimelineItem } from './run-timeli
 const GROUP_WINDOW_MS = 2 * 60_000;
 const RELEASE_PIN_DISTANCE_PX = 120;
 const REGLUE_DISTANCE_PX = 80;
+const READ_DWELL_MS = 300;
+const READ_MIN_VISIBLE_PX = 48;
+const SEGMENT_CACHE_ROOMS = 3;
+
+interface HistoryRestore {
+  room: string;
+  anchorId: string;
+  anchorOffset: number;
+  fallbackHeight: number;
+  fallbackTop: number;
+  merged: boolean;
+}
 
 function transcriptTime(message: Message): number {
   if (message.kind === 'run' && message.run?.status === 'running') {
@@ -54,6 +66,35 @@ function transcriptMessages(messages: Record<number, Message>): Message[] {
   });
 }
 
+/** Highest durable activity sequence the reader can meaningfully see. A tall
+ * run needs 48 visible pixels; a short row needs half its own height. This keeps
+ * a one-pixel fly-by from clearing unread while still allowing long turns to be
+ * read without fitting their entire body in the viewport. */
+function highestVisibleReadSeq(node: HTMLElement): number | undefined {
+  const viewport = node.getBoundingClientRect();
+  let highest: number | undefined;
+  for (const row of node.querySelectorAll<HTMLElement>('[data-read-seq]')) {
+    const rect = row.getBoundingClientRect();
+    if (rect.height <= 0) continue;
+    const visible = Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top);
+    const required = Math.min(READ_MIN_VISIBLE_PX, rect.height / 2);
+    if (visible < required) continue;
+    const seq = Number(row.dataset.readSeq);
+    if (!Number.isSafeInteger(seq)) continue;
+    highest = highest === undefined ? seq : Math.max(highest, seq);
+  }
+  return highest;
+}
+
+function readSeqFor(message: Message, mine: boolean): number | undefined {
+  if (mine || message.deleted === true || message.ack === true) return undefined;
+  if (message.kind === 'chat') return message.seq;
+  if (message.kind === 'run' && message.run !== undefined && message.run.status !== 'running') {
+    return message.seq;
+  }
+  return undefined;
+}
+
 export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
   const slice = useClientStore((state) => roomSlice(state, props.room));
   const messages = slice.messages;
@@ -62,7 +103,6 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const historyCursor = slice.historyCursor;
   const hydrated = slice.hydrated;
   const support = slice.support;
-  const roomSeq = slice.seq;
   const connected = useClientStore((state) => state.connected);
 
   useEffect(() => activateRunJournalRoom(props.room), [props.room]);
@@ -77,6 +117,9 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const maxSeenIdRef = useRef<number>();
   const [historyBusy, setHistoryBusy] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
+  const historyRequestRef = useRef(false);
+  const historyRestoreRef = useRef<HistoryRestore>();
+  const historySettleTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const inbox = slice.inbox;
   const ordered = useMemo(() => transcriptMessages(messages), [messages]);
@@ -143,7 +186,11 @@ export function Transcript(props: { room: string; token: () => string; connectio
       .map((m) => m.id),
     [visible],
   );
-  const runSegments = useFinalizedRunSegments(props.room, props.token, finalizedRunIds);
+  const { segments: runSegments, version: journalVersion } = useFinalizedRunSegments(
+    props.room,
+    props.token,
+    finalizedRunIds,
+  );
   const entries = useMemo(() => buildTimelineEntries(visible, runSegments), [visible, runSegments]);
   const initialBarrier = useRef({ room: props.room, ready: false });
   if (initialBarrier.current.room !== props.room) {
@@ -152,6 +199,35 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const journalsReady = finalizedRunIds.every((id) => getRunJournal(props.room, id) !== undefined);
   if (hydrated && journalsReady) initialBarrier.current.ready = true;
   const transcriptReady = hydrated && initialBarrier.current.ready;
+
+  const cancelHistorySettle = useCallback((): void => {
+    if (historySettleTimerRef.current !== undefined) clearTimeout(historySettleTimerRef.current);
+    historySettleTimerRef.current = undefined;
+  }, []);
+  const restoreHistoryAnchor = useCallback((): void => {
+    const pending = historyRestoreRef.current;
+    const node = scrollerRef.current;
+    if (pending === undefined || !pending.merged || pending.room !== props.room || node === null) return;
+    const anchor = document.getElementById(pending.anchorId);
+    if (anchor !== null && node.contains(anchor)) {
+      const offset = anchor.getBoundingClientRect().top - node.getBoundingClientRect().top;
+      node.scrollTop += offset - pending.anchorOffset;
+    } else {
+      node.scrollTop = pending.fallbackTop + node.scrollHeight - pending.fallbackHeight;
+    }
+    lastScrollTopRef.current = node.scrollTop;
+    upwardScrollRef.current = 0;
+  }, [props.room]);
+  const settleHistoryAfterQuiet = useCallback((): void => {
+    cancelHistorySettle();
+    historySettleTimerRef.current = setTimeout(() => {
+      restoreHistoryAnchor();
+      historyRestoreRef.current = undefined;
+      historyRequestRef.current = false;
+      historySettleTimerRef.current = undefined;
+      setHistoryBusy(false);
+    }, 120);
+  }, [cancelHistorySettle, restoreHistoryAnchor]);
 
   // Working agents drive the typing indicator. Derived with useMemo — a selector
   // returning a fresh array every snapshot would loop useSyncExternalStore forever.
@@ -198,47 +274,94 @@ export function Transcript(props: { room: string; token: () => string; connectio
     }
   }, [lastId]);
 
-  // Durable read edges are about observation, not delivery. Only the active,
-  // focused, visible transcript at its tail advances the room cursor.
+  // Durable read edges are about observation, not delivery. A substantive row
+  // must occupy meaningful viewport space for a short dwell while the page is
+  // focused; being delivered, mounted offscreen, or flown past does not count.
   const lastMarkedSeqRef = useRef(0);
-  const readRoomRef = useRef(props.room);
-  if (readRoomRef.current !== props.room) {
-    readRoomRef.current = props.room;
-    lastMarkedSeqRef.current = 0;
-    pinnedRef.current = true;
-  }
-  const markReadIfSeen = useCallback((): void => {
+  const pendingReadSeqRef = useRef<number>();
+  const readTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const cancelReadTimer = useCallback((): void => {
+    if (readTimerRef.current !== undefined) clearTimeout(readTimerRef.current);
+    readTimerRef.current = undefined;
+    pendingReadSeqRef.current = undefined;
+  }, []);
+  const markVisibleRowsRead = useCallback((): void => {
     const node = scrollerRef.current;
     if (
       !transcriptReady
       || !connected
       || support === undefined
-      || !pinnedRef.current
       || document.visibilityState !== 'visible'
       || !document.hasFocus()
       || node === null
-      || node.scrollHeight - node.scrollTop - node.clientHeight >= REGLUE_DISTANCE_PX
-      || roomSeq <= lastMarkedSeqRef.current
-    ) return;
-    lastMarkedSeqRef.current = roomSeq;
-    props.connection.act({ act: 'mark_room_read', through_seq: roomSeq });
-  }, [connected, props.connection, roomSeq, support, transcriptReady]);
+    ) {
+      cancelReadTimer();
+      return;
+    }
+    const target = highestVisibleReadSeq(node);
+    if (target === undefined || target <= lastMarkedSeqRef.current) {
+      cancelReadTimer();
+      return;
+    }
+    if (pendingReadSeqRef.current === target && readTimerRef.current !== undefined) return;
+    cancelReadTimer();
+    pendingReadSeqRef.current = target;
+    readTimerRef.current = setTimeout(() => {
+      readTimerRef.current = undefined;
+      pendingReadSeqRef.current = undefined;
+      const liveNode = scrollerRef.current;
+      if (
+        liveNode === null
+        || document.visibilityState !== 'visible'
+        || !document.hasFocus()
+        || highestVisibleReadSeq(liveNode) !== target
+        || target <= lastMarkedSeqRef.current
+      ) return;
+      lastMarkedSeqRef.current = target;
+      props.connection.act({ act: 'mark_room_read', through_seq: target });
+    }, READ_DWELL_MS);
+  }, [cancelReadTimer, connected, props.connection, support, transcriptReady]);
 
   useEffect(() => {
-    if (!connected) lastMarkedSeqRef.current = 0;
-  }, [connected]);
+    lastMarkedSeqRef.current = 0;
+    cancelReadTimer();
+    cancelHistorySettle();
+    pinnedRef.current = true;
+    historyRequestRef.current = false;
+    historyRestoreRef.current = undefined;
+    setHistoryBusy(false);
+    setHasOlder(true);
+    return () => {
+      cancelHistorySettle();
+      historyRequestRef.current = false;
+      historyRestoreRef.current = undefined;
+    };
+  }, [cancelHistorySettle, cancelReadTimer, props.room]);
 
   useEffect(() => {
-    const onVisible = (): void => markReadIfSeen();
+    if (!connected) {
+      lastMarkedSeqRef.current = 0;
+      cancelReadTimer();
+    }
+  }, [cancelReadTimer, connected]);
+
+  useEffect(() => {
+    const onVisible = (): void => markVisibleRowsRead();
     window.addEventListener('focus', onVisible);
     document.addEventListener('visibilitychange', onVisible);
-    const frame = requestAnimationFrame(markReadIfSeen);
+    const frame = requestAnimationFrame(markVisibleRowsRead);
     return () => {
       cancelAnimationFrame(frame);
+      cancelReadTimer();
       window.removeEventListener('focus', onVisible);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [markReadIfSeen]);
+  }, [cancelReadTimer, markVisibleRowsRead]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(markVisibleRowsRead);
+    return () => cancelAnimationFrame(frame);
+  }, [entries, journalVersion, markVisibleRowsRead]);
 
   // Run prose and evidence can grow without creating a new message. While the
   // reader is pinned, follow that column growth too; an upward scroll past the
@@ -249,6 +372,15 @@ export function Transcript(props: { room: string; token: () => string; connectio
     if (!node || !column) return;
     let frame: number | undefined;
     const observer = new ResizeObserver(() => {
+      if (historyRestoreRef.current?.merged === true) {
+        cancelHistorySettle();
+        if (frame !== undefined) cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => {
+          restoreHistoryAnchor();
+          if (journalsReady) settleHistoryAfterQuiet();
+        });
+        return;
+      }
       if (!pinnedRef.current) return;
       if (frame !== undefined) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
@@ -256,7 +388,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
         node.scrollTop = node.scrollHeight;
         lastScrollTopRef.current = node.scrollTop;
         setShowJump(false);
-        markReadIfSeen();
+        markVisibleRowsRead();
       });
     });
     observer.observe(column);
@@ -264,7 +396,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
       observer.disconnect();
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [markReadIfSeen]);
+  }, [cancelHistorySettle, journalsReady, markVisibleRowsRead, restoreHistoryAnchor, settleHistoryAfterQuiet]);
 
   // A permalink jump means the reader is deliberately looking away from the tail.
   // Bounded hydration made this load-bearing: an old target now pages in, and the
@@ -279,6 +411,54 @@ export function Transcript(props: { room: string; token: () => string; connectio
     return () => window.removeEventListener('hashchange', release);
   }, []);
 
+  useEffect(() => {
+    const holdTarget = (event: Event): void => {
+      const detail = (event as CustomEvent<{ room: string; id: number }>).detail;
+      const node = scrollerRef.current;
+      const target = document.getElementById(String(detail.id));
+      if (detail.room !== props.room || node === null || target === null || !node.contains(target)) return;
+      cancelHistorySettle();
+      const viewport = node.getBoundingClientRect();
+      historyRestoreRef.current = {
+        room: props.room,
+        anchorId: target.id,
+        anchorOffset: target.getBoundingClientRect().top - viewport.top,
+        fallbackHeight: node.scrollHeight,
+        fallbackTop: node.scrollTop,
+        merged: true,
+      };
+      restoreHistoryAnchor();
+      if (journalsReady) settleHistoryAfterQuiet();
+    };
+    window.addEventListener(JUMP_ANCHOR_EVENT, holdTarget);
+    return () => window.removeEventListener(JUMP_ANCHOR_EVENT, holdTarget);
+  }, [
+    cancelHistorySettle,
+    journalsReady,
+    props.room,
+    restoreHistoryAnchor,
+    settleHistoryAfterQuiet,
+  ]);
+
+  // A prepended page is allowed to grow as its run journals settle. Keep the
+  // same pre-existing row at the same viewport offset after every such commit,
+  // and only release the request latch once those heights are final.
+  useLayoutEffect(() => {
+    const pending = historyRestoreRef.current;
+    if (pending === undefined || !pending.merged || pending.room !== props.room) return;
+    cancelHistorySettle();
+    restoreHistoryAnchor();
+    if (journalsReady) settleHistoryAfterQuiet();
+  }, [
+    cancelHistorySettle,
+    journalVersion,
+    journalsReady,
+    messages,
+    props.room,
+    restoreHistoryAnchor,
+    settleHistoryAfterQuiet,
+  ]);
+
   const onScroll = (): void => {
     const node = scrollerRef.current;
     if (!node) return;
@@ -290,24 +470,59 @@ export function Transcript(props: { room: string; token: () => string; connectio
     if (distance < REGLUE_DISTANCE_PX) {
       pinnedRef.current = true;
       setNewCount(0); // re-glued: everything below is seen again
-      requestAnimationFrame(markReadIfSeen);
+      requestAnimationFrame(markVisibleRowsRead);
     } else if (pinnedRef.current && upwardScrollRef.current >= RELEASE_PIN_DISTANCE_PX) {
       pinnedRef.current = false;
     }
     setShowJump(!pinnedRef.current);
-    if (node.scrollTop < 80 && !historyBusy && hasOlder && historyCursor !== undefined && historyCursor > 1) {
+    markVisibleRowsRead();
+    if (
+      node.scrollTop < 80
+      && !historyRequestRef.current
+      && hasOlder
+      && historyCursor !== undefined
+      && historyCursor > 1
+    ) {
+      cancelHistorySettle();
+      historyRequestRef.current = true;
       setHistoryBusy(true);
-      const prior = { height: node.scrollHeight, top: node.scrollTop };
+      pinnedRef.current = false;
+      setShowJump(true);
+      const viewport = node.getBoundingClientRect();
+      const firstVisible = [...columnRef.current?.querySelectorAll<HTMLElement>(':scope > [id]') ?? []]
+        .find((row) => row.getBoundingClientRect().bottom > viewport.top);
+      const pending: HistoryRestore = {
+        room: props.room,
+        anchorId: firstVisible?.id ?? '',
+        anchorOffset: firstVisible === undefined
+          ? 0
+          : firstVisible.getBoundingClientRect().top - viewport.top,
+        fallbackHeight: node.scrollHeight,
+        fallbackTop: node.scrollTop,
+        merged: false,
+      };
+      historyRestoreRef.current = pending;
       void fetchMessageHistory(props.room, { before: historyCursor, limit: HISTORY_PAGE_SIZE }, { token: props.token() })
         .then((page) => {
-          if (page.messages.length === 0) setHasOlder(false);
+          if (historyRestoreRef.current !== pending) return;
+          if (page.messages.length === 0) {
+            setHasOlder(false);
+            cancelHistorySettle();
+            historyRestoreRef.current = undefined;
+            historyRequestRef.current = false;
+            setHistoryBusy(false);
+            return;
+          }
+          pending.merged = true;
           useClientStore.getState().mergeHistoryPage(props.room, page.messages);
-          requestAnimationFrame(() => {
-            node.scrollTop = prior.top + node.scrollHeight - prior.height;
-          });
         })
-        .catch(() => undefined)
-        .finally(() => setHistoryBusy(false));
+        .catch(() => {
+          if (historyRestoreRef.current !== pending) return;
+          cancelHistorySettle();
+          historyRestoreRef.current = undefined;
+          historyRequestRef.current = false;
+          setHistoryBusy(false);
+        });
     }
   };
 
@@ -336,7 +551,14 @@ export function Transcript(props: { room: string; token: () => string; connectio
           </ul>
         </div>
       )}
-      <div ref={scrollerRef} className="nx-transcript" data-testid="timeline" onScroll={onScroll} tabIndex={0}>
+      <div
+        ref={scrollerRef}
+        className="nx-transcript"
+        data-testid="timeline"
+        aria-busy={historyBusy}
+        onScroll={onScroll}
+        tabIndex={0}
+      >
         <div ref={columnRef} className="nx-column">
           {/* The skeleton holds until hydration COMMITS. `connected` flips at
               socket-open, before a single frame lands, so gating on it flashed an
@@ -501,6 +723,7 @@ function TurnBlock(props: {
     <article
       id={String(message.id)}
       data-testid={message.kind === 'run' ? `run-${message.id}` : `msg-${message.id}`}
+      data-read-seq={readSeqFor(message, props.mine)}
       data-mentions-me={mentionsMe ? 'true' : undefined}
       className={`nx-turn ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''} ${message.pinned === true ? 'is-pinned' : ''} ${mentionsMe ? 'is-mentioned' : ''}`}
     >
@@ -777,7 +1000,7 @@ function useFinalizedRunSegments(
   room: string,
   token: () => string,
   runIds: readonly number[],
-): Map<number, RunSegment[]> {
+): { segments: Map<number, RunSegment[]>; version: number } {
   const version = useRunJournalVersion();
   const key = runIds.join(',');
   useEffect(() => {
@@ -787,18 +1010,27 @@ function useFinalizedRunSegments(
 
   // Segments are memoized per run: a journal commit recomputes only that run,
   // not every run in the room (which would be quadratic in a large transcript).
-  const segmentsRef = useRef(new Map<number, { events: WireEvent[]; segments: RunSegment[] }>());
-  const segmentsRoomRef = useRef(room);
-  return useMemo(() => {
-    if (segmentsRoomRef.current !== room) {
-      segmentsRef.current.clear(); // ids are room-local; never reuse across rooms
-      segmentsRoomRef.current = room;
+  const segmentsRef = useRef(
+    new Map<string, Map<number, { events: WireEvent[]; segments: RunSegment[] }>>(),
+  );
+  const segments = useMemo(() => {
+    let roomSegments = segmentsRef.current.get(room);
+    if (roomSegments === undefined) {
+      roomSegments = new Map();
+    } else {
+      segmentsRef.current.delete(room);
+    }
+    segmentsRef.current.set(room, roomSegments);
+    while (segmentsRef.current.size > SEGMENT_CACHE_ROOMS) {
+      const oldest = segmentsRef.current.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      segmentsRef.current.delete(oldest);
     }
     const map = new Map<number, RunSegment[]>();
     for (const id of runIds) {
       const events = getRunJournal(room, id);
       if (events === undefined) continue;
-      const cached = segmentsRef.current.get(id);
+      const cached = roomSegments.get(id);
       if (cached?.events === events) {
         map.set(id, cached.segments);
         continue;
@@ -806,12 +1038,13 @@ function useFinalizedRunSegments(
       const segments = segmentTimeline(
         presentRunTimeline(events.map((event, index) => ({ index, event }))),
       );
-      segmentsRef.current.set(id, { events, segments });
+      roomSegments.set(id, { events, segments });
       map.set(id, segments);
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room, key, version]);
+  return { segments, version };
 }
 
 function RunContent(props: { message: Message; room: string; token: () => string }) {
@@ -1058,6 +1291,7 @@ function RunStretch(props: {
     <article
       id={props.anchored ? String(message.id) : undefined}
       data-testid={`run-${message.id}`}
+      data-read-seq={readSeqFor(message, props.mine)}
       className={`nx-turn ${props.mine ? 'is-mine' : ''}`}
     >
       {!isMobile && <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />}

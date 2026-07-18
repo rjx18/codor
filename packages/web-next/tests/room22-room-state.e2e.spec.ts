@@ -23,11 +23,13 @@ test.describe('multiplexed room state', () => {
   test('one socket streams every rail and fetches journals only after promotion', async ({ page }) => {
     const sockets: string[] = [];
     const summaryRequests: string[] = [];
+    const engJournals: string[] = [];
     const opsJournals: string[] = [];
     page.on('websocket', (socket) => sockets.push(socket.url()));
     page.on('request', (request) => {
       const path = new URL(request.url()).pathname;
       if (path === '/api/rooms/summary') summaryRequests.push(request.url());
+      if (/^\/api\/rooms\/eng\/runs\//.test(path)) engJournals.push(path);
       if (/^\/api\/rooms\/ops\/runs\//.test(path)) opsJournals.push(path);
     });
 
@@ -48,6 +50,7 @@ test.describe('multiplexed room state', () => {
 
     await research.click();
     await expect(page.locator('.nx-chat-title h1')).toHaveText('Research');
+    await expect(page.getByTestId('room-working-eng')).toContainText('@scout is working');
     await expect(page.getByTestId(`msg-${arrival.id}`)).toContainText('streamed retrieval update');
     await expect(research.locator('.nx-unread')).toHaveCount(0);
     expect(sockets).toHaveLength(1);
@@ -56,9 +59,17 @@ test.describe('multiplexed room state', () => {
     await expect(page.locator('.nx-chat-title h1')).toHaveText('Ops');
     await expect.poll(() => opsJournals.length).toBeGreaterThan(0);
     expect(sockets).toHaveLength(1);
+
+    const engReadsBeforeReturn = engJournals.length;
+    await page.getByTestId('room-link-eng').click();
+    await expect(page.locator('.nx-chat-title h1')).toHaveText('Engineering');
+    await expect(page.locator('.nx-skeleton')).toHaveCount(0);
+    await page.waitForTimeout(250);
+    expect(engJournals).toHaveLength(engReadsBeforeReturn);
+    await expect(page.getByTestId('room-working-eng')).toContainText('@scout is working');
   });
 
-  test('read state advances only at a focused visible tail', async ({ page }) => {
+  test('read state advances only after a substantive row stays visibly onscreen', async ({ page }) => {
     await control('/seed-runs', { count: 80 });
     await open(page, 'hydration');
     const row = page.getByTestId('room-link-hydration');
@@ -86,7 +97,15 @@ test.describe('multiplexed room state', () => {
       (await control<{ summary: { unread: number } }>('/room-support', { room: 'hydration' })).summary.unread,
     ).toBe(1);
 
-    await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = node.scrollHeight; });
+    // Flying past the row for less than the dwell must not silently clear it.
+    await page.getByTestId(`msg-${scrolledArrival.id}`).evaluate((node) => node.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(100);
+    await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = 0; });
+    await page.waitForTimeout(350);
+    await expect(row.locator('.nx-unread')).toHaveText('1');
+
+    // Holding the actual unread row in the focused viewport is the read edge.
+    await page.getByTestId(`msg-${scrolledArrival.id}`).evaluate((node) => node.scrollIntoView({ block: 'center' }));
     await expect(row.locator('.nx-unread')).toHaveCount(0);
     await expect.poll(async () =>
       (await control<{ summary: { unread: number } }>('/room-support', { room: 'hydration' })).summary.unread,
@@ -95,7 +114,7 @@ test.describe('multiplexed room state', () => {
     await page.evaluate(() => {
       Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false });
     });
-    await control('/live-chat', {
+    const hiddenArrival = await control<{ id: number }>('/live-chat', {
       room: 'hydration',
       author: 'archivist',
       body: 'unread while the room tab is hidden',
@@ -108,6 +127,7 @@ test.describe('multiplexed room state', () => {
       Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
       window.dispatchEvent(new FocusEvent('focus'));
     });
+    await page.getByTestId(`msg-${hiddenArrival.id}`).evaluate((node) => node.scrollIntoView({ block: 'center' }));
     await expect(row.locator('.nx-unread')).toHaveCount(0);
     await expect.poll(async () =>
       (await control<{ summary: { unread: number } }>('/room-support', { room: 'hydration' })).summary.unread,

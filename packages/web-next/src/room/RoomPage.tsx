@@ -113,6 +113,7 @@ function ChannelRail(props: {
   const [creating, setCreating] = useState(false);
   const summaries = useRoomSummaries(props.token);
   const connected = useClientStore((state) => state.connected);
+  const roomStates = useClientStore((state) => state.rooms);
   const active = useClientStore((state) => roomSlice(state, props.activeRoom));
   const room = active.room;
   const members = active.members;
@@ -120,10 +121,14 @@ function ChannelRail(props: {
   useMinuteTick();
 
   const self = selfId !== undefined ? members[selfId] : undefined;
-  const working = useMemo(() => {
-    const workingMember = Object.values(members).find((m) => m.kind === 'agent' && (m.state === 'running' || m.state === 'queued'));
-    return workingMember;
-  }, [members]);
+  const workingByRoom = useMemo(() => Object.fromEntries(
+    Object.entries(roomStates).map(([roomId, slice]) => [
+      roomId,
+      Object.values(slice.members)
+        .filter((member) => member.kind === 'agent' && (member.state === 'running' || member.state === 'queued'))
+        .sort((left, right) => left.handle.localeCompare(right.handle)),
+    ]),
+  ), [roomStates]);
 
   // Server summaries drive the rail; the active room's row is overlaid with the
   // fresher socket truth. Working rooms sort first, then most recent activity.
@@ -136,12 +141,12 @@ function ChannelRail(props: {
     const lastActivity = (entry: RoomSummary): number =>
       Date.parse(entry.latest?.ts ?? entry.created_ts) || 0;
     return list.sort((a, b) => {
-      const aWorking = a.id === props.activeRoom ? working !== undefined : a.working;
-      const bWorking = b.id === props.activeRoom ? working !== undefined : b.working;
+      const aWorking = (workingByRoom[a.id]?.length ?? 0) > 0 || a.working;
+      const bWorking = (workingByRoom[b.id]?.length ?? 0) > 0 || b.working;
       if (aWorking !== bWorking) return aWorking ? -1 : 1;
       return lastActivity(b) - lastActivity(a);
     });
-  }, [summaries, room, props.activeRoom, working]);
+  }, [summaries, room, workingByRoom]);
 
   return (
     <nav className="nx-rail" aria-label="Channels">
@@ -167,7 +172,13 @@ function ChannelRail(props: {
       <ul className="nx-rail-list">
         {entries.map((entry) => {
           const active = entry.id === props.activeRoom;
-          const isWorking = active ? working !== undefined : entry.working;
+          const workingAgents = workingByRoom[entry.id] ?? [];
+          const isWorking = workingAgents.length > 0 || entry.working;
+          const workingLabel = workingAgents.length === 1
+            ? `@${workingAgents[0]!.handle} is working…`
+            : workingAgents.length > 1
+              ? `${String(workingAgents.length)} agents are working…`
+              : 'working…';
           const unread = entry.unread;
           const lastTs = entry.latest?.ts;
           const preview = summaryPreview(entry);
@@ -198,9 +209,9 @@ function ChannelRail(props: {
                   </span>
                   <span className="nx-row-bottom">
                     {isWorking ? (
-                      <span className="nx-row-working">
+                      <span className="nx-row-working" data-testid={`room-working-${entry.id}`}>
                         <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>
-                        {active && working ? `@${working.handle} is working…` : 'working…'}
+                        {workingLabel}
                       </span>
                     ) : entry.attention ? (
                       <span className="nx-row-preview is-error">agent needs attention</span>
@@ -208,7 +219,7 @@ function ChannelRail(props: {
                       <span className="nx-row-preview">{preview}</span>
                     )}
                     {unread > 0 && (
-                      <span className="nx-unread" data-testid={active ? 'rail-unread' : undefined}>
+                      <span className="nx-unread" data-testid={`rail-unread-${entry.id}`}>
                         {unread > 99 ? '99+' : unread}
                       </span>
                     )}

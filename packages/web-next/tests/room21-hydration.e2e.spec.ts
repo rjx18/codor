@@ -129,14 +129,56 @@ test.describe('large-room hydration', () => {
       .toBeLessThan(80);
   });
 
-  test('scrolling up pages older history back in', async ({ page }) => {
-    await openRoom(page);
-    const before = await page.locator('.nx-column > .nx-turn').count();
+  test('one top reach loads one stable page and preserves the visible anchor', async ({ page }) => {
+    let releaseHistory = (): void => undefined;
+    const held = new Promise<void>((resolve) => { releaseHistory = resolve; });
+    let historyRequests = 0;
+    await page.route('**/api/rooms/hydration/messages?*', async (route) => {
+      const url = new URL(route.request().url());
+      if (!url.searchParams.has('before')) return route.continue();
+      historyRequests += 1;
+      if (historyRequests !== 1) return route.continue();
+      const response = await route.fetch();
+      await held;
+      return route.fulfill({ response });
+    });
 
-    await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = 0; });
-    await expect
-      .poll(async () => page.locator('.nx-column > .nx-turn').count(), { timeout: 5000 })
-      .toBeGreaterThan(before);
+    await openRoom(page);
+    const timeline = page.getByTestId('timeline');
+    const rows = page.locator('.nx-column > .nx-turn[id], .nx-column > .nx-system[id]');
+    await expect(rows.first()).toBeVisible();
+    const before = await rows.count();
+    const anchor = await timeline.evaluate((node) => {
+      node.scrollTop = 0;
+      const row = node.querySelector<HTMLElement>('.nx-column > [id]')!;
+      return {
+        id: row.id,
+        offset: row.getBoundingClientRect().top - node.getBoundingClientRect().top,
+      };
+    });
+
+    await timeline.evaluate((node) => {
+      for (let index = 0; index < 12; index += 1) node.dispatchEvent(new Event('scroll'));
+    });
+    await expect.poll(() => historyRequests).toBe(1);
+    await expect(timeline).toHaveAttribute('aria-busy', 'true');
+
+    releaseHistory();
+    await expect(timeline).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 });
+    await expect(rows).toHaveCount(before + 20);
+    const restoredOffset = await page.locator(`[id="${anchor.id}"]`).evaluate((row) =>
+      row.getBoundingClientRect().top
+      - document.querySelector('[data-testid="timeline"]')!.getBoundingClientRect().top);
+    expect(Math.abs(restoredOffset - anchor.offset)).toBeLessThanOrEqual(2);
+
+    // Releasing the latch at the old top caused an immediate second page before
+    // the first restoration committed. It must remain at one until another
+    // deliberate trip to the top.
+    await page.waitForTimeout(400);
+    expect(historyRequests).toBe(1);
+
+    await timeline.evaluate((node) => { node.scrollTop = 0; });
+    await expect.poll(() => historyRequests).toBe(2);
   });
 
   test('a deep link to a message beyond the tail pages back to it', async ({ page }) => {
