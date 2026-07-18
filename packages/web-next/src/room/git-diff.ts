@@ -49,3 +49,46 @@ export function shortenCwd(cwd: string): string {
   const parts = cwd.split('/').filter(Boolean);
   return parts.length <= 2 ? cwd : `…/${parts.slice(-2).join('/')}`;
 }
+
+// ── Stale-while-revalidate cache (richard #472): the last known working state
+// per room+cwd shows instantly on revisit while a fresh read runs behind a
+// small refresh pill — an empty diff appears only on a true first visit or
+// when the saved copy is really stale. Memory first, localStorage beneath it
+// so the cache survives reloads; oversized states stay memory-only.
+
+const memoryCache = new Map<string, GitWorkingState>();
+const STORE_PREFIX = 'nx-gitdiff:';
+const REALLY_STALE_MS = 24 * 60 * 60 * 1000;
+const MAX_PERSIST_CHARS = 1_500_000;
+
+const cacheKey = (room: string, cwd?: string): string => `${room}|${cwd ?? ''}`;
+
+export function cachedGitWorkingState(room: string, cwd?: string): GitWorkingState | undefined {
+  const key = cacheKey(room, cwd);
+  const memory = memoryCache.get(key);
+  if (memory !== undefined) return memory;
+  try {
+    const raw = localStorage.getItem(STORE_PREFIX + key);
+    if (raw === null) return undefined;
+    const parsed = JSON.parse(raw) as { savedAt: number; state: GitWorkingState };
+    if (typeof parsed.savedAt !== 'number' || Date.now() - parsed.savedAt > REALLY_STALE_MS) {
+      return undefined;
+    }
+    memoryCache.set(key, parsed.state);
+    return parsed.state;
+  } catch {
+    return undefined;
+  }
+}
+
+export function rememberGitWorkingState(room: string, cwd: string | undefined, state: GitWorkingState): void {
+  const key = cacheKey(room, cwd);
+  memoryCache.set(key, state);
+  try {
+    const raw = JSON.stringify({ savedAt: Date.now(), state });
+    if (raw.length <= MAX_PERSIST_CHARS) localStorage.setItem(STORE_PREFIX + key, raw);
+    else localStorage.removeItem(STORE_PREFIX + key);
+  } catch {
+    // Quota or private mode — the in-memory copy still serves this session.
+  }
+}

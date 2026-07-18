@@ -1241,10 +1241,30 @@
 /* ── Diff + Preview tabs, empty states, inspector ────────────────────── */
 
 .nx-diff {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+/* Stale-while-revalidate: cached content shows instantly and this small pill
+   floats over it while the fresh read is in flight. */
+.nx-diff-refreshing {
+  position: absolute;
+  top: var(--sp-2);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-full);
+  background: var(--c-raised);
+  box-shadow: var(--e-raised);
+  font: var(--t-caption);
+  color: var(--c-secondary);
 }
 .nx-diff-files {
   margin: 0;
@@ -1357,12 +1377,37 @@
   font: var(--t-ui);
 }
 .nx-dotgrid {
+  position: relative;
   width: 84px;
   height: 84px;
   border-radius: var(--r-card);
   background-image: radial-gradient(var(--c-mark-faint) 1.2px, transparent 1.2px);
   background-size: 12px 12px;
   opacity: 0.5;
+}
+/* A diagonal wave sweeps the dots corner to corner and bounces back: a bright
+   band travels behind a mask shaped like the dot matrix, so only dots light up
+   as it passes. Pure decoration (the grid is aria-hidden); stilled under
+   reduced motion. */
+.nx-dotgrid::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, transparent 32%, var(--c-accent-text) 50%, transparent 68%);
+  background-size: 300% 300%;
+  -webkit-mask-image: radial-gradient(circle, #000 1.2px, transparent 1.2px);
+  mask-image: radial-gradient(circle, #000 1.2px, transparent 1.2px);
+  -webkit-mask-size: 12px 12px;
+  mask-size: 12px 12px;
+  animation: nx-dot-wave 2200ms ease-in-out infinite alternate;
+}
+@keyframes nx-dot-wave {
+  from { background-position: 0% 0%; }
+  to { background-position: 100% 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nx-dotgrid::after { animation: none; opacity: 0; }
 }
 
 

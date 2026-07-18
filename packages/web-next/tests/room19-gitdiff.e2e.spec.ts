@@ -64,6 +64,27 @@ test.describe('git diff explorer', () => {
       .toBeVisible();
   });
 
+  test('a revisit serves the cached working state instantly, never an empty pane', async ({ page }) => {
+    await control('/git-dirty');
+    await openRoom(page);
+    await page.getByTestId('context-tab-diff').click();
+    await expect(page.getByTestId('diff-files')).toBeVisible();
+
+    // Leave and return: the cached copy must render without a loading state.
+    await page.getByTestId('context-tab-members').click();
+    await expect(page.getByTestId('spawn-agent')).toBeVisible();
+    await page.getByTestId('context-tab-diff').click();
+    await expect(page.getByTestId('diff-files')).toBeVisible({ timeout: 500 });
+    await expect(page.getByTestId('diff-loading')).toHaveCount(0);
+
+    // A full reload also restores from the saved copy before the fresh read.
+    await page.reload();
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await page.getByTestId('context-tab-diff').click();
+    await expect(page.getByTestId('diff-files')).toBeVisible({ timeout: 1000 });
+    await expect(page.getByTestId('diff-loading')).toHaveCount(0);
+  });
+
   test('the diff explorer is axe-clean', async ({ page }) => {
     await control('/git-dirty');
     await openRoom(page);

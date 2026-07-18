@@ -1,5 +1,5 @@
 import type { AgentLimit, Member, RunItemDiff, WireEvent } from '@codor/protocol';
-import { MoreVertical, Plus, Square } from 'lucide-react';
+import { LoaderCircle, MoreVertical, Plus, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@legacy/api.js';
@@ -11,7 +11,7 @@ import { clockTime, compactCount, memberAccent, usd } from '../primitives/identi
 import { Button, Chip, Eyebrow, IconButton, Modal, Segmented, StatusPill } from '../primitives/primitives.js';
 import { useAdapters, useMemberDetails } from '../app/session.js';
 import { ContextWindowMeter } from './ContextWindowMeter.js';
-import { fetchGitWorkingState, shortenCwd, statusLetter, type GitWorkingState } from './git-diff.js';
+import { cachedGitWorkingState, fetchGitWorkingState, rememberGitWorkingState, shortenCwd, statusLetter, type GitWorkingState } from './git-diff.js';
 
 type Tab = 'members' | 'diff' | 'preview';
 
@@ -578,33 +578,49 @@ function useGitWorkingState(
   token: () => string,
   cwd: string | undefined,
   refreshKey: number,
-): { state: GitWorkingState | undefined; failed: boolean; loading: boolean } {
+): { state: GitWorkingState | undefined; failed: boolean; refreshing: boolean } {
   const messages = useRoomStore((s) => s.messages);
   const finalizedRuns = useMemo(
     () => Object.values(messages)
       .filter((m) => m.kind === 'run' && m.run !== undefined && m.run.status !== 'running').length,
     [messages],
   );
-  const [state, setState] = useState<GitWorkingState>();
+  // Stale-while-revalidate (richard #472): the cached working state renders
+  // instantly and the fresh read revalidates behind a small pill — an empty
+  // pane only on a genuine first visit (or a really-stale saved copy).
+  const [state, setState] = useState<GitWorkingState | undefined>(() => cachedGitWorkingState(room, cwd));
   const [failed, setFailed] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    const seed = cachedGitWorkingState(room, cwd);
+    setState(seed);
     setFailed(false);
+    setRefreshing(true);
     void fetchGitWorkingState(room, token(), cwd)
-      .then((next) => { if (!cancelled) { setState(next); setLoading(false); } })
-      .catch(() => { if (!cancelled) { setFailed(true); setLoading(false); } });
+      .then((next) => {
+        if (cancelled) return;
+        rememberGitWorkingState(room, cwd, next);
+        setState(next);
+        setRefreshing(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRefreshing(false);
+        // A failed refresh keeps showing the cached copy; only a first visit
+        // with nothing cached surfaces the error state.
+        if (seed === undefined) setFailed(true);
+      });
     return () => { cancelled = true; };
   }, [room, token, cwd, refreshKey, finalizedRuns]);
-  return { state, failed, loading };
+  return { state, failed, refreshing };
 }
 
 function DiffTab(props: { room: string; token: () => string; focus?: { path: string; nonce: number } }) {
   const [selectedCwd, setSelectedCwd] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [pickedPath, setPickedPath] = useState<string>();
-  const { state, failed, loading } = useGitWorkingState(props.room, props.token, selectedCwd, refreshKey);
+  const { state, failed, refreshing } = useGitWorkingState(props.room, props.token, selectedCwd, refreshKey);
 
   // Each chat diff-chip click focuses its file (nonce re-fires on repeats).
   useEffect(() => {
@@ -615,7 +631,7 @@ function DiffTab(props: { room: string; token: () => string; focus?: { path: str
     return <EmptyState testid="diff-error">Couldn’t read the repository.</EmptyState>;
   }
   if (state === undefined) {
-    return <EmptyState testid="diff-loading">{loading ? 'Reading the working tree…' : 'No repository.'}</EmptyState>;
+    return <EmptyState testid="diff-loading">{refreshing ? 'Reading the working tree…' : 'No repository.'}</EmptyState>;
   }
 
   const files = state.files;
@@ -624,6 +640,11 @@ function DiffTab(props: { room: string; token: () => string; focus?: { path: str
 
   return (
     <div className="nx-diff">
+      {refreshing && (
+        <span className="nx-diff-refreshing" data-testid="diff-refreshing">
+          <LoaderCircle className="nx-spin" size={12} aria-hidden="true" /> Refreshing…
+        </span>
+      )}
       <div className="nx-diff-toolbar">
         {state.cwds.length > 1 && (
           <select
