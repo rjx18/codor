@@ -225,6 +225,27 @@
   align-items: center;
   gap: var(--sp-2);
 }
+.nx-context-trigger { display: none; }
+
+.nx-responsive-context-shell {
+  height: min(74dvh, 720px);
+  display: flex;
+  flex-direction: column;
+}
+.nx-responsive-context-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-3);
+}
+.nx-responsive-context-head h2 { margin: 0; font: var(--t-title); }
+.nx-responsive-context-shell .nx-context {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+}
 
 /* ── Transcript ──────────────────────────────────────────────────────── */
 
@@ -1708,7 +1729,8 @@
 
 @media (max-width: 1360px) {
   .nx-app { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
-  .nx-context { display: none; }
+  .nx-app > .nx-context { display: none; }
+  .nx-context-trigger { display: inline-flex; }
 }
 @media (max-width: 1024px) {
   .nx-app { grid-template-columns: minmax(0, 1fr); }

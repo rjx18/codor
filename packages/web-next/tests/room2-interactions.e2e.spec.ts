@@ -85,6 +85,10 @@ test.describe('composer addressing', () => {
     await enqueue([{ kind: 'complete', final_text: 'On it — summarizing now.' }]);
     await openRoom(page);
     const input = page.getByTestId('composer-input');
+    // Socket-open precedes the atomic room commit. Under a full-suite build the
+    // textarea can be visible while sending is still hydration-gated, so wait
+    // for the seeded recipient before replacing it and pressing Enter.
+    await expect(input).toHaveValue(/@\w+ /);
     await input.fill('@fable quick status line please');
     await input.press('Enter');
     await expect(input).toHaveValue('@fable '); // cleared, then re-seeded to the default recipient

@@ -1,4 +1,4 @@
-import { ChevronLeft, MoreVertical, Plus, Search, Settings, Share2 } from 'lucide-react';
+import { ChevronLeft, MoreVertical, Plus, Search, Settings, Share2, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Connection } from '@legacy/ws.js';
@@ -13,7 +13,7 @@ import {
 import { useRoomSummaries, type RoomSummary } from '../app/summary.js';
 import { roomSlice, useClientStore } from '../app/store.js';
 import { ContextPanel } from './ContextPanel.js';
-import { Chip, IconButton, Eyebrow, StatusPill } from '../primitives/primitives.js';
+import { Chip, IconButton, Eyebrow, Modal, StatusPill } from '../primitives/primitives.js';
 import { compactCount, memberAccent, relativeTime, usd } from '../primitives/identity.js';
 import { Composer } from './Composer.js';
 import { CreateChannelDialog } from './CreateChannel.js';
@@ -58,6 +58,21 @@ export function RoomPage(props: { token: string; refreshToken?: () => Promise<st
   const isMobile = useIsMobile();
   const [surface, setSurface] = useState<'channels' | 'room'>('room');
   const [mobileContext, setMobileContext] = useState(false);
+  const [responsiveContext, setResponsiveContext] = useState(false);
+
+  // The inline context island collapses only at laptop/tablet widths. If an
+  // open dialog crosses into either full desktop or mobile, close it so the
+  // composition appropriate to that viewport owns the context surface.
+  useEffect(() => {
+    if (!responsiveContext) return;
+    const query = window.matchMedia('(min-width: 720px) and (max-width: 1360px)');
+    const onChange = (): void => {
+      if (!query.matches) setResponsiveContext(false);
+    };
+    query.addEventListener('change', onChange);
+    onChange();
+    return () => query.removeEventListener('change', onChange);
+  }, [responsiveContext]);
 
   if (isMobile) {
     return (
@@ -97,8 +112,33 @@ export function RoomPage(props: { token: string; refreshToken?: () => Promise<st
   return (
     <div className="nx-app" data-testid="app">
       <ChannelRail activeRoom={room} token={token} onSwitch={switchRoom} />
-      <ChatPanel room={room} connection={connection} token={token} />
+      <ChatPanel
+        room={room}
+        connection={connection}
+        token={token}
+        onContext={() => setResponsiveContext(true)}
+      />
       <ContextPanel room={room} token={token} connection={connection} />
+      {responsiveContext && (
+        <Modal
+          label="Channel context"
+          testid="responsive-context"
+          onClose={() => setResponsiveContext(false)}
+        >
+          <div className="nx-responsive-context-shell">
+            <header className="nx-responsive-context-head">
+              <h2>Channel context</h2>
+              <IconButton
+                icon={X}
+                label="Close channel context"
+                variant="quiet"
+                onClick={() => setResponsiveContext(false)}
+              />
+            </header>
+            <ContextPanel room={room} token={token} connection={connection} />
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -270,6 +310,7 @@ function ChatPanel(props: {
   room: string;
   connection: Connection;
   token: () => string;
+  onContext?: () => void;
   mobile?: { onBack: () => void; onContext: () => void };
 }) {
   const room = useClientStore((state) => roomSlice(state, props.room).room);
@@ -319,6 +360,13 @@ function ChatPanel(props: {
           </p>
         </div>
         <div className="nx-chat-actions">
+          <IconButton
+            icon={Users}
+            label="Open members and context"
+            data-testid="responsive-context-trigger"
+            className="nx-context-trigger"
+            onClick={props.onContext}
+          />
           <IconButton icon={Search} label="Search messages" data-testid="toggle-message-search" onClick={() => setSearching(true)} />
           <InboxControl room={props.room} connection={props.connection} token={props.token} />
           <IconButton icon={Share2} label="Open ledger graph" onClick={() => { window.location.href = `/ledger?room=${props.room}`; }} />
