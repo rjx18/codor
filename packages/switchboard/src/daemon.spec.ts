@@ -1,5 +1,5 @@
 import { execFileSync, spawn as spawnProcess } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -4595,5 +4595,81 @@ describe('git working state (diff explorer)', () => {
 
     expect(after).toEqual(before);
     expect(after.staged).toBe(''); // the read never staged anything
+  });
+});
+
+describe('message attachments', () => {
+  const stage = (room: string, name: string, mime: string, bytes: string) => {
+    const id = daemon.newAttachmentId();
+    daemon.ensureAttachmentDir(room);
+    writeFileSync(daemon.attachmentPath(room, id), bytes);
+    const meta = { id, name, mime, size: Buffer.byteLength(bytes) };
+    daemon.recordAttachment(room, meta);
+    return meta;
+  };
+
+  it('round-trips attachment metadata on a posted message', () => {
+    const meta = stage('eng', 'shot.png', 'image/png', 'PNGDATA');
+    const message = daemon.postHumanMessage('eng', 'here is the shot', { attachments: [meta] });
+    expect(daemon.store.getMessage('eng', message.id)?.attachments).toEqual([meta]);
+    expect(daemon.postHumanMessage('eng', 'no files').attachments).toBeUndefined();
+  });
+
+  it('adds the attachments column to a pre-existing database', () => {
+    const dbPath = join(dir, 'migrate.sqlite');
+    const seed = new Store(dbPath);
+    const { owner } = seed.createRoom({ id: 'm', name: 'M', owner: { handle: 'richard', display_name: 'Richard' } });
+    const before = seed.postMessage('m', { author: owner.id, kind: 'chat', body: 'old' });
+    seed.close();
+    // Simulate a database created before the attachments column existed.
+    const raw = new Database(dbPath);
+    raw.exec('ALTER TABLE messages DROP COLUMN attachments');
+    raw.close();
+    const migrated = new Store(dbPath);
+    expect(migrated.getMessage('m', before.id)?.attachments).toBeUndefined();
+    const att = { id: 'a'.repeat(32), name: 'f.png', mime: 'image/png', size: 3 };
+    const after = migrated.postMessage('m', { author: owner.id, kind: 'chat', body: 'new', attachments: [att] });
+    expect(migrated.getMessage('m', after.id)?.attachments).toEqual([att]);
+    migrated.close();
+  });
+
+  it('appends attachment absolute paths to an agent delivery payload', async () => {
+    spawnAgent('alpha');
+    const meta = stage('eng', 'log.txt', 'text/plain', 'hello world');
+    fake.enqueue({ kind: 'complete', final_text: '@richard read it' });
+    daemon.postHumanMessage('eng', '@alpha read the log', { attachments: [meta] });
+    await daemon.settle();
+    const payload = fake.deliveries.at(-1)!.payload;
+    expect(payload).toContain(daemon.attachmentPath('eng', meta.id));
+    expect(payload).toContain('log.txt');
+  });
+
+  it('unlinks attachment files from disk on delete and nulls the column', () => {
+    const meta = stage('eng', 'shot.png', 'image/png', 'PNGDATA');
+    const message = daemon.postHumanMessage('eng', 'delete me', { attachments: [meta] });
+    const path = daemon.attachmentPath('eng', meta.id);
+    expect(existsSync(path)).toBe(true);
+    daemon.deleteMessage('eng', message.id, daemon.ownerOf('eng').id);
+    expect(existsSync(path)).toBe(false); // bytes gone from disk
+    expect(existsSync(`${path}.json`)).toBe(false); // sidecar gone
+    expect(daemon.store.getMessage('eng', message.id)?.attachments).toBeUndefined();
+  });
+
+  it('sweeps unreferenced attachments older than a day, keeping referenced and fresh ones', () => {
+    const referenced = stage('eng', 'keep.png', 'image/png', 'KEEP');
+    daemon.postHumanMessage('eng', 'keep this', { attachments: [referenced] });
+    const orphanOld = stage('eng', 'old.bin', 'application/octet-stream', 'OLD');
+    const orphanFresh = stage('eng', 'fresh.bin', 'application/octet-stream', 'FRESH');
+
+    const oldPath = daemon.attachmentPath('eng', orphanOld.id);
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    utimesSync(oldPath, twoDaysAgo, twoDaysAgo);
+    utimesSync(`${oldPath}.json`, twoDaysAgo, twoDaysAgo);
+
+    daemon.sweepOrphanAttachments();
+
+    expect(existsSync(daemon.attachmentPath('eng', referenced.id))).toBe(true); // referenced: kept
+    expect(existsSync(daemon.attachmentPath('eng', orphanFresh.id))).toBe(true); // fresh orphan: kept
+    expect(existsSync(oldPath)).toBe(false); // old orphan: swept
   });
 });

@@ -301,7 +301,7 @@ function ChatPanel(props: {
         </header>
         <HoldBanner connection={props.connection} />
         <Transcript room={props.room} token={props.token} connection={props.connection} />
-        <Composer room={props.room} connection={props.connection} />
+        <Composer room={props.room} token={props.token} connection={props.connection} />
       </main>
     );
   }
@@ -327,7 +327,7 @@ function ChatPanel(props: {
       </header>
       <HoldBanner connection={props.connection} />
       <Transcript room={props.room} token={props.token} connection={props.connection} />
-      <Composer room={props.room} connection={props.connection} />
+      <Composer room={props.room} token={props.token} connection={props.connection} />
       {searching && <SearchOverlay room={props.room} token={props.token} onClose={() => setSearching(false)} />}
     </main>
   );

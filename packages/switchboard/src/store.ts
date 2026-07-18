@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import {
   type AttachLease,
+  type Attachment,
   AttachLeaseSchema,
   type BridgeOrigin,
   BridgeOriginSchema,
@@ -92,6 +93,7 @@ CREATE TABLE IF NOT EXISTS messages (
   run TEXT,                    -- RunSummary JSON: events_ref pointer only, no events
   ask TEXT,                    -- AskCard JSON
   origin TEXT,                 -- BridgeOrigin JSON
+  attachments TEXT,            -- Attachment[] JSON (metadata; files live under the data dir)
   ack INTEGER NOT NULL DEFAULT 0,
   pinned INTEGER NOT NULL DEFAULT 0,
   deleted INTEGER NOT NULL DEFAULT 0,
@@ -367,6 +369,13 @@ function migrateMessageDeleted(db: Database.Database): void {
   }
 }
 
+function migrateMessageAttachments(db: Database.Database): void {
+  const columns = db.pragma('table_info(messages)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'attachments')) {
+    db.exec('ALTER TABLE messages ADD COLUMN attachments TEXT');
+  }
+}
+
 // harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-migration
 function migrateApprovalDeliveryResolution(db: Database.Database): void {
   const columns = db.pragma('table_info(deliveries)') as { name: string }[];
@@ -494,6 +503,7 @@ interface MessageRow {
   run: string | null;
   ask: string | null;
   origin: string | null;
+  attachments: string | null;
   ack: number;
   pinned: number;
   deleted: number;
@@ -635,6 +645,7 @@ function messageFromRow(row: MessageRow): Message {
     ack: toBool(row.ack) ? true : undefined,
     pinned: toBool(row.pinned) ? true : undefined,
     deleted: toBool(row.deleted) ? true : undefined,
+    attachments: row.attachments ? JSON.parse(row.attachments) : undefined,
     ts: row.ts,
     seq: row.seq,
   });
@@ -750,6 +761,7 @@ export interface NewMessage {
   ask?: Message['ask'];
   origin?: Message['origin'];
   ack?: boolean;
+  attachments?: Attachment[];
 }
 
 export interface SyncResult {
@@ -842,6 +854,7 @@ export class Store {
     migrateMessageAck(this.db);
     migrateMessagePinned(this.db);
     migrateMessageDeleted(this.db);
+    migrateMessageAttachments(this.db);
     migrateApprovalDeliveryResolution(this.db);
     migrateDeliveryHopCount(this.db);
     migrateMeterUncostedTokens(this.db);
@@ -1298,14 +1311,15 @@ export class Store {
         ask: message.ask,
         origin: message.origin,
         ack: message.ack,
+        attachments: message.attachments,
         ts: new Date().toISOString(),
         seq,
       });
       this.db
         .prepare(
           `INSERT INTO messages (room, id, author, kind, body, mentions, refs, ledger_refs,
-             reply_to, run, ask, origin, ack, pinned, deleted, ts, seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             reply_to, run, ask, origin, attachments, ack, pinned, deleted, ts, seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           room,
@@ -1320,6 +1334,7 @@ export class Store {
           jsonOrNull(validated.run),
           jsonOrNull(validated.ask),
           jsonOrNull(validated.origin),
+          jsonOrNull(validated.attachments),
           fromBool(validated.ack === true),
           fromBool(validated.pinned === true),
           fromBool(validated.deleted === true),
@@ -1529,6 +1544,7 @@ export class Store {
         ledger_refs: [],
         ask: undefined,
         origin: undefined,
+        attachments: undefined,
         pinned: undefined,
         deleted: true,
         seq,
@@ -1536,7 +1552,7 @@ export class Store {
       this.db
         .prepare(
           `UPDATE messages SET body = '', mentions = '[]', refs = '[]', ledger_refs = '[]',
-             ask = NULL, origin = NULL, pinned = 0, deleted = 1, seq = ?
+             ask = NULL, origin = NULL, attachments = NULL, pinned = 0, deleted = 1, seq = ?
            WHERE room = ? AND id = ?`,
         )
         .run(seq, room, id);

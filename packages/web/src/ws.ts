@@ -4,7 +4,7 @@ import { setActiveBrowserAccessToken } from './crypto.js';
 import { useRoomStore } from './state.js';
 
 export interface Connection {
-  post(body: string, replyTo?: number): void;
+  post(body: string, opts?: { replyTo?: number; attachments?: string[] }): void;
   act(act: Act): void;
   disconnect(): void;
   reconnect(): void;
@@ -89,8 +89,14 @@ export function connect(options: ConnectOptions): Connection {
   };
 
   const connection: Connection = {
-    post: (body, replyTo) =>
-      send({ type: 'post', room: options.room, body, ...(replyTo !== undefined && { reply_to: replyTo }) }),
+    post: (body, opts) =>
+      send({
+        type: 'post',
+        room: options.room,
+        body,
+        ...(opts?.replyTo !== undefined && { reply_to: opts.replyTo }),
+        ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
+      }),
     act: (act) => send({ type: 'act', room: options.room, act }),
     disconnect: () => {
       manuallyClosed = true;

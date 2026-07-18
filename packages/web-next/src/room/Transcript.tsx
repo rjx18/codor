@@ -1,5 +1,5 @@
-import type { Delivery, Member, Message, WireEvent } from '@codor/protocol';
-import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
+import type { Attachment, Delivery, Member, Message, WireEvent } from '@codor/protocol';
+import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Paperclip, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -28,6 +28,7 @@ import { OPEN_DIFF_EVENT } from './ContextPanel.js';
 import { CompactionMarker } from './CompactionMarker.js';
 import { jumpToMessage } from './panels.js';
 import { renderMarkdown } from './markdown.js';
+import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attachments.js';
 import { presentRunTimeline, type CompactionRunTimelineItem } from './run-timeline.js';
 
 /** Consecutive same-author messages within this window collapse their header. */
@@ -483,8 +484,48 @@ function TurnBlock(props: {
           : message.kind === 'ask' || message.kind === 'approval'
             ? <AskCardView message={message} connection={props.connection} />
             : <MessageProse body={message.body} highlightHandle={mentionsMe ? props.viewerHandle : undefined} />}
+        {message.attachments !== undefined && message.attachments.length > 0 && (
+          <MessageAttachments room={props.room} token={props.token} attachments={message.attachments} />
+        )}
       </div>
     </article>
+  );
+}
+
+/** A message's uploaded files: images inline (click opens the served file),
+ *  everything else a download chip. Tombstones early-return above, so a deleted
+ *  message never reaches here — its attachments vanish for free. */
+function MessageAttachments(props: { room: string; token: () => string; attachments: Attachment[] }) {
+  return (
+    <div className="nx-attachments" data-testid="message-attachments">
+      {props.attachments.map((attachment) => {
+        const url = attachmentUrl(props.room, attachment.id, props.token());
+        return isImageAttachment(attachment.mime) ? (
+          <a
+            key={attachment.id}
+            className="nx-attach-image"
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            data-testid={`attachment-${attachment.id}`}
+          >
+            <img src={url} alt={attachment.name} loading="lazy" />
+          </a>
+        ) : (
+          <a
+            key={attachment.id}
+            className="nx-attach-download"
+            href={url}
+            download={attachment.name}
+            data-testid={`attachment-${attachment.id}`}
+          >
+            <Paperclip size={14} aria-hidden="true" />
+            <span className="nx-attach-name">{attachment.name}</span>
+            <span className="nx-attach-size">{formatAttachmentSize(attachment.size)}</span>
+          </a>
+        );
+      })}
+    </div>
   );
 }
 

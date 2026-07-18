@@ -1,5 +1,5 @@
 import type { Member } from '@codor/protocol';
-import { ArrowUp, AtSign } from 'lucide-react';
+import { ArrowUp, AtSign, Paperclip, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { effectiveDefaultRecipient, useRoomStore } from '@legacy/state.js';
@@ -8,6 +8,13 @@ import type { Connection } from '@legacy/ws.js';
 import { useIsMobile } from '../app/session.js';
 import { Chip, IconButton } from '../primitives/primitives.js';
 import { memberAccent } from '../primitives/identity.js';
+import {
+  formatAttachmentSize,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  uploadAttachment,
+  type UploadedAttachment,
+} from './attachments.js';
 
 const MAX_ROWS = 8;
 
@@ -28,7 +35,7 @@ function mentionQuery(draft: string, caret: number): { start: number; query: str
  *  addressed to the effective default recipient, an @ opens the mention popover,
  *  and a send that addresses nobody is blocked with an inline hint instead of
  *  leaving the room to guess (Richard #302). */
-export function Composer(props: { room: string; connection: Connection }) {
+export function Composer(props: { room: string; token: () => string; connection: Connection }) {
   const isMobile = useIsMobile();
   const connected = useRoomStore((s) => s.connected);
   const members = useRoomStore((s) => s.members);
@@ -38,7 +45,10 @@ export function Composer(props: { room: string; connection: Connection }) {
   const [hint, setHint] = useState<string>();
   const [mention, setMention] = useState<{ start: number; query: string }>();
   const [highlighted, setHighlighted] = useState(0);
+  const [pending, setPending] = useState<UploadedAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const seededRef = useRef(false);
   const pendingCaretRef = useRef<number>();
 
@@ -98,7 +108,41 @@ export function Composer(props: { room: string; connection: Connection }) {
     return () => window.removeEventListener(QUOTE_EVENT, onQuote);
   }, []);
 
-  const canSend = connected && draft.trim().length > 0;
+  const canSend = connected && !uploading && (draft.trim().length > 0 || pending.length > 0);
+
+  // Attach files: enforce the caps with plain messaging, then upload each so the
+  // post frame can reference server ids. Chips show what will ride the message.
+  const addFiles = (files: File[]): void => {
+    if (files.length === 0) return;
+    let batch = files;
+    if (batch.some((file) => file.size > MAX_ATTACHMENT_BYTES)) {
+      setHint('Files must be under 25 MB');
+      batch = batch.filter((file) => file.size <= MAX_ATTACHMENT_BYTES);
+    }
+    const slotsLeft = MAX_ATTACHMENTS_PER_MESSAGE - pending.length;
+    if (batch.length > slotsLeft) {
+      setHint(`Up to ${String(MAX_ATTACHMENTS_PER_MESSAGE)} files per message`);
+      batch = batch.slice(0, Math.max(0, slotsLeft));
+    }
+    if (batch.length === 0) return;
+    setUploading(true);
+    void (async () => {
+      try {
+        for (const file of batch) {
+          const uploaded = await uploadAttachment(props.room, props.token(), file);
+          setPending((prior) => [...prior, uploaded]);
+        }
+      } catch (error) {
+        setHint(error instanceof Error ? error.message : 'Upload failed');
+      } finally {
+        setUploading(false);
+      }
+    })();
+  };
+
+  const removePending = (id: string): void => {
+    setPending((prior) => prior.filter((attachment) => attachment.id !== id));
+  };
 
   const autoGrow = (): void => {
     const node = areaRef.current;
@@ -128,7 +172,7 @@ export function Composer(props: { room: string; connection: Connection }) {
 
   const send = (): void => {
     const body = draft.trim();
-    if (!canSend || body.length === 0) return;
+    if (!canSend) return; // needs body text or at least one attachment
     const addressed = roster.some((m) => new RegExp(`@${m.handle}\\b`, 'i').test(body));
     if (!addressed && roster.some((m) => m.kind === 'agent')) {
       setHint(
@@ -138,8 +182,9 @@ export function Composer(props: { room: string; connection: Connection }) {
       );
       return;
     }
-    props.connection.post(body);
+    props.connection.post(body, pending.length > 0 ? { attachments: pending.map((a) => a.id) } : undefined);
     setDraft('');
+    setPending([]);
     setHint(undefined);
     seededRef.current = false; // the next draft re-seeds its recipient
     setMention(undefined);
@@ -147,9 +192,46 @@ export function Composer(props: { room: string; connection: Connection }) {
   };
 
   return (
-    <footer className="nx-composer">
+    <footer
+      className="nx-composer"
+      onDragOver={(event) => { event.preventDefault(); }}
+      onDrop={(event) => {
+        event.preventDefault();
+        addFiles(Array.from(event.dataTransfer.files));
+      }}
+    >
       {hint !== undefined && (
         <p className="nx-composer-hint" role="alert" data-testid="composer-hint">{hint}</p>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        hidden
+        data-testid="composer-file"
+        onChange={(event) => {
+          addFiles(Array.from(event.target.files ?? []));
+          event.target.value = ''; // let the same file be picked again
+        }}
+      />
+      {pending.length > 0 && (
+        <ul className="nx-attach-tray" data-testid="attach-tray">
+          {pending.map((attachment) => (
+            <li key={attachment.id} className="nx-attach-chip" data-testid={`pending-${attachment.id}`}>
+              <span className="nx-attach-name">{attachment.name}</span>
+              <span className="nx-attach-size">{formatAttachmentSize(attachment.size)}</span>
+              <button
+                type="button"
+                className="nx-attach-remove"
+                aria-label={`Remove ${attachment.name}`}
+                data-testid={`pending-${attachment.id}-remove`}
+                onClick={() => removePending(attachment.id)}
+              >
+                <X size={13} aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
       <div className="nx-composer-bar">
         {mention && mentionables.length > 0 && (
@@ -219,9 +301,23 @@ export function Composer(props: { room: string; connection: Connection }) {
             }
           }}
           onBlur={() => setMention(undefined)}
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.files);
+            if (files.length > 0) {
+              event.preventDefault();
+              addFiles(files);
+            }
+          }}
         />
         {isMobile ? (
           <div className="nx-composer-row2">
+            <IconButton
+              icon={Paperclip}
+              label="Attach files"
+              variant="quiet"
+              data-testid="composer-attach"
+              onClick={() => fileRef.current?.click()}
+            />
             <IconButton
               icon={AtSign}
               label="Mention someone"
@@ -250,14 +346,23 @@ export function Composer(props: { room: string; connection: Connection }) {
             </button>
           </div>
         ) : (
-          <IconButton
-            icon={ArrowUp}
-            label="Send message"
-            variant="solid"
-            data-testid="composer-send"
-            disabled={!canSend}
-            onClick={send}
-          />
+          <>
+            <IconButton
+              icon={Paperclip}
+              label="Attach files"
+              variant="quiet"
+              data-testid="composer-attach"
+              onClick={() => fileRef.current?.click()}
+            />
+            <IconButton
+              icon={ArrowUp}
+              label="Send message"
+              variant="solid"
+              data-testid="composer-send"
+              disabled={!canSend}
+              onClick={send}
+            />
+          </>
         )}
       </div>
     </footer>

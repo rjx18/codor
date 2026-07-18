@@ -965,6 +965,64 @@
 }
 .nx-composer-input::placeholder { color: var(--c-faded); }
 
+/* ── Attachments: pending tray in the composer, rendered files in the turn ── */
+.nx-attach-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  padding: 0;
+  list-style: none;
+}
+.nx-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  max-width: 240px;
+  padding: 4px var(--sp-2) 4px var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-pill);
+  background: var(--c-raised);
+  font: var(--t-caption);
+}
+.nx-attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-attach-size { flex: none; color: var(--c-faded); }
+.nx-attach-remove {
+  display: inline-flex;
+  align-items: center;
+  color: var(--c-faded);
+  cursor: pointer;
+}
+.nx-attach-remove:hover { color: var(--c-ink); }
+.nx-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.nx-attach-image {
+  display: inline-block;
+  max-width: 320px;
+  overflow: hidden;
+  border: 1px solid var(--c-line);
+  border-radius: 8px;
+}
+.nx-attach-image img { display: block; max-width: 100%; height: auto; }
+.nx-attach-download {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  max-width: 280px;
+  padding: 6px var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-pill);
+  background: var(--c-raised);
+  color: inherit;
+  font: var(--t-caption);
+  text-decoration: none;
+}
+.nx-attach-download:hover { background: var(--c-muted); }
+
 /* ── Context panel ───────────────────────────────────────────────────── */
 
 .nx-context {

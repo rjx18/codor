@@ -8,7 +8,7 @@ import type { Member, ServerFrame, Session, SpawnOpts } from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 
-import { Daemon } from './daemon.js';
+import { Daemon, MAX_ATTACHMENT_BYTES } from './daemon.js';
 import { BlobStore } from './blobs.js';
 import { signChallenge, type AuthChallenge } from './crypto/challenge.js';
 import { CryptoVault, PAIRING_CODE_ALPHABET } from './crypto/pairing.js';
@@ -2024,5 +2024,78 @@ describe('git working state endpoint (room-git-state-read-only-from-known-cwds)'
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('message attachment endpoints (attachments-are-data-dir-files-delivered-as-paths)', () => {
+  const upload = (
+    room: string,
+    name: string,
+    body: Buffer | string,
+    opts: { token?: string; mime?: string } = {},
+  ): Promise<Response> =>
+    fetch(`${base}/api/rooms/${room}/attachments?name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: {
+        ...(opts.token !== undefined && { authorization: `Bearer ${opts.token}` }),
+        'content-type': opts.mime ?? 'application/octet-stream',
+      },
+      body,
+    });
+
+  it('uploads a file and serves it back to an authenticated reader', async () => {
+    const res = await upload('eng', 'note.txt', 'hello attachments', { token: TOKEN, mime: 'text/plain' });
+    expect(res.status).toBe(200);
+    const meta = await res.json() as { id: string; name: string; mime: string; size: number };
+    expect(meta).toMatchObject({ name: 'note.txt', mime: 'text/plain', size: 17 });
+    expect(meta.id).toMatch(/^[0-9a-f]{32}$/);
+
+    const got = await fetch(`${base}/api/rooms/eng/attachments/${meta.id}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(got.status).toBe(200);
+    expect(got.headers.get('content-type')).toContain('text/plain');
+    expect(await got.text()).toBe('hello attachments');
+  });
+
+  it('refuses anonymous upload and download', async () => {
+    expect((await upload('eng', 'x.txt', 'hi')).status).toBe(401);
+    const meta = await (await upload('eng', 'y.txt', 'hi', { token: TOKEN })).json() as { id: string };
+    expect((await fetch(`${base}/api/rooms/eng/attachments/${meta.id}`)).status).toBe(401);
+  });
+
+  it('refuses a file over the 25 MB cap', async () => {
+    const res = await upload('eng', 'big.bin', Buffer.alloc(MAX_ATTACHMENT_BYTES + 1024), { token: TOKEN });
+    expect(res.status).toBe(413);
+  });
+
+  it('does not serve one room\'s attachment id from another room', async () => {
+    daemon.createRoom({ id: 'other', name: 'Other', owner: { handle: 'elsewhere', display_name: 'Elsewhere' } });
+    const meta = await (await upload('eng', 'z.txt', 'secret', { token: TOKEN })).json() as { id: string };
+    const cross = await fetch(`${base}/api/rooms/other/attachments/${meta.id}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(cross.status).toBe(404);
+  });
+
+  it('refuses a post referencing an unknown id, over the cap, or with nothing at all', async () => {
+    const client = await connectAs(TOKEN);
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+
+    // Unknown id (also the shape of a cross-room id): refused at post time.
+    client.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: 'x', attachments: ['a'.repeat(32)] }));
+    expect((await client.next((frame) => frame.type === 'error')).type).toBe('error');
+
+    // Over the 8-file cap: refused by the frame schema.
+    const ids = Array.from({ length: 9 }, (_, i) => `id-${String(i)}`);
+    client.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: 'x', attachments: ids }));
+    expect((await client.next((frame) => frame.type === 'error')).type).toBe('error');
+
+    // Neither body nor attachments: refused server-side.
+    client.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: '   ' }));
+    expect((await client.next((frame) => frame.type === 'error')).type).toBe('error');
+
+    client.ws.close();
   });
 });

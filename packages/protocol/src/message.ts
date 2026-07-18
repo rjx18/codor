@@ -64,6 +64,14 @@ export const RunSummarySchema = z.object({
 });
 export type RunSummary = z.infer<typeof RunSummarySchema>;
 
+export const AttachmentSchema = z.object({
+  id: z.string().min(1), // server-issued handle; also the on-disk file name
+  name: z.string().min(1), // original filename — metadata only, never a path
+  mime: z.string().min(1),
+  size: z.number().int().nonnegative(),
+});
+export type Attachment = z.infer<typeof AttachmentSchema>;
+
 export const MessageSchema = z.object({
   id: MessageIdSchema,
   room: RoomIdSchema,
@@ -82,6 +90,7 @@ export const MessageSchema = z.object({
   // harn:end acknowledgement-marker-protocol
   pinned: z.boolean().optional(), // durable owner/admin marker; absent is the additive default
   deleted: z.boolean().optional(), // purged tombstone marker; absent is the additive live default
+  attachments: z.array(AttachmentSchema).optional(), // uploaded files; absent is the additive default
   ts: TimestampSchema,
   seq: SeqSchema, // room change-sequence at last insert/update
 });
