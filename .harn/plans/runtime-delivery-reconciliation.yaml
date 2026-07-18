@@ -1,0 +1,274 @@
+id: runtime-delivery-reconciliation
+title: Lifecycle retries and failed finalization reconcile durable work without resurrecting collaboration results.
+notes: >-
+  Live-fire follow-up to messages #598/#599. The copied live database proves
+  one collaboration delivery (message #584) was finalized interrupted into
+  participant result #598 during graceful shutdown, its round and group were
+  closed, and then the same delivery was re-queued and bound to retry run #599.
+  That retry journal ends in run.completed, but completeTurn rolled back because
+  recordCollaborationParticipantTerminal correctly refused to replace result
+  #598; the message row therefore remains running and the delivery delivering at
+  attempt_count 2. This is not an orphaned engine turn. It is a lifecycle retry
+  that contradicted collaboration terminality, followed by a finalization error
+  whose durable state was left active after the in-memory guard cleared.
+
+  Correct the lifecycle seam first. A grouped turn interrupted by the daemon's
+  own graceful shutdown is retryable work, not a terminal participant result:
+  settle the interrupted attempt and its retry decision in one Store
+  transaction. When retry is genuinely admissible, record interrupted run
+  evidence without participant terminality or round release and re-queue the
+  delivery with its existing attempt count. When retry is refused by the
+  attempt ceiling, deleted trigger, terminal participant, or closed round/group,
+  consume/fence the delivery and record the participant interrupted so its
+  barrier can release. A nonterminal participant may therefore exist only with
+  a durably queued retry. Operator Stop remains terminal and never retries.
+  Crash recovery uses the same exact-run decision instead of author-wide
+  inflight as a proxy.
+
+  Correct the finalization seam second. A turn whose durable run.completed event
+  cannot commit normal finalization must reconcile immediately at runtime, not
+  wait for a reboot. Add one Store transaction that terminalizes the still-
+  running attempt as failed with the original journal retained and an explicit
+  finalization/reconciliation error, consumes a provably obsolete duplicate
+  collaboration delivery (participant already terminal or round/group closed),
+  otherwise holds ambiguous input deliveries for operator redelivery, and
+  returns the member to a non-running durable state without routing output or
+  replacing a participant result. Because the failed normal transaction rolled
+  back its meter write too, repair records the attempt usage and turn exactly
+  once; idempotence prevents double counting. The daemon emits
+  the repaired message/member/deliveries plus one system notice. Boot reconcile
+  invokes the same repair for pre-existing rows such as #599. The operation is
+  idempotent: a second runtime or boot pass changes nothing and posts no second
+  notice.
+
+  New turn admission is fenced while that member owns a delivering delivery
+  from another unresolved run, but the fence may never brick the member:
+  immediate runtime reconciliation and boot reconciliation both clear it to
+  consumed or held, and existing redeliver/retry_run/release_hold operator paths
+  remain able to reset/release the settled delivery. A generic finalization
+  failure becomes held and actionable; the known duplicate-result shape becomes
+  consumed because its collaboration work already has a terminal result.
+
+  Tests reproduce the exact copied-live topology (closed group/round, terminal
+  participant result #598, same delivering delivery rebound to #599, terminal
+  journal, running row, ceiling attempt), prove boot and runtime repair, no
+  result replacement, no fanout, exactly-once metering, one notice, idempotence, and
+  later work admitted after repair. Graceful grouped shutdown proves the new
+  nonterminal retry path, while a ceiling-refused lifecycle interruption proves
+  its participant terminalizes so the barrier releases; operator Stop proves
+  the terminal no-retry path; an
+  unrelated in-flight turn by the same author cannot suppress exact-run repair;
+  a generic forced completeTurn failure holds the delivery and redeliver clears
+  the fence without restart. Gate: switchboard suite and full workspace build
+  green. Before deployment, run reconcile against a copy of the live SQLite
+  database and assert #599 terminal, its delivery non-delivering, participant
+  still result #598, group/round still closed, message count preserved, and a
+  second reconcile is a no-op.
+assumptions:
+  retire:
+    - id: lifecycle-interrupted-deliveries-requeue
+      reason: >-
+        The statement does not distinguish retryable lifecycle interruption
+        from collaboration participant terminality; live fire proved that
+        finalizing the participant and then re-queueing its delivery resurrects
+        closed work.
+  reviewed:
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: >-
+        Attempt WAL and exactly-once-or-held boot repair remain true; the new
+        runtime repair closes the later finalization-failure seam and boot uses
+        it only when normal terminal-journal finalization is no longer legal.
+    - id: group-participant-terminality-commits-with-the-turn
+      outcome: unchanged
+      reason: >-
+        True completed, failed, and operator-interrupted grouped deliveries still
+        commit participant terminality atomically. A daemon lifecycle attempt
+        whose delivery is atomically re-queued has not finalized that delivery;
+        when requeue is refused, its participant still terminalizes atomically.
+    - id: open-collaboration-groups-reconcile-without-resurrection
+      outcome: unchanged
+      reason: >-
+        The existing statement already forbids re-admitting consumed or terminal
+        collaboration work; the new exact-delivery guards and repair enforce it.
+    - id: only-an-admissible-delivery-becomes-delivering
+      outcome: unchanged
+      reason: >-
+        Per-transaction delivery admission remains closed; the new member fence
+        prevents a separate fresh run from starting while an older delivery is
+        durably unresolved.
+    - id: turn-finalization-transactional
+      outcome: unchanged
+      reason: >-
+        Normal completion remains one atomic commit. Repair runs only after that
+        transaction rolled back, commits no onward routing, and meters the
+        otherwise-unrecorded attempt exactly once in its own idempotent commit.
+    - id: redeliver-interrupts-stranded-run
+      outcome: unchanged
+      reason: >-
+        Operator redeliver remains the explicit escape that resets attempt count,
+        retires the abandoned run when necessary, and clears held repair state.
+    - id: retried-runs-revive-and-redeliver
+      outcome: unchanged
+      reason: >-
+        A repaired failed run remains retryable through the existing owner/admin
+        act without changing the original evidence.
+    - id: failed-run-details-never-route-as-replies
+      outcome: unchanged
+      reason: >-
+        Reconciliation diagnostics stay on the failed run and system notice;
+        terminal journal text from an obsolete attempt is never routed.
+    - id: runs-are-one-message
+      outcome: unchanged
+      reason: >-
+        Phase 1 still repairs and finalizes the existing run placeholder in
+        place; continuation-message sequencing is a later dedicated round.
+  create:
+    - id: lifecycle-retries-only-live-collaboration-work
+      title: Daemon lifecycle retries only collaboration work that remains nonterminal
+      statement: >-
+        A daemon-lifecycle interruption may re-queue its delivery only while the
+        exact collaboration participant is nonterminal, its round and group
+        remain open, the trigger survives, and the attempt is below its ceiling;
+        one atomic settlement then records interrupted run evidence, queues the
+        retry, and leaves the participant nonterminal. If retry is refused for
+        any reason, the same settlement consumes/fences the delivery and records
+        the participant interrupted so its barrier releases. Operator Stop is
+        always terminal and never re-queues, and terminal/closed work is never
+        resurrected.
+      reason: >-
+        Live #598/#599 proved that author-wide lifecycle retry can resurrect a
+        terminal participant and collide with its committed result.
+      depends_on:
+        - open-collaboration-groups-reconcile-without-resurrection
+    - id: failed-finalization-reconciles-at-runtime
+      title: A terminal journal that cannot finalize reconciles immediately and idempotently
+      statement: >-
+        Delivery attempt state is bound before spawn and consumed only by normal
+        atomic completion or explicit reconciliation; when a terminal journal
+        cannot finalize, runtime and boot use the same idempotent transaction to
+        retain the journal, fail the active run visibly, consume obsolete closed
+        collaboration work or hold ambiguous work, restore non-running member
+        state, route nothing, meter the rolled-back attempt exactly once, and emit one actionable
+        notice, so no in-memory guard may clear while durable work remains
+        silently active.
+      reason: >-
+        Run #599 completed natively but rolled back finalization and stayed
+        running/delivering until manual investigation.
+      depends_on:
+        - delivery-attempt-wal-reconcile
+        - turn-finalization-transactional
+        - lifecycle-retries-only-live-collaboration-work
+    - id: unresolved-delivery-fences-fresh-member-turns
+      title: A durable delivering attempt fences fresh turns without bricking operator recovery
+      statement: >-
+        A member may not start a fresh run while it owns a delivering delivery
+        bound to another unresolved run, even when the in-memory inflight set is
+        empty; runtime or boot reconciliation must first move that attempt to
+        consumed or held, after which redeliver, retry_run, and release_hold keep
+        their existing operator escape semantics and later queued work may run
+        without a daemon restart.
+      reason: >-
+        Clearing the in-memory guard after #599 failed allowed later turns while
+        durable active work remained, but a fence without runtime repair would
+        permanently brick the member at the retry ceiling.
+      depends_on:
+        - failed-finalization-reconciles-at-runtime
+    - id: collaboration-lifecycle-interruption-is-nonterminal
+      title: A grouped attempt interrupted for daemon lifecycle retry is not a participant result
+      statement: >-
+        Completed, failed, and operator-interrupted grouped turns atomically
+        finalize the run, consume its exact input, update member and meter, and
+        record the participant result. One atomic lifecycle settlement decides
+        the exception: only an attempt whose delivery is durably re-queued
+        finalizes its run evidence while leaving the participant and round
+        nonterminal; a refused retry records participant interrupted so the
+        barrier releases. The admitted retry can then produce the one eventual
+        result without replacing or duplicating one.
+      reason: >-
+        Graceful shutdown previously committed interrupted result #598 and then
+        retried the same participant into #599.
+      depends_on:
+        - group-participant-terminality-commits-with-the-turn
+        - lifecycle-retries-only-live-collaboration-work
+        - turn-finalization-transactional
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+anchors:
+  lifecycle-interrupted-deliveries-requeue:
+    recovery-requeue-contract:
+      action: remove
+      reason: Move the lifecycle close, helper, and crash seam to the truthful live-work-only replacement.
+  delivery-attempt-wal-reconcile:
+    wal-bind-before-spawn:
+      action: keep
+      reason: Pre-spawn WAL binding remains byte-for-byte unchanged.
+    boot-reconcile:
+      action: change
+      reason: Boot invokes runtime repair only for a terminal journal whose normal finalization is no longer legal.
+  group-participant-terminality-commits-with-the-turn:
+    collaboration-finalization-regression:
+      action: change
+      reason: Preserve true terminality regressions and prove lifecycle retry takes the explicit nonterminal path.
+    collaboration-finalization-engine:
+      action: change
+      reason: Normal grouped finalization remains atomic while daemon lifecycle retry bypasses participant terminality.
+    collaboration-turn-finalization:
+      action: keep
+      reason: The Store transaction for true terminal results remains unchanged.
+  lifecycle-retries-only-live-collaboration-work:
+    recovery-requeue-contract:
+      action: change
+      reason: The graceful-close marker and crash seam delegate one atomic exact-participant retry-or-terminal decision.
+    lifecycle-interruption-settlement:
+      action: change
+      reason: New Store transaction binds interrupted run evidence, delivery retry/fence, and participant barrier state in one decision.
+    lifecycle-collaboration-retry-regression:
+      action: change
+      reason: New daemon regressions distinguish lifecycle retry from operator-terminal interruption and closed-work fencing.
+  failed-finalization-reconciles-at-runtime:
+    finalization-repair-transaction:
+      action: change
+      reason: New Store transaction atomically fails the active run, consumes obsolete or holds ambiguous deliveries, and meters exactly once without routing.
+    runtime-finalization-reconcile:
+      action: change
+      reason: New daemon seam catches finalization failure, invokes repair, emits durable edges, and posts one notice.
+    delivery-reconciliation-regression:
+      action: change
+      reason: New Store and daemon tests reproduce #598/#599 and prove runtime, boot, idempotent, and operator-escape behavior.
+  unresolved-delivery-fences-fresh-member-turns:
+    durable-delivery-turn-fence:
+      action: change
+      reason: Turn eligibility checks exact unresolved durable attempts before admitting fresh queued work.
+    durable-delivery-turn-fence-regression:
+      action: change
+      reason: Tests prove the fence blocks only until immediate repair and never defeats operator redelivery.
+  collaboration-lifecycle-interruption-is-nonterminal:
+    lifecycle-collaboration-finalization:
+      action: change
+      reason: New daemon branch invokes atomic retry-or-terminal settlement instead of committing participant terminality before requeue.
+    lifecycle-collaboration-finalization-regression:
+      action: change
+      reason: New regression proves graceful lifecycle retry stays nonterminal while operator Stop remains terminal.
+  open-collaboration-groups-reconcile-without-resurrection:
+    collaboration-reconciliation-engine:
+      action: change
+      reason: Runtime and boot collaboration reconciliation refuse terminal participants and closed rounds before attempting recovery.
+    collaboration-reconciliation-regression:
+      action: change
+      reason: Regression fixtures add the closed-round duplicate-result topology.
+  only-an-admissible-delivery-becomes-delivering:
+    turn-admission-regression:
+      action: change
+      reason: Existing transaction admission tests gain the cross-run durable fence case.
+  turn-finalization-transactional:
+    atomic-turn-finalization:
+      action: keep
+      reason: Normal completion transaction must remain untouched; repair is a separate transaction after failure.
+  redeliver-interrupts-stranded-run:
+    redeliver-run-retirement:
+      action: change
+      reason: Operator redelivery is exercised as the runtime escape from held reconciliation state; behavior remains unchanged.
