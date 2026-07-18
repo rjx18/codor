@@ -1,7 +1,8 @@
+import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { Agent as HttpAgent, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import type { Member, ServerFrame, Session, SpawnOpts } from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1980,3 +1981,48 @@ describe('rooms summary', () => {
   });
 });
 // harn:end rail-summary-served-not-guessed
+
+describe('git working state endpoint (room-git-state-read-only-from-known-cwds)', () => {
+  const initRepo = (): string => {
+    const repo = testCwd('gitrepo');
+    const env = {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@e.com',
+      GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@e.com',
+    };
+    execFileSync('git', ['init', '-q'], { cwd: repo, env });
+    writeFileSync(join(repo, 'app.ts'), 'const a = 1;\n');
+    execFileSync('git', ['add', '.'], { cwd: repo, env });
+    execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: repo, env });
+    writeFileSync(join(repo, 'app.ts'), 'const a = 1;\nconst b = 2;\n'); // a working change
+    return repo;
+  };
+
+  it('returns the live working state to an authenticated reader', async () => {
+    const repo = initRepo();
+    daemon.configureRoom('eng', { cwd: repo });
+    const res = await fetch(`${base}/api/rooms/eng/git-diff`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      clean: boolean; cwds: string[]; files: { path: string; status: string }[];
+    };
+    expect(body.clean).toBe(false);
+    expect(body.cwds).toContain(resolve(repo));
+    expect(body.files.map((file) => file.path)).toContain('app.ts');
+  });
+
+  it('refuses an anonymous request', async () => {
+    daemon.configureRoom('eng', { cwd: initRepo() });
+    expect((await fetch(`${base}/api/rooms/eng/git-diff`)).status).toBe(401);
+  });
+
+  it("refuses a cwd outside the room's known set", async () => {
+    daemon.configureRoom('eng', { cwd: initRepo() });
+    const res = await fetch(`${base}/api/rooms/eng/git-diff?cwd=${encodeURIComponent('/etc')}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(400);
+  });
+});

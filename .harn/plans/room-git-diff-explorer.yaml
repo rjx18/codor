@@ -1,71 +1,65 @@
 id: room-git-diff-explorer
 title: Serve the room's live git working-tree state for the diff explorer.
 notes: >-
-  Requested by Richard in #431 and approved in #433: the Diff tab must
-  reflect the CURRENT state of the room's repository - a clean repo shows
-  no diffed files - and diffs clicked in the chat must open in the diff
-  explorer rather than a dialog. Today the tab lists historical
-  run-evidence diffs, which reads as nonsense once the work is committed.
+  Requested by Richard in #431 and approved in #433: the Diff tab must reflect
+  the CURRENT state of the room's repository - a clean repo shows no diffed
+  files - and diffs clicked in the chat must open in the diff explorer rather
+  than a dialog. Today the tab lists historical run-evidence diffs, which reads
+  as nonsense once the work is committed.
 
   Change. Daemon: gitWorkingState(room, cwd?) - the known-cwd set is the
-  distinct cwds of the room's agent members plus the room folder if
-  RoomConfig records one (verify which exists; do not invent a new
-  column). The requested cwd must be an exact member of that set - a
-  client string never reaches the shell as a free path - and the daemon
-  execs only read-only git subcommands (rev-parse --is-inside-work-tree,
-  status --porcelain=v1 -z, diff HEAD --numstat, per-file diff HEAD
-  including untracked via --no-index against /dev/null) with execFile, an
-  execution timeout, and no shell interpolation. Response: { cwds,
-  selected, clean, files: [{ path, status
-  (modified|added|deleted|renamed|untracked), additions, deletions,
-  diff }] }; a non-git cwd or a clean tree returns clean with no files;
-  per-file diff text is capped (mark truncated) so a huge tree cannot
-  balloon the payload. Server: GET /api/rooms/:room/git-diff?cwd= behind
-  the read capability, placed outside existing anchored regions. No
-  protocol schema change - this is an http read model, like the rooms
-  summary.
+  distinct cwds of the room's agent members plus the room folder if RoomConfig
+  records one (verify which exists; do not invent a new column). The requested
+  cwd must be an exact member of that set - a client string never reaches the
+  shell as a free path - and the daemon execs only read-only git subcommands
+  (rev-parse --is-inside-work-tree, status --porcelain=v1 -z, diff HEAD
+  --numstat, per-file diff HEAD including untracked via --no-index against
+  /dev/null) with execFile, an execution timeout, and no shell interpolation.
+  Response: { cwds, selected, clean, files: [{ path, status
+  (modified|added|deleted|renamed|untracked), additions, deletions, diff }] }; a
+  non-git cwd or a clean tree returns clean with no files; per-file diff text is
+  capped (mark truncated) so a huge tree cannot balloon the payload. Server: GET
+  /api/rooms/:room/git-diff?cwd= behind the read capability, placed outside
+  existing anchored regions. No protocol schema change - this is an http read
+  model, like the rooms summary.
 
-  Web-next (harnignored, same batch): the Diff tab lists the live file
-  rows (status letter + counts) with the tinted DiffViewer, a cwd
-  dropdown when the set has more than one entry, an explicit refresh, and
-  auto-refresh when a run message finalizes in the room; a clean repo
-  shows a quiet working-tree-clean state. Diff chips on chat evidence
-  select the context panel Diff tab focused on that file's CURRENT diff
-  (with a no-current-changes note when clean); the run inspector keeps
-  input/output and drops its diff pane.
+  Web-next (harnignored, same batch): the Diff tab lists the live file rows
+  (status letter + counts) with the tinted DiffViewer, a cwd dropdown when the
+  set has more than one entry, an explicit refresh, and auto-refresh when a run
+  message finalizes in the room; a clean repo shows a quiet working-tree-clean
+  state. Diff chips on chat evidence select the context panel Diff tab focused
+  on that file's CURRENT diff (with a no-current-changes note when clean); the
+  run inspector keeps input/output and drops its diff pane.
 
   Tests: daemon - against a temp git repo fixture: modified + untracked +
-  deleted files appear with correct statuses and counts, clean tree
-  returns clean, non-git cwd returns clean, a cwd outside the known set
-  is refused, mutating git subcommands are never invoked (assert the
-  exec surface); server e2e - authenticated fetch returns the working
-  state, anon refused, foreign cwd refused; web-next e2e - dirty fixture
-  repo renders rows and the viewer, clean state after the fixture resets,
-  chat diff chip routes to the explorer, axe. Gate: switchboard suite
-  green; web-next unit + playwright green.
+  deleted files appear with correct statuses and counts, clean tree returns
+  clean, non-git cwd returns clean, a cwd outside the known set is refused,
+  mutating git subcommands are never invoked (assert the exec surface); server
+  e2e - authenticated fetch returns the working state, anon refused, foreign cwd
+  refused; web-next e2e - dirty fixture repo renders rows and the viewer, clean
+  state after the fixture resets, chat diff chip routes to the explorer, axe.
+  Gate: switchboard suite green; web-next unit + playwright green.
 assumptions:
   reviewed:
     - id: rail-summary-served-not-guessed
       outcome: unchanged
-      reason: The git working state is another served-not-guessed http read
-        model beside the rooms summary; the summary itself is untouched.
+      reason: The git working state is another served-not-guessed http read model
+        beside the rooms summary; the summary itself is untouched.
   create:
     - id: room-git-state-read-only-from-known-cwds
-      title: The diff explorer serves live git state only from the room's
-        recorded directories via read-only commands
-      statement: The daemon answers the room git-diff endpoint by running
-        exclusively read-only git subcommands through execFile with a
-        timeout in a directory that exactly matches the room's known cwd
-        set (distinct agent member cwds plus the room's recorded folder if
-        any), never a client-supplied free path and never a mutating git
-        command, behind the room read capability; a clean or non-git
-        directory yields an empty clean state, and oversized per-file
-        diffs are truncated with an explicit marker rather than streamed
-        unbounded.
-      reason: >-
-        #431/#433: the Diff tab must mirror the repository's current truth,
-        and an endpoint that shells out near client input must be
-        provably read-only and path-closed.
+      title: The diff explorer serves live git state only from the room's recorded
+        directories via read-only commands
+      statement: The daemon answers the room git-diff endpoint by running exclusively
+        read-only git subcommands through execFile with a timeout in a directory
+        that exactly matches the room's known cwd set (distinct agent member
+        cwds plus the room's recorded folder if any), never a client-supplied
+        free path and never a mutating git command, behind the room read
+        capability; a clean or non-git directory yields an empty clean state,
+        and oversized per-file diffs are truncated with an explicit marker
+        rather than streamed unbounded.
+      reason: "#431/#433: the Diff tab must mirror the repository's current truth, and
+        an endpoint that shells out near client input must be provably read-only
+        and path-closed."
       depends_on: []
 files:
   - packages/switchboard/src/daemon.ts
@@ -76,5 +70,7 @@ anchors:
   room-git-state-read-only-from-known-cwds:
     room-git-state-contract:
       action: change
-      reason: The daemon method and its endpoint define the read-only,
-        path-closed git-state contract.
+      reason: The daemon method and its endpoint define the read-only, path-closed
+        git-state contract.
+applied:
+  applied_at: 2026-07-18T02:04:39.930Z
