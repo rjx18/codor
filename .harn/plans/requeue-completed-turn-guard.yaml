@@ -1,29 +1,28 @@
 id: requeue-completed-turn-guard
 title: The lifecycle requeue verifies the run actually ended interrupted.
 notes: >-
-  Review finding on graceful-shutdown-requeue (merge 143dd6c). close()
-  snapshots in-flight turns BEFORE interrupting them, and a turn can
-  complete normally in the instant before the interrupt lands - the
-  helper re-reads each delivery's state but never the run's final
-  status, so a completed turn's consumed delivery would re-queue and the
-  recipient would answer the same instruction twice. The assumption
-  statement already scopes the contract to turns the lifecycle
-  interrupted; this guard aligns the code with it: the shared helper
-  skips the whole run unless its final status is interrupted. The boot
-  seam is unaffected (it finalizes the run to interrupted itself before
-  calling the helper).
+  Review finding on graceful-shutdown-requeue (merge 143dd6c). close() snapshots
+  in-flight turns BEFORE interrupting them, and a turn can complete normally in
+  the instant before the interrupt lands - the helper re-reads each delivery's
+  state but never the run's final status, so a completed turn's consumed
+  delivery would re-queue and the recipient would answer the same instruction
+  twice. The assumption statement already scopes the contract to turns the
+  lifecycle interrupted; this guard aligns the code with it: the shared helper
+  skips the whole run unless its final status is interrupted. The boot seam is
+  unaffected (it finalizes the run to interrupted itself before calling the
+  helper).
 
-  Tests: daemon - a run finalized completed with a consumed delivery is
-  NOT re-queued by the helper (deterministic direct exercise of the race
-  outcome); the existing graceful-close and boot-seam tests stay green.
-  Gate: switchboard suite green; full workspace build green.
+  Tests: daemon - a run finalized completed with a consumed delivery is NOT
+  re-queued by the helper (deterministic direct exercise of the race outcome);
+  the existing graceful-close and boot-seam tests stay green. Gate: switchboard
+  suite green; full workspace build green.
 assumptions:
   reviewed:
     - id: lifecycle-interrupted-deliveries-requeue
       outcome: unchanged
-      reason: The statement already says interrupted turns re-queue; the
-        guard closes the race where a turn completing during the close
-        window would have been re-taken against the statement's meaning.
+      reason: The statement already says interrupted turns re-queue; the guard closes
+        the race where a turn completing during the close window would have been
+        re-taken against the statement's meaning.
 files:
   - packages/switchboard/src/daemon.ts
   - packages/switchboard/src/daemon.spec.ts
@@ -31,5 +30,7 @@ anchors:
   lifecycle-interrupted-deliveries-requeue:
     recovery-requeue-contract:
       action: change
-      reason: The status guard lands inside the shared requeue helper that
-        defines the contract.
+      reason: The status guard lands inside the shared requeue helper that defines the
+        contract.
+applied:
+  applied_at: 2026-07-18T04:32:01.368Z

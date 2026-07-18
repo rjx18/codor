@@ -4795,6 +4795,27 @@ describe('graceful shutdown delivery requeue (close seam)', () => {
     expect(daemon.store.getDelivery('eng', delivery.id)!.attempt_count).toBe(2); // 1 preserved + this turn
   });
 
+  it('never re-queues a turn that completed in the instant before the interrupt landed', async () => {
+    // close() snapshots BEFORE interrupting, so a turn can finish normally
+    // inside that window; the helper must skip a run whose final status is
+    // completed — a completed instruction is never answered twice.
+    const alpha = spawnAgent('alpha');
+    fake.enqueue({ kind: 'complete', final_text: 'answered before the interrupt' });
+    daemon.postHumanMessage('eng', '@alpha quick question');
+    await daemon.settle();
+
+    const completed = runMessages().find((m) => m.author === alpha.id && m.run?.status === 'completed')!;
+    const consumed = daemon.store.listDeliveries('eng')
+      .find((d) => d.run_msg_id === completed.id && d.state === 'consumed')!;
+
+    // Deterministic exercise of the race outcome close() could snapshot.
+    (daemon as unknown as {
+      requeueLifecycleInterrupted(room: string, runMsgId: number, deliveryIds: string[]): void;
+    }).requeueLifecycleInterrupted('eng', completed.id, [consumed.id]);
+
+    expect(daemon.store.getDelivery('eng', consumed.id)!.state).toBe('consumed');
+  });
+
   it('never re-queues a turn an operator deliberately stopped', async () => {
     const { alpha, running, delivery } = await startBlockedTurn('@alpha stoppable work');
     const before = fake.deliveries.length;

@@ -479,6 +479,10 @@ export class Daemon {
    * delivery because close() snapshots ids before those turns finalize.
    */
   private requeueLifecycleInterrupted(room: string, runMsgId: number, deliveryIds: string[]): void {
+    // A turn can complete normally in the instant before close()'s interrupt
+    // lands; only a run that genuinely ended interrupted may re-queue — a
+    // completed instruction must never be answered twice.
+    if (this.store.getMessage(room, runMsgId)?.run?.status !== 'interrupted') return;
     const fenced: string[] = [];
     for (const deliveryId of deliveryIds) {
       const delivery = this.store.getDelivery(room, deliveryId);
