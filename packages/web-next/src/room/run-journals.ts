@@ -40,6 +40,8 @@ interface RoomCache {
   journals: Map<number, Entry>;
   inflight: Map<number, boolean>;
   wantTerminal: Set<number>;
+  /** Ids whose in-flight read must be followed by exactly one refresh. */
+  wantRefresh: Set<number>;
 }
 
 let currentRoom = '';
@@ -59,6 +61,7 @@ function freshRoomCache(): RoomCache {
     journals: new Map(),
     inflight: new Map(),
     wantTerminal: new Set(),
+    wantRefresh: new Set(),
   };
 }
 
@@ -84,6 +87,33 @@ export function activateRunJournalRoom(room: string): void {
   roomCache(room);
   bump();
 }
+
+/**
+ * Queue a read, keeping at most ONE pending entry per id — and let a terminal
+ * read dominate a mutable one.
+ *
+ * Both can legitimately be wanted at once: a resume queues `{terminal:false}`
+ * for a still-running turn, and settlement then asks for `{terminal:true}` for
+ * the same id. With four slots busy both could run concurrently, and the
+ * mutable result landing second would overwrite final evidence with a snapshot
+ * taken before the run ended — and mark it non-terminal, so it would be read
+ * again forever.
+ */
+function enqueueRead(
+  cache: RoomCache,
+  entry: { id: number; terminal: boolean; priority: boolean },
+): void {
+  const existing = cache.queue.findIndex((pending) => pending.id === entry.id);
+  if (existing === -1) {
+    cache.queue.push(entry);
+    return;
+  }
+  const pending = cache.queue[existing]!;
+  // Terminal wins; priority is sticky so a live run keeps its place at the front.
+  pending.terminal = pending.terminal || entry.terminal;
+  pending.priority = pending.priority || entry.priority;
+}
+
 
 function pump(room: string, cache: RoomCache, token: () => string): void {
   // Demoted rooms may finish reads already on the wire, but they never start
@@ -114,8 +144,13 @@ function pump(room: string, cache: RoomCache, token: () => string): void {
         if (rooms.get(room) !== cache) return; // evicted while the read was in flight
         cache.inflight.delete(next.id);
         if (cache.wantTerminal.delete(next.id)) {
-          cache.queue.push({ id: next.id, terminal: true, priority: false });
+          enqueueRead(cache, { id: next.id, terminal: true, priority: false });
+        } else if (cache.wantRefresh.delete(next.id)) {
+          // One follow-up read, no matter how many refreshes arrived while the
+          // original was in flight.
+          enqueueRead(cache, { id: next.id, terminal: false, priority: false });
         }
+        cache.wantRefresh.delete(next.id);
         if (room === currentRoom) bump();
         pump(room, cache, token);
       });
@@ -147,11 +182,42 @@ export function requestRunJournal(
     if (opts.terminal && !running) cache.wantTerminal.add(id);
     return;
   }
-  if (cache.queue.some((pending) => pending.id === id && pending.terminal === opts.terminal)) {
-    pump(room, cache, token);
-    return;
+
+  enqueueRead(cache, { id, terminal: opts.terminal, priority: opts.priority === true });
+  pump(room, cache, token);
+}
+
+/**
+ * Re-read the ACTIVE room's still-mutable journals after a resume.
+ *
+ * A turn that kept producing while the app was away has cached evidence that is
+ * now stale, and nothing else would ever re-read it: `requestRunJournal` treats
+ * an existing non-terminal snapshot as good enough, which is right on a render
+ * pass and wrong after a gap in the connection.
+ *
+ * Terminal journals are never re-read — they are final by definition — and this
+ * uses the same bounded queue as everything else, so a resume cannot burst past
+ * the four-request limit. An id already in flight gets exactly ONE queued
+ * refresh rather than one per call.
+ */
+export function refreshMutableRunJournals(room: string, token: () => string): void {
+  if (room !== currentRoom) return; // inactive rooms are not read at all
+  const cache = rooms.get(room);
+  if (cache === undefined) return;
+  // A read that is still in flight has no cached entry yet, so both sources
+  // have to be considered or a resume during an outstanding read refreshes
+  // nothing at all.
+  const mutable = new Set<number>();
+  for (const [id, entry] of cache.journals) if (!entry.terminal) mutable.add(id);
+  for (const [id, terminal] of cache.inflight) if (!terminal) mutable.add(id);
+
+  for (const id of mutable) {
+    if (cache.inflight.has(id)) {
+      cache.wantRefresh.add(id); // one follow-up read, however often we are asked
+      continue;
+    }
+    enqueueRead(cache, { id, terminal: false, priority: false });
   }
-  cache.queue.push({ id, terminal: opts.terminal, priority: opts.priority === true });
   pump(room, cache, token);
 }
 

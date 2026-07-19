@@ -23,7 +23,12 @@ import { OPEN_DIFF_EVENT } from './ContextPanel.js';
 import { CompactionMarker } from './CompactionMarker.js';
 import { JUMP_ANCHOR_EVENT, jumpToMessage } from './panels.js';
 import { renderMarkdown } from './markdown.js';
-import { activateRunJournalRoom, getRunJournal, requestRunJournal, useRunJournalVersion } from './run-journals.js';
+import {
+  activateRunJournalRoom,
+  getRunJournal,
+  requestRunJournal,
+  useRunJournalVersion,
+} from './run-journals.js';
 import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attachments.js';
 import { presentRunTimeline, type CompactionRunTimelineItem } from './run-timeline.js';
 import { continuationFloor, transcriptMessages, transcriptTime } from './transcript-order.js';
@@ -106,6 +111,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const connected = useClientStore((state) => state.connected);
 
   useEffect(() => activateRunJournalRoom(props.room), [props.room]);
+
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);

@@ -118,3 +118,43 @@ describe('room-keyed client state', () => {
     expect(roomSlice(useClientStore.getState(), 'alpha').runEvents).toEqual({});
   });
 });
+
+describe('resubscribe preserves a hydrated, paged room', () => {
+  it('keeps paged-in rows, the cursor, and support across a second sync', () => {
+    const store = useClientStore.getState();
+    // ACTIVE room: without this the room is background traffic, and the rolling
+    // tail correctly trims it — which is the intended behaviour for an inactive
+    // room, not the warm-resubscribe contract under test here.
+    store.setActiveRoom('eng');
+    // Hydrate the bounded tail, then page one window backwards — the state a
+    // resume finds when an operator has scrolled through history.
+    store.applyFrame(frame({ type: 'self', member_id: 'me' }), 'eng');
+    store.applyFrame(frame({ type: 'room', seq: 0, room: room('eng') }), 'eng');
+    for (let id = 21; id <= 40; id++) {
+      store.applyFrame(frame({ type: 'message', seq: id, message: message('eng', id) }), 'eng');
+    }
+    store.applyFrame(frame({ type: 'sync_complete', seq: 40, history_floor: 21 }), 'eng');
+    store.mergeHistoryPage('eng', Array.from({ length: 20 }, (_, index) => message('eng', index + 1)));
+
+    const paged = roomSlice(useClientStore.getState(), 'eng');
+    const pagedCursor = paged.historyCursor;
+    // Whatever floor convention the store uses, paging must have moved the
+    // cursor back and brought the older rows in.
+    expect(pagedCursor).toBeLessThanOrEqual(21);
+    expect(paged.messages[1]).toBeDefined();
+    expect(Object.keys(paged.messages)).toHaveLength(40);
+
+    // A resume resubscribes from the committed cursor and completes again.
+    // Nothing about that is a fresh hydration, so nothing may be discarded.
+    const resumed = useClientStore.getState();
+    resumed.applyFrame(frame({ type: 'self', member_id: 'me' }), 'eng');
+    resumed.applyFrame(frame({ type: 'message', seq: 41, message: message('eng', 41) }), 'eng');
+    resumed.applyFrame(frame({ type: 'sync_complete', seq: 41 }), 'eng');
+
+    const after = roomSlice(useClientStore.getState(), 'eng');
+    expect(after.historyCursor).toBe(pagedCursor); // the operator's paging survived
+    expect(after.messages[1]).toBeDefined(); // ...including the oldest paged row
+    expect(after.messages[41]).toBeDefined(); // ...and the row that arrived while away
+    expect(after.seq).toBe(41);
+  });
+});

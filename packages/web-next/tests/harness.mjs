@@ -668,6 +668,107 @@ const seedHistoricalFamily = (shape, status) => {
   return { room: roomId, run: run.id, status };
 };
 
+/**
+ * A multi-stretch live turn the spec drives stretch by stretch, so a resume can
+ * be staged in the middle of one. Every row is durable data the writer already
+ * produces; the spec decides when each arrives.
+ */
+const stretchFamilies = new Map();
+/** An empty room, so a spec can subscribe BEFORE any work starts in it. */
+const createStretchRoom = () => ({ room: createContinuationRoom() });
+
+const startStretchTurn = (existingRoom, opts = {}) => {
+  const roomId = existingRoom ?? createContinuationRoom();
+  const agent = daemon.store.getMemberByHandle(roomId, 'continuator');
+  const startedTs = new Date().toISOString();
+  const ref = 'runs/stretch-root.jsonl';
+  const root = daemon.store.postMessage(roomId, {
+    author: agent.id,
+    kind: 'run',
+    body: '',
+    run: {
+      status: 'running', started_ts: startedTs, tool_calls: 0,
+      events_ref: ref, output_mode: 'messages',
+    },
+  });
+  // With `live:false` the room genuinely becomes running while the browser is
+  // away: the row and the member state are durable, but no frame is sent — so
+  // working-state catch-up is actually exercised on resume instead of being
+  // already true at hydration.
+  const running = daemon.store.updateMember(roomId, agent.id, { state: 'running' });
+  if (opts.live !== false) {
+    daemon.emitMessage(roomId, root);
+    daemon.emitMember(roomId, running);
+  }
+  stretchFamilies.set(roomId, { agentId: agent.id, ref, rootId: root.id, index: 0 });
+  return { room: roomId, root: root.id };
+};
+
+const stretchStep = (roomId, step, opts = {}) => {
+  const family = stretchFamilies.get(roomId);
+  if (!family) throw new Error(`no stretch family: ${roomId}`);
+  const ts = new Date().toISOString();
+  const emit = (event, targetId) => {
+    daemon.blobs.append(roomId, family.ref, event);
+    // `live` false models evidence produced while the browser was away: it is
+    // written durably but never streamed, so only a resync can recover it.
+    if (opts.live !== false) {
+      daemon.emit(roomId, {
+        type: 'run_event', room: roomId, message_id: family.rootId,
+        event, index: family.index++,
+      });
+    }
+    return targetId;
+  };
+  if (step === 'stretch') {
+    const text = String(opts.text ?? 'stretch');
+    const row = opts.own === false
+      ? undefined
+      : daemon.store.postMessage(roomId, {
+        author: family.agentId, kind: 'run', body: text, run_parent_id: family.rootId,
+      });
+    const target = row?.id ?? family.rootId;
+    emit({
+      type: 'run.item', item_type: 'text_delta', output_message_id: target,
+      payload: { text }, ts,
+    }, target);
+    if (row !== undefined && opts.live !== false) daemon.emitMessage(roomId, row);
+    return { id: target };
+  }
+  if (step === 'tools') {
+    emit({ type: 'run.item', item_type: 'tool_call', output_message_id: family.rootId,
+      payload: { call_id: 's1', tool: 'Read', title: 'Read stretch fixture', input: { file_path: 'src/s.ts' } }, ts });
+    emit({ type: 'run.item', item_type: 'tool_result', output_message_id: family.rootId,
+      payload: { call_id: 's1', status: 'ok', output_text: 'stretch read ok' }, ts });
+    emit({ type: 'run.item', item_type: 'tool_call', output_message_id: family.rootId,
+      payload: { call_id: 's2', tool: 'Edit', title: 'Edit stretch fixture', input: { file_path: 'src/t.ts' } }, ts });
+    emit({ type: 'run.item', item_type: 'tool_result', output_message_id: family.rootId,
+      payload: { call_id: 's2', status: 'ok', output_text: 'stretch edit ok' }, ts });
+    return { id: family.rootId };
+  }
+  if (step === 'complete') {
+    const rows = daemon.store.listMessages(roomId, { limit: 500 })
+      .filter((message) => message.id === family.rootId || message.run_parent_id === family.rootId);
+    const owner = rows.at(-1);
+    emit({ type: 'run.completed', status: 'completed', output_message_id: owner.id, ts });
+    const root = daemon.store.getMessage(roomId, family.rootId);
+    const settled = daemon.store.updateMessage(roomId, family.rootId, {
+      run: { ...root.run, status: 'completed', ended_ts: ts, result_message_id: owner.id },
+    });
+    // The member update is persisted either way, but emitting it while the
+    // browser is "away" would advance its room seq past the very changes we are
+    // withholding — resubscription would then correctly believe it had already
+    // seen them, and the sleep would recover nothing.
+    const idle = daemon.store.updateMember(roomId, family.agentId, { state: 'idle' });
+    if (opts.live !== false) {
+      daemon.emitMessage(roomId, settled);
+      daemon.emitMember(roomId, idle);
+    }
+    return { id: owner.id };
+  }
+  throw new Error(`unknown stretch step: ${step}`);
+};
+
 const waitForContinuation = async (read, predicate, label) => {
   for (let attempt = 0; attempt < 300; attempt++) {
     const value = read();
@@ -1019,6 +1120,20 @@ createServer((req, res) => {
           String(body.shape ?? 'partial'), String(body.status ?? 'interrupted'),
         );
       }
+      if (url.pathname === '/stretch-room') {
+        payload = createStretchRoom();
+      }
+      if (url.pathname === '/stretch-turn') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = startStretchTurn(
+          body.room === undefined ? undefined : String(body.room),
+          body,
+        );
+      }
+      if (url.pathname === '/stretch-step') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = stretchStep(String(body.room), String(body.step), body);
+      }
       if (url.pathname === '/live-family') {
         const body = raw === '' ? {} : JSON.parse(raw);
         payload = startLiveFamily(
@@ -1055,8 +1170,14 @@ createServer((req, res) => {
         // interleave test reloads to read it back, so no live broadcast needed.
         const body = raw === '' ? {} : JSON.parse(raw);
         const roomId = String(body.room ?? 'eng');
+        // An explicit author matters for unread: a row the viewer wrote is not
+        // unread FOR them, so a catch-up test has to post as someone else.
+        const author = body.author === undefined
+          ? daemon.ownerOf(roomId)
+          : daemon.store.getMemberByHandle(roomId, String(body.author));
+        if (!author) throw new Error(`no such author: ${String(body.author)}`);
         const message = daemon.store.postMessage(roomId, {
-          author: daemon.ownerOf(roomId).id,
+          author: author.id,
           kind: 'chat',
           body: String(body.body ?? ''),
         });

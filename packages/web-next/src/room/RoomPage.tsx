@@ -5,6 +5,7 @@ import type { Connection } from '@legacy/ws.js';
 
 import { createConnector, type RoomConnector } from '../app/connector.js';
 import { rememberRoom } from '../app/startup.js';
+import { refreshMutableRunJournals } from './run-journals.js';
 import {
   pageParams,
   useAccessToken,
@@ -36,6 +37,13 @@ export function RoomPage(props: {
       room: props.room,
       token: props.token,
       refreshToken: props.refreshToken,
+      // Every legal resume — lifecycle OR watchdog — re-reads the active room's
+      // still-mutable evidence. Listening for lifecycle events separately would
+      // miss the watchdog, which emits none of them.
+      // The LIVE token, not the one this page was constructed with: after a
+      // 4401 refresh the original is stale, and journal recovery would go out
+      // with a credential the server has already replaced.
+      onResume: (room) => { refreshMutableRunJournals(room, token); },
     });
   }
   const connection = connectorRef.current;
@@ -49,6 +57,10 @@ export function RoomPage(props: {
     rememberRoom(next);
     window.history.pushState(null, '', `/?room=${encodeURIComponent(next)}`);
   };
+
+  // The connector owns global listeners and a socket; unmounting without
+  // disposing leaves both alive to act on a page that no longer exists.
+  useEffect(() => () => { connectorRef.current?.dispose(); }, []);
 
   useEffect(() => {
     const onPop = (): void => {
