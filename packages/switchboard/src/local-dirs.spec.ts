@@ -30,7 +30,7 @@ describe('home-contained local directory listing', () => {
     const outside = mkdtempSync(join(tmpdir(), 'codor-dirs-outside-'));
     const file = join(home, 'file.txt');
     writeFileSync(file, 'file');
-    symlinkSync(outside, join(home, 'escape'));
+    symlinkSync(outside, join(home, 'escape'), 'junction');
     for (const target of [outside, join(home, 'escape')]) {
       expect(() => listLocalDirectories(target, false, home)).toThrowError(
         expect.objectContaining<Partial<LocalDirectoryError>>({ status: 403 }),

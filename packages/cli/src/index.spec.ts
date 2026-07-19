@@ -11,6 +11,7 @@ import {
   CryptoVault,
   Daemon,
   FakeAdapter,
+  localSocketPath,
   startServer,
   type RunningServer,
 } from '@codor/switchboard';
@@ -57,7 +58,7 @@ beforeEach(async () => {
   server = await startServer({
     daemon,
     token: 'cli-token',
-    socketPath: join(dir, 'codor.sock'),
+    socketPath: localSocketPath(dir),
     crypto,
   });
   output = [];
@@ -69,6 +70,10 @@ afterEach(async () => {
   crypto.close();
   rmSync(dir, { recursive: true, force: true });
 });
+
+// POSIX-host simulations: they render or exercise Linux/macOS service artifacts with
+// POSIX fixture paths and permissions that a win32 host resolves differently.
+const posixHostIt = it.skipIf(process.platform === 'win32');
 
 const cli = (...args: string[]) =>
   runCli(['node', 'codor', '--data-dir', dir, ...args], {
@@ -103,7 +108,7 @@ const credentialedAgent = (handle: string) => {
   return {
     member,
     env: {
-      CODOR_SOCKET: join(dir, 'codor.sock'),
+      CODOR_SOCKET: localSocketPath(dir),
       CODOR_CHANNEL: 'eng',
       CODOR_MEMBER_ID: member.id,
       CODOR_MEMBER_TOKEN: memberToken,
@@ -279,7 +284,7 @@ describe('@codor/cli', () => {
   // harn:end pairing-code-enrollment-surfaces
 
   // harn:assume cli-setup-wizard-installs-platform-user-service ref=setup-regression
-  it('snapshots setup dry-run with the absolute Node path and every detected harness directory', async () => {
+  posixHostIt('snapshots setup dry-run with the absolute Node path and every detected harness directory', async () => {
     const repoRoot = join(fileURLToPath(new URL('../../../', import.meta.url)), '.');
     const home = '/home/setup-test';
     const installed = new Map([
@@ -337,7 +342,7 @@ describe('@codor/cli', () => {
   });
 
   // harn:assume setup-service-runs-from-current-checkout ref=linux-service-current-checkout-regression
-  it('renders the Linux service from the checkout that invoked setup', async () => {
+  posixHostIt('renders the Linux service from the checkout that invoked setup', async () => {
     const sourceRoot = fileURLToPath(new URL('../../../', import.meta.url));
     const repoRoot = join(dir, 'repo checkout with spaces');
     const home = join(dir, 'home with spaces');
@@ -474,7 +479,7 @@ describe('@codor/cli', () => {
   });
   // harn:end wsl-setup-reaches-windows-loopback
 
-  it('writes private setup files, runs confirmed host steps, and pairs against the Serve origin', async () => {
+  posixHostIt('writes private setup files, runs confirmed host steps, and pairs against the Serve origin', async () => {
     const repoRoot = join(fileURLToPath(new URL('../../../', import.meta.url)), '.');
     const home = join(dir, 'setup-home');
     const commands: string[] = [];
@@ -538,7 +543,7 @@ describe('@codor/cli', () => {
     expect(output.join('\n')).not.toContain('a'.repeat(64));
   });
 
-  it('dry-runs and installs an equivalent private macOS LaunchAgent', async () => {
+  posixHostIt('dry-runs and installs an equivalent private macOS LaunchAgent', async () => {
     const home = join(dir, 'setup & home');
     const repoRoot = join(dir, 'repo & checkout');
     const commands: string[] = [];
@@ -1104,7 +1109,7 @@ describe('@codor/cli', () => {
   // harn:end cli-member-recovery-is-actionable
 
   // harn:assume global-cli-install-is-idempotent ref=cli-install-regression
-  it('installs the built CLI as one stable per-user symlink on repeated runs', () => {
+  posixHostIt('installs the built CLI as one stable per-user symlink on repeated runs', () => {
     const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
     const home = join(dir, 'install-home');
     const script = join(repoRoot, 'scripts', 'install-cli.sh');
@@ -1129,7 +1134,8 @@ describe('@codor/cli', () => {
     );
     const claudeRaw = readFileSync(join(fixtures, 'claude-stop.json'), 'utf8').replace(
       'CLAUDE_TRANSCRIPT_PATH',
-      claudeTranscript,
+      // JSON-escape so Windows path separators survive the substitution into the raw document.
+      JSON.stringify(claudeTranscript).slice(1, -1),
     );
     expect(parseMirrorHook('claude', claudeRaw)).toMatchObject({
       type: 'mirror_turn',
@@ -1187,7 +1193,7 @@ describe('@codor/cli', () => {
     expect(running.daemon.registeredAdapters().map((adapter) => adapter.id)).toEqual(
       [...BUILTIN_ADAPTER_IDS].sort(),
     );
-    expect(running.server.socketPath).toBe(join(dir, 'up-data', 'codor.sock'));
+    expect(running.server.socketPath).toBe(localSocketPath(join(dir, 'up-data')));
     expect(running.transport).toBeDefined();
     expect(running.residency?.registeredAdapters().map((adapter) => adapter.id)).toEqual(
       [...BUILTIN_ADAPTER_IDS].sort(),
