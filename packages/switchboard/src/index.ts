@@ -58,6 +58,7 @@ export type {
 export { REDACTED, redactText, redactValue } from './redact.js';
 export { startServer } from './server.js';
 export type { RunningServer, ServerOptions } from './server.js';
+export { isPipePath, localSocketPath } from './local-socket.js';
 export {
   DeviceKeyStore,
   generateIdentity,

@@ -31,6 +31,7 @@ import type { CryptoVault, PairingRequest } from './crypto/pairing.js';
 import { type Daemon, MAX_ATTACHMENT_BYTES } from './daemon.js';
 import { listLocalDirectories, LocalDirectoryError } from './local-dirs.js';
 import type { PushSubscriptionStore } from './push/subscriptions.js';
+import { isPipePath } from './local-socket.js';
 
 export interface ServerOptions {
   daemon: Daemon;
@@ -125,12 +126,17 @@ async function prepareSocketPath(socketPath: string): Promise<void> {
 }
 
 async function listenUnix(server: HttpServer, socketPath: string): Promise<void> {
-  await prepareSocketPath(socketPath);
+  const isPipe = isPipePath(socketPath);
+  if (!isPipe) {
+    await prepareSocketPath(socketPath);
+  }
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(socketPath, () => {
       server.off('error', reject);
-      chmodSync(socketPath, 0o600);
+      if (!isPipe) {
+        chmodSync(socketPath, 0o600);
+      }
       resolve();
     });
   });

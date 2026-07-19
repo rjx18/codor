@@ -46,6 +46,7 @@ import {
   type GroupRoundPayloadContext,
 } from './collaboration.js';
 import { ContinuationWriter, projectContinuationOutputs } from './continuation.js';
+import { localSocketPath } from './local-socket.js';
 import type { LedgerGraph, LedgerManager } from './ledger/watch.js';
 import type { LedgerNote, LedgerWrite } from './ledger/vault.js';
 import type { HumanPushKind, HumanPushNotifier } from './push/producer.js';
@@ -341,7 +342,7 @@ export class Daemon {
     this.pushProducer = options.pushProducer;
     this.onBackgroundError = options.onBackgroundError ?? (() => undefined);
     this.homeDir = options.homeDir ?? homedir();
-    this.socketPath = options.socketPath ?? join(dirname(options.dbPath), 'codor.sock');
+    this.socketPath = options.socketPath ?? localSocketPath(dirname(options.dbPath));
     this.attachmentsRoot = join(dirname(options.dbPath), 'attachments');
     this.sweepOrphanAttachments(); // boot-time: drop uploads no message ever claimed
     this.ledger?.setRoomValidator((room) => this.store.getRoom(room) !== undefined);
