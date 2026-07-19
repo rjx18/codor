@@ -126,6 +126,12 @@ async function prepareSocketPath(socketPath: string): Promise<void> {
 }
 
 async function listenUnix(server: HttpServer, socketPath: string): Promise<void> {
+  // A tokenless connection here is admitted as the room owner, so the socket's
+  // own access control is the local auth. On POSIX that is mode 0600 on the
+  // socket and a private parent. A Windows named pipe has no filesystem entry;
+  // its default DACL grants write only to the owner, LocalSystem, and
+  // Administrators (Everyone/Anonymous get read only and cannot send the upgrade
+  // request), so both the parent gate and the chmod are inapplicable there.
   const isPipe = isPipePath(socketPath);
   if (!isPipe) {
     await prepareSocketPath(socketPath);

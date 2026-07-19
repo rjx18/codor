@@ -7,7 +7,8 @@ statement: Before binding the unauthenticated local WebSocket on a POSIX socket
   no group or other permissions, rejecting a public parent before listen,
   because post-listen chmod of the socket alone leaves a local authentication
   window; Windows named pipes have no filesystem entry and skip this gate,
-  relying on the per-user pipe namespace.
+  because their default DACL already restricts write to the owner, LocalSystem,
+  and Administrators.
 depends_on:
   - unix-socket-same-protocol
 created_by: m1fix-lifecycle-minors
