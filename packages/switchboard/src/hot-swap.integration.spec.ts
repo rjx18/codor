@@ -81,7 +81,9 @@ describe('configured adapter hot-swap', () => {
     } finally {
       await daemon.close();
     }
-  });
+    // First-load ESM transform plus a routed subprocess turn exceeds the 5s default
+    // under parallel-suite load on slower (e.g. Windows) I/O; give it real headroom.
+  }, 20_000);
 
   it('uses configured modules as deliberate same-name replacements and creates fresh instances', async () => {
     const options = {
