@@ -49,7 +49,7 @@ CODOR_TOKEN="$TOKEN" node packages/cli/dist/index.js \
   >"$TEST_ROOT/daemon.log" 2>&1 &
 DAEMON_PID=$!
 
-for _ in {1..100}; do
+for _ in {1..300}; do
   if curl --fail --silent --output /dev/null \
     -H "Authorization: Bearer $TOKEN" \
     "http://127.0.0.1:$PORT/api/rooms"; then

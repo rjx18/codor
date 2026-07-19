@@ -1,0 +1,43 @@
+id: fresh-install-readiness-budget
+title: Give a genuinely cold clean-clone daemon enough time to reach its
+  existing authenticated readiness checks
+notes: "The post-commit clean-clone proof installed 869 packages and rebuilt
+  every workspace successfully, then failed at readiness while the daemon log
+  showed the switchboard had become healthy at the edge of the script's fixed
+  ten-second window. The test currently allows less time for cold native-module
+  and adapter startup than its surrounding full build. Increase only the poll
+  budget from 10 to 30 seconds. The success condition stays strict:
+  authenticated /api/rooms must answer and the root HTML must identify web-next
+  through its branded favicon. A process that merely remains alive still fails."
+assumptions:
+  reviewed:
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: The contract requires a reliable clean-clone boot proof, not a
+        ten-second startup SLA. Extending the bounded wait while preserving the
+        authenticated readiness assertion implements the existing statement.
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The readiness loop is nested inside the current-client proof region;
+        only its bounded polling budget changes, while the web-next static root
+        and branded-HTML success condition remain identical.
+anchors:
+  fresh-clone-install-proven-by-script:
+    fresh-install-script:
+      action: change
+      reason: Increase the bounded readiness poll count from 100 to 300 while
+        retaining the 100ms interval and all existing failure checks.
+  operator-launches-serve-web-next:
+    fresh-install-current-web-client:
+      action: change
+      reason: Account for the nested readiness-loop edit without changing which client
+        is served or how that client is identified.
+files:
+  - scripts/fresh-install-test.sh
+verification: "`harn check fresh-install-readiness-budget` passes. From the
+  committed branch, `scripts/fresh-install-test.sh` completes its disposable
+  clone, frozen install, full build, authenticated API and current web-next HTML
+  checks, CLI post/tail, daemon shutdown, and cleanup. `git diff --check`
+  passes."
+applied:
+  applied_at: 2026-07-19T14:00:25.560Z
