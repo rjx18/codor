@@ -1,9 +1,14 @@
 <!-- Codor brand mark. Single source of truth: fill follows #1c1917, so it is
      correct in light and dark wherever it is inlined or used as a CSS mask.
+     The viewBox is normalised to a tight square around the artwork's ink rather
+     than the exporter's 1024 canvas: the original padding left the glyph covering
+     only 59% x 51.5%, so a 30px box drew a ~17.7px glyph - under the 24px floor
+     this mark needs. It now covers ~92.6%.
+
      Rasters and the baked favicon are generated from this file by
      scripts/build-icons.mjs - never hand-edit the generated output. -->
 <svg xmlns="http://www.w3.org/2000/svg"
-	 viewBox="0 0 1024 1024">
+	 viewBox="173.69 172.25 652.58 652.58">
 <path fill="#1c1917"
 	d="
 M737.993469,323.010803

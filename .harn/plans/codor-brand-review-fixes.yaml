@@ -1,0 +1,140 @@
+id: codor-brand-review-fixes
+title: Close the Phase 1 review blockers - ship the Bitcount wordmark, normalise
+  the mark's viewport so it renders at its documented size, make the generated
+  assets actually enforced, and give the social cards a real absolute URL
+notes: >-
+  Follow-up to codor-brand-surviving-surfaces (ad1dd8c). Codex's release gate
+  found five blockers; all five were independently reproduced before this plan
+  was written.
+
+  1. BITCOUNT MISSING. PLAN.md Phase 1 requires the wordmark to use self-hosted
+     Bitcount Prop Single, and it was simply not implemented - the rail and docs
+     still render Geist. The latin subset is vendored as woff2 with an @font-face,
+     and the SIL OFL 1.1 licence ships beside it. No runtime Google Fonts request.
+
+  2. THE PRODUCTION BUILD IS RED. tsc rejects brand-assets.spec.ts:25 because a
+     regex capture is string|undefined. `pnpm test` passes because vitest does not
+     typecheck, so the earlier green report was real but incomplete: the build was
+     verified BEFORE the spec was moved into src/, and only the tests were re-run
+     afterwards. Verification has to re-run the gate that the change actually
+     moved, not the one that was convenient.
+
+  3. THE GENERATED-ASSET CONTRACT IS UNENFORCED.
+  brand-rasters-generated-not-hand-
+     committed claims re-running the generator produces no diff, but nothing
+     checks it: a hand-edited PNG passes today. The generator gains a --check mode
+     that regenerates into memory and byte-compares every output, covering the
+     VitePress assets as well as web-next, and a spec fails when they diverge.
+
+  4. SOCIAL METADATA CANNOT UNFURL. Both surfaces point og:image at a
+  root-relative
+     /codor-og.png and omit og:url, which the Open Graph protocol lists among its
+     four required properties and defines as an absolute HTTP(S) URL. Scrapers
+     cannot resolve a relative path. An explicit site origin is introduced, with
+     og:url plus image width/height/alt.
+
+  5. THE MARK RENDERS UNDERSIZE. The supplied artwork carries heavy internal
+     whitespace: its ink occupies 59.0% x 51.5% of the 1024 viewBox, so the 30px
+     rail box draws a ~17.7px glyph - below the 24px legibility floor this phase
+     documented and then failed to meet. The source viewBox is normalised to a
+     tight square around the ink (measured, not eyeballed), taking coverage to
+     ~92.6% so a 30px box draws a ~28px glyph. Every raster is regenerated from
+     the corrected source, and the plate insets are re-tuned because they were
+     compensating for the old padding.
+
+  Scope note: packages/web-next/** stays harnignored and carries the app-side
+  font, markup, spec and asset changes. This plan covers the tracked pieces
+  only.
+assumptions:
+  create:
+    - id: brand-wordmark-uses-self-hosted-bitcount
+      title: The Codor wordmark renders in self-hosted Bitcount with no third-party
+        font request
+      statement: Every surface that renders the Codor wordmark must load Bitcount Prop
+        Single from an asset served by that surface's own origin, never from
+        fonts.googleapis.com or any other third-party host, and the font's SIL
+        Open Font License must ship alongside the binary; because a product page
+        whose central claim is that nothing leaves your machine must not hand
+        every visitor's IP and User-Agent to a font CDN to draw its own name,
+        and because redistributing an OFL font without its licence text breaches
+        the licence.
+      reason: The prototype pulled this font from Google Fonts at runtime, which
+        contradicted the privacy claim sitting a few hundred pixels below it on
+        the same page. Self-hosting is the fix and the licence is the obligation
+        that comes with it.
+    - id: generated-brand-assets-match-their-source
+      title: Committed brand assets are byte-identical to a fresh generator run
+      statement: Every generated brand asset committed to the repository - the
+        web-next rasters and vector outputs and the VitePress site's copies -
+        must be byte-identical to what scripts/build-icons.mjs produces from the
+        current vector source, verified by a --check mode that regenerates and
+        compares rather than by trusting that whoever last touched an icon ran
+        the generator; because the sibling assumption already asserts that
+        rasters are generated rather than hand-committed, and an assertion
+        nothing tests is indistinguishable from a comment.
+      reason: brand-rasters-generated-not-hand-committed shipped with no mechanism
+        behind it - a hand-edited PNG passed every gate. The check closes the
+        gap between the claim and its enforcement.
+    - id: social-cards-resolve-to-an-absolute-origin
+      title: Social preview metadata uses absolute URLs and declares og:url
+      statement: Every surface emitting Open Graph or Twitter card metadata must give
+        og:image and og:url as absolute HTTP(S) URLs built from a single
+        declared site origin, and must declare image dimensions and alt text;
+        because the Open Graph protocol requires og:url and defines URL-typed
+        properties as absolute, so a root-relative /codor-og.png is unresolvable
+        to a scraper and the card silently degrades to no image at all.
+      reason: Both surfaces shipped a relative og:image and no og:url, so the social
+        cards this phase existed to add would not actually have rendered.
+anchors:
+  brand-wordmark-uses-self-hosted-bitcount:
+    website-wordmark-font:
+      action: change
+      reason: The docs site vendors the Bitcount woff2 and declares its @font-face so
+        the nav wordmark matches the app without a runtime Google Fonts request.
+  brand-rasters-generated-not-hand-committed:
+    icon-generator-single-source:
+      action: change
+      reason: build-icons.mjs is edited inside this existing anchor - the plate insets
+        are re-tuned for the normalised mark and the check path is threaded
+        through the shared write() helper, so the region changes even though the
+        single-source invariant itself is unaffected.
+  generated-brand-assets-match-their-source:
+    icon-generator-check-mode:
+      action: change
+      reason: build-icons.mjs gains --check, regenerating every output in memory and
+        byte-comparing it against what is committed, across both surfaces.
+  social-cards-resolve-to-an-absolute-origin:
+    website-social-card-absolute-urls:
+      action: change
+      reason: The VitePress head gains og:url and absolute og:image/twitter:image
+        built from a declared origin, plus image dimensions and alt.
+files:
+  - scripts/build-icons.mjs
+  - website/.vitepress/config.ts
+  - website/public/codor-mark-light.svg
+  - website/public/codor-mark-dark.svg
+  - website/public/codor-favicon.svg
+  - website/public/codor-apple-touch-180.png
+  - website/public/codor-og.png
+  - website/public/fonts/BitcountPropSingle-latin.woff2
+  - website/public/fonts/OFL.txt
+  - website/.vitepress/theme/custom.css
+verification: >
+  - `pnpm --filter @codor/web-next build` is green: this is the gate that was
+  red
+    and the one the earlier packet failed to re-run after moving the spec.
+  - `node scripts/build-icons.mjs --check` exits non-zero when any committed
+  asset
+    differs from a fresh render, and zero on a clean tree; a spec asserts both.
+  - Measured: the normalised mark's ink covers ~92.6% of its viewBox, so a 30px
+  box
+    renders a ~28px glyph, above the documented 24px floor. Re-measure rather than
+    re-eyeball.
+  - No surface requests fonts.googleapis.com or fonts.gstatic.com at runtime,
+    asserted in the browser via performance resource entries, not by grep alone.
+  - og:url and absolute og:image present on both surfaces; OFL.txt ships with
+  the
+    font binary.
+  - Full web-next suite green, VitePress build green, harn check passes.
+applied:
+  applied_at: 2026-07-19T12:38:36.564Z

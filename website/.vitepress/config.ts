@@ -39,6 +39,10 @@ const sidebar = [
   },
 ];
 
+/** Canonical public origin. Open Graph URLs must be absolute, so every social
+ *  tag below is built from this one value rather than a root-relative path. */
+const SITE = 'https://codor.app';
+
 export default defineConfig({
   title: 'Codor',
   description: 'A local-first channel for your coding agents.',
@@ -68,12 +72,23 @@ export default defineConfig({
     ['meta', { name: 'color-scheme', content: 'dark light' }],
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/codor-favicon.svg' }],
     ['link', { rel: 'apple-touch-icon', href: '/codor-apple-touch-180.png' }],
+    // harn:assume social-cards-resolve-to-an-absolute-origin ref=website-social-card-absolute-urls
+    // Open Graph requires og:url and defines URL-typed properties as absolute
+    // HTTP(S); a root-relative /codor-og.png is unresolvable to a scraper, so the
+    // card silently degrades to no image. Everything below is built from SITE.
     ['meta', { property: 'og:type', content: 'website' }],
+    ['meta', { property: 'og:site_name', content: 'Codor' }],
+    ['meta', { property: 'og:url', content: `${SITE}/` }],
     ['meta', { property: 'og:title', content: 'Codor' }],
     ['meta', { property: 'og:description', content: 'A local-first channel for your coding agents.' }],
-    ['meta', { property: 'og:image', content: '/codor-og.png' }],
+    ['meta', { property: 'og:image', content: `${SITE}/codor-og.png` }],
+    ['meta', { property: 'og:image:width', content: '1200' }],
+    ['meta', { property: 'og:image:height', content: '630' }],
+    ['meta', { property: 'og:image:alt', content: 'The Codor mark' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-    ['meta', { name: 'twitter:image', content: '/codor-og.png' }],
+    ['meta', { name: 'twitter:image', content: `${SITE}/codor-og.png` }],
+    ['meta', { name: 'twitter:image:alt', content: 'The Codor mark' }],
+    // harn:end social-cards-resolve-to-an-absolute-origin
     ['script', {}, darkFirstAppearanceScript],
   ],
   // harn:end brand-asset-references-resolve

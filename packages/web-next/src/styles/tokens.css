@@ -9,6 +9,14 @@
   font-display: swap;
 }
 @font-face {
+  /* Self-hosted: a product whose claim is that nothing leaves your machine must
+     not call a font CDN to draw its own name. SIL OFL 1.1, licence beside it. */
+  font-family: 'Bitcount Prop Single';
+  src: url('/fonts/BitcountPropSingle-latin.woff2') format('woff2');
+  font-weight: 400 700;
+  font-display: swap;
+}
+@font-face {
   font-family: 'Geist Mono';
   src: url('/fonts/GeistMono-Variable.woff2') format('woff2');
   font-weight: 100 900;
@@ -77,6 +85,7 @@
 
   /* Type — Geist, letter-spacing 0 everywhere */
   --f-sans: Geist, ui-sans-serif, system-ui, sans-serif;
+  --f-wordmark: 'Bitcount Prop Single', var(--f-sans);
   --f-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --t-display: 600 40px/1.1 var(--f-sans);
   --t-heading: 600 26px/1.25 var(--f-sans);

@@ -1,0 +1,14 @@
+id: generated-brand-assets-match-their-source
+hash: a-53639b5779b4
+title: Committed brand assets are byte-identical to a fresh generator run
+state: active
+statement: Every generated brand asset committed to the repository - the
+  web-next rasters and vector outputs and the VitePress site's copies - must be
+  byte-identical to what scripts/build-icons.mjs produces from the current
+  vector source, verified by a --check mode that regenerates and compares rather
+  than by trusting that whoever last touched an icon ran the generator; because
+  the sibling assumption already asserts that rasters are generated rather than
+  hand-committed, and an assertion nothing tests is indistinguishable from a
+  comment.
+depends_on: []
+created_by: codor-brand-review-fixes

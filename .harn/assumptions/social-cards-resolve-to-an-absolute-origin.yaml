@@ -1,0 +1,12 @@
+id: social-cards-resolve-to-an-absolute-origin
+hash: a-fcc08061c119
+title: Social preview metadata uses absolute URLs and declares og:url
+state: active
+statement: Every surface emitting Open Graph or Twitter card metadata must give
+  og:image and og:url as absolute HTTP(S) URLs built from a single declared site
+  origin, and must declare image dimensions and alt text; because the Open Graph
+  protocol requires og:url and defines URL-typed properties as absolute, so a
+  root-relative /codor-og.png is unresolvable to a scraper and the card silently
+  degrades to no image at all.
+depends_on: []
+created_by: codor-brand-review-fixes

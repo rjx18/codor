@@ -37,6 +37,12 @@
 /* The real mark, not a letter. Drawn as a CSS mask over currentColor so the one
    vector source themes with the rail instead of needing a light/dark asset pair.
    30px clears the 24px legibility floor the monoline mark measures at. */
+.nx-brand strong {
+  font-family: var(--f-wordmark);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: 0.015em;
+}
 .nx-brand-tile {
   display: inline-block;
   width: 30px;

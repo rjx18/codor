@@ -7,13 +7,18 @@
  * icons drifting away from the source vector, which is exactly what happened to
  * the previous set (hand-committed once in 3b2fcee, never regenerated).
  *
- * Run: node scripts/build-icons.mjs
- * Re-running against an unchanged source must produce no diff.
+ * Run:   node scripts/build-icons.mjs
+ * Check: node scripts/build-icons.mjs --check
+ *
+ * --check regenerates every output in memory and byte-compares it against what
+ * is committed, exiting non-zero on any difference. Without it the sibling
+ * assumption ("rasters are generated, not hand-committed") is unenforced: a
+ * hand-edited PNG passes every other gate.
  *
  * harn:assume brand-rasters-generated-not-hand-committed ref=icon-generator-single-source
  */
 import { Resvg } from '@resvg/resvg-js';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -56,10 +61,27 @@ function plated({ size, plate, glyph, inset, radius }) {
 const png = (svg, width) =>
   new Resvg(svg, { fitTo: { mode: 'width', value: width } }).render().asPng();
 
+// harn:assume generated-brand-assets-match-their-source ref=icon-generator-check-mode
+// --check regenerates every output in memory and byte-compares it against what is
+// committed. Without it the sibling generated-not-hand-committed assumption has no
+// mechanism behind it and a hand-edited PNG passes every gate.
+const CHECK = process.argv.includes('--check');
+const drift = [];
+
 const write = (path, data) => {
+  const rel = path.replace(root + '/', '');
+  if (CHECK) {
+    const current = existsSync(path) ? readFileSync(path) : undefined;
+    if (current === undefined) drift.push(`${rel} — missing`);
+    else if (!current.equals(Buffer.isBuffer(data) ? data : Buffer.from(data))) {
+      drift.push(`${rel} — differs from a fresh render`);
+    }
+    return;
+  }
+  // harn:end generated-brand-assets-match-their-source
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, data);
-  console.log(`  ${path.replace(root + '/', '')} — ${data.length} bytes`);
+  console.log(`  ${rel} — ${data.length} bytes`);
 };
 
 /* ── favicon ──────────────────────────────────────────────────────────────
@@ -97,7 +119,7 @@ function ogSvg() {
   const glyph = painted(PAPER)
     .replace(/<\?xml[^>]*\?>/g, '')
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace('<svg', '<svg x="480" y="195" width="240" height="240"');
+    .replace('<svg', '<svg x="450" y="165" width="300" height="300"');
   return [
     '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">',
     `<rect width="1200" height="630" fill="${INK}"/>`,
@@ -106,7 +128,9 @@ function ogSvg() {
   ].join('\n');
 }
 
-console.log('Generating brand assets from packages/web-next/public/codor-mark.svg\n');
+console.log(CHECK
+  ? 'Checking committed brand assets against the vector source'
+  : 'Generating brand assets from packages/web-next/public/codor-mark.svg\n');
 
 // Shared vector outputs.
 const favicon = faviconSvg();
@@ -125,7 +149,7 @@ const app = (size, inset, radius) =>
 write(resolve(APP, 'codor-192.png'), png(app(512, 0.62, 112), 192));
 write(resolve(APP, 'codor-512.png'), png(app(512, 0.62, 112), 512));
 // Maskable: full-bleed plate, glyph well inside the safe zone.
-write(resolve(APP, 'codor-maskable-512.png'), png(app(512, 0.44, 0), 512));
+write(resolve(APP, 'codor-maskable-512.png'), png(app(512, 0.55, 0), 512));
 // Apple applies its own corner mask, so the plate is square here too.
 write(resolve(APP, 'codor-apple-touch-180.png'), png(app(512, 0.62, 0), 180));
 write(resolve(SITE, 'codor-apple-touch-180.png'), png(app(512, 0.62, 0), 180));
@@ -135,5 +159,15 @@ const og = png(ogSvg(), 1200);
 write(resolve(APP, 'codor-og.png'), og);
 write(resolve(SITE, 'codor-og.png'), og);
 
-console.log('\nDone. Re-run should produce no diff.');
+if (CHECK) {
+  if (drift.length > 0) {
+    console.error('Committed brand assets do not match a fresh render:\n');
+    for (const line of drift) console.error(`  ${line}`);
+    console.error('\nRun `node scripts/build-icons.mjs` and commit the result.');
+    process.exit(1);
+  }
+  console.log('All committed brand assets match a fresh render.');
+} else {
+  console.log('\nDone. Re-run should produce no diff.');
+}
 // harn:end brand-rasters-generated-not-hand-committed

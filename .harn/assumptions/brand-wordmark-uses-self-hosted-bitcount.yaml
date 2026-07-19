@@ -1,0 +1,14 @@
+id: brand-wordmark-uses-self-hosted-bitcount
+hash: a-94cffb16c895
+title: The Codor wordmark renders in self-hosted Bitcount with no third-party
+  font request
+state: active
+statement: Every surface that renders the Codor wordmark must load Bitcount Prop
+  Single from an asset served by that surface's own origin, never from
+  fonts.googleapis.com or any other third-party host, and the font's SIL Open
+  Font License must ship alongside the binary; because a product page whose
+  central claim is that nothing leaves your machine must not hand every
+  visitor's IP and User-Agent to a font CDN to draw its own name, and because
+  redistributing an OFL font without its licence text breaches the licence.
+depends_on: []
+created_by: codor-brand-review-fixes
