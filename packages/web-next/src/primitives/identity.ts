@@ -43,7 +43,9 @@ export function clockTime(iso: string): string {
     : then.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
-const COMPACT = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+// Pinned locale: meter abbreviations are part of the UI contract ('1.5K'), and the
+// daemon host's locale (e.g. pt-BR '1,5 mil') must not leak into them.
+const COMPACT = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 
 export function compactCount(value: number): string {
   return COMPACT.format(value);
