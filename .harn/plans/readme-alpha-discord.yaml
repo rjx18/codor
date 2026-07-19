@@ -1,0 +1,15 @@
+id: readme-alpha-discord
+title: Make the alpha status prominent and invite readers to the Discord
+notes: Add a prominent GitHub warning callout below the project badges stating
+  that Codor is alpha, actively in progress, potentially broken or unfinished,
+  and updated frequently. Add a dedicated Discord section near the bottom with a
+  direct invitation. Documentation presentation only; no tracked runtime or
+  product assumptions change.
+assumptions: {}
+anchors: {}
+files:
+  - README.md
+verification: Run Harn checks and the public release audit, then inspect the
+  README ordering, callout syntax, and Discord link.
+applied:
+  applied_at: 2026-07-19T16:06:33.443Z

@@ -14,6 +14,10 @@
   <a href="https://discord.gg/PtUfM6BhBy"><img alt="Join the Codor Discord" src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white"></a>
 </p>
 
+> [!WARNING]
+> **Codor is currently in alpha and still under active development.** Expect some features to be
+> broken or unfinished, along with frequent updates.
+
 <!-- harn:assume operator-launches-serve-web-next ref=readme-current-web-client -->
 ## Install
 
@@ -200,6 +204,11 @@ pnpm audit:license
 Physical-device and credential-gated checks are in [MANUAL-VERIFY.md](MANUAL-VERIFY.md).
 
 </details>
+
+## Join the Discord
+
+Codor is being built in public. [Join the Codor Discord](https://discord.gg/PtUfM6BhBy) to ask
+questions, report bugs, share feedback, and follow new releases.
 
 ## License
 
