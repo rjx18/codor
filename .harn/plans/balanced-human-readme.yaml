@@ -1,0 +1,66 @@
+id: balanced-human-readme
+title: Make the README concise without hiding the everyday product and CLI path
+notes: Richard wants a human-readable README around one-third to one-half of its
+  current 323 lines, not an operations manual and not a stack of dropdowns. Keep
+  the branded header, normal installation, product value, everyday channel
+  workflow, basic CLI examples, documentation links, and the short security
+  warning visible. Put only secondary service diagnostics, Tailscale manual
+  commands, foreground development, upgrades, advanced collaboration mechanics,
+  deeper privacy notes, and contributor commands in native HTML details blocks.
+  Link to the dedicated guides instead of duplicating their prose. Code, service
+  behavior, and public contracts remain unchanged.
+assumptions:
+  reviewed:
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The short visible install still builds and launches web-next, with
+        secondary operating commands collapsed or linked to SELF-HOST.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: Visible product and workflow copy continues to call the concept a
+        channel.
+    - id: global-cli-install-is-idempotent
+      outcome: unchanged
+      reason: The install script and basic CLI use stay visible, while pnpm link
+        remains an option.
+    - id: live-collaboration-contract-is-public-v5
+      outcome: unchanged
+      reason: The advanced agent-to-agent collaboration contract remains public in one
+        disclosure.
+    - id: agent-member-credentials-are-defense-in-depth
+      outcome: unchanged
+      reason: The concise process-boundary warning remains visible and links to deeper
+        privacy detail.
+anchors:
+  operator-launches-serve-web-next:
+    readme-current-web-client:
+      action: change
+      reason: Replace the long install manual with one primary flow and one secondary
+        disclosure.
+  human-facing-surfaces-call-rooms-channels:
+    public-docs-channel-terminology:
+      action: change
+      reason: Compress the product explanation while keeping everyday workflow visible.
+  global-cli-install-is-idempotent:
+    cli-install-docs:
+      action: change
+      reason: Keep the primary CLI install and common commands visible in fewer lines.
+  live-collaboration-contract-is-public-v5:
+    readme-live-collaboration:
+      action: change
+      reason: Collapse only advanced live-collaboration mechanics.
+  agent-member-credentials-are-defense-in-depth:
+    readme-agent-trust-boundary:
+      action: change
+      reason: Shorten the visible warning without weakening its boundary.
+files:
+  - README.md
+verification: Harn check passes with no unplanned anchors; README is 110-161
+  lines; the visible path contains requirements, clone, frozen install, build,
+  CLI install, setup, platform service result, product value, common CLI
+  commands, security warning, and documentation; no more than three secondary
+  details blocks hold operating help, advanced collaboration/privacy, and
+  development; all local links and logo assets resolve; website verification,
+  clean-clone install, and diff checks pass.
+applied:
+  applied_at: 2026-07-19T15:08:12.496Z
