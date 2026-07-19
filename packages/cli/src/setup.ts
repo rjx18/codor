@@ -7,7 +7,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, release } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,7 @@ export interface SetupOverrides {
   confirm?(prompt: string): Promise<boolean>;
   exec?(command: string, args: string[]): string;
   home?: string;
+  kernelRelease?: string;
   nodePath?: string;
   platform?: NodeJS.Platform;
   randomToken?(): string;
@@ -69,6 +70,48 @@ function uniquePath(parts: Array<string | undefined>): string {
 function replaceNodePath(template: string, nodePath: string): string {
   return template.replace(/^(ExecStart=)\S+/m, `$1${nodePath}`);
 }
+
+// harn:assume wsl-setup-reaches-windows-loopback ref=wsl-bind-selection
+function wslSystemdBindHost(
+  env: NodeJS.ProcessEnv,
+  kernelRelease: string,
+  exec: (command: string, args: string[]) => string,
+  which: (command: string) => string | undefined,
+): '127.0.0.1' | '0.0.0.0' {
+  const isWsl = Boolean(env.WSL_DISTRO_NAME || env.WSL_INTEROP || /microsoft/i.test(kernelRelease));
+  if (!isWsl) return '127.0.0.1';
+
+  let version = /wsl2/i.test(kernelRelease) ? '2' : /microsoft/i.test(kernelRelease) ? '1' : undefined;
+  let networkingMode: string | undefined;
+  const wslinfo = which('wslinfo');
+  if (wslinfo) {
+    try {
+      version = exec('wslinfo', ['--wsl-version']).trim() || version;
+      networkingMode = exec('wslinfo', ['--networking-mode']).trim().toLowerCase() || undefined;
+    } catch {
+      // A present-but-broken probe cannot safely distinguish NAT from mirrored networking.
+      return '127.0.0.1';
+    }
+  }
+
+  if (version !== '2') return '127.0.0.1';
+  if (
+    (wslinfo === undefined && networkingMode === undefined)
+    || networkingMode === 'nat'
+    || networkingMode === 'virtioproxy'
+  ) {
+    return '0.0.0.0';
+  }
+  return '127.0.0.1';
+}
+
+function replaceSystemdBindHost(template: string, host: '127.0.0.1' | '0.0.0.0'): string {
+  if (host === '127.0.0.1') return template;
+  const rendered = template.replace(/^(ExecStart=.*\s+up)(\s+)/m, `$1 --host ${host}$2`);
+  if (rendered === template) throw new Error('codor setup could not configure the WSL systemd bind host');
+  return rendered;
+}
+// harn:end wsl-setup-reaches-windows-loopback
 
 function xml(value: string): string {
   return value
@@ -179,8 +222,19 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const launchAgentDir = join(home, 'Library', 'LaunchAgents');
   const launchAgentPath = join(launchAgentDir, `${LAUNCH_AGENT_LABEL}.plist`);
   const logDir = join(dataDir, 'logs');
+  const systemdBindHost = platform === 'linux'
+    ? wslSystemdBindHost(
+      options.env,
+      overrides.kernelRelease ?? release(),
+      exec,
+      which,
+    )
+    : '127.0.0.1';
   const unitContent = platform === 'linux'
-    ? replaceNodePath(readFileSync(templatePath, 'utf8'), nodePath)
+    ? replaceSystemdBindHost(
+      replaceNodePath(readFileSync(templatePath, 'utf8'), nodePath),
+      systemdBindHost,
+    )
     : undefined;
   const harnessPaths = HARNESSES.map((harness) => which(harness)).filter(
     (path): path is string => path !== undefined,
@@ -266,6 +320,9 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       });
       chmodSync(envPath, 0o600);
       options.out(`Installed codor.service with Node ${nodePath}.`);
+      if (systemdBindHost === '0.0.0.0') {
+        options.out('Configured WSL2 NAT access through Windows http://127.0.0.1:8137.');
+      }
     } else {
       mkdirSync(launchAgentDir, { recursive: true });
       mkdirSync(logDir, { recursive: true, mode: 0o700 });

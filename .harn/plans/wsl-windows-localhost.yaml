@@ -1,0 +1,73 @@
+id: wsl-windows-localhost
+title: Make WSL2 NAT setup reachable from the Windows browser without widening
+  other installs
+notes: The generated Linux service currently omits --host, so the CLI binds
+  127.0.0.1 inside the WSL guest. Windows normally forwards WSL localhost, but
+  current WSL versions and configurations can fail to forward a
+  guest-loopback-only listener. Detect WSL2 and its networking mode during
+  setup. For NAT-style WSL2 networking, generate the service with --host 0.0.0.0
+  so Windows localhost forwarding can reach it; retain loopback for ordinary
+  Linux, WSL1, and mirrored WSL2, where a wildcard listener can create unwanted
+  LAN exposure. Keep the browser and pairing endpoint at Windows 127.0.0.1.
+  Dry-run must show the exact generated unit. Add regressions for NAT, mirrored,
+  WSL1, and ordinary Linux, plus a short README statement of WSL support.
+assumptions:
+  create:
+    - id: wsl-setup-reaches-windows-loopback
+      title: WSL setup remains private while reaching the Windows browser
+      statement: Setup on WSL2 with NAT-style networking must generate the systemd
+        user service with a guest wildcard bind so Windows localhost forwarding
+        can reach Codor, while ordinary Linux, WSL1, and mirrored WSL2 retain
+        the loopback-only bind; the pairing and browser endpoint must remain
+        http://127.0.0.1:8137 and dry-run must expose the selected unit, because
+        a universal wildcard bind creates LAN exposure while a
+        guest-loopback-only WSL2 NAT listener is not reliably reachable from the
+        Windows browser.
+      reason: Real WSL installation testing could reach Codor inside Linux but not
+        from the Windows host, and the checked-in service currently relies on
+        the CLI loopback default.
+      depends_on:
+        - cli-setup-wizard-installs-platform-user-service
+  reviewed:
+    - id: cli-setup-wizard-installs-platform-user-service
+      outcome: unchanged
+      reason: Setup still confirms and installs the same private native user service;
+        WSL2 NAT gains a platform-specific bind argument in its generated unit.
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The generated WSL unit and README continue to serve
+        packages/web-next/dist; only Windows-host reachability changes.
+anchors:
+  wsl-setup-reaches-windows-loopback:
+    wsl-bind-selection:
+      action: change
+      reason: Detect WSL version and network mode and select the narrowest working
+        bind.
+    wsl-bind-regression:
+      action: change
+      reason: Pin NAT, mirrored, WSL1, and ordinary-Linux generated service behavior.
+    readme-wsl-access:
+      action: change
+      reason: Tell Windows users that WSL2 setup opens through Windows localhost.
+  cli-setup-wizard-installs-platform-user-service:
+    setup-runtime:
+      action: change
+      reason: Apply the WSL-specific host to the generated systemd unit.
+    setup-regression:
+      action: change
+      reason: Extend setup's existing generated-service regression matrix.
+  operator-launches-serve-web-next:
+    readme-current-web-client:
+      action: change
+      reason: Add the WSL browser-access line without changing the served client.
+files:
+  - packages/cli/src/setup.ts
+  - packages/cli/src/index.spec.ts
+  - README.md
+verification: Run the focused CLI setup tests, full CLI tests, workspace build,
+  Harn checks, and the release audit. Inspect dry-run output to prove only WSL2
+  NAT receives --host 0.0.0.0 and every generated pairing endpoint remains
+  http://127.0.0.1:8137. Real Windows/WSL browser access remains a post-publish
+  physical acceptance check.
+applied:
+  applied_at: 2026-07-19T16:20:26.381Z

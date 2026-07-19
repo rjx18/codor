@@ -1,0 +1,14 @@
+id: wsl-setup-reaches-windows-loopback
+hash: a-25968fc74d15
+title: WSL setup remains private while reaching the Windows browser
+state: active
+statement: Setup on WSL2 with NAT-style networking must generate the systemd
+  user service with a guest wildcard bind so Windows localhost forwarding can
+  reach Codor, while ordinary Linux, WSL1, and mirrored WSL2 retain the
+  loopback-only bind; the pairing and browser endpoint must remain
+  http://127.0.0.1:8137 and dry-run must expose the selected unit, because a
+  universal wildcard bind creates LAN exposure while a guest-loopback-only WSL2
+  NAT listener is not reliably reachable from the Windows browser.
+depends_on:
+  - cli-setup-wizard-installs-platform-user-service
+created_by: wsl-windows-localhost

@@ -36,6 +36,11 @@ background service, optionally enables Tailscale, and prints a one-time browser 
 - **Linux:** systemd user service.
 - **macOS:** LaunchAgent after login—no Terminal window needs to stay open.
 
+<!-- harn:assume wsl-setup-reaches-windows-loopback ref=readme-wsl-access -->
+**Windows with WSL2:** run setup inside WSL, then open the same `http://127.0.0.1:8137`
+address in your Windows browser.
+<!-- harn:end wsl-setup-reaches-windows-loopback -->
+
 Open the pairing link. Codor is then available locally at <http://127.0.0.1:8137>.
 
 <details>

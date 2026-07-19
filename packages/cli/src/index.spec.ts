@@ -336,6 +336,88 @@ describe('@codor/cli', () => {
     expect(existsSync(join(home, '.config', 'codor'))).toBe(false);
   });
 
+  // harn:assume wsl-setup-reaches-windows-loopback ref=wsl-bind-regression
+  it.each([
+    {
+      name: 'ordinary Linux',
+      env: {},
+      kernelRelease: '6.8.0-generic',
+      wslVersion: undefined,
+      networkingMode: undefined,
+      expectedHost: undefined,
+    },
+    {
+      name: 'WSL1',
+      env: { WSL_DISTRO_NAME: 'Ubuntu' },
+      kernelRelease: '4.4.0-19041-Microsoft',
+      wslVersion: '1',
+      networkingMode: 'nat',
+      expectedHost: undefined,
+    },
+    {
+      name: 'WSL2 NAT',
+      env: { WSL_DISTRO_NAME: 'Ubuntu' },
+      kernelRelease: '5.15.153.1-microsoft-standard-WSL2',
+      wslVersion: '2',
+      networkingMode: 'nat',
+      expectedHost: '0.0.0.0',
+    },
+    {
+      name: 'older WSL2 without wslinfo',
+      env: { WSL_DISTRO_NAME: 'Ubuntu' },
+      kernelRelease: '5.10.102.1-microsoft-standard-WSL2',
+      wslVersion: undefined,
+      networkingMode: undefined,
+      expectedHost: '0.0.0.0',
+    },
+    {
+      name: 'WSL2 mirrored',
+      env: { WSL_DISTRO_NAME: 'Ubuntu' },
+      kernelRelease: '6.6.87.2-microsoft-standard-WSL2',
+      wslVersion: '2',
+      networkingMode: 'mirrored',
+      expectedHost: undefined,
+    },
+  ])('selects the private working service bind for $name', async ({
+    env,
+    kernelRelease,
+    wslVersion,
+    networkingMode,
+    expectedHost,
+  }) => {
+    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    await runCli(['node', 'codor', 'setup', '--dry-run'], {
+      env: { HOME: '/home/wsl-test', USER: 'wsl-test', PATH: '/usr/bin', ...env },
+      stdout: (line) => output.push(line),
+      setup: {
+        home: '/home/wsl-test',
+        kernelRelease,
+        nodePath: '/usr/bin/node',
+        platform: 'linux',
+        repoRoot,
+        exec: (command, args) => {
+          if (command === 'wslinfo' && args[0] === '--wsl-version') return wslVersion ?? '';
+          if (command === 'wslinfo' && args[0] === '--networking-mode') return networkingMode ?? '';
+          throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
+        },
+        which: (command) => command === 'wslinfo' && wslVersion !== undefined
+          ? '/usr/bin/wslinfo'
+          : undefined,
+      },
+    });
+
+    const execStart = output.find((line) => line.startsWith('ExecStart='));
+    expect(execStart).toBeDefined();
+    if (expectedHost === undefined) {
+      expect(execStart).not.toContain(' --host ');
+    } else {
+      expect(execStart).toContain(` up --host ${expectedHost} `);
+    }
+    expect(output.join('\n')).toContain('generate a ten-minute pairing link');
+    expect(output.join('\n')).not.toContain('http://0.0.0.0:8137');
+  });
+  // harn:end wsl-setup-reaches-windows-loopback
+
   it('writes private setup files, runs confirmed host steps, and pairs against the Serve origin', async () => {
     const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
     const home = join(dir, 'setup-home');
