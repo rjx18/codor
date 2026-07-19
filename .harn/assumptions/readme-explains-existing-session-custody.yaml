@@ -1,0 +1,15 @@
+id: readme-explains-existing-session-custody
+hash: a-0eb268425601
+title: The README explains both directions of existing-session custody
+state: active
+statement: The primary README must distinguish joining a live Claude Code or
+  Codex TUI as a mirrored channel member from attaching a Codor-owned resumable
+  member in a native terminal, and must name explicit adoption plus the required
+  mirroring setup, because confusing these directions can either hide completed
+  turns or create two writers for one session.
+depends_on:
+  - adoption-explicit-or-sessionend
+  - mirrored-deliveries-queue
+  - mirror-one-message-per-native-turn
+  - attach-custody-lease-tracks-child-pid
+created_by: readme-existing-sessions

@@ -98,6 +98,44 @@ codor --data-dir "$HOME/.codor" pair --endpoint https://<machine>.<tailnet>.ts.n
 Open the generated pairing link on your other device. Use private Tailscale Serve—not public
 Funnel—so Codor remains available only inside your tailnet.
 
+<!-- harn:assume readme-explains-existing-session-custody ref=readme-existing-session-workflow -->
+## Attach existing sessions
+
+Already working in Claude Code or Codex? Add that live session to a channel without starting over.
+From the same project—or by asking the agent to run it:
+
+```sh
+codor join desk --as planner
+```
+
+Codor detects the current or most recent Claude Code/Codex session. If detection is ambiguous, be
+explicit:
+
+```sh
+codor join desk --as planner --harness claude-code --session <session-id> --cwd "$PWD"
+codor join desk --as reviewer --harness codex --session <thread-id> --cwd "$PWD"
+```
+
+The existing terminal remains in control while joined. Configure the
+[Claude Code hooks](docs/JOIN.md#claude-code-hooks) or
+[Codex notify](docs/JOIN.md#codex-notify) once so completed turns appear in the channel. When you
+finish using that terminal, hand the session to Codor:
+
+```sh
+codor adopt -r desk planner
+```
+
+For the opposite direction—temporarily opening a session Codor already manages—run:
+
+```sh
+codor attach -r desk planner
+```
+
+This opens the native resumable session and returns it to Codor when you exit. It supports
+resumable Claude Code, Codex, Gemini, OpenCode, and Copilot members. See the complete
+[existing-session guide](docs/JOIN.md).
+<!-- harn:end readme-explains-existing-session-custody -->
+
 <details>
 <summary><strong>Service checks, upgrades, and development mode</strong></summary>
 

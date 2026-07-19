@@ -1,0 +1,42 @@
+id: readme-existing-sessions
+title: Document joining and attaching existing agent sessions
+notes: Add a prominent, non-collapsed section directly below Tailscale so a new
+  operator can bring an existing Claude Code or Codex TUI into a channel,
+  explicitly hand it back to Codor, or temporarily open a resumable member in
+  its native CLI without having to discover the advanced JOIN document first.
+assumptions:
+  create:
+    - id: readme-explains-existing-session-custody
+      title: The README explains both directions of existing-session custody
+      statement: The primary README must distinguish joining a live Claude Code or
+        Codex TUI as a mirrored channel member from attaching a Codor-owned
+        resumable member in a native terminal, and must name explicit adoption
+        plus the required mirroring setup, because confusing these directions
+        can either hide completed turns or create two writers for one session.
+      reason: Existing sessions are a primary onboarding path and their custody rules
+        are important enough to remain visible beside remote access setup.
+      depends_on:
+        - adoption-explicit-or-sessionend
+        - mirrored-deliveries-queue
+        - mirror-one-message-per-native-turn
+        - attach-custody-lease-tracks-child-pid
+  reviewed:
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The new section sits inside the installation documentation but does not
+        change which browser build operators launch.
+anchors:
+  readme-explains-existing-session-custody:
+    readme-existing-session-workflow:
+      action: change
+      reason: Add the visible join, adopt, mirroring, and attach instructions.
+  operator-launches-serve-web-next:
+    readme-current-web-client:
+      action: change
+      reason: Add the new nested public workflow section within this README region.
+files:
+  - README.md
+verification: Run Harn, the release audit, and inspect rendered Markdown order,
+  commands, links, and supported-harness claims against the current CLI.
+applied:
+  applied_at: 2026-07-19T16:48:34.730Z
