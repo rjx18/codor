@@ -11,6 +11,7 @@
   <img alt="Node.js 22+" src="https://img.shields.io/badge/Node.js-22%2B-3c873a">
   <img alt="pnpm 10.9" src="https://img.shields.io/badge/pnpm-10.9-f69220">
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-222222">
+  <a href="https://discord.gg/PtUfM6BhBy"><img alt="Join the Codor Discord" src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white"></a>
 </p>
 
 <!-- harn:assume operator-launches-serve-web-next ref=readme-current-web-client -->
@@ -20,7 +21,7 @@ You need Linux or macOS, Node.js 22+, Git, and at least one authenticated agent 
 Claude Code, Codex, Gemini, Copilot, or OpenCode.
 
 ```sh
-git clone <repository-url> "$HOME/codor"
+git clone https://github.com/rjx18/codor.git "$HOME/codor"
 cd "$HOME/codor"
 corepack enable
 corepack pnpm install --frozen-lockfile
@@ -37,8 +38,22 @@ background service, optionally enables Tailscale, and prints a one-time browser 
 
 Open the pairing link. Codor is then available locally at <http://127.0.0.1:8137>.
 
+## Tailscale
+
+`codor setup` can publish Codor privately over Tailscale automatically. If you skipped that step,
+run:
+
+```sh
+tailscale serve --bg http://127.0.0.1:8137
+tailscale serve status
+codor --data-dir "$HOME/.codor" pair --endpoint https://<machine>.<tailnet>.ts.net
+```
+
+Open the generated pairing link on your other device. Use private Tailscale Serve—not public
+Funnel—so Codor remains available only inside your tailnet.
+
 <details>
-<summary><strong>Service checks, Tailscale, upgrades, and development mode</strong></summary>
+<summary><strong>Service checks, upgrades, and development mode</strong></summary>
 
 Preview changes with `codor setup --dry-run`.
 
@@ -52,16 +67,8 @@ launchctl print "gui/$(id -u)/app.codor.switchboard"
 tail -f "$HOME/.codor/logs/codor.err.log"
 ```
 
-If you skipped Tailscale during setup:
-
-```sh
-tailscale serve --bg http://127.0.0.1:8137
-tailscale serve status
-codor --data-dir "$HOME/.codor" pair --endpoint https://<machine>.<tailnet>.ts.net
-```
-
-Use Tailscale Serve, not public Funnel. For upgrades, run `git pull --ff-only`, reinstall with the
-same frozen pnpm command, rebuild, then restart `codor.service` on Linux or
+For upgrades, run `git pull --ff-only`, reinstall with the same frozen pnpm command, rebuild, then
+restart `codor.service` on Linux or
 `app.codor.switchboard` with `launchctl kickstart -k` on macOS.
 
 The supported browser build is `packages/web-next/dist`; `packages/web/dist` is legacy. Foreground
@@ -78,7 +85,7 @@ Codor gives persistent coding agents one shared channel while each keeps its nat
 context. Messages, mentions, tool evidence, files, unread state, and run history stay on your
 machine.
 
-![Codor channel with conversation, bridge disclosure, and member context](website/public/codor-channel.png)
+![Codor channel showing chronological agent work, approvals, and People & agents](website/public/codor-channel.png)
 
 - Mention agents to give them work and let them collaborate.
 - Watch every human and agent message in permanent chronological order.
@@ -130,6 +137,9 @@ from an addressed member; timeout is normal control flow and matching deliveries
 Claude Code's inbox hook checks after tool calls without injecting empty messages. The PWA shows
 who is working or waiting, on whom, and for how long.
 <!-- harn:end live-collaboration-contract-is-public-v5 -->
+
+Remote relays can see sealed payloads plus delivery
+metadata, but cannot decrypt channel content.
 
 Keep port 8137 on localhost and use a private authenticated tunnel such as Tailscale Serve. Read
 [docs/PRIVACY.md](docs/PRIVACY.md) before enabling remote access, push, DHT lines, or bridges.

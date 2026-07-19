@@ -1,0 +1,62 @@
+id: release-readme-refresh-v3
+title: Refresh the release screenshot, install URL, Tailscale path, and community link
+notes: Replace the pre-Codor Wireroom screenshot with a fresh current web-next
+  capture, use the public GitHub URL, keep Tailscale Serve visible immediately
+  below installation, and add Discord near the top. The same image is rendered
+  on the public website, so update both descriptions. During verification the
+  pre-existing release audit also proved that the shortened README had dropped
+  its mandatory honest relay disclosure; restore that one concise sentence
+  rather than weakening the gate. Runtime behavior does not change.
+assumptions:
+  reviewed:
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The documented clone, setup, background service, and Tailscale paths
+        continue to launch the current web-next client.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The refreshed screenshot and both descriptions continue to present rooms
+        as channels.
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: The public website keeps using the same verified asset path; only its
+        description and bytes change.
+    - id: brand-asset-references-resolve
+      outcome: unchanged
+      reason: The existing screenshot path remains valid and its bytes are replaced in
+        place.
+    - id: pairing-discloses-browser-and-relay-boundaries
+      outcome: unchanged
+      reason: Restoring the concise relay-visible metadata sentence preserves the
+        existing privacy boundary and satisfies the release audit.
+anchors:
+  operator-launches-serve-web-next:
+    readme-current-web-client:
+      action: change
+      reason: Use the real clone URL and move important Tailscale instructions into a
+        visible section directly after Install.
+  human-facing-surfaces-call-rooms-channels:
+    public-docs-channel-terminology:
+      action: change
+      reason: Replace the stale product screenshot and keep its channel-oriented
+        description truthful.
+    website-channel-terminology:
+      action: change
+      reason: Update the public website's description of the shared screenshot to
+        match the new capture.
+  fresh-clone-install-proven-by-script:
+    vitepress-docs-site:
+      action: change
+      reason: The public landing page description changes while its verified
+        screenshot path remains stable.
+files:
+  - README.md
+  - website/index.md
+  - website/public/codor-channel.png
+verification: Harn and the release audit pass; the clone URL is public;
+  Tailscale is visible directly after Install; Discord is visible; the 1440x900
+  screenshot has no Wireroom or switchboard copy; both descriptions match it;
+  local links resolve; the website build verifies the replaced asset and relay
+  disclosure remains.
+applied:
+  applied_at: 2026-07-19T15:51:35.820Z

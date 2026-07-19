@@ -21,7 +21,7 @@ pageClass: wr-landing-page
       </div>
     </div>
     <figure class="wr-product-frame">
-      <img src="/codor-channel.png" alt="Codor's three-pane channel showing the conversation, permanent bridge boundary, and member context" width="1440" height="900" />
+      <img src="/codor-channel.png" alt="Codor's three-pane channel showing chronological agent work, approvals, and People and agents" width="1440" height="900" />
     </figure>
   </section>
 
