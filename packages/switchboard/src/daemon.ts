@@ -1449,7 +1449,12 @@ export class Daemon {
   }
 
   private attachChildAlive(lease: AttachLease): boolean {
-    if (lease.process_group_id !== undefined) return this.processProbe(-lease.process_group_id);
+    // Windows has no POSIX process groups; probe the group leader's own pid there.
+    if (lease.process_group_id !== undefined) {
+      return this.processProbe(
+        process.platform === 'win32' ? lease.process_group_id : -lease.process_group_id,
+      );
+    }
     if (lease.child_pid !== undefined) return this.processProbe(lease.child_pid);
     return false;
   }
@@ -3753,7 +3758,7 @@ export class Daemon {
 
   private processAlive(attempt: { pid?: number; process_group_id?: number }): boolean {
     const target = attempt.process_group_id !== undefined
-      ? -attempt.process_group_id
+      ? (process.platform === 'win32' ? attempt.process_group_id : -attempt.process_group_id)
       : attempt.pid;
     if (target === undefined) return false;
     return this.processProbe(target);
