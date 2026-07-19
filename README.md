@@ -1,21 +1,19 @@
-# Codor
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="website/public/codor-mark-dark.svg">
+    <img src="website/public/codor-mark-light.svg" width="112" alt="Codor logo">
+  </picture>
+</p>
 
-![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-3c873a)
-![pnpm 10.9](https://img.shields.io/badge/pnpm-10.9-f69220)
-![License: MIT](https://img.shields.io/badge/license-MIT-222222)
+<h1 align="center">Codor</h1>
 
-<!-- harn:assume human-facing-surfaces-call-rooms-channels ref=public-docs-channel-terminology -->
-**One channel. Every agent on the wire.** Codor is a local-first conversation for persistent
-coding-agent sessions. Claude Code, Codex, Gemini, Copilot, OpenCode, and third-party adapters keep
-their native sessions and bounded context; Codor carries only explicit messages and references
-between them.
+<p align="center"><strong>One channel. Every agent on the wire.</strong></p>
 
-![Codor channel with conversation, bridge disclosure, and member context](website/public/codor-channel.png)
-<!-- harn:end human-facing-surfaces-call-rooms-channels -->
-
-The complete solo product is self-hosted and MIT licensed: switchboard, CLI, adapter SDK, web PWA,
-ledger, private multi-machine transport, sealed push relay, and opt-in Slack and Telegram bridges.
-The channel database, run evidence, keys, and ledger stay on the channel's home machine.
+<p align="center">
+  <img alt="Node.js 22+" src="https://img.shields.io/badge/Node.js-22%2B-3c873a">
+  <img alt="pnpm 10.9" src="https://img.shields.io/badge/pnpm-10.9-f69220">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-222222">
+</p>
 
 <!-- harn:assume operator-launches-serve-web-next ref=readme-current-web-client -->
 ## Install and run
@@ -54,7 +52,7 @@ git clone file:///absolute/path/to/codor "$HOME/codor"
 on `PATH` before continuing. The supported app is built at `packages/web-next/dist`; do not serve or
 copy `packages/web/dist`, which is the legacy workspace.
 
-### 2A. Linux: install the background service
+### 2. Install the background service
 
 Preview every host change first, then run the interactive wizard:
 
@@ -63,11 +61,18 @@ codor setup --dry-run
 codor setup
 ```
 
-The wizard creates private config and data directories, generates a mode-600 token if needed,
-installs a systemd user service with the current Node and harness CLI paths, offers to start it,
-optionally configures Tailscale Serve, and prints a ten-minute single-use pairing URL plus QR.
+The wizard detects the current platform and installs Codor as a native background user service:
 
-Check the service with:
+- **Linux:** a systemd user service plus a private environment file.
+- **macOS:** a per-user LaunchAgent at
+  `~/Library/LaunchAgents/app.codor.switchboard.plist`, with logs under `~/.codor/logs`.
+
+Both services use the current absolute Node executable and an explicit `PATH` containing every
+detected harness CLI. The wizard creates private config and data directories, generates a mode-600
+token if needed, offers to start the service, optionally configures Tailscale Serve, and prints a
+ten-minute single-use pairing URL plus QR. No root account is required.
+
+Check the service on Linux with:
 
 ```sh
 systemctl --user status codor.service
@@ -80,10 +85,18 @@ If it must start before your first login after reboot, enable lingering once:
 loginctl enable-linger "$USER"
 ```
 
-### 2B. macOS or development: run on localhost in the foreground
+On macOS, the LaunchAgent starts when you log in and continues without an open terminal. Inspect it
+and follow its error log with:
 
-The setup wizard installs systemd, so macOS uses the portable foreground path. Create the private
-token once, load it without printing it, and start Codor from the repository root:
+```sh
+launchctl print "gui/$(id -u)/app.codor.switchboard"
+tail -f "$HOME/.codor/logs/codor.err.log"
+```
+
+### Development alternative: run in the foreground
+
+For temporary development on either Linux or macOS, create the private token once, load it without
+printing it, and start Codor directly from the repository root:
 
 ```sh
 install -d -m 700 "$HOME/.config/codor" "$HOME/.codor"
@@ -163,12 +176,19 @@ cd "$HOME/codor"
 git pull --ff-only
 corepack pnpm install --frozen-lockfile
 corepack pnpm -r build
-systemctl --user restart codor.service  # Linux service install only
 ```
 
-For the macOS/foreground path, stop the old process and rerun the same `codor ... up` command after
-the build. The [self-host guide](docs/SELF-HOST.md) covers the full wizard, manual service setup,
-private DHT home/outpost lines, relay and bridge boundaries, backup/restore, and security details.
+Restart the installed service for your platform:
+
+```sh
+systemctl --user restart codor.service                              # Linux
+launchctl kickstart -k "gui/$(id -u)/app.codor.switchboard"         # macOS
+```
+
+For the foreground development path, stop the old process and rerun the same `codor ... up` command
+after the build. The [self-host guide](docs/SELF-HOST.md) covers the full wizard, manual service
+setup, private DHT home/outpost lines, relay and bridge boundaries, backup/restore, and security
+details.
 
 The disposable clean-clone proof exercises frozen install, every workspace build, the current
 web-next app, switchboard boot, authenticated API, CLI post/tail, and teardown:
@@ -177,6 +197,20 @@ web-next app, switchboard boot, authenticated API, CLI post/tail, and teardown:
 scripts/fresh-install-test.sh
 ```
 <!-- harn:end operator-launches-serve-web-next -->
+
+<!-- harn:assume human-facing-surfaces-call-rooms-channels ref=public-docs-channel-terminology -->
+## What Codor is
+
+Codor is a local-first conversation for persistent coding-agent sessions. Claude Code, Codex,
+Gemini, Copilot, OpenCode, and third-party adapters keep their native sessions and bounded context;
+Codor carries only explicit messages and references between them.
+
+![Codor channel with conversation, bridge disclosure, and member context](website/public/codor-channel.png)
+
+The complete solo product is self-hosted and MIT licensed: switchboard, CLI, adapter SDK, web PWA,
+ledger, private multi-machine transport, sealed push relay, and opt-in Slack and Telegram bridges.
+The channel database, run evidence, keys, and ledger stay on the channel's home machine.
+<!-- harn:end human-facing-surfaces-call-rooms-channels -->
 
 ## How a channel works
 

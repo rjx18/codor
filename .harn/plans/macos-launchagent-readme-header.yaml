@@ -1,0 +1,142 @@
+id: macos-launchagent-readme-header
+title: Put the branded install path first and make `codor setup` install a real
+  background user service on both Linux and macOS
+notes: >-
+  Richard rejected the README's foreground-only macOS path and asked for the
+  supplied Codor mark to lead the document with installation at the top. macOS
+  has a native per-user service manager: launchd loads user-owned agents from
+  ~/Library/LaunchAgents. The setup wizard must therefore select systemd on
+  Linux and a LaunchAgent on Darwin rather than telling Mac operators to keep a
+  terminal open.
+
+  The LaunchAgent is generated from already-resolved absolute paths so nvm and
+  shell-only harness installs work outside a login shell. It carries explicit
+  ProgramArguments, WorkingDirectory, CODOR_TOKEN and PATH, decimal umask 63,
+  background process type, stdout/stderr under ~/.codor/logs, RunAtLoad, and
+  KeepAlive only after unsuccessful exit. The plist is mode 600 because it
+  contains the owner token. `launchctl bootout` is attempted idempotently before
+  `bootstrap gui/<uid>`, then the job is enabled and kickstarted. Dry-run prints
+  the same plist with a redacted token and makes no filesystem or launchctl
+  changes.
+
+  This follows Apple's user-agent boundary: ~/Library/LaunchAgents belongs to
+  the logged-in user, and current launchctl uses bootstrap/bootout plus
+  enable/kickstart rather than the legacy load/unload commands. Codor remains a
+  user agent, not a root LaunchDaemon, because it must retain that user's
+  project files and harness credentials.
+
+  The README begins with a centered responsive light/dark mark, centered name,
+  one-line product statement and badges. The complete install section follows
+  immediately. Product explanation and screenshot move below installation; no
+  install command or product claim is removed.
+assumptions:
+  retire:
+    - id: cli-setup-wizard-preserves-service-environment
+      reason: Its statement hard-codes a checked-in systemd unit plus environment file
+        as the setup service. macOS needs an equivalent generated LaunchAgent
+        whose environment lives in its mode-600 plist, so the old cross-platform
+        claim would contradict the new supported path.
+  create:
+    - id: cli-setup-wizard-installs-platform-user-service
+      title: Setup installs a private native user service on Linux and macOS
+      statement: The setup command must confirm every mutation, create private
+        configuration and data plus a mode-600 owner token, resolve the absolute
+        current Node path and every detected harness CLI directory, install and
+        start either the checked-in systemd user unit plus mode-600 environment
+        file on Linux or a mode-600 per-user LaunchAgent with equivalent
+        arguments, environment, umask, failure restart and private logs on
+        macOS, optionally publish Tailscale Serve, and render the exact platform
+        service with its token redacted under side-effect-free dry-run; because
+        neither systemd nor launchd inherits an interactive shell's nvm or
+        harness PATH and Codor must run persistently without root.
+      reason: The previous wizard was Linux-only despite the public prerequisites
+        claiming macOS. A native per-user LaunchAgent supplies the same durable,
+        least-privilege service behavior on Mac without a foreground terminal.
+      depends_on:
+        - fresh-clone-install-proven-by-script
+        - tailnet-auto-pairing-explicit-trust
+  reviewed:
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: Clone, build, loopback boot, web-next, CLI smoke, and teardown remain
+        unchanged; platform service generation is covered in deterministic CLI
+        tests rather than requiring macOS in the clean-clone runner.
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The generated LaunchAgent directly serves packages/web-next/dist,
+        extending the existing one-client invariant to the new platform path.
+    - id: global-cli-install-is-idempotent
+      outcome: unchanged
+      reason: Both platform services continue to invoke the same built CLI and the
+        README retains the install script as the primary command installation.
+    - id: tailnet-auto-pairing-explicit-trust
+      outcome: unchanged
+      reason: macOS background service support does not change explicit pairing or the
+        opt-in identity-header trust boundary.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The product explanation moves below installation and is lightly reshaped
+        around the branded header without changing channel terminology.
+anchors:
+  cli-setup-wizard-preserves-service-environment:
+    setup-runtime:
+      action: remove
+      reason: Replace the Linux-only implementation anchor with the platform user
+        service contract.
+    setup-regression:
+      action: remove
+      reason: Replace Linux-only setup coverage with Linux plus macOS dry-run and
+        installation regressions.
+    setup-command-surface:
+      action: remove
+      reason: Move the public setup command marker to the replacement assumption.
+  cli-setup-wizard-installs-platform-user-service:
+    setup-runtime:
+      action: change
+      reason: Select systemd or launchd, generate the secure LaunchAgent, install
+        platform files, start the user service, and preserve pairing/Tailscale.
+    setup-regression:
+      action: change
+      reason: Pin Linux behavior and prove macOS dry-run redaction, plist contents,
+        permissions, launchctl lifecycle, paths, logs, and pairing.
+    setup-command-surface:
+      action: change
+      reason: The same command now advertises a platform-native local service.
+  operator-launches-serve-web-next:
+    readme-current-web-client:
+      action: change
+      reason: Put installation first and replace the Mac foreground-only path with the
+        platform-aware wizard plus optional development foreground command.
+    selfhost-current-web-client:
+      action: change
+      reason: State that both installed user services serve web-next directly.
+    launchd-current-web-client:
+      action: change
+      reason: The generated LaunchAgent pins packages/web-next/dist in its absolute
+        ProgramArguments.
+  human-facing-surfaces-call-rooms-channels:
+    public-docs-channel-terminology:
+      action: change
+      reason: Move the explanation and screenshot below the new top installation
+        section while keeping the same channel language.
+  fresh-clone-install-proven-by-script:
+    selfhost-guide:
+      action: change
+      reason: Document setup as native background services on Linux and macOS and
+        retain the portable foreground path only as a development alternative.
+files:
+  - README.md
+  - docs/SELF-HOST.md
+  - docs/SETUP.md
+  - packages/cli/src/setup.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+verification: "`harn check macos-launchagent-readme-header` passes with no
+  unplanned anchors. CLI unit tests prove Linux output unchanged and macOS
+  dry-run/install behavior, including mode 600, XML escaping, redacted output,
+  absolute paths, gui-domain bootout/bootstrap/enable/kickstart, and the direct
+  web-next root. The web-next brand suite and icon generator remain green, the
+  README's light/dark logo files exist, `pnpm -r test`, `pnpm -r build`,
+  `scripts/fresh-install-test.sh`, and `git diff --check` pass."
+applied:
+  applied_at: 2026-07-19T14:57:32.240Z

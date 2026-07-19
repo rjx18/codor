@@ -474,11 +474,11 @@ export function createProgram(context: CliContext = {}): Command {
     });
   // harn:end adapter-registry-sole-harness-source
 
-  // harn:assume cli-setup-wizard-preserves-service-environment ref=setup-command-surface
+  // harn:assume cli-setup-wizard-installs-platform-user-service ref=setup-command-surface
   program
     .command('setup')
     .description('configure the local switchboard user service and first browser pairing')
-    .option('--dry-run', 'print every action and generated unit content without changing the host')
+    .option('--dry-run', 'print every action and generated service content without changing the host')
     .action(async (options: { dryRun?: boolean }) => {
       await runSetup({
         dryRun: options.dryRun === true,
@@ -490,7 +490,7 @@ export function createProgram(context: CliContext = {}): Command {
         },
       });
     });
-  // harn:end cli-setup-wizard-preserves-service-environment
+  // harn:end cli-setup-wizard-installs-platform-user-service
 
   program
     .command('spawn')

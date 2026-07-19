@@ -30,9 +30,9 @@ scripts/install-cli.sh
 ```
 
 <!-- harn:assume operator-launches-serve-web-next ref=selfhost-current-web-client -->
-The supported browser build is `packages/web-next/dist`. The CLI default and the checked-in service
-point there directly. Do not serve or copy `packages/web/dist`; that workspace is legacy and is not
-the installed application.
+The supported browser build is `packages/web-next/dist`. The CLI default, the checked-in systemd
+service, and the generated macOS LaunchAgent point there directly. Do not serve or copy
+`packages/web/dist`; that workspace is legacy and is not the installed application.
 <!-- harn:end operator-launches-serve-web-next -->
 
 Until the public repository URL exists, clone the local checkout with
@@ -42,7 +42,7 @@ transport so it cannot borrow `node_modules`, build output, or untracked files.
 As an alternative to the install script, run
 `corepack pnpm --filter @codor/cli link --global`.
 
-## Linux setup wizard
+## Linux and macOS setup wizard
 
 Run the one-shot wizard under the service user:
 
@@ -50,15 +50,20 @@ Run the one-shot wizard under the service user:
 codor setup
 ```
 
-The wizard asks before each mutating step. It creates `~/.config/codor` and `~/.codor` with
-mode 700, creates a mode-600 token if one is absent, installs the user service with the absolute
-path to the current Node executable, and writes a mode-600 environment file. Its explicit `PATH=`
-includes `~/.local/bin`, the Node bin directory, and the directory of every detected
-`claude`, `codex`, `opencode`, `gemini`, or `copilot` executable, so nvm and shell-only harness
-installs remain visible to systemd. It then offers to enable the service, publish loopback through
-Tailscale Serve, and generate a ten-minute pairing URL plus a compact terminal QR.
+The wizard asks before each mutating step. It creates `~/.config/codor` and `~/.codor` with mode
+700, creates a mode-600 token if one is absent, and installs the current platform's user service:
 
-Preview the complete action list and generated unit content without writing files or invoking
+- On Linux, `~/.config/systemd/user/codor.service` plus a mode-600 environment file.
+- On macOS, `~/Library/LaunchAgents/app.codor.switchboard.plist` plus private logs in
+  `~/.codor/logs`. The plist is mode 600 because it contains the owner token.
+
+Both services use the absolute current Node executable. Their explicit `PATH` includes
+`~/.local/bin`, the Node bin directory, and the directory of every detected `claude`, `codex`,
+`opencode`, `gemini`, or `copilot` executable, so nvm and shell-only harness installs remain visible
+outside an interactive shell. The wizard then offers to enable the service, publish loopback
+through Tailscale Serve, and generate a ten-minute pairing URL plus a compact terminal QR.
+
+Preview the complete action list and generated service content without writing files or invoking
 system commands:
 
 ```sh
@@ -69,10 +74,20 @@ Open the single-use URL or scan the QR on the target browser. After pairing, the
 own keypair in origin-scoped IndexedDB and launches without a token query string. Generate another
 offer later with `codor pair`; use `codor pair --no-qr` for plain output.
 
-## Foreground localhost on macOS or Linux
+On macOS, inspect the running user agent and its logs with:
 
-The setup wizard installs a systemd user service and is therefore the Linux background-service
-path. On macOS, or when you want a disposable foreground process on Linux, create the private token
+```sh
+launchctl print "gui/$(id -u)/app.codor.switchboard"
+tail -f "$HOME/.codor/logs/codor.err.log"
+```
+
+The LaunchAgent runs after login without a terminal window. It remains a user agent rather than a
+root daemon because Codor and its harness subprocesses need that user's project files and harness
+credentials.
+
+## Foreground localhost for development
+
+When you want a disposable foreground process on either Linux or macOS, create the private token
 once and run the switchboard directly from the repository root:
 
 ```sh
@@ -102,11 +117,11 @@ Open the printed URL on the same machine. Stop the foreground switchboard with `
 
 ## Manual service appendix
 
-The wizard is the primary path. For unusual installations, the checked-in
-`packaging/systemd/codor.service` is the manual user-service template. It assumes the checkout
-is `~/codor` and the data directory is `~/.codor`; replace `/usr/bin/node` with the exact
-output of `command -v node`, and write an explicit harness-aware `PATH=` in the environment file.
-An nvm-only shell installation is unavailable to systemd without its absolute Node path.
+The wizard is the primary path on both platforms. On Linux, the checked-in
+`packaging/systemd/codor.service` is the manual user-service template. It assumes the checkout is
+`~/codor` and the data directory is `~/.codor`; replace `/usr/bin/node` with the exact output of
+`command -v node`, and write an explicit harness-aware `PATH=` in the environment file. An nvm-only
+shell installation is unavailable to systemd without its absolute Node path.
 
 ```sh
 install -d -m 700 ~/.config/codor ~/.config/systemd/user
@@ -124,6 +139,20 @@ systemctl --user status codor.service
 Use `loginctl enable-linger "$USER"` if the user service must start at boot before an interactive
 login. The service has a restrictive umask but deliberately retains access to the operator's
 projects and authenticated harness CLIs; those subprocesses are the work being hosted.
+
+On macOS, use `codor setup --dry-run` to inspect the exact generated plist before installing it.
+The generated file resolves Node, the CLI entrypoint, web-next static root, data directory, logs,
+owner token, and harness-aware `PATH` to explicit values. Current `launchctl` lifecycle commands are:
+
+```sh
+launchctl bootout "gui/$(id -u)/app.codor.switchboard"  # stop/unload; okay if absent
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/app.codor.switchboard.plist"
+launchctl enable "gui/$(id -u)/app.codor.switchboard"
+launchctl kickstart -k "gui/$(id -u)/app.codor.switchboard"
+```
+
+Do not install it as a root LaunchDaemon: that would change which home directory, project files,
+and authenticated harness state the agents can access.
 
 For development diagnostics only, the single repository-relative fallback is
 `node packages/cli/dist/index.js --help`; installed operation should use `codor`.
@@ -226,13 +255,23 @@ run blobs, resident journals, push subscriptions, and per-channel ledger vaults.
 directory as one secret-bearing unit.
 
 Stop the service before copying it so SQLite, run blobs, keys, and ledger files share one point in
-time:
+time. On Linux:
 
 ```sh
 systemctl --user stop codor.service
 umask 077
 tar -C "$HOME" -czf "$HOME/codor-backup-$(date +%F).tar.gz" .codor
 systemctl --user start codor.service
+```
+
+On macOS:
+
+```sh
+launchctl bootout "gui/$(id -u)/app.codor.switchboard"
+umask 077
+tar -C "$HOME" -czf "$HOME/codor-backup-$(date +%F).tar.gz" .codor
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/app.codor.switchboard.plist"
+launchctl kickstart -k "gui/$(id -u)/app.codor.switchboard"
 ```
 
 Encrypt the archive before moving it off the host. To restore, stop Codor, move any existing data
@@ -255,6 +294,10 @@ codor --data-dir "$HOME/.codor" \
 Before an upgrade, take a stopped backup. Then fetch the intended Git revision, run
 `corepack pnpm install --frozen-lockfile && corepack pnpm -r build`, and restart. Never run a
 moving branch directly as root.
+
+Restart with `systemctl --user restart codor.service` on Linux or
+`launchctl kickstart -k "gui/$(id -u)/app.codor.switchboard"` on macOS. Close and reopen an
+installed PWA once after the new static build lands so its service worker can take control.
 <!-- harn:end fresh-clone-install-proven-by-script -->
 
 <!-- harn:assume agent-member-credentials-are-defense-in-depth ref=selfhost-agent-trust-boundary -->

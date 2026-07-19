@@ -17,15 +17,18 @@ import { CryptoVault, pairingUrl } from '@codor/switchboard';
 import { renderTerminalQr } from './terminal-qr.js';
 
 const HARNESSES = ['claude', 'codex', 'opencode', 'gemini', 'copilot'] as const;
+const LAUNCH_AGENT_LABEL = 'app.codor.switchboard';
 
 export interface SetupOverrides {
   confirm?(prompt: string): Promise<boolean>;
   exec?(command: string, args: string[]): string;
   home?: string;
   nodePath?: string;
+  platform?: NodeJS.Platform;
   randomToken?(): string;
   renderQr?(payload: string): string;
   repoRoot?: string;
+  uid?: number;
   which?(command: string): string | undefined;
 }
 
@@ -67,9 +70,98 @@ function replaceNodePath(template: string, nodePath: string): string {
   return template.replace(/^(ExecStart=)\S+/m, `$1${nodePath}`);
 }
 
-// harn:assume cli-setup-wizard-preserves-service-environment ref=setup-runtime
+function xml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
+interface LaunchAgentOptions {
+  dataDir: string;
+  logDir: string;
+  nodePath: string;
+  repoRoot: string;
+  servicePath: string;
+  token: string;
+}
+
+// harn:assume operator-launches-serve-web-next ref=launchd-current-web-client
+function renderLaunchAgent(options: LaunchAgentOptions): string {
+  const values = {
+    dataDir: xml(options.dataDir),
+    entrypoint: xml(join(options.repoRoot, 'packages', 'cli', 'dist', 'index.js')),
+    errorLog: xml(join(options.logDir, 'codor.err.log')),
+    nodePath: xml(options.nodePath),
+    outputLog: xml(join(options.logDir, 'codor.log')),
+    repoRoot: xml(options.repoRoot),
+    servicePath: xml(options.servicePath),
+    staticRoot: xml(join(options.repoRoot, 'packages', 'web-next', 'dist')),
+    token: xml(options.token),
+  };
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LAUNCH_AGENT_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${values.nodePath}</string>
+    <string>${values.entrypoint}</string>
+    <string>--data-dir</string>
+    <string>${values.dataDir}</string>
+    <string>up</string>
+    <string>--static-root</string>
+    <string>${values.staticRoot}</string>
+    <string>--channel</string>
+    <string>desk</string>
+    <string>--channel-name</string>
+    <string>Desk</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${values.repoRoot}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CODOR_TOKEN</key>
+    <string>${values.token}</string>
+    <key>PATH</key>
+    <string>${values.servicePath}</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>Umask</key>
+  <integer>63</integer>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>${values.outputLog}</string>
+  <key>StandardErrorPath</key>
+  <string>${values.errorLog}</string>
+</dict>
+</plist>
+`;
+}
+// harn:end operator-launches-serve-web-next
+
+// harn:assume cli-setup-wizard-installs-platform-user-service ref=setup-runtime
 export async function runSetup(options: SetupOptions): Promise<void> {
   const overrides = options.overrides ?? {};
+  const platform = overrides.platform ?? process.platform;
+  if (platform !== 'linux' && platform !== 'darwin') {
+    throw new Error(`codor setup supports Linux and macOS; received ${platform}`);
+  }
   const home = resolve(overrides.home ?? options.env.HOME ?? homedir());
   const repoRoot = resolve(overrides.repoRoot ?? fileURLToPath(new URL('../../../', import.meta.url)));
   const nodePath = resolve(overrides.nodePath ?? process.execPath);
@@ -84,7 +176,12 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const userUnitDir = join(home, '.config', 'systemd', 'user');
   const userUnitPath = join(userUnitDir, 'codor.service');
   const templatePath = join(repoRoot, 'packaging', 'systemd', 'codor.service');
-  const unitContent = replaceNodePath(readFileSync(templatePath, 'utf8'), nodePath);
+  const launchAgentDir = join(home, 'Library', 'LaunchAgents');
+  const launchAgentPath = join(launchAgentDir, `${LAUNCH_AGENT_LABEL}.plist`);
+  const logDir = join(dataDir, 'logs');
+  const unitContent = platform === 'linux'
+    ? replaceNodePath(readFileSync(templatePath, 'utf8'), nodePath)
+    : undefined;
   const harnessPaths = HARNESSES.map((harness) => which(harness)).filter(
     (path): path is string => path !== undefined,
   );
@@ -94,17 +191,44 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     ...harnessPaths.map(dirname),
     options.env.PATH,
   ]);
+  const launchUid = platform === 'darwin'
+    ? overrides.uid ?? (typeof process.getuid === 'function' ? process.getuid() : undefined)
+    : undefined;
+  if (platform === 'darwin' && (!Number.isInteger(launchUid) || launchUid! < 0)) {
+    throw new Error('codor setup could not determine the macOS user id');
+  }
+  const launchDomain = launchUid === undefined ? undefined : `gui/${String(launchUid)}`;
+  const launchTarget = launchDomain === undefined ? undefined : `${launchDomain}/${LAUNCH_AGENT_LABEL}`;
 
   if (options.dryRun) {
     options.out(`[dry-run] create ${configDir} and ${dataDir} mode 700; create ${tokenPath} mode 600 if absent`);
-    options.out(`[dry-run] install ${templatePath} -> ${userUnitPath} mode 600`);
-    options.out('[dry-run] unit content:');
-    for (const line of unitContent.trimEnd().split('\n')) options.out(line);
-    options.out(`[dry-run] write ${envPath} mode 600`);
-    options.out('CODOR_TOKEN=<redacted generated-or-existing token>');
-    options.out(`PATH=${servicePath}`);
-    options.out('[dry-run] systemctl --user daemon-reload');
-    options.out('[dry-run] systemctl --user enable --now codor.service');
+    if (platform === 'linux') {
+      options.out(`[dry-run] install ${templatePath} -> ${userUnitPath} mode 600`);
+      options.out('[dry-run] unit content:');
+      for (const line of unitContent!.trimEnd().split('\n')) options.out(line);
+      options.out(`[dry-run] write ${envPath} mode 600`);
+      options.out('CODOR_TOKEN=<redacted generated-or-existing token>');
+      options.out(`PATH=${servicePath}`);
+      options.out('[dry-run] systemctl --user daemon-reload');
+      options.out('[dry-run] systemctl --user enable --now codor.service');
+    } else {
+      const launchAgent = renderLaunchAgent({
+        dataDir,
+        logDir,
+        nodePath,
+        repoRoot,
+        servicePath,
+        token: '<redacted generated-or-existing token>',
+      });
+      options.out(`[dry-run] create ${logDir} mode 700`);
+      options.out(`[dry-run] install generated LaunchAgent -> ${launchAgentPath} mode 600`);
+      options.out('[dry-run] launch agent content:');
+      for (const line of launchAgent.trimEnd().split('\n')) options.out(line);
+      options.out(`[dry-run] launchctl bootout ${launchTarget} (ignore not-loaded)`);
+      options.out(`[dry-run] launchctl bootstrap ${launchDomain} ${launchAgentPath}`);
+      options.out(`[dry-run] launchctl enable ${launchTarget}`);
+      options.out(`[dry-run] launchctl kickstart -k ${launchTarget}`);
+    }
     if (which('tailscale')) {
       options.out('[dry-run] tailscale serve --bg http://127.0.0.1:8137');
       options.out('[dry-run] tailscale serve status');
@@ -128,29 +252,62 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     options.out('Private configuration and data directories are ready.');
   }
 
-  if (await confirm(`Install the user service at ${userUnitPath}?`)) {
+  const serviceInstallPath = platform === 'linux' ? userUnitPath : launchAgentPath;
+  if (await confirm(`Install the user service at ${serviceInstallPath}?`)) {
     if (!existsSync(tokenPath)) throw new Error(`operator token is missing at ${tokenPath}`);
-    mkdirSync(userUnitDir, { recursive: true, mode: 0o700 });
-    writeFileSync(userUnitPath, unitContent, { encoding: 'utf8', mode: 0o600 });
-    chmodSync(userUnitPath, 0o600);
     const token = readFileSync(tokenPath, 'utf8').trim();
-    writeFileSync(envPath, `CODOR_TOKEN=${token}\nPATH=${servicePath}\n`, {
-      encoding: 'utf8',
-      mode: 0o600,
-    });
-    chmodSync(envPath, 0o600);
-    options.out(`Installed codor.service with Node ${nodePath}.`);
+    if (platform === 'linux') {
+      mkdirSync(userUnitDir, { recursive: true, mode: 0o700 });
+      writeFileSync(userUnitPath, unitContent!, { encoding: 'utf8', mode: 0o600 });
+      chmodSync(userUnitPath, 0o600);
+      writeFileSync(envPath, `CODOR_TOKEN=${token}\nPATH=${servicePath}\n`, {
+        encoding: 'utf8',
+        mode: 0o600,
+      });
+      chmodSync(envPath, 0o600);
+      options.out(`Installed codor.service with Node ${nodePath}.`);
+    } else {
+      mkdirSync(launchAgentDir, { recursive: true });
+      mkdirSync(logDir, { recursive: true, mode: 0o700 });
+      chmodSync(logDir, 0o700);
+      const launchAgent = renderLaunchAgent({
+        dataDir,
+        logDir,
+        nodePath,
+        repoRoot,
+        servicePath,
+        token,
+      });
+      writeFileSync(launchAgentPath, launchAgent, { encoding: 'utf8', mode: 0o600 });
+      chmodSync(launchAgentPath, 0o600);
+      options.out(`Installed ${LAUNCH_AGENT_LABEL} with Node ${nodePath}.`);
+    }
   }
 
-  if (await confirm('Reload systemd and enable codor.service now?')) {
-    exec('systemctl', ['--user', 'daemon-reload']);
-    exec('systemctl', ['--user', 'enable', '--now', 'codor.service']);
-    options.out('codor.service is enabled and running.');
-    try {
-      const linger = exec('loginctl', ['show-user', options.env.USER ?? '', '-p', 'Linger', '--value']);
-      if (linger.trim() !== 'yes') options.out(`For boot-time startup, run: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
-    } catch {
-      options.out(`Check lingering for boot-time startup: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
+  const startPrompt = platform === 'linux'
+    ? 'Reload systemd and enable codor.service now?'
+    : `Load and start ${LAUNCH_AGENT_LABEL} now?`;
+  if (await confirm(startPrompt)) {
+    if (platform === 'linux') {
+      exec('systemctl', ['--user', 'daemon-reload']);
+      exec('systemctl', ['--user', 'enable', '--now', 'codor.service']);
+      options.out('codor.service is enabled and running.');
+      try {
+        const linger = exec('loginctl', ['show-user', options.env.USER ?? '', '-p', 'Linger', '--value']);
+        if (linger.trim() !== 'yes') options.out(`For boot-time startup, run: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
+      } catch {
+        options.out(`Check lingering for boot-time startup: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
+      }
+    } else {
+      try {
+        exec('launchctl', ['bootout', launchTarget!]);
+      } catch {
+        // First install and an already-stopped agent both legitimately have nothing to boot out.
+      }
+      exec('launchctl', ['bootstrap', launchDomain!, launchAgentPath]);
+      exec('launchctl', ['enable', launchTarget!]);
+      exec('launchctl', ['kickstart', '-k', launchTarget!]);
+      options.out(`${LAUNCH_AGENT_LABEL} is loaded and running.`);
     }
   }
 
@@ -175,4 +332,4 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     }
   }
 }
-// harn:end cli-setup-wizard-preserves-service-environment
+// harn:end cli-setup-wizard-installs-platform-user-service

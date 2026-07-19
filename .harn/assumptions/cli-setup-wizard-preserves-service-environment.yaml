@@ -1,7 +1,7 @@
 id: cli-setup-wizard-preserves-service-environment
 hash: a-504a221e621f
 title: Setup installs a private service with the operator's executable paths
-state: active
+state: retired
 statement: The setup command must confirm each mutating step, create private
   configuration and data directories plus a mode-600 token, install the
   checked-in user service with the absolute current Node executable, write a
@@ -15,3 +15,4 @@ depends_on:
   - fresh-clone-install-proven-by-script
   - tailnet-auto-pairing-explicit-trust
 created_by: codor-p5-cli-docs
+retired_by: macos-launchagent-readme-header

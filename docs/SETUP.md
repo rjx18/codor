@@ -10,5 +10,7 @@ scripts/install-cli.sh
 codor setup
 ```
 
-Use `codor setup --dry-run` to inspect the generated user unit, explicit harness-aware `PATH=`,
-and every proposed host action without changing files or services.
+Use `codor setup --dry-run` to inspect the generated platform user service, explicit
+harness-aware `PATH=`, and every proposed host action without changing files or services. The
+wizard installs systemd on Linux and a per-user LaunchAgent on macOS; neither path requires a
+foreground terminal.

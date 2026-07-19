@@ -278,7 +278,7 @@ describe('@codor/cli', () => {
   });
   // harn:end pairing-code-enrollment-surfaces
 
-  // harn:assume cli-setup-wizard-preserves-service-environment ref=setup-regression
+  // harn:assume cli-setup-wizard-installs-platform-user-service ref=setup-regression
   it('snapshots setup dry-run with the absolute Node path and every detected harness directory', async () => {
     const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
     const home = '/home/setup-test';
@@ -294,6 +294,7 @@ describe('@codor/cli', () => {
       setup: {
         home,
         nodePath: `${home}/.nvm/versions/node/v22.8.0/bin/node`,
+        platform: 'linux',
         repoRoot,
         which: (command) => installed.get(command),
       },
@@ -355,6 +356,7 @@ describe('@codor/cli', () => {
         },
         home,
         nodePath: '/opt/node/bin/node',
+        platform: 'linux',
         randomToken: () => 'a'.repeat(64),
         renderQr: (payload) => {
           qrPayload = payload;
@@ -392,7 +394,96 @@ describe('@codor/cli', () => {
     expect(new URL(qrPayload!).origin).toBe('https://setup-host.example.ts.net');
     expect(output.join('\n')).not.toContain('a'.repeat(64));
   });
-  // harn:end cli-setup-wizard-preserves-service-environment
+
+  it('dry-runs and installs an equivalent private macOS LaunchAgent', async () => {
+    const home = join(dir, 'setup & home');
+    const repoRoot = join(dir, 'repo & checkout');
+    const commands: string[] = [];
+    const token = 'mac&<>-token';
+    let qrPayload: string | undefined;
+    const which = (command: string) => new Map([
+      ['codex', '/opt/codor tools/bin/codex'],
+      ['claude', '/Applications/Claude Code/bin/claude'],
+    ]).get(command);
+    const common = {
+      home,
+      nodePath: '/opt/homebrew/bin/node',
+      platform: 'darwin' as const,
+      repoRoot,
+      uid: 501,
+      which,
+    };
+
+    await runCli(['node', 'codor', 'setup', '--dry-run'], {
+      env: { HOME: home, USER: 'setup-test', PATH: '/opt/homebrew/bin:/usr/bin' },
+      stdout: (line) => output.push(line),
+      setup: common,
+    });
+
+    const launchAgentPath = join(home, 'Library', 'LaunchAgents', 'app.codor.switchboard.plist');
+    expect(existsSync(join(home, '.config', 'codor'))).toBe(false);
+    expect(existsSync(launchAgentPath)).toBe(false);
+    expect(output.join('\n')).not.toContain(token);
+    expect(output).toContain(`[dry-run] create ${join(home, '.codor', 'logs')} mode 700`);
+    expect(output).toContain(`[dry-run] launchctl bootout gui/501/app.codor.switchboard (ignore not-loaded)`);
+    expect(output).toContain(`[dry-run] launchctl bootstrap gui/501 ${launchAgentPath}`);
+    expect(output).toContain('[dry-run] launchctl enable gui/501/app.codor.switchboard');
+    expect(output).toContain('[dry-run] launchctl kickstart -k gui/501/app.codor.switchboard');
+    const plistStart = output.indexOf('[dry-run] launch agent content:') + 1;
+    const plistEnd = output.findIndex((line, index) => index >= plistStart && line.startsWith('[dry-run] launchctl'));
+    const dryRunPlist = output.slice(plistStart, plistEnd).join('\n') + '\n';
+    expect(dryRunPlist).toContain('<string>app.codor.switchboard</string>');
+    expect(dryRunPlist).toContain('<string>/opt/homebrew/bin/node</string>');
+    expect(dryRunPlist).toContain(`${join(repoRoot, 'packages', 'web-next', 'dist').replace('&', '&amp;')}</string>`);
+    expect(dryRunPlist).toContain('<string>&lt;redacted generated-or-existing token&gt;</string>');
+    expect(dryRunPlist).toContain('<key>ProcessType</key>\n  <string>Background</string>');
+    expect(dryRunPlist).toContain('<key>Umask</key>\n  <integer>63</integer>');
+
+    output = [];
+    await runCli(['node', 'codor', 'setup'], {
+      env: { HOME: home, USER: 'setup-test', PATH: '/opt/homebrew/bin:/usr/bin' },
+      stdout: (line) => output.push(line),
+      setup: {
+        ...common,
+        confirm: async () => true,
+        exec: (command, args) => {
+          commands.push([command, ...args].join(' '));
+          if (command === 'launchctl' && args[0] === 'bootout') throw new Error('not loaded');
+          return '';
+        },
+        randomToken: () => token,
+        renderQr: (payload) => {
+          qrPayload = payload;
+          return '<mac-setup-qr>';
+        },
+      },
+    });
+
+    const configDir = join(home, '.config', 'codor');
+    const installedPlist = readFileSync(launchAgentPath, 'utf8');
+    expect(statSync(configDir).mode & 0o777).toBe(0o700);
+    expect(statSync(join(home, '.codor')).mode & 0o777).toBe(0o700);
+    expect(statSync(join(home, '.codor', 'logs')).mode & 0o777).toBe(0o700);
+    expect(statSync(join(configDir, 'token')).mode & 0o777).toBe(0o600);
+    expect(statSync(launchAgentPath).mode & 0o777).toBe(0o600);
+    expect(installedPlist.replace('mac&amp;&lt;&gt;-token', '&lt;redacted generated-or-existing token&gt;'))
+      .toBe(dryRunPlist);
+    expect(installedPlist).toContain('<key>RunAtLoad</key>\n  <true/>');
+    expect(installedPlist).toContain('<key>SuccessfulExit</key>\n    <false/>');
+    expect(installedPlist).toContain(`${join(home, '.codor', 'logs', 'codor.err.log').replace('&', '&amp;')}</string>`);
+    expect(installedPlist).toContain(
+      `<string>${join(home, '.local', 'bin').replace('&', '&amp;')}:/opt/homebrew/bin:/Applications/Claude Code/bin:/opt/codor tools/bin:/usr/bin</string>`,
+    );
+    expect(commands).toEqual([
+      'launchctl bootout gui/501/app.codor.switchboard',
+      `launchctl bootstrap gui/501 ${launchAgentPath}`,
+      'launchctl enable gui/501/app.codor.switchboard',
+      'launchctl kickstart -k gui/501/app.codor.switchboard',
+    ]);
+    expect(new URL(qrPayload!).origin).toBe('http://127.0.0.1:8137');
+    expect(output.join('\n')).not.toContain(token);
+  });
+  // harn:end cli-setup-wizard-installs-platform-user-service
 
   it('resolves Gemini interactive resume through the supervised attach path', () => {
     expect(nativeResumeCommand({
