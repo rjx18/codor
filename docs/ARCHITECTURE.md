@@ -125,7 +125,8 @@ Same member, same context, custody moving freely between channel and terminal �
 
 ### Surfaces
 
-- **Web** (`@codor/web`): React + Vite SPA served by the switchboard itself — there is no
+<!-- harn:assume operator-launches-serve-web-next ref=architecture-current-web-client -->
+- **Web** (`@codor/web-next`): React + Vite PWA served by the switchboard itself — there is no
   hosted web app; the "server side" of the web surface *is* your box. Channel list, timeline with
   collapsible runs, composer with @/# autocomplete + implied-recipient indicator, member rail
   (state, policy chip, spend), ask/approval cards, budget banner. No SSR, no framework ceremony.
@@ -135,6 +136,8 @@ Same member, same context, custody moving freely between channel and terminal �
   routing the app domain across the tailnet). The browser holds only a cache: history pages in
   over REST, live updates over the WS, reconnect delta-syncs from the channel change-log cursor
   (`since_seq` — message ids can't express in-place run finalizations).
+  `@codor/web` is the legacy workspace and is not a deployment target.
+<!-- harn:end operator-launches-serve-web-next -->
 - **iPhone** (SwiftUI): same WS API. Pairing via QR (device keypair, PRIVACY §pairing). Channels,
   notifications, ask/approval actions, dictation composer.
 - **Apple Watch** (SwiftUI, started from claude-watch's design): three screens — inbox

@@ -41,10 +41,10 @@ TOKEN="$(openssl rand -hex 32)"
 PORT="$(node -e "const s=require('node:net').createServer();s.listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")"
 SMOKE="fresh-install-$(date +%s)-$$"
 
+# harn:assume operator-launches-serve-web-next ref=fresh-install-current-web-client
 CODOR_TOKEN="$TOKEN" node packages/cli/dist/index.js \
   --data-dir "$DATA_DIR" \
   up --host 127.0.0.1 --port "$PORT" \
-  --static-root "$CLONE_ROOT/packages/web/dist" \
   --channel fresh --channel-name Fresh --owner fresh-operator \
   >"$TEST_ROOT/daemon.log" 2>&1 &
 DAEMON_PID=$!
@@ -70,6 +70,10 @@ if ! curl --fail --silent --output /dev/null \
   sed -n '1,160p' "$TEST_ROOT/daemon.log" >&2
   exit 1
 fi
+
+APP_HTML="$(curl --fail --silent "http://127.0.0.1:$PORT/")"
+grep -Fq '/codor-favicon.svg' <<<"$APP_HTML"
+# harn:end operator-launches-serve-web-next
 
 # harn:assume fresh-clone-install-proven-by-script ref=fresh-install-regression
 node packages/cli/dist/index.js \

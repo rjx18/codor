@@ -132,7 +132,9 @@ export async function startCodor(options: UpOptions): Promise<RunningCodor> {
     });
   }
   for (const room of daemon.store.listRooms()) crypto.roomKeys.ensureRoom(room.id);
-  const defaultStatic = resolve(process.cwd(), 'packages/web/dist');
+  // harn:assume operator-launches-serve-web-next ref=cli-default-static-root
+  const defaultStatic = resolve(process.cwd(), 'packages/web-next/dist');
+  // harn:end operator-launches-serve-web-next
   try {
     await transport?.start();
     await daemon.reconcile();

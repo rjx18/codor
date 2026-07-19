@@ -1,0 +1,131 @@
+id: readme-current-web-setup
+title: Make the root README a complete localhost and Tailscale setup guide, and
+  make every documented launch path serve the current web-next client
+notes: >-
+  Richard asked for one README that takes an operator from clone through a
+  localhost launch and private Tailscale access. Investigation found that the
+  current quick start is not merely terse: `codor setup`, the CLI's implicit
+  static root, the manual self-host example, and the fresh-clone proof still
+  point at packages/web/dist even though packages/web-next is the surviving
+  application and the production deployment overlays web-next into that old
+  directory. A fresh operator therefore follows the documented wizard and gets
+  the retired client, while maintainers need undocumented copy instructions.
+
+  This round removes that deployment ambiguity instead of documenting the
+  workaround. All default and checked-in service paths point directly at
+  packages/web-next/dist. The legacy package remains in the workspace for its
+  existing tests but is not an operator-facing deployment target. The README
+  distinguishes the Linux systemd wizard from the portable foreground path used
+  on macOS, includes token and pairing commands without printing the token,
+  explains the current unpublished-repository placeholder plus local file clone,
+  and gives the tailnet-only Serve flow, status/reset commands, PWA refresh
+  note, upgrades, and verification.
+
+  Tailscale syntax was rechecked against the official Serve reference on
+  2026-07-19: `tailscale serve --bg http://127.0.0.1:8137` is current, persists
+  across Tailscale restarts, and `tailscale serve reset` removes it. Serve is
+  tailnet-only; Funnel is deliberately excluded.
+assumptions:
+  create:
+    - id: operator-launches-serve-web-next
+      title: Every supported operator launch path serves the current web-next client
+      statement: The CLI default static root, checked-in setup service, fresh-clone
+        proof, and operator documentation must all serve packages/web-next/dist
+        directly, while packages/web remains a legacy workspace package and is
+        never copied into or presented as the deployment root; because divergent
+        roots let a successful build or setup silently serve a stale browser
+        protocol and UI.
+      reason: Production currently works only because release operators copy
+        web-next/dist over web/dist, while a fresh `codor setup` serves web/dist
+        without that private overlay step. One direct static root makes a fresh
+        install and a deployed install mean the same thing.
+  reviewed:
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: The existing clean-clone contract already requires the documented
+        self-host path to build, boot, and pass its smoke. The proof now boots
+        the current web-next build and verifies its branded HTML rather than the
+        retired client, without changing the broader contract.
+    - id: cli-setup-wizard-preserves-service-environment
+      outcome: unchanged
+      reason: The wizard's confirmation, private files, executable paths, service
+        installation, Tailscale option, and dry-run behavior are unchanged; its
+        checked-in unit now points at the correct built client.
+    - id: global-cli-install-is-idempotent
+      outcome: unchanged
+      reason: The README expands the surrounding install walkthrough but retains the
+        existing install script as the primary idempotent CLI path and pnpm link
+        as the alternative.
+    - id: tailnet-auto-pairing-explicit-trust
+      outcome: unchanged
+      reason: The basic Serve instructions continue to use explicit pairing by default
+        and leave trusted identity-header enrollment opt-in and off by default.
+anchors:
+  fresh-clone-install-proven-by-script:
+    selfhost-guide:
+      action: change
+      reason: The self-host guide names web-next as the direct deployment root and
+        keeps its clone, local, Tailscale, upgrade, and smoke instructions
+        aligned with the root README.
+    systemd-service:
+      action: change
+      reason: The installed unit serves packages/web-next/dist directly, so the wizard
+        no longer launches the retired client.
+    fresh-install-script:
+      action: change
+      reason: The clean-clone daemon boots against web-next/dist and checks that the
+        served HTML references the current branded favicon.
+  cli-setup-wizard-preserves-service-environment:
+    setup-regression:
+      action: change
+      reason: The setup dry-run snapshot pins the current web-next static root in the
+        generated unit.
+  global-cli-install-is-idempotent:
+    cli-install-docs:
+      action: keep
+      reason: The existing CLI section remains the idempotent install contract; the
+        expanded setup walkthrough refers to it without changing its claim.
+  tailnet-auto-pairing-explicit-trust:
+    trusted-tailnet-research-evidence:
+      action: keep
+      reason: The detailed trust warning and opt-in enrollment guidance remain
+        unchanged beneath the basic Serve walkthrough.
+  operator-launches-serve-web-next:
+    cli-default-static-root:
+      action: change
+      reason: The CLI's implicit static root becomes packages/web-next/dist.
+    systemd-current-web-client:
+      action: change
+      reason: The setup service launches the current client without an overlay.
+    fresh-install-current-web-client:
+      action: change
+      reason: The clean-clone proof boots and identifies the web-next HTML.
+    readme-current-web-client:
+      action: change
+      reason: The root README gives complete copy-pasteable localhost and Tailscale
+        paths and names web-next as the only deployment build.
+    selfhost-current-web-client:
+      action: change
+      reason: The long-form guide and manual examples use the same direct root.
+    architecture-current-web-client:
+      action: change
+      reason: The architecture guide stops naming the legacy package as the served
+        application.
+files:
+  - README.md
+  - docs/SELF-HOST.md
+  - docs/ARCHITECTURE.md
+  - packaging/systemd/codor.service
+  - packages/cli/src/up.ts
+  - packages/cli/src/index.spec.ts
+  - scripts/fresh-install-test.sh
+verification: "`harn check readme-current-web-setup` passes with no unplanned
+  anchor or file changes. `pnpm --filter @codor/cli test` passes, including the
+  setup snapshot. `scripts/fresh-install-test.sh` clones the branch into a
+  disposable directory, performs a frozen install and full build, boots against
+  web-next/dist, verifies the branded current HTML plus authenticated API and
+  CLI post/tail, then tears down. `node scripts/build-icons.mjs --check`, the
+  web-next unit suite, the VitePress build, `pnpm -r build`, and `git diff
+  --check` all pass."
+applied:
+  applied_at: 2026-07-19T13:57:09.063Z

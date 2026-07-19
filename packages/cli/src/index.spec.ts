@@ -311,7 +311,9 @@ describe('@codor/cli', () => {
       UMask=0077
       # harn:assume codor-runtime-identity-is-a-clean-break ref=systemd-runtime-identity
       # harn:assume fresh-clone-install-proven-by-script ref=systemd-service
-      ExecStart=/home/setup-test/.nvm/versions/node/v22.8.0/bin/node %h/codor/packages/cli/dist/index.js --data-dir %h/.codor up --static-root %h/codor/packages/web/dist --channel desk --channel-name Desk
+      # harn:assume operator-launches-serve-web-next ref=systemd-current-web-client
+      ExecStart=/home/setup-test/.nvm/versions/node/v22.8.0/bin/node %h/codor/packages/cli/dist/index.js --data-dir %h/.codor up --static-root %h/codor/packages/web-next/dist --channel desk --channel-name Desk
+      # harn:end operator-launches-serve-web-next
       # harn:end fresh-clone-install-proven-by-script
       # harn:end codor-runtime-identity-is-a-clean-break
       Restart=on-failure

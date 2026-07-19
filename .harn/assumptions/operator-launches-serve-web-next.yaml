@@ -1,0 +1,11 @@
+id: operator-launches-serve-web-next
+hash: a-65ee823b4bb2
+title: Every supported operator launch path serves the current web-next client
+state: active
+statement: The CLI default static root, checked-in setup service, fresh-clone
+  proof, and operator documentation must all serve packages/web-next/dist
+  directly, while packages/web remains a legacy workspace package and is never
+  copied into or presented as the deployment root; because divergent roots let a
+  successful build or setup silently serve a stale browser protocol and UI.
+depends_on: []
+created_by: readme-current-web-setup

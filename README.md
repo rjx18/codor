@@ -17,33 +17,166 @@ The complete solo product is self-hosted and MIT licensed: switchboard, CLI, ada
 ledger, private multi-machine transport, sealed push relay, and opt-in Slack and Telegram bridges.
 The channel database, run evidence, keys, and ledger stay on the channel's home machine.
 
-## Quick start
+<!-- harn:assume operator-launches-serve-web-next ref=readme-current-web-client -->
+## Install and run
 
-Prerequisites: Node.js 22 or newer, Corepack, Git, `curl`, and OpenSSL.
+### Requirements
+
+- Linux or macOS with Node.js 22 or newer, Corepack, Git, `curl`, and OpenSSL.
+- At least one supported harness CLI (`claude`, `codex`, `opencode`, `gemini`, or `copilot`),
+  installed and authenticated for the same OS user that will run Codor.
+- Optional: Tailscale on the host and viewing devices for private HTTPS access.
+
+Codor binds to `127.0.0.1:8137` by default. Do not expose that port directly to the public internet.
+The browser credential is a bearer credential; use localhost, Tailscale Serve, or another private
+authenticated tunnel.
+
+### 1. Clone, build, and install the CLI
+
+The public repository URL has not been assigned yet. Once published, replace the placeholder below:
 
 ```sh
-git clone <repository-url> codor
-cd codor
+git clone <repository-url> "$HOME/codor"
+cd "$HOME/codor"
 corepack enable
 corepack pnpm install --frozen-lockfile
 corepack pnpm -r build
 scripts/install-cli.sh
+```
+
+For a clone from another checkout on the same machine, use the file transport instead:
+
+```sh
+git clone file:///absolute/path/to/codor "$HOME/codor"
+```
+
+`scripts/install-cli.sh` idempotently installs `codor` in `~/.local/bin`. Ensure that directory is
+on `PATH` before continuing. The supported app is built at `packages/web-next/dist`; do not serve or
+copy `packages/web/dist`, which is the legacy workspace.
+
+### 2A. Linux: install the background service
+
+Preview every host change first, then run the interactive wizard:
+
+```sh
+codor setup --dry-run
 codor setup
 ```
 
-`codor setup` confirms each host change, creates private configuration, installs and starts the
-user service with the current Node and harness CLI paths, optionally publishes Tailscale Serve,
-and prints the first single-use pairing URL and terminal QR. Preview every action without changing
-the host with `codor setup --dry-run`.
+The wizard creates private config and data directories, generates a mode-600 token if needed,
+installs a systemd user service with the current Node and harness CLI paths, offers to start it,
+optionally configures Tailscale Serve, and prints a ten-minute single-use pairing URL plus QR.
 
-The [self-host guide](docs/SELF-HOST.md) covers the wizard, a manual appendix, private HTTPS through
-Tailscale Serve, DHT home/outpost lines, relay and bridge boundaries, backup/restore, and upgrades.
-The clean-clone proof runs the entire install, build, boot, CLI, authenticated API, and teardown
-path in a disposable directory:
+Check the service with:
+
+```sh
+systemctl --user status codor.service
+journalctl --user -u codor.service -f
+```
+
+If it must start before your first login after reboot, enable lingering once:
+
+```sh
+loginctl enable-linger "$USER"
+```
+
+### 2B. macOS or development: run on localhost in the foreground
+
+The setup wizard installs systemd, so macOS uses the portable foreground path. Create the private
+token once, load it without printing it, and start Codor from the repository root:
+
+```sh
+install -d -m 700 "$HOME/.config/codor" "$HOME/.codor"
+if [ ! -s "$HOME/.config/codor/token" ]; then
+  (umask 077 && openssl rand -hex 32 > "$HOME/.config/codor/token")
+fi
+export CODOR_TOKEN="$(tr -d '\n' < "$HOME/.config/codor/token")"
+
+cd "$HOME/codor"
+codor --data-dir "$HOME/.codor" up \
+  --host 127.0.0.1 --port 8137 \
+  --static-root "$PWD/packages/web-next/dist" \
+  --channel desk --channel-name Desk
+```
+
+Leave that terminal open. In a second terminal, issue a single-use pairing link and open it on the
+same machine:
+
+```sh
+export CODOR_TOKEN="$(tr -d '\n' < "$HOME/.config/codor/token")"
+codor --data-dir "$HOME/.codor" pair \
+  --endpoint http://127.0.0.1:8137
+```
+
+Stop the foreground process with `Ctrl+C`.
+
+### 3. Use Codor through Tailscale
+
+Install Tailscale on the Codor host and every viewing device, sign them into the same tailnet, and
+keep Codor bound to localhost. Official install guides: [Linux](https://tailscale.com/docs/install/linux)
+and [macOS](https://tailscale.com/docs/install/mac).
+
+With Codor running on port 8137, publish it privately through Tailscale Serve:
+
+```sh
+tailscale serve --bg http://127.0.0.1:8137
+tailscale serve status
+```
+
+If Serve asks you to enable tailnet HTTPS, follow its one-time consent link. Copy the printed
+`https://<machine>.<tailnet>.ts.net` origin, then generate a pairing link for that exact origin:
+
+```sh
+export CODOR_TOKEN="$(tr -d '\n' < "$HOME/.config/codor/token")"
+codor --data-dir "$HOME/.codor" pair \
+  --endpoint https://<machine>.<tailnet>.ts.net
+```
+
+Open the resulting single-use URL on the other tailnet device. After pairing, the browser stores
+its own key in IndexedDB; the pairing token is not retained in the URL. Install the PWA from the
+browser if desired. After an upgrade, close and reopen an installed PWA once so its service worker
+can take control.
+
+`--bg` makes Serve persist across Tailscale restarts. Inspect it with `tailscale serve status` and
+remove the proxy with:
+
+```sh
+tailscale serve reset
+```
+
+Serve is tailnet-only and respects tailnet access controls. Do **not** substitute Tailscale Funnel;
+Funnel exposes the service to the public internet. See the official
+[Serve guide](https://tailscale.com/docs/features/tailscale-serve) and
+[CLI reference](https://tailscale.com/docs/reference/tailscale-cli/serve).
+
+### Verify and upgrade
+
+```sh
+codor channels
+curl --fail --silent --output /dev/null http://127.0.0.1:8137/
+```
+
+Before upgrading, back up `~/.codor` while Codor is stopped. Then update and rebuild:
+
+```sh
+cd "$HOME/codor"
+git pull --ff-only
+corepack pnpm install --frozen-lockfile
+corepack pnpm -r build
+systemctl --user restart codor.service  # Linux service install only
+```
+
+For the macOS/foreground path, stop the old process and rerun the same `codor ... up` command after
+the build. The [self-host guide](docs/SELF-HOST.md) covers the full wizard, manual service setup,
+private DHT home/outpost lines, relay and bridge boundaries, backup/restore, and security details.
+
+The disposable clean-clone proof exercises frozen install, every workspace build, the current
+web-next app, switchboard boot, authenticated API, CLI post/tail, and teardown:
 
 ```sh
 scripts/fresh-install-test.sh
 ```
+<!-- harn:end operator-launches-serve-web-next -->
 
 ## How a channel works
 

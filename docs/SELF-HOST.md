@@ -29,6 +29,12 @@ corepack pnpm -r build
 scripts/install-cli.sh
 ```
 
+<!-- harn:assume operator-launches-serve-web-next ref=selfhost-current-web-client -->
+The supported browser build is `packages/web-next/dist`. The CLI default and the checked-in service
+point there directly. Do not serve or copy `packages/web/dist`; that workspace is legacy and is not
+the installed application.
+<!-- harn:end operator-launches-serve-web-next -->
+
 Until the public repository URL exists, clone the local checkout with
 `git clone file:///absolute/path/to/codor ~/codor`. The fresh-install test uses that exact
 transport so it cannot borrow `node_modules`, build output, or untracked files.
@@ -36,7 +42,7 @@ transport so it cannot borrow `node_modules`, build output, or untracked files.
 As an alternative to the install script, run
 `corepack pnpm --filter @codor/cli link --global`.
 
-## Setup wizard
+## Linux setup wizard
 
 Run the one-shot wizard under the service user:
 
@@ -62,6 +68,37 @@ codor setup --dry-run
 Open the single-use URL or scan the QR on the target browser. After pairing, the browser stores its
 own keypair in origin-scoped IndexedDB and launches without a token query string. Generate another
 offer later with `codor pair`; use `codor pair --no-qr` for plain output.
+
+## Foreground localhost on macOS or Linux
+
+The setup wizard installs a systemd user service and is therefore the Linux background-service
+path. On macOS, or when you want a disposable foreground process on Linux, create the private token
+once and run the switchboard directly from the repository root:
+
+```sh
+install -d -m 700 "$HOME/.config/codor" "$HOME/.codor"
+if [ ! -s "$HOME/.config/codor/token" ]; then
+  (umask 077 && openssl rand -hex 32 > "$HOME/.config/codor/token")
+fi
+export CODOR_TOKEN="$(tr -d '\n' < "$HOME/.config/codor/token")"
+
+cd "$HOME/codor"
+codor --data-dir "$HOME/.codor" up \
+  --host 127.0.0.1 --port 8137 \
+  --static-root "$PWD/packages/web-next/dist" \
+  --channel desk --channel-name Desk
+```
+
+Leave that terminal open. In a second terminal, load the token without printing it and issue a
+single-use localhost pairing link:
+
+```sh
+export CODOR_TOKEN="$(tr -d '\n' < "$HOME/.config/codor/token")"
+codor --data-dir "$HOME/.codor" pair \
+  --endpoint http://127.0.0.1:8137
+```
+
+Open the printed URL on the same machine. Stop the foreground switchboard with `Ctrl+C`.
 
 ## Manual service appendix
 
@@ -152,7 +189,7 @@ On the channel home:
 
 ```sh
 codor --data-dir "$HOME/.codor" \
-  up --static-root "$HOME/codor/packages/web/dist" \
+  up --static-root "$HOME/codor/packages/web-next/dist" \
   --join 'project-name:<high-entropy-secret>'
 ```
 
