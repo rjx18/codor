@@ -105,15 +105,15 @@ Already working in Claude Code or Codex? Add that live session to a channel with
 From the same project—or by asking the agent to run it:
 
 ```sh
-codor join desk --as planner
+codor join <channel-name> --as planner
 ```
 
 Codor detects the current or most recent Claude Code/Codex session. If detection is ambiguous, be
 explicit:
 
 ```sh
-codor join desk --as planner --harness claude-code --session <session-id> --cwd "$PWD"
-codor join desk --as reviewer --harness codex --session <thread-id> --cwd "$PWD"
+codor join <channel-name> --as planner --harness claude-code --session <session-id> --cwd "$PWD"
+codor join <channel-name> --as reviewer --harness codex --session <thread-id> --cwd "$PWD"
 ```
 
 The existing terminal remains in control while joined. Configure the
@@ -122,13 +122,13 @@ The existing terminal remains in control while joined. Configure the
 finish using that terminal, hand the session to Codor:
 
 ```sh
-codor adopt -r desk planner
+codor adopt -r <channel-name> planner
 ```
 
 For the opposite direction—temporarily opening a session Codor already manages—run:
 
 ```sh
-codor attach -r desk planner
+codor attach -r <channel-name> planner
 ```
 
 This opens the native resumable session and returns it to Codor when you exit. It supports
