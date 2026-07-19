@@ -1,1 +1,1 @@
-../../docs/ROLES.md
+<!--@include: ../../docs/ROLES.md-->
