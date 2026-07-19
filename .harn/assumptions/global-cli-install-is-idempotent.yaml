@@ -2,11 +2,14 @@ id: global-cli-install-is-idempotent
 hash: a-5a7c872fef03
 title: The built CLI has one idempotent per-user installation path
 state: active
-statement: The checked-in install script must require a built CLI and
-  idempotently replace the current-name symlink in the user's local bin with the
-  absolute built entrypoint, while operator docs present it as the primary
-  command installation path and retain pnpm link as an alternative, because
-  normal operation must not depend on repository-relative node invocations.
+statement: The checked-in install scripts must require a built CLI and
+  idempotently install the current-name launcher in the user's local bin
+  pointing at the absolute built entrypoint — a symlink from install-cli.sh on
+  POSIX, a cmd shim from install-cli.ps1 (which also ensures the directory is
+  on the user PATH) on Windows — while operator docs present them as the
+  primary command installation path and retain pnpm link as an alternative,
+  because normal operation must not depend on repository-relative node
+  invocations.
 depends_on:
   - fresh-clone-install-proven-by-script
 created_by: codor-p5-cli-docs
