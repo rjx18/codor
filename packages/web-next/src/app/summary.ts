@@ -7,7 +7,14 @@ import { useClientStore } from './store.js';
 
 export type { RoomSummary } from '@codor/protocol';
 
-async function fetchSummaries(token: string): Promise<RoomSummary[]> {
+/** The bootstrap's result, so a launch fetches the durable summary ONCE. */
+let primed: RoomSummary[] | undefined;
+
+export function primeRoomSummaries(summaries: RoomSummary[]): void {
+  primed = summaries;
+}
+
+export async function fetchSummaries(token: string): Promise<RoomSummary[]> {
   const response = await fetch('/api/rooms/summary?read_state=durable', {
     headers: { authorization: `Bearer ${token}` },
   });
@@ -23,9 +30,15 @@ async function fetchSummaries(token: string): Promise<RoomSummary[]> {
  */
 export function useRoomSummaries(token: () => string): RoomSummary[] {
   const rooms = useClientStore((state) => state.rooms);
-  const [cold, setCold] = useState<RoomSummary[]>([]);
+  const [cold, setCold] = useState<RoomSummary[]>(primed ?? []);
 
   useEffect(() => {
+    // Startup already resolved the authorized set to pick a room; refetching it
+    // here would be a second identical request on every launch.
+    if (primed !== undefined) {
+      setCold(primed);
+      return;
+    }
     let current = true;
     void fetchSummaries(token())
       .then((summaries) => { if (current) setCold(summaries); })

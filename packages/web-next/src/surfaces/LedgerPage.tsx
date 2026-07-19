@@ -19,7 +19,6 @@ import {
 } from '@legacy/api.js';
 import { currentBrowserAccessToken } from '@legacy/crypto.js';
 
-import { pageParams } from '../app/session.js';
 import { Code, IconButton } from '../primitives/primitives.js';
 
 const WIDTH = 1000;
@@ -61,8 +60,11 @@ const TYPE_TINTS: Record<NodeType, string> = {
   note: 'var(--c-mark-faint)',
 };
 
-export function LedgerPage(props: { token: string }) {
-  const page = useMemo(pageParams, []);
+export function LedgerPage(props: { room: string; token: string }) {
+  // The ledger is always reached from a room, so its id is in the URL. Falling
+  // back to the remembered room keeps a direct /ledger link working rather than
+  // inventing a placeholder channel.
+  const page = { room: props.room };
   const token = useMemo(() => () => currentBrowserAccessToken(props.token), [props.token]);
   const [graph, setGraph] = useState<LedgerGraph>();
   const [failed, setFailed] = useState(false);

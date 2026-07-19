@@ -20,9 +20,15 @@ import type { Room } from '@codor/protocol';
 
 import { useClientStore } from './store.js';
 
-export function pageParams(): { room: string } {
+/**
+ * The room named in the URL, or nothing. Never a placeholder: `'default'` was
+ * a room no account owns, so a bare `/` launch subscribed to a phantom channel
+ * and reconnect logic then restored it faithfully.
+ */
+export function pageParams(): { room?: string } {
   const params = new URLSearchParams(window.location.search);
-  return { room: params.get('room') ?? 'default' };
+  const room = params.get('room');
+  return room === null || room === '' ? {} : { room };
 }
 
 /** Same access-token contract as the legacy client: an explicit ?token= is persisted for

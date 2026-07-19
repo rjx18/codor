@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Connection } from '@legacy/ws.js';
 
 import { createConnector, type RoomConnector } from '../app/connector.js';
+import { rememberRoom } from '../app/startup.js';
 import {
   pageParams,
   useAccessToken,
@@ -20,14 +21,19 @@ import { CreateChannelDialog } from './CreateChannel.js';
 import { HoldBanner, InboxControl, SearchOverlay } from './panels.js';
 import { Transcript } from './Transcript.js';
 
-export function RoomPage(props: { token: string; refreshToken?: () => Promise<string> }) {
-  const page = useMemo(pageParams, []);
+export function RoomPage(props: {
+  room: string;
+  token: string;
+  refreshToken?: () => Promise<string>;
+}) {
   const token = useAccessToken(props.token);
-  const [room, setRoom] = useState(page.room);
+  // The room is resolved and validated before this component exists, so the
+  // connector never opens on a speculative id.
+  const [room, setRoom] = useState(props.room);
   const connectorRef = useRef<RoomConnector | null>(null);
   if (connectorRef.current === null) {
     connectorRef.current = createConnector({
-      room: page.room,
+      room: props.room,
       token: props.token,
       refreshToken: props.refreshToken,
     });
@@ -40,14 +46,18 @@ export function RoomPage(props: { token: string; refreshToken?: () => Promise<st
     if (next === room) return;
     connection.switchRoom(next);
     setRoom(next);
+    rememberRoom(next);
     window.history.pushState(null, '', `/?room=${encodeURIComponent(next)}`);
   };
 
   useEffect(() => {
     const onPop = (): void => {
+      // Back/forward only ever reaches rooms this session already opened.
       const next = pageParams().room;
+      if (next === undefined) return;
       connection.switchRoom(next);
       setRoom(next);
+      rememberRoom(next);
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);

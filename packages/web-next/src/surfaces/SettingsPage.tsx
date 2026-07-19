@@ -21,13 +21,18 @@ import {
 } from '@legacy/theme.js';
 
 import { createConnector, type RoomConnector } from '../app/connector.js';
-import { pageParams } from '../app/session.js';
 import { roomSlice, useClientStore } from '../app/store.js';
 import { clockTime } from '../primitives/identity.js';
 import { Button, Code, Eyebrow, Modal, Segmented } from '../primitives/primitives.js';
 
-export function SettingsPage(props: { token: string; refreshToken?: () => Promise<string> }) {
-  const page = useMemo(pageParams, []);
+export function SettingsPage(props: {
+  room: string;
+  token: string;
+  refreshToken?: () => Promise<string>;
+}) {
+  // Settings is reached from a room; keep that room when returning, and fall
+  // back to the remembered one rather than a placeholder channel.
+  const page = { room: props.room };
   const token = useMemo(
     () => () => currentBrowserAccessToken(props.token),
     [props.token],

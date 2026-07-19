@@ -2,7 +2,10 @@
 // one room, so in-place channel switching (Richard's decision — no reloads) gets
 // its own connector with the SAME wire semantics: subscribe with the store's seq
 // cursor, apply frames, exponential backoff, 4401 token refresh, 4403 park.
-// Switching rooms closes the socket, resets the store, and resubscribes fresh.
+// Switching rooms is MULTIPLEXED on the one socket: it subscribes to the next
+// room and keeps every other subscription and the shared store intact. It does
+// not close the socket and does not reset the store — the previous comment here
+// described behaviour this connector has not had since in-place switching.
 import { BROWSER_PROTOCOL_EPOCH, type Act, type ServerFrame } from '@codor/protocol';
 
 import { setActiveBrowserAccessToken } from '@legacy/crypto.js';
