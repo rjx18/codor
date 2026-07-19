@@ -21,6 +21,7 @@
     "@codor/adapter-claude-code": "workspace:*",
     "@codor/adapter-codex": "workspace:*",
     "@codor/adapter-copilot": "workspace:*",
+    "@codor/adapter-cursor": "workspace:*",
     "@codor/adapter-gemini": "workspace:*",
     "@codor/adapter-opencode": "workspace:*",
     "@codor/protocol": "workspace:*",

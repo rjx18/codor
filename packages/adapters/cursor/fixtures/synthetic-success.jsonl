@@ -1,0 +1,10 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/work","session_id":"11111111-1111-4111-8111-111111111111","model":"Composer 2.5","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Reply PONG"}]},"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"thinking","subtype":"delta","text":"Reading the file.","session_id":"11111111-1111-4111-8111-111111111111","timestamp_ms":1}
+{"type":"thinking","subtype":"completed","session_id":"11111111-1111-4111-8111-111111111111","timestamp_ms":2}
+{"type":"tool_call","subtype":"started","call_id":"read-1","tool_call":{"readToolCall":{"args":{"path":"README.md"}}},"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"tool_call","subtype":"completed","call_id":"read-1","tool_call":{"readToolCall":{"args":{"path":"README.md"},"result":{"success":{"content":"Codor","totalLines":1}}}},"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"PO"}]},"session_id":"11111111-1111-4111-8111-111111111111","timestamp_ms":3}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"NG"}]},"session_id":"11111111-1111-4111-8111-111111111111","timestamp_ms":4}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"PONG"}]},"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"result","subtype":"success","duration_ms":60,"is_error":false,"result":"PONG","session_id":"11111111-1111-4111-8111-111111111111","usage":{"inputTokens":12,"outputTokens":2,"cacheReadTokens":0,"cacheWriteTokens":0}}

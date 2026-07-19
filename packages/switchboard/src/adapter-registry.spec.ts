@@ -22,6 +22,7 @@ describe('adapter registry spawn controls', () => {
       ['claude-code', true, ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']],
       ['codex', true, ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']],
       ['copilot', false, undefined],
+      ['cursor', false, undefined],
       ['gemini', false, undefined],
       ['opencode', true, ['low', 'medium', 'high']],
     ]);
