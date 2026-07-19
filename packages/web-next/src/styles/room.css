@@ -1921,3 +1921,136 @@
 /* Estimated (artifact-seeded) context rings render dimmed until a live report replaces them. */
 .nx-context-meter.is-estimated { opacity: 0.55; }
 /* harn:end member-context-window-meter-derived-from-last-usage */
+
+/* ── Shared agent controls ────────────────────────────────────────────────
+   Used identically by the spawn, channel-create and configure dialogs, so the
+   three surfaces cannot drift apart visually the way they drifted behaviourally.
+   Every value is a token; nothing here is a raw colour or size. */
+
+.nx-agent-controls {
+  display: grid;
+  gap: var(--sp-5);
+  margin: var(--sp-4) 0;
+}
+
+.nx-control-group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.nx-control-group > legend {
+  font: var(--t-eyebrow);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-faded);
+  padding: 0;
+  margin-bottom: var(--sp-2);
+}
+.nx-control-group[disabled] { opacity: 0.55; }
+
+.nx-control-note {
+  margin-top: var(--sp-2);
+  font: var(--t-caption);
+  color: var(--c-secondary);
+}
+.nx-control-note.is-warn { color: var(--c-warn-text); }
+
+/* Selectable tiles — the buttons that replaced four <select> menus. */
+.nx-tile-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.nx-tile-row-scroll {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: var(--sp-1);
+}
+
+.nx-tile {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  /* 44px keeps every control a real touch target on a phone. */
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-surface);
+  color: var(--c-body);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  font: var(--t-ui);
+  cursor: pointer;
+  transition: border-color var(--m-fast) var(--m-ease), background var(--m-fast) var(--m-ease);
+}
+.nx-tile:hover { border-color: var(--c-ink); }
+.nx-tile[aria-pressed='true'] {
+  background: var(--c-agent-tint);
+  border-color: var(--c-agent);
+  color: var(--c-agent-text);
+}
+.nx-tile-name { font: var(--t-ui-strong); }
+.nx-tile-sub { font: var(--t-caption); color: var(--c-faded); }
+.nx-tile-badge {
+  padding: 1px var(--sp-2);
+  border-radius: var(--r-pill);
+  background: var(--c-warn-tint);
+  color: var(--c-warn-text);
+  font: var(--t-mono-small);
+}
+
+/* Permission cards. The native mapping line is the safety-relevant part. */
+.nx-card-row {
+  display: grid;
+  gap: var(--sp-2);
+}
+.nx-policy-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: var(--sp-1) var(--sp-3);
+  min-height: 44px;
+  padding: var(--sp-3);
+  text-align: left;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-card);
+  cursor: pointer;
+  transition: border-color var(--m-fast) var(--m-ease), background var(--m-fast) var(--m-ease);
+}
+.nx-policy-card:hover { border-color: var(--c-ink); }
+.nx-policy-card[aria-pressed='true'] {
+  background: var(--c-agent-tint);
+  border-color: var(--c-agent);
+}
+.nx-policy-card > svg { grid-row: 1 / span 3; color: var(--c-secondary); }
+.nx-policy-card[aria-pressed='true'] > svg { color: var(--c-agent-text); }
+.nx-policy-title { font: var(--t-ui-strong); color: var(--c-ink); }
+.nx-policy-blurb { font: var(--t-caption); color: var(--c-secondary); }
+.nx-policy-native { font: var(--t-mono-small); color: var(--c-faded); }
+/* A harness that does not distinguish this policy: the choice changes nothing. */
+.nx-policy-native.is-deferred { color: var(--c-warn-text); }
+
+.nx-input {
+  width: 100%;
+  min-height: 40px;
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  font: var(--t-ui);
+}
+.nx-input:focus-visible { outline: 2px solid var(--c-agent); outline-offset: 1px; }
+
+.nx-dialog-sub {
+  margin: calc(-1 * var(--sp-2)) 0 var(--sp-4);
+  font: var(--t-caption);
+  color: var(--c-secondary);
+}
+.nx-field-error {
+  margin-top: var(--sp-2);
+  font: var(--t-caption);
+  color: var(--c-error-text);
+}

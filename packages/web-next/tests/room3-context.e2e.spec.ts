@@ -100,8 +100,12 @@ test.describe('spawn before adapter discovery', () => {
 
     holding = false;
 
-    // The select adopts the first adapter and the action comes alive.
-    await expect(dialog.getByTestId('spawn-harness')).toHaveValue('fake', { timeout: 15_000 });
+    // The harness picker adopts the first adapter and the action comes alive.
+    // (Harness is chosen with tiles now, not a <select>; the healing behaviour
+    // this test exists for is unchanged.)
+    await expect(dialog.getByTestId('spawn-harness-fake')).toHaveAttribute(
+      'aria-pressed', 'true', { timeout: 15_000 },
+    );
     await expect(dialog.getByTestId('spawn-go')).toBeEnabled();
 
     await dialog.getByTestId('spawn-go').click();

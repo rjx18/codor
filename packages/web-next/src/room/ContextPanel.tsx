@@ -1,8 +1,20 @@
-import type { AgentLimit, Member, RunItemDiff, WireEvent } from '@codor/protocol';
+import type { AgentLimit, Member, Policy, Room, RunItemDiff, ThinkingLevel, WireEvent } from '@codor/protocol';
 import { LoaderCircle, Minimize2, MoreVertical, Plus, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@legacy/api.js';
+import { AgentControls } from './AgentControls.js';
+import {
+  DEFAULT_POLICY,
+  type AgentConfig,
+  type SpawnSpec,
+  buildSpawnSpec,
+  asPolicy,
+  collidesWithOwner,
+  defaultSpawnCwd,
+  effectiveHarness,
+  supportedThinking,
+} from './agent-spec.js';
 import { presentRunEvents, type RunRow } from '@legacy/run-presenter.js';
 import type { Connection } from '@legacy/ws.js';
 
@@ -67,6 +79,14 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
   const details = useMemberDetails(props.room, props.token);
   const adapters = useAdapters(props.token);
   const [spawning, setSpawning] = useState(false);
+  // A spawn is only done when the member actually appears. Watching for it — and
+  // for a room error naming it — is what keeps a failure visible instead of
+  // closing the dialog on a request that was merely *sent*.
+  const [pendingHandle, setPendingHandle] = useState<string>();
+  const [spawnFailure, setSpawnFailure] = useState<string>();
+  const roomErrors = useClientStore((state) => roomSlice(state, props.room).errors);
+  const room = useClientStore((state) => roomSlice(state, props.room).room);
+  const seenErrors = useRef(0);
 
   // Interrupt is an owner/admin act (matrix gates it at admin), so only they see
   // the Stop control — the server would refuse anyone else anyway. The lifecycle
@@ -74,6 +94,27 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
   const selfRole = selfId !== undefined ? members[selfId]?.role : undefined;
   const canStop = selfRole === 'owner' || selfRole === 'admin';
   const canManage = selfRole === 'owner' || selfRole === 'admin';
+
+  // Resolve the pending spawn. Success is the member with the handle we submitted
+  // arriving — matching on "membership changed" would let an unrelated member
+  // joining report success, trading a silent failure for a false one.
+  useEffect(() => {
+    if (pendingHandle === undefined) return;
+    const arrived = Object.values(members).some(
+      (member) => member.handle === pendingHandle && member.removed_ts === undefined,
+    );
+    if (arrived) {
+      setPendingHandle(undefined);
+      setSpawnFailure(undefined);
+      setSpawning(false);
+      return;
+    }
+    const fresh = roomErrors.slice(seenErrors.current);
+    if (fresh.length > 0) {
+      setSpawnFailure(fresh[fresh.length - 1]);
+      setPendingHandle(undefined);
+    }
+  }, [members, roomErrors, pendingHandle]);
 
   const roster = useMemo(() => {
     // Extensions are transient run machinery — the roster lists durable members.
@@ -104,6 +145,7 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
             key={member.id}
             member={member}
             detail={details[member.id]}
+            adapters={adapters}
             canStop={canStop}
             canManage={canManage}
             connection={props.connection}
@@ -114,10 +156,16 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
       {spawning && (
         <SpawnDialog
           adapters={adapters}
-          onClose={() => setSpawning(false)}
+          room={room}
+          members={roster}
+          pending={pendingHandle !== undefined}
+          failure={spawnFailure}
+          onClose={() => { setSpawning(false); setPendingHandle(undefined); setSpawnFailure(undefined); }}
           onSpawn={(spec) => {
+            seenErrors.current = roomErrors.length;
+            setSpawnFailure(undefined);
+            setPendingHandle(spec.handle);
             props.connection.act({ act: 'spawn', ...spec });
-            setSpawning(false);
           }}
         />
       )}
@@ -128,6 +176,7 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
 function MemberCard(props: {
   member: Member;
   detail: MemberDetail | undefined;
+  adapters: AdapterRegistration[];
   canStop: boolean;
   canManage: boolean;
   connection: Connection;
@@ -356,6 +405,7 @@ function MemberCard(props: {
       {configuring && (
         <ConfigureDialog
           member={member}
+          adapters={props.adapters}
           onClose={() => setConfiguring(false)}
           onConfigure={(patch) => {
             props.connection.act({ act: 'configure', member_id: member.id, ...patch });
@@ -439,151 +489,163 @@ function RenameDialog(props: {
   );
 }
 
-const THINKING_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const;
-const POLICIES = ['read-only', 'workspace-write', 'full-access'] as const;
-
 function ConfigureDialog(props: {
   member: Member;
+  adapters: AdapterRegistration[];
   onClose: () => void;
   onConfigure: (patch: {
     model?: string | null;
-    thinking?: (typeof THINKING_LEVELS)[number] | null;
-    policy?: (typeof POLICIES)[number];
+    thinking?: ThinkingLevel | null;
+    policy?: Policy;
   }) => void;
 }) {
-  const [model, setModel] = useState(props.member.model ?? '');
-  const [thinking, setThinking] = useState(props.member.thinking ?? '');
-  const [policy, setPolicy] = useState(props.member.policy ?? '');
+  // Same control as spawn and channel-create, with the harness locked: an existing
+  // member cannot change the harness it is running.
+  const [config, setConfig] = useState<AgentConfig>({
+    harness: props.member.harness ?? '',
+    model: props.member.model ?? '',
+    thinking: props.member.thinking ?? '',
+    policy: asPolicy(props.member.policy),
+  });
+
+  const submit = (event: { preventDefault: () => void }) => {
+    event.preventDefault();
+    const adapter = props.adapters.find((candidate) => candidate.id === config.harness);
+    props.onConfigure({
+      // null clears an override; '' from the Default tile means exactly that.
+      model: config.model === '' ? null : config.model,
+      thinking: supportedThinking(adapter, config.thinking) ?? null,
+      ...(config.policy !== '' && { policy: config.policy }),
+    });
+    props.onClose();
+  };
+
   return (
-    <Modal label={`Configure @${props.member.handle}`} onClose={props.onClose} testid="configure-dialog">
-      <h2 className="nx-dialog-title">Configure @{props.member.handle}</h2>
-      <label className="nx-field">
-        Model (empty = harness default)
-        <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="harness default" />
-      </label>
-      <label className="nx-field">
-        Thinking
-        <select value={thinking} onChange={(e) => setThinking(e.target.value)}>
-          <option value="">harness default</option>
-          {THINKING_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
-        </select>
-      </label>
-      <label className="nx-field">
-        Policy
-        <select value={policy} onChange={(e) => setPolicy(e.target.value)}>
-          <option value="">leave as is</option>
-          {POLICIES.map((p) => <option key={p} value={p}>{p}</option>)}
-        </select>
-      </label>
-      <div className="nx-dialog-actions">
-        <Button variant="quiet" onClick={props.onClose}>Cancel</Button>
-        <Button
-          variant="primary"
-          onClick={() => props.onConfigure({
-            model: model.trim() === '' ? null : model.trim(),
-            thinking: thinking === '' ? null : thinking as (typeof THINKING_LEVELS)[number],
-            ...(policy !== '' && { policy: policy as (typeof POLICIES)[number] }),
-          })}
-        >
-          Apply
-        </Button>
-      </div>
+    <Modal label="Configure agent" onClose={props.onClose} testid="configure-dialog">
+      <form onSubmit={submit}>
+        <h2 className="nx-dialog-title">Configure @{props.member.handle}</h2>
+        <p className="nx-dialog-sub">Applies to this agent&apos;s next turn.</p>
+        <AgentControls
+          adapters={props.adapters}
+          config={config}
+          onChange={setConfig}
+          lockHarness
+          idPrefix="configure"
+        />
+        <div className="nx-dialog-actions">
+          <Button variant="quiet" onClick={props.onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" data-testid="configure-go">Save</Button>
+        </div>
+      </form>
     </Modal>
   );
 }
 
 function SpawnDialog(props: {
   adapters: AdapterRegistration[];
+  room: Room | undefined;
+  members: readonly Member[];
   onClose: () => void;
-  onSpawn: (spec: {
-    harness: string; handle: string; cwd: string;
-    model?: string; policy?: string; thinking?: (typeof THINKING_LEVELS)[number]; purpose?: string;
-  }) => void;
+  onSpawn: (spec: SpawnSpec) => void;
+  /** Set while the request is in flight; cleared with an error if it failed. */
+  pending: boolean;
+  failure: string | undefined;
 }) {
-  const [harness, setHarness] = useState(props.adapters[0]?.id ?? '');
+  const [config, setConfig] = useState<AgentConfig>({
+    harness: '', model: '', thinking: '', policy: DEFAULT_POLICY,
+  });
   const [handle, setHandle] = useState('');
-  const [cwd, setCwd] = useState('');
-  const [model, setModel] = useState('');
-  const [policy, setPolicy] = useState('');
-  const [thinking, setThinking] = useState('');
+  // The operator should not retype the project path on every spawn.
+  const [cwd, setCwd] = useState(() => defaultSpawnCwd(props.room, props.members));
   const [purpose, setPurpose] = useState('');
-  // Adapter discovery is asynchronous. Snapshotting the first adapter at mount
-  // means a dialog opened before /api/adapters resolves captures '' forever:
-  // the options appear a moment later, but the selection never catches up and
-  // Spawn stays permanently disabled. Derive it instead, so a stale or empty
-  // selection heals as soon as the real list arrives.
-  const selectedHarness = props.adapters.some((adapter) => adapter.id === harness)
-    ? harness
-    : props.adapters[0]?.id ?? '';
-  const chosen = props.adapters.find((adapter) => adapter.id === selectedHarness);
-  const canSpawn = selectedHarness !== '' && handle.trim() !== '' && cwd.trim() !== '';
+
+  // Adapter discovery is asynchronous; a selection made before the list arrives
+  // heals rather than sticking at a dead value.
+  const harness = effectiveHarness(config.harness, props.adapters);
+  const owner = props.members.find((member) => member.kind === 'human');
+  const derived = handle.trim();
+  const ownerClash = collidesWithOwner(derived, owner);
+  const canSpawn = harness !== '' && derived !== '' && cwd.trim() !== '' && !ownerClash && !props.pending;
+
+  const submit = (event: { preventDefault: () => void }) => {
+    event.preventDefault();
+    if (!canSpawn) return;
+    props.onSpawn(buildSpawnSpec({
+      config: { ...config, harness },
+      handle: derived,
+      cwd,
+      purpose,
+      adapters: props.adapters,
+      members: props.members,
+    }));
+  };
 
   return (
     <Modal label="Spawn agent" onClose={props.onClose} testid="spawn-dialog">
-      <h2 className="nx-dialog-title">Spawn agent</h2>
-      <label className="nx-field">
-        Harness
-        <select value={selectedHarness} onChange={(e) => { setHarness(e.target.value); setModel(''); }} data-testid="spawn-harness">
-          {props.adapters.length === 0 && <option value="">discovering…</option>}
-          {props.adapters.map((adapter) => <option key={adapter.id} value={adapter.id}>{adapter.id}</option>)}
-        </select>
-      </label>
-      <label className="nx-field">
-        Handle
-        <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="e.g. scout" data-testid="spawn-handle" />
-      </label>
-      <label className="nx-field">
-        Working directory
-        <input value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="/home/you/project" data-testid="spawn-cwd" />
-      </label>
-      <label className="nx-field">
-        Model
-        {chosen?.models !== undefined && chosen.models.length > 0 ? (
-          <select value={model} onChange={(e) => setModel(e.target.value)}>
-            <option value="">harness default</option>
-            {chosen.models.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        ) : (
-          <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="harness default" />
+      {/* A native form so Enter submits from any field. */}
+      <form onSubmit={submit}>
+        <h2 className="nx-dialog-title">Spawn agent</h2>
+        <p className="nx-dialog-sub">Choose a harness and how much autonomy it gets.</p>
+
+        <label className="nx-field">
+          Handle
+          <input
+            value={handle}
+            autoFocus
+            pattern="[a-z0-9][a-z0-9-]{1,30}"
+            maxLength={31}
+            onChange={(e) => setHandle(e.target.value)}
+            placeholder="e.g. scout"
+            data-testid="spawn-handle"
+          />
+        </label>
+        {ownerClash && (
+          <p className="nx-field-error" role="alert" data-testid="spawn-owner-clash">
+            @{derived} is already in use by the channel owner.
+          </p>
         )}
-      </label>
-      <label className="nx-field">
-        Policy
-        <select value={policy} onChange={(e) => setPolicy(e.target.value)}>
-          <option value="">harness default</option>
-          {POLICIES.map((p) => <option key={p} value={p}>{p}</option>)}
-        </select>
-      </label>
-      <label className="nx-field">
-        Thinking
-        <select value={thinking} onChange={(e) => setThinking(e.target.value)}>
-          <option value="">harness default</option>
-          {THINKING_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
-        </select>
-      </label>
-      <label className="nx-field">
-        Purpose (optional)
-        <input value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="what this agent is for" />
-      </label>
-      <div className="nx-dialog-actions">
-        <Button variant="quiet" onClick={props.onClose}>Cancel</Button>
-        <Button
-          variant="primary"
-          disabled={!canSpawn}
-          data-testid="spawn-go"
-          onClick={() => props.onSpawn({
-            harness: selectedHarness,
-            handle: handle.trim(),
-            cwd: cwd.trim(),
-            ...(model !== '' && { model }),
-            ...(policy !== '' && { policy }),
-            ...(thinking !== '' && { thinking: thinking as (typeof THINKING_LEVELS)[number] }),
-            ...(purpose.trim() !== '' && { purpose: purpose.trim() }),
-          })}
-        >
-          Spawn
-        </Button>
-      </div>
+
+        <label className="nx-field">
+          Working directory
+          <input
+            value={cwd}
+            onChange={(e) => setCwd(e.target.value)}
+            placeholder="/home/you/project"
+            data-testid="spawn-cwd"
+          />
+        </label>
+
+        <AgentControls
+          adapters={props.adapters}
+          config={{ ...config, harness }}
+          onChange={setConfig}
+          idPrefix="spawn"
+        />
+
+        <label className="nx-field">
+          Purpose (optional)
+          <textarea
+            value={purpose}
+            rows={3}
+            onChange={(e) => setPurpose(e.target.value)}
+            placeholder="What this agent should focus on…"
+            data-testid="spawn-purpose"
+          />
+        </label>
+
+        {props.failure !== undefined && (
+          // A failed spawn used to close the dialog silently, losing both the
+          // error and everything the operator had typed.
+          <p className="nx-field-error" role="alert" data-testid="spawn-error">{props.failure}</p>
+        )}
+
+        <div className="nx-dialog-actions">
+          <Button variant="quiet" onClick={props.onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={!canSpawn} data-testid="spawn-go">
+            {props.pending ? 'Spawning…' : 'Spawn agent'}
+          </Button>
+        </div>
+      </form>
     </Modal>
   );
 }

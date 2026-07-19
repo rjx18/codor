@@ -10,6 +10,13 @@ import {
   type LocalDirectoryListing,
 } from '@legacy/api.js';
 
+import { AgentControls } from './AgentControls.js';
+import {
+  DEFAULT_POLICY,
+  type AgentConfig,
+  collidesWithOwner,
+  supportedThinking,
+} from './agent-spec.js';
 import { Button, Code, Modal } from '../primitives/primitives.js';
 import { useAdapters } from '../app/session.js';
 import { me, roomSlice, useClientStore } from '../app/store.js';
@@ -25,8 +32,11 @@ export function CreateChannelDialog(props: {
   const adapters = useAdapters(props.token);
   const [name, setName] = useState('');
   const [cwd, setCwd] = useState('');
-  const [agentHarness, setAgentHarness] = useState('');
-  const [agentName, setAgentName] = useState('');
+  const [agentConfig, setAgentConfig] = useState<AgentConfig>({
+    harness: '', model: '', thinking: '', policy: DEFAULT_POLICY,
+  });
+  // Default name matches legacy: most channels want one agent called `codor`.
+  const [agentName, setAgentName] = useState('codor');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -35,7 +45,9 @@ export function CreateChannelDialog(props: {
     () => (agentName.trim() === '' ? undefined : deriveAssignableHandle(agentName)),
     [agentName],
   );
-  const canCreate = name.trim() !== '' && owner !== undefined && !busy
+  const agentHarness = agentConfig.harness;
+  const ownerClash = derivedHandle !== undefined && collidesWithOwner(derivedHandle, owner);
+  const canCreate = name.trim() !== '' && owner !== undefined && !busy && !ownerClash
     && (agentHarness === '' || (agentName.trim() !== '' && derivedHandle !== undefined));
 
   const submit = (): void => {
@@ -50,7 +62,18 @@ export function CreateChannelDialog(props: {
         starting_agent: {
           harness: agentHarness,
           handle: derivedHandle,
-          display_name: agentName.trim(),
+          // A blank name falls back rather than blocking submit.
+          display_name: agentName.trim() === '' ? 'Agent' : agentName.trim(),
+          // Always carries a policy. A channel-seeded agent used to spawn with
+          // none at all, which is the F11 regression legacy still warns about.
+          policy: agentConfig.policy === '' ? DEFAULT_POLICY : agentConfig.policy,
+          ...(agentConfig.model !== '' && { model: agentConfig.model }),
+          ...(() => {
+            const level = supportedThinking(
+              adapters.find((a) => a.id === agentHarness), agentConfig.thinking,
+            );
+            return level === undefined ? {} : { thinking: level };
+          })(),
         },
       }),
     }, { token: props.token() }).then(
@@ -75,30 +98,63 @@ export function CreateChannelDialog(props: {
         Working folder (optional)
         <FolderPicker token={props.token} value={cwd} onChange={setCwd} />
       </div>
-      <label className="nx-field">
+      <div className="nx-field">
         Starting agent (optional)
-        <select value={agentHarness} onChange={(e) => setAgentHarness(e.target.value)} data-testid="create-harness">
-          <option value="">none</option>
+        <div className="nx-tile-row" role="group" aria-label="Starting agent">
+          <button
+            type="button"
+            className="nx-tile"
+            aria-pressed={agentHarness === ''}
+            data-testid="create-harness-none"
+            onClick={() => setAgentConfig({ ...agentConfig, harness: '' })}
+          >
+            None
+          </button>
           {adapters.map((adapter: AdapterRegistration) => (
-            <option key={adapter.id} value={adapter.id}>{adapter.id}</option>
+            <button
+              key={adapter.id}
+              type="button"
+              className="nx-tile"
+              aria-pressed={agentHarness === adapter.id}
+              data-testid={`create-harness-${adapter.id}`}
+              onClick={() => setAgentConfig({ ...agentConfig, harness: adapter.id, model: '', thinking: '' })}
+            >
+              {adapter.id}
+            </button>
           ))}
-        </select>
-      </label>
+        </div>
+      </div>
       {agentHarness !== '' && (
-        <label className="nx-field">
-          Agent name
-          <input
-            value={agentName}
-            onChange={(e) => setAgentName(e.target.value)}
-            placeholder="e.g. Scout"
-            data-testid="create-agent-name"
+        <>
+          <label className="nx-field">
+            Agent name
+            {/* Disabled rather than unmounted elsewhere, so the dialog never jumps. */}
+            <input
+              value={agentName}
+              onChange={(e) => setAgentName(e.target.value)}
+              placeholder="e.g. Scout"
+              data-testid="create-agent-name"
+            />
+            {agentName.trim() !== '' && (
+              derivedHandle !== undefined
+                ? <span className="nx-field-note">joins as <Code>@{derivedHandle}</Code></span>
+                : <span className="nx-field-note is-error">that name resolves to a reserved handle — pick another</span>
+            )}
+            {ownerClash && (
+              <span className="nx-field-note is-error" data-testid="create-owner-clash">
+                @{derivedHandle} is already in use by the channel owner.
+              </span>
+            )}
+          </label>
+          {/* The same control the spawn and configure dialogs use, so a channel-seeded
+              agent is configured exactly as thoroughly as a later one. */}
+          <AgentControls
+            adapters={adapters}
+            config={agentConfig}
+            onChange={setAgentConfig}
+            idPrefix="create"
           />
-          {agentName.trim() !== '' && (
-            derivedHandle !== undefined
-              ? <span className="nx-field-note">joins as <Code>@{derivedHandle}</Code></span>
-              : <span className="nx-field-note is-error">that name resolves to a reserved handle — pick another</span>
-          )}
-        </label>
+        </>
       )}
       {error !== undefined && <p className="nx-field-note is-error" role="alert">{error}</p>}
       <div className="nx-dialog-actions">
