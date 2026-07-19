@@ -35,10 +35,19 @@ background service, optionally enables Tailscale, and prints a one-time browser 
 
 - **Linux:** systemd user service.
 - **macOS:** LaunchAgent after login—no Terminal window needs to stay open.
+- **Windows:** native, no WSL required—a hidden per-user Task Scheduler logon task. Use the
+  PowerShell installer instead of the shell script:
+
+  ```powershell
+  pnpm install --frozen-lockfile
+  pnpm -r build
+  powershell -ExecutionPolicy Bypass -File scripts/install-cli.ps1
+  codor setup
+  ```
 
 <!-- harn:assume wsl-setup-reaches-windows-loopback ref=readme-wsl-access -->
-**Windows with WSL2:** run setup inside WSL, then open the same `http://127.0.0.1:8137`
-address in your Windows browser.
+**Windows with WSL2** also remains supported: run setup inside WSL, then open the same
+`http://127.0.0.1:8137` address in your Windows browser.
 <!-- harn:end wsl-setup-reaches-windows-loopback -->
 
 Open the pairing link. Codor is then available locally at <http://127.0.0.1:8137>.
