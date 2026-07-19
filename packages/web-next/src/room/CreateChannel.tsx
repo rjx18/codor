@@ -1,5 +1,5 @@
 import type { Room } from '@codor/protocol';
-import { deriveAssignableHandle } from '@codor/protocol';
+import { CHANNEL_ACCENTS, deriveAssignableHandle, deriveRoomId } from '@codor/protocol';
 import { ArrowUp, Folder } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -32,6 +32,7 @@ export function CreateChannelDialog(props: {
   const adapters = useAdapters(props.token);
   const [name, setName] = useState('');
   const [cwd, setCwd] = useState('');
+  const [color, setColor] = useState<string>(CHANNEL_ACCENTS[0] ?? '');
   const [agentConfig, setAgentConfig] = useState<AgentConfig>({
     harness: '', model: '', thinking: '', policy: DEFAULT_POLICY,
   });
@@ -58,6 +59,7 @@ export function CreateChannelDialog(props: {
       name: name.trim(),
       owner: { handle: owner.handle, display_name: owner.display_name },
       ...(cwd !== '' && { cwd }),
+      ...(color !== '' && { color }),
       ...(agentHarness !== '' && derivedHandle !== undefined && {
         starting_agent: {
           harness: agentHarness,
@@ -93,7 +95,28 @@ export function CreateChannelDialog(props: {
           placeholder="e.g. Engineering"
           data-testid="create-name"
         />
+        {name.trim() !== '' && (
+          // The derived id is what everything else addresses this channel by.
+          <span className="nx-field-note">id: <Code>{deriveRoomId(name)}</Code></span>
+        )}
       </label>
+      <div className="nx-field">
+        Colour
+        <div className="nx-swatch-row" role="group" aria-label="Channel colour">
+          {CHANNEL_ACCENTS.map((accent, index) => (
+            <button
+              key={accent}
+              type="button"
+              className="nx-swatch"
+              style={{ '--swatch': accent } as React.CSSProperties}
+              aria-label={`Accent ${String(index + 1)}`}
+              aria-pressed={color === accent}
+              data-testid={`create-color-${String(index)}`}
+              onClick={() => setColor(accent)}
+            />
+          ))}
+        </div>
+      </div>
       <div className="nx-field">
         Working folder (optional)
         <FolderPicker token={props.token} value={cwd} onChange={setCwd} />
@@ -152,6 +175,7 @@ export function CreateChannelDialog(props: {
             adapters={adapters}
             config={agentConfig}
             onChange={setAgentConfig}
+            hideHarness
             idPrefix="create"
           />
         </>
@@ -172,14 +196,15 @@ function FolderPicker(props: { token: () => string; value: string; onChange: (pa
   const [listing, setListing] = useState<LocalDirectoryListing>();
   const [browsing, setBrowsing] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  const [typed, setTyped] = useState('');
 
-  const load = (path?: string): void => {
-    void fetchLocalDirectories(path, false, { token: props.token() })
-      .then((next) => {
-        setListing(next);
-        setFailed(false);
-        props.onChange(next.path);
-      })
+  // Browsing no longer mutates the selection. Every navigation used to call
+  // onChange, so opening the picker to look around silently changed the channel's
+  // folder and there was no way back out of a partial browse.
+  const load = (path?: string, showHidden = hidden): void => {
+    void fetchLocalDirectories(path, showHidden, { token: props.token() })
+      .then((next) => { setListing(next); setTyped(next.path); setFailed(false); })
       .catch(() => setFailed(true));
   };
 
@@ -199,16 +224,30 @@ function FolderPicker(props: { token: () => string; value: string; onChange: (pa
   if (failed) return <p className="nx-field-note is-error">Couldn’t list folders on this device.</p>;
   if (listing === undefined) return <p className="nx-field-note">Loading folders…</p>;
 
+  // Clickable trail back to the root, rather than one step of "up" at a time.
+  const segments = listing.path.split('/').filter((part) => part !== '');
+  const crumbs = segments.map((name, index) => ({
+    name,
+    path: `/${segments.slice(0, index + 1).join('/')}`,
+  }));
+
   return (
     <div className="nx-folder-picker" data-testid="folder-picker">
       <div className="nx-folder-path">
-        <Code>{listing.path}</Code>
+        <nav className="nx-crumbs" aria-label="Folder path">
+          <button type="button" data-testid="folder-crumb-root" onClick={() => load('/')}>/</button>
+          {crumbs.map((crumb) => (
+            <button key={crumb.path} type="button" data-testid={`folder-crumb-${crumb.name}`}
+              onClick={() => load(crumb.path)}>{crumb.name}</button>
+          ))}
+        </nav>
         {listing.parent !== null && (
           <button type="button" className="nx-folder-up" data-testid="folder-up" onClick={() => load(listing.parent ?? undefined)}>
             <ArrowUp size={13} aria-hidden="true" /> up
           </button>
         )}
       </div>
+
       <ul className="nx-folder-list">
         {listing.dirs.length === 0 && <li className="nx-field-note">no subfolders</li>}
         {listing.dirs.map((dir) => (
@@ -219,7 +258,32 @@ function FolderPicker(props: { token: () => string; value: string; onChange: (pa
           </li>
         ))}
       </ul>
-      <p className="nx-field-note">channel works in <Code>{listing.path}</Code></p>
+
+      <label className="nx-folder-hidden">
+        {/* Without this, ~/.config and every other dotfile directory is unreachable. */}
+        <input type="checkbox" checked={hidden} data-testid="folder-hidden"
+          onChange={(e) => { setHidden(e.target.checked); load(listing.path, e.target.checked); }} />
+        Show hidden folders
+      </label>
+
+      <label className="nx-field">
+        {/* A path outside the browsable tree — a mount, a symlink target — is
+            otherwise unreachable, because browsing is the only way in. */}
+        Or type a path
+        <input className="nx-input" value={typed} data-testid="folder-typed"
+          onChange={(e) => setTyped(e.target.value)}
+          placeholder="/home/you/project" />
+      </label>
+
+      <div className="nx-folder-confirm">
+        <Button variant="quiet" onClick={() => setBrowsing(false)}>Cancel</Button>
+        <Button variant="primary" data-testid="folder-use"
+          onClick={() => { props.onChange(typed.trim()); setBrowsing(false); }}>
+          Use this folder
+        </Button>
+      </div>
+      <p className="nx-field-note">selected <Code>{typed}</Code></p>
     </div>
   );
 }
+

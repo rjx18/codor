@@ -38,6 +38,9 @@ export function AgentControls(props: {
   onChange: (next: AgentConfig) => void;
   /** Configure-an-existing-member cannot change harness. */
   lockHarness?: boolean;
+  /** Channel-create picks the harness in its own "starting agent" row, which
+   *  also offers None. Rendering the group again would duplicate the control. */
+  hideHarness?: boolean;
   idPrefix?: string;
 }) {
   const { adapters, config } = props;
@@ -57,6 +60,7 @@ export function AgentControls(props: {
   return (
     <div className="nx-agent-controls">
       {/* ── Harness ─────────────────────────────────────────────────────── */}
+      {props.hideHarness !== true && (
       <fieldset className="nx-control-group" disabled={props.lockHarness === true}>
         <legend>Harness</legend>
         {adapters.length === 0 ? (
@@ -83,6 +87,7 @@ export function AgentControls(props: {
           </div>
         )}
       </fieldset>
+      )}
 
       {/* ── Model ───────────────────────────────────────────────────────── */}
       <fieldset className="nx-control-group">
