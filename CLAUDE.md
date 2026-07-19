@@ -25,8 +25,12 @@ Codor runs on native Windows without WSL. The load-bearing pieces, in case they 
 - Tests that encode POSIX semantics (socket-parent perms, mode-0600 asserts, symlink
   script installs, Linux/macOS service render simulations) are `skipIf(win32)` — don't
   "fix" them by weakening the POSIX assertions.
-- Known flaky under full-suite load on Windows: `ledger.spec` attribution and one custody
-  timing test; both pass isolated.
+- Known flaky under full-suite load on Windows: `ledger.spec` attribution; both pass isolated.
+- The `@codor/web` Playwright e2e suite (the **legacy** client, not shipped web-next) now runs on
+  Windows but many main-flow specs fail there on browser-side connect/render timing. The daemon
+  data path they exercise is verified working on Windows (browser WebSocket connects and syncs);
+  the failures are pre-existing legacy-client browser gaps, not the port. Don't gate Windows work
+  on this suite.
 
 ## Commands
 
