@@ -17,15 +17,11 @@
 <!-- harn:assume operator-launches-serve-web-next ref=readme-current-web-client -->
 ## Install
 
-You need Linux or macOS, Node.js 22+, Git, and at least one authenticated agent CLI such as
-Claude Code, Codex, Gemini, Copilot, or OpenCode.
+From the repository folder:
 
 ```sh
-git clone https://github.com/rjx18/codor.git "$HOME/codor"
-cd "$HOME/codor"
-corepack enable
-corepack pnpm install --frozen-lockfile
-corepack pnpm -r build
+pnpm install --frozen-lockfile
+pnpm -r build
 scripts/install-cli.sh
 codor setup
 ```
@@ -38,7 +34,48 @@ background service, optionally enables Tailscale, and prints a one-time browser 
 
 Open the pairing link. Codor is then available locally at <http://127.0.0.1:8137>.
 
-## Tailscale
+<details>
+<summary><strong>First time? Install prerequisites</strong></summary>
+
+You need Git, Node.js 22+, pnpm 10.9, and one authenticated agent CLI.
+
+**macOS**
+
+```sh
+xcode-select --install
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install git node pnpm
+```
+
+**Ubuntu / Debian**
+
+```sh
+sudo apt update
+sudo apt install -y git curl
+curl https://get.volta.sh | bash
+```
+
+Open a new terminal, then run:
+
+```sh
+volta install node@22
+npm install -g pnpm@10.9.0
+```
+
+Install and sign in to at least one supported agent:
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code/getting-started),
+[Codex](https://github.com/openai/codex),
+[Gemini](https://github.com/google-gemini/gemini-cli),
+[Copilot](https://docs.github.com/en/copilot/how-tos/copilot-cli/cli-getting-started), or
+[OpenCode](https://opencode.ai/docs/).
+
+</details>
+
+## Access remotely with Tailscale
+
+Tailscale lets you open Codor privately from your phone, tablet, or another computer—without
+putting it on the public internet. [Install Tailscale](https://tailscale.com/download) and sign in
+on both devices with the same account.
 
 `codor setup` can publish Codor privately over Tailscale automatically. If you skipped that step,
 run:
@@ -97,7 +134,7 @@ machine.
 
 <!-- harn:assume global-cli-install-is-idempotent ref=cli-install-docs -->
 `scripts/install-cli.sh` is the primary idempotent per-user install; alternatively use
-`corepack pnpm --filter @codor/cli link --global`. Most use happens in the PWA, but these commands
+`pnpm --filter @codor/cli link --global`. Most use happens in the PWA, but these commands
 are useful from a terminal:
 
 ```sh
@@ -155,7 +192,7 @@ Keep port 8137 on localhost and use a private authenticated tunnel such as Tails
 <summary><strong>Development</strong></summary>
 
 ```sh
-corepack pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile
 pnpm test:all
 pnpm audit:license
 ```

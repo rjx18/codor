@@ -1,0 +1,42 @@
+id: readme-prerequisites
+title: Make first-time prerequisites optional to expand and keep the main
+  install path concise
+notes: The public README must not assume Corepack is installed or enabled. Keep
+  the normal Codor install visible and limited to dependency installation,
+  build, CLI installation, and setup. Put first-time macOS and Ubuntu/Debian
+  prerequisite commands plus supported agent-CLI links in one collapsible
+  section. Rename and clarify the visible Tailscale section so a new user
+  understands that it provides private access from a phone, tablet, or another
+  computer. Remove Corepack from the CLI alternative and development example. No
+  runtime, protocol, service, or application code changes.
+assumptions:
+  reviewed:
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The documented build and setup path still builds and serves web-next;
+        only the prerequisite presentation and package-manager invocation become
+        clearer.
+    - id: global-cli-install-is-idempotent
+      outcome: unchanged
+      reason: scripts/install-cli.sh remains the primary idempotent install, and the
+        optional global-link command keeps the same behavior while invoking pnpm
+        directly.
+anchors:
+  operator-launches-serve-web-next:
+    readme-current-web-client:
+      action: change
+      reason: Replace Corepack-dependent setup with a concise direct-pnpm path, add
+        collapsed OS-specific prerequisites, and explain Tailscale as remote
+        device access.
+  global-cli-install-is-idempotent:
+    cli-install-docs:
+      action: change
+      reason: Remove the unnecessary Corepack prefix from the optional pnpm link
+        command.
+files:
+  - README.md
+verification: Run harn check, the public release audit, a Markdown
+  link/structure check, and inspect the rendered section order and exact
+  four-command primary install block.
+applied:
+  applied_at: 2026-07-19T16:03:14.632Z
