@@ -1,0 +1,88 @@
+id: continuation-reader-readiness
+title: Make continuation reading safe in the CLI and repeatable across browser
+  acceptance
+notes: >-
+  Bounded reader-readiness follow-up on exact base 01b9bbb. The durable
+  continuation writer remains dormant, browser protocol stays at epoch 1, the
+  server minimum stays observe-only, and no daemon/store/finalization/routing
+  code changes in this round.
+
+  The CLI tail renderer currently assumes every kind=run message owns a
+  RunSummary (`message.run!`). A continuation is intentionally kind=run with
+  run_parent_id and no lifecycle summary, so the future writer would crash every
+  tail --once and tail --follow subscriber as soon as #3 arrived. Make the
+  shared tail printer distinguish lifecycle roots from continuations. Preserve
+  today's root header byte-for-byte; render a continuation as `#<id> @<author>
+  run continuation of #<parent>` followed by that row's own body. Do not
+  aggregate bodies, hide rows, synthesize ids, attach root errors/status to a
+  continuation, or add a browser epoch to any of the eight agent/CLI subscribe
+  sites. A CLI regression seeds dormant root #1 / human #2 / continuation #3,
+  exercises the real Unix protocol through tail --once, and proves all three
+  permanent ids and bodies print in order without throwing. The same shared
+  printer covers follow.
+
+  Harden the browser acceptance added by 6B1 without changing runtime semantics.
+  The continuation E2E must be repeat-safe under --repeat-each: each repetition
+  owns a fresh dynamically named room with ids 1/2/3, receives the three rows
+  live, pushes them outside the 20-row tail, reloads/pages once, and never
+  relies on fixture state accumulated by a prior repetition. Keep the exact
+  journal targeting, reasoning-summary folding, tool-batch, adjacency,
+  permalink, duplicate-id, and axe assertions. The upgrade E2E must pin the
+  operator-visible Refresh transition (disabled + Updating) before reload and
+  remain repeat-safe; compatibility unit coverage should prove the
+  service-worker update path has a bounded controller-change listener/timer
+  cleanup and a failed refresh restores the actionable button rather than
+  stranding the screen. Do not loosen the preflight-before-WebSocket assertion.
+
+  Tests: CLI focused/full suite with CODOR_* removed; web-next unit; the two
+  reader/upgrade specs under --repeat-each=5 on a rebuilt fresh harness; full
+  rebuilt Playwright; full workspace test/build; harn check. One commit, then
+  tag Codex for review. No merge, deploy, restart, minimum raise, or writer
+  work.
+assumptions:
+  reviewed:
+    - id: continuation-output-schema-is-reader-first
+      outcome: unchanged
+      reason: The already-dormant schema is extended to another reader surface;
+        root/continuation identity and the prohibition on production writing do
+        not change.
+    - id: cli-waits-consume-only-matching-deliveries
+      outcome: unchanged
+      reason: Tail until/wait registration and delivery consumption are untouched;
+        only display of received run-shaped messages changes, with the existing
+        wait anchor held keep outside the nested reader block.
+    - id: browser-protocol-epoch-blocks-only-stale-browser-ui
+      outcome: unchanged
+      reason: Tests become repeatable and pin the existing Refresh transition; epoch,
+        admission, close, and observe-only behavior do not change.
+    - id: sw-injectmanifest-owned-worker
+      outcome: unchanged
+      reason: Refresh continues using the existing update/skipWaiting/clientsClaim
+        lifecycle; cleanup/error regressions harden it without changing
+        ownership.
+files:
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+  - packages/web-next/src/app/compatibility.tsx
+  - packages/web-next/src/app/compatibility.spec.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room23-continuations.e2e.spec.ts
+  - packages/web-next/tests/room24-upgrade.e2e.spec.ts
+anchors:
+  continuation-output-schema-is-reader-first:
+    continuation-cli-format:
+      action: change
+      reason: Root headers remain exact while continuation rows format without a
+        lifecycle summary and retain their own permanent id/body.
+    continuation-cli-tail:
+      action: change
+      reason: The shared once/follow printer routes roots and continuations through
+        the safe formatter without changing delivery-wait semantics.
+    continuation-cli-regression:
+      action: change
+      reason: "A real Unix tail hydration proves #1/#2/#3 output order and no crash."
+  cli-waits-consume-only-matching-deliveries:
+    tail-wait-command:
+      action: keep
+      reason: The surrounding until/wait state machine must not change in this
+        presentation-only round; the nested continuation reader owns its edits.
