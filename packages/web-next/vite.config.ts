@@ -19,7 +19,15 @@ export default defineConfig({
       srcDir: resolve(__dirname, '../web/src'),
       filename: 'sw.ts',
       injectRegister: false,
-      includeAssets: ['codor-icon.svg', 'codor-192.png', 'codor-512.png'],
+      includeAssets: [
+        'codor-favicon.svg',
+        'codor-mark.svg',
+        'codor-192.png',
+        'codor-512.png',
+        'codor-maskable-512.png',
+        'codor-apple-touch-180.png',
+        'codor-og.png',
+      ],
       injectManifest: {
         globPatterns: ['**/*.{html,js,css,svg,png,woff2}'],
         rollupFormat: 'es',
@@ -39,7 +47,10 @@ export default defineConfig({
         icons: [
           { src: '/codor-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/codor-512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/codor-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          // A padded, full-bleed plate: Android crops ~20% off each edge of a
+          // maskable icon, which clipped the rounded plate when this reused the
+          // plain 512.
+          { src: '/codor-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
     }),

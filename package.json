@@ -9,15 +9,17 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm -r build",
-    "test": "pnpm -r test",
-    "test:all": "pnpm -r build && pnpm -r test && pnpm --filter @codor/web e2e",
-    "lint": "pnpm -r --if-present lint",
     "audit:license": "node scripts/license-audit.mjs",
     "audit:release": "node scripts/release-audit.mjs",
-    "release:check": "pnpm test:all && pnpm audit:license && pnpm audit:release"
+    "build": "pnpm -r build",
+    "build:icons": "node scripts/build-icons.mjs",
+    "lint": "pnpm -r --if-present lint",
+    "release:check": "pnpm test:all && pnpm audit:license && pnpm audit:release",
+    "test": "pnpm -r test",
+    "test:all": "pnpm -r build && pnpm -r test && pnpm --filter @codor/web e2e"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
     "@types/node": "^22.8.0",
     "typescript": "^5.5.4",
     "vitest": "^3.2.4"

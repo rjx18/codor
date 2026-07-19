@@ -34,16 +34,17 @@
   padding: var(--sp-4) var(--sp-4) var(--sp-3);
   font: var(--t-title);
 }
+/* The real mark, not a letter. Drawn as a CSS mask over currentColor so the one
+   vector source themes with the rail instead of needing a light/dark asset pair.
+   30px clears the 24px legibility floor the monoline mark measures at. */
 .nx-brand-tile {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-block;
   width: 30px;
   height: 30px;
-  border-radius: var(--r-pill);
+  flex: none;
   background: var(--c-ink);
-  color: var(--c-surface);
-  font: var(--t-ui-strong);
+  -webkit-mask: url('/codor-mark.svg') center / contain no-repeat;
+  mask: url('/codor-mark.svg') center / contain no-repeat;
 }
 
 .nx-rail-search {

@@ -1,0 +1,14 @@
+id: brand-rasters-generated-not-hand-committed
+hash: a-4ce793f5ac24
+title: Every shipped Codor raster icon is generated from the single vector source
+state: active
+statement: Every shipped Codor raster brand asset - the 192 and 512 PWA icons,
+  the padded maskable icon, and the social preview image - must be produced by
+  scripts/build-icons.mjs from the one checked-in vector mark rather than
+  committed by hand, and re-running the generator on an unchanged source must
+  produce no diff; because the previous icons were hand-committed once and
+  silently drifted away from the mark and the design tokens, so a hand-edited
+  raster is indistinguishable from a stale one until someone notices the product
+  is wearing an old logo.
+depends_on: []
+created_by: codor-brand-surviving-surfaces

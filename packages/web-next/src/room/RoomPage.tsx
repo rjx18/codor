@@ -213,7 +213,7 @@ function ChannelRail(props: {
   return (
     <nav className="nx-rail" aria-label="Channels">
       <div className="nx-brand">
-        <span className="nx-brand-tile" aria-hidden="true">C</span>
+        <span className="nx-brand-tile" aria-hidden="true" />
         <strong>Codor</strong>
       </div>
       <div className="nx-rail-search">

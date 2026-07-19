@@ -1,0 +1,12 @@
+id: brand-asset-references-resolve
+hash: a-6c27990b1314
+title: Every brand asset path a shipped surface references exists on disk
+state: active
+statement: Every favicon, apple-touch-icon, manifest icon and social-preview
+  path referenced by a shipped Codor surface must resolve to a file that exists
+  in that surface's build output, verified by an automated check rather than by
+  eye; because web-next shipped a <link rel="icon"> pointing at /codor.svg while
+  the file on disk was codor-icon.svg, which meant the application had no
+  favicon at all and nothing failed to tell anyone.
+depends_on: []
+created_by: codor-brand-surviving-surfaces

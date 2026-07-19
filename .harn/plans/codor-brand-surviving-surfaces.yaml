@@ -1,0 +1,110 @@
+id: codor-brand-surviving-surfaces
+title: Brand the surviving public surfaces with the new Codor mark - one vector
+  source, generated rasters, and a docs site that finally has a favicon and a
+  social preview
+notes: >-
+  PLAN.md Phase 1. Scope is the surfaces that survive: the web-next app and the
+  VitePress docs site. packages/web is deliberately excluded and is deleted in
+  Phase 3, so it receives no branding.
+
+  packages/web-next/** is covered by .harnignore and carries the app-side asset,
+  favicon, manifest and rail-mark changes outside this plan. This plan covers
+  the two tracked pieces: the shared icon generator at scripts/build-icons.mjs,
+  and the docs site under website/.
+
+  Three defects are repaired here, all found by audit:
+
+  1. The docs site has no favicon at all and sets `logo: false`, so it is
+     unbranded in every browser tab.
+  2. There is no og:image or twitter:image anywhere in the repository, so every
+     link to a Codor surface unfurls blank.
+  3. The 192/512 rasters were hand-committed once in 3b2fcee and have drifted
+     from the mark ever since. A generator replaces hand-committed output so the
+     rasters cannot drift from the vector again.
+
+  The supplied artwork arrived as two files differing only in fill (#000000 /
+  #FFFFFF). It becomes one currentColor vector for themed in-app use, plus baked
+  light/dark favicon output, because a favicon resolves against no CSS context.
+  The bare monoline mark measures illegible below 24px, so favicon and small
+  raster sizes use the glyph knocked out of a filled plate.
+
+  The generator rasterizes with @resvg/resvg-js, added as a root devDependency.
+  Playwright was considered and rejected on evidence: @playwright/test is not
+  resolvable from the repository root (ERR_MODULE_NOT_FOUND - it exists only in
+  web-next), and installing that package does not install a browser, so icon
+  generation would depend on a separate browser download plus its OS libraries.
+  That is not a fresh-clone-safe build step.
+
+  @resvg/resvg-js 2.6.2 was verified in an isolated directory before being
+  written into this contract: it ships napi prebuilt binaries for twelve
+  platforms (linux x64/arm64 gnu and musl, darwin x64/arm64, win32, android),
+  declares no install or postinstall script so nothing compiles locally, renders
+  the actual Codor mark correctly at 192 and 512, and produced byte-identical
+  PNGs across repeated runs. That last property is what makes the
+  no-diff-on-rerun clause of brand-rasters-generated-not-hand-committed
+  enforceable rather than aspirational.
+
+  The VitePress navigation mark is supplied as a light/dark asset pair through
+  VitePress's own `logo: { light, dark }` option. An external <img> cannot
+  inherit currentColor, so the single currentColor vector themes correctly when
+  inlined in the app but not in the docs nav; two baked variants are the correct
+  mechanism there.
+
+  website/index.md is NOT touched: its harn-anchored region covers the landing
+  prose and install claims, and nothing in this phase needs to change it. The
+  favicon, nav mark and social metadata all live in .vitepress/config.ts, which
+  carries no anchors.
+assumptions:
+  create:
+    - id: brand-rasters-generated-not-hand-committed
+      title: Every shipped Codor raster icon is generated from the single vector
+        source
+      statement: Every shipped Codor raster brand asset - the 192 and 512 PWA icons,
+        the padded maskable icon, and the social preview image - must be
+        produced by scripts/build-icons.mjs from the one checked-in vector mark
+        rather than committed by hand, and re-running the generator on an
+        unchanged source must produce no diff; because the previous icons were
+        hand-committed once and silently drifted away from the mark and the
+        design tokens, so a hand-edited raster is indistinguishable from a stale
+        one until someone notices the product is wearing an old logo.
+      reason: The 192 and 512 PNGs were committed once in 3b2fcee and never
+        regenerated; the later rename and token work moved the palette on
+        without them, so the shipped icons no longer match the mark. A generator
+        makes drift impossible to introduce silently.
+    - id: brand-asset-references-resolve
+      title: Every brand asset path a shipped surface references exists on disk
+      statement: Every favicon, apple-touch-icon, manifest icon and social-preview
+        path referenced by a shipped Codor surface must resolve to a file that
+        exists in that surface's build output, verified by an automated check
+        rather than by eye; because web-next shipped a <link rel="icon">
+        pointing at /codor.svg while the file on disk was codor-icon.svg, which
+        meant the application had no favicon at all and nothing failed to tell
+        anyone.
+      reason: A mistyped or renamed asset path is invisible in review and produces a
+        silently unbranded surface rather than an error, so the guarantee has to
+        be an automated check over the referenced paths.
+files:
+  - package.json
+  - scripts/build-icons.mjs
+  - website/.vitepress/config.ts
+  - website/public/codor-mark-light.svg
+  - website/public/codor-mark-dark.svg
+  - website/public/codor-favicon.svg
+  - website/public/codor-apple-touch-180.png
+  - website/public/codor-og.png
+anchors:
+  brand-rasters-generated-not-hand-committed:
+    icon-generator-single-source:
+      action: change
+      reason: scripts/build-icons.mjs is created as the sole producer of every raster
+        brand asset, reading the one checked-in vector mark and writing
+        deterministic output for both the app and the docs site.
+  brand-asset-references-resolve:
+    website-brand-head-references:
+      action: change
+      reason: The VitePress head gains favicon, apple-touch-icon and og/twitter image
+        links, and the site logo is turned on; each path is covered by the
+        resolution check so a renamed asset fails the build rather than shipping
+        a blank tab or a blank unfurl.
+applied:
+  applied_at: 2026-07-19T12:20:52.067Z
