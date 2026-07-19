@@ -75,6 +75,40 @@ test.describe('spawn dialog', () => {
   });
 });
 
+test.describe('spawn before adapter discovery', () => {
+  test('the dialog adopts adapters when they arrive instead of staying dead', async ({ page }) => {
+    // The dialog used to snapshot the first adapter at mount. Opened before
+    // /api/adapters resolved it captured '' permanently: options appeared a
+    // moment later, but the selection never caught up and Spawn stayed
+    // disabled forever. In isolation discovery simply won the race.
+    let holding = true;
+    await page.route('**/api/adapters**', async (route) => {
+      while (holding) await new Promise((resolve) => setTimeout(resolve, 50));
+      await route.continue();
+    });
+
+    await page.goto(ROOM);
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await page.getByTestId('spawn-agent').click();
+    const dialog = page.getByTestId('spawn-dialog');
+    await expect(dialog).toBeVisible();
+
+    // Fill everything a human can fill while the harness list is still absent.
+    await dialog.getByTestId('spawn-handle').fill('lateling');
+    await dialog.getByTestId('spawn-cwd').fill('/tmp');
+    await expect(dialog.getByTestId('spawn-go')).toBeDisabled();
+
+    holding = false;
+
+    // The select adopts the first adapter and the action comes alive.
+    await expect(dialog.getByTestId('spawn-harness')).toHaveValue('fake', { timeout: 15_000 });
+    await expect(dialog.getByTestId('spawn-go')).toBeEnabled();
+
+    await dialog.getByTestId('spawn-go').click();
+    await expect(page.getByTestId('member-lateling')).toBeVisible();
+  });
+});
+
 test.describe('usage limits', () => {
   test('member cards show the harness-reported windows; agents without reports show none', async ({ page }) => {
     await openRoom(page);

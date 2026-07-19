@@ -507,15 +507,23 @@ function SpawnDialog(props: {
   const [policy, setPolicy] = useState('');
   const [thinking, setThinking] = useState('');
   const [purpose, setPurpose] = useState('');
-  const chosen = props.adapters.find((a) => a.id === harness);
-  const canSpawn = harness !== '' && handle.trim() !== '' && cwd.trim() !== '';
+  // Adapter discovery is asynchronous. Snapshotting the first adapter at mount
+  // means a dialog opened before /api/adapters resolves captures '' forever:
+  // the options appear a moment later, but the selection never catches up and
+  // Spawn stays permanently disabled. Derive it instead, so a stale or empty
+  // selection heals as soon as the real list arrives.
+  const selectedHarness = props.adapters.some((adapter) => adapter.id === harness)
+    ? harness
+    : props.adapters[0]?.id ?? '';
+  const chosen = props.adapters.find((adapter) => adapter.id === selectedHarness);
+  const canSpawn = selectedHarness !== '' && handle.trim() !== '' && cwd.trim() !== '';
 
   return (
     <Modal label="Spawn agent" onClose={props.onClose} testid="spawn-dialog">
       <h2 className="nx-dialog-title">Spawn agent</h2>
       <label className="nx-field">
         Harness
-        <select value={harness} onChange={(e) => { setHarness(e.target.value); setModel(''); }} data-testid="spawn-harness">
+        <select value={selectedHarness} onChange={(e) => { setHarness(e.target.value); setModel(''); }} data-testid="spawn-harness">
           {props.adapters.length === 0 && <option value="">discovering…</option>}
           {props.adapters.map((adapter) => <option key={adapter.id} value={adapter.id}>{adapter.id}</option>)}
         </select>
@@ -564,7 +572,7 @@ function SpawnDialog(props: {
           disabled={!canSpawn}
           data-testid="spawn-go"
           onClick={() => props.onSpawn({
-            harness,
+            harness: selectedHarness,
             handle: handle.trim(),
             cwd: cwd.trim(),
             ...(model !== '' && { model }),
