@@ -21,6 +21,7 @@ for (const width of [1024, 1280, 1360]) {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByTestId('context-tab-members')).toHaveAttribute('aria-selected', 'true');
     await expect(dialog.getByTestId('member-fable')).toBeVisible();
+    await expect(dialog.getByTestId('member-switchboard')).toHaveCount(0);
     await expect(dialog.getByTestId('member-fable-context-window')).toBeVisible();
     await expect(dialog.getByTestId('member-fable-compact')).toBeVisible();
 
@@ -37,6 +38,7 @@ test('1440px keeps the inline context island and needs no duplicate trigger', as
   await expect(context).toBeVisible();
   await expect(page.getByTestId('responsive-context-trigger')).toBeHidden();
   await expect(context.getByTestId('member-fable')).toBeVisible();
+  await expect(context.getByTestId('member-switchboard')).toHaveCount(0);
   await expect(context.getByTestId('member-fable-context-window')).toBeVisible();
   await expect(context.getByTestId('member-fable-compact')).toBeVisible();
 });
@@ -50,6 +52,7 @@ test('mobile keeps its full-screen context sheet with the compact control reacha
   const sheet = page.getByTestId('mobile-context');
   await expect(sheet).toBeVisible();
   await expect(sheet.getByTestId('member-fable')).toBeVisible();
+  await expect(sheet.getByTestId('member-switchboard')).toHaveCount(0);
   await expect(sheet.getByTestId('member-fable-context-window')).toBeVisible();
   await expect(sheet.getByTestId('member-fable-compact')).toBeVisible();
 });

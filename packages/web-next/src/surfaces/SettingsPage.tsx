@@ -96,7 +96,7 @@ function AppearanceSection() {
   );
 }
 
-// ── Notifications: Web Push opt-in, honest when the switchboard lacks it ──
+// ── Notifications: Web Push opt-in, honest when this host lacks it ────────
 
 function NotificationsSection(props: { token: () => string }) {
   const [config, setConfig] = useState<PushConfig>();
@@ -129,7 +129,7 @@ function NotificationsSection(props: { token: () => string }) {
         <p className="nx-field-note" data-testid="push-unavailable">
           {permission === 'unsupported'
             ? 'This browser does not support Web Push.'
-            : 'Push is not configured on this switchboard — enable a relay first.'}
+            : 'Push is not configured on this Codor host — enable a relay first.'}
         </p>
       ) : (
         <div className="nx-settings-actions">
@@ -296,7 +296,7 @@ function DevicesSection(props: { token: () => string }) {
   return (
     <section className="nx-settings-card" aria-labelledby="s-devices">
       <h2 id="s-devices">Devices</h2>
-      <p className="nx-settings-sub">Browsers paired to this switchboard.</p>
+      <p className="nx-settings-sub">Browsers paired to this Codor host.</p>
       {error !== undefined && <p className="nx-field-note is-error">{error}</p>}
       {devices !== undefined && (
         <ul className="nx-device-list" data-testid="device-list">

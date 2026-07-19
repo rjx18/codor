@@ -133,11 +133,13 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
 
   const roster = useMemo(() => {
     // Extensions are transient run machinery — the roster lists durable members.
+    // The structural system member is routing machinery, not a person or agent.
+    // Keep this surface truthful by listing only the two addressable member kinds.
     const active = Object.values(members).filter(
-      (m) => m.removed_ts === undefined && m.kind !== 'extension',
+      (m) => m.removed_ts === undefined && (m.kind === 'human' || m.kind === 'agent'),
     );
     const humans = active.filter((m) => m.kind === 'human');
-    const agents = active.filter((m) => m.kind !== 'human');
+    const agents = active.filter((m) => m.kind === 'agent');
     return [...humans, ...agents];
   }, [members]);
 

@@ -79,7 +79,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string }) {
                   ? <img className="nx-pair-qr" src={qr} alt="Pairing QR code" data-testid="pairing-qr" />
                   : <p role="status" className="nx-field-note">Preparing QR…</p>}
                 <p className="nx-pair-host">
-                  <ShieldCheck size={15} aria-hidden="true" /> {endpointHost ?? 'unknown switchboard'}
+                  <ShieldCheck size={15} aria-hidden="true" /> {endpointHost ?? 'unknown Codor host'}
                 </p>
               </div>
               <div className="nx-pair-explain">

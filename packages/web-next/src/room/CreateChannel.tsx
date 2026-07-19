@@ -1,5 +1,5 @@
 import type { Room } from '@codor/protocol';
-import { CHANNEL_ACCENTS, deriveAssignableHandle, deriveRoomId } from '@codor/protocol';
+import { deriveAssignableHandle, deriveRoomId } from '@codor/protocol';
 import { ArrowUp, Folder, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -33,7 +33,6 @@ export function CreateChannelDialog(props: {
   const adapters = useAdapters(props.token);
   const [name, setName] = useState('');
   const [cwd, setCwd] = useState('');
-  const [color, setColor] = useState<string>(CHANNEL_ACCENTS[0] ?? '');
   const [agentConfig, setAgentConfig] = useState<AgentConfig>({
     harness: '', model: '', thinking: '', policy: DEFAULT_POLICY,
   });
@@ -72,7 +71,6 @@ export function CreateChannelDialog(props: {
       name: name.trim(),
       owner: { handle: owner.handle, display_name: owner.display_name },
       ...(cwd !== '' && { cwd }),
-      ...(color !== '' && { color }),
       ...(agentHarness !== '' && derivedHandle !== undefined && {
         starting_agent: {
           harness: agentHarness,
@@ -129,23 +127,6 @@ export function CreateChannelDialog(props: {
           <span className="nx-field-note">id: <Code>{deriveRoomId(name)}</Code></span>
         )}
       </label>
-      <div className="nx-field">
-        Colour
-        <div className="nx-swatch-row" role="group" aria-label="Channel colour">
-          {CHANNEL_ACCENTS.map((accent, index) => (
-            <button
-              key={accent}
-              type="button"
-              className="nx-swatch"
-              style={{ '--swatch': accent } as React.CSSProperties}
-              aria-label={`Accent ${String(index + 1)}`}
-              aria-pressed={color === accent}
-              data-testid={`create-color-${String(index)}`}
-              onClick={() => setColor(accent)}
-            />
-          ))}
-        </div>
-      </div>
       <div className="nx-field">
         Working folder (optional)
         <FolderPicker token={props.token} value={cwd} onChange={setCwd} />

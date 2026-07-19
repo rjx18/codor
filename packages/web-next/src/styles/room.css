@@ -2056,39 +2056,9 @@
 }
 
 /* ── Channel-create extras ────────────────────────────────────────────────
-   Colour swatches, the folder picker's breadcrumb trail and its explicit
-   confirm. Browsing must not mutate the selection, so the picker now ends in a
-   deliberate action rather than changing the channel's folder as you look. */
-
-.nx-swatch-row {
-  display: flex;
-  gap: var(--sp-2);
-  margin-top: var(--sp-2);
-}
-.nx-swatch {
-  /* The visible dot stays 26px; the hit target is a full 44 so it works on a phone. */
-  position: relative;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  background: none;
-  border: 0;
-  border-radius: var(--r-full);
-  cursor: pointer;
-}
-.nx-swatch::after {
-  content: '';
-  position: absolute;
-  inset: 9px;
-  border-radius: var(--r-full);
-  background: var(--swatch);
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12);
-  transition: box-shadow var(--m-fast) var(--m-ease);
-}
-.nx-swatch[aria-pressed='true']::after {
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12), 0 0 0 2px var(--c-surface), 0 0 0 4px var(--c-ink);
-}
-.nx-swatch:focus-visible { outline: 2px solid var(--c-agent); outline-offset: 2px; }
+   The folder picker's breadcrumb trail and explicit confirm. Browsing must
+   not mutate the selection, so the picker ends in a deliberate action rather
+   than changing the channel's folder as you look. */
 
 .nx-crumbs {
   display: flex;
@@ -2153,6 +2123,3 @@
 .nx-tile-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
 
 .nx-field input:disabled { opacity: 0.55; cursor: not-allowed; }
-
-/* Six swatches overflowed the modal at 320px; they wrap now. */
-.nx-swatch-row { flex-wrap: wrap; }

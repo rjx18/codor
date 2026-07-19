@@ -358,15 +358,10 @@ test.describe('accessibility', () => {
       document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(overflow).toBe(false);
 
-    // Every swatch is inside the modal and keeps a real touch target.
-    const box = (await dialog.boundingBox())!;
-    for (const index of [0, 5]) {
-      const swatch = (await dialog.getByTestId(`create-color-${String(index)}`).boundingBox())!;
-      expect(swatch.x).toBeGreaterThanOrEqual(box.x - 0.5);
-      expect(swatch.x + swatch.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
-      expect(swatch.width).toBeGreaterThanOrEqual(44);
-      expect(swatch.height).toBeGreaterThanOrEqual(44);
-    }
+    // Channel colour is automatic; creation no longer asks the operator to
+    // make a cosmetic decision before doing the useful work.
+    await expect(dialog.getByText('Colour', { exact: true })).toHaveCount(0);
+    await expect(dialog.locator('[data-testid^="create-color-"]')).toHaveCount(0);
 
     // And it still works: name it and create from the phone.
     await dialog.getByTestId('create-name').fill('phonemade');
