@@ -1,7 +1,7 @@
 id: message-activity-drives-unread
 hash: a-5a08c81e2309
 title: Only substantive incoming message activity creates channel unread
-state: active
+state: retired
 statement: Each chat insertion and each transition of a non-ack run into a
   finalized status must record that message's room activity seq, while running
   runs, asks, approvals, system rows, acknowledgements, pinning, deletion, and
@@ -12,3 +12,4 @@ depends_on:
   - substantive-routing-excludes-acknowledgements
   - changelog-is-sync-cursor
 created_by: durable-read-support
+retired_by: continuation-writer

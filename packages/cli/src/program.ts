@@ -83,7 +83,7 @@ export function parseAdapterModules(values: string[]): Record<string, string> {
   return Object.fromEntries(adapters);
 }
 
-// harn:assume continuation-output-schema-is-reader-first ref=continuation-cli-format
+// harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-cli-format
 /**
  * A continuation is deliberately kind=run WITHOUT a lifecycle summary — the
  * status, usage and cost belong to its root, not to it. Reading `message.run!`
@@ -110,7 +110,7 @@ const formatRunHeader = (message: Message, author: string): string => {
     usage?.cost_usd === undefined ? undefined : `$${usage.cost_usd.toFixed(2)}`,
   ].filter((part) => part !== undefined).join(' ');
 };
-// harn:end continuation-output-schema-is-reader-first
+// harn:end continuation-writer-follows-journaled-output-ownership
 
 async function readStandardInput(): Promise<string> {
   const chunks: Buffer[] = [];
@@ -628,7 +628,7 @@ export function createProgram(context: CliContext = {}): Command {
           if (frame.type === 'member') members.set(frame.member.id, frame.member);
           if (frame.type !== 'message') return;
           const author = members.get(frame.message.author)?.handle ?? frame.message.author;
-          // harn:assume continuation-output-schema-is-reader-first ref=continuation-cli-tail
+          // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-cli-tail
           if (frame.message.kind === 'run') {
             // Roots and continuations both print here, each carrying only its
             // own id and body. Nothing is aggregated or hidden: a continuation
@@ -641,7 +641,7 @@ export function createProgram(context: CliContext = {}): Command {
             // harn:assume run-failure-evidence-is-surfaced ref=cli-run-error-evidence
             if (frame.message.run?.error) out(`error: ${frame.message.run.error}`);
             // harn:end run-failure-evidence-is-surfaced
-            // harn:end continuation-output-schema-is-reader-first
+            // harn:end continuation-writer-follows-journaled-output-ownership
           } else {
             out(`#${frame.message.id} @${author} ${frame.message.kind}`);
             if (frame.message.body) out(frame.message.body);

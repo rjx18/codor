@@ -65,14 +65,35 @@ function highestVisibleReadSeq(node: HTMLElement): number | undefined {
   return highest;
 }
 
-function readSeqFor(message: Message, mine: boolean): number | undefined {
+// harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-web-rendering
+export function messageReadSeq(message: Message, mine: boolean): number | undefined {
   if (mine || message.deleted === true || message.ack === true) return undefined;
   if (message.kind === 'chat') return message.seq;
+  if (message.kind === 'run' && message.run_parent_id !== undefined) return message.seq;
   if (message.kind === 'run' && message.run !== undefined && message.run.status !== 'running') {
     return message.seq;
   }
   return undefined;
 }
+
+export function continuationVisibleMessages(
+  ordered: readonly Message[],
+  messages: Readonly<Record<number, Message>>,
+  pendingInteractions?: readonly Message[],
+): Message[] {
+  const pending = new Set(pendingInteractions?.map((message) => message.id) ?? []);
+  return ordered.filter((message) => {
+    if (
+      (message.kind === 'ask' || message.kind === 'approval')
+      && pendingInteractions !== undefined
+      && !pending.has(message.id)
+    ) return false;
+    const root = message.run_parent_id === undefined ? message : messages[message.run_parent_id];
+    if (root?.ack !== true || root.run?.output_mode !== 'messages') return true;
+    return message.id === (root.run.result_message_id ?? root.id);
+  });
+}
+// harn:end continuation-writer-follows-journaled-output-ownership
 
 export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
   const slice = useClientStore((state) => roomSlice(state, props.room));
@@ -104,13 +125,11 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const ordered = useMemo(() => transcriptMessages(messages), [messages]);
   // Support state owns actionability; transcript messages stay the exact
   // contiguous history window and never absorb old correctness outliers.
-  const visible = useMemo(() => {
-    if (support === undefined) return ordered;
-    const pending = new Set(support.interactions.map((message) => message.id));
-    return ordered.filter(
-      (message) => (message.kind !== 'ask' && message.kind !== 'approval') || pending.has(message.id),
-    );
-  }, [ordered, support]);
+  const visible = useMemo(() => continuationVisibleMessages(
+    ordered,
+    messages,
+    support?.interactions,
+  ), [messages, ordered, support]);
   const detachedInteractions = useMemo(
     () => support?.interactions.filter((message) => messages[message.id] === undefined) ?? [],
     [messages, support],
@@ -709,7 +728,7 @@ function TurnBlock(props: {
     <article
       id={String(message.id)}
       data-testid={message.kind === 'run' ? `run-${message.id}` : `msg-${message.id}`}
-      data-read-seq={readSeqFor(message, props.mine)}
+      data-read-seq={messageReadSeq(message, props.mine)}
       data-mentions-me={mentionsMe ? 'true' : undefined}
       className={`nx-turn ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''} ${message.pinned === true ? 'is-pinned' : ''} ${mentionsMe ? 'is-mentioned' : ''}`}
     >
@@ -1033,6 +1052,18 @@ function useFinalizedRunSegments(
   return { segments, version };
 }
 
+// harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-web-rendering
+export function continuationTrailingText(
+  finalText: string,
+  streamedText: string,
+  outputMessages: boolean,
+  hasProse: boolean,
+): string {
+  return outputMessages && hasProse && finalText.startsWith(streamedText)
+    ? finalText.slice(streamedText.length)
+    : '';
+}
+
 function RunContent(props: { message: Message; room: string; token: () => string }) {
   const rootId = props.message.run_parent_id ?? props.message.id;
   const root = useClientStore((state) => {
@@ -1088,6 +1119,11 @@ function RunContent(props: { message: Message; room: string; token: () => string
   const finalText = outputMessages
     ? props.message.body
     : props.message.run?.final_text ?? props.message.body;
+  const streamedText = segments
+    .filter((segment): segment is Extract<RunSegment, { kind: 'prose' }> => segment.kind === 'prose')
+    .map((segment) => segment.row.text ?? '')
+    .join('');
+  const trailingText = continuationTrailingText(finalText, streamedText, outputMessages, hasProse);
   // harn:assume run-failure-evidence-is-surfaced ref=web-next-run-error-evidence
   // Failed/interrupted runs have empty bodies by design — their reason lives
   // on run.error and must render, or failures are silently blank.
@@ -1129,6 +1165,9 @@ function RunContent(props: { message: Message; room: string; token: () => string
       {!running && !hasProse && finalText.length > 0 && (
         <RunTextBlock messageId={props.message.id} blockId="final" text={finalText} />
       )}
+      {!running && trailingText.length > 0 && (
+        <RunTextBlock messageId={props.message.id} blockId="final" text={trailingText} />
+      )}
       {/* harn:assume run-failure-evidence-is-surfaced ref=web-next-run-error-evidence */}
       {!running && runError !== undefined && runError !== '' && (
         <p className="nx-field-note is-error" role="alert" data-testid="run-error">
@@ -1139,6 +1178,7 @@ function RunContent(props: { message: Message; room: string; token: () => string
     </div>
   );
 }
+// harn:end continuation-writer-follows-journaled-output-ownership
 // harn:end web-compaction-markers-upgrade-in-place
 
 // ── Timeline flattening: a finalized run's segments become top-level entries
@@ -1313,7 +1353,7 @@ function RunStretch(props: {
     <article
       id={props.anchored ? String(message.id) : undefined}
       data-testid={`run-${message.id}`}
-      data-read-seq={readSeqFor(message, props.mine)}
+      data-read-seq={messageReadSeq(message, props.mine)}
       className={`nx-turn ${props.mine ? 'is-mine' : ''}`}
     >
       {!isMobile && <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />}

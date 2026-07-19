@@ -273,8 +273,8 @@ describe('multi-box member residency over hyperdht/testnet', () => {
       id: 2,
       author: fixture.memberId,
       kind: 'run',
-      body: '@richard remote work done',
-      run: { status: 'completed' },
+      body: 'working@richard remote work done',
+      run: { status: 'completed', final_text: 'working@richard remote work done' },
     });
     expect(fixture.fake.deliveries).toHaveLength(1);
     expect(fixture.fake.deliveries[0]).toMatchObject({ cwd: '/lab/work' });

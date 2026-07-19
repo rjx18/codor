@@ -446,12 +446,9 @@ const chronoAfter = chronoMessage('chronology chat after the running turn starte
 daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
   .run(chronoTs(2), 'chronology', chronoAfter.id);
 
-// Continuations: dormant reader-first data only. The production daemon still
-// writes one run row. The control endpoint inserts and fans out a future
-// writer's three durable rows on demand, then reload proves the same store data.
-// Every repetition gets its OWN room, so ids are always 1/2/3 and no run sees
-// state a previous one accumulated (the bulk rows that push the subjects out of
-// the tail would otherwise make the second repetition's "live arrival" a lie).
+// Continuations: every repetition gets its OWN room, then the control endpoint
+// drives the production writer through a real FakeAdapter turn while the browser
+// is already subscribed. No row or journal event is seeded by hand.
 let continuationRoomSeq = 0;
 const createContinuationRoom = () => {
   const id = `continuations-${String(++continuationRoomSeq)}`;
@@ -460,79 +457,130 @@ const createContinuationRoom = () => {
   daemon.spawnMember(id, { harness: 'fake', handle: 'continuator', cwd: dir });
   return id;
 };
-const seedContinuation = (roomId) => {
-  const continuationOwner = daemon.ownerOf(roomId);
-  const continuationAgent = daemon.store.getMemberByHandle(roomId, 'continuator');
-  const continuationTs = new Date().toISOString();
-  const continuationRef = 'runs/continuation-root.jsonl';
-  const root = daemon.store.postMessage(roomId, {
-    author: continuationAgent.id,
-    kind: 'run',
-    body: 'First durable stretch before the operator replied.',
-    run: {
-      status: 'completed',
-      started_ts: continuationTs,
-      ended_ts: continuationTs,
-      tool_calls: 2,
-      events_ref: continuationRef,
-      final_text: 'First durable stretch before the operator replied. Second durable stretch after the operator replied.',
-      output_mode: 'messages',
-      result_message_id: 3,
-    },
-  });
-  const interjection = daemon.store.postMessage(roomId, {
-    author: continuationOwner.id,
-    kind: 'chat',
-    body: 'Operator interjection must stay between both stretches.',
-  });
-  const tail = daemon.store.postMessage(roomId, {
-    author: continuationAgent.id,
-    kind: 'run',
-    body: 'Second durable stretch after the operator replied.',
-    run_parent_id: root.id,
-  });
-  for (const event of [
-    {
-      type: 'run.item', item_type: 'text_delta', output_message_id: root.id,
-      payload: { text: 'First durable stretch before the operator replied.' }, ts: continuationTs,
-    },
-    {
-      type: 'run.item', item_type: 'tool_call', output_message_id: root.id,
-      payload: { call_id: 'continuation-read', tool: 'Read', title: 'Read source fixture', input: { file_path: 'src/input.ts' } },
-      ts: continuationTs,
-    },
-    {
-      type: 'run.item', item_type: 'reasoning_summary', output_message_id: root.id,
-      payload: { text: '' }, ts: continuationTs,
-    },
-    {
-      type: 'run.item', item_type: 'tool_result', output_message_id: root.id,
-      payload: { call_id: 'continuation-read', status: 'ok', output_text: 'source ready' }, ts: continuationTs,
-    },
-    {
-      type: 'run.item', item_type: 'tool_call', output_message_id: root.id,
-      payload: { call_id: 'continuation-edit', tool: 'Edit', title: 'Edit continuation fixture', input: { file_path: 'src/output.ts' } },
-      ts: continuationTs,
-    },
-    {
-      type: 'run.item', item_type: 'tool_result', output_message_id: root.id,
-      payload: { call_id: 'continuation-edit', status: 'ok', output_text: 'fixture updated' }, ts: continuationTs,
-    },
-    {
-      type: 'run.item', item_type: 'text_delta', output_message_id: tail.id,
-      payload: { text: 'Second durable stretch after the operator replied.' }, ts: continuationTs,
-    },
-    {
-      type: 'run.completed', status: 'completed', output_message_id: tail.id,
-      final_text: 'First durable stretch before the operator replied. Second durable stretch after the operator replied.',
-    },
-  ]) daemon.blobs.append(roomId, continuationRef, event);
-  if (root.id !== 1 || interjection.id !== 2 || tail.id !== 3) {
-    throw new Error('continuation fixture ids must remain 1/2/3');
+const waitForContinuation = async (read, predicate, label) => {
+  for (let attempt = 0; attempt < 300; attempt++) {
+    const value = read();
+    if (predicate(value)) return value;
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  // Test-only fanout: the production writer is deliberately dormant in 6B1.
-  for (const message of [root, interjection, tail]) daemon.emitMessage(roomId, message);
-  return { room: roomId, root: root.id, interjection: interjection.id, tail: tail.id };
+  throw new Error(`continuation fixture timed out: ${label}`);
+};
+const runContinuation = async (roomId) => {
+  const continuationAgent = daemon.store.getMemberByHandle(roomId, 'continuator');
+  if (!continuationAgent) throw new Error(`continuation room has no agent: ${roomId}`);
+  const interject = (body) => {
+    // Persist and fan out the operator row without creating a second delivery:
+    // this fixture is isolating one engine turn's output segmentation, not the
+    // default-recipient queue that a subsequent operator instruction exercises.
+    const message = daemon.store.postMessage(roomId, {
+      author: daemon.ownerOf(roomId).id,
+      kind: 'chat',
+      body,
+    });
+    daemon.emitMessage(roomId, message);
+    return message;
+  };
+
+  fake.enqueue({
+    kind: 'complete',
+    final_text: 'First durable stretch before the operator replied. Second durable stretch after the operator replied.',
+    item_delay_ms: 120,
+    items: [
+      {
+        type: 'run.item', item_type: 'text_delta',
+        payload: { text: 'First durable stretch before the operator replied. ' },
+      },
+      {
+        type: 'run.item', item_type: 'tool_call',
+        payload: {
+          call_id: 'continuation-read', tool: 'Read', title: 'Read source fixture',
+          input: { file_path: 'src/input.ts' },
+        },
+      },
+      {
+        type: 'run.item', item_type: 'reasoning_summary',
+        payload: { text: '' },
+      },
+      {
+        type: 'run.item', item_type: 'tool_result',
+        payload: { call_id: 'continuation-read', status: 'ok', output_text: 'source ready' },
+      },
+      {
+        type: 'run.item', item_type: 'tool_call',
+        payload: {
+          call_id: 'continuation-edit', tool: 'Edit', title: 'Edit continuation fixture',
+          input: { file_path: 'src/output.ts' },
+        },
+      },
+      {
+        type: 'run.item', item_type: 'tool_result',
+        payload: { call_id: 'continuation-edit', status: 'ok', output_text: 'fixture updated' },
+      },
+      {
+        type: 'run.item', item_type: 'text_delta',
+        payload: { text: 'Second durable stretch after the operator replied.' },
+      },
+    ],
+  });
+
+  const trigger = daemon.postHumanMessage(roomId, '@continuator stream a durable answer');
+  const root = await waitForContinuation(
+    () => daemon.store.listRunMessages(roomId, { author: continuationAgent.id, limit: 1 })[0],
+    (message) => message?.run?.status === 'running',
+    'main root to start',
+  );
+  await waitForContinuation(
+    () => daemon.readRunBlob(roomId, root.id),
+    (events) => events.some((event) =>
+      event.type === 'run.item'
+      && event.item_type === 'tool_result'
+      && event.payload.call_id === 'continuation-edit'),
+    'root tool batch to finish',
+  );
+  const interjection = interject('Operator interjection must stay between both stretches.');
+  await waitForContinuation(
+    () => daemon.store.getMessage(roomId, root.id),
+    (message) => message?.run?.status !== 'running',
+    'main root to finalize',
+  );
+  const tail = daemon.store.listRunContinuations(roomId, root.id)[0];
+  if (!tail) throw new Error('production writer did not create the continuation row');
+
+  // A final-only acknowledgement after an interjection must allocate its terminal
+  // result row, yet the reader presents exactly one Acknowledged row for the family.
+  fake.enqueue({ kind: 'complete', final_text: '<ACK_OK>', delay_ms: 150 });
+  const ackTrigger = daemon.postHumanMessage(roomId, '@continuator acknowledge silently');
+  const ackRoot = await waitForContinuation(
+    () => daemon.store.listRunMessages(roomId, { author: continuationAgent.id, limit: 1 })[0],
+    (message) => message?.id !== root.id && message?.run?.status === 'running',
+    'ack root to start',
+  );
+  const ackInterjection = interject('Operator interjection before the acknowledgement result.');
+  const settledAckRoot = await waitForContinuation(
+    () => daemon.store.getMessage(roomId, ackRoot.id),
+    (message) => message?.run?.status !== 'running',
+    'ack root to finalize',
+  );
+  const ackResultId = settledAckRoot?.run?.result_message_id;
+  if (ackResultId === undefined || ackResultId === ackRoot.id) {
+    throw new Error('production writer did not allocate the acknowledgement result row');
+  }
+
+  return {
+    room: roomId,
+    main: {
+      trigger: trigger.id,
+      root: root.id,
+      interjection: interjection.id,
+      tail: tail.id,
+    },
+    ack: {
+      trigger: ackTrigger.id,
+      root: ackRoot.id,
+      interjection: ackInterjection.id,
+      result: ackResultId,
+    },
+  };
 };
 
 // Hydration: the large-room regression room (codex #516). It carries a LIVE run
@@ -718,9 +766,23 @@ createServer((req, res) => {
           ? daemon.ownerOf(roomId)
           : daemon.store.getMemberByHandle(roomId, String(body.author));
         if (!author) throw new Error(`no such author: ${String(body.author)}`);
-        const message = author.kind === 'agent'
-          ? daemon.postAgentMessage(roomId, author.id, String(body.body ?? 'live arrival'))
-          : daemon.postHumanMessage(roomId, String(body.body ?? 'live arrival'), { author: author.id });
+        let message;
+        if (author.kind === 'agent') {
+          message = daemon.postAgentMessage(roomId, author.id, String(body.body ?? 'live arrival'));
+        } else if (body.route === false) {
+          // Some visual-only regressions need a live durable arrival without
+          // also exercising the room's default-recipient delivery chain.
+          message = daemon.store.postMessage(roomId, {
+            author: author.id,
+            kind: 'chat',
+            body: String(body.body ?? 'live arrival'),
+          });
+          daemon.emitMessage(roomId, message);
+        } else {
+          message = daemon.postHumanMessage(roomId, String(body.body ?? 'live arrival'), {
+            author: author.id,
+          });
+        }
         payload = { id: message.id, ts: message.ts };
       }
       if (url.pathname === '/tail-ids') {
@@ -744,9 +806,9 @@ createServer((req, res) => {
         // Handed out empty, so the spec can be watching before the rows land.
         payload = { room: createContinuationRoom() };
       }
-      if (url.pathname === '/seed-continuation') {
+      if (url.pathname === '/run-continuation') {
         const body = raw === '' ? {} : JSON.parse(raw);
-        payload = seedContinuation(String(body.room ?? createContinuationRoom()));
+        payload = await runContinuation(String(body.room ?? createContinuationRoom()));
       }
       if (url.pathname === '/post-chat') {
         // Insert a plain human chat straight into the store — NO routing, so it
@@ -785,7 +847,14 @@ createServer((req, res) => {
         const blocks = events.filter(
           (event) => event.type === 'run.item' && event.item_type === 'text_delta',
         ).length;
-        payload = { runId: runMsg?.id ?? null, status: runMsg?.run?.status ?? null, blocks };
+        payload = {
+          runId: runMsg?.id ?? null,
+          status: runMsg?.run?.status ?? null,
+          blocks,
+          outputIds: runMsg === undefined
+            ? []
+            : [runMsg.id, ...daemon.store.listRunContinuations(roomId, runMsg.id).map((message) => message.id)],
+        };
       }
       if (url.pathname === '/seed-runs') {
         // Hundreds of archived runs with journals — the large-room shape whose

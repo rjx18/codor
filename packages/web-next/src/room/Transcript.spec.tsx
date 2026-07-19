@@ -1,6 +1,13 @@
 import type { Message } from '@codor/protocol';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('./markdown.js', () => ({ renderMarkdown: (body: string) => body }));
+
+import {
+  continuationTrailingText,
+  continuationVisibleMessages,
+  messageReadSeq,
+} from './Transcript.js';
 import { transcriptMessages } from './transcript-order.js';
 
 const TS = '2026-07-18T00:00:00.000Z';
@@ -36,6 +43,7 @@ function root(id: number, mode?: 'messages', status: 'running' | 'completed' = '
   };
 }
 
+// harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-web-regression
 describe('transcript durable ordering', () => {
   it('retains ended-time and running-tail behavior for already stored roots', () => {
     expect(transcriptMessages({ 1: root(1), 2: chat(2) }).map((message) => message.id))
@@ -68,3 +76,35 @@ describe('transcript durable ordering', () => {
       .map((message) => message.id)).toEqual([22, 23, 24]);
   });
 });
+
+describe('continuation transcript semantics', () => {
+  it('renders one terminal acknowledgement for a multi-row ACK family', () => {
+    const lifecycleRoot = { ...root(1, 'messages'), ack: true };
+    const middle: Message = {
+      ...chat(2, ''), author: 'agent', kind: 'run', run_parent_id: 1,
+    };
+    const result: Message = {
+      ...chat(3, '<ACK_OK>'), author: 'agent', kind: 'run', run_parent_id: 1, ack: true,
+    };
+    const messages = { 1: lifecycleRoot, 2: middle, 3: result };
+    expect(continuationVisibleMessages([lifecycleRoot, middle, result], messages))
+      .toEqual([result]);
+  });
+
+  it('counts a substantive continuation as readable but never its ACK result', () => {
+    const continuation: Message = {
+      ...chat(3, 'continued'), author: 'agent', kind: 'run', run_parent_id: 1,
+    };
+    expect(messageReadSeq(continuation, false)).toBe(3);
+    expect(messageReadSeq({ ...continuation, ack: true }, false)).toBeUndefined();
+    expect(messageReadSeq(continuation, true)).toBeUndefined();
+  });
+
+  it('renders a settled residual as its own block after streamed prose', () => {
+    expect(continuationTrailingText('workingfinal answer', 'working', true, true))
+      .toBe('final answer');
+    expect(continuationTrailingText('final answer', 'working', true, true)).toBe('');
+    expect(continuationTrailingText('workingfinal answer', 'working', false, true)).toBe('');
+  });
+});
+// harn:end continuation-writer-follows-journaled-output-ownership

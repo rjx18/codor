@@ -20,7 +20,7 @@ test('an incompatible browser is blocked before its room socket and refreshes in
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        browser_protocol: 1,
+        browser_protocol: 2,
         minimum_browser_protocol: 0,
         compatible: true,
       }),

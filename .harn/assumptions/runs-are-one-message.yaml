@@ -1,7 +1,7 @@
 id: runs-are-one-message
 hash: a-111ce49f5e97
 title: One turn produces exactly one run message, reused across retries
-state: active
+state: retired
 statement: Starting a turn must post exactly one run placeholder message (status
   running, events_ref pointing at its blob) and a crash-retry of the same
   delivery must REUSE that placeholder rather than posting a second run message,
@@ -10,3 +10,4 @@ statement: Starting a turn must post exactly one run placeholder message (status
 depends_on:
   - reply-is-finalized-run-message
 created_by: daemon-pump-lifecycle
+retired_by: continuation-writer

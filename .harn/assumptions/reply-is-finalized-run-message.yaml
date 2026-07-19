@@ -1,7 +1,7 @@
 id: reply-is-finalized-run-message
 hash: a-c3c44b4d4a25
 title: The reply IS the finalized run message - routing starts from it
-state: active
+state: retired
 statement: On run.completed the daemon must finalize the run message IN PLACE
   (body becomes final_text, mentions/refs re-parsed from that body, run summary
   updated, seq bumped) and create onward deliveries FROM that same message id -
@@ -10,3 +10,4 @@ statement: On run.completed the daemon must finalize the run message IN PLACE
 depends_on:
   - routing-eligibility-gate
 created_by: daemon-pump-lifecycle
+retired_by: continuation-writer

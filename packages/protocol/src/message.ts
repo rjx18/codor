@@ -57,13 +57,13 @@ export const RunSummarySchema = z.object({
   tool_calls: z.number().int().nonnegative(),
   usage: UsageSchema.optional(),
   events_ref: z.string().min(1), // pointer to the JSONL event blob
-  final_text: z.string().optional(), // the closing message — becomes the visible body
-  // harn:assume continuation-output-schema-is-reader-first ref=continuation-message-schema
+  final_text: z.string().optional(), // authoritative aggregate across all output rows
+  // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-message-schema
   /** New turns opt into permanent per-stretch output rows; absent is stored legacy history. */
   output_mode: z.literal('messages').optional(),
   /** Permanent message id containing the terminal visible stretch/result. */
   result_message_id: MessageIdSchema.optional(),
-  // harn:end continuation-output-schema-is-reader-first
+  // harn:end continuation-writer-follows-journaled-output-ownership
   // harn:assume failed-run-details-never-route-as-replies ref=failed-run-error-schema
   error: z.string().min(1).optional(), // failed-run detail — evidence, never reply text
   // harn:end failed-run-details-never-route-as-replies
@@ -89,10 +89,10 @@ export const MessageSchema = z.object({
   ledger_refs: z.array(z.string()), // [[note]] names referenced
   reply_to: MessageIdSchema.optional(), // threading hint; never affects routing
   run: RunSummarySchema.optional(), // kind='run' only
-  // harn:assume continuation-output-schema-is-reader-first ref=continuation-message-schema
+  // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-message-schema
   /** A continuation's lifecycle root. Root run messages omit this and carry `run`. */
   run_parent_id: MessageIdSchema.optional(),
-  // harn:end continuation-output-schema-is-reader-first
+  // harn:end continuation-writer-follows-journaled-output-ownership
   ask: AskCardSchema.optional(), // kind='ask'|'approval' only
   origin: BridgeOriginSchema.optional(), // bridge-authored only
   // harn:assume acknowledgement-marker-protocol ref=message-ack-field

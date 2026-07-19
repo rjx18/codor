@@ -67,6 +67,7 @@ Member {
 
 ## 2. Messages
 
+<!-- harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-protocol-documentation -->
 ```ts
 Message {
   id: number            // per-channel monotonic int — this is what #refs point at
@@ -78,7 +79,8 @@ Message {
   refs: number[]        // #ids referenced anywhere in body
   ledger_refs: string[] // [[note]] names referenced (§6)
   reply_to?: number     // threading hint for surfaces; does not affect routing
-  run?: RunSummary      // kind='run' only
+  run?: RunSummary      // lifecycle-root kind='run' only
+  run_parent_id?: number // continuation kind='run' only; points to the lifecycle root
   ask?: AskCard         // kind='ask'|'approval' only
   origin?: BridgeOrigin // bridge-authored only; unique per (bridge member, platform, external_id)
   ack?: boolean         // exact ACK_OK turn; defaults false
@@ -107,33 +109,47 @@ RunSummary {
   tool_calls: number
   usage?: { input_tokens, output_tokens, cost_usd? }   // as reported by the harness
   events_ref: string    // pointer to the JSONL event blob (see ARCHITECTURE §storage)
-  final_text?: string   // the agent's closing message — this is the visible body
+  final_text?: string   // authoritative aggregate across every output row
+  output_mode?: 'messages' // present on roots written by the chronological writer
+  result_message_id?: number // permanent terminal output/result row
   error?: string        // failed-run detail — evidence, never reply/routing text
 }
 ```
 
-<!-- harn:assume failed-run-details-never-route-as-replies ref=failed-run-error-schema -->
-**Runs are one message — and the reply IS that message.** When an agent starts a turn, the
-switchboard posts a `run` message immediately (`status: running`) and streams events into its
-blob; surfaces render a live header (elapsed, current tool, cost) and expand-on-click. On
-completion the SAME message is finalized in place: `final_text` becomes its body, and its
-mentions/refs are parsed **from that finalized message** for onward routing. One turn, one
-message, one permanent `#N` — no duplicate "reply" message is ever created.
+**A turn owns one lifecycle root and may append chronological output rows.** The switchboard
+posts one running `run` root before starting the adapter. That root is reused by crash recovery
+and exclusively owns status, timing, usage, retry controls, `events_ref`, and aggregate
+`final_text`. If another durable room message lands before the agent emits its next visible
+stretch, the switchboard inserts a permanent continuation row with `run_parent_id` so the room
+order remains `agent #1 → human #2 → agent #3`. A continuation has no `RunSummary`; it resolves
+through its root for lifecycle evidence.
 
+Every renderable journal event carries `output_message_id`. The row is inserted before that id
+is journaled or broadcast. Tool results stay with their initiating tool call, compaction
+completion stays with its loading item, and reasoning summaries remain folded into their
+surrounding batch. On completion, each row stores only its own stretch, the root stores the
+complete aggregate, and `result_message_id` names the terminal row. Routing and collaboration
+payloads snapshot the full aggregate under that terminal id; they never reconstruct a reply from
+the terminal fragment alone.
+
+<!-- harn:assume failed-run-details-never-route-as-replies ref=failed-run-error-schema -->
 A failed completion has no agent reply: its diagnostic is stored as `error` on that same run,
 while the message body, `final_text`, mentions, refs, and onward fanout remain empty. This keeps
-the run's failed/attention evidence without allowing provider or process errors to speak as the
-agent or invoke another member.
+the lifecycle root's failed/attention evidence without allowing provider or process errors to
+speak as the agent or invoke another member. Partial journal evidence remains inspectable on its
+assigned rows, but is never routed as an answer.
 <!-- harn:end failed-run-details-never-route-as-replies -->
+<!-- harn:end continuation-writer-follows-journaled-output-ownership -->
 
 <!-- harn:assume acknowledgement-marker-protocol ref=ack-protocol-documentation -->
 **`<ACK_OK>` ends acknowledgement cascades.** Every agent briefing instructs the member to
 respond with exactly `<ACK_OK>` when a message needs no substantive reply. A finalized
 `final_text` is an acknowledgement only when `trim()` equals that marker case-sensitively;
-containment does not count. The same run message keeps its verbatim body and is stored with
-`ack: true`, but mention parsing and onward routing are skipped and it cannot become the latest
-finalized default recipient. Surfaces render it as one muted `✓ @handle acknowledged` line;
-the run journal remains available from the permalink.
+containment does not count. The lifecycle root records the aggregate acknowledgement and its
+terminal result row carries `ack: true`; mention parsing, unread activity, and onward routing are
+skipped, and it cannot become the latest finalized default recipient. Surfaces suppress the
+other rows in that acknowledgement family and render exactly one muted
+`✓ @handle acknowledged` line at the terminal permalink; the root journal remains available.
 <!-- harn:end acknowledgement-marker-protocol -->
 
 **Asks and approvals block the run, with a crash-safe state machine.**
@@ -381,19 +397,22 @@ and progress impossible to miss, and offer opt-in brakes per channel:
 Adapters translate harness-native streams into `WireEvent`s; the switchboard journals them into
 the run blob and fans out live to surfaces:
 
+<!-- harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-protocol-documentation -->
 <!-- harn:assume failed-run-details-never-route-as-replies ref=failed-run-error-schema -->
 ```
 run.started        { member, trigger_msg }
 run.item           { type: 'tool_call'|'tool_result'|'reasoning_summary'|'text_delta'|
-                     'commit'|'file_change', payload }        // rendered inside expanded runs
+                     'commit'|'file_change', payload, output_message_id? }
+                                                             // rendered on its assigned row
 ask.raised         { card }                                   // blocks the run
 approval.raised    { card }                                   // blocks the run
-run.completed      { final_text?, error?, usage, status }
+run.completed      { final_text?, error?, usage, status, output_message_id? }
 member.state       { member, state }                          // idle/running/queued/…
 extension.started  { parent, ext_member }                     // harness-native parent/agent ids
 extension.ended    { ext_member, summary? }                    // mapped to MemberIds by switchboard
 ```
 <!-- harn:end failed-run-details-never-route-as-replies -->
+<!-- harn:end continuation-writer-follows-journaled-output-ownership -->
 
 <!-- harn:assume compaction-timeline-items-are-durable-run-evidence ref=compaction-timeline-item-schema -->
 Compaction is first-class run-timeline evidence rather than chat text or a tool

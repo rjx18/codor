@@ -4,7 +4,7 @@ import { Agent as HttpAgent, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import type { Member, ServerFrame, Session, SpawnOpts } from '@codor/protocol';
+import { BROWSER_PROTOCOL_EPOCH, type Member, type ServerFrame, type Session, type SpawnOpts } from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 
@@ -549,9 +549,13 @@ describe('REST', () => {
       author: agent.id,
       kind: 'run',
       body: '',
-      run: { status: 'running', started_ts: started, tool_calls: 0, events_ref: 'runs/outbound.jsonl' },
+      run: {
+        status: 'running', started_ts: started, tool_calls: 0,
+        events_ref: 'runs/outbound.jsonl', output_mode: 'messages',
+      },
     });
-    daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'After run' });
+    const continuation = daemon.store.createRunContinuation('eng', run.id);
+    const afterRun = daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'After run' });
 
     const blocked = (await (await request(
       `/api/rooms/eng/bridges/${enabled.member.id}/outbound?after=${String(enabled.after)}`,
@@ -560,21 +564,27 @@ describe('REST', () => {
     expect(blocked.next_after).toBe(local.id);
 
     daemon.store.updateMessage('eng', run.id, {
-      body: 'Final agent answer',
+      body: 'First agent stretch',
       run: {
         status: 'completed',
         started_ts: started,
         ended_ts: new Date().toISOString(),
         tool_calls: 0,
         events_ref: 'runs/outbound.jsonl',
-        final_text: 'Final agent answer',
+        final_text: 'First agent stretchSecond agent stretch',
+        output_mode: 'messages',
+        result_message_id: continuation.id,
       },
     });
+    daemon.store.updateMessage('eng', continuation.id, { body: 'Second agent stretch' });
     const ready = (await (await request(
       `/api/rooms/eng/bridges/${enabled.member.id}/outbound?after=${String(blocked.next_after)}`,
     )).json()) as { messages: { id: number; body: string }[]; next_after: number };
-    expect(ready.messages.map((message) => message.body)).toEqual(['Final agent answer', 'After run']);
-    expect(ready.messages.map((message) => message.id)).toEqual([run.id, run.id + 1]);
+    expect(ready.messages.map((message) => message.body)).toEqual([
+      'First agent stretch', 'Second agent stretch', 'After run',
+    ]);
+    expect(ready.messages.map((message) => message.id))
+      .toEqual([run.id, continuation.id, afterRun.id]);
 
     const empty = daemon.store.postMessage('eng', {
       author: agent.id,
@@ -2513,7 +2523,7 @@ describe('compact_member act (manual-compaction-is-an-operator-act)', () => {
 
 // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-regression
 describe('browser protocol epoch', () => {
-  const currentBrowserProtocol = 1;
+  const currentBrowserProtocol = BROWSER_PROTOCOL_EPOCH;
   const enrollBrowser = (label: string): CryptoVault => {
     const device = new CryptoVault(join(dir, label));
     const peer = crypto.keys.enrollPeer({

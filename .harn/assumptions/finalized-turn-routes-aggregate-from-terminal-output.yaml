@@ -1,0 +1,16 @@
+id: finalized-turn-routes-aggregate-from-terminal-output
+hash: a-f799e1a87898
+title: The terminal output id routes one snapshotted aggregate answer
+state: active
+statement: A successful multi-row turn must store each output row's own stretch,
+  retain the complete response in the lifecycle root final_text, set
+  result_message_id to the terminal visible row, route and parse the complete
+  aggregate under that result id, persist the aggregate directly in every
+  delivery or group payload, and record collaboration participant results at
+  that id; later group rounds must resolve the aggregate and its mentions
+  through the lifecycle root rather than reading only the result fragment.
+depends_on:
+  - continuation-writer-follows-journaled-output-ownership
+  - delivery-payload-snapshotted
+  - substantive-routing-excludes-acknowledgements
+created_by: continuation-writer

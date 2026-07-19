@@ -2,6 +2,8 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { BROWSER_PROTOCOL_EPOCH } from '@codor/protocol';
+
 import {
   CryptoVault,
   Daemon,
@@ -134,6 +136,7 @@ export async function startCodor(options: UpOptions): Promise<RunningCodor> {
   try {
     await transport?.start();
     await daemon.reconcile();
+    // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=production-browser-protocol-minimum
     const server = await startServer({
       daemon,
       token: options.token,
@@ -146,7 +149,9 @@ export async function startCodor(options: UpOptions): Promise<RunningCodor> {
       pushVapidPublicKey: options.pushVapidPublicKey,
       pushRelayEnabled: pushProducer.enabled,
       trustTailscaleServe: options.trustTailscaleServe,
+      minimumBrowserProtocol: BROWSER_PROTOCOL_EPOCH,
     });
+    // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
     return {
       daemon,
       crypto,

@@ -1,0 +1,15 @@
+id: substantive-output-messages-drive-unread
+hash: a-800b67719457
+title: Every finalized substantive output row independently drives unread
+state: active
+statement: Chat insertion and finalization of each nondeleted, non-ack lifecycle
+  root or continuation output row must record that row's activity seq, while a
+  running root, a newly allocated empty continuation, an abandoned tombstone,
+  cards, system rows, acknowledgements, deletion, pinning, and nonmessage
+  mutations must not; unread remains the count of incoming activity above a
+  human's durable monotonic read seq.
+depends_on:
+  - human-room-read-cursors-are-durable-and-monotonic
+  - substantive-routing-excludes-acknowledgements
+  - changelog-is-sync-cursor
+created_by: continuation-writer

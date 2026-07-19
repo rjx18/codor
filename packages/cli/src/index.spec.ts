@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { BROWSER_PROTOCOL_EPOCH, type ServerFrame } from '@codor/protocol';
 import {
   BUILTIN_ADAPTER_IDS,
   CryptoVault,
@@ -13,6 +15,7 @@ import {
   type RunningServer,
 } from '@codor/switchboard';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import WebSocket from 'ws';
 
 import {
   createProgram,
@@ -471,7 +474,7 @@ describe('@codor/cli', () => {
     expect(output.some((line) => line.startsWith('@reviewer\tidle\tfake'))).toBe(true);
   });
 
-  // harn:assume continuation-output-schema-is-reader-first ref=continuation-cli-regression
+  // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-cli-regression
   it('tails a continuation row without a lifecycle summary, in id order', async () => {
     // The dormant writer will emit exactly this shape: a kind=run row carrying
     // run_parent_id and NO run summary. Today's renderer reaches for
@@ -526,7 +529,7 @@ describe('@codor/cli', () => {
     expect(output.filter((line) => line.includes('run completed'))).toHaveLength(1);
     expect(output.some((line) => line.startsWith('error:'))).toBe(false);
   });
-  // harn:end continuation-output-schema-is-reader-first
+  // harn:end continuation-writer-follows-journaled-output-ownership
 
   // harn:assume member-env-selects-narrow-cli-identity ref=member-identity-regression
   it('uses member identity over an inherited owner token on Unix and URL transports', async () => {
@@ -974,6 +977,95 @@ describe('@codor/cli', () => {
     await running.close();
     expect(closeOrder).toEqual(['residency', 'daemon']);
   });
+
+  // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=production-browser-protocol-regression
+  it('enforces epoch 2 in the real up composition while an epoch-less agent still hydrates', async () => {
+    const token = 'production-epoch-token';
+    const running = await startCodor({
+      dataDir: join(dir, 'epoch-up-data'),
+      token,
+      port: 0,
+      owner: 'operator',
+      bootstrap: [],
+    });
+    const sockets: WebSocket[] = [];
+    const connect = async (credential: string) => {
+      const ws = new WebSocket(
+        `ws://127.0.0.1:${String(running.server.port)}/ws?token=${encodeURIComponent(credential)}`,
+      );
+      sockets.push(ws);
+      const frames: ServerFrame[] = [];
+      ws.on('message', (raw) => frames.push(JSON.parse(String(raw)) as ServerFrame));
+      await new Promise<void>((resolve, reject) => {
+        ws.once('open', resolve);
+        ws.once('error', reject);
+      });
+      return {
+        ws,
+        frames,
+        next: (predicate: (frame: ServerFrame) => boolean) => until(() => frames.find(predicate)),
+      };
+    };
+
+    try {
+      const base = `http://127.0.0.1:${String(running.server.port)}`;
+      expect((await fetch(`${base}/api/client-compatibility?client_kind=browser`, {
+        headers: { authorization: `Bearer ${token}` },
+      })).status).toBe(426);
+      expect((await fetch(
+        `${base}/api/client-compatibility?client_kind=browser&browser_protocol=${String(BROWSER_PROTOCOL_EPOCH)}`,
+        { headers: { authorization: `Bearer ${token}` } },
+      )).status).toBe(200);
+
+      const stale = await connect(token);
+      const staleClosed = new Promise<number>((resolve) => stale.ws.once('close', resolve));
+      stale.ws.send(JSON.stringify({
+        type: 'subscribe', room: 'default', since_seq: 0,
+        room_addressed: true, client_kind: 'browser',
+      }));
+      expect(await stale.next((frame) => frame.type === 'upgrade_required')).toMatchObject({
+        type: 'upgrade_required',
+        minimum_browser_protocol: BROWSER_PROTOCOL_EPOCH,
+      });
+      expect(await staleClosed).toBe(4406);
+      expect(stale.frames.map((frame) => frame.type)).toEqual(['upgrade_required']);
+
+      const current = await connect(token);
+      current.ws.send(JSON.stringify({
+        type: 'subscribe', room: 'default', since_seq: 0,
+        room_addressed: true, client_kind: 'browser',
+        browser_protocol: BROWSER_PROTOCOL_EPOCH,
+      }));
+      expect(await current.next((frame) => frame.type === 'sync_complete')).toMatchObject({
+        type: 'sync_complete', room: 'default',
+      });
+
+      const agentToken = 'production-epoch-agent-token';
+      const agent = running.daemon.store.addMember('default', {
+        kind: 'agent', handle: 'epoch-agent', display_name: 'Epoch Agent', state: 'idle',
+      });
+      running.daemon.store.setAgentCredentialHash(
+        'default',
+        agent.id,
+        createHash('sha256').update(agentToken).digest('hex'),
+      );
+      const agentClient = await connect(agentToken);
+      agentClient.ws.send(JSON.stringify({
+        type: 'subscribe', room: 'default', since_seq: 0,
+        room_addressed: true, client_kind: 'browser',
+      }));
+      expect(await agentClient.next((frame) => frame.type === 'self')).toMatchObject({
+        type: 'self', member_id: agent.id,
+      });
+      expect(await agentClient.next((frame) => frame.type === 'sync_complete')).toMatchObject({
+        type: 'sync_complete', room: 'default',
+      });
+    } finally {
+      for (const socket of sockets) socket.close();
+      await running.close();
+    }
+  });
+  // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
 
   // harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition
   it('normalizes repeatable adapter flags and starts with the configured registry', async () => {

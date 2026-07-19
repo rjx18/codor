@@ -1,0 +1,17 @@
+id: continuation-writer-follows-journaled-output-ownership
+hash: a-7aaee9bedc7e
+title: Journaled output ids assign every visible event to one permanent row
+state: active
+statement: The daemon must insert a needed continuation transactionally before
+  journaling or broadcasting its id, annotate every renderable run item,
+  timeline item, and terminal event with its permanent output row, keep tool
+  results and compaction completion on their initiating row, and never let
+  reasoning or nonvisible state events allocate rows; replay of the one root
+  journal must reconstruct the same row bodies and result id after restart,
+  while an inserted row absent from journal truth becomes a non-routable
+  tombstone rather than an empty message.
+depends_on:
+  - turns-reuse-one-root-and-append-output-messages
+  - run-events-merge-by-journal-index
+  - message-id-txn-allocation
+created_by: continuation-writer

@@ -1,0 +1,12 @@
+id: run-journals-own-evidence-across-output-messages
+hash: a-884c777eacd7
+title: One off-database journal owns evidence for all rows of a turn
+state: active
+statement: SQLite must persist only the lifecycle root's events_ref pointer plus
+  lightweight root and continuation message rows, never run event payloads;
+  every continuation resolves through run_parent_id to that one unbounded JSONL
+  journal on disk, so database size stays bounded while each event can target
+  its permanent visible row.
+depends_on:
+  - continuation-writer-follows-journaled-output-ownership
+created_by: continuation-writer

@@ -1,0 +1,15 @@
+id: turns-reuse-one-root-and-append-output-messages
+hash: a-1d74d87a9c2c
+title: One lifecycle root is reused while interrupted output gets permanent rows
+state: active
+statement: A daemon-owned engine turn must create exactly one running lifecycle
+  root with output_mode=messages, bind its input batch to that root before
+  spawn, and reuse it for a crash retry of the same attempt, while any visible
+  output stretch following a newer durable room message must append a separate
+  permanent run continuation linked by run_parent_id; continuations own no
+  lifecycle summary, and no recovery or retry may create a second root for the
+  same attempt.
+depends_on:
+  - message-id-txn-allocation
+  - delivery-attempt-wal-reconcile
+created_by: continuation-writer

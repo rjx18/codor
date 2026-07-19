@@ -1,0 +1,15 @@
+id: turn-output-finalization-is-atomic
+hash: a-1d0ed65cbffd
+title: Root, output rows, settlement, accounting, and fanout commit together
+state: active
+statement: Completing a turn must update its lifecycle root and every referenced
+  continuation row, consume the exact input deliveries, update member and meter
+  state, record an optional collaboration result at result_message_id, and
+  materialize every onward delivery and group in one SQLite transaction;
+  rollback or explicit failed-finalization repair must leave no mixture of
+  finalized fragments, active durable work, duplicated accounting, or routed
+  partial answers.
+depends_on:
+  - finalized-turn-routes-aggregate-from-terminal-output
+  - failed-finalization-reconciles-at-runtime
+created_by: continuation-writer

@@ -1,12 +1,17 @@
 import { expect, test, type Page } from '@playwright/test';
 
 // The interleave room isolates a single agent (@weaver) so the test can drive a
-// live run of two prose blocks, drop a human message between them via the
-// control port, and prove the finalized run's blocks flatten around it.
+// live run of two prose stretches, drop a human message between them via the
+// control port, and prove the writer gives both stretches permanent chronology.
 const INTERLEAVE = '/?room=interleave&token=next-e2e-token';
 const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
 
-interface Progress { runId: number | null; status: string | null; blocks: number }
+interface Progress {
+  runId: number | null;
+  status: string | null;
+  blocks: number;
+  outputIds: number[];
+}
 
 async function control<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${CONTROL}${path}`, {
@@ -64,11 +69,15 @@ test.describe('mid-run interleave', () => {
     // Journaling is live per event: wait until block one is journaled but block
     // two has not yet streamed, then drop the interjection so its timestamp falls
     // strictly between the two blocks.
-    await pollUntil((p) => p.blocks >= 1);
-    await control('/post-chat', { room: 'interleave', body: 'interjecting between the two blocks' });
+    const started = await pollUntil((p) => p.blocks >= 1);
+    const interjection = await control<{ id: number }>('/post-chat', {
+      room: 'interleave', body: 'interjecting between the two blocks',
+    });
 
     // Let the run finish so its now-finalized blocks flatten around the interjection.
-    await pollUntil((p) => p.status === 'completed');
+    const completed = await pollUntil((p) => p.status === 'completed');
+    expect(completed.outputIds).toHaveLength(2);
+    expect(completed.outputIds[0]).toBe(started.runId);
 
     // Reload to assert the durable, re-fetched ordering rather than a live frame.
     await openRoom(page, INTERLEAVE);
@@ -81,14 +90,23 @@ test.describe('mid-run interleave', () => {
     expect(indexOf('First half streamed')).toBeLessThan(indexOf('interjecting between the two blocks'));
     expect(indexOf('interjecting between the two blocks')).toBeLessThan(indexOf('Second half streamed'));
 
-    // The run split into two stretches that share its id; only one anchors the id.
-    const run = page.locator('article[data-testid^="run-"]').first();
-    const runTestId = (await run.getAttribute('data-testid'))!;
-    await expect(page.locator(`article[data-testid="${runTestId}"]`)).toHaveCount(2);
-    const runId = runTestId.replace('run-', '');
-    await expect(page.locator(`article[id="${runId}"]`)).toHaveCount(1);
+    // The lifecycle root and later output are separate permanent messages. The
+    // operator row sits between their immutable ids; no hard UI grouping can
+    // pull the root down when the continuation lands.
+    const rootId = completed.outputIds[0]!;
+    const tailId = completed.outputIds[1]!;
+    expect(rootId).toBeLessThan(interjection.id);
+    expect(interjection.id).toBeLessThan(tailId);
+    const root = page.locator(`article[id="${String(rootId)}"]`);
+    const tail = page.locator(`article[id="${String(tailId)}"]`);
+    await expect(root).toHaveCount(1);
+    await expect(tail).toHaveCount(1);
+    await expect(root.locator('.nx-permalink')).toHaveText(`#${String(rootId)}`);
+    await expect(tail.locator('.nx-permalink')).toHaveText(`#${String(tailId)}`);
+    await expect(root).not.toHaveClass(/is-grouped/);
+    await expect(tail).not.toHaveClass(/is-grouped/);
 
-    // The split (two articles, one shared id) must not introduce a duplicate-id.
+    // Permanent output rows must not introduce duplicate DOM ids.
     const { default: AxeBuilder } = await import('@axe-core/playwright');
     const { violations } = await new AxeBuilder({ page }).analyze();
     expect(violations.map((v) => `${v.id}: ${v.nodes[0]?.target[0]}`)).toEqual([]);

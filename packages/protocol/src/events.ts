@@ -118,10 +118,10 @@ export const WireEventSchema = z.discriminatedUnion('type', [
     type: z.literal('run.item'),
     item_type: RunItemTypeSchema,
     payload: z.unknown(),
-    // harn:assume continuation-output-schema-is-reader-first ref=continuation-event-target-schema
+    // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-event-target-schema
     /** Permanent output row this visible evidence belongs to. */
     output_message_id: MessageIdSchema.optional(),
-    // harn:end continuation-output-schema-is-reader-first
+    // harn:end continuation-writer-follows-journaled-output-ownership
     // harn:assume member-status-is-bounded-and-identity-safe ref=run-item-journal-timestamp-contract
     ts: TimestampSchema.optional(),
     // harn:end member-status-is-bounded-and-identity-safe
@@ -131,9 +131,9 @@ export const WireEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('timeline'),
     item: CompactionTimelineItemSchema,
-    // harn:assume continuation-output-schema-is-reader-first ref=continuation-event-target-schema
+    // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-event-target-schema
     output_message_id: MessageIdSchema.optional(),
-    // harn:end continuation-output-schema-is-reader-first
+    // harn:end continuation-writer-follows-journaled-output-ownership
   }),
   // harn:end compaction-timeline-items-are-durable-run-evidence
   // harn:assume normalized-agent-usage-telemetry-with-estimates ref=agent-usage-telemetry-schema
@@ -145,9 +145,9 @@ export const WireEventSchema = z.discriminatedUnion('type', [
     type: z.literal('run.completed'),
     status: RunStatusSchema.exclude(['running']),
     final_text: z.string().optional(),
-    // harn:assume continuation-output-schema-is-reader-first ref=continuation-event-target-schema
+    // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-event-target-schema
     output_message_id: MessageIdSchema.optional(),
-    // harn:end continuation-output-schema-is-reader-first
+    // harn:end continuation-writer-follows-journaled-output-ownership
     // harn:assume failed-run-details-never-route-as-replies ref=failed-run-error-schema
     error: z.string().min(1).optional(),
     // harn:end failed-run-details-never-route-as-replies

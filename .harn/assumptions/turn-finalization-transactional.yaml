@@ -1,7 +1,7 @@
 id: turn-finalization-transactional
 hash: a-2dbc778826b0
 title: Run finalization and onward fanout commit atomically
-state: active
+state: retired
 statement: A run completion must update the same run message, consume its whole
   input batch, update member and meter state, and materialize every onward agent
   delivery and human inbox record in one SQLite transaction, because restart
@@ -10,3 +10,4 @@ statement: A run completion must update the same run message, consume its whole
 depends_on:
   - reply-is-finalized-run-message
 created_by: m0fix-turn-atomicity
+retired_by: continuation-writer

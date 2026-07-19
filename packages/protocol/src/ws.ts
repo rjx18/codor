@@ -13,7 +13,7 @@ import { RoomMeterSchema, RoomSchema, RoomSupportSchema } from './room.js';
 
 // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-epoch-contract
 /** Increment only when a browser/server cutover cannot be read compatibly. */
-export const BROWSER_PROTOCOL_EPOCH = 1;
+export const BROWSER_PROTOCOL_EPOCH = 2;
 // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
 
 // harn:assume changelog-is-sync-cursor ref=ws-subscribe-cursor

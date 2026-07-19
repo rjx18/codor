@@ -689,7 +689,8 @@ describe('atomic turn lifecycle', () => {
     });
   });
 
-  it('rolls back final message, input consumption, member, meter, and fanout together', () => {
+  // harn:assume turn-output-finalization-is-atomic ref=output-finalization-regression
+  it('rolls back every output row before committing output, custody, accounting, and fanout together', () => {
     const { owner } = openRoom(store);
     const agent = store.addMember('eng', {
       kind: 'agent',
@@ -706,14 +707,32 @@ describe('atomic turn lifecycle', () => {
       eventsRef: (id) => `runs/${id}.jsonl`,
     });
     const running = started.runMessage;
+    const continuation = store.createRunContinuation('eng', running.id);
+    const orphan = store.createRunContinuation('eng', running.id);
+    const outputs = [
+      {
+        id: running.id, body: 'first stretch', mentions: [], refs: [], ledger_refs: [],
+        substantive: true,
+      },
+      {
+        id: continuation.id, body: 'second stretch', mentions: [], refs: [], ledger_refs: [],
+        substantive: true,
+      },
+    ];
+    const completedRun = {
+      ...running.run!,
+      status: 'completed' as const,
+      ended_ts: '2026-07-18T10:01:00.000Z',
+      final_text: 'first stretchsecond stretch',
+      result_message_id: continuation.id,
+    };
 
     expect(() =>
       store.completeTurn('eng', {
         runMsgId: running.id,
-        message: {
-          body: '@richard done',
-          run: { ...running.run!, status: 'completed', final_text: '@richard done' },
-        },
+        message: { run: completedRun },
+        outputs,
+        resultMessageId: continuation.id,
         inputDeliveryIds: [delivery.id],
         memberId: agent.id,
         memberPatch: { state: 'idle' },
@@ -728,7 +747,48 @@ describe('atomic turn lifecycle', () => {
     expect(store.getMember('eng', agent.id)!.state).toBe('running');
     expect(store.listDeliveries('eng', { recipient: owner.id })).toHaveLength(0);
     expect(store.getMeter('eng', 'not-a-date')).toBeUndefined();
+    expect(store.getMessage('eng', running.id)).toMatchObject({ body: '', run: { status: 'running' } });
+    expect(store.getMessage('eng', continuation.id)).toMatchObject({ body: '', deleted: undefined });
+    expect(store.getMessage('eng', orphan.id)).toMatchObject({ body: '', deleted: undefined });
+
+    const completed = store.completeTurn('eng', {
+      runMsgId: running.id,
+      message: { run: completedRun },
+      outputs,
+      resultMessageId: continuation.id,
+      inputDeliveryIds: [delivery.id],
+      memberId: agent.id,
+      memberPatch: { state: 'idle' },
+      meterDay: '2026-07-18',
+      meterDelta: { turns: 1, input_tokens: 80, output_tokens: 20 },
+      fanout: [{ recipient: owner.id, state: 'consumed', payload_snapshot: 'full aggregate' }],
+    });
+
+    expect(completed.outputMessages.map((message) => message.id))
+      .toEqual([running.id, continuation.id, orphan.id]);
+    expect(store.getMessage('eng', running.id)).toMatchObject({
+      body: 'first stretch',
+      run: { status: 'completed', final_text: 'first stretchsecond stretch', result_message_id: continuation.id },
+    });
+    expect(store.getMessage('eng', continuation.id)).toMatchObject({
+      body: 'second stretch', run_parent_id: running.id,
+    });
+    expect(store.getMessage('eng', orphan.id)).toMatchObject({ deleted: true, body: '' });
+    expect(store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(store.getMember('eng', agent.id)?.state).toBe('idle');
+    expect(store.getMeter('eng', '2026-07-18')).toMatchObject({
+      turns: 1, input_tokens: 80, output_tokens: 20,
+    });
+    expect(store.listDeliveries('eng', { recipient: owner.id })).toEqual([
+      expect.objectContaining({ message_id: continuation.id }),
+    ]);
+    expect(store.getDeliveryPayloadSnapshot(
+      'eng',
+      store.listDeliveries('eng', { recipient: owner.id })[0]!.id,
+    )).toBe('full aggregate');
+    expect(store.countUnreadMessages('eng', owner.id)).toBe(2);
   });
+  // harn:end turn-output-finalization-is-atomic
 });
 
 // harn:assume failed-finalization-reconciles-at-runtime ref=delivery-reconciliation-regression
@@ -1226,7 +1286,7 @@ describe('atomic approval answers', () => {
 });
 // harn:end approval-answer-is-atomic-and-chatless
 
-// harn:assume continuation-output-schema-is-reader-first ref=continuation-reader-regression
+// harn:assume turns-reuse-one-root-and-append-output-messages ref=continuation-root-regression
 describe('continuation message storage', () => {
   it('migrates a legacy database idempotently without losing messages', () => {
     const { owner } = openRoom(store);
@@ -1256,7 +1316,7 @@ describe('continuation message storage', () => {
     reopened.close();
   });
 
-  it('round-trips permanent root/interjection/continuation ids while the current turn writer stays root-only', () => {
+  it('round-trips permanent rows and starts one messages-mode lifecycle root', () => {
     const { owner } = openRoom(store);
     const agent = store.addMember('eng', {
       kind: 'agent', handle: 'codex', display_name: 'Codex', state: 'idle',
@@ -1309,11 +1369,22 @@ describe('continuation message storage', () => {
       startedTs: '2026-07-18T00:02:00.000Z',
       eventsRef: (id) => `runs/${String(id)}.jsonl`,
     });
-    expect(current?.runMessage.run).not.toHaveProperty('output_mode');
+    expect(current?.runMessage.run).toHaveProperty('output_mode', 'messages');
     expect(current?.runMessage.run_parent_id).toBeUndefined();
+    const appended = store.createRunContinuation('eng', current!.runMessage.id);
+    expect(appended).toMatchObject({
+      id: current!.runMessage.id + 1,
+      author: agent.id,
+      kind: 'run',
+      body: '',
+      run_parent_id: current!.runMessage.id,
+      run: undefined,
+    });
+    expect(store.listRunMessages('eng', { author: agent.id, limit: 1 })[0]?.id)
+      .toBe(current!.runMessage.id);
   });
 });
-// harn:end continuation-output-schema-is-reader-first
+// harn:end turns-reuse-one-root-and-append-output-messages
 
 // harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-store-regression
 describe('approval delivery resolution migration', () => {
@@ -1758,7 +1829,7 @@ describe('atomic collaboration participant skipping', () => {
 });
 // harn:end open-collaboration-groups-reconcile-without-resurrection
 
-// harn:assume message-activity-drives-unread ref=message-activity-regression
+// harn:assume substantive-output-messages-drive-unread ref=message-activity-regression
 // harn:assume human-room-read-cursors-are-durable-and-monotonic ref=durable-room-read-regression
 describe('durable room read activity', () => {
   it('counts only incoming chat and finalized non-ack runs at their content edge', () => {
@@ -1916,7 +1987,7 @@ describe('durable room read activity', () => {
   });
 });
 // harn:end human-room-read-cursors-are-durable-and-monotonic
-// harn:end message-activity-drives-unread
+// harn:end substantive-output-messages-drive-unread
 
 // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-regression
 // harn:assume actionable-inbox-clears-on-read-or-reply ref=actionable-inbox-regression

@@ -202,6 +202,39 @@ assumptions:
       outcome: unchanged
       reason: Late interaction acknowledgements still cannot reopen a terminal member;
         continuation identity does not alter that state transition.
+    - id: live-delivery-consumption-is-idempotent
+      outcome: unchanged
+      reason: Consuming work queued behind a live turn remains idempotent; the turn's
+        terminal prose may now live on its continuation result row.
+    - id: fake-adapter-drives-live-collaboration
+      outcome: unchanged
+      reason: The fake adapter still exercises live waits and interim posts; its
+        finalized assertions must resolve output rows through the lifecycle
+        root.
+    - id: awaiting-reply-marker-is-delivery-context
+      outcome: unchanged
+      reason: Awaiting-reply remains delivery context rather than final output; a
+        later adapter result may occupy a chronological continuation row.
+    - id: interim-agent-posts-are-nonfinal-routing
+      outcome: unchanged
+      reason: Interim chat still cannot finalize or replace the engine result; it now
+        deliberately forces later engine output onto a continuation row.
+    - id: default-recipient-fallback-chain
+      outcome: unchanged
+      reason: Interim output still cannot replace the latest finalized default; root
+        aggregate resolution preserves the same author selection.
+    - id: acknowledgement-marker-protocol
+      outcome: unchanged
+      reason: Exact ACK_OK still suppresses routing and renders once; the lifecycle
+        root and terminal result now cooperate to preserve that one-row surface.
+    - id: codor-runtime-identity-is-a-clean-break
+      outcome: unchanged
+      reason: The real startCodor epoch gate regression retains the existing codor
+        service, socket, environment, and path identity without aliases.
+    - id: eligible-multi-agent-routing-starts-one-group
+      outcome: unchanged
+      reason: The aggregate-result regression begins with the same eligible atomic
+        round-one group; only participant result identity changes.
     - id: redeliver-interrupts-stranded-run
       outcome: unchanged
       reason: Redelivery still retires the abandoned lifecycle root and queues a fresh
@@ -349,6 +382,7 @@ files:
   - packages/switchboard/src/store.spec.ts
   - packages/switchboard/src/daemon.ts
   - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/residency.spec.ts
   - packages/switchboard/src/server.ts
   - packages/switchboard/src/server.spec.ts
   - packages/switchboard/src/fake-adapter.ts
@@ -361,6 +395,9 @@ files:
   - packages/web-next/src/room/Transcript.tsx
   - packages/web-next/src/room/Transcript.spec.tsx
   - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room18-interleave.e2e.spec.ts
+  - packages/web-next/tests/room21-hydration.e2e.spec.ts
+  - packages/web-next/tests/room22-room-state.e2e.spec.ts
   - packages/web-next/tests/room23-continuations.e2e.spec.ts
   - packages/web-next/tests/room24-upgrade.e2e.spec.ts
 anchors:
@@ -476,6 +513,15 @@ anchors:
       action: change
       reason: Document the root, continuation, event ownership, and result identity
         contract.
+    continuation-web-rendering:
+      action: change
+      reason: Render journal evidence only on its assigned row, preserve residual
+        prose blocks, count visible continuations, and collapse ACK families
+        once.
+    continuation-web-regression:
+      action: change
+      reason: Pin strict chronology, acknowledgement collapse, trailing prose, live
+        writer interleaving, reload, paging, permalinks, and accessibility.
   last-agent-usage-is-transient-and-seeded:
     last-usage-runtime-registry:
       action: change
@@ -486,6 +532,40 @@ anchors:
       action: change
       reason: Compaction evidence keeps its durable fanout path and gains only stable
         output ownership.
+    compaction-journal-regression:
+      action: change
+      reason: Existing frame assertions now include the permanent output row carried
+        by compaction loading and completion.
+  live-delivery-consumption-is-idempotent:
+    consumption-daemon-regression:
+      action: change
+      reason: Assert the completed aggregate through the lifecycle summary and the
+        chronological result row after a queued human interjection.
+  fake-adapter-drives-live-collaboration:
+    fake-live-step-regression:
+      action: change
+      reason: Resolve the finalized engine result row without changing live fake-step
+        collaboration behavior.
+  awaiting-reply-marker-is-delivery-context:
+    awaiting-reply-daemon-regression:
+      action: change
+      reason: Assert the post-wait result on its continuation while preserving the
+        awaiting-reply delivery marker.
+  interim-agent-posts-are-nonfinal-routing:
+    interim-routing-exclusion-review:
+      action: change
+      reason: Prove an interim post creates chronology without replacing aggregate
+        finalization or routing truth.
+  default-recipient-fallback-chain:
+    interim-default-fallback-review:
+      action: change
+      reason: Preserve default-recipient behavior while the final engine output moves
+        to its permanent continuation row.
+  interaction-ack-preserves-finalized-member-state:
+    interaction-ack-finalization-regression:
+      action: change
+      reason: Interaction completion assertions resolve terminal output separately
+        from the lifecycle root summary.
   finalized-turn-routes-aggregate-from-terminal-output:
     finalize-and-route:
       action: change
@@ -584,6 +664,11 @@ anchors:
       action: change
       reason: Keep one root pointer and no event payload columns while allowing
         lightweight continuation rows.
+  run-evidence-search-is-bounded-and-redacted:
+    bounded-run-message-listing:
+      action: change
+      reason: Lifecycle-run queries must exclude summary-less continuations so
+        attention, status, retry, and recovery callers keep receiving roots.
   addressed-cold-hydration-is-strict-and-legacy-safe:
     addressed-hydration-contract:
       action: change
@@ -604,6 +689,11 @@ anchors:
       action: change
       reason: The real production composition returns 426/4406 for stale browsers and
         admits epoch 2.
+  codor-runtime-identity-is-a-clean-break:
+    systemd-runtime-identity:
+      action: change
+      reason: The production composition regression exercises startCodor while
+        preserving the clean-break runtime identity snapshot.
   bridge-runtime-persists-delivery-progress:
     bridge-durable-regression:
       action: change
@@ -623,6 +713,11 @@ anchors:
     collaboration-finalization-regression:
       action: change
       reason: Pin last-fragment identity plus full-aggregate next-round payload.
+  eligible-multi-agent-routing-starts-one-group:
+    multi-agent-group-regression:
+      action: change
+      reason: The aggregate continuation regression exercises the existing atomic
+        multi-agent group ingress before checking its result payload.
   group-round-payloads-share-one-ordered-view:
     group-round-payload-composer:
       action: keep
@@ -636,6 +731,10 @@ anchors:
       reason: Snapshot machinery is unchanged; the planned synthetic message already
         carries aggregate truth.
   failed-run-details-never-route-as-replies:
+    failed-run-error-schema:
+      action: change
+      reason: Public protocol text replaces the false one-message reply model while
+        retaining failed diagnostics exclusively on the lifecycle root.
     failed-run-finalization:
       action: change
       reason: Preserve root error/no-route semantics while finalizing partial output
@@ -647,8 +746,15 @@ anchors:
     failed-run-daemon-regression:
       action: change
       reason: Pin partial evidence with empty root reply and zero fanout.
+  acknowledgement-marker-protocol:
+    ack-protocol-documentation:
+      action: change
+      reason: Document one acknowledged result row under the multi-output lifecycle
+        model without changing exact-marker or no-route semantics.
   mirror-one-message-per-native-turn:
     mirrored-turn-dedupe-route:
       action: change
       reason: Mirrored turns opt into messages mode with root=result but remain one
         deduplicated row.
+applied:
+  applied_at: 2026-07-19T02:54:27.473Z

@@ -45,6 +45,7 @@ import {
   selectDeliveryBatchPrefix,
   type GroupRoundPayloadContext,
 } from './collaboration.js';
+import { ContinuationWriter, projectContinuationOutputs } from './continuation.js';
 import type { LedgerGraph, LedgerManager } from './ledger/watch.js';
 import type { LedgerNote, LedgerWrite } from './ledger/vault.js';
 import type { HumanPushKind, HumanPushNotifier } from './push/producer.js';
@@ -63,7 +64,12 @@ import {
   resolveRecipients,
   type ResolvedRef,
 } from './router.js';
-import { Store, type FanoutDelivery, type RoutedMessagePlan } from './store.js';
+import {
+  Store,
+  type FanoutDelivery,
+  type RoutedMessagePlan,
+  type TurnOutputPatch,
+} from './store.js';
 import { normalizeWorkingDirectory } from './working-directory.js';
 
 const execFileAsync = promisify(execFile);
@@ -2021,6 +2027,8 @@ export class Daemon {
             tool_calls: 0,
             events_ref: eventsRef,
             final_text: input.body,
+            output_mode: 'messages' as const,
+            result_message_id: placeholder.id,
           },
         };
         const draft: Message = { ...placeholder, ...patch };
@@ -2051,11 +2059,13 @@ export class Daemon {
         native_turn_id: input.native_turn_id,
         transcript_path: input.transcript_path,
       },
+      output_message_id: committed.message.id,
     });
     this.blobs.append(joined.room, eventsRef, {
       type: 'run.completed',
       status: 'completed',
       final_text: input.body,
+      output_message_id: committed.message.id,
     });
     this.emitMessage(joined.room, committed.message);
     if (committed.member) this.emitMember(joined.room, committed.member);
@@ -2465,10 +2475,9 @@ export class Daemon {
   // harn:end one-inflight-turn-per-member
 
   private async runTurn(room: string, member: Member, batch: Delivery[], reuseRunMsg?: Message): Promise<void> {
-    // harn:assume runs-are-one-message ref=run-message-lifecycle
-    // Exactly one run message per turn: post the placeholder (status
-    // running, events_ref = its own blob) — or REUSE the placeholder when a
-    // reconciled retry re-runs the same turn. Never a second message.
+    // harn:assume turns-reuse-one-root-and-append-output-messages ref=run-message-lifecycle
+    // Exactly one lifecycle root owns the turn, its input custody, and journal.
+    // A crash retry reuses it; only later visible stretches may append rows.
     const originalStates = new Map(batch.map((delivery) => [delivery.id, delivery.state]));
     const started = this.store.beginTurn(room, {
       memberId: member.id,
@@ -2492,14 +2501,16 @@ export class Daemon {
     const runMsg = started.runMessage;
     this.emitMessage(room, runMsg);
     this.noteRunActivity(room, runMsg.id);
-    // harn:end runs-are-one-message
+    // harn:end turns-reuse-one-root-and-append-output-messages
 
     // harn:assume run-events-merge-by-journal-index ref=daemon-journal-index-stamp
     // The journal position of the NEXT appended event. A reconciled retry
     // reuses the run message, so its blob may already carry lines.
-    let journalIndex = reuseRunMsg !== undefined
-      ? this.blobs.read(room, runMsg.run!.events_ref).length
-      : 0;
+    const existingJournal = reuseRunMsg !== undefined
+      ? this.blobs.read(room, runMsg.run!.events_ref)
+      : [];
+    let journalIndex = existingJournal.length;
+    const continuation = new ContinuationWriter(runMsg.id, existingJournal);
     // harn:end run-events-merge-by-journal-index
 
     // harn:assume delivery-attempt-wal-reconcile ref=wal-bind-before-spawn
@@ -2629,7 +2640,23 @@ export class Daemon {
           continue;
         }
         // harn:end agent-usage-limits-reported-not-guessed
+        // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-writer-engine
+        // Allocate+insert before the id becomes journal truth. The empty row is
+        // streamed before its first targeted event, so readers never observe an
+        // event whose permanent message does not exist yet.
+        let allocated: Message | undefined;
+        const assigned = continuation.assign(
+          journalEvent,
+          this.store.latestMessageId(room),
+          () => {
+            allocated = this.store.createRunContinuation(room, runMsg.id);
+            return allocated.id;
+          },
+        );
+        journalEvent = assigned.event;
+        if (allocated !== undefined) this.emitMessage(room, allocated);
         this.blobs.append(room, runMsg.run!.events_ref, journalEvent);
+        // harn:end continuation-writer-follows-journaled-output-ownership
         // harn:assume run-events-merge-by-journal-index ref=daemon-journal-index-stamp
         // Stamp the frame with the position this event just took in the
         // journal, so a viewer who joined mid-run merges exactly.
@@ -2646,7 +2673,7 @@ export class Daemon {
             type: 'run_event',
             room,
             message_id: runMsg.id,
-            event: event.type === 'run.item' ? event : journalEvent,
+            event: journalEvent,
             index: stampedIndex,
           });
         }
@@ -2654,19 +2681,19 @@ export class Daemon {
         // harn:end run-events-merge-by-journal-index
         if (event.type === 'ask.raised' || event.type === 'approval.raised') {
           this.handleInteractionRaised(room, member, event.card, event.type === 'ask.raised' ? 'ask' : 'approval');
-        } else if (event.type === 'run.completed') {
+        } else if (journalEvent.type === 'run.completed') {
           // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-runtime-registry
-          if (event.agent_usage !== undefined) {
-            this.lastUsage.set(member.id, { ...event.agent_usage });
-            this.landContextWindow(room, member.id, event.agent_usage);
+          if (journalEvent.agent_usage !== undefined) {
+            this.lastUsage.set(member.id, { ...journalEvent.agent_usage });
+            this.landContextWindow(room, member.id, journalEvent.agent_usage);
           }
           // harn:end last-agent-usage-is-transient-and-seeded
           // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
           completion = {
-            status: event.status,
-            final_text: event.final_text,
-            error: event.error,
-            usage: event.usage,
+            status: journalEvent.status,
+            final_text: journalEvent.final_text,
+            error: journalEvent.error,
+            usage: journalEvent.usage,
           };
           // harn:end failed-run-details-never-route-as-replies
         }
@@ -2751,10 +2778,17 @@ export class Daemon {
     error: unknown,
   ): void {
     const detail = error instanceof Error ? error.message : String(error);
+    const runMsg = this.store.getMessage(room, runMsgId);
+    if (runMsg?.run === undefined) throw new Error(`turn #${runMsgId} has no lifecycle root`);
+    const projection = projectContinuationOutputs(
+      runMsgId,
+      this.blobs.read(room, runMsg.run.events_ref),
+    );
     const repaired = this.store.repairFailedFinalization(room, {
       runMsgId,
       memberId,
       deliveryIds: batch.map((delivery) => delivery.id),
+      outputs: this.outputPatches(room, runMsg, projection, false, false),
       error: `finalization could not commit: ${detail}`,
       endedTs: new Date().toISOString(),
       meterDay: new Date().toISOString().slice(0, 10),
@@ -2776,7 +2810,7 @@ export class Daemon {
       // from background error reporting and from later reconciliation.
       throw error instanceof Error ? error : new Error(detail);
     }
-    if (repaired.message !== undefined) this.emitMessage(room, repaired.message);
+    for (const output of repaired.outputMessages ?? []) this.emitMessage(room, output);
     if (repaired.member !== undefined) this.emitMember(room, repaired.member);
     if (repaired.meter !== undefined) {
       this.emit(room, { type: 'meter', seq: this.store.currentSeq(room), meter: repaired.meter });
@@ -2804,11 +2838,19 @@ export class Daemon {
   ): void {
     const current = this.store.getMember(room, memberId);
     const usage = messagePatch.run?.usage;
+    const runMsg = this.store.getMessage(room, runMsgId);
+    if (runMsg?.run === undefined) throw new Error(`turn #${runMsgId} has no lifecycle root`);
+    const projection = projectContinuationOutputs(
+      runMsgId,
+      this.blobs.read(room, runMsg.run.events_ref),
+    );
+    const outputs = this.outputPatches(room, runMsg, projection, false, false);
     const settlement = this.store.settleLifecycleInterruption(room, {
       runMsgId,
       memberId,
       deliveryIds: batch.map((delivery) => delivery.id),
       message: messagePatch,
+      outputs,
       memberPatch: {
         state: preserveOtherActiveTurn
           ? (current?.state ?? 'running')
@@ -2835,7 +2877,7 @@ export class Daemon {
       this.memberWaits.delete(memberId);
       this.groupWaits.delete(memberId);
     }
-    this.emitMessage(room, settlement.message);
+    for (const output of settlement.outputMessages) this.emitMessage(room, output);
     this.emitMember(room, settlement.member);
     this.emit(room, { type: 'meter', seq: this.store.currentSeq(room), meter: settlement.meter });
     for (const delivery of [...settlement.requeued, ...settlement.settled]) {
@@ -2964,12 +3006,48 @@ export class Daemon {
       .join('\n');
   }
 
-  // harn:assume reply-is-finalized-run-message ref=finalize-and-route
+  private outputPatches(
+    room: string,
+    root: Message,
+    projection: ReturnType<typeof projectContinuationOutputs>,
+    ack: boolean,
+    retainRootBody = true,
+  ): TurnOutputPatch[] {
+    const members = this.store.listMembers(room);
+    return [...projection.referencedMessageIds]
+      .sort((left, right) => left - right)
+      .map((id) => {
+        const message = this.store.getMessage(room, id);
+        if (
+          message === undefined
+          || (id !== root.id && message.run_parent_id !== root.id)
+        ) {
+          throw new Error(`turn #${root.id} journal targets invalid output #${id}`);
+        }
+        const body = id === root.id && !retainRootBody
+          ? ''
+          : (projection.bodies.get(id) ?? '');
+        const rowAck = ack && id === projection.resultMessageId;
+        const parsed = rowAck
+          ? { mentions: [], refs: [], ledger_refs: [] }
+          : parseBody(body, members);
+        return {
+          id,
+          body,
+          mentions: parsed.mentions,
+          refs: parsed.refs,
+          ledger_refs: parsed.ledger_refs,
+          ...(rowAck && { ack: true }),
+          substantive: !ack && projection.substantiveMessageIds.has(id),
+        };
+      });
+  }
+
+  // harn:assume finalized-turn-routes-aggregate-from-terminal-output ref=finalize-and-route
   /**
-   * The reply IS the run message: successful final text finalizes IN PLACE,
-   * mentions/refs are re-parsed from that body, and routing starts FROM this
-   * same message id. Failed diagnostics stay on the same run as error evidence,
-   * but are not replies. One turn, one message, one #N — no separate reply.
+   * Finalize every journal-owned output row while routing one complete aggregate
+   * under the permanent terminal output id. The root alone owns lifecycle truth;
+   * persisted continuation bodies remain their own chronological stretches.
    */
   private finalizeTurn(
     room: string,
@@ -2994,7 +3072,18 @@ export class Daemon {
         ? completion.error
         : undefined;
     const failure = rawFailure?.trim() === '' ? undefined : rawFailure;
-    const body = failed ? '' : (completion.final_text ?? '');
+    const journal = this.blobs.read(room, runMsg.run!.events_ref);
+    const projection = projectContinuationOutputs(runMsgId, journal);
+    const projectedAggregate = [...projection.bodies]
+      .sort(([left], [right]) => left - right)
+      .map(([, text]) => text)
+      .join('');
+    // The journal projection is the one complete, normalized answer. Some
+    // adapters report the whole response in final_text; others report only the
+    // final suffix after streaming interim narration. Persisting the native
+    // field directly would silently truncate the lifecycle aggregate in the
+    // latter case even though every chronological row rendered correctly.
+    const body = failed ? '' : projectedAggregate;
     // harn:end run-failure-evidence-is-surfaced
     // harn:end failed-run-details-never-route-as-replies
     // harn:assume substantive-routing-excludes-acknowledgements ref=exact-ack-finalization
@@ -3003,8 +3092,10 @@ export class Daemon {
       ? { mentions: [], refs: [], ledger_refs: [], unresolved: [] }
       : parseBody(body, this.store.listMembers(room));
     const endedTs = new Date().toISOString();
+    const outputPatches = this.outputPatches(room, runMsg, projection, ack, !failed);
+    const resultMessageId = projection.resultMessageId;
     const messagePatch = {
-      body,
+      body: projection.bodies.get(runMsgId) ?? '',
       ...(ack && { ack: true as const }),
       mentions: parsed.mentions,
       refs: parsed.refs,
@@ -3017,7 +3108,9 @@ export class Daemon {
         tool_calls: toolCalls,
         usage: completion.usage,
         // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
-        final_text: failed ? undefined : completion.final_text,
+        final_text: failed ? undefined : body,
+        output_mode: 'messages' as const,
+        result_message_id: resultMessageId,
         error: failure,
         // harn:end failed-run-details-never-route-as-replies
       },
@@ -3036,7 +3129,17 @@ export class Daemon {
     }
     // harn:end collaboration-lifecycle-interruption-is-nonterminal
 
-    const finalizedDraft: Message = { ...runMsg, ...messagePatch };
+    const resultRow = this.store.getMessage(room, resultMessageId);
+    if (resultRow === undefined) throw new Error(`turn #${runMsgId} result #${resultMessageId} is missing`);
+    const finalizedDraft: Message = {
+      ...resultRow,
+      body,
+      mentions: parsed.mentions,
+      refs: parsed.refs,
+      ledger_refs: parsed.ledger_refs,
+      ...(ack && { ack: true }),
+      run: messagePatch.run,
+    };
     const lastDelivery = batch.at(-1);
     const triggerAuthor = lastDelivery
       ? this.store.getMessage(room, lastDelivery.message_id)?.author
@@ -3064,6 +3167,8 @@ export class Daemon {
     const completed = this.store.completeTurn(room, {
       runMsgId,
       message: messagePatch,
+      outputs: outputPatches,
+      resultMessageId,
       inputDeliveryIds: batch.map((delivery) => delivery.id),
       memberId,
       memberPatch: {
@@ -3105,7 +3210,7 @@ export class Daemon {
     this.memberWaits.delete(memberId);
     this.groupWaits.delete(memberId);
     // harn:end live-agent-waits-are-transient
-    this.emitMessage(room, completed.message);
+    for (const output of completed.outputMessages) this.emitMessage(room, output);
     this.emitMember(room, completed.member);
     // harn:assume agent-delivery-lifecycle-streams ref=delivery-consumed-emit
     // The turn just consumed its inputs — stream the settled rows so seen
@@ -3137,7 +3242,7 @@ export class Daemon {
       );
     }
   }
-  // harn:end reply-is-finalized-run-message
+  // harn:end finalized-turn-routes-aggregate-from-terminal-output
 
   // harn:assume collaboration-round-release-is-one-barrier ref=collaboration-barrier-engine
   private advanceCollaborationRound(room: string, groupId: string, roundNumber: number): void {
@@ -3155,25 +3260,31 @@ export class Daemon {
       const result = participant.result_message_id === undefined
         ? undefined
         : this.store.getMessage(room, participant.result_message_id);
-      const status = participant.terminal_status === 'completed' && result?.ack === true
+      const resultRoot = result === undefined ? undefined : this.store.getRunRoot(room, result);
+      const resultAck = result?.ack === true || resultRoot?.ack === true;
+      const aggregateBody = resultRoot?.run?.final_text ?? result?.body ?? '';
+      const aggregateParsed = parseBody(aggregateBody, this.store.listMembers(room));
+      const status = participant.terminal_status === 'completed' && resultAck
         ? 'acknowledged'
         : participant.terminal_status!;
       results.push({
         ordinal: participant.ordinal,
         memberHandle: member?.handle ?? participant.member_id,
         status,
-        ...(result !== undefined && result.ack !== true && {
+        ...(result !== undefined && !resultAck && {
           messageId: result.id,
           // harn:assume run-failure-evidence-is-surfaced ref=round-result-error-evidence
           // A failed participant's body is empty by design; surface its run
           // error so peers see why the round member stopped.
-          body: this.runRefBody(result),
+          body: participant.terminal_status === 'completed'
+            ? aggregateBody
+            : this.runRefBody(resultRoot ?? result),
           // harn:end run-failure-evidence-is-surfaced
         }),
       });
 
-      if (participant.terminal_status !== 'completed' || result?.ack === true) continue;
-      for (const mention of result?.mentions ?? []) {
+      if (participant.terminal_status !== 'completed' || resultAck) continue;
+      for (const mention of aggregateParsed.mentions) {
         if (mention.member_id === participant.member_id || seen.has(mention.member_id)) continue;
         const recipient = this.store.getMember(room, mention.member_id);
         if (

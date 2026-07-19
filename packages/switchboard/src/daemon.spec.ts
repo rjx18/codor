@@ -111,7 +111,101 @@ const spawnAgent = (handle: string, cwd = testCwd()) =>
   daemon.spawnMember('eng', { harness: 'fake', handle, cwd });
 
 const runMessages = () =>
-  daemon.store.listMessages('eng', { limit: 100 }).filter((m) => m.kind === 'run');
+  daemon.store.listMessages('eng', { limit: 100 }).filter((m) => m.kind === 'run' && m.run !== undefined);
+
+const resultMessageFor = (root: Message) => daemon.store.getMessage(
+  root.room,
+  root.run?.result_message_id ?? root.id,
+)!;
+
+// harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-writer-regression
+// harn:assume finalized-turn-routes-aggregate-from-terminal-output ref=aggregate-routing-regression
+describe('chronological continuation writer', () => {
+  it('inserts before its first event, keeps permanent chronology, and routes one aggregate from the terminal row', async () => {
+    const alpha = spawnAgent('chronology-alpha');
+    const beta = spawnAgent('aggregate-beta');
+    daemon.pauseMember('eng', beta.id);
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    fake.enqueue({
+      kind: 'complete',
+      // Native final_text is only the final suffix. The root and onward payload
+      // must still carry the full aggregate reconstructed from journal truth.
+      final_text: 'second stretch @richard @aggregate-beta',
+      items: [
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 'first stretch' } },
+        {
+          type: 'run.item', item_type: 'tool_call',
+          payload: { call_id: 'chronology-call', tool: 'Bash', title: 'Inspect chronology' },
+        },
+        {
+          type: 'run.item', item_type: 'reasoning_summary',
+          payload: { text: 'folded reasoning' },
+        },
+        {
+          type: 'run.item', item_type: 'tool_result',
+          payload: { call_id: 'chronology-call', output: 'done' },
+        },
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 'second stretch @richard @aggregate-beta' } },
+      ],
+      item_delay_ms: 50,
+    });
+
+    const trigger = daemon.postHumanMessage('eng', '@chronology-alpha start');
+    const root = await until(() => daemon.store.listRunMessages('eng', {
+      author: alpha.id, limit: 1,
+    })[0]);
+    await until(() => daemon.blobs.read('eng', root.run!.events_ref)
+      .some((event) => event.type === 'run.item' && event.item_type === 'tool_call')
+      ? true
+      : undefined);
+    const interjection = daemon.postHumanMessage('eng', 'human interjection');
+    await daemon.settle();
+
+    const continuations = daemon.store.listRunContinuations('eng', root.id);
+    expect([trigger.id, root.id, interjection.id, continuations[0]?.id]).toEqual([1, 2, 3, 4]);
+    expect(daemon.store.getMessage('eng', root.id)).toMatchObject({
+      body: 'first stretch',
+      run: {
+        status: 'completed', output_mode: 'messages', result_message_id: 4,
+        final_text: 'first stretchsecond stretch @richard @aggregate-beta',
+      },
+    });
+    expect(continuations).toEqual([
+      expect.objectContaining({ id: 4, body: 'second stretch @richard @aggregate-beta', run_parent_id: 2 }),
+    ]);
+
+    const journal = daemon.blobs.read('eng', root.run!.events_ref);
+    expect(journal.filter((event) => event.type === 'run.item').map((event) => event.output_message_id))
+      .toEqual([2, 2, 2, 2, 4]);
+    expect(journal.find((event) => event.type === 'run.completed')).toHaveProperty(
+      'output_message_id', 4,
+    );
+    const continuationFrame = frames.findIndex(({ frame }) =>
+      frame.type === 'message' && frame.message.id === 4);
+    const firstContinuationEvent = frames.findIndex(({ frame }) =>
+      frame.type === 'run_event'
+      && frame.event.type === 'run.item'
+      && frame.event.output_message_id === 4);
+    expect(continuationFrame).toBeGreaterThanOrEqual(0);
+    expect(firstContinuationEvent).toBeGreaterThan(continuationFrame);
+
+    const onward = daemon.store.listDeliveries('eng', { recipient: beta.id })
+      .find((delivery) => delivery.message_id === 4)!;
+    expect(onward).toBeDefined();
+    expect(JSON.parse(daemon.store.getDeliveryPayloadSnapshot('eng', onward.id)!)).toMatchObject({
+      context: {
+        message: {
+          id: 4,
+          body: 'first stretchsecond stretch @richard @aggregate-beta',
+          run: { result_message_id: 4 },
+        },
+      },
+    });
+    expect(daemon.store.countUnreadMessages('eng', owner.id)).toBe(2);
+  });
+});
+// harn:end finalized-turn-routes-aggregate-from-terminal-output
+// harn:end continuation-writer-follows-journaled-output-ownership
 
 // harn:assume agent-member-credentials-stay-secret ref=member-session-environment-regression
 describe('agent member session credentials', () => {
@@ -207,7 +301,8 @@ describe('live queued-delivery consumption', () => {
     expect(fake.deliveries).toHaveLength(1);
     expect(fake.deliveries[0]!.payload).not.toContain('consume this while blocked');
     expect(runMessages()).toHaveLength(1);
-    expect(runMessages()[0]!.body).toBe('@richard first turn done');
+    expect(runMessages()[0]!.run!.final_text).toBe('@richard first turn done');
+    expect(resultMessageFor(runMessages()[0]!).body).toBe('@richard first turn done');
   });
 });
 // harn:end live-delivery-consumption-is-idempotent
@@ -438,8 +533,14 @@ describe('scripted live collaboration', () => {
       .toMatchObject({ context: { awaitingReply: true } });
 
     await daemon.settle();
-    expect(daemon.store.listRunMessages('eng', { author: alpha.id, limit: 1 })[0])
-      .toMatchObject({ id: running.id, run: { status: 'completed' }, body: '@richard alpha final' });
+    const completed = daemon.store.listRunMessages('eng', { author: alpha.id, limit: 1 })[0]!;
+    expect(completed).toMatchObject({
+      id: running.id,
+      run: { status: 'completed', final_text: '@richard alpha final' },
+    });
+    expect(resultMessageFor(completed)).toMatchObject({
+      body: '@richard alpha final', run_parent_id: running.id,
+    });
     expect(daemon.blobs.read('eng', running.run!.events_ref)
       .find((event) => event.type === 'run.item')).toHaveProperty('ts');
     expect(daemon.memberStatus('eng', alpha.id).member).not.toHaveProperty('waiting');
@@ -478,10 +579,13 @@ describe('interim post routing exclusions', () => {
 
     await daemon.answerInteraction('eng', interaction.id, 'finish');
     await daemon.settle();
-    expect(daemon.store.getMessage('eng', running.id)).toMatchObject({
+    const completed = daemon.store.getMessage('eng', running.id)!;
+    expect(completed).toMatchObject({
       id: running.id,
-      body: '@richard adapter final only',
       run: { status: 'completed', final_text: '@richard adapter final only' },
+    });
+    expect(resultMessageFor(completed)).toMatchObject({
+      body: '@richard adapter final only', run_parent_id: running.id,
     });
   });
 
@@ -1554,7 +1658,8 @@ describe('interactions: the full state machine', () => {
     expect(fake.respondCalls).toEqual([{ interaction_id: interaction.native_id, answer: 'ALPHA' }]);
     const run = runMessages()[0]!;
     expect(run.run!.status).toBe('completed');
-    expect(run.body).toBe('chose ALPHA');
+    expect(run.run!.final_text).toBe('chose ALPHA');
+    expect(resultMessageFor(run).body).toBe('chose ALPHA');
     expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('idle');
 
     fake.enqueue({ kind: 'complete', final_text: 'follow-up complete' });
@@ -1920,7 +2025,8 @@ describe('restart while blocked on an ask', () => {
     await daemon.answerInteraction('eng', interaction.id, 'left');
     await daemon.settle();
     expect(daemon.store.getInteraction(interaction.id)!.state).toBe('acked');
-    expect(runMessages()[0]!.body).toBe('went left');
+    expect(runMessages()[0]!.run!.final_text).toBe('went left');
+    expect(resultMessageFor(runMessages()[0]!).body).toBe('went left');
   });
 
   it('answered-but-unacked ASK replays the stored answer idempotently on re-raise', async () => {
@@ -1946,7 +2052,8 @@ describe('restart while blocked on an ask', () => {
     await daemon.settle();
 
     expect(fake.respondCalls.at(-1)!.answer).toBe('right'); // replayed, not re-asked
-    expect(runMessages()[0]!.body).toBe('went right');
+    expect(runMessages()[0]!.run!.final_text).toBe('went right');
+    expect(resultMessageFor(runMessages()[0]!).body).toBe('went right');
   });
 
   it('answered-but-unacked APPROVAL is never auto-resent: orphaned + fresh card', async () => {
@@ -2214,6 +2321,45 @@ describe('failed turns', () => {
     expect(daemon.store.listDeliveries('eng').filter((delivery) => delivery.message_id === run.id))
       .toEqual([]);
     expect(daemon.store.getMember('eng', alpha.id)?.state).toBe('dead');
+  });
+
+  it('keeps partial journal evidence visible without turning a failed root into a reply', async () => {
+    const alpha = spawnAgent('partial-failure-alpha');
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const detail = 'provider failed after partial output';
+    fake.enqueue({
+      kind: 'complete',
+      status: 'failed',
+      final_text: detail,
+      error: detail,
+      items: [
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 'root evidence' } },
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 'continuation evidence' } },
+      ],
+      item_delay_ms: 40,
+    });
+    daemon.postHumanMessage('eng', '@partial-failure-alpha start');
+    const root = await until(() => daemon.store.listRunMessages('eng', {
+      author: alpha.id, limit: 1,
+    })[0]);
+    await until(() => daemon.blobs.read('eng', root.run!.events_ref)
+      .some((event) => event.type === 'run.item') ? true : undefined);
+    daemon.postHumanMessage('eng', 'human interjection');
+    await daemon.settle();
+
+    const failed = daemon.store.getMessage('eng', root.id)!;
+    const continuations = daemon.store.listRunContinuations('eng', root.id);
+    expect(failed).toMatchObject({ body: '', run: { status: 'failed', error: detail } });
+    expect(failed.run).not.toHaveProperty('final_text');
+    expect(continuations).toEqual([
+      expect.objectContaining({ body: 'continuation evidence', run_parent_id: root.id }),
+    ]);
+    expect(daemon.blobs.read('eng', root.run!.events_ref)
+      .filter((event) => event.type === 'run.item')
+      .map((event) => event.output_message_id)).toEqual([root.id, continuations[0]!.id]);
+    expect(daemon.store.listDeliveries('eng').filter((delivery) =>
+      delivery.message_id === root.id || delivery.message_id === continuations[0]!.id)).toEqual([]);
+    expect(daemon.store.countUnreadMessages('eng', owner.id)).toBe(2);
   });
   // harn:end failed-run-details-never-route-as-replies
 
@@ -3395,6 +3541,67 @@ describe('barriered collaboration rounds', () => {
   });
 });
 // harn:end grouped-deliveries-retain-agent-briefings
+
+describe('continuation collaboration results', () => {
+  it('records the terminal fragment id while the next round receives the full aggregate', async () => {
+    const alpha = spawnAgent('aggregate-group-alpha');
+    const beta = spawnAgent('aggregate-group-beta');
+    const gamma = spawnAgent('aggregate-group-gamma');
+    fake.enqueue(
+      {
+        kind: 'complete',
+        final_text: 'alpha firstalpha second @aggregate-group-gamma',
+        items: [
+          { type: 'run.item', item_type: 'text_delta', payload: { text: 'alpha first' } },
+          {
+            type: 'run.item', item_type: 'text_delta',
+            payload: { text: 'alpha second @aggregate-group-gamma' },
+          },
+        ],
+        item_delay_ms: 60,
+      },
+      { kind: 'complete', final_text: '<ACK_OK>', delay_ms: 5 },
+      { kind: 'complete', final_text: '<ACK_OK>' },
+    );
+
+    const trigger = daemon.postHumanMessage(
+      'eng',
+      '@aggregate-group-alpha @aggregate-group-beta compare aggregate routing',
+    );
+    const alphaRoot = await until(() => daemon.store.listRunMessages('eng', {
+      author: alpha.id, limit: 1,
+    })[0]);
+    await until(() => daemon.blobs.read('eng', alphaRoot.run!.events_ref)
+      .some((event) => event.type === 'run.item' && event.item_type === 'text_delta')
+      ? true
+      : undefined);
+    daemon.postHumanMessage('eng', 'human message between alpha stretches');
+    await daemon.settle();
+
+    const group = daemon.store.getCollaborationGroupByRoot('eng', trigger.id)!;
+    const alphaParticipant = daemon.store.listCollaborationParticipants('eng', group.id, 1)
+      .find((participant) => participant.member_id === alpha.id)!;
+    const result = daemon.store.getMessage('eng', alphaParticipant.result_message_id!)!;
+    const lifecycleRoot = daemon.store.getRunRoot('eng', result)!;
+    expect(alphaParticipant.terminal_status).toBe('completed');
+    expect(result).toMatchObject({ run_parent_id: lifecycleRoot.id });
+    expect(result.id).not.toBe(lifecycleRoot.id);
+    expect(lifecycleRoot.run).toMatchObject({
+      final_text: 'alpha firstalpha second @aggregate-group-gamma',
+      result_message_id: result.id,
+    });
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 2)
+      .map((participant) => participant.member_id)).toEqual([gamma.id]);
+    const gammaPayload = fake.deliveries.find((delivery) =>
+      delivery.payload.includes('you=@aggregate-group-gamma')
+      && delivery.payload.includes('completed round 1'))!.payload;
+    expect(gammaPayload).toContain('alpha firstalpha second @aggregate-group-gamma');
+    expect(gammaPayload).toContain(
+      `completed round 1 result 1/2 - @aggregate-group-alpha - completed - #${String(result.id)}`,
+    );
+  });
+});
+
 // harn:end group-participant-terminality-commits-with-the-turn
 // harn:end collaboration-round-release-is-one-barrier
 
@@ -4037,9 +4244,14 @@ describe('run_event journal indices (run-events-merge-by-journal-index)', () => 
         ? [frame]
         : []);
     expect(timelineFrames.map((frame) => frame.event)).toEqual([
-      { type: 'timeline', item: { type: 'compaction', status: 'loading' } },
       {
         type: 'timeline',
+        output_message_id: run.id,
+        item: { type: 'compaction', status: 'loading' },
+      },
+      {
+        type: 'timeline',
+        output_message_id: run.id,
         item: { type: 'compaction', status: 'completed', trigger: 'auto', preTokens: 149_900 },
       },
     ]);

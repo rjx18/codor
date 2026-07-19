@@ -78,11 +78,16 @@ test.describe('multiplexed room state', () => {
     ).toBe(0);
     await expect(row.locator('.nx-unread')).toHaveCount(0);
 
-    await page.getByTestId('timeline').evaluate((node) => {
-      node.scrollTop = node.scrollHeight;
-      node.dispatchEvent(new Event('scroll'));
-      node.scrollTop = 0;
-      node.dispatchEvent(new Event('scroll'));
+    const renderedRows = page.locator('[data-read-seq]');
+    await expect.poll(() => renderedRows.count()).toBeGreaterThan(8);
+    const olderAnchorTestId = await renderedRows.nth(8).getAttribute('data-testid');
+    if (olderAnchorTestId === null) throw new Error('missing older read-state anchor');
+    const olderAnchor = page.getByTestId(olderAnchorTestId);
+    await olderAnchor.evaluate((node) => {
+      node.scrollIntoView({ block: 'center' });
+      // Pin-release mechanics have their own room5 coverage. A hash jump is a
+      // deterministic public release edge here and keeps this test away from
+      // room21's top-reach paging/anchor machinery.
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     });
     await expect(page.locator('.nx-jump')).toBeVisible();
@@ -92,6 +97,12 @@ test.describe('multiplexed room state', () => {
       body: 'unread while the reader is looking at older history',
     });
     await expect(page.getByTestId(`msg-${scrolledArrival.id}`)).toHaveCount(1);
+    await expect.poll(async () => page.getByTestId(`msg-${scrolledArrival.id}`).evaluate((node) => {
+      const viewport = document.querySelector<HTMLElement>('[data-testid="timeline"]')!;
+      const row = node.getBoundingClientRect();
+      const bounds = viewport.getBoundingClientRect();
+      return Math.max(0, Math.min(row.bottom, bounds.bottom) - Math.max(row.top, bounds.top));
+    })).toBe(0);
     await expect(row.locator('.nx-unread')).toHaveText('1');
     await expect.poll(async () =>
       (await control<{ summary: { unread: number } }>('/room-support', { room: 'hydration' })).summary.unread,
@@ -100,7 +111,16 @@ test.describe('multiplexed room state', () => {
     // Flying past the row for less than the dwell must not silently clear it.
     await page.getByTestId(`msg-${scrolledArrival.id}`).evaluate((node) => node.scrollIntoView({ block: 'center' }));
     await page.waitForTimeout(100);
-    await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = 0; });
+    await olderAnchor.evaluate((node) => {
+      node.scrollIntoView({ block: 'center' });
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await expect.poll(async () => page.getByTestId(`msg-${scrolledArrival.id}`).evaluate((node) => {
+      const viewport = document.querySelector<HTMLElement>('[data-testid="timeline"]')!;
+      const row = node.getBoundingClientRect();
+      const bounds = viewport.getBoundingClientRect();
+      return Math.max(0, Math.min(row.bottom, bounds.bottom) - Math.max(row.top, bounds.top));
+    })).toBe(0);
     await page.waitForTimeout(350);
     await expect(row.locator('.nx-unread')).toHaveText('1');
 

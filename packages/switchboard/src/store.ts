@@ -44,14 +44,13 @@ import {
   type CollaborationTerminalStatus,
 } from './collaboration.js';
 
-// harn:assume run-blobs-off-db ref=store-schema-no-blobs
+// harn:assume run-journals-own-evidence-across-output-messages ref=store-schema-no-blobs
 // The DB persists pointers (RunSummary.events_ref) — never run event payloads.
-// Run streams are JSONL blobs on disk, journaled by the daemon; the store has
-// no table or column for them, which keeps the DB small and makes
-// one-message-per-run structural.
+// One lifecycle root points at the JSONL journal for all of its lightweight
+// continuation rows; the store has no table or column for event payloads.
 // harn:assume attach-custody-lease-tracks-child-pid ref=attach-lease-store
 // harn:assume collaboration-groups-are-durable-state ref=collaboration-store-schema
-// harn:assume message-activity-drives-unread ref=message-activity-storage
+// harn:assume substantive-output-messages-drive-unread ref=message-activity-storage
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
@@ -95,9 +94,9 @@ CREATE TABLE IF NOT EXISTS messages (
   ledger_refs TEXT NOT NULL,   -- string[] JSON
   reply_to INTEGER,
   run TEXT,                    -- RunSummary JSON: events_ref pointer only, no events
-  -- harn:assume continuation-output-schema-is-reader-first ref=continuation-message-storage
+  -- harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-message-storage
   run_parent_id INTEGER,       -- lifecycle root for a permanent continuation row
-  -- harn:end continuation-output-schema-is-reader-first
+  -- harn:end continuation-writer-follows-journaled-output-ownership
   ask TEXT,                    -- AskCard JSON
   origin TEXT,                 -- BridgeOrigin JSON
   attachments TEXT,            -- Attachment[] JSON (metadata; files live under the data dir)
@@ -208,10 +207,10 @@ CREATE TABLE IF NOT EXISTS changes (
   PRIMARY KEY (room_id, seq)
 );
 `;
-// harn:end message-activity-drives-unread
+// harn:end substantive-output-messages-drive-unread
 // harn:end collaboration-groups-are-durable-state
 // harn:end attach-custody-lease-tracks-child-pid
-// harn:end run-blobs-off-db
+// harn:end run-journals-own-evidence-across-output-messages
 
 // harn:assume delivery-payload-snapshotted ref=delivery-payload-storage
 function migrateDeliveryPayloadSnapshot(db: Database.Database): void {
@@ -385,7 +384,7 @@ function migrateMessageAttachments(db: Database.Database): void {
   }
 }
 
-// harn:assume continuation-output-schema-is-reader-first ref=continuation-message-storage
+  // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-message-storage
 function migrateMessageContinuations(db: Database.Database): void {
   const columns = db.pragma('table_info(messages)') as { name: string }[];
   if (!columns.some((column) => column.name === 'run_parent_id')) {
@@ -396,9 +395,9 @@ function migrateMessageContinuations(db: Database.Database): void {
     ON messages (room, run_parent_id, id) WHERE run_parent_id IS NOT NULL
   `);
 }
-// harn:end continuation-output-schema-is-reader-first
+  // harn:end continuation-writer-follows-journaled-output-ownership
 
-// harn:assume message-activity-drives-unread ref=message-activity-storage
+// harn:assume substantive-output-messages-drive-unread ref=message-activity-storage
 function migrateMessageActivity(db: Database.Database): void {
   const columns = db.pragma('table_info(messages)') as { name: string }[];
   if (!columns.some((column) => column.name === 'activity_seq')) {
@@ -422,7 +421,7 @@ function migrateMessageActivity(db: Database.Database): void {
       ON messages (room, activity_seq) WHERE activity_seq IS NOT NULL;
   `);
 }
-// harn:end message-activity-drives-unread
+// harn:end substantive-output-messages-drive-unread
 
 // harn:assume human-room-read-cursors-are-durable-and-monotonic ref=durable-room-read-storage
 function migrateRoomReadCursors(db: Database.Database): void {
@@ -539,6 +538,20 @@ const messageDrivesUnread = (message: Message): boolean =>
     message.kind === 'chat'
     || (message.kind === 'run' && message.run !== undefined && message.run.status !== 'running')
   );
+
+type MessageActivityMode = 'auto' | 'defer' | 'force';
+
+function nextActivitySeq(
+  message: Message,
+  mode: MessageActivityMode,
+  seq: number,
+  stored: number | null = null,
+): number | null {
+  if (message.deleted === true || message.ack === true || mode === 'defer') return null;
+  if (mode === 'force') return seq;
+  if (!messageDrivesUnread(message)) return null;
+  return message.kind === 'chat' ? (stored ?? seq) : seq;
+}
 
 interface MemberRow {
   id: string;
@@ -870,10 +883,21 @@ export interface AtomicTurnStart {
 
 export interface AtomicTurnCompletion {
   message: Message;
+  outputMessages: Message[];
   member: Member;
   meter: RoomMeter;
   deliveries: Delivery[];
   collaboration?: CollaborationRoundProjection;
+}
+
+export interface TurnOutputPatch {
+  id: number;
+  body: string;
+  mentions: Message['mentions'];
+  refs: Message['refs'];
+  ledger_refs: Message['ledger_refs'];
+  ack?: boolean;
+  substantive: boolean;
 }
 
 export interface AtomicMirroredTurn {
@@ -1391,7 +1415,11 @@ export class Store {
    * INSIDE the same synchronous transaction as the insert — ids are permanent
    * (#N refs), so allocation can never race or leave gaps.
    */
-  postMessage(room: string, message: NewMessage): Message {
+  postMessage(
+    room: string,
+    message: NewMessage,
+    options: { activity?: MessageActivityMode } = {},
+  ): Message {
     return this.db.transaction(() => {
       const next = this.db
         .prepare('SELECT COALESCE(MAX(id), 0) + 1 AS id FROM messages WHERE room = ?')
@@ -1416,8 +1444,8 @@ export class Store {
         ts: new Date().toISOString(),
         seq,
       });
-      // harn:assume message-activity-drives-unread ref=message-activity-storage
-      const activitySeq = messageDrivesUnread(validated) ? seq : null;
+      // harn:assume substantive-output-messages-drive-unread ref=message-activity-storage
+      const activitySeq = nextActivitySeq(validated, options.activity ?? 'auto', seq);
       this.db
         .prepare(
           `INSERT INTO messages (room, id, author, kind, body, mentions, refs, ledger_refs,
@@ -1446,7 +1474,7 @@ export class Store {
           validated.seq,
           activitySeq,
         );
-      // harn:end message-activity-drives-unread
+      // harn:end substantive-output-messages-drive-unread
       return validated;
     })();
   }
@@ -1551,6 +1579,39 @@ export class Store {
     return row.id;
   }
 
+  // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-message-storage
+  /** Allocate and insert a permanent empty continuation before its id is journaled. */
+  createRunContinuation(room: string, rootMessageId: number): Message {
+    const root = this.getMessage(room, rootMessageId);
+    if (root?.kind !== 'run' || root.run === undefined || root.run_parent_id !== undefined) {
+      throw new Error(`#${rootMessageId} is not a lifecycle run root`);
+    }
+    if (root.run.status !== 'running' || root.run.output_mode !== 'messages') {
+      throw new Error(`#${rootMessageId} is not accepting continuation output`);
+    }
+    return this.postMessage(room, {
+      author: root.author,
+      kind: 'run',
+      body: '',
+      run_parent_id: root.id,
+    }, { activity: 'defer' });
+  }
+
+  listRunContinuations(room: string, rootMessageId: number): Message[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM messages WHERE room = ? AND run_parent_id = ? ORDER BY id',
+    ).all(room, rootMessageId) as MessageRow[];
+    return rows.map(messageFromRow);
+  }
+
+  /** Resolve either a root or one of its result fragments to lifecycle truth. */
+  getRunRoot(room: string, message: Message): Message | undefined {
+    return message.run_parent_id === undefined
+      ? (message.run === undefined ? undefined : message)
+      : this.getMessage(room, message.run_parent_id);
+  }
+  // harn:end continuation-writer-follows-journaled-output-ownership
+
   // harn:assume default-recipient-fallback-chain ref=substantive-default-recipient
   latestFinalizedAgentAuthor(room: string): string | undefined {
     const row = this.db.prepare(
@@ -1585,21 +1646,23 @@ export class Store {
     room: string,
     id: number,
     patch: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run' | 'ask' | 'ack'>>,
+    options: { activity?: MessageActivityMode } = {},
   ): Message {
     return this.db.transaction(() => {
       const existing = this.getMessage(room, id);
       if (!existing) throw new Error(`no such message: #${id}`);
       const seq = this.appendChange(room, 'message', String(id));
       const merged = MessageSchema.parse({ ...existing, ...patch, seq });
-      // harn:assume message-activity-drives-unread ref=message-activity-storage
+      // harn:assume substantive-output-messages-drive-unread ref=message-activity-storage
       const storedActivity = this.db.prepare(
         'SELECT activity_seq FROM messages WHERE room = ? AND id = ?',
       ).get(room, id) as { activity_seq: number | null };
-      const activitySeq = !messageDrivesUnread(merged)
-        ? null
-        : merged.kind === 'chat'
-          ? (storedActivity.activity_seq ?? seq)
-          : seq;
+      const activitySeq = nextActivitySeq(
+        merged,
+        options.activity ?? 'auto',
+        seq,
+        storedActivity.activity_seq,
+      );
       this.db
         .prepare(
           `UPDATE messages SET body = ?, mentions = ?, refs = ?, ledger_refs = ?,
@@ -1619,7 +1682,7 @@ export class Store {
           room,
           id,
         );
-      // harn:end message-activity-drives-unread
+      // harn:end substantive-output-messages-drive-unread
       return merged;
     })();
   }
@@ -1784,7 +1847,7 @@ export class Store {
   }
   // harn:end human-room-read-cursors-are-durable-and-monotonic
 
-  // harn:assume message-activity-drives-unread ref=message-activity-storage
+  // harn:assume substantive-output-messages-drive-unread ref=message-activity-storage
   countUnreadMessages(room: string, memberId: string): number {
     const readSeq = this.getRoomReadSeq(room, memberId);
     const row = this.db.prepare(
@@ -1798,7 +1861,7 @@ export class Store {
     ).get(room, readSeq, memberId) as { n: number };
     return row.n;
   }
-  // harn:end message-activity-drives-unread
+  // harn:end substantive-output-messages-drive-unread
 
   // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-projection
   // harn:assume actionable-inbox-clears-on-read-or-reply ref=actionable-inbox-projection
@@ -1938,7 +2001,8 @@ export class Store {
     const rows = this.db
       .prepare(
         `SELECT * FROM messages
-         WHERE room = ? AND kind = 'run' AND (? IS NULL OR author = ?)
+         WHERE room = ? AND kind = 'run' AND run IS NOT NULL
+           AND (? IS NULL OR author = ?)
          ORDER BY id DESC LIMIT ?`,
       )
       .all(room, opts.author ?? null, opts.author ?? null, opts.limit ?? 50) as MessageRow[];
@@ -2277,7 +2341,11 @@ export class Store {
         ) {
           throw new Error(`run #${opts.reuseRunMsgId} is not reusable`);
         }
-        runMessage = existing;
+        runMessage = existing.run.output_mode === 'messages'
+          ? existing
+          : this.updateMessage(room, existing.id, {
+              run: { ...existing.run, output_mode: 'messages' },
+            }, { activity: 'defer' });
       } else {
         const posted = this.postMessage(room, { author: opts.memberId, kind: 'run', body: '' });
         runMessage = this.updateMessage(room, posted.id, {
@@ -2286,6 +2354,7 @@ export class Store {
             started_ts: opts.startedTs,
             tool_calls: 0,
             events_ref: opts.eventsRef(posted.id),
+            output_mode: 'messages',
           },
         });
       }
@@ -2306,13 +2375,15 @@ export class Store {
   }
   // harn:end turn-start-transactional
 
-  // harn:assume turn-finalization-transactional ref=atomic-turn-finalization
-  /** Commits all durable effects of run completion together. */
+  // harn:assume turn-output-finalization-is-atomic ref=atomic-turn-finalization
+  /** Commits lifecycle truth, every output row, custody, accounting, and fanout together. */
   completeTurn(
     room: string,
     opts: {
       runMsgId: number;
       message: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run' | 'ack'>>;
+      outputs: TurnOutputPatch[];
+      resultMessageId: number;
       inputDeliveryIds: string[];
       memberId: string;
       memberPatch: Partial<Omit<Member, 'id' | 'kind'>>;
@@ -2334,7 +2405,38 @@ export class Store {
     },
   ): AtomicTurnCompletion {
     return this.db.transaction(() => {
-      const message = this.updateMessage(room, opts.runMsgId, opts.message);
+      const rootOutput = opts.outputs.find((output) => output.id === opts.runMsgId);
+      if (!rootOutput) throw new Error(`turn #${opts.runMsgId} has no root output patch`);
+      const message = this.updateMessage(room, opts.runMsgId, {
+        ...opts.message,
+        body: rootOutput.body,
+        mentions: rootOutput.mentions,
+        refs: rootOutput.refs,
+        ledger_refs: rootOutput.ledger_refs,
+      }, { activity: rootOutput.substantive && rootOutput.ack !== true ? 'force' : 'defer' });
+      const outputMessages = [message];
+      for (const output of opts.outputs) {
+        if (output.id === opts.runMsgId) continue;
+        const current = this.getMessage(room, output.id);
+        if (current?.run_parent_id !== opts.runMsgId) {
+          throw new Error(`#${output.id} is not a continuation of turn #${opts.runMsgId}`);
+        }
+        outputMessages.push(this.updateMessage(room, output.id, {
+          body: output.body,
+          mentions: output.mentions,
+          refs: output.refs,
+          ledger_refs: output.ledger_refs,
+          ack: output.ack,
+        }, { activity: output.substantive && output.ack !== true ? 'force' : 'defer' }));
+      }
+      const referenced = new Set(opts.outputs.map((output) => output.id));
+      for (const continuation of this.listRunContinuations(room, opts.runMsgId)) {
+        if (referenced.has(continuation.id) || continuation.deleted === true) continue;
+        outputMessages.push(this.deleteMessage(room, continuation.id));
+      }
+      if (!referenced.has(opts.resultMessageId)) {
+        throw new Error(`turn #${opts.runMsgId} result #${opts.resultMessageId} is not journal-owned`);
+      }
       for (const deliveryId of opts.inputDeliveryIds) {
         this.updateDelivery(room, deliveryId, { state: 'consumed' });
       }
@@ -2342,7 +2444,7 @@ export class Store {
       const meter = this.bumpMeter(room, opts.meterDay, opts.meterDelta);
       const deliveries = opts.fanout.map((delivery) =>
         this.createDelivery(room, {
-          message_id: opts.runMsgId,
+          message_id: opts.resultMessageId,
           recipient: delivery.recipient,
           state: delivery.state,
           payload_snapshot: delivery.payload_snapshot,
@@ -2353,7 +2455,7 @@ export class Store {
         this.recordCollaborationParticipantTerminal(room, {
           deliveryId: opts.participantTerminal.deliveryId,
           status: opts.participantTerminal.status,
-          resultMessageId: message.id,
+          resultMessageId: opts.resultMessageId,
           completedTs: opts.participantTerminal.completedTs,
         });
       }
@@ -2361,14 +2463,21 @@ export class Store {
         ? undefined
         : this.createCollaborationGroup(room, {
             groupId: opts.collaboration.groupId,
-            rootMessageId: message.id,
+            rootMessageId: opts.resultMessageId,
             participants: opts.collaboration.participants,
           });
       if (collaboration) deliveries.push(...collaboration.deliveries);
-      return { message, member, meter, deliveries, collaboration };
+      return {
+        message,
+        outputMessages: outputMessages.sort((left, right) => left.id - right.id),
+        member,
+        meter,
+        deliveries,
+        collaboration,
+      };
     })();
   }
-  // harn:end turn-finalization-transactional
+  // harn:end turn-output-finalization-is-atomic
 
   getCollaborationGroup(room: string, groupId: string): CollaborationGroup | undefined {
     const row = this.db.prepare(
@@ -2897,6 +3006,7 @@ export class Store {
       runMsgId: number;
       memberId: string;
       deliveryIds: string[];
+      outputs?: TurnOutputPatch[];
       error: string;
       endedTs: string;
       meterDay: string;
@@ -2911,6 +3021,7 @@ export class Store {
   ): {
     repaired: boolean;
     message?: Message;
+    outputMessages?: Message[];
     member?: Member;
     meter?: RoomMeter;
     notice?: Message;
@@ -2922,11 +3033,20 @@ export class Store {
       if (!runMsg?.run || runMsg.run.status !== 'running') {
         return { repaired: false, deliveries: [], held: [] };
       }
-      const message = this.updateMessage(room, opts.runMsgId, {
+      const outputPatches = opts.outputs ?? [];
+      const rootOutput = outputPatches.find((output) => output.id === opts.runMsgId) ?? {
+        id: opts.runMsgId,
         body: '',
         mentions: [],
         refs: [],
         ledger_refs: [],
+        substantive: false,
+      };
+      const message = this.updateMessage(room, opts.runMsgId, {
+        body: rootOutput.body,
+        mentions: rootOutput.mentions,
+        refs: rootOutput.refs,
+        ledger_refs: rootOutput.ledger_refs,
         run: {
           ...runMsg.run,
           status: 'failed',
@@ -2935,7 +3055,24 @@ export class Store {
           final_text: undefined,
           error: opts.error,
         },
-      });
+      }, { activity: rootOutput.substantive ? 'force' : 'defer' });
+      const outputMessages = [message];
+      const referenced = new Set(outputPatches.map((output) => output.id));
+      for (const output of outputPatches) {
+        if (output.id === opts.runMsgId) continue;
+        const current = this.getMessage(room, output.id);
+        if (current?.run_parent_id !== opts.runMsgId) continue;
+        outputMessages.push(this.updateMessage(room, output.id, {
+          body: output.body,
+          mentions: output.mentions,
+          refs: output.refs,
+          ledger_refs: output.ledger_refs,
+        }, { activity: output.substantive ? 'force' : 'defer' }));
+      }
+      for (const continuation of this.listRunContinuations(room, opts.runMsgId)) {
+        if (referenced.has(continuation.id) || continuation.deleted === true) continue;
+        outputMessages.push(this.deleteMessage(room, continuation.id));
+      }
 
       const deliveries: Delivery[] = [];
       const held: string[] = [];
@@ -2983,7 +3120,16 @@ export class Store {
           ? `turn #${String(opts.runMsgId)} for ${handle} could not finalize (${detail}) — its instruction is held; release_hold or redeliver to retry`
           : `turn #${String(opts.runMsgId)} for ${handle} could not finalize (${detail}) — its work already had a result, so the duplicate instruction was consumed`,
       });
-      return { repaired: true, message, member, meter, notice, deliveries, held };
+      return {
+        repaired: true,
+        message,
+        outputMessages: outputMessages.sort((left, right) => left.id - right.id),
+        member,
+        meter,
+        notice,
+        deliveries,
+        held,
+      };
     })();
   }
 
@@ -3035,6 +3181,7 @@ export class Store {
       memberId: string;
       deliveryIds: string[];
       message: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run' | 'ack'>>;
+      outputs: TurnOutputPatch[];
       memberPatch: Partial<Omit<Member, 'id' | 'kind'>>;
       endedTs: string;
       attemptCeiling: number;
@@ -3049,6 +3196,7 @@ export class Store {
     },
   ): {
     message: Message;
+    outputMessages: Message[];
     member: Member;
     meter: RoomMeter;
     notice?: Message;
@@ -3057,7 +3205,38 @@ export class Store {
     refusals: { delivery: Delivery; reason: LifecycleRetryRefusalReason }[];
   } {
     return this.db.transaction(() => {
-      const message = this.updateMessage(room, opts.runMsgId, opts.message);
+      const rootOutput = opts.outputs.find((output) => output.id === opts.runMsgId) ?? {
+        id: opts.runMsgId,
+        body: '',
+        mentions: [],
+        refs: [],
+        ledger_refs: [],
+        substantive: false,
+      };
+      const message = this.updateMessage(room, opts.runMsgId, {
+        ...opts.message,
+        body: rootOutput.body,
+        mentions: rootOutput.mentions,
+        refs: rootOutput.refs,
+        ledger_refs: rootOutput.ledger_refs,
+      }, { activity: rootOutput.substantive ? 'force' : 'defer' });
+      const outputMessages = [message];
+      const referenced = new Set(opts.outputs.map((output) => output.id));
+      for (const output of opts.outputs) {
+        if (output.id === opts.runMsgId) continue;
+        const current = this.getMessage(room, output.id);
+        if (current?.run_parent_id !== opts.runMsgId) continue;
+        outputMessages.push(this.updateMessage(room, output.id, {
+          body: output.body,
+          mentions: output.mentions,
+          refs: output.refs,
+          ledger_refs: output.ledger_refs,
+        }, { activity: output.substantive ? 'force' : 'defer' }));
+      }
+      for (const continuation of this.listRunContinuations(room, opts.runMsgId)) {
+        if (referenced.has(continuation.id) || continuation.deleted === true) continue;
+        outputMessages.push(this.deleteMessage(room, continuation.id));
+      }
       const member = this.updateMember(room, opts.memberId, opts.memberPatch);
       const requeued: Delivery[] = [];
       const settled: Delivery[] = [];
@@ -3132,7 +3311,16 @@ export class Store {
           body: `delivery to ${recipients} not re-queued after lifecycle interruption (turn #${String(opts.runMsgId)}: ${reasons}) — ${mayForce ? 'retry_run can force a fresh attempt' : 'the instruction was consumed'}`,
         });
       }
-      return { message, member, meter, notice, requeued, settled, refusals };
+      return {
+        message,
+        outputMessages: outputMessages.sort((left, right) => left.id - right.id),
+        member,
+        meter,
+        notice,
+        requeued,
+        settled,
+        refusals,
+      };
     })();
   }
   // harn:end lifecycle-retries-only-live-collaboration-work

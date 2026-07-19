@@ -248,7 +248,7 @@ test.describe('large-room hydration', () => {
     // (This pins the BEHAVIOUR. Two mechanisms now deliver it — the hashchange
     // release and the upward-scroll release — so it does not isolate either.)
     const arrival = await control<{ id: number }>('/live-chat', {
-      room: 'hydration', body: 'arrival after the permalink jump',
+      room: 'hydration', body: 'arrival after the permalink jump', route: false,
     });
     await expect(page.getByTestId(`msg-${arrival.id}`)).toHaveCount(1, { timeout: 10_000 });
     await expect(target).toBeInViewport();

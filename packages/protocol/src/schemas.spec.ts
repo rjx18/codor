@@ -983,7 +983,7 @@ describe('WS client frames', () => {
   });
 });
 
-// harn:assume continuation-output-schema-is-reader-first ref=continuation-reader-regression
+// harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-segmentation-regression
 describe('continuation output protocol', () => {
   const root = {
     ...chatMessage,
@@ -1034,7 +1034,7 @@ describe('continuation output protocol', () => {
     })).not.toHaveProperty('output_message_id');
   });
 });
-// harn:end continuation-output-schema-is-reader-first
+// harn:end continuation-writer-follows-journaled-output-ownership
 
 describe('WS server frames', () => {
   const member = MemberSchema.parse({
