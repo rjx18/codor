@@ -36,6 +36,16 @@ export interface AdapterLike {
 export const HANDLE_MAX = 31;
 
 /**
+ * Native validation pattern for a handle.
+ *
+ * The hyphen is escaped deliberately. HTML compiles `pattern` with the `v` flag,
+ * where a bare `-` in this position is a syntax error — and the spec says an
+ * invalid pattern is *ignored*, so the field silently accepts anything. That is
+ * how `NOPE!!` passed validation while looking guarded.
+ */
+export const HANDLE_PATTERN = '[a-z0-9][a-z0-9\\-]{1,30}';
+
+/**
  * Policies come from the protocol, never from a literal in the UI.
  * An inlined list goes stale silently and starts offering values the server rejects.
  */
@@ -201,7 +211,8 @@ export const SPAWN_PRESETS: readonly SpawnPreset[] = [
   {
     id: 'writer', label: 'Writer', blurb: 'Docs and prose',
     handle: 'writer', purpose: 'Write and revise documentation for this project.',
-    policy: 'workspace-write', thinking: 'medium',
+    // low, matching legacy: prose does not need the deliberation budget code does.
+    policy: 'workspace-write', thinking: 'low',
   },
   {
     id: 'tester', label: 'Tester', blurb: 'Runs and fixes tests',

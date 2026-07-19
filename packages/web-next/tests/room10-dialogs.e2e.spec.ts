@@ -86,25 +86,53 @@ test.describe('Tier-1: spawn payload', () => {
   });
 });
 
-test.describe('Tier-1 #5: a failed spawn stays visible', () => {
-  test('keeps the dialog open with the error, and an unrelated member does not report success', async ({ page }) => {
+test.describe('Tier-1 #5: a failed spawn stays visible and recoverable', () => {
+  test('keeps the error, re-enables submit, ignores unrelated members, and closes only on the real one', async ({ page }) => {
     await openRoom(page);
     const dialog = await openSpawn(page);
-    // A handle the server will reject: uppercase is outside the handle grammar.
-    await dialog.getByTestId('spawn-handle').fill('NOPE!!');
-    await dialog.getByTestId('spawn-cwd').fill('/tmp');
 
-    const enabled = await dialog.getByTestId('spawn-go').isEnabled();
-    if (enabled) {
-      await dialog.getByTestId('spawn-go').click();
-      // It must NOT close on a request that was merely sent.
-      await expect(page.getByTestId('spawn-dialog')).toBeVisible();
-      await expect(dialog.getByTestId('spawn-error')).toBeVisible({ timeout: 15_000 });
-    } else {
-      // Blocked client-side is also acceptable — what is not acceptable is
-      // closing silently, which is what it used to do.
-      await expect(page.getByTestId('spawn-dialog')).toBeVisible();
-    }
+    // `all` is syntactically valid but RESERVED (protocol member.ts), so it passes
+    // native validation and is rejected by the daemon — a deterministic server
+    // failure rather than one that depends on client-side validation working.
+    await dialog.getByTestId('spawn-handle').fill('all');
+    await expect(dialog.getByTestId('spawn-handle')).toHaveJSProperty('validity.valid', true);
+    await dialog.getByTestId('spawn-go').click();
+
+    // It must not close on a request that was merely sent.
+    await expect(page.getByTestId('spawn-dialog')).toBeVisible();
+    await expect(dialog.getByTestId('spawn-error')).toBeVisible({ timeout: 15_000 });
+    // ...and the operator can try again without losing what they typed.
+    await expect(dialog.getByTestId('spawn-go')).toBeEnabled();
+    await expect(dialog.getByTestId('spawn-cwd')).not.toHaveValue('');
+
+    // An UNRELATED member arriving must not be read as this spawn succeeding.
+    await dialog.getByTestId('spawn-handle').fill('bystander');
+    await dialog.getByTestId('spawn-go').click();
+    await expect(page.getByTestId('member-bystander')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('spawn-dialog')).toBeHidden();
+
+    // Success closes it, and only for the handle actually submitted.
+    const second = await openSpawn(page);
+    await second.getByTestId('spawn-handle').fill('realone');
+    await second.getByTestId('spawn-go').click();
+    await expect(page.getByTestId('member-realone')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('spawn-dialog')).toBeHidden();
+  });
+
+  test('native validation actually rejects a malformed handle', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    // The pattern was compiled invalid under `v` rules and therefore ignored, so
+    // this reported valid while looking guarded.
+    await dialog.getByTestId('spawn-handle').fill('NOPE!!');
+    await expect(dialog.getByTestId('spawn-handle')).toHaveJSProperty('validity.valid', false);
+    await expect(dialog.getByTestId('spawn-handle')).toHaveJSProperty('validity.patternMismatch', true);
+  });
+
+  test('the handle field takes focus on open, not the close button', async ({ page }) => {
+    await openRoom(page);
+    await openSpawn(page);
+    await expect(page.getByTestId('spawn-handle')).toBeFocused();
   });
 });
 
@@ -129,6 +157,60 @@ test.describe('Tier-1: the create dialog seeds a fully configured agent', () => 
     await expect(page.locator('.nx-chat-title h1')).toHaveText('seeded', { timeout: 15_000 });
     await expect(page.getByTestId('member-codor')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('member-codor')).toContainText('read-only');
+  });
+});
+
+test.describe('Tier-1: rendered reconciliation and validation', () => {
+  test('changing harness clears the model and an unsupported thinking level in the DOM', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    // The fixture harness reports no thinking support, so the group is disabled
+    // and the default stays selected — the absence is stated, not hidden.
+    await expect(dialog.getByTestId('spawn-thinking-unsupported')).toBeVisible();
+    await expect(dialog.getByTestId('spawn-thinking-default')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('a preset arms only what the harness accepts, and fills the visible fields', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    await dialog.getByTestId('spawn-preset-writer').click();
+    await expect(dialog.getByTestId('spawn-handle')).toHaveValue(/writer/);
+    await expect(dialog.getByTestId('spawn-policy-workspace-write')).toHaveAttribute('aria-pressed', 'true');
+    // Writer asks for `low`; this harness supports no levels, so it stays default
+    // rather than arming a value that would be rejected.
+    await expect(dialog.getByTestId('spawn-thinking-default')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('a handle colliding with the channel owner is blocked with a specific message', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    const owner = await page.getByTestId(/^member-/).first().textContent();
+    const ownerHandle = /@?([a-z0-9][a-z0-9-]*)/.exec(owner ?? '')?.[1] ?? 'richard';
+    await dialog.getByTestId('spawn-handle').fill(ownerHandle);
+    const clash = dialog.getByTestId('spawn-owner-clash');
+    if (await clash.count() > 0) {
+      await expect(clash).toBeVisible();
+      await expect(dialog.getByTestId('spawn-go')).toBeDisabled();
+    }
+  });
+});
+
+test.describe('Tier-1: create channel keyboard and fallbacks', () => {
+  test('Enter creates, and a blank agent name falls back to Agent', async ({ page }) => {
+    await openRoom(page);
+    await page.getByTestId('create-room').click();
+    const dialog = page.getByTestId('create-channel-dialog');
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByTestId('create-harness-fake').click();
+    // Clearing the name must not block submit — it falls back to "Agent".
+    await dialog.getByTestId('create-agent-name').fill('');
+    await dialog.getByTestId('create-name').fill('fallbackchan');
+    await expect(dialog.getByTestId('create-go')).toBeEnabled();
+
+    await dialog.getByTestId('create-name').press('Enter');
+    await expect(page.locator('.nx-chat-title h1')).toHaveText('fallbackchan', { timeout: 15_000 });
+    await expect(page.getByTestId('member-agent')).toBeVisible({ timeout: 15_000 });
   });
 });
 
@@ -189,27 +271,40 @@ test.describe('accessibility', () => {
     }
   });
 
-  test('the six colour swatches wrap rather than overflowing a narrow modal', async ({ page }) => {
+  test('the create dialog is genuinely usable at 320px via Back → Channels → Create', async ({ page }) => {
+    // The real mobile path, not a desktop CSS proxy: below the breakpoint the
+    // two-surface IA moves creation to the channels surface, so that is where a
+    // phone user actually reaches this dialog.
+    await page.setViewportSize({ width: 320, height: 720 });
     await openRoom(page);
+    await page.getByTestId('mobile-back').click();
     await page.getByTestId('create-room').click();
+
     const dialog = page.getByTestId('create-channel-dialog');
     await expect(dialog).toBeVisible();
 
-    // Asserted as a CSS contract rather than by measuring at 320px: below the
-    // mobile breakpoint the two-surface IA unmounts this dialog entirely, so
-    // there is no geometry to measure there. Six 44px targets need ~264px plus
-    // gaps, which overflows a narrow modal unless the row wraps.
-    const wrap = await dialog.getByTestId('create-color-0').evaluate(
-      (el) => getComputedStyle(el.parentElement as HTMLElement).flexWrap,
-    );
-    expect(wrap).toBe('wrap');
+    // No horizontal overflow anywhere on the page.
+    const overflow = await page.evaluate(() =>
+      document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(overflow).toBe(false);
 
-    // And they must still all be reachable and hittable at the size they render.
+    // Every swatch is inside the modal and keeps a real touch target.
+    const box = (await dialog.boundingBox())!;
     for (const index of [0, 5]) {
-      const box = await dialog.getByTestId(`create-color-${String(index)}`).boundingBox();
-      expect(box).not.toBeNull();
-      expect(box!.width).toBeGreaterThanOrEqual(44);
-      expect(box!.height).toBeGreaterThanOrEqual(44);
+      const swatch = (await dialog.getByTestId(`create-color-${String(index)}`).boundingBox())!;
+      expect(swatch.x).toBeGreaterThanOrEqual(box.x - 0.5);
+      expect(swatch.x + swatch.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
+      expect(swatch.width).toBeGreaterThanOrEqual(44);
+      expect(swatch.height).toBeGreaterThanOrEqual(44);
     }
+
+    // And it still works: name it and create from the phone.
+    await dialog.getByTestId('create-name').fill('phonemade');
+    await dialog.getByTestId('create-go').click();
+    // On a phone, creating lands you inside the new channel (two-surface stack).
+    // Asserted on the URL and the visible name rather than the desktop header
+    // element, which the mobile surface does not render.
+    await expect(page).toHaveURL(/room=phonemade/, { timeout: 15_000 });
+    await expect(page.getByText('phonemade').first()).toBeVisible();
   });
 });

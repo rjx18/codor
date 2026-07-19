@@ -7,8 +7,12 @@ import {
   type AdapterLike,
   availableAgentHandle,
   buildSpawnSpec,
+  channelOwner,
   collidesWithOwner,
   defaultSpawnCwd,
+  HANDLE_PATTERN,
+  SPAWN_PRESETS,
+  applyPreset,
   effectiveHarness,
   reconcileConfig,
   supportedThinking,
@@ -163,6 +167,70 @@ describe('one rule decides an acceptable thinking level (Tier-1 #4)', () => {
     expect(supportedThinking(plain, 'low')).toBeUndefined();
     expect(supportedThinking(undeclared, 'high')).toBe('high');
     expect(supportedThinking(claude, '')).toBeUndefined();
+  });
+});
+
+describe('the handle pattern actually validates (Tier-1 regression)', () => {
+  it('compiles under the v flag, which is how HTML compiles `pattern`', () => {
+    // The unescaped form threw here, and the HTML spec says an invalid pattern is
+    // IGNORED — so the field silently accepted anything. `NOPE!!` passed while
+    // looking guarded. This is the root-cause assertion; the e2e checks the symptom.
+    expect(() => new RegExp(`^(?:${HANDLE_PATTERN})$`, 'v')).not.toThrow();
+  });
+
+  it.each(['scout', 'a1', 'my-agent', 'x'.repeat(31)])('accepts %s', (handle) => {
+    expect(new RegExp(`^(?:${HANDLE_PATTERN})$`, 'v').test(handle)).toBe(true);
+  });
+
+  it.each(['NOPE!!', 'Scout', '-lead', 'has space', 'x'.repeat(32), 'a'])('rejects %s', (handle) => {
+    expect(new RegExp(`^(?:${HANDLE_PATTERN})$`, 'v').test(handle)).toBe(false);
+  });
+});
+
+describe('the channel owner is found by role, not by position', () => {
+  it('picks the owner even when another human is listed first', () => {
+    const members = [
+      agent({ id: 'h1', kind: 'human', handle: 'guest', role: 'member' } as Partial<Member>),
+      agent({ id: 'h2', kind: 'human', handle: 'richard', role: 'owner' } as Partial<Member>),
+    ];
+    expect(channelOwner(members)?.handle).toBe('richard');
+  });
+
+  it('is undefined when no owner is present rather than guessing', () => {
+    expect(channelOwner([agent({ kind: 'human', role: 'member' } as Partial<Member>)])).toBeUndefined();
+  });
+});
+
+describe('role presets', () => {
+  it('keeps legacy values rather than drifting', () => {
+    const byId = Object.fromEntries(SPAWN_PRESETS.map((p) => [p.id, p]));
+    expect(byId.writer?.thinking).toBe('low');
+    expect(byId.reviewer?.policy).toBe('read-only');
+    expect(byId.planner?.policy).toBe('read-only');
+    expect(byId.coder?.policy).toBe('workspace-write');
+    // Nothing here may quietly hand out full access.
+    expect(SPAWN_PRESETS.every((p) => p.policy !== 'full-access')).toBe(true);
+  });
+
+  it('drops a level the harness does not accept instead of arming it', () => {
+    const reviewer = SPAWN_PRESETS.find((p) => p.id === 'reviewer')!;
+    const applied = applyPreset({
+      preset: reviewer,
+      config: { harness: 'codex', model: '', thinking: '', policy: '' },
+      adapters: [plain], members: [],
+    });
+    expect(applied.config.thinking).toBe('');
+    expect(applied.config.policy).toBe('read-only');
+  });
+
+  it('makes the preset handle unique against live members', () => {
+    const reviewer = SPAWN_PRESETS.find((p) => p.id === 'reviewer')!;
+    const applied = applyPreset({
+      preset: reviewer,
+      config: { harness: 'claude-code', model: '', thinking: '', policy: '' },
+      adapters: [claude], members: [agent({ handle: 'reviewer' })],
+    });
+    expect(applied.handle).toBe('reviewer-2');
   });
 });
 

@@ -189,7 +189,9 @@ export function CreateChannelDialog(props: {
                 {agentError}
               </span>
             )}
-            {agentName.trim() !== '' && (
+            {/* Only claim an agent will join when one actually will — under "None"
+                this promised "@codor joins" and nothing was created. */}
+            {agentHarness !== '' && agentName.trim() !== '' && (
               derivedHandle !== undefined
                 ? <span className="nx-field-note">joins as <Code>@{derivedHandle}</Code></span>
                 : <span className="nx-field-note is-error">that name resolves to a reserved handle — pick another</span>

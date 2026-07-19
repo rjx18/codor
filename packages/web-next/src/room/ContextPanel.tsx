@@ -13,6 +13,7 @@ import {
   asPolicy,
   channelOwner,
   collidesWithOwner,
+  HANDLE_PATTERN,
   defaultSpawnCwd,
   effectiveHarness,
   supportedThinking,
@@ -568,6 +569,9 @@ function SpawnDialog(props: {
   // The operator should not retype the project path on every spawn.
   const [cwd, setCwd] = useState(() => defaultSpawnCwd(props.room, props.members));
   const [purpose, setPurpose] = useState('');
+  // Without this the X close button is the first focusable and takes focus on
+  // open, so the dialog greets you with "Cancel" instead of the first field.
+  const handleRef = useRef<HTMLInputElement>(null);
 
   // Adapter discovery is asynchronous; a selection made before the list arrives
   // heals rather than sticking at a dead value.
@@ -591,7 +595,7 @@ function SpawnDialog(props: {
   };
 
   return (
-    <Modal label="Spawn agent" onClose={props.onClose} testid="spawn-dialog">
+    <Modal label="Spawn agent" onClose={props.onClose} testid="spawn-dialog" initialFocus={handleRef}>
       {/* A native form so Enter submits from any field. */}
       <form onSubmit={submit}>
         <div className="nx-dialog-head">
@@ -607,10 +611,14 @@ function SpawnDialog(props: {
 
         <label className="nx-field">
           Handle
+          {/* HANDLE_PATTERN's hyphen must stay escaped: HTML compiles `pattern`
+              with the `v` flag, under which a bare `-` here is a syntax error —
+              and an invalid pattern is silently ignored, so validation vanishes
+              rather than failing loudly. */}
           <input
+            ref={handleRef}
             value={handle}
-            autoFocus
-            pattern="[a-z0-9][a-z0-9-]{1,30}"
+            pattern={HANDLE_PATTERN}
             maxLength={31}
             onChange={(e) => setHandle(e.target.value)}
             placeholder="e.g. scout"
