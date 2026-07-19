@@ -53,6 +53,56 @@ background service, optionally enables Tailscale, and prints a one-time browser 
 Open the pairing link. Codor is then available locally at <http://127.0.0.1:8137>.
 
 <details>
+<summary><strong>Windows: native install (no WSL), step by step</strong></summary>
+
+Run these in PowerShell from where you want the checkout. You need the prerequisites below
+first (Git, Node.js 22+, pnpm 10.9, and one signed-in agent CLI).
+
+```powershell
+git clone https://github.com/HASJ/codor.git
+cd codor
+pnpm install --frozen-lockfile
+pnpm -r build
+powershell -ExecutionPolicy Bypass -File scripts/install-cli.ps1
+```
+
+`install-cli.ps1` writes a `codor.cmd` shim to `%USERPROFILE%\.local\bin` and adds that
+folder to your user PATH. **Open a new terminal** so `codor` resolves, then:
+
+```powershell
+codor setup
+```
+
+The wizard asks before each step. On Windows it:
+
+- creates `%USERPROFILE%\.config\codor` and `%USERPROFILE%\.codor`, and a private token file
+  locked to your account with `icacls`;
+- registers a hidden per-user **Task Scheduler** task named `Codor Switchboard` that runs a
+  PowerShell wrapper at logon and restarts it on failure — no console window, no WSL;
+- starts it and prints a one-time browser pairing link.
+
+Preview everything without touching the system first:
+
+```powershell
+codor setup --dry-run
+```
+
+**Manage the service**
+
+```powershell
+schtasks /Query  /TN "Codor Switchboard"        # status
+schtasks /Run    /TN "Codor Switchboard"        # start now
+schtasks /End    /TN "Codor Switchboard"        # stop
+schtasks /Change /TN "Codor Switchboard" /DISABLE   # stop launching at logon
+schtasks /Delete /TN "Codor Switchboard" /F     # remove
+```
+
+Logs are at `%USERPROFILE%\.codor\logs\codor.out.log` and `codor.err.log`. The service
+serves the same address, <http://127.0.0.1:8137>.
+
+</details>
+
+<details>
 <summary><strong>First time? Install prerequisites</strong></summary>
 
 You need Git, Node.js 22+, pnpm 10.9, and one authenticated agent CLI.
@@ -77,6 +127,18 @@ Open a new terminal, then run:
 
 ```sh
 volta install node@22
+npm install -g pnpm@10.9.0
+```
+
+**Windows** (native, no WSL — PowerShell)
+
+```powershell
+winget install Git.Git OpenJS.NodeJS.LTS
+```
+
+Open a new terminal so the PATH updates, then:
+
+```powershell
 npm install -g pnpm@10.9.0
 ```
 
