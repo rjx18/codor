@@ -695,6 +695,21 @@
   align-self: flex-start;
   max-width: 100%;
 }
+/* A running turn that has produced nothing yet paints no bubble: the sticky
+   typing pill already says the agent is working, and an empty numbered row is
+   noise the operator has to look past. The article reappears by itself the
+   moment streamed or journalled evidence lands, keeping its permanent id and
+   permalink — this hides it, it does not remove it. */
+.nx-turn:has(.nx-run.is-evidence-free) { display: none; }
+
+/* Elapsed inside the pill: a quiet monospace-ish value beside the dots. */
+.nx-typing-elapsed {
+  flex: none;
+  font: var(--t-caption);
+  color: var(--c-faded);
+  font-variant-numeric: tabular-nums;
+}
+
 .nx-typing-agent {
   display: inline-flex;
   align-items: center;
@@ -764,11 +779,6 @@
 
 /* ── Run status + message ticks ──────────────────────────────────────── */
 
-.nx-run-elapsed {
-  margin: 0;
-  font: var(--t-caption);
-  color: var(--c-faded);
-}
 .nx-seen {
   display: inline-flex;
   align-items: center;

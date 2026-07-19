@@ -79,7 +79,13 @@ test.describe('mobile transcript re-composition', () => {
     )).toBeLessThan(4);
 
     // A small nudge does not release the tail; subsequent column growth snaps back.
-    await timeline.evaluate((node) => { node.scrollTop -= 60; });
+    // Assigning scrollTop does not reliably produce a browser scroll event under
+    // full-suite timing, and the pin release listens for that event. Dispatch it
+    // explicitly, as the stable room11 gesture already does.
+    await timeline.evaluate((node) => {
+      node.scrollTop = Math.max(0, node.scrollTop - 60);
+      node.dispatchEvent(new Event('scroll'));
+    });
     await expect(fab).toBeHidden();
     await timeline.evaluate((node) => {
       const spacer = document.createElement('div');
@@ -92,10 +98,33 @@ test.describe('mobile transcript re-composition', () => {
       node.scrollHeight - node.scrollTop - node.clientHeight,
     )).toBeLessThan(4);
 
-    // Crossing the release threshold exposes the FAB and ResizeObserver stops following.
-    await timeline.evaluate((node) => { node.scrollTop -= 160; });
+    // Crossing the release threshold exposes the FAB and the growth observer
+    // stops following. Measured from the bottom so the gesture is the same
+    // distance regardless of how much history the suite accumulated in eng.
+    //
+    // The two-frame barriers matter: the first spacer's growth/scroll work can
+    // still be pending, and capturing the released position before it settles
+    // records a baseline the browser is about to move — which is exactly the
+    // +160 drift that looked like a partial pinned follow.
+    await timeline.evaluate(async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+    });
+    await timeline.evaluate(async (node) => {
+      node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight - 160);
+      node.dispatchEvent(new Event('scroll'));
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+    });
     await expect(fab).toBeVisible();
-    const releasedTop = await timeline.evaluate((node) => node.scrollTop);
+    const released = await timeline.evaluate((node) => ({
+      top: node.scrollTop,
+      distance: node.scrollHeight - node.scrollTop - node.clientHeight,
+    }));
+    expect(released.distance).toBeGreaterThanOrEqual(120);
+    const releasedTop = released.top;
     await timeline.evaluate((node) => {
       const spacer = document.createElement('div');
       spacer.dataset.testid = 'growth-probe-two';

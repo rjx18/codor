@@ -457,6 +457,217 @@ const createContinuationRoom = () => {
   daemon.spawnMember(id, { harness: 'fake', handle: 'continuator', cwd: dir });
   return id;
 };
+/**
+ * Seed a terminal run FAMILY in a fresh room, in one of the two shapes live
+ * traffic actually produced. Both are durable data the writer already emits;
+ * nothing here widens FakeAdapter or the switchboard protocol.
+ *
+ *   'root-evidence'  — #833 -> #835: prose + tools on the root, empty result.
+ *   'result-evidence' — #856 -> #858: empty root, prose on the terminal result.
+ */
+const seedTerminalFamily = (shape, status, gap = 0) => {
+  const roomId = createContinuationRoom();
+  const agent = daemon.store.getMemberByHandle(roomId, 'continuator');
+  const ts = new Date().toISOString();
+  const ref = 'runs/family-root.jsonl';
+  const rootBody = shape === 'root-evidence' ? 'Root stretch before the stop.' : '';
+  const root = daemon.store.postMessage(roomId, {
+    author: agent.id,
+    kind: 'run',
+    body: rootBody,
+    run: {
+      status,
+      started_ts: ts,
+      ended_ts: ts,
+      tool_calls: shape === 'root-evidence' ? 2 : 0,
+      events_ref: ref,
+      output_mode: 'messages',
+      ...(shape === 'root-evidence' ? {} : { error: `run ${status} before any output` }),
+    },
+  });
+  // An operator row between root and result, exactly as the live families had:
+  // it is what makes the result its own turn with its own permalink rather than
+  // a grouped continuation of the root.
+  const interjection = daemon.store.postMessage(roomId, {
+    author: daemon.ownerOf(roomId).id,
+    kind: 'chat',
+    body: 'Operator interjection between the two stretches.',
+  });
+  // Optional filler pushes the ROOT outside the bounded hydration tail while
+  // the result stays inside it — the out-of-window case.
+  const filler = [];
+  for (let index = 0; index < gap; index++) {
+    // Deliberately TALL: with one-line rows the 20-message tail fits the
+    // viewport exactly, the timeline never overflows, and no upward scroll
+    // event fires — so no history request is ever made and paging cannot be
+    // exercised at all.
+    filler.push(daemon.store.postMessage(roomId, {
+      author: daemon.ownerOf(roomId).id,
+      kind: 'chat',
+      body: [
+        `filler ${String(index + 1)} between the family rows`,
+        'second line of this filler row',
+        'third line of this filler row',
+        'fourth line of this filler row',
+      ].join('\n'),
+    }));
+  }
+  const resultBody = shape === 'root-evidence' ? '' : 'Result stretch carrying the only prose.';
+  const result = daemon.store.postMessage(roomId, {
+    author: agent.id, kind: 'run', body: resultBody, run_parent_id: root.id,
+  });
+  const events = [];
+  if (shape === 'root-evidence') {
+    events.push(
+      { type: 'run.item', item_type: 'text_delta', output_message_id: root.id, payload: { text: rootBody }, ts },
+      { type: 'run.item', item_type: 'tool_call', output_message_id: root.id, payload: { call_id: 'f1', tool: 'Read', title: 'Read fixture', input: { file_path: 'src/a.ts' } }, ts },
+      { type: 'run.item', item_type: 'tool_result', output_message_id: root.id, payload: { call_id: 'f1', status: 'ok', output_text: 'read ok' }, ts },
+      { type: 'run.item', item_type: 'tool_call', output_message_id: root.id, payload: { call_id: 'f2', tool: 'Edit', title: 'Edit fixture', input: { file_path: 'src/b.ts' } }, ts },
+      { type: 'run.item', item_type: 'tool_result', output_message_id: root.id, payload: { call_id: 'f2', status: 'ok', output_text: 'edit ok' }, ts },
+    );
+  } else {
+    events.push({ type: 'run.item', item_type: 'text_delta', output_message_id: result.id, payload: { text: resultBody }, ts });
+  }
+  // The authoritative terminal event names the row that owns the result, which
+  // is what the UI must use when the root has fallen outside the tail.
+  events.push({ type: 'run.completed', status, output_message_id: result.id, ts });
+  for (const event of events) daemon.blobs.append(roomId, ref, event);
+  for (const message of [root, interjection, ...filler, result]) daemon.emitMessage(roomId, message);
+  return { room: roomId, root: root.id, result: result.id, status };
+};
+
+/**
+ * A LIVE family the spec drives step by step, so ownership changes are observed
+ * rather than posed: start a running root, then interleave human rows and
+ * continuations. Every step emits durable rows the writer already produces.
+ */
+const liveFamilies = new Map();
+const startLiveFamily = (handle, existingRoom) => {
+  const roomId = existingRoom ?? createContinuationRoom();
+  if (handle !== 'continuator') daemon.spawnMember(roomId, { harness: 'fake', handle, cwd: dir });
+  const agent = daemon.store.getMemberByHandle(roomId, handle);
+  const startedTs = new Date(Date.now() - 90_000).toISOString(); // a clock already running
+  const ref = `runs/live-${String(agent.id)}.jsonl`;
+  const root = daemon.store.postMessage(roomId, {
+    author: agent.id,
+    kind: 'run',
+    // A running run's body is empty until it finalizes — the prose arrives as
+    // streamed evidence, which is exactly what makes the row evidence-free
+    // until the spec sends it.
+    body: '',
+    run: {
+      status: 'running',
+      started_ts: startedTs,
+      tool_calls: 2,
+      events_ref: ref,
+      output_mode: 'messages',
+    },
+  });
+  // Deliberately NO evidence yet: the spec asks for it after it has subscribed,
+  // because a run_event emitted before then is correctly dropped on the floor.
+  daemon.emitMessage(roomId, root);
+  // The typing pill keys off MEMBER state, so a live fixture has to say the
+  // agent is running, not merely leave a running run row behind.
+  daemon.emitMember(roomId, daemon.store.updateMember(roomId, agent.id, { state: 'running' }));
+  liveFamilies.set(`${roomId}:${handle}`, { roomId, agentId: agent.id, ref, rootId: root.id, startedTs });
+  return { room: roomId, root: root.id, started_ts: startedTs };
+};
+
+const liveFamilyStep = (roomId, handle, step, body) => {
+  const family = liveFamilies.get(`${roomId}:${handle}`);
+  if (!family) throw new Error(`no live family: ${roomId}:${handle}`);
+  if (step === 'interject') {
+    const row = daemon.store.postMessage(roomId, {
+      author: daemon.ownerOf(roomId).id, kind: 'chat', body: body ?? 'Operator interjection.',
+    });
+    daemon.emitMessage(roomId, row);
+    return { id: row.id };
+  }
+  if (step === 'evidence') {
+    const events = [
+      { type: 'run.item', item_type: 'text_delta', output_message_id: family.rootId, payload: { text: 'Live root stretch.' }, ts: family.startedTs },
+      { type: 'run.item', item_type: 'tool_call', output_message_id: family.rootId, payload: { call_id: 'l1', tool: 'Read', title: 'Read live fixture', input: { file_path: 'src/live.ts' } }, ts: family.startedTs },
+      { type: 'run.item', item_type: 'tool_result', output_message_id: family.rootId, payload: { call_id: 'l1', status: 'ok', output_text: 'live read ok' }, ts: family.startedTs },
+      { type: 'run.item', item_type: 'tool_call', output_message_id: family.rootId, payload: { call_id: 'l2', tool: 'Edit', title: 'Edit live fixture', input: { file_path: 'src/live-b.ts' } }, ts: family.startedTs },
+      { type: 'run.item', item_type: 'tool_result', output_message_id: family.rootId, payload: { call_id: 'l2', status: 'ok', output_text: 'live edit ok' }, ts: family.startedTs },
+    ];
+    events.forEach((event, index) => {
+      daemon.blobs.append(roomId, family.ref, event);
+      daemon.emit(roomId, { type: 'run_event', room: roomId, message_id: family.rootId, event, index });
+    });
+    return { id: family.rootId };
+  }
+  if (step === 'continue') {
+    const text = body ?? 'Live continuation stretch.';
+    const row = daemon.store.postMessage(roomId, {
+      author: family.agentId, kind: 'run', body: text, run_parent_id: family.rootId,
+    });
+    const event = {
+      type: 'run.item', item_type: 'text_delta', output_message_id: row.id,
+      payload: { text }, ts: new Date().toISOString(),
+    };
+    daemon.blobs.append(roomId, family.ref, event);
+    daemon.emitMessage(roomId, row);
+    daemon.emit(roomId, { type: 'run_event', room: roomId, message_id: family.rootId, event, index: 90 });
+    return { id: row.id };
+  }
+  if (step === 'interrupt') {
+    const rows = daemon.store.listMessages(roomId, { limit: 500 })
+      .filter((message) => message.id === family.rootId || message.run_parent_id === family.rootId);
+    const owner = rows.at(-1);
+    daemon.blobs.append(roomId, family.ref, {
+      type: 'run.completed', status: 'interrupted', output_message_id: owner.id,
+      ts: new Date().toISOString(),
+    });
+    const root = daemon.store.getMessage(roomId, family.rootId);
+    const settled = daemon.store.updateMessage(roomId, family.rootId, {
+      run: {
+        ...root.run,
+        status: 'interrupted',
+        ended_ts: new Date().toISOString(),
+        result_message_id: owner.id,
+      },
+    });
+    daemon.emitMessage(roomId, settled);
+    daemon.emitMember(roomId, daemon.store.updateMember(roomId, family.agentId, { state: 'idle' }));
+    return { id: owner.id };
+  }
+  throw new Error(`unknown live family step: ${step}`);
+};
+
+/**
+ * A LEGACY one-row family: a single run message whose evidence is split into
+ * stretches by an interleaved human row. No continuations, no output_mode —
+ * this is stored history, and it has to stay readable.
+ */
+const seedHistoricalFamily = (shape, status) => {
+  const roomId = createContinuationRoom();
+  const agent = daemon.store.getMemberByHandle(roomId, 'continuator');
+  const ts = new Date().toISOString();
+  const ref = 'runs/legacy-root.jsonl';
+  const run = daemon.store.postMessage(roomId, {
+    author: agent.id,
+    kind: 'run',
+    body: shape === 'partial' ? 'Legacy stretch one.' : '',
+    run: {
+      status,
+      started_ts: ts,
+      ended_ts: ts,
+      tool_calls: 0,
+      events_ref: ref,
+      ...(shape === 'partial' ? {} : { error: `legacy run ${status} with no output` }),
+    },
+  });
+  if (shape === 'partial') {
+    for (const event of [
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'Legacy stretch one.' }, ts },
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'Legacy stretch two.' }, ts },
+    ]) daemon.blobs.append(roomId, ref, event);
+  }
+  daemon.emitMessage(roomId, run);
+  return { room: roomId, run: run.id, status };
+};
+
 const waitForContinuation = async (read, predicate, label) => {
   for (let attempt = 0; attempt < 300; attempt++) {
     const value = read();
@@ -801,6 +1012,34 @@ createServer((req, res) => {
           oldInboxMention: oldInboxMention.id,
           newInboxMention: newInboxMention.id,
         };
+      }
+      if (url.pathname === '/seed-historical-family') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = seedHistoricalFamily(
+          String(body.shape ?? 'partial'), String(body.status ?? 'interrupted'),
+        );
+      }
+      if (url.pathname === '/live-family') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = startLiveFamily(
+          String(body.handle ?? 'continuator'),
+          body.room === undefined ? undefined : String(body.room),
+        );
+      }
+      if (url.pathname === '/live-family-step') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = liveFamilyStep(
+          String(body.room), String(body.handle ?? 'continuator'),
+          String(body.step), body.body === undefined ? undefined : String(body.body),
+        );
+      }
+      if (url.pathname === '/seed-terminal-family') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = seedTerminalFamily(
+          String(body.shape ?? 'root-evidence'),
+          String(body.status ?? 'interrupted'),
+          Number(body.gap ?? 0),
+        );
       }
       if (url.pathname === '/continuation-room') {
         // Handed out empty, so the spec can be watching before the rows land.

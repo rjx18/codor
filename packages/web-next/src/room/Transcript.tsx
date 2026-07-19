@@ -250,6 +250,14 @@ export function Transcript(props: { room: string; token: () => string; connectio
     [members],
   );
 
+  // When each working agent's CURRENT lifecycle started. The support projection
+  // carries active roots even when they sit outside the hydrated window, so the
+  // pill's clock survives both interjections and a root scrolled out of reach.
+  const runningSince = useMemo(
+    () => resolveRunningSince(support?.active_runs ?? [], Object.values(messages)),
+    [support, messages],
+  );
+
   // Arrivals while unpinned drive the jump counter. Only ids above the
   // highwater mark are new — history pages prepend OLD ids and never count.
   useEffect(() => {
@@ -595,6 +603,13 @@ export function Transcript(props: { room: string; token: () => string; connectio
                 <span key={agent.id} className="nx-typing-agent" data-testid={`typing-${agent.handle}`}>
                   <Chip name={agent.handle} accent={memberAccent(agent)} size={24} />
                   <TypingDots label={`@${agent.handle} is working`} />
+                  {/* The pill is the ONE activity surface, so the clock lives
+                      here rather than inside a transcript row. It counts from
+                      the lifecycle root's start, so interjections and
+                      continuations never restart it. */}
+                  {runningSince[agent.id] !== undefined && (
+                    <ElapsedSince ts={runningSince[agent.id]!} />
+                  )}
                   {canStop && agent.state === 'running' && (
                     <button
                       type="button"
@@ -1064,12 +1079,82 @@ export function continuationTrailingText(
     : '';
 }
 
+/**
+ * When each running agent's CURRENT lifecycle started, keyed by author.
+ *
+ * The support projection is authoritative: it names the active root for each
+ * running agent, including roots outside the hydrated window. Loaded rows are
+ * consulted only for authors support did not name, and there the NEWEST start
+ * wins — an older running row that never settled would otherwise freeze the
+ * clock at a stale lifecycle's start.
+ *
+ * Pure and exported so both rules can be pinned directly. The authority set is
+ * tracked separately because "support already answered for this author" and
+ * "some loaded row answered first" are different facts; conflating them made
+ * the newest-wins comparison unreachable and silently kept the oldest root.
+ */
+export function resolveRunningSince(
+  activeRuns: Message[],
+  loaded: Message[],
+): Record<string, string> {
+  const roots: Record<string, string> = {};
+  const authoritative = new Set<string>();
+
+  for (const message of activeRuns) {
+    if (message.run?.status !== 'running') continue;
+    authoritative.add(message.author);
+    roots[message.author] = message.run.started_ts ?? message.ts;
+  }
+
+  for (const message of loaded) {
+    if (message.kind !== 'run' || message.run?.status !== 'running') continue;
+    if (authoritative.has(message.author)) continue;
+    const started = message.run.started_ts ?? message.ts;
+    const known = roots[message.author];
+    if (known === undefined || started > known) roots[message.author] = started;
+  }
+  return roots;
+}
+
+/**
+ * One place decides what a run FAMILY says about itself, so RunContent and
+ * RunStretch cannot drift into disagreeing about who owns the status.
+ *
+ * A family is a lifecycle root plus its continuations. Its terminal marker
+ * belongs on the durable result row — the newest row it produced — after that
+ * row's own content, never on the root merely because the root holds the
+ * lifecycle summary. The live shapes make the difference concrete: #833 kept
+ * its prose and tools on the root with an empty result, and #856 was the
+ * inverse. Attaching the marker to `isRoot` gets exactly one of those right.
+ */
+function runFamilyOwners(
+  familyIds: number[],
+  rootId: number,
+  journalOwner: number | undefined,
+): { newestId: number; terminalOwnerId: number } {
+  const newestId = familyIds.length > 0 ? Math.max(...familyIds) : rootId;
+  // The journal is authoritative when it has spoken: run.completed names the
+  // row that owns the result, which is what a root outside the hydration
+  // window leaves us with.
+  return { newestId, terminalOwnerId: journalOwner ?? newestId };
+}
+
 function RunContent(props: { message: Message; room: string; token: () => string }) {
   const rootId = props.message.run_parent_id ?? props.message.id;
   const root = useClientStore((state) => {
     const slice = roomSlice(state, props.room);
     return slice.messages[rootId]
       ?? slice.support?.active_runs.find((message) => message.id === rootId);
+  });
+  // Every row of this family that the client currently holds. A continuation
+  // arriving later moves ownership without anything being re-fetched.
+  const familyIds = useClientStore((state) => {
+    const slice = roomSlice(state, props.room);
+    return Object.values(slice.messages)
+      .filter((message) => message.id === rootId || message.run_parent_id === rootId)
+      .map((message) => message.id)
+      .sort((left, right) => left - right)
+      .join(',');
   });
   const rootRun = root?.run ?? props.message.run;
   const outputMessages = props.message.run_parent_id !== undefined
@@ -1130,8 +1215,48 @@ function RunContent(props: { message: Message; room: string; token: () => string
   const runError = isRoot ? rootRun?.error : undefined;
   // harn:end run-failure-evidence-is-surfaced
 
+  // Who owns the family's terminal marker, and what it may claim.
+  const terminal = useMemo(() => {
+    const completed = (journalEvents ?? []).find(
+      (event) => event.type === 'run.completed',
+    ) as { status?: string; output_message_id?: number } | undefined;
+    const ids = familyIds === '' ? [] : familyIds.split(',').map(Number);
+    // Durable ownership first: when the root is loaded it already NAMES its
+    // result row, so guessing "newest" over it would be inventing an answer we
+    // were handed. The journal is the fallback for an out-of-window root.
+    const { newestId, terminalOwnerId } = runFamilyOwners(
+      ids,
+      rootId,
+      rootRun?.result_message_id ?? completed?.output_message_id,
+    );
+    // Lifecycle truth comes from the root when we hold it, and otherwise from
+    // the terminal journal. With neither, we say NOTHING: a root outside the
+    // hydration window is missing evidence, not evidence of success.
+    const status = rootRun?.status ?? completed?.status;
+    return { newestId, terminalOwnerId, status };
+  }, [journalEvents, familyIds, rootId, rootRun?.status, rootRun?.result_message_id]);
+
+  const ownsTerminalMarker = props.message.id === terminal.terminalOwnerId
+    && (terminal.status === 'interrupted' || terminal.status === 'failed');
+  // A running turn says nothing in the transcript: the sticky typing pill is
+  // the one activity surface, with the one continuous clock. An in-row
+  // "running…" line was a second indicator that had to be kept in sync with it,
+  // and an empty bubble for a run that has produced nothing yet is noise.
+
+  // Nothing to show yet: no streamed evidence, no settled text. The row still
+  // exists (its id and permalink are permanent) but must not paint an empty
+  // numbered bubble; CSS hides the whole article until evidence arrives.
+  const evidenceFree = running && segments.length === 0
+    && finalText.length === 0 && trailingText.length === 0;
+
   return (
-    <div className="nx-run" data-run-status={rootRun?.status ?? (isRoot ? 'running' : 'completed')}>
+    <div
+      className={`nx-run ${evidenceFree ? 'is-evidence-free' : ''}`}
+      // Only ever the status we can actually establish. The old
+      // `isRoot ? 'running' : 'completed'` fallback made every continuation
+      // whose root sat outside the window claim success it had no evidence for.
+      {...(terminal.status !== undefined && { 'data-run-status': terminal.status })}
+    >
       {segments.map((segment, index) =>
         segment.kind === 'compaction'
           ? (
@@ -1153,15 +1278,6 @@ function RunContent(props: { message: Message; room: string; token: () => string
             )
           : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} />,
       )}
-      {isRoot && running && <ElapsedSince ts={props.message.ts} />}
-      {/* A terminal run that produced no reply (e.g. interrupted by a restart)
-          reads as a quiet status marker, never a blank bubble. */}
-      {!running && !hasProse && finalText.length === 0
-        && isRoot && (rootRun?.status === 'interrupted' || rootRun?.status === 'failed') && (
-        <p className={`nx-run-status is-${rootRun.status}`} data-testid={`run-${props.message.id}-status`}>
-          run {rootRun.status}
-        </p>
-      )}
       {!running && !hasProse && finalText.length > 0 && (
         <RunTextBlock messageId={props.message.id} blockId="final" text={finalText} />
       )}
@@ -1175,6 +1291,14 @@ function RunContent(props: { message: Message; room: string; token: () => string
         </p>
       )}
       {/* harn:end run-failure-evidence-is-surfaced */}
+      {/* The family's single terminal marker goes LAST — after prose, tools and
+          the error note — because it is the statement about everything above
+          it, not another piece of evidence competing with them. */}
+      {!running && ownsTerminalMarker && (
+        <p className={`nx-run-status is-${terminal.status ?? ''}`} data-testid={`run-${props.message.id}-status`}>
+          run {terminal.status}
+        </p>
+      )}
     </div>
   );
 }
@@ -1426,8 +1550,18 @@ function RunStretch(props: {
                   )
                 : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} />,
           )}
+          {/* Legacy one-row families split into stretches: the marker belongs on
+              the FINAL stretch, after everything that survived, so preserved
+              prose and tools still read as what happened before it stopped.
+              Same rule RunContent applies to modern families — stated once in
+              each renderer rather than left to diverge. */}
           {props.isLastStretch && runError !== undefined && runError !== '' && (
             <p className="nx-field-note is-error" role="alert" data-testid="run-error">{runError}</p>
+          )}
+          {props.isLastStretch && (status === 'interrupted' || status === 'failed') && (
+            <p className={`nx-run-status is-${status}`} data-testid={`run-${message.id}-status`}>
+              run {status}
+            </p>
           )}
         </div>
       </div>
@@ -1450,18 +1584,28 @@ function RunTextBlock(props: { messageId: number; blockId: number | 'final'; tex
   );
 }
 
-/** Ticking elapsed line under a live run. */
+/** Ticking elapsed value inside a working agent's typing pill. */
 function ElapsedSince(props: { ts: string }) {
   const [, force] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => force((n) => n + 1), 1000);
     return () => clearInterval(timer);
   }, []);
-  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(props.ts)) / 1000));
+  const elapsedMs = Math.max(0, Date.now() - Date.parse(props.ts));
+  const seconds = Math.floor(elapsedMs / 1000);
   return (
-    <p className="nx-run-elapsed" data-testid="run-elapsed">
-      running · {formatRunDuration(seconds * 1000)}
-    </p>
+    // Lives in the typing pill, beside the dots that already announce the agent
+    // is working — so this is decoration for that label and must not re-announce
+    // itself every second. The raw duration is exposed for tests, since the
+    // rendered text is too coarse to prove the clock never restarted.
+    <span
+      className="nx-typing-elapsed"
+      data-testid="typing-elapsed"
+      data-elapsed-ms={String(elapsedMs)}
+      aria-hidden="true"
+    >
+      {formatRunDuration(seconds * 1000)}
+    </span>
   );
 }
 

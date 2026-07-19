@@ -7,6 +7,7 @@ import {
   continuationTrailingText,
   continuationVisibleMessages,
   messageReadSeq,
+  resolveRunningSince,
 } from './Transcript.js';
 import { transcriptMessages } from './transcript-order.js';
 
@@ -108,3 +109,60 @@ describe('continuation transcript semantics', () => {
   });
 });
 // harn:end continuation-writer-follows-journaled-output-ownership
+
+describe('resolveRunningSince', () => {
+  const runningRun = (id: number, author: string, startedTs: string): Message => ({
+    id,
+    room: 'eng',
+    author,
+    kind: 'run',
+    body: '',
+    mentions: [],
+    refs: [],
+    ledger_refs: [],
+    ts: startedTs,
+    seq: id,
+    run: {
+      status: 'running',
+      started_ts: startedTs,
+      tool_calls: 0,
+      events_ref: `runs/${String(id)}.jsonl`,
+    },
+  } as unknown as Message);
+
+  it('takes the newest loaded root when support says nothing', () => {
+    // Numeric message keys enumerate ascending, so a first-wins rule silently
+    // preserved the OLDEST running root — a stale lifecycle that never settled
+    // would have frozen the pill's clock at its start time.
+    const stale = runningRun(1, 'agent-a', '2026-07-18T00:00:00.000Z');
+    const current = runningRun(9, 'agent-a', '2026-07-18T03:00:00.000Z');
+
+    expect(resolveRunningSince([], [stale, current])['agent-a'])
+      .toBe('2026-07-18T03:00:00.000Z');
+    // Enumeration order must not decide the answer.
+    expect(resolveRunningSince([], [current, stale])['agent-a'])
+      .toBe('2026-07-18T03:00:00.000Z');
+  });
+
+  it('keeps the support projection authoritative over any loaded alternative', () => {
+    // Support names the CURRENT lifecycle root, including one outside the
+    // hydrated window — a loaded row must never override it, newer or not.
+    const supported = runningRun(2, 'agent-a', '2026-07-18T01:00:00.000Z');
+    const loadedNewer = runningRun(7, 'agent-a', '2026-07-18T05:00:00.000Z');
+
+    expect(resolveRunningSince([supported], [loadedNewer])['agent-a'])
+      .toBe('2026-07-18T01:00:00.000Z');
+  });
+
+  it('answers per author, and says nothing about agents that are not running', () => {
+    const running = runningRun(3, 'agent-a', '2026-07-18T02:00:00.000Z');
+    const other = runningRun(4, 'agent-b', '2026-07-18T02:30:00.000Z');
+    const settled = runningRun(5, 'agent-c', '2026-07-18T01:00:00.000Z');
+    (settled as unknown as { run: { status: string } }).run.status = 'completed';
+
+    const roots = resolveRunningSince([], [running, other, settled]);
+    expect(roots['agent-a']).toBe('2026-07-18T02:00:00.000Z');
+    expect(roots['agent-b']).toBe('2026-07-18T02:30:00.000Z');
+    expect(roots['agent-c']).toBeUndefined();
+  });
+});
