@@ -60,14 +60,19 @@ export async function checkBrowserCompatibility(token: string): Promise<void> {
 function controllerChanged(): Promise<void> {
   return new Promise((resolve) => {
     let settled = false;
+    let timer: number | undefined;
+    // Whichever arrives first must take BOTH the listener and the timer with
+    // it: a controllerchange that wins the race used to leave a 2s timer armed
+    // against a screen that is already navigating away.
     const finish = (): void => {
       if (settled) return;
       settled = true;
       navigator.serviceWorker.removeEventListener('controllerchange', finish);
+      if (timer !== undefined) window.clearTimeout(timer);
       resolve();
     };
     navigator.serviceWorker.addEventListener('controllerchange', finish);
-    window.setTimeout(finish, 2_000);
+    timer = window.setTimeout(finish, 2_000);
   });
 }
 

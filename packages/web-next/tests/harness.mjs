@@ -449,16 +449,23 @@ daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
 // Continuations: dormant reader-first data only. The production daemon still
 // writes one run row. The control endpoint inserts and fans out a future
 // writer's three durable rows on demand, then reload proves the same store data.
-const continuationOwner = daemon.ownerOf('continuations');
-const continuationAgent = daemon.spawnMember('continuations', {
-  harness: 'fake', handle: 'continuator', cwd: dir,
-});
-let continuationIds;
-const seedContinuation = () => {
-  if (continuationIds !== undefined) return continuationIds;
+// Every repetition gets its OWN room, so ids are always 1/2/3 and no run sees
+// state a previous one accumulated (the bulk rows that push the subjects out of
+// the tail would otherwise make the second repetition's "live arrival" a lie).
+let continuationRoomSeq = 0;
+const createContinuationRoom = () => {
+  const id = `continuations-${String(++continuationRoomSeq)}`;
+  daemon.createRoom({ id, name: `Continuations ${String(continuationRoomSeq)}`, owner });
+  crypto.roomKeys.ensureRoom(id);
+  daemon.spawnMember(id, { harness: 'fake', handle: 'continuator', cwd: dir });
+  return id;
+};
+const seedContinuation = (roomId) => {
+  const continuationOwner = daemon.ownerOf(roomId);
+  const continuationAgent = daemon.store.getMemberByHandle(roomId, 'continuator');
   const continuationTs = new Date().toISOString();
   const continuationRef = 'runs/continuation-root.jsonl';
-  const root = daemon.store.postMessage('continuations', {
+  const root = daemon.store.postMessage(roomId, {
     author: continuationAgent.id,
     kind: 'run',
     body: 'First durable stretch before the operator replied.',
@@ -473,12 +480,12 @@ const seedContinuation = () => {
       result_message_id: 3,
     },
   });
-  const interjection = daemon.store.postMessage('continuations', {
+  const interjection = daemon.store.postMessage(roomId, {
     author: continuationOwner.id,
     kind: 'chat',
     body: 'Operator interjection must stay between both stretches.',
   });
-  const tail = daemon.store.postMessage('continuations', {
+  const tail = daemon.store.postMessage(roomId, {
     author: continuationAgent.id,
     kind: 'run',
     body: 'Second durable stretch after the operator replied.',
@@ -519,14 +526,13 @@ const seedContinuation = () => {
       type: 'run.completed', status: 'completed', output_message_id: tail.id,
       final_text: 'First durable stretch before the operator replied. Second durable stretch after the operator replied.',
     },
-  ]) daemon.blobs.append('continuations', continuationRef, event);
+  ]) daemon.blobs.append(roomId, continuationRef, event);
   if (root.id !== 1 || interjection.id !== 2 || tail.id !== 3) {
     throw new Error('continuation fixture ids must remain 1/2/3');
   }
   // Test-only fanout: the production writer is deliberately dormant in 6B1.
-  for (const message of [root, interjection, tail]) daemon.emitMessage('continuations', message);
-  continuationIds = { root: root.id, interjection: interjection.id, tail: tail.id };
-  return continuationIds;
+  for (const message of [root, interjection, tail]) daemon.emitMessage(roomId, message);
+  return { room: roomId, root: root.id, interjection: interjection.id, tail: tail.id };
 };
 
 // Hydration: the large-room regression room (codex #516). It carries a LIVE run
@@ -734,8 +740,13 @@ createServer((req, res) => {
           newInboxMention: newInboxMention.id,
         };
       }
+      if (url.pathname === '/continuation-room') {
+        // Handed out empty, so the spec can be watching before the rows land.
+        payload = { room: createContinuationRoom() };
+      }
       if (url.pathname === '/seed-continuation') {
-        payload = seedContinuation();
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = seedContinuation(String(body.room ?? createContinuationRoom()));
       }
       if (url.pathname === '/post-chat') {
         // Insert a plain human chat straight into the store — NO routing, so it

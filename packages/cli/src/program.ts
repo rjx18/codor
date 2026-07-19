@@ -83,7 +83,21 @@ export function parseAdapterModules(values: string[]): Record<string, string> {
   return Object.fromEntries(adapters);
 }
 
+// harn:assume continuation-output-schema-is-reader-first ref=continuation-cli-format
+/**
+ * A continuation is deliberately kind=run WITHOUT a lifecycle summary — the
+ * status, usage and cost belong to its root, not to it. Reading `message.run!`
+ * for one would throw and take down every tail subscriber the moment the writer
+ * starts emitting them, so identity comes from `run_parent_id` instead.
+ *
+ * It says only what is true of the row itself: its own permanent id, its
+ * author, and which run it continues. No status, no totals, no synthesized id —
+ * borrowing the root's would be a claim this row cannot make.
+ */
 const formatRunHeader = (message: Message, author: string): string => {
+  if (message.run === undefined && message.run_parent_id !== undefined) {
+    return `#${message.id} @${author} run continuation of #${message.run_parent_id}`;
+  }
   const run = message.run!;
   const usage = run.usage;
   const tokens = usage ? usage.input_tokens + usage.output_tokens : undefined;
@@ -96,6 +110,7 @@ const formatRunHeader = (message: Message, author: string): string => {
     usage?.cost_usd === undefined ? undefined : `$${usage.cost_usd.toFixed(2)}`,
   ].filter((part) => part !== undefined).join(' ');
 };
+// harn:end continuation-output-schema-is-reader-first
 
 async function readStandardInput(): Promise<string> {
   const chunks: Buffer[] = [];
@@ -613,12 +628,20 @@ export function createProgram(context: CliContext = {}): Command {
           if (frame.type === 'member') members.set(frame.member.id, frame.member);
           if (frame.type !== 'message') return;
           const author = members.get(frame.message.author)?.handle ?? frame.message.author;
+          // harn:assume continuation-output-schema-is-reader-first ref=continuation-cli-tail
           if (frame.message.kind === 'run') {
+            // Roots and continuations both print here, each carrying only its
+            // own id and body. Nothing is aggregated or hidden: a continuation
+            // is a row a reader can scroll to, not a fragment of another one.
             out(formatRunHeader(frame.message, author));
             if (frame.message.body) out(frame.message.body);
+            // The evidence line below reads `run?.error`, which is undefined for
+            // a continuation by construction — so a root's failure can never be
+            // reattributed to a row that merely continues it.
             // harn:assume run-failure-evidence-is-surfaced ref=cli-run-error-evidence
             if (frame.message.run?.error) out(`error: ${frame.message.run.error}`);
             // harn:end run-failure-evidence-is-surfaced
+            // harn:end continuation-output-schema-is-reader-first
           } else {
             out(`#${frame.message.id} @${author} ${frame.message.kind}`);
             if (frame.message.body) out(frame.message.body);

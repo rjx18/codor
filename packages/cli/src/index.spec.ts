@@ -471,6 +471,63 @@ describe('@codor/cli', () => {
     expect(output.some((line) => line.startsWith('@reviewer\tidle\tfake'))).toBe(true);
   });
 
+  // harn:assume continuation-output-schema-is-reader-first ref=continuation-cli-regression
+  it('tails a continuation row without a lifecycle summary, in id order', async () => {
+    // The dormant writer will emit exactly this shape: a kind=run row carrying
+    // run_parent_id and NO run summary. Today's renderer reaches for
+    // `message.run!`, so the first continuation would throw inside every
+    // tail --once and --follow subscriber. Seed the shape directly and drive a
+    // real Unix tail over it.
+    const writerCwd = join(dir, 'writer-cwd');
+    mkdirSync(writerCwd);
+    const agent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'writer', cwd: writerCwd,
+    });
+    const root = daemon.store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: 'root turn body',
+      run: {
+        status: 'completed',
+        started_ts: new Date().toISOString(),
+        ended_ts: new Date().toISOString(),
+        tool_calls: 0,
+        events_ref: 'runs/root.jsonl',
+        final_text: 'root turn body',
+      },
+    });
+    daemon.store.postMessage('eng', {
+      author: daemon.ownerOf('eng').id, kind: 'chat', body: 'human interjection',
+    });
+    const continuation = daemon.store.postMessage('eng', {
+      author: agent.id,
+      kind: 'run',
+      body: 'continuation body',
+      run_parent_id: root.id,
+    });
+
+    output = [];
+    await cli('tail', '-r', 'eng', '--once');
+
+    // Every permanent id prints, in order, with each row's own body.
+    const rootLine = output.findIndex((line) => /^#1 @writer run completed/.test(line));
+    const humanLine = output.indexOf('#2 @richard chat');
+    const continuationLine = output.indexOf(`#3 @writer run continuation of #${root.id}`);
+    expect(rootLine).toBeGreaterThanOrEqual(0);
+    expect(humanLine).toBeGreaterThan(rootLine);
+    expect(continuationLine).toBeGreaterThan(humanLine);
+    expect(continuation.id).toBe(3);
+
+    expect(output).toContain('root turn body');
+    expect(output).toContain('human interjection');
+    expect(output).toContain('continuation body');
+    // The root's status and totals stay on the root: a continuation states only
+    // what it is, and nothing about it is aggregated away or hidden.
+    expect(output.filter((line) => line.includes('run completed'))).toHaveLength(1);
+    expect(output.some((line) => line.startsWith('error:'))).toBe(false);
+  });
+  // harn:end continuation-output-schema-is-reader-first
+
   // harn:assume member-env-selects-narrow-cli-identity ref=member-identity-regression
   it('uses member identity over an inherited owner token on Unix and URL transports', async () => {
     const alpha = credentialedAgent('alpha');

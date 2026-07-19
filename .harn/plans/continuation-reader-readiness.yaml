@@ -86,3 +86,5 @@ anchors:
       action: keep
       reason: The surrounding until/wait state machine must not change in this
         presentation-only round; the nested continuation reader owns its edits.
+applied:
+  applied_at: 2026-07-19T00:20:43.182Z

@@ -2,10 +2,9 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { revealOlder } from './history.js';
 
-const ROOM = '/?room=continuations&token=next-e2e-token';
 const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
 
-interface ContinuationIds { root: number; interjection: number; tail: number }
+interface ContinuationIds { room: string; root: number; interjection: number; tail: number }
 
 async function control<T>(path: string, body: unknown = {}): Promise<T> {
   const response = await fetch(`${CONTROL}${path}`, {
@@ -17,8 +16,8 @@ async function control<T>(path: string, body: unknown = {}): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function openRoom(page: Page): Promise<void> {
-  await page.goto(ROOM);
+async function openRoom(page: Page, room: string): Promise<void> {
+  await page.goto(`/?room=${room}&token=next-e2e-token`);
   await expect(page.getByTestId('timeline')).toBeVisible();
   await expect(page.getByTestId('connection')).toHaveText(/Connected/);
 }
@@ -32,9 +31,12 @@ async function expectIdOrder(rows: Locator): Promise<void> {
 
 test.describe('durable continuation reader', () => {
   test('live and reloaded rows stay #1/#2/#3 with evidence on its permanent output row', async ({ page }) => {
-    await openRoom(page);
-    const ids = await control<ContinuationIds>('/seed-continuation');
-    expect(ids).toEqual({ root: 1, interjection: 2, tail: 3 });
+    // A room of this repetition's own, opened BEFORE the rows exist, so their
+    // arrival is genuinely live and the ids are always 1/2/3.
+    const { room } = await control<{ room: string }>('/continuation-room');
+    await openRoom(page, room);
+    const ids = await control<ContinuationIds>('/seed-continuation', { room });
+    expect(ids).toEqual({ room, root: 1, interjection: 2, tail: 3 });
 
     const root = page.locator('article[id="1"]');
     const interjection = page.locator('article[id="2"]');
@@ -69,9 +71,9 @@ test.describe('durable continuation reader', () => {
 
     // Push the three subjects outside the strict cold tail. One deliberate
     // history page must recover them once, still in permanent id order.
-    await control('/seed-bulk', { room: 'continuations', count: 25 });
+    await control('/seed-bulk', { room, count: 25 });
     await page.setViewportSize({ width: 1440, height: 500 });
-    await openRoom(page);
+    await openRoom(page, room);
     await expect(root).toHaveCount(0);
     await revealOlder(page, root);
     await expect(root).toHaveCount(1);

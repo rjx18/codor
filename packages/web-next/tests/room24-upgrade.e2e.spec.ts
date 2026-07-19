@@ -40,7 +40,14 @@ test('an incompatible browser is blocked before its room socket and refreshes in
   expect(violations.map((violation) => `${violation.id}: ${violation.nodes[0]?.target[0]}`))
     .toEqual([]);
 
-  await gate.getByRole('button', { name: 'Refresh Codor' }).click();
+  // The operator gets evidence their click landed BEFORE the reload takes the
+  // page: the action goes disabled and says it is updating, so a slow refresh
+  // never reads as an unresponsive button worth clicking again.
+  const refresh = gate.getByRole('button', { name: 'Refresh Codor' });
+  await refresh.click();
+  const updating = gate.getByRole('button', { name: /Updating/ });
+  await expect(updating).toBeDisabled();
+
   await expect(page.getByTestId('timeline')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('connection')).toHaveText(/Connected/);
   expect(preflights).toBeGreaterThanOrEqual(2);
