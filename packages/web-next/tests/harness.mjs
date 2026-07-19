@@ -40,13 +40,30 @@ const fake = new FakeAdapter('fake', {
   },
 });
 
+// A deliberately DIFFERENT second harness, so the dialogs' reconciliation can be
+// exercised for real rather than against a single-adapter list: it supports
+// thinking with its own declared levels, cannot resume, and defers two of the
+// three policies (null = the harness makes no distinction at all, which is the
+// safety-critical case the permission cards must surface). No model list —
+// discovery is off in this fixture, so models come from the free-text escape.
+const thinky = new FakeAdapter('thinky', {
+  resume: false,
+  thinking: true,
+  thinking_levels: ['low', 'medium', 'high', 'xhigh'],
+  policies: {
+    'read-only': null,
+    'workspace-write': null,
+    'full-access': 'danger-full-access',
+  },
+});
+
 const ledger = new LedgerManager({ dataDir: dir });
 const crypto = new CryptoVault(dir);
 const daemon = new Daemon({
   discoverModels: false,
   dbPath: join(dir, 'db.sqlite'),
   blobRoot: join(dir, 'blobs'),
-  adapters: [fake],
+  adapters: [fake, thinky],
   ledger,
 });
 

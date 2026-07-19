@@ -15,6 +15,7 @@ import {
   DEFAULT_POLICY,
   type AgentConfig,
   collidesWithOwner,
+  isAgentFieldError,
   supportedThinking,
 } from './agent-spec.js';
 import { Button, Code, Modal } from '../primitives/primitives.js';
@@ -48,13 +49,17 @@ export function CreateChannelDialog(props: {
   // A blank name is not an error — it falls back to "Agent", so the handle is
   // derived from the effective name rather than from what was literally typed.
   // Requiring a non-empty name here is what made the fallback unreachable.
+  const agentHarness = agentConfig.harness;
   const effectiveAgentName = agentName.trim() === '' ? 'Agent' : agentName.trim();
   const derivedHandle = useMemo(
     () => deriveAssignableHandle(effectiveAgentName),
     [effectiveAgentName],
   );
-  const agentHarness = agentConfig.harness;
-  const ownerClash = derivedHandle !== undefined && collidesWithOwner(derivedHandle, owner);
+  // Only meaningful when an agent is actually being seeded. The name field keeps
+  // its default under "None", so without this guard an owner called @codor blocked
+  // channel creation entirely — for an agent that was never going to be created.
+  const ownerClash = agentHarness !== '' && derivedHandle !== undefined
+    && collidesWithOwner(derivedHandle, owner);
   const canCreate = name.trim() !== '' && owner !== undefined && !busy && !ownerClash
     && (agentHarness === '' || derivedHandle !== undefined);
 
@@ -90,7 +95,7 @@ export function CreateChannelDialog(props: {
       (room) => props.onCreated(room),
       (failure: unknown) => {
         const message = failure instanceof Error ? failure.message : String(failure);
-        if (/starting agent|handle/i.test(message)) setAgentError(message);
+        if (isAgentFieldError(message)) setAgentError(message);
         else setError(message);
       },
     ).finally(() => setBusy(false));
@@ -184,7 +189,7 @@ export function CreateChannelDialog(props: {
               placeholder="e.g. Scout"
               data-testid="create-agent-name"
             />
-            {agentError !== undefined && (
+            {agentHarness !== '' && agentError !== undefined && (
               <span className="nx-field-note is-error" role="alert" data-testid="create-agent-error">
                 {agentError}
               </span>

@@ -279,6 +279,83 @@ export function effectiveHarness(selected: string, adapters: readonly AdapterLik
   return adapters.some((adapter) => adapter.id === selected) ? selected : adapters[0]?.id ?? '';
 }
 
+/**
+ * Does this room error belong to the spawn we are waiting on?
+ *
+ * The room error stream is shared, so "an error arrived" is not "my spawn
+ * failed" — attributing any of them reports the wrong cause and abandons a
+ * request that may still be in flight. But strict handle-matching is not enough
+ * either: the protocol's own rejection for a reserved handle is the bare string
+ * `handle is reserved`, which never names it. Matching only on the handle would
+ * silently drop the most common failure the operator can actually cause.
+ *
+ * So: an error naming a DIFFERENT member is never ours; one naming ours always
+ * is; and otherwise a spawn-shaped error arriving while our spawn is the only
+ * one pending is taken as ours. Anything else stays pending until the timeout,
+ * which reports uncertainty rather than inventing a cause.
+ */
+const SPAWN_SHAPED = /\b(handle|spawn|harness|agent|reserved)\b/i;
+
+export function errorMentionsHandle(message: string, handle: string): boolean {
+  if (handle === '') return false;
+  // Word-ish boundary: `scout` must not match `scout-2`, and quoting varies.
+  return new RegExp(
+    `(^|[^a-z0-9-])${handle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9-]|$)`,
+    'i',
+  ).test(message);
+}
+
+export function errorConcernsSpawn(message: string, handle: string): boolean {
+  if (errorMentionsHandle(message, handle)) return true;
+  // Names someone else explicitly -> theirs, not ours.
+  const other = /@([a-z0-9][a-z0-9-]*)/i.exec(message)?.[1];
+  if (other !== undefined && other.toLowerCase() !== handle.toLowerCase()) return false;
+  return SPAWN_SHAPED.test(message);
+}
+
+/**
+ * What a pending spawn should do next, given everything currently known.
+ *
+ * Extracted as a pure function so every branch is testable without racing a live
+ * daemon: "an unrelated member arrived", "an unrelated error arrived" and "our
+ * error arrived" are three different outcomes, and a browser test cannot inject
+ * them deterministically. The dialog just renders this decision.
+ */
+export type SpawnResolution =
+  | { state: 'pending' }
+  | { state: 'arrived' }
+  | { state: 'failed'; message: string };
+
+export function resolveSpawn(input: {
+  handle: string;
+  members: readonly Member[];
+  freshErrors: readonly string[];
+}): SpawnResolution {
+  // Success is OUR handle appearing. "Membership changed" would report success
+  // when any unrelated agent joined — a false success, worse than the silent
+  // failure it replaced.
+  const arrived = input.members.some(
+    (member) => member.handle === input.handle && member.removed_ts === undefined,
+  );
+  if (arrived) return { state: 'arrived' };
+
+  const mine = input.freshErrors.filter((message) => errorConcernsSpawn(message, input.handle));
+  const last = mine.at(-1);
+  return last === undefined ? { state: 'pending' } : { state: 'failed', message: last };
+}
+
+/**
+ * Does this server failure belong beside the agent-name field?
+ *
+ * Legacy routes handle/starting-agent errors to the field that caused them and
+ * everything else to the form. A single bottom banner makes a field-specific
+ * error read as unrelated to the field, which is how people retry the same
+ * value twice.
+ */
+export function isAgentFieldError(message: string): boolean {
+  return /starting agent|handle/i.test(message);
+}
+
 export interface SpawnSpec {
   harness: string;
   handle: string;

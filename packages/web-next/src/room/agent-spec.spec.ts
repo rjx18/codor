@@ -11,6 +11,10 @@ import {
   collidesWithOwner,
   defaultSpawnCwd,
   HANDLE_PATTERN,
+  errorConcernsSpawn,
+  isAgentFieldError,
+  errorMentionsHandle,
+  resolveSpawn,
   SPAWN_PRESETS,
   applyPreset,
   effectiveHarness,
@@ -167,6 +171,110 @@ describe('one rule decides an acceptable thinking level (Tier-1 #4)', () => {
     expect(supportedThinking(plain, 'low')).toBeUndefined();
     expect(supportedThinking(undeclared, 'high')).toBe('high');
     expect(supportedThinking(claude, '')).toBeUndefined();
+  });
+});
+
+describe('a pending spawn resolves only on its own evidence (Tier-1 #5)', () => {
+  const pending = (over: Partial<Parameters<typeof resolveSpawn>[0]> = {}) =>
+    resolveSpawn({ handle: 'scout', members: [], freshErrors: [], ...over });
+
+  it('stays pending while nothing relevant has happened', () => {
+    expect(pending().state).toBe('pending');
+  });
+
+  it('completes when the submitted handle arrives', () => {
+    expect(pending({ members: [agent({ handle: 'scout' })] }).state).toBe('arrived');
+  });
+
+  it('does NOT complete when an unrelated member arrives', () => {
+    // The defect this guards: "membership changed" reported success for whichever
+    // agent happened to join, which is a false success — worse than the silent
+    // failure it replaced.
+    expect(pending({ members: [agent({ handle: 'someone-else' })] }).state).toBe('pending');
+  });
+
+  it('does not mistake a similarly-named member for ours', () => {
+    expect(pending({ members: [agent({ handle: 'scout-2' })] }).state).toBe('pending');
+  });
+
+  it('ignores a member that has been removed', () => {
+    const gone = agent({ handle: 'scout', removed_ts: '2026-01-01T00:00:00.000Z' });
+    expect(pending({ members: [gone] }).state).toBe('pending');
+  });
+
+  it('fails on an error naming our handle', () => {
+    const out = pending({ freshErrors: ["handle 'scout' is reserved"] });
+    expect(out).toEqual({ state: 'failed', message: "handle 'scout' is reserved" });
+  });
+
+  it('does NOT fail on an error naming a different member', () => {
+    // The room error stream is shared; another agent's failure must not be
+    // reported as this spawn's cause, nor abandon a request still in flight.
+    expect(pending({ freshErrors: ['agent @other failed to spawn'] }).state).toBe('pending');
+  });
+
+  it('claims a spawn-shaped error that names nobody', () => {
+    // The protocol rejects a reserved handle with the bare string
+    // "handle is reserved" — it never names the handle. Matching only on the
+    // handle would drop the most common failure an operator can cause.
+    expect(pending({ freshErrors: ['handle is reserved'] }))
+      .toEqual({ state: 'failed', message: 'handle is reserved' });
+  });
+
+  it('ignores an unrelated error that is not spawn-shaped', () => {
+    expect(pending({ freshErrors: ['delivery to the bridge was held'] }).state).toBe('pending');
+  });
+
+  it('takes the most recent of several errors that are ours', () => {
+    const out = pending({ freshErrors: ['scout first', 'unrelated thing', 'scout second'] });
+    expect(out).toEqual({ state: 'failed', message: 'scout second' });
+  });
+
+  it('prefers arrival over a stale error', () => {
+    expect(pending({
+      members: [agent({ handle: 'scout' })], freshErrors: ['scout was slow'],
+    }).state).toBe('arrived');
+  });
+});
+
+describe('error correlation is handle-exact', () => {
+  it.each([
+    ["handle 'scout' is reserved", true],
+    ['@scout failed to start', true],
+    ['scout: spawn refused', true],
+    ['scout-2 failed', false],
+    ['prescout failed', false],
+    ['nothing to do with it', false],
+  ])('%s -> %s', (message, expected) => {
+    expect(errorMentionsHandle(message, 'scout')).toBe(expected);
+  });
+
+  it('never matches on an empty handle', () => {
+    expect(errorMentionsHandle('anything at all', '')).toBe(false);
+  });
+
+  it.each([
+    ['handle is reserved', true],
+    ['spawn refused: bad cwd', true],
+    ['agent @someone-else failed to spawn', false],
+    ['@scout failed to spawn', true],
+    ['the ledger could not be written', false],
+  ])('concerns-our-spawn: %s -> %s', (message, expected) => {
+    expect(errorConcernsSpawn(message, 'scout')).toBe(expected);
+  });
+});
+
+describe('server failures are routed to the field that caused them', () => {
+  it.each([
+    ["handle 'all' is reserved", true],
+    ['starting agent could not be created', true],
+    ['invalid handle format', true],
+    ['channel name already exists', false],
+    ['the ledger could not be written', false],
+  ])('%s -> agent field: %s', (message, expected) => {
+    // A field-specific error in a bottom banner reads as unrelated to the field,
+    // which is how people retry the same value twice.
+    expect(isAgentFieldError(message)).toBe(expected);
   });
 });
 

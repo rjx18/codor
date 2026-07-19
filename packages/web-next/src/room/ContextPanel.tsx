@@ -16,6 +16,7 @@ import {
   HANDLE_PATTERN,
   defaultSpawnCwd,
   effectiveHarness,
+  resolveSpawn,
   supportedThinking,
 } from './agent-spec.js';
 import { presentRunEvents, type RunRow } from '@legacy/run-presenter.js';
@@ -103,21 +104,32 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
   // joining report success, trading a silent failure for a false one.
   useEffect(() => {
     if (pendingHandle === undefined) return;
-    const arrived = Object.values(members).some(
-      (member) => member.handle === pendingHandle && member.removed_ts === undefined,
-    );
-    if (arrived) {
+    const outcome = resolveSpawn({
+      handle: pendingHandle,
+      members: Object.values(members),
+      freshErrors: roomErrors.slice(seenErrors.current),
+    });
+    if (outcome.state === 'arrived') {
       setPendingHandle(undefined);
       setSpawnFailure(undefined);
       setSpawning(false);
-      return;
-    }
-    const fresh = roomErrors.slice(seenErrors.current);
-    if (fresh.length > 0) {
-      setSpawnFailure(fresh[fresh.length - 1]);
+    } else if (outcome.state === 'failed') {
+      setSpawnFailure(outcome.message);
       setPendingHandle(undefined);
     }
   }, [members, roomErrors, pendingHandle]);
+
+  // A spawn that neither lands nor names itself in an error must not leave the
+  // dialog disabled forever. After the grace period say so plainly rather than
+  // inventing a cause.
+  useEffect(() => {
+    if (pendingHandle === undefined) return undefined;
+    const timer = setTimeout(() => {
+      setSpawnFailure(`No response for @${pendingHandle}. It may still be starting — check the roster before retrying.`);
+      setPendingHandle(undefined);
+    }, 20_000);
+    return () => { clearTimeout(timer); };
+  }, [pendingHandle]);
 
   const roster = useMemo(() => {
     // Extensions are transient run machinery — the roster lists durable members.

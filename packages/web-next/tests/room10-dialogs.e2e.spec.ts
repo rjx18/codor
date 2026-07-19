@@ -87,35 +87,34 @@ test.describe('Tier-1: spawn payload', () => {
 });
 
 test.describe('Tier-1 #5: a failed spawn stays visible and recoverable', () => {
-  test('keeps the error, re-enables submit, ignores unrelated members, and closes only on the real one', async ({ page }) => {
+  test('a rejected spawn keeps the dialog, the error and the typed values', async ({ page }) => {
     await openRoom(page);
     const dialog = await openSpawn(page);
 
-    // `all` is syntactically valid but RESERVED (protocol member.ts), so it passes
-    // native validation and is rejected by the daemon — a deterministic server
-    // failure rather than one that depends on client-side validation working.
+    // `all` is syntactically valid but RESERVED by the protocol, so it passes
+    // native validation and the daemon rejects it — a deterministic server
+    // failure that does not depend on client validation working.
     await dialog.getByTestId('spawn-handle').fill('all');
     await expect(dialog.getByTestId('spawn-handle')).toHaveJSProperty('validity.valid', true);
+    const cwd = await dialog.getByTestId('spawn-cwd').inputValue();
     await dialog.getByTestId('spawn-go').click();
 
-    // It must not close on a request that was merely sent.
     await expect(page.getByTestId('spawn-dialog')).toBeVisible();
     await expect(dialog.getByTestId('spawn-error')).toBeVisible({ timeout: 15_000 });
-    // ...and the operator can try again without losing what they typed.
     await expect(dialog.getByTestId('spawn-go')).toBeEnabled();
-    await expect(dialog.getByTestId('spawn-cwd')).not.toHaveValue('');
+    await expect(dialog.getByTestId('spawn-cwd')).toHaveValue(cwd);
+  });
 
-    // An UNRELATED member arriving must not be read as this spawn succeeding.
-    await dialog.getByTestId('spawn-handle').fill('bystander');
+  test('a successful spawn closes the dialog only when the submitted handle arrives', async ({ page }) => {
+    // The branch matrix — unrelated member present, unrelated error present, our
+    // error present — is proven exhaustively in agent-spec.spec.ts against
+    // resolveSpawn(), because a browser cannot inject those states
+    // deterministically. This covers the observable end-to-end path.
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    await dialog.getByTestId('spawn-handle').fill('closer');
     await dialog.getByTestId('spawn-go').click();
-    await expect(page.getByTestId('member-bystander')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('spawn-dialog')).toBeHidden();
-
-    // Success closes it, and only for the handle actually submitted.
-    const second = await openSpawn(page);
-    await second.getByTestId('spawn-handle').fill('realone');
-    await second.getByTestId('spawn-go').click();
-    await expect(page.getByTestId('member-realone')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('member-closer')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('spawn-dialog')).toBeHidden();
   });
 
@@ -181,17 +180,47 @@ test.describe('Tier-1: rendered reconciliation and validation', () => {
     await expect(dialog.getByTestId('spawn-thinking-default')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  test('a handle colliding with the channel owner is blocked with a specific message', async ({ page }) => {
+  test('a handle colliding with the channel owner is blocked, unconditionally', async ({ page }) => {
     await openRoom(page);
     const dialog = await openSpawn(page);
-    const owner = await page.getByTestId(/^member-/).first().textContent();
-    const ownerHandle = /@?([a-z0-9][a-z0-9-]*)/.exec(owner ?? '')?.[1] ?? 'richard';
-    await dialog.getByTestId('spawn-handle').fill(ownerHandle);
-    const clash = dialog.getByTestId('spawn-owner-clash');
-    if (await clash.count() > 0) {
-      await expect(clash).toBeVisible();
-      await expect(dialog.getByTestId('spawn-go')).toBeDisabled();
-    }
+    // The fixture's owner, asserted rather than discovered: a guarded assertion
+    // lets the bug vanish silently the day the fixture changes.
+    await expect(page.getByTestId('member-richard')).toBeVisible();
+    await dialog.getByTestId('spawn-handle').fill('richard');
+    await expect(dialog.getByTestId('spawn-owner-clash')).toBeVisible();
+    await expect(dialog.getByTestId('spawn-go')).toBeDisabled();
+    await dialog.getByTestId('spawn-handle').fill('notrichard');
+    await expect(dialog.getByTestId('spawn-owner-clash')).toBeHidden();
+    await expect(dialog.getByTestId('spawn-go')).toBeEnabled();
+  });
+
+  test('switching between two real harnesses reconciles thinking and the policy warning', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+
+    // thinky declares its own levels; fake supports none.
+    await dialog.getByTestId('spawn-harness-thinky').click();
+    await dialog.getByTestId('spawn-thinking-xhigh').click();
+    await expect(dialog.getByTestId('spawn-thinking-xhigh')).toHaveAttribute('aria-pressed', 'true');
+
+    // thinky defers read-only entirely — null mapping, so the choice changes
+    // nothing and the operator must be told.
+    await dialog.getByTestId('spawn-policy-read-only').click();
+    await expect(dialog.getByTestId('spawn-policy-deferred')).toBeVisible();
+
+    await dialog.getByTestId('spawn-harness-fake').click();
+    await expect(dialog.getByTestId('spawn-thinking-unsupported')).toBeVisible();
+    await expect(dialog.getByTestId('spawn-thinking-default')).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByTestId('spawn-policy-deferred')).toBeHidden();
+  });
+
+  test('a model typed for one harness does not survive switching to another', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    await dialog.getByTestId('spawn-harness-thinky').click();
+    await dialog.getByTestId('spawn-model-input').fill('thinky-only-model');
+    await dialog.getByTestId('spawn-harness-fake').click();
+    await expect(dialog.getByTestId('spawn-model-input')).toHaveValue('');
   });
 });
 
@@ -211,6 +240,47 @@ test.describe('Tier-1: create channel keyboard and fallbacks', () => {
     await dialog.getByTestId('create-name').press('Enter');
     await expect(page.locator('.nx-chat-title h1')).toHaveText('fallbackchan', { timeout: 15_000 });
     await expect(page.getByTestId('member-agent')).toBeVisible({ timeout: 15_000 });
+  });
+});
+
+test.describe('the "None" state means none', () => {
+  test('an owner collision applies only while a starting agent is selected', async ({ page }) => {
+    // The name field keeps its value under "None". Without scoping the collision
+    // to a selected harness, an owner-shaped name blocked channel creation
+    // entirely — for an agent that was never going to be created.
+    await openRoom(page);
+    await page.getByTestId('create-room').click();
+    const dialog = page.getByTestId('create-channel-dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByTestId('create-name').fill('agentless');
+
+    await dialog.getByTestId('create-harness-fake').click();
+    await dialog.getByTestId('create-agent-name').fill('richard');
+    await expect(dialog.getByTestId('create-owner-clash')).toBeVisible();
+    await expect(dialog.getByTestId('create-go')).toBeDisabled();
+
+    // Back to None: the same text is inert, and creation is possible again.
+    await dialog.getByTestId('create-harness-none').click();
+    await expect(dialog.getByTestId('create-agent-name')).toBeDisabled();
+    await expect(dialog.getByTestId('create-owner-clash')).toBeHidden();
+    await expect(dialog.getByTestId('create-go')).toBeEnabled();
+
+    await dialog.getByTestId('create-go').click();
+    await expect(page.locator('.nx-chat-title h1')).toHaveText('agentless', { timeout: 15_000 });
+  });
+
+  test('a reserved starting-agent name is refused before it can be submitted', async ({ page }) => {
+    // Client-side: `all` is reserved, so the derived handle is refused and submit
+    // never arms. Routing of a genuine SERVER starting-agent failure is proven in
+    // agent-spec.spec.ts against isAgentFieldError — this fixture cannot provoke
+    // one, because a brand-new channel has no members to collide with.
+    await openRoom(page);
+    await page.getByTestId('create-room').click();
+    const dialog = page.getByTestId('create-channel-dialog');
+    await dialog.getByTestId('create-name').fill('reservedname');
+    await dialog.getByTestId('create-harness-fake').click();
+    await dialog.getByTestId('create-agent-name').fill('all');
+    await expect(dialog.getByTestId('create-go')).toBeDisabled();
   });
 });
 
