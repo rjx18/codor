@@ -1,0 +1,654 @@
+id: continuation-writer
+title: Write chronological continuation messages without splitting turn truth
+notes: |-
+  Round 6B2 is the sole production-writer cutover on exact base 9f8d2b4. The
+  reader, schema, CLI, and browser upgrade surface already understand one
+  lifecycle root plus permanent continuation rows; this plan replaces the old
+  one-message writer and raises the browser protocol from epoch 1 to epoch 2.
+  There is no legacy browser projection and no second writer. Existing stored
+  roots without output_mode remain readable durable history. Agent principals
+  and Unix/CLI subscriptions remain epochless and ungated.
+
+  Chronology and allocation. A fresh daemon-owned turn creates exactly one
+  lifecycle root with output_mode=messages. Crash recovery of the same attempt
+  reuses that root exactly as today. The root owns the one journal, status,
+  usage, error, retry controls, and aggregate final_text. Every later visible
+  stretch after another durable room message gets a new kind=run continuation
+  with run_parent_id=root.id and no RunSummary. The Store allocates and inserts
+  that row as MAX(id)+1 inside its synchronous SQLite transaction. Only after
+  the insert commits may the daemon append an event carrying that id; only
+  after both exist may it broadcast the message then the event. It never
+  chooses or journals an id before insertion and never renumbers an inserted
+  row. A crash-inserted row that has no journal reference is terminalized as an
+  internal tombstone during reconciliation, preserving the permanent id without
+  presenting an empty agent message.
+
+  Output ownership is journal truth. run.item, timeline, and run.completed are
+  annotated before append. text_delta, tool_call, orphan visible tool_result,
+  file_change, commit, and compaction loading allocate a continuation when a
+  newer durable message interrupted the current output. Matching tool_result
+  inherits its tool_call id even across an interjection. Compaction completed
+  inherits loading. reasoning_summary allocates nothing and stays folded into
+  its surrounding batch. Nonvisible run.started/member/usage/limit/extension
+  events allocate nothing. A final-only adapter result or acknowledgement uses
+  the current row or allocates after an interjection. The terminal event names
+  the result row. Journal replay reconstructs the same per-row text for boot
+  finalization and retries; live memory is not a second authority.
+
+  Atomic settlement and aggregate routing. Successful finalization updates the
+  root summary and every referenced output row body/mentions/refs, consumes the
+  exact input batch, updates member and meter, records the collaboration
+  participant against result_message_id, and creates every human/agent fanout
+  in one SQLite transaction. Each visible row stores only its own text stretch.
+  The root RunSummary.final_text stores the authoritative complete aggregate and
+  result_message_id names the last visible result row. Routing resolves and
+  snapshots one synthetic message whose permanent id is result_message_id but
+  whose body/mentions/refs are the full aggregate. Every ordinary delivery and
+  collaboration participant points at the result row, while every delivery
+  payload embeds the aggregate at creation and never re-derives it from that
+  row's fragment. Later collaboration rounds resolve a continuation result back
+  through its lifecycle root for the full prior answer and aggregate mentions.
+
+  Failed diagnostics remain root RunSummary.error and never route. Partial
+  journaled prose/tools remain visible evidence; failed roots keep the existing
+  empty-body/no-final_text rule, while referenced continuation evidence settles
+  without becoming a reply. A finalization failure uses the existing runtime
+  and boot repair authority, retains the journal, terminalizes every output row
+  honestly, meters once, routes nothing, and never replaces a collaboration
+  result. Lifecycle, ambiguous, held, operator retry, and redelivery paths keep
+  their current admission/fencing rules; only a never-started/crash retry of the
+  same attempt reuses the same lifecycle root.
+
+  Unread and bridges. Chat insertion and every finalized substantive root or
+  continuation row get independent activity seq; acknowledgements, running or
+  newly allocated empty rows, abandoned tombstones, system/card rows, deletion,
+  and nonmessage mutations do not. Bridge outbound must keep stopping at a
+  running lifecycle root, then release root/interjections/continuations in id
+  order only after finalization, never advancing across an empty live
+  continuation.
+
+  Browser cutover. BROWSER_PROTOCOL_EPOCH becomes 2. The reader asset is
+  deployed first against the still-observe-only epoch-1 daemon. Writer restart
+  is forbidden until the live daemon has positively logged Richard's browser
+  subscribing with epoch 2. Production startCodor then passes minimum epoch 2
+  to startServer, so stale browser principals get UpgradeRequired/4406 before
+  hydration. Agents and Unix/CLI still hydrate without any epoch. This is a
+  staged deployment of one commit: static reader first, observation, copied-live
+  proof, then backend restart and live #1/#2/#3 fire drill.
+
+  Tests: protocol epoch/gating and epochless-agent regression; Store transaction
+  allocation, activity, atomic rollback, result-id fanout/participant, and
+  orphan-row repair; daemon live interleave with tool-result inheritance,
+  reasoning folding, final-only/ack, failed partial, boot journal replay,
+  ordinary aggregate delivery, collaboration aggregate next-round payload, and
+  finalization repair; bridge running-root barrier and ordered release; CLI
+  continuation suite; web-next real-writer live/reload/paging/axe acceptance.
+  Full workspace test/build, full rebuilt Playwright at 28337/28338, copied-live
+  SQLite+WAL/SHM open/reconcile/idempotence proof, and harn check. One commit,
+  then Fable independently verifies behavior before any merge or deployment.
+assumptions:
+  retire:
+    - id: runs-are-one-message
+      reason: A turn still owns one reusable lifecycle root, but visible output may
+        now append permanent continuation messages.
+    - id: reply-is-finalized-run-message
+      reason: The result row is permanent routing identity while delivery payloads
+        snapshot the root's aggregate; reply truth is no longer one row body.
+    - id: continuation-output-schema-is-reader-first
+      reason: The reader-first prohibition is fulfilled; this round activates the one
+        production writer under a replacement output contract.
+    - id: turn-finalization-transactional
+      reason: Atomic finalization expands from one run row to the root plus every
+        output row and a distinct terminal result identity.
+    - id: message-activity-drives-unread
+      reason: Continuations have no RunSummary status, so activity must be defined
+        over finalized output rows rather than only run-status transitions.
+    - id: run-blobs-off-db
+      reason: Journals remain off SQLite, but the one-message-per-run rationale is
+        false once one journal owns multiple permanent output rows.
+  create:
+    - id: turns-reuse-one-root-and-append-output-messages
+      title: One lifecycle root is reused while interrupted output gets permanent rows
+      statement: A daemon-owned engine turn must create exactly one running lifecycle
+        root with output_mode=messages, bind its input batch to that root before
+        spawn, and reuse it for a crash retry of the same attempt, while any
+        visible output stretch following a newer durable room message must
+        append a separate permanent run continuation linked by run_parent_id;
+        continuations own no lifecycle summary, and no recovery or retry may
+        create a second root for the same attempt.
+      reason: Permanent message ids must express room chronology without splitting
+        status, usage, retry, or recovery ownership across multiple roots.
+      depends_on:
+        - message-id-txn-allocation
+        - delivery-attempt-wal-reconcile
+    - id: continuation-writer-follows-journaled-output-ownership
+      title: Journaled output ids assign every visible event to one permanent row
+      statement: The daemon must insert a needed continuation transactionally before
+        journaling or broadcasting its id, annotate every renderable run item,
+        timeline item, and terminal event with its permanent output row, keep
+        tool results and compaction completion on their initiating row, and
+        never let reasoning or nonvisible state events allocate rows; replay of
+        the one root journal must reconstruct the same row bodies and result id
+        after restart, while an inserted row absent from journal truth becomes a
+        non-routable tombstone rather than an empty message.
+      reason: The journal is the crash-safe correlation authority and permanent ids
+        may never be guessed, moved, or attached by arrival-time heuristics.
+      depends_on:
+        - turns-reuse-one-root-and-append-output-messages
+        - run-events-merge-by-journal-index
+        - message-id-txn-allocation
+    - id: finalized-turn-routes-aggregate-from-terminal-output
+      title: The terminal output id routes one snapshotted aggregate answer
+      statement: A successful multi-row turn must store each output row's own stretch,
+        retain the complete response in the lifecycle root final_text, set
+        result_message_id to the terminal visible row, route and parse the
+        complete aggregate under that result id, persist the aggregate directly
+        in every delivery or group payload, and record collaboration participant
+        results at that id; later group rounds must resolve the aggregate and
+        its mentions through the lifecycle root rather than reading only the
+        result fragment.
+      reason: Recipients need one complete immutable answer while room chronology,
+        permalinks, inbox records, and collaboration results point to the actual
+        terminal message.
+      depends_on:
+        - continuation-writer-follows-journaled-output-ownership
+        - delivery-payload-snapshotted
+        - substantive-routing-excludes-acknowledgements
+    - id: turn-output-finalization-is-atomic
+      title: Root, output rows, settlement, accounting, and fanout commit together
+      statement: Completing a turn must update its lifecycle root and every referenced
+        continuation row, consume the exact input deliveries, update member and
+        meter state, record an optional collaboration result at
+        result_message_id, and materialize every onward delivery and group in
+        one SQLite transaction; rollback or explicit failed-finalization repair
+        must leave no mixture of finalized fragments, active durable work,
+        duplicated accounting, or routed partial answers.
+      reason: A restart may observe either one complete settled turn or one honest
+        repair state, never partially committed chronological output.
+      depends_on:
+        - finalized-turn-routes-aggregate-from-terminal-output
+        - failed-finalization-reconciles-at-runtime
+    - id: substantive-output-messages-drive-unread
+      title: Every finalized substantive output row independently drives unread
+      statement: Chat insertion and finalization of each nondeleted, non-ack lifecycle
+        root or continuation output row must record that row's activity seq,
+        while a running root, a newly allocated empty continuation, an abandoned
+        tombstone, cards, system rows, acknowledgements, deletion, pinning, and
+        nonmessage mutations must not; unread remains the count of incoming
+        activity above a human's durable monotonic read seq.
+      reason: Chronological output rows are individually visible messages and the
+        channel rail must count exactly the substantive rows the reader can see.
+      depends_on:
+        - human-room-read-cursors-are-durable-and-monotonic
+        - substantive-routing-excludes-acknowledgements
+        - changelog-is-sync-cursor
+    - id: run-journals-own-evidence-across-output-messages
+      title: One off-database journal owns evidence for all rows of a turn
+      statement: SQLite must persist only the lifecycle root's events_ref pointer plus
+        lightweight root and continuation message rows, never run event
+        payloads; every continuation resolves through run_parent_id to that one
+        unbounded JSONL journal on disk, so database size stays bounded while
+        each event can target its permanent visible row.
+      reason: Chronological messages change presentation identity, not the storage
+        authority or boundedness of unbounded engine evidence.
+      depends_on:
+        - continuation-writer-follows-journaled-output-ownership
+  reviewed:
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Delivery custody remains bound to the one lifecycle root before spawn;
+        later output rows never own or re-admit input work.
+    - id: interaction-ack-preserves-finalized-member-state
+      outcome: unchanged
+      reason: Late interaction acknowledgements still cannot reopen a terminal member;
+        continuation identity does not alter that state transition.
+    - id: redeliver-interrupts-stranded-run
+      outcome: unchanged
+      reason: Redelivery still retires the abandoned lifecycle root and queues a fresh
+        attempt; continuation rows are terminal evidence, not custody.
+    - id: m0-live-acceptance-chain
+      outcome: unchanged
+      reason: The acceptance chain still requires a real routed answer and artifact,
+        now carried as one snapshotted aggregate under its result id.
+    - id: collaboration-lifecycle-interruption-is-nonterminal
+      outcome: unchanged
+      reason: Requeued lifecycle work still leaves the participant nonterminal; output
+        segmentation cannot manufacture or replace a result.
+    - id: mirrored-turn-commit-transactional
+      outcome: unchanged
+      reason: Mirrored dedupe, its one finalized root, and its fanout remain one
+        transaction even though that root opts into the current reader mode.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: One engine turn still contributes exactly one meter delta in the same
+        atomic settlement regardless of its number of visible rows.
+    - id: durable-room-summaries-stream-and-fallback
+      outcome: unchanged
+      reason: Summary unread consumes stored activity rows and streams change-only; it
+        now counts each finalized continuation through the same builder.
+    - id: human-room-read-cursors-are-durable-and-monotonic
+      outcome: unchanged
+      reason: Cursors remain per-human monotonic change seqs; additional output
+        activity can advance unread but can never regress read state.
+    - id: live-run-event-cache-bounded
+      outcome: unchanged
+      reason: All output rows point at one root journal/cache namespace, so the
+        existing bounded live buffer and terminal journal recovery still apply.
+    - id: member-status-is-bounded-and-identity-safe
+      outcome: unchanged
+      reason: Member status still projects only the root's bounded live evidence;
+        continuation rows add no unbounded member payload.
+    - id: last-agent-usage-is-transient-and-seeded
+      outcome: unchanged
+      reason: Usage remains transient member state; output ownership only changes the
+        durable journal event that follows it.
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: Normalized items keep the same journal and presenter; output ids select
+        their permanent row without changing item semantics.
+    - id: run-evidence-search-is-bounded-and-redacted
+      outcome: unchanged
+      reason: Search continues scanning a bounded redacted journal window under the
+        root while message-body search finds each settled visible stretch.
+    - id: run-item-raw-journal-only
+      outcome: unchanged
+      reason: Raw adapter payload remains journal-only and never enters the live
+        projection; output ids are normalized metadata, not raw evidence.
+    - id: message-id-txn-allocation
+      outcome: unchanged
+      reason: Continuations use the same in-transaction MAX+1 insert and are never
+        journaled before that permanent id commits.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: Aggregate content becomes more explicit but remains immutably stored per
+        delivery at routing time.
+    - id: group-participant-terminality-commits-with-the-turn
+      outcome: unchanged
+      reason: The participant still settles in the same transaction; its result id now
+        deliberately names the terminal output row.
+    - id: group-round-payloads-share-one-ordered-view
+      outcome: unchanged
+      reason: Every peer still sees one ordinal aggregate view; result fragments are
+        resolved to the lifecycle aggregate before composition.
+    - id: collaboration-round-release-is-one-barrier
+      outcome: unchanged
+      reason: The round still releases once after every participant is terminal; the
+        only change is resolving each result fragment through its lifecycle
+        aggregate.
+    - id: run-events-merge-by-journal-index
+      outcome: unchanged
+      reason: Indices remain the exact stream/journal merge key; output_message_id is
+        orthogonal row ownership on the same indexed event.
+    - id: compaction-timeline-items-are-durable-run-evidence
+      outcome: unchanged
+      reason: Compaction loading and completion remain durable journal evidence on the
+        initiating output row rather than allocating a new visible message.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: New rows are permanent room-local ids and readers already merge and link
+        them without reassignment.
+    - id: browser-protocol-epoch-blocks-only-stale-browser-ui
+      outcome: unchanged
+      reason: Epoch 2 is deployed and positively observed before minimum 2 starts;
+        agent and Unix subscribers remain structurally outside the gate.
+    - id: bridge-runtime-persists-delivery-progress
+      outcome: unchanged
+      reason: The running lifecycle root remains the ordered outbound barrier and
+        later continuations release only after it finalizes.
+    - id: failed-finalization-reconciles-at-runtime
+      outcome: unchanged
+      reason: Runtime and boot still share one idempotent no-route repair, expanded to
+        settle the root's output rows honestly.
+    - id: lifecycle-retries-only-live-collaboration-work
+      outcome: unchanged
+      reason: Output segmentation never changes retry eligibility, terminality, or the
+        atomic retry-versus-release decision.
+    - id: turn-start-transactional
+      outcome: unchanged
+      reason: One root and the full input batch still begin atomically before the
+        adapter starts; output rows can only appear later from journaled events.
+    - id: failed-run-details-never-route-as-replies
+      outcome: unchanged
+      reason: Failure detail remains root error evidence with no aggregate routing;
+        partial journal output remains evidence rather than reply text.
+    - id: run-failure-evidence-is-surfaced
+      outcome: unchanged
+      reason: Failure evidence remains on the lifecycle root and result fragments
+        resolve through that root before peer presentation.
+    - id: only-an-admissible-delivery-becomes-delivering
+      outcome: unchanged
+      reason: Root output mode is initialized only after the existing atomic delivery
+        admission guard accepts a nonempty batch.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: Exact acknowledgements mark the lifecycle and terminal result but
+        produce no recipients, activity, or default-recipient fallback.
+    - id: room-home-single-authority
+      outcome: unchanged
+      reason: The home daemon alone allocates continuation ids, journals remote
+        events, finalizes rows, and builds aggregate delivery snapshots.
+    - id: addressed-cold-hydration-is-strict-and-legacy-safe
+      outcome: unchanged
+      reason: Strict browser hydration still projects exactly its bounded rows while
+        finalized continuations may now occupy those rows.
+    - id: mirror-one-message-per-native-turn
+      outcome: unchanged
+      reason: Mirrored native turns have no interleaved live stream and remain one
+        deduplicated root, now opting into the new reader mode with itself as
+        result.
+files:
+  - docs/PROTOCOL.md
+  - website/docs/PROTOCOL.md
+  - packages/protocol/src/events.ts
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/protocol/src/ws.ts
+  - packages/switchboard/src/continuation.ts
+  - packages/switchboard/src/continuation.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/switchboard/src/collaboration.ts
+  - packages/switchboard/src/collaboration.spec.ts
+  - packages/bridges/core/src/index.spec.ts
+  - packages/cli/src/up.ts
+  - packages/cli/src/index.spec.ts
+  - packages/cli/src/program.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room23-continuations.e2e.spec.ts
+  - packages/web-next/tests/room24-upgrade.e2e.spec.ts
+anchors:
+  runs-are-one-message:
+    run-message-lifecycle:
+      action: remove
+      reason: The old exactly-one-message writer statement and comments are replaced.
+  reply-is-finalized-run-message:
+    finalize-and-route:
+      action: remove
+      reason: Finalization no longer routes from the persisted body of one row.
+  continuation-output-schema-is-reader-first:
+    continuation-event-target-schema:
+      action: remove
+      reason: Schema anchors migrate from the dormant reader contract to the active
+        writer contract.
+    continuation-message-schema:
+      action: remove
+      reason: Root/result/parent fields are now written by production.
+    continuation-reader-regression:
+      action: remove
+      reason: Reader-only regressions become end-to-end writer regressions.
+    continuation-message-storage:
+      action: remove
+      reason: Storage anchors migrate to the active writer contract.
+    continuation-cli-format:
+      action: remove
+      reason: CLI reader anchors migrate without changing their behavior.
+    continuation-cli-tail:
+      action: remove
+      reason: CLI reader anchors migrate without changing their behavior.
+    continuation-cli-regression:
+      action: remove
+      reason: CLI regression now guards active production rows.
+  turn-finalization-transactional:
+    atomic-turn-finalization:
+      action: remove
+      reason: One-row atomicity is replaced by root-plus-output-row settlement.
+  message-activity-drives-unread:
+    message-activity-storage:
+      action: remove
+      reason: Activity storage migrates to per-output finalization semantics.
+    message-activity-regression:
+      action: remove
+      reason: Regression expands to roots, continuations, acks, and abandoned rows.
+  run-blobs-off-db:
+    store-schema-no-blobs:
+      action: remove
+      reason: The off-database rule survives under a multi-output journal statement.
+  turns-reuse-one-root-and-append-output-messages:
+    run-message-lifecycle:
+      action: change
+      reason: Begin new turns in messages mode, preserve one root, and allocate later
+        continuations only.
+    continuation-root-regression:
+      action: change
+      reason: Prove one root, permanent interleaved chronology, and crash-root reuse.
+  message-id-txn-allocation:
+    message-id-allocation:
+      action: change
+      reason: Continuation ids use the existing in-transaction allocation and insert
+        authority before any journal or broadcast can expose them.
+  turn-start-transactional:
+    atomic-turn-start:
+      action: change
+      reason: The single lifecycle root starts in messages output mode while the input
+        delivery batch remains bound in the same transaction.
+  continuation-writer-follows-journaled-output-ownership:
+    continuation-event-target-schema:
+      action: change
+      reason: Existing optional output ids become the active writer's durable event
+        contract.
+    continuation-message-schema:
+      action: change
+      reason: Existing root/result/parent fields become active production identity.
+    continuation-message-storage:
+      action: change
+      reason: Add transactional continuation creation, lookup, and abandoned-row
+        settlement.
+    continuation-segmentation-engine:
+      action: change
+      reason: Purely assign renderable events, tool pairs, compaction pairs, and
+        completion to rows.
+    continuation-segmentation-regression:
+      action: change
+      reason: Pin interleaving, nonallocating events, inheritance, reconstruction, and
+        orphan detection.
+    continuation-writer-engine:
+      action: change
+      reason: Insert before journal, annotate before append, then broadcast message
+        before event.
+    continuation-writer-regression:
+      action: change
+      reason: Exercise a real FakeAdapter turn live and from journal replay.
+    daemon-journal-index-stamp:
+      action: change
+      reason: Stamp each event with both its immutable journal index and permanent
+        output message id before append and fanout.
+    compaction-journal-fanout:
+      action: change
+      reason: Keep compaction loading and completion on the same assigned output row.
+    continuation-cli-format:
+      action: change
+      reason: Existing safe formatter now reads production continuation rows unchanged.
+    continuation-cli-tail:
+      action: change
+      reason: Existing shared tail printer now consumes production continuation rows
+        unchanged.
+    continuation-cli-regression:
+      action: change
+      reason: Existing Unix regression now guards the active writer schema.
+    continuation-protocol-documentation:
+      action: change
+      reason: Document the root, continuation, event ownership, and result identity
+        contract.
+  last-agent-usage-is-transient-and-seeded:
+    last-usage-runtime-registry:
+      action: change
+      reason: Preserve transient usage handling while the following durable event is
+        assigned to its output row.
+  compaction-timeline-items-are-durable-run-evidence:
+    compaction-journal-fanout:
+      action: change
+      reason: Compaction evidence keeps its durable fanout path and gains only stable
+        output ownership.
+  finalized-turn-routes-aggregate-from-terminal-output:
+    finalize-and-route:
+      action: change
+      reason: Build a result-id synthetic aggregate for parsing and payload planning.
+    aggregate-payload-resolution:
+      action: change
+      reason: Resolve continuation results through the lifecycle final_text and
+        aggregate mentions.
+    aggregate-routing-regression:
+      action: change
+      reason: Ordinary and collaboration recipients receive the full aggregate while
+        result ids name the last row.
+    exact-ack-finalization:
+      action: change
+      reason: Exact acknowledgements remain non-routable while the lifecycle root and
+        its one visible terminal result keep consistent acknowledgement
+        semantics.
+  substantive-routing-excludes-acknowledgements:
+    exact-ack-finalization:
+      action: change
+      reason: Detect acknowledgement from aggregate truth and keep every output row
+        outside routing and unread activity.
+  run-failure-evidence-is-surfaced:
+    interrupted-error-evidence:
+      action: change
+      reason: Preserve native failure detail on the lifecycle root while output rows
+        settle separately.
+    round-result-error-evidence:
+      action: change
+      reason: Resolve a continuation result through its lifecycle root before
+        surfacing failure evidence to peers.
+  collaboration-round-release-is-one-barrier:
+    group-payload-snapshot-integration:
+      action: change
+      reason: Resolve each terminal result fragment to its lifecycle aggregate before
+        building the single ordered round payload.
+    collaboration-barrier-engine:
+      action: change
+      reason: Preserve one release barrier while participant result ids may name
+        continuation rows.
+  turn-output-finalization-is-atomic:
+    atomic-turn-finalization:
+      action: change
+      reason: Commit every output patch, result-id delivery, participant, accounting,
+        and fanout together.
+    collaboration-turn-finalization:
+      action: change
+      reason: Record the participant against result_message_id in the same transaction.
+    collaboration-finalization-engine:
+      action: change
+      reason: Pass terminal output identity through the existing grouped settlement
+        authority.
+    finalization-repair-transaction:
+      action: change
+      reason: Failed-finalization repair settles referenced and abandoned output rows
+        without routing.
+    runtime-finalization-reconcile:
+      action: change
+      reason: Runtime passes reconstructed row truth into the shared repair.
+    output-finalization-regression:
+      action: change
+      reason: Prove all-or-nothing commit, rollback, runtime repair, and idempotence.
+  failed-finalization-reconciles-at-runtime:
+    delivery-reconciliation-regression:
+      action: change
+      reason: Existing repair tests expand to continuation output rows.
+    runtime-finalization-reconcile:
+      action: change
+      reason: Runtime reconstructs journal-owned rows before invoking the existing
+        idempotent no-route repair.
+    finalization-repair-transaction:
+      action: change
+      reason: Repair settles referenced output and tombstones unjournaled rows with
+        custody and accounting.
+  lifecycle-retries-only-live-collaboration-work:
+    lifecycle-interruption-settlement:
+      action: change
+      reason: Retry eligibility is unchanged while partial output rows settle with the
+        lifecycle root in one transaction.
+  only-an-admissible-delivery-becomes-delivering:
+    turn-admission-guard:
+      action: change
+      reason: The admitted root records messages output mode without changing delivery
+        eligibility.
+  substantive-output-messages-drive-unread:
+    message-activity-storage:
+      action: change
+      reason: Defer new continuation activity until settlement and assign each
+        substantive row its own seq.
+    message-activity-regression:
+      action: change
+      reason: Count finalized roots/continuations while excluding live, ack, and
+        abandoned rows.
+  run-journals-own-evidence-across-output-messages:
+    store-schema-no-blobs:
+      action: change
+      reason: Keep one root pointer and no event payload columns while allowing
+        lightweight continuation rows.
+  addressed-cold-hydration-is-strict-and-legacy-safe:
+    addressed-hydration-contract:
+      action: change
+      reason: Bounded projection admits finalized continuation rows without adding
+        correctness outliers or changing the agent branch.
+  browser-protocol-epoch-blocks-only-stale-browser-ui:
+    browser-protocol-epoch-contract:
+      action: change
+      reason: Raise the incompatible browser reader/writer contract to epoch 2.
+    browser-protocol-regression:
+      action: change
+      reason: Pin epoch 2 plus stale-browser refusal and epochless agent hydration.
+    production-browser-protocol-minimum:
+      action: change
+      reason: startCodor enforces the current epoch only after reader-first
+        observation.
+    production-browser-protocol-regression:
+      action: change
+      reason: The real production composition returns 426/4406 for stale browsers and
+        admits epoch 2.
+  bridge-runtime-persists-delivery-progress:
+    bridge-durable-regression:
+      action: change
+      reason: Prove the root barrier prevents premature empty continuation delivery
+        and releases ids in order.
+    bridge-outbound-ready-window:
+      action: keep
+      reason: The existing root-status barrier is sufficient and must not be loosened.
+  group-participant-terminality-commits-with-the-turn:
+    collaboration-turn-finalization:
+      action: change
+      reason: Participant terminal identity changes from root to result row without
+        leaving the transaction.
+    collaboration-finalization-engine:
+      action: change
+      reason: Engine supplies result_message_id while preserving barrier authority.
+    collaboration-finalization-regression:
+      action: change
+      reason: Pin last-fragment identity plus full-aggregate next-round payload.
+  group-round-payloads-share-one-ordered-view:
+    group-round-payload-composer:
+      action: keep
+      reason: Composition bytes and recipient-only you variance stay unchanged.
+    group-round-payload-goldens:
+      action: keep
+      reason: Existing aggregate goldens stay normative.
+  delivery-payload-snapshotted:
+    daemon-payload-snapshot:
+      action: keep
+      reason: Snapshot machinery is unchanged; the planned synthetic message already
+        carries aggregate truth.
+  failed-run-details-never-route-as-replies:
+    failed-run-finalization:
+      action: change
+      reason: Preserve root error/no-route semantics while finalizing partial output
+        evidence.
+    failed-run-recovery:
+      action: change
+      reason: Boot replay reconstructs partial output rows without treating
+        diagnostics as replies.
+    failed-run-daemon-regression:
+      action: change
+      reason: Pin partial evidence with empty root reply and zero fanout.
+  mirror-one-message-per-native-turn:
+    mirrored-turn-dedupe-route:
+      action: change
+      reason: Mirrored turns opt into messages mode with root=result but remain one
+        deduplicated row.
