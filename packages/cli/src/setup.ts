@@ -265,7 +265,10 @@ export function renderScheduledTaskXml(options: {
     ps1Path: xml(options.ps1Path),
     user: xml(options.user),
   };
-  return `<?xml version="1.0" encoding="UTF-8"?>
+  // schtasks /Create /XML parses the file as UTF-16 and rejects a declaration that
+  // disagrees with the byte encoding ("cannot switch encoding"); the file is written
+  // as UTF-16LE with a BOM to match this declaration.
+  return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>
     <LogonTrigger>
@@ -298,7 +301,7 @@ export function renderScheduledTaskXml(options: {
     <WakeToRun>false</WakeToRun>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <RestartOnFailure>
-      <Interval>PT5S</Interval>
+      <Interval>PT1M</Interval>
       <Count>10</Count>
     </RestartOnFailure>
     <Priority>7</Priority>
@@ -498,7 +501,9 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       mkdirSync(logDir, { recursive: true, mode: 0o700 });
       chmodSync(logDir, 0o700);
       writeFileSync(win32Ps1Path, win32Ps1Content!, { encoding: 'utf8' });
-      writeFileSync(win32XmlPath, win32XmlContent!, { encoding: 'utf8' });
+      // schtasks reads task XML as UTF-16; write UTF-16LE with a BOM so its parser
+      // does not fail with "cannot switch encoding".
+      writeFileSync(win32XmlPath, Buffer.from(String.fromCharCode(0xFEFF) + win32XmlContent!, 'utf16le'));
       options.out(`Installed Codor Switchboard with Node ${nodePath}.`);
     }
   }

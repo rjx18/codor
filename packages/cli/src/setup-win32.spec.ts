@@ -48,7 +48,7 @@ describe('codor setup win32', () => {
     expect(outputStr).toContain('schtasks /Run /TN "Codor Switchboard"');
     expect(outputStr).toContain('Get-Content -Raw -Path');
     expect(outputStr).toContain(`[dry-run] icacls ${join(home, '.config', 'codor', 'token')} /inheritance:r /grant:r test-user:F`);
-    expect(outputStr).toContain('<?xml version="1.0" encoding="UTF-8"?>');
+    expect(outputStr).toContain('<?xml version="1.0" encoding="UTF-16"?>');
     expect(outputStr).toContain('exit $LASTEXITCODE');
 
     // Token must never be printed
@@ -114,8 +114,13 @@ describe('codor setup win32', () => {
     expect(ps1Content).toContain(`$env:PATH = '${join(home, '.local', 'bin')};${tempDir};${join(home, 'tools')};C:\\Windows\\System32'`);
     expect(ps1Content.trimEnd().endsWith('exit $LASTEXITCODE')).toBe(true);
 
-    const xmlContent = readFileSync(xmlPath, 'utf8');
-    expect(xmlContent).toContain('<?xml version="1.0" encoding="UTF-8"?>');
+    // schtasks requires UTF-16 task XML: the file must start with a UTF-16LE BOM
+    // and its declaration must match, or it fails with "cannot switch encoding".
+    const xmlRaw = readFileSync(xmlPath);
+    expect(xmlRaw[0]).toBe(0xff);
+    expect(xmlRaw[1]).toBe(0xfe);
+    const xmlContent = readFileSync(xmlPath, 'utf16le');
+    expect(xmlContent).toContain('<?xml version="1.0" encoding="UTF-16"?>');
 
     // schtasks /Create + /Run must be called, and icacls must be called
     expect(commands).toContain(`icacls ${tokenPath} /inheritance:r /grant:r test-user:F`);
