@@ -1,0 +1,4 @@
+# Byte-identical worktrees on every platform: generators and brand-asset checks
+# compare committed bytes against fresh renders, so autocrlf smudging must not
+# rewrite checkouts on Windows.
+* text=auto eol=lf
