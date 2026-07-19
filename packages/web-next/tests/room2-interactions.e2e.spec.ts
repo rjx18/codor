@@ -108,6 +108,183 @@ test.describe('composer addressing', () => {
   });
 });
 
+test.describe('desktop composer alignment', () => {
+  test('attach, input and send share one optical center, and Enter still sends', async ({ page }) => {
+    await openRoom(page);
+    const input = page.getByTestId('composer-input');
+    await input.fill('');
+
+    const centers = await Promise.all(
+      ['composer-attach', 'composer-input', 'composer-send'].map(async (id) => {
+        const box = (await page.getByTestId(id).boundingBox())!;
+        return box.y + box.height / 2;
+      }),
+    );
+    expect(Math.max(...centers) - Math.min(...centers)).toBeLessThanOrEqual(1);
+
+    // Desktop keyboard behaviour is unchanged by the mobile split: Shift+Enter
+    // breaks the line. The send half runs in the isolated fixtures room, since
+    // posting here would consume the queued turn the holds test depends on.
+    await input.fill('@fable desktop line one');
+    await input.press('Shift+Enter');
+    await input.pressSequentially('desktop line two');
+    await expect(input).toHaveValue('@fable desktop line one\ndesktop line two');
+    await input.fill(''); // leave the shared room as found
+  });
+
+  test('Enter still sends on desktop', async ({ page }) => {
+    await openRoom(page, FIXTURES);
+    const input = page.getByTestId('composer-input');
+    // Sending stays hydration-gated after socket-open, so wait for the seeded
+    // recipient before replacing it — otherwise Enter lands on a disabled send
+    // and the draft simply stays put.
+    await expect(input).toHaveValue(/@\w+ /);
+    // Addressed to the human owner so no agent turn starts: the FakeAdapter
+    // queue is shared across specs running in parallel, and consuming a turn
+    // here strands whichever spec enqueued it.
+    await input.fill('@richard desktop enter sends');
+    await input.press('Enter');
+    // The draft re-seeds with a default recipient after a send, so the contract
+    // is that the typed body left the box and posted — not that it is empty.
+    await expect(input).not.toHaveValue(/desktop enter sends/);
+    await expect(page.locator('article', { hasText: 'desktop enter sends' }).first()).toBeVisible();
+  });
+});
+
+test.describe('floating composer surfaces', () => {
+  const WIDTHS = [390, 1024, 1440];
+
+  const surfaceChrome = async (locator: import('@playwright/test').Locator) =>
+    await locator.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        padding: parseFloat(style.paddingTop),
+        border: parseFloat(style.borderTopWidth),
+        radius: parseFloat(style.borderTopLeftRadius),
+        background: style.backgroundColor,
+      };
+    });
+
+  // The mobile width has no connection indicator, so these navigate without
+  // openRoom's desktop-only assertion.
+  const openAt = async (page: Page, width: number): Promise<void> => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(ROOM);
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId('composer-input')).toBeVisible();
+  };
+
+  test('the mention picker is a padded, bordered surface that fits every width', async ({ page }) => {
+    for (const width of WIDTHS) {
+      await openAt(page, width);
+      const input = page.getByTestId('composer-input');
+      await input.fill('@fa');
+      const picker = page.getByTestId('mention-popover');
+      await expect(picker).toBeVisible();
+
+      const chrome = await surfaceChrome(picker);
+      expect(chrome.padding, `padding at ${String(width)}`).toBeGreaterThan(0);
+      expect(chrome.border, `border at ${String(width)}`).toBeGreaterThan(0);
+      expect(chrome.radius, `radius at ${String(width)}`).toBeGreaterThan(0);
+      expect(chrome.background, `raised fill at ${String(width)}`).not.toBe('rgba(0, 0, 0, 0)');
+
+      // Viewport-safe: never hangs off either edge.
+      const box = (await picker.boundingBox())!;
+      expect(box.x, `left edge at ${String(width)}`).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width, `right edge at ${String(width)}`).toBeLessThanOrEqual(width);
+      await input.fill('');
+    }
+  });
+
+  test('the attachment tray stays inside the composer at every width', async ({ page }) => {
+    for (const width of WIDTHS) {
+      await openAt(page, width);
+      await page.setInputFiles('[data-testid="composer-file"]', [
+        { name: `staged-${String(width)}.txt`, mimeType: 'text/plain', buffer: Buffer.from('staged\n') },
+      ]);
+      const tray = page.getByTestId('attach-tray');
+      await expect(tray).toBeVisible();
+
+      const chrome = await surfaceChrome(tray);
+      expect(chrome.padding, `padding at ${String(width)}`).toBeGreaterThan(0);
+      expect(chrome.border, `border at ${String(width)}`).toBeGreaterThan(0);
+      expect(chrome.radius, `radius at ${String(width)}`).toBeGreaterThan(0);
+
+      // It is the composer's tray, so it may not grow wider than the composer.
+      const trayBox = (await tray.boundingBox())!;
+      const barBox = (await page.locator('.nx-composer-bar').first().boundingBox())!;
+      expect(trayBox.width, `tray width at ${String(width)}`)
+        .toBeLessThanOrEqual(barBox.width + 1);
+      expect(trayBox.x, `tray left at ${String(width)}`).toBeGreaterThanOrEqual(barBox.x - 1);
+      expect(trayBox.x + trayBox.width, `tray right at ${String(width)}`)
+        .toBeLessThanOrEqual(barBox.x + barBox.width + 1);
+
+      await page.reload(); // drop the staged file before the next width
+      await expect(page.getByTestId('timeline')).toBeVisible();
+      await expect(page.getByTestId('attach-tray')).toHaveCount(0);
+    }
+  });
+
+  test('both surfaces stay visibly separate from the composer in dark theme', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await openRoom(page);
+    const input = page.getByTestId('composer-input');
+    await input.fill('@fa');
+    await expect(page.getByTestId('mention-popover')).toBeVisible();
+    await page.setInputFiles('[data-testid="composer-file"]', [
+      { name: 'dark.txt', mimeType: 'text/plain', buffer: Buffer.from('dark\n') },
+    ]);
+
+    const fill = async (selector: string) =>
+      await page.locator(selector).first().evaluate((node) => getComputedStyle(node).backgroundColor);
+    const bar = await fill('.nx-composer-bar');
+    const picker = await fill('[data-testid="mention-popover"]');
+    const tray = await fill('[data-testid="attach-tray"]');
+
+    // Raised, not a black slab, and distinct from the surface beneath them.
+    expect(picker).not.toBe(bar);
+    expect(tray).not.toBe(bar);
+    expect(picker).not.toBe('rgb(0, 0, 0)');
+    expect(tray).not.toBe('rgb(0, 0, 0)');
+
+    // Axe with both surfaces actually open, not merely on the resting screen.
+    const { default: AxeBuilder } = await import('@axe-core/playwright');
+    const { violations } = await new AxeBuilder({ page }).analyze();
+    expect(violations.map((violation) => `${violation.id}: ${violation.nodes[0]?.target[0]}`))
+      .toEqual([]);
+    await input.fill('');
+  });
+});
+
+test.describe('typing chip spacing', () => {
+  test('working chips keep a measured gap above the composer and stay sticky', async ({ page }) => {
+    // Read-only against the fixture's permanently running @scout turn: this
+    // test enqueues nothing, posts nothing and stops nothing, so it cannot
+    // consume a fake turn another spec is waiting on. An earlier version of it
+    // did exactly that and took room5's reply with it.
+    await openRoom(page);
+    const bar = page.locator('.nx-typing-bar');
+    await expect(bar).toBeVisible();
+    // The chip carries initials, not the handle, so assert the working agent's
+    // chip is present rather than matching display text.
+    await expect(bar.locator('.nx-typing-agent')).toHaveCount(1);
+
+    // Measured, not assumed: a margin some later rule collapses would still
+    // "be set" while the chips visually rest on the composer.
+    const gap = await page.evaluate(() => {
+      const chips = document.querySelector('.nx-typing-bar');
+      const composer = document.querySelector('.nx-composer-bar');
+      if (!chips || !composer) return -1;
+      return composer.getBoundingClientRect().top - chips.getBoundingClientRect().bottom;
+    });
+    expect(gap).toBeGreaterThanOrEqual(8);
+
+    // Sticky survives scrolling the transcript.
+    await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = 0; });
+    await expect(bar).toBeVisible();
+  });
+});
+
 test.describe('holds', () => {
   test('the banner names the held delivery and Release runs it', async ({ page }) => {
     await enqueue([{ kind: 'complete', final_text: 'Keys rotated.' }]);

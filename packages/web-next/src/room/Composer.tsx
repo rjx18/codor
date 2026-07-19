@@ -57,6 +57,14 @@ export function Composer(props: { room: string; token: () => string; connection:
 
   // Programmatic inserts restore the caret synchronously with the DOM update —
   // an rAF here loses keystrokes racing in from a fast typist.
+  // Size against the COMMITTED draft, not the keystroke that caused it: quoting,
+  // mention insertion and clearing after send all change the value without an
+  // input event, and each must land on a correctly sized box. Clearing shrinks
+  // it back to one row for the same reason.
+  useLayoutEffect(() => {
+    autoGrow();
+  }, [draft]);
+
   useLayoutEffect(() => {
     const caret = pendingCaretRef.current;
     if (caret === undefined) return;
@@ -65,7 +73,6 @@ export function Composer(props: { room: string; token: () => string; connection:
     if (!node) return;
     node.setSelectionRange(caret, caret);
     node.focus();
-    autoGrow();
     refreshMention();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
@@ -154,8 +161,14 @@ export function Composer(props: { room: string; token: () => string; connection:
     const node = areaRef.current;
     if (!node) return;
     node.style.height = 'auto';
-    const line = parseFloat(getComputedStyle(node).lineHeight) || 24;
-    node.style.height = `${Math.min(node.scrollHeight, Math.round(line * MAX_ROWS))}px`;
+    const style = getComputedStyle(node);
+    const line = parseFloat(style.lineHeight) || 24;
+    // The cap is a HEIGHT, and height here includes the box's own vertical
+    // padding. Capping at `line * 8` alone left the eighth row clipped by
+    // exactly that padding — eight rows of text never fit in an "eight row" box.
+    const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+    const cap = Math.round(line * MAX_ROWS + (Number.isFinite(padding) ? padding : 0));
+    node.style.height = `${Math.min(node.scrollHeight, cap)}px`;
   };
 
   const refreshMention = (): void => {
@@ -259,7 +272,13 @@ export function Composer(props: { room: string; token: () => string; connection:
         {mention && mentionables.length > 0 && (
           <ul className="nx-mentions" role="listbox" aria-label="Mention someone" data-testid="mention-popover">
             {mentionables.map((member, index) => (
-              <li key={member.id}>
+              // The li is presentational: a listbox's only permitted children
+              // are options, and the button below is the option. Leaving it a
+              // real listitem put a non-option child inside the listbox and
+              // stripped the li of its own list semantics — three axe
+              // violations that never surfaced because axe only ever ran on the
+              // resting screen, with this popover closed.
+              <li key={member.id} role="presentation">
                 <button
                   role="option"
                   aria-selected={index === highlighted}
@@ -298,6 +317,12 @@ export function Composer(props: { room: string; token: () => string; connection:
           }}
           onClick={refreshMention}
           onKeyDown={(event) => {
+            // On a phone keyboard, Enter is the newline key. Nothing here may
+            // consume it: not sending, and not selecting a mention — a caret
+            // sitting after "@ri" must still be able to start a new line.
+            // Sending is the explicit button, which is also the only control
+            // that can be aimed at reliably with a thumb.
+            if (isMobile && event.key === 'Enter') return;
             if (mention && mentionables.length > 0) {
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault();
@@ -356,16 +381,18 @@ export function Composer(props: { room: string; token: () => string; connection:
               }}
             />
             <span className="nx-composer-spacer" />
-            <button
-              type="button"
-              className="nx-send"
-              aria-label="Send message"
+            {/* The same primitive desktop sends with, so the two surfaces cannot
+                drift in theme or shape; the mobile class only widens the hit
+                target for a thumb. */}
+            <IconButton
+              icon={ArrowUp}
+              label="Send message"
+              variant="solid"
+              className="nx-composer-send"
               data-testid="composer-send"
               disabled={!canSend}
               onClick={send}
-            >
-              <ArrowUp size={17} aria-hidden="true" strokeWidth={2} />
-            </button>
+            />
           </div>
         ) : (
           <>
@@ -373,6 +400,7 @@ export function Composer(props: { room: string; token: () => string; connection:
               icon={Paperclip}
               label="Attach files"
               variant="quiet"
+              className="nx-composer-attach"
               data-testid="composer-attach"
               onClick={() => fileRef.current?.click()}
             />
@@ -380,6 +408,7 @@ export function Composer(props: { room: string; token: () => string; connection:
               icon={ArrowUp}
               label="Send message"
               variant="solid"
+              className="nx-composer-send"
               data-testid="composer-send"
               disabled={!canSend}
               onClick={send}

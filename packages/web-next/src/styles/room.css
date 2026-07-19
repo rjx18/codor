@@ -688,6 +688,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
+  /* Breathing room so the chips read as sitting ABOVE the composer instead of
+     resting on it. Sticky, wrapping, stop controls and the jump button are all
+     unaffected — this is margin below the bar, not a change of position. */
+  margin-bottom: var(--sp-3);
   align-self: flex-start;
   max-width: 100%;
 }
@@ -969,18 +973,26 @@
   color: var(--c-faded);
 }
 .nx-composer-reply button:hover { background: var(--c-muted); color: var(--c-ink); }
+/* A floating surface, not a slab: raised warm fill so it separates from the
+   canvas in dark theme without becoming a black rectangle, and a width that
+   cannot outgrow a 390px viewport. Listbox semantics and keyboard navigation
+   are untouched — this is presentation only. */
 .nx-mentions {
   position: absolute;
   bottom: calc(100% + 8px);
   left: var(--sp-2);
+  right: var(--sp-2);
   z-index: 60;
   margin: 0;
-  padding: var(--sp-1);
+  padding: var(--sp-2);
   list-style: none;
   min-width: 240px;
+  max-width: min(360px, calc(100vw - 2 * var(--sp-4)));
+  max-height: min(50vh, 320px);
+  overflow-y: auto;
   border: 1px solid var(--c-line);
   border-radius: var(--r-card);
-  background: var(--c-surface);
+  background: var(--c-raised);
   box-shadow: var(--e-popover);
   animation: nx-enter var(--m-fast) var(--m-ease);
 }
@@ -1033,13 +1045,27 @@
 .nx-composer-input::placeholder { color: var(--c-faded); }
 
 /* ── Attachments: pending tray in the composer, rendered files in the turn ── */
+/* The pending tray is a floating surface too, so staged files read as held
+   above the composer rather than dissolving into it. It shares the composer's
+   column width and centering — left to `max-width: 100%` it stretched to the
+   full footer (958px against a 672px composer at 1024px), reading as a
+   different, wider component. Chips wrap and the tray scrolls instead of
+   pushing the composer off a small viewport. */
 .nx-attach-tray {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-2);
-  margin: 0 0 var(--sp-2);
-  padding: 0;
+  margin: 0 auto var(--sp-2);
+  padding: var(--sp-2);
   list-style: none;
+  width: 100%;
+  max-width: var(--column-w);
+  max-height: min(30vh, 180px);
+  overflow-y: auto;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-raised);
+  box-shadow: var(--e-popover);
 }
 .nx-attach-chip {
   display: inline-flex;
@@ -1791,14 +1817,9 @@
   .nx-turn.is-grouped { padding-left: 0; margin-top: calc(-1 * var(--sp-2)); }
   .nx-turn-meta .nx-turn-time { display: none; }
 
-  /* Tool activity: quiet borderless disclosure lines with inline ±. */
-  .nx-batch-line {
-    border: 0;
-    background: none;
-    padding: 0;
-    color: var(--c-faded);
-  }
-  .nx-batch-line:hover { background: none; color: var(--c-secondary); }
+  /* Tool activity keeps the desktop chip on mobile: stripping its border and
+     padding made "Ran N tools" read as body text rather than the control it is,
+     and a tappable thing has to look tappable. */
 
   /* Jump control docks in the corner; the arrow-only form is a 44px FAB and
      the counter keeps its text as a pill. */
@@ -1814,7 +1835,7 @@
   }
   .nx-jump svg { width: 18px; height: 18px; }
 
-  /* Two-row docked composer with the peach send circle. */
+  /* Two-row docked composer; send is the shared solid IconButton. */
   .nx-composer { padding: 0 var(--sp-3) var(--sp-3); }
   .nx-composer-bar {
     flex-direction: column;
@@ -1828,6 +1849,24 @@
     gap: var(--sp-2);
   }
   .nx-composer-spacer { flex: 1; }
+
+  /* Send keeps the shared primitive's look and gains only a thumb-sized target.
+     Scoped to the mobile layout rather than `pointer: coarse` alone, because
+     the phone surface is defined by this breakpoint — a coarse-pointer query
+     leaves the target at 36px on any mobile viewport the browser reports as
+     fine, which is exactly where a mis-tap costs the most. */
+  .nx-composer-row2 .nx-composer-send {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* The autosizer writes an explicit height; a shrinkable zero basis would let
+     the column squash it straight back to one row. Basis auto, shrink 0 means
+     the measured height is the height. */
+  .nx-composer-input {
+    flex: 1 0 auto;
+    overflow-y: auto;
+  }
 
   /* Context becomes a full-screen sheet from the kebab. */
   .nx-mobile-context {
@@ -1845,19 +1884,21 @@
   }
 }
 
-.nx-send {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--r-full);
-  background: var(--c-send);
-  color: var(--c-send-ink);
-  transition: filter var(--m-fast) var(--m-ease);
+/* Send is the shared solid IconButton on both surfaces — it inherits theme,
+   radius and disabled treatment from the primitive rather than redefining them.
+   The only override is a thumb-sized target, applied in two places on purpose:
+   here for any genuinely coarse pointer, and again at the mobile breakpoint,
+   because the mobile viewport is not reliably reported as coarse. */
+@media (pointer: coarse) {
+  .nx-composer-send {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
-.nx-send:hover { filter: brightness(0.96); }
-.nx-send:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Desktop attach/input/send share one optical center line. */
+.nx-composer-attach { align-self: center; }
+.nx-composer-send { align-self: center; }
 
 /* harn:assume member-context-window-meter-derived-from-last-usage ref=context-window-meter-component */
 /* Estimated (artifact-seeded) context rings render dimmed until a live report replaces them. */
