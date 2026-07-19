@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# The proof can be launched from an agent that already has a narrow Codor
+# identity and a live socket. It must never inherit either into its disposable
+# daemon or smoke CLI.
+unset CODOR_CHANNEL CODOR_DATA_DIR CODOR_MEMBER_TOKEN CODOR_RELAY_URL CODOR_SOCKET
+unset CODOR_TOKEN CODOR_TRUST_TAILSCALE_SERVE CODOR_URL CODOR_VAPID_PUBLIC_KEY
+
 # harn:assume fresh-clone-install-proven-by-script ref=fresh-install-script
 SOURCE_ROOT="${CODOR_FRESH_SOURCE:-$(git rev-parse --show-toplevel)}"
 SOURCE_REF="${CODOR_FRESH_REF:-$(git -C "$SOURCE_ROOT" branch --show-current)}"
@@ -49,7 +55,7 @@ CODOR_TOKEN="$TOKEN" node packages/cli/dist/index.js \
   >"$TEST_ROOT/daemon.log" 2>&1 &
 DAEMON_PID=$!
 
-for _ in {1..300}; do
+for _ in {1..100}; do
   if curl --fail --silent --output /dev/null \
     -H "Authorization: Bearer $TOKEN" \
     "http://127.0.0.1:$PORT/api/rooms"; then

@@ -1,0 +1,47 @@
+id: fresh-install-isolates-codor-env
+title: Keep the clean-clone proof on its disposable daemon when invoked from a
+  live Codor agent environment
+notes: >-
+  The first follow-up misdiagnosed the clean-clone readiness failure as a cold
+  startup timeout because the daemon's log contained its listening URL. A direct
+  HTTP probe falsified that diagnosis: the server was listening immediately but
+  rejected the generated owner token. This process inherits CODOR_MEMBER_TOKEN,
+  and the CLI deliberately gives that narrower identity precedence over
+  CODOR_TOKEN. It also inherits CODOR_SOCKET, which could route the later smoke
+  post/tail to the live switchboard instead of the disposable clone.
+
+  The script must be hermetic with respect to the caller's Codor session. Clear
+  every CLI-consumed CODOR_* identity, socket, URL, data, and channel variable
+  at startup, then inject only the generated owner token into the disposable
+  daemon. Restore the original ten-second readiness budget; startup latency was
+  not the failure and increasing it only delayed the same 401 response.
+assumptions:
+  reviewed:
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: Hermetic identity and socket selection are required for the existing
+        claim that the script uses isolated data and proves its own clean clone.
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The web-next default and branded HTML check remain unchanged; only the
+        caller-environment isolation surrounding that proof is corrected.
+anchors:
+  fresh-clone-install-proven-by-script:
+    fresh-install-script:
+      action: change
+      reason: Clear inherited Codor routing and identity variables before any clone,
+        daemon, or CLI command, and restore the original readiness budget.
+  operator-launches-serve-web-next:
+    fresh-install-current-web-client:
+      action: change
+      reason: Restore the readiness loop inside the nested current-client proof
+        without changing its static-root or HTML assertions.
+files:
+  - scripts/fresh-install-test.sh
+verification: "`harn check fresh-install-isolates-codor-env` passes. With live
+  CODOR_MEMBER_TOKEN and CODOR_SOCKET values present in the caller,
+  `scripts/fresh-install-test.sh` completes its clean clone, frozen install,
+  full build, authenticated owner API, branded web-next HTML, disposable-socket
+  CLI post/tail, shutdown, and cleanup. `git diff --check` passes."
+applied:
+  applied_at: 2026-07-19T14:03:43.862Z
