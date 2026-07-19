@@ -9,11 +9,13 @@
  * Everything here is driven by what the adapter reports. Nothing about policies or
  * thinking levels is written down in this file.
  */
-import { Cpu, Gauge, Lock, PencilLine, ShieldCheck, Zap } from 'lucide-react';
+import { Bot, Cat, Cpu, Gauge, Lock, PencilLine, ShieldCheck, Sparkles, SquareTerminal, Terminal, Zap } from 'lucide-react';
 import { useState } from 'react';
 
 import {
   POLICIES,
+  SPAWN_PRESETS,
+  type SpawnPreset,
   type AdapterLike,
   type AgentConfig,
   reconcileConfig,
@@ -28,6 +30,21 @@ const POLICY_COPY: Record<string, { title: string; blurb: string; icon: typeof L
   'full-access': { title: 'Full access', blurb: 'Skips permission prompts entirely. Trusted tasks only.', icon: Zap },
 };
 
+/**
+ * Per-harness identity. A row where every tile carries the same CPU glyph is a
+ * row of five identical buttons — the icon has to distinguish them or it is
+ * decoration. Vendors are stated as text rather than drawn, so nothing here
+ * reproduces a third-party trademark.
+ */
+const HARNESS: Record<string, { icon: typeof Cpu; vendor: string }> = {
+  'claude-code': { icon: Sparkles, vendor: 'Anthropic' },
+  codex: { icon: SquareTerminal, vendor: 'OpenAI' },
+  gemini: { icon: Bot, vendor: 'Google' },
+  copilot: { icon: Cat, vendor: 'GitHub' },
+  opencode: { icon: Terminal, vendor: 'open source' },
+  pi: { icon: Terminal, vendor: 'open source' },
+};
+
 /** Past this many models a list stops being scannable and becomes a search box.
  *  opencode reports around eighty. */
 const BROWSE_LIMIT = 8;
@@ -36,6 +53,8 @@ export function AgentControls(props: {
   adapters: readonly AdapterLike[];
   config: AgentConfig;
   onChange: (next: AgentConfig) => void;
+  /** Spawn offers one-click roles; configure and channel-create do not. */
+  presets?: { onApply: (preset: SpawnPreset) => void };
   /** Configure-an-existing-member cannot change harness. */
   lockHarness?: boolean;
   /** Channel-create picks the harness in its own "starting agent" row, which
@@ -59,6 +78,28 @@ export function AgentControls(props: {
 
   return (
     <div className="nx-agent-controls">
+      {props.presets !== undefined && (
+        <fieldset className="nx-control-group">
+          <legend>Role</legend>
+          <div className="nx-tile-row" role="group" aria-label="Role preset">
+            {SPAWN_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className="nx-tile"
+                data-testid={`${id}-preset-${preset.id}`}
+                onClick={() => props.presets?.onApply(preset)}
+              >
+                <span className="nx-tile-text">
+                  <span className="nx-tile-name">{preset.label}</span>
+                  <span className="nx-tile-sub">{preset.blurb}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      )}
+
       {/* ── Harness ─────────────────────────────────────────────────────── */}
       {props.hideHarness !== true && (
       <fieldset className="nx-control-group" disabled={props.lockHarness === true}>
@@ -76,12 +117,17 @@ export function AgentControls(props: {
                 data-testid={`${id}-harness-${candidate.id}`}
                 onClick={() => props.onChange(reconcileConfig(config, candidate.id, adapters))}
               >
-                <Cpu size={16} aria-hidden="true" />
-                <span className="nx-tile-name">{candidate.id}</span>
-                {candidate.capabilities.resume === false && (
-                  // Worth knowing before you spawn: this one cannot be resumed.
-                  <span className="nx-tile-badge">ephemeral</span>
-                )}
+                {(() => {
+                  const Icon = HARNESS[candidate.id]?.icon ?? Cpu;
+                  return <Icon size={16} aria-hidden="true" />;
+                })()}
+                <span className="nx-tile-text">
+                  <span className="nx-tile-name">{candidate.id}</span>
+                  <span className="nx-tile-sub">
+                    {HARNESS[candidate.id]?.vendor ?? 'harness'}
+                    {candidate.capabilities.resume === false ? ' · ephemeral' : ''}
+                  </span>
+                </span>
               </button>
             ))}
           </div>

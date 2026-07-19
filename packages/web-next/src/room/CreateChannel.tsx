@@ -1,6 +1,6 @@
 import type { Room } from '@codor/protocol';
 import { CHANNEL_ACCENTS, deriveAssignableHandle, deriveRoomId } from '@codor/protocol';
-import { ArrowUp, Folder } from 'lucide-react';
+import { ArrowUp, Folder, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -40,21 +40,29 @@ export function CreateChannelDialog(props: {
   const [agentName, setAgentName] = useState('codor');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  // A server error about the starting agent belongs beside the agent name, not in
+  // a generic banner at the bottom where it reads as unrelated to the field.
+  const [agentError, setAgentError] = useState<string>();
 
   const owner = me(members, selfId);
+  // A blank name is not an error — it falls back to "Agent", so the handle is
+  // derived from the effective name rather than from what was literally typed.
+  // Requiring a non-empty name here is what made the fallback unreachable.
+  const effectiveAgentName = agentName.trim() === '' ? 'Agent' : agentName.trim();
   const derivedHandle = useMemo(
-    () => (agentName.trim() === '' ? undefined : deriveAssignableHandle(agentName)),
-    [agentName],
+    () => deriveAssignableHandle(effectiveAgentName),
+    [effectiveAgentName],
   );
   const agentHarness = agentConfig.harness;
   const ownerClash = derivedHandle !== undefined && collidesWithOwner(derivedHandle, owner);
   const canCreate = name.trim() !== '' && owner !== undefined && !busy && !ownerClash
-    && (agentHarness === '' || (agentName.trim() !== '' && derivedHandle !== undefined));
+    && (agentHarness === '' || derivedHandle !== undefined);
 
   const submit = (): void => {
     if (!canCreate || owner === undefined) return;
     setBusy(true);
     setError(undefined);
+    setAgentError(undefined);
     void createRoom({
       name: name.trim(),
       owner: { handle: owner.handle, display_name: owner.display_name },
@@ -65,7 +73,7 @@ export function CreateChannelDialog(props: {
           harness: agentHarness,
           handle: derivedHandle,
           // A blank name falls back rather than blocking submit.
-          display_name: agentName.trim() === '' ? 'Agent' : agentName.trim(),
+          display_name: effectiveAgentName,
           // Always carries a policy. A channel-seeded agent used to spawn with
           // none at all, which is the F11 regression legacy still warns about.
           policy: agentConfig.policy === '' ? DEFAULT_POLICY : agentConfig.policy,
@@ -80,17 +88,33 @@ export function CreateChannelDialog(props: {
       }),
     }, { token: props.token() }).then(
       (room) => props.onCreated(room),
-      (failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)),
+      (failure: unknown) => {
+        const message = failure instanceof Error ? failure.message : String(failure);
+        if (/starting agent|handle/i.test(message)) setAgentError(message);
+        else setError(message);
+      },
     ).finally(() => setBusy(false));
   };
 
   return (
     <Modal label="Create channel" onClose={props.onClose} testid="create-channel-dialog" wide>
-      <h2 className="nx-dialog-title">Create channel</h2>
+      {/* Native form so Enter submits from any field. */}
+      <form onSubmit={(event) => { event.preventDefault(); submit(); }}>
+      <div className="nx-dialog-head">
+        <div>
+          <h2 className="nx-dialog-title">Create channel</h2>
+          <p className="nx-dialog-sub">A workspace for a task and its agents.</p>
+        </div>
+        <button type="button" className="nx-dialog-close" aria-label="Close create channel"
+          data-testid="create-close" onClick={props.onClose}>
+          <X size={16} aria-hidden="true" />
+        </button>
+      </div>
       <label className="nx-field">
         Name
         <input
           value={name}
+          required
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Engineering"
           data-testid="create-name"
@@ -147,17 +171,24 @@ export function CreateChannelDialog(props: {
           ))}
         </div>
       </div>
-      {agentHarness !== '' && (
-        <>
+      <>
           <label className="nx-field">
             Agent name
             {/* Disabled rather than unmounted elsewhere, so the dialog never jumps. */}
+            {/* Disabled, never unmounted: unmounting made the dialog jump as the
+                harness changed, and hid the control instead of explaining it. */}
             <input
               value={agentName}
+              disabled={agentHarness === ''}
               onChange={(e) => setAgentName(e.target.value)}
               placeholder="e.g. Scout"
               data-testid="create-agent-name"
             />
+            {agentError !== undefined && (
+              <span className="nx-field-note is-error" role="alert" data-testid="create-agent-error">
+                {agentError}
+              </span>
+            )}
             {agentName.trim() !== '' && (
               derivedHandle !== undefined
                 ? <span className="nx-field-note">joins as <Code>@{derivedHandle}</Code></span>
@@ -171,22 +202,19 @@ export function CreateChannelDialog(props: {
           </label>
           {/* The same control the spawn and configure dialogs use, so a channel-seeded
               agent is configured exactly as thoroughly as a later one. */}
-          <AgentControls
-            adapters={adapters}
-            config={agentConfig}
-            onChange={setAgentConfig}
-            hideHarness
-            idPrefix="create"
-          />
-        </>
-      )}
+          {agentHarness !== '' && (
+            <AgentControls adapters={adapters} config={agentConfig} onChange={setAgentConfig}
+              hideHarness idPrefix="create" />
+          )}
+      </>
       {error !== undefined && <p className="nx-field-note is-error" role="alert">{error}</p>}
       <div className="nx-dialog-actions">
-        <Button variant="quiet" onClick={props.onClose}>Cancel</Button>
-        <Button variant="primary" disabled={!canCreate} data-testid="create-go" onClick={submit}>
+        <Button variant="quiet" type="button" onClick={props.onClose}>Cancel</Button>
+        <Button variant="primary" type="submit" disabled={!canCreate} data-testid="create-go">
           {busy ? 'Creating…' : 'Create channel'}
         </Button>
       </div>
+      </form>
     </Modal>
   );
 }
@@ -276,8 +304,8 @@ function FolderPicker(props: { token: () => string; value: string; onChange: (pa
       </label>
 
       <div className="nx-folder-confirm">
-        <Button variant="quiet" onClick={() => setBrowsing(false)}>Cancel</Button>
-        <Button variant="primary" data-testid="folder-use"
+        <Button variant="quiet" type="button" onClick={() => setBrowsing(false)}>Cancel</Button>
+        <Button variant="primary" type="button" data-testid="folder-use"
           onClick={() => { props.onChange(typed.trim()); setBrowsing(false); }}>
           Use this folder
         </Button>
@@ -286,4 +314,3 @@ function FolderPicker(props: { token: () => string; value: string; onChange: (pa
     </div>
   );
 }
-

@@ -141,6 +141,10 @@ export function Modal(props: {
     (props.initialFocus?.current ?? focusables()[0] ?? dialog)?.focus();
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
+        // Both: stopPropagation keeps an outer handler from also acting on it,
+        // preventDefault stops the browser's own Escape behaviour (cancelling a
+        // native form, closing a parent <dialog>) firing underneath the close.
+        event.preventDefault();
         event.stopPropagation();
         closeRef.current();
         return;

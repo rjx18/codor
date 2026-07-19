@@ -148,9 +148,92 @@ export function asPolicy(value: string | undefined): Policy | '' {
   return parsed.success ? parsed.data : '';
 }
 
+/**
+ * The channel owner.
+ *
+ * Identified by role, not by "the first human in the list": a channel can hold
+ * several humans, and their order is not the ownership order, so the first-human
+ * shortcut silently compares a new handle against the wrong person.
+ */
+export function channelOwner(members: readonly Member[]): Member | undefined {
+  return members.find((member) => member.kind === 'human' && member.role === 'owner');
+}
+
 /** Does this handle collide with the channel owner's? */
 export function collidesWithOwner(handle: string, owner: { handle: string } | undefined): boolean {
   return owner !== undefined && owner.handle === handle;
+}
+
+/**
+ * One-click roles. Each fills handle, purpose, policy and thinking together,
+ * because those four are what people actually vary between agents and setting
+ * them one control at a time is the slow path through the common case.
+ *
+ * Policies stay conservative: only the tester runs anything, and nothing here
+ * grants full access — that stays a deliberate, explicit choice.
+ */
+export interface SpawnPreset {
+  id: string;
+  label: string;
+  blurb: string;
+  handle: string;
+  purpose: string;
+  policy: Policy;
+  thinking: string;
+}
+
+export const SPAWN_PRESETS: readonly SpawnPreset[] = [
+  {
+    id: 'coder', label: 'Coder', blurb: 'Writes and edits code',
+    handle: 'coder', purpose: 'Implement the change we agree on, in small reviewable steps.',
+    policy: 'workspace-write', thinking: 'medium',
+  },
+  {
+    id: 'reviewer', label: 'Reviewer', blurb: 'Reads and critiques',
+    handle: 'reviewer', purpose: 'Review the diff for correctness and risk. Do not edit files.',
+    policy: 'read-only', thinking: 'high',
+  },
+  {
+    id: 'planner', label: 'Planner', blurb: 'Breaks work down',
+    handle: 'planner', purpose: 'Turn the goal into an ordered plan with checkable steps.',
+    policy: 'read-only', thinking: 'high',
+  },
+  {
+    id: 'writer', label: 'Writer', blurb: 'Docs and prose',
+    handle: 'writer', purpose: 'Write and revise documentation for this project.',
+    policy: 'workspace-write', thinking: 'medium',
+  },
+  {
+    id: 'tester', label: 'Tester', blurb: 'Runs and fixes tests',
+    handle: 'tester', purpose: 'Run the suite, diagnose failures, and add missing coverage.',
+    policy: 'workspace-write', thinking: 'medium',
+  },
+];
+
+/**
+ * Apply a preset over the current configuration.
+ *
+ * The thinking level is filtered through the adapter, so a preset asking for a
+ * level this harness does not accept lands as "default" rather than silently
+ * arming a value that would be rejected. The handle is made unique here too,
+ * because two reviewers in one channel is a normal thing to want.
+ */
+export function applyPreset(input: {
+  preset: SpawnPreset;
+  config: AgentConfig;
+  adapters: readonly AdapterLike[];
+  members: readonly Member[];
+}): { config: AgentConfig; handle: string; purpose: string } {
+  const adapter = input.adapters.find((candidate) => candidate.id === input.config.harness);
+  return {
+    config: {
+      ...input.config,
+      policy: input.preset.policy,
+      thinking: supportedThinking(adapter, input.preset.thinking) ?? '',
+    },
+    handle: availableAgentHandle(input.preset.handle, input.members),
+    purpose: input.preset.purpose,
+  };
 }
 
 export interface AgentConfig {

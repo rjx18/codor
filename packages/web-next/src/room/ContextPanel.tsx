@@ -1,5 +1,5 @@
 import type { AgentLimit, Member, Policy, Room, RunItemDiff, ThinkingLevel, WireEvent } from '@codor/protocol';
-import { LoaderCircle, Minimize2, MoreVertical, Plus, Square } from 'lucide-react';
+import { LoaderCircle, Minimize2, MoreVertical, Plus, Square, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@legacy/api.js';
@@ -9,7 +9,9 @@ import {
   type AgentConfig,
   type SpawnSpec,
   buildSpawnSpec,
+  applyPreset,
   asPolicy,
+  channelOwner,
   collidesWithOwner,
   defaultSpawnCwd,
   effectiveHarness,
@@ -476,7 +478,7 @@ function RenameDialog(props: {
         <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
       </label>
       <div className="nx-dialog-actions">
-        <Button variant="quiet" onClick={props.onClose}>Cancel</Button>
+        <Button variant="quiet" type="button" onClick={props.onClose}>Cancel</Button>
         <Button
           variant="primary"
           disabled={handle.trim() === ''}
@@ -523,8 +525,16 @@ function ConfigureDialog(props: {
   return (
     <Modal label="Configure agent" onClose={props.onClose} testid="configure-dialog">
       <form onSubmit={submit}>
-        <h2 className="nx-dialog-title">Configure @{props.member.handle}</h2>
-        <p className="nx-dialog-sub">Applies to this agent&apos;s next turn.</p>
+        <div className="nx-dialog-head">
+          <div>
+            <h2 className="nx-dialog-title">Configure @{props.member.handle}</h2>
+            <p className="nx-dialog-sub">Applies to this agent&apos;s next turn.</p>
+          </div>
+          <button type="button" className="nx-dialog-close" aria-label="Close configure agent"
+            data-testid="configure-close" onClick={props.onClose}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
         <AgentControls
           adapters={props.adapters}
           config={config}
@@ -533,7 +543,7 @@ function ConfigureDialog(props: {
           idPrefix="configure"
         />
         <div className="nx-dialog-actions">
-          <Button variant="quiet" onClick={props.onClose}>Cancel</Button>
+          <Button variant="quiet" type="button" onClick={props.onClose}>Cancel</Button>
           <Button variant="primary" type="submit" data-testid="configure-go">Save</Button>
         </div>
       </form>
@@ -562,7 +572,7 @@ function SpawnDialog(props: {
   // Adapter discovery is asynchronous; a selection made before the list arrives
   // heals rather than sticking at a dead value.
   const harness = effectiveHarness(config.harness, props.adapters);
-  const owner = props.members.find((member) => member.kind === 'human');
+  const owner = channelOwner(props.members);
   const derived = handle.trim();
   const ownerClash = collidesWithOwner(derived, owner);
   const canSpawn = harness !== '' && derived !== '' && cwd.trim() !== '' && !ownerClash && !props.pending;
@@ -584,8 +594,16 @@ function SpawnDialog(props: {
     <Modal label="Spawn agent" onClose={props.onClose} testid="spawn-dialog">
       {/* A native form so Enter submits from any field. */}
       <form onSubmit={submit}>
-        <h2 className="nx-dialog-title">Spawn agent</h2>
-        <p className="nx-dialog-sub">Choose a harness and how much autonomy it gets.</p>
+        <div className="nx-dialog-head">
+          <div>
+            <h2 className="nx-dialog-title">Spawn agent</h2>
+            <p className="nx-dialog-sub">Choose a harness and how much autonomy it gets.</p>
+          </div>
+          <button type="button" className="nx-dialog-close" aria-label="Close spawn agent"
+            data-testid="spawn-close" onClick={props.onClose}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
 
         <label className="nx-field">
           Handle
@@ -596,6 +614,7 @@ function SpawnDialog(props: {
             maxLength={31}
             onChange={(e) => setHandle(e.target.value)}
             placeholder="e.g. scout"
+            required
             data-testid="spawn-handle"
           />
         </label>
@@ -611,6 +630,7 @@ function SpawnDialog(props: {
             value={cwd}
             onChange={(e) => setCwd(e.target.value)}
             placeholder="/home/you/project"
+            required
             data-testid="spawn-cwd"
           />
         </label>
@@ -619,6 +639,19 @@ function SpawnDialog(props: {
           adapters={props.adapters}
           config={{ ...config, harness }}
           onChange={setConfig}
+          presets={{
+            onApply: (preset) => {
+              const applied = applyPreset({
+                preset,
+                config: { ...config, harness },
+                adapters: props.adapters,
+                members: props.members,
+              });
+              setConfig(applied.config);
+              setHandle(applied.handle);
+              setPurpose(applied.purpose);
+            },
+          }}
           idPrefix="spawn"
         />
 
@@ -640,7 +673,7 @@ function SpawnDialog(props: {
         )}
 
         <div className="nx-dialog-actions">
-          <Button variant="quiet" onClick={props.onClose}>Cancel</Button>
+          <Button variant="quiet" type="button" onClick={props.onClose}>Cancel</Button>
           <Button variant="primary" type="submit" disabled={!canSpawn} data-testid="spawn-go">
             {props.pending ? 'Spawning…' : 'Spawn agent'}
           </Button>
