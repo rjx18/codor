@@ -67,10 +67,6 @@ function uniquePath(parts: Array<string | undefined>): string {
   return [...new Set(parts.flatMap((part) => part?.split(':') ?? []).filter(Boolean))].join(':');
 }
 
-function replaceNodePath(template: string, nodePath: string): string {
-  return template.replace(/^(ExecStart=)\S+/m, `$1${nodePath}`);
-}
-
 // harn:assume wsl-setup-reaches-windows-loopback ref=wsl-bind-selection
 function wslSystemdBindHost(
   env: NodeJS.ProcessEnv,
@@ -80,13 +76,12 @@ function wslSystemdBindHost(
 ): '127.0.0.1' | '0.0.0.0' {
   const isWsl = Boolean(env.WSL_DISTRO_NAME || env.WSL_INTEROP || /microsoft/i.test(kernelRelease));
   if (!isWsl) return '127.0.0.1';
+  if (!/wsl2/i.test(kernelRelease)) return '127.0.0.1';
 
-  let version = /wsl2/i.test(kernelRelease) ? '2' : /microsoft/i.test(kernelRelease) ? '1' : undefined;
   let networkingMode: string | undefined;
   const wslinfo = which('wslinfo');
   if (wslinfo) {
     try {
-      version = exec('wslinfo', ['--wsl-version']).trim() || version;
       networkingMode = exec('wslinfo', ['--networking-mode']).trim().toLowerCase() || undefined;
     } catch {
       // A present-but-broken probe cannot safely distinguish NAT from mirrored networking.
@@ -94,7 +89,6 @@ function wslSystemdBindHost(
     }
   }
 
-  if (version !== '2') return '127.0.0.1';
   if (
     (wslinfo === undefined && networkingMode === undefined)
     || networkingMode === 'nat'
@@ -104,14 +98,50 @@ function wslSystemdBindHost(
   }
   return '127.0.0.1';
 }
+// harn:end wsl-setup-reaches-windows-loopback
 
-function replaceSystemdBindHost(template: string, host: '127.0.0.1' | '0.0.0.0'): string {
-  if (host === '127.0.0.1') return template;
-  const rendered = template.replace(/^(ExecStart=.*\s+up)(\s+)/m, `$1 --host ${host}$2`);
-  if (rendered === template) throw new Error('codor setup could not configure the WSL systemd bind host');
+// harn:assume setup-service-runs-from-current-checkout ref=linux-service-current-checkout
+function systemdQuote(value: string): string {
+  if (/[\0\r\n]/.test(value)) throw new Error('codor setup paths cannot contain control characters');
+  return `"${value
+    .replaceAll('\\', '\\\\')
+    .replaceAll('"', '\\"')
+    .replaceAll('%', '%%')}"`;
+}
+
+interface SystemdUnitOptions {
+  dataDir: string;
+  envPath: string;
+  host: '127.0.0.1' | '0.0.0.0';
+  nodePath: string;
+  repoRoot: string;
+}
+
+function renderSystemdUnit(template: string, options: SystemdUnitOptions): string {
+  const args = [
+    options.nodePath,
+    join(options.repoRoot, 'packages', 'cli', 'dist', 'index.js'),
+    '--data-dir',
+    options.dataDir,
+    'up',
+    ...(options.host === '0.0.0.0' ? ['--host', options.host] : []),
+    '--static-root',
+    join(options.repoRoot, 'packages', 'web-next', 'dist'),
+    '--channel',
+    'desk',
+    '--channel-name',
+    'Desk',
+  ];
+  const rendered = template
+    .replace(/^WorkingDirectory=.*$/m, `WorkingDirectory=${systemdQuote(options.repoRoot)}`)
+    .replace(/^EnvironmentFile=.*$/m, `EnvironmentFile=${systemdQuote(options.envPath)}`)
+    .replace(/^ExecStart=.*$/m, `ExecStart=${args.map(systemdQuote).join(' ')}`);
+  if (rendered === template || rendered.includes('%h/codor')) {
+    throw new Error('codor setup could not render the systemd service for the current checkout');
+  }
   return rendered;
 }
-// harn:end wsl-setup-reaches-windows-loopback
+// harn:end setup-service-runs-from-current-checkout
 
 function xml(value: string): string {
   return value
@@ -231,10 +261,13 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     )
     : '127.0.0.1';
   const unitContent = platform === 'linux'
-    ? replaceSystemdBindHost(
-      replaceNodePath(readFileSync(templatePath, 'utf8'), nodePath),
-      systemdBindHost,
-    )
+    ? renderSystemdUnit(readFileSync(templatePath, 'utf8'), {
+      dataDir,
+      envPath,
+      host: systemdBindHost,
+      nodePath,
+      repoRoot,
+    })
     : undefined;
   const harnessPaths = HARNESSES.map((harness) => which(harness)).filter(
     (path): path is string => path !== undefined,

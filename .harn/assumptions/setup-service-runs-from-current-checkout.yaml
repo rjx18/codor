@@ -1,0 +1,13 @@
+id: setup-service-runs-from-current-checkout
+hash: a-5e944eb05263
+title: Setup services run from the checkout that invoked setup
+state: active
+statement: Linux setup must render the systemd user service with absolute paths
+  for the current repository, Node executable, CLI entrypoint, web-next build,
+  data directory, and environment file, just as macOS setup already does for its
+  LaunchAgent, because users may clone Codor anywhere and a hard-coded
+  home/codor path installs a service that immediately exits without listening.
+depends_on:
+  - cli-setup-wizard-installs-platform-user-service
+  - operator-launches-serve-web-next
+created_by: setup-current-checkout-wsl-probe

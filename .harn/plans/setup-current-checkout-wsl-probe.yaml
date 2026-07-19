@@ -1,0 +1,93 @@
+id: setup-current-checkout-wsl-probe
+title: Start Linux services from the actual checkout and correct WSL2 probing
+notes: Physical WSL verification exposed two independent setup failures. The
+  generated systemd unit preserves the checked-in template's %h/codor path even
+  when setup runs from another checkout such as ~/git/codor, so the service
+  exits before opening a port. Separately, wslinfo --wsl-version reports the
+  installed WSL package version (for example 2.7.10.0), not the distribution
+  generation; treating it as exactly 2 suppresses the WSL2 NAT bind. Render the
+  Linux service with the absolute current repo, data, environment, Node, CLI,
+  and web-next paths. Determine WSL2 from the kernel release and use wslinfo
+  only for networking mode. Preserve the existing privacy matrix and pairing
+  endpoint.
+assumptions:
+  create:
+    - id: setup-service-runs-from-current-checkout
+      title: Setup services run from the checkout that invoked setup
+      statement: Linux setup must render the systemd user service with absolute paths
+        for the current repository, Node executable, CLI entrypoint, web-next
+        build, data directory, and environment file, just as macOS setup already
+        does for its LaunchAgent, because users may clone Codor anywhere and a
+        hard-coded home/codor path installs a service that immediately exits
+        without listening.
+      reason: A real WSL checkout at ~/git/codor installed a unit pointing to %h/codor
+        and produced no listener on port 8137.
+      depends_on:
+        - cli-setup-wizard-installs-platform-user-service
+        - operator-launches-serve-web-next
+  reviewed:
+    - id: wsl-setup-reaches-windows-loopback
+      outcome: unchanged
+      reason: Its bind and endpoint contract remains correct; the implementation must
+        stop treating the WSL package version as the WSL1/WSL2 generation.
+    - id: cli-setup-wizard-installs-platform-user-service
+      outcome: unchanged
+      reason: The same private systemd service is installed, now with truthful
+        absolute paths.
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The generated unit still serves web-next, now from the invoking checkout.
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: Fresh-clone behavior remains valid and gains arbitrary-checkout support.
+    - id: codor-runtime-identity-is-a-clean-break
+      outcome: unchanged
+      reason: Generated paths and service identity remain Codor-only.
+anchors:
+  setup-service-runs-from-current-checkout:
+    linux-service-current-checkout:
+      action: change
+      reason: Render absolute systemd directives and arguments from setup's actual
+        paths.
+    linux-service-current-checkout-regression:
+      action: change
+      reason: Prove a nonstandard checkout with spaces is preserved and starts from
+        that tree.
+  wsl-setup-reaches-windows-loopback:
+    wsl-bind-selection:
+      action: change
+      reason: Use kernel WSL2 identity and query wslinfo only for networking mode.
+    wsl-bind-regression:
+      action: change
+      reason: Reproduce a 2.7.10.0 WSL package version without suppressing NAT binding.
+  cli-setup-wizard-installs-platform-user-service:
+    setup-runtime:
+      action: change
+      reason: Generate the Linux unit from actual repo and data paths.
+    setup-regression:
+      action: change
+      reason: Update and extend setup's generated-service assertions.
+  operator-launches-serve-web-next:
+    systemd-current-web-client:
+      action: change
+      reason: The generated unit snapshot now points to the invoking checkout's
+        web-next dist.
+  fresh-clone-install-proven-by-script:
+    systemd-service:
+      action: change
+      reason: The generated service snapshot uses absolute current-checkout paths.
+  codor-runtime-identity-is-a-clean-break:
+    systemd-runtime-identity:
+      action: change
+      reason: The generated service snapshot remains Codor-only while paths become
+        absolute.
+files:
+  - packages/cli/src/setup.ts
+  - packages/cli/src/index.spec.ts
+verification: Run focused setup tests, all CLI tests with CODOR_* unset, full
+  workspace tests and build, Harn, and the release audit. Generated-unit
+  assertions must cover an arbitrary checkout path, WSL package version 2.7.10.0
+  with NAT, mirrored mode, WSL1, and ordinary Linux. Real WSL acceptance must
+  show a listening port inside WSL before testing the Windows browser.
+applied:
+  applied_at: 2026-07-19T16:34:30.296Z

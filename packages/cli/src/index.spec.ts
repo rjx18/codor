@@ -280,7 +280,7 @@ describe('@codor/cli', () => {
 
   // harn:assume cli-setup-wizard-installs-platform-user-service ref=setup-regression
   it('snapshots setup dry-run with the absolute Node path and every detected harness directory', async () => {
-    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const repoRoot = join(fileURLToPath(new URL('../../../', import.meta.url)), '.');
     const home = '/home/setup-test';
     const installed = new Map([
       ['claude', `${home}/.local/bin/claude`],
@@ -299,7 +299,7 @@ describe('@codor/cli', () => {
         which: (command) => installed.get(command),
       },
     });
-    expect(output.join('\n').replaceAll(repoRoot, '<repo>/')).toMatchInlineSnapshot(`
+    expect(output.join('\n').replaceAll(repoRoot, '<repo>')).toMatchInlineSnapshot(`
       "[dry-run] create /home/setup-test/.config/codor and /home/setup-test/.codor mode 700; create /home/setup-test/.config/codor/token mode 600 if absent
       [dry-run] install <repo>/packaging/systemd/codor.service -> /home/setup-test/.config/systemd/user/codor.service mode 600
       [dry-run] unit content:
@@ -307,13 +307,13 @@ describe('@codor/cli', () => {
       Description=Codor local-first agent switchboard
       [Service]
       Type=simple
-      WorkingDirectory=%h/codor
-      EnvironmentFile=%h/.config/codor/env
+      WorkingDirectory=\"<repo>\"
+      EnvironmentFile=\"/home/setup-test/.config/codor/env\"
       UMask=0077
       # harn:assume codor-runtime-identity-is-a-clean-break ref=systemd-runtime-identity
       # harn:assume fresh-clone-install-proven-by-script ref=systemd-service
       # harn:assume operator-launches-serve-web-next ref=systemd-current-web-client
-      ExecStart=/home/setup-test/.nvm/versions/node/v22.8.0/bin/node %h/codor/packages/cli/dist/index.js --data-dir %h/.codor up --static-root %h/codor/packages/web-next/dist --channel desk --channel-name Desk
+      ExecStart=\"/home/setup-test/.nvm/versions/node/v22.8.0/bin/node\" \"<repo>/packages/cli/dist/index.js\" \"--data-dir\" \"/home/setup-test/.codor\" \"up\" \"--static-root\" \"<repo>/packages/web-next/dist\" \"--channel\" \"desk\" \"--channel-name\" \"Desk\"
       # harn:end operator-launches-serve-web-next
       # harn:end fresh-clone-install-proven-by-script
       # harn:end codor-runtime-identity-is-a-clean-break
@@ -336,56 +336,97 @@ describe('@codor/cli', () => {
     expect(existsSync(join(home, '.config', 'codor'))).toBe(false);
   });
 
+  // harn:assume setup-service-runs-from-current-checkout ref=linux-service-current-checkout-regression
+  it('renders the Linux service from the checkout that invoked setup', async () => {
+    const sourceRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const repoRoot = join(dir, 'repo checkout with spaces');
+    const home = join(dir, 'home with spaces');
+    mkdirSync(join(repoRoot, 'packaging', 'systemd'), { recursive: true });
+    writeFileSync(
+      join(repoRoot, 'packaging', 'systemd', 'codor.service'),
+      readFileSync(join(sourceRoot, 'packaging', 'systemd', 'codor.service'), 'utf8'),
+    );
+
+    await runCli(['node', 'codor', 'setup', '--dry-run'], {
+      env: { HOME: home, USER: 'setup-test', PATH: '/usr/bin' },
+      stdout: (line) => output.push(line),
+      setup: {
+        home,
+        nodePath: '/opt/node tools/bin/node',
+        platform: 'linux',
+        repoRoot,
+        which: () => undefined,
+      },
+    });
+
+    const unit = output.slice(
+      output.indexOf('[dry-run] unit content:') + 1,
+      output.indexOf(`[dry-run] write ${join(home, '.config', 'codor', 'env')} mode 600`),
+    ).join('\n');
+    expect(unit).toContain(`WorkingDirectory=\"${repoRoot}\"`);
+    expect(unit).toContain(`EnvironmentFile=\"${join(home, '.config', 'codor', 'env')}\"`);
+    expect(unit).toContain([
+      'ExecStart=\"/opt/node tools/bin/node\"',
+      `\"${join(repoRoot, 'packages', 'cli', 'dist', 'index.js')}\"`,
+      `\"--data-dir\" \"${join(home, '.codor')}\"`,
+      '\"up\"',
+      `\"--static-root\" \"${join(repoRoot, 'packages', 'web-next', 'dist')}\"`,
+    ].join(' '));
+    expect(unit).not.toContain('%h/codor');
+  });
+  // harn:end setup-service-runs-from-current-checkout
+
   // harn:assume wsl-setup-reaches-windows-loopback ref=wsl-bind-regression
   it.each([
     {
       name: 'ordinary Linux',
       env: {},
+      hasWslinfo: false,
       kernelRelease: '6.8.0-generic',
-      wslVersion: undefined,
       networkingMode: undefined,
       expectedHost: undefined,
     },
     {
       name: 'WSL1',
       env: { WSL_DISTRO_NAME: 'Ubuntu' },
+      hasWslinfo: true,
       kernelRelease: '4.4.0-19041-Microsoft',
-      wslVersion: '1',
       networkingMode: 'nat',
       expectedHost: undefined,
     },
     {
-      name: 'WSL2 NAT',
+      name: 'WSL2 NAT with WSL package 2.7.10.0',
       env: { WSL_DISTRO_NAME: 'Ubuntu' },
+      hasWslinfo: true,
       kernelRelease: '5.15.153.1-microsoft-standard-WSL2',
-      wslVersion: '2',
       networkingMode: 'nat',
       expectedHost: '0.0.0.0',
     },
     {
       name: 'older WSL2 without wslinfo',
       env: { WSL_DISTRO_NAME: 'Ubuntu' },
+      hasWslinfo: false,
       kernelRelease: '5.10.102.1-microsoft-standard-WSL2',
-      wslVersion: undefined,
       networkingMode: undefined,
       expectedHost: '0.0.0.0',
     },
     {
       name: 'WSL2 mirrored',
       env: { WSL_DISTRO_NAME: 'Ubuntu' },
+      hasWslinfo: true,
       kernelRelease: '6.6.87.2-microsoft-standard-WSL2',
-      wslVersion: '2',
       networkingMode: 'mirrored',
       expectedHost: undefined,
     },
   ])('selects the private working service bind for $name', async ({
     env,
+    hasWslinfo,
     kernelRelease,
-    wslVersion,
     networkingMode,
     expectedHost,
   }) => {
     const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const wslProbes: string[] = [];
     await runCli(['node', 'codor', 'setup', '--dry-run'], {
       env: { HOME: '/home/wsl-test', USER: 'wsl-test', PATH: '/usr/bin', ...env },
       stdout: (line) => output.push(line),
@@ -396,11 +437,14 @@ describe('@codor/cli', () => {
         platform: 'linux',
         repoRoot,
         exec: (command, args) => {
-          if (command === 'wslinfo' && args[0] === '--wsl-version') return wslVersion ?? '';
-          if (command === 'wslinfo' && args[0] === '--networking-mode') return networkingMode ?? '';
+          if (command === 'wslinfo') {
+            wslProbes.push(args[0]!);
+            if (args[0] === '--wsl-version') return '2.7.10.0';
+            if (args[0] === '--networking-mode') return networkingMode ?? '';
+          }
           throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
         },
-        which: (command) => command === 'wslinfo' && wslVersion !== undefined
+        which: (command) => command === 'wslinfo' && hasWslinfo
           ? '/usr/bin/wslinfo'
           : undefined,
       },
@@ -409,17 +453,20 @@ describe('@codor/cli', () => {
     const execStart = output.find((line) => line.startsWith('ExecStart='));
     expect(execStart).toBeDefined();
     if (expectedHost === undefined) {
-      expect(execStart).not.toContain(' --host ');
+      expect(execStart).not.toContain('"--host"');
     } else {
-      expect(execStart).toContain(` up --host ${expectedHost} `);
+      expect(execStart).toContain(`"up" "--host" "${expectedHost}"`);
     }
+    expect(wslProbes).toEqual(hasWslinfo && /wsl2/i.test(kernelRelease)
+      ? ['--networking-mode']
+      : []);
     expect(output.join('\n')).toContain('generate a ten-minute pairing link');
     expect(output.join('\n')).not.toContain('http://0.0.0.0:8137');
   });
   // harn:end wsl-setup-reaches-windows-loopback
 
   it('writes private setup files, runs confirmed host steps, and pairs against the Serve origin', async () => {
-    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const repoRoot = join(fileURLToPath(new URL('../../../', import.meta.url)), '.');
     const home = join(dir, 'setup-home');
     const commands: string[] = [];
     let qrPayload: string | undefined;
@@ -461,7 +508,11 @@ describe('@codor/cli', () => {
     expect(statSync(join(home, '.codor')).mode & 0o777).toBe(0o700);
     expect(statSync(tokenPath).mode & 0o777).toBe(0o600);
     expect(statSync(envPath).mode & 0o777).toBe(0o600);
-    expect(readFileSync(unitPath, 'utf8')).toContain('ExecStart=/opt/node/bin/node ');
+    const unit = readFileSync(unitPath, 'utf8');
+    expect(unit).toContain('ExecStart=\"/opt/node/bin/node\" ');
+    expect(unit).toContain(`WorkingDirectory=\"${repoRoot}\"`);
+    expect(unit).toContain(`\"${join(repoRoot, 'packages', 'web-next', 'dist')}\"`);
+    expect(unit).not.toContain('%h/codor');
     expect(readFileSync(envPath, 'utf8')).toContain(
       `PATH=${join(home, '.local', 'bin')}:/opt/node/bin:/usr/bin`,
     );
