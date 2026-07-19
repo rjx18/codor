@@ -84,10 +84,16 @@ try {
     const apiPort = basePort + index * 3;
     const reportPath = join(reportRoot, `${spec}.json`);
     process.stdout.write(`\n[e2e] ${spec} on ports ${String(apiPort)}-${String(apiPort + 2)}\n`);
+    // xvfb-run exists only on Linux; everywhere else Playwright renders headless natively.
+    // Windows resolves the playwright .cmd shim through the shell (plain spawn EINVALs on it).
+    const [runner, runnerArgs] = process.platform === 'linux'
+      ? ['xvfb-run', ['-a', 'playwright', 'test', `tests/${spec}`, '--reporter=list,json']]
+      : ['playwright', ['test', `tests/${spec}`, '--reporter=list,json']];
     const result = spawnSync(
-      'xvfb-run',
-      ['-a', 'playwright', 'test', `tests/${spec}`, '--reporter=list,json'],
+      runner,
+      runnerArgs,
       {
+        shell: process.platform === 'win32',
         cwd: packageRoot,
         env: {
           ...process.env,
