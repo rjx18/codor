@@ -1,0 +1,46 @@
+id: systemd-directive-path-syntax
+title: Render valid systemd path directives
+notes: The current-checkout setup fix applied ExecStart argument quoting to
+  WorkingDirectory and EnvironmentFile. A real WSL systemd 259 instance treats
+  those quote characters as part of WorkingDirectory and rejects the unit as a
+  non-absolute path. Keep ExecStart arguments quoted, but render single-value
+  path directives in their own systemd syntax and verify the generated unit with
+  systemd-analyze on Linux.
+assumptions:
+  reviewed:
+    - id: setup-service-runs-from-current-checkout
+      outcome: unchanged
+      reason: The service still uses absolute paths from the invoking checkout; those
+        paths must now be encoded in syntax systemd accepts.
+    - id: cli-setup-wizard-installs-platform-user-service
+      outcome: unchanged
+      reason: Setup continues installing the same private user service, with a valid
+        generated unit.
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The corrected service continues serving web-next directly.
+anchors:
+  setup-service-runs-from-current-checkout:
+    linux-service-current-checkout:
+      action: change
+      reason: Use directive-safe absolute path values instead of ExecStart quoting.
+    linux-service-current-checkout-regression:
+      action: change
+      reason: Assert the exact valid directive form for arbitrary checkout paths.
+  cli-setup-wizard-installs-platform-user-service:
+    setup-runtime:
+      action: change
+      reason: Generate systemd path directives with the correct syntax.
+    setup-regression:
+      action: change
+      reason: Update generated-unit expectations and verify the unit with
+        systemd-analyze.
+files:
+  - packages/cli/src/setup.ts
+  - packages/cli/src/index.spec.ts
+verification: Run focused CLI tests, systemd-analyze verify on the generated
+  Linux unit when available, full workspace tests and build, Harn, and the
+  release audit. The generated WorkingDirectory and EnvironmentFile must be
+  accepted as absolute paths while ExecStart retains argument-safe quoting.
+applied:
+  applied_at: 2026-07-19T16:45:40.516Z

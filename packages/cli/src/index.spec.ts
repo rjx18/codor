@@ -307,8 +307,8 @@ describe('@codor/cli', () => {
       Description=Codor local-first agent switchboard
       [Service]
       Type=simple
-      WorkingDirectory=\"<repo>\"
-      EnvironmentFile=\"/home/setup-test/.config/codor/env\"
+      WorkingDirectory=<repo>
+      EnvironmentFile=/home/setup-test/.config/codor/env
       UMask=0077
       # harn:assume codor-runtime-identity-is-a-clean-break ref=systemd-runtime-identity
       # harn:assume fresh-clone-install-proven-by-script ref=systemd-service
@@ -346,33 +346,42 @@ describe('@codor/cli', () => {
       join(repoRoot, 'packaging', 'systemd', 'codor.service'),
       readFileSync(join(sourceRoot, 'packaging', 'systemd', 'codor.service'), 'utf8'),
     );
+    mkdirSync(join(repoRoot, 'packages', 'cli', 'dist'), { recursive: true });
+    mkdirSync(join(repoRoot, 'packages', 'web-next', 'dist'), { recursive: true });
 
-    await runCli(['node', 'codor', 'setup', '--dry-run'], {
+    await runCli(['node', 'codor', 'setup'], {
       env: { HOME: home, USER: 'setup-test', PATH: '/usr/bin' },
       stdout: (line) => output.push(line),
       setup: {
+        confirm: async () => true,
+        exec: (command) => command === 'loginctl' ? 'yes' : '',
         home,
-        nodePath: '/opt/node tools/bin/node',
+        nodePath: process.execPath,
         platform: 'linux',
+        randomToken: () => 'a'.repeat(64),
         repoRoot,
         which: () => undefined,
       },
     });
 
-    const unit = output.slice(
-      output.indexOf('[dry-run] unit content:') + 1,
-      output.indexOf(`[dry-run] write ${join(home, '.config', 'codor', 'env')} mode 600`),
-    ).join('\n');
-    expect(unit).toContain(`WorkingDirectory=\"${repoRoot}\"`);
-    expect(unit).toContain(`EnvironmentFile=\"${join(home, '.config', 'codor', 'env')}\"`);
+    const unitPath = join(home, '.config', 'systemd', 'user', 'codor.service');
+    const unit = readFileSync(unitPath, 'utf8');
+    expect(unit).toContain(`WorkingDirectory=${repoRoot}`);
+    expect(unit).toContain(`EnvironmentFile=${join(home, '.config', 'codor', 'env')}`);
     expect(unit).toContain([
-      'ExecStart=\"/opt/node tools/bin/node\"',
+      `ExecStart=\"${process.execPath}\"`,
       `\"${join(repoRoot, 'packages', 'cli', 'dist', 'index.js')}\"`,
       `\"--data-dir\" \"${join(home, '.codor')}\"`,
       '\"up\"',
       `\"--static-root\" \"${join(repoRoot, 'packages', 'web-next', 'dist')}\"`,
     ].join(' '));
     expect(unit).not.toContain('%h/codor');
+    if (process.platform === 'linux' && existsSync('/usr/bin/systemd-analyze')) {
+      expect(() => execFileSync('/usr/bin/systemd-analyze', ['--user', 'verify', unitPath], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })).not.toThrow();
+    }
   });
   // harn:end setup-service-runs-from-current-checkout
 
@@ -510,7 +519,8 @@ describe('@codor/cli', () => {
     expect(statSync(envPath).mode & 0o777).toBe(0o600);
     const unit = readFileSync(unitPath, 'utf8');
     expect(unit).toContain('ExecStart=\"/opt/node/bin/node\" ');
-    expect(unit).toContain(`WorkingDirectory=\"${repoRoot}\"`);
+    expect(unit).toContain(`WorkingDirectory=${repoRoot}`);
+    expect(unit).toContain(`EnvironmentFile=${envPath}`);
     expect(unit).toContain(`\"${join(repoRoot, 'packages', 'web-next', 'dist')}\"`);
     expect(unit).not.toContain('%h/codor');
     expect(readFileSync(envPath, 'utf8')).toContain(

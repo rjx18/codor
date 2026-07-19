@@ -109,6 +109,11 @@ function systemdQuote(value: string): string {
     .replaceAll('%', '%%')}"`;
 }
 
+function systemdPath(value: string): string {
+  if (/[\0\r\n]/.test(value)) throw new Error('codor setup paths cannot contain control characters');
+  return value.replaceAll('%', '%%');
+}
+
 interface SystemdUnitOptions {
   dataDir: string;
   envPath: string;
@@ -133,8 +138,8 @@ function renderSystemdUnit(template: string, options: SystemdUnitOptions): strin
     'Desk',
   ];
   const rendered = template
-    .replace(/^WorkingDirectory=.*$/m, `WorkingDirectory=${systemdQuote(options.repoRoot)}`)
-    .replace(/^EnvironmentFile=.*$/m, `EnvironmentFile=${systemdQuote(options.envPath)}`)
+    .replace(/^WorkingDirectory=.*$/m, `WorkingDirectory=${systemdPath(options.repoRoot)}`)
+    .replace(/^EnvironmentFile=.*$/m, `EnvironmentFile=${systemdPath(options.envPath)}`)
     .replace(/^ExecStart=.*$/m, `ExecStart=${args.map(systemdQuote).join(' ')}`);
   if (rendered === template || rendered.includes('%h/codor')) {
     throw new Error('codor setup could not render the systemd service for the current checkout');
