@@ -1,0 +1,64 @@
+id: codor-brand-website-verification
+title: Verify the docs site's own brand assets in its built output, and clean
+  the vendored licence files
+notes: >-
+  Final Phase 1 review batch. Two tracked corrections.
+
+  1. THE DOCS SITE'S BRAND REFERENCES ARE UNVERIFIED.
+  brand-asset-references-resolve
+     is asserted only against web-next: packages/web-next/src/brand-assets.spec.ts
+     walks that package's index.html and PWA manifest. The VitePress head declares
+     a favicon, an apple-touch icon, a light/dark nav logo pair and two social
+     images, and nothing checks that any of them exist in .vitepress/dist. The
+     original defect this assumption exists to prevent - a reference pointing at a
+     filename that is not there - is therefore still live on that surface.
+
+     website/scripts/verify-site.mjs is the right home: it already runs as part of
+     `pnpm --filter codor-website build` and already asserts against built output
+     rather than sources, so a reference that survives config but not the build is
+     caught. It gains a sweep over the rendered HTML plus the themeConfig logo
+     pair.
+
+  2. TRAILING WHITESPACE IN THE VENDORED LICENCES. Both OFL.txt copies carry
+     trailing whitespace on line 21, so `git diff --check` reports it. Stripped;
+     this touches only line-ending whitespace and leaves the licence text itself
+     byte-identical in content.
+
+  Scope: packages/web-next/** stays harnignored and carries its own OFL copy.
+  Recording the outdated "Wireroom" screenshot as Phase 3 acceptance work
+  happens in tmp/codor-setup/PLAN.md, which is gitignored and needs no Harn
+  coverage.
+assumptions:
+  reviewed:
+    - id: brand-asset-references-resolve
+      outcome: unchanged
+      reason: The assumption already requires every referenced brand path to resolve
+        in that surface's build output, and explicitly says "verified by an
+        automated check rather than by eye". The docs site was simply never
+        covered by such a check. Extending the verifier to the second surface
+        implements the existing statement rather than changing it, so this is
+        reviewed-unchanged rather than a retire plus create.
+anchors:
+  brand-asset-references-resolve:
+    website-brand-asset-verification:
+      action: change
+      reason: verify-site.mjs gains a sweep asserting every favicon, apple-touch, nav
+        logo and social image referenced by the built docs site resolves to a
+        file in .vitepress/dist, closing the surface this assumption never
+        covered.
+files:
+  - website/scripts/verify-site.mjs
+  - website/public/fonts/OFL.txt
+verification: >
+  - `pnpm --filter codor-website build` runs the verifier and is green.
+
+  - The check is proven to fail: pointing the VitePress favicon at a nonexistent
+    filename must make the build red, and it must go green again when restored.
+    A check that has never failed is not evidence.
+  - `git diff --check` reports nothing on the committed tree.
+
+  - Full web-next suite, web-next build, and `node scripts/build-icons.mjs
+  --check`
+    all stay green.
+applied:
+  applied_at: 2026-07-19T12:48:08.889Z
