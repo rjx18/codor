@@ -1,0 +1,102 @@
+id: ack-briefing-clarity
+title: Clarify that ACK_OK is an entire no-action response, never a sign-off.
+notes: Agent briefings currently say only to respond exactly with ACK_OK when no
+  substantive reply is needed. Models can misread that as permission to append
+  the marker after useful work, causing the exact-marker parser to treat the
+  whole response as substantive and route it onward. Ordinary and grouped
+  briefings will say that ACK_OK is the entire response only when neither action
+  nor an answer is needed, and that it must never be appended after work or used
+  as a sign-off. Detection remains exact and case-sensitive. Public protocol
+  examples and anchored regressions change with the emitted bytes.
+assumptions:
+  reviewed:
+    - id: acknowledgement-marker-protocol
+      outcome: unchanged
+      reason: Exact ACK_OK detection, persistence, and routing suppression are
+        unchanged.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: Only exact acknowledgements remain excluded from substantive routing.
+    - id: collaboration-briefing-is-capability-aware
+      outcome: unchanged
+      reason: The conventions trailer still covers exact ACK_OK and all
+        capability-aware guidance.
+    - id: agent-briefings-distinguish-invocation-from-discussion
+      outcome: unchanged
+      reason: Invocation and discussion guidance remains intact while ACK wording is
+        clarified.
+    - id: roster-briefing-refreshes-on-membership
+      outcome: unchanged
+      reason: The enclosing roster and briefing refresh behavior is untouched.
+    - id: live-collaboration-contract-is-public-v5
+      outcome: unchanged
+      reason: Public documentation continues to reproduce the exact conventions
+        trailer.
+    - id: group-round-routing-instruction-is-always-on
+      outcome: unchanged
+      reason: Every group payload still carries the routing boundary and exact ACK
+        rule.
+    - id: group-routing-briefing-names-cost-and-wait-outcome
+      outcome: unchanged
+      reason: Paid-round and automatic-wait guidance remains byte-for-byte present.
+    - id: group-round-payloads-share-one-ordered-view
+      outcome: unchanged
+      reason: The shared ordered group payload changes only its ACK guidance wording.
+files:
+  - docs/PROTOCOL.md
+  - packages/switchboard/src/router.ts
+  - packages/switchboard/src/router.spec.ts
+  - packages/switchboard/src/collaboration.ts
+  - packages/switchboard/src/collaboration.spec.ts
+anchors:
+  acknowledgement-marker-protocol:
+    ack-protocol-documentation:
+      action: change
+      reason: Document when the exact marker is the entire response and when it is
+        forbidden.
+  live-collaboration-contract-is-public-v5:
+    protocol-conventions-example:
+      action: change
+      reason: Keep the public byte-exact conventions example synchronized.
+  agent-briefings-distinguish-invocation-from-discussion:
+    protocol-explicit-invocation-contract:
+      action: change
+      reason: Update the nested exact conventions example.
+    explicit-invocation-conventions:
+      action: change
+      reason: Clarify ACK usage in the ordinary conventions trailer.
+    explicit-invocation-regression:
+      action: change
+      reason: Pin the full new rule, not merely the presence of the token.
+  collaboration-briefing-is-capability-aware:
+    collaboration-conventions:
+      action: change
+      reason: Change only the ACK clause inside the capability-aware trailer.
+    collaboration-briefing-regression:
+      action: change
+      reason: Pin the clarified ACK clause in both polling variants.
+  roster-briefing-refreshes-on-membership:
+    roster-payload-block:
+      action: keep
+      reason: The enclosing roster refresh behavior must not change.
+  group-round-routing-instruction-is-always-on:
+    group-routing-instruction:
+      action: keep
+      reason: Direct source edits are attributed to the nested cost/wait guidance
+        anchor.
+    group-routing-instruction-regression:
+      action: change
+      reason: Update the byte-exact grouped payload golden.
+  group-routing-briefing-names-cost-and-wait-outcome:
+    group-routing-cost-wait-guidance:
+      action: change
+      reason: Clarify the adjacent ACK clause without changing cost or wait guidance.
+    group-routing-cost-wait-regression:
+      action: change
+      reason: Pin both retained guidance and the new entire-response ACK rule.
+  group-round-payloads-share-one-ordered-view:
+    group-round-payload-goldens:
+      action: change
+      reason: The shared group payload golden must match the new bytes.
+applied:
+  applied_at: 2026-07-20T16:17:09.198Z

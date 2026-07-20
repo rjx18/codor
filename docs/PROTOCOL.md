@@ -142,8 +142,9 @@ assigned rows, but is never routed as an answer.
 <!-- harn:end continuation-writer-follows-journaled-output-ownership -->
 
 <!-- harn:assume acknowledgement-marker-protocol ref=ack-protocol-documentation -->
-**`<ACK_OK>` ends acknowledgement cascades.** Every agent briefing instructs the member to
-respond with exactly `<ACK_OK>` when a message needs no substantive reply. A finalized
+**`<ACK_OK>` ends acknowledgement cascades.** Every agent briefing instructs the member to use
+`<ACK_OK>` as its entire response only when no action and no answer are needed, and never to append
+it after doing work or use it as a sign-off. A finalized
 `final_text` is an acknowledgement only when `trim()` equals that marker case-sensitively;
 containment does not count. The lifecycle root records the aggregate acknowledgement and its
 terminal result row carries `ack: true`; mention parsing, unread activity, and onward routing are
@@ -270,8 +271,9 @@ name without @ when merely discussing them. An untagged reply goes to @richard.
 Reference messages as #N. Cite ledger notes as [[name]]. Use codor post only for
 interim updates and --wait when a direct reply is required; on timeout, check codor
 status and renew while the peer is active. During long tasks, check codor inbox
---new. Use codor search --runs before asking about unseen referenced context. If no
-substantive reply is needed, respond with exactly <ACK_OK>.]
+--new. Use codor search --runs before asking about unseen referenced context. Use
+<ACK_OK> as your entire reply only when a message needs no action and no answer;
+never append it after doing work or as a sign-off.]
 ```
 <!-- harn:end agent-briefings-distinguish-invocation-from-discussion -->
 <!-- harn:end live-collaboration-contract-is-public-v5 -->

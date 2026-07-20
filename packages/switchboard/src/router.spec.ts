@@ -462,8 +462,9 @@ describe('delivery payload template (byte-exact goldens)', () => {
         '#N. Cite ledger notes as [[name]]. Use codor post only for interim updates and --wait ' +
         'when a direct reply is required; on timeout, check codor status and renew while the peer ' +
         'is active. During long tasks, check codor inbox --new. Use codor search --runs before ' +
-        'asking about unseen referenced context. If no substantive reply is needed, respond with ' +
-        'exactly <ACK_OK>.]\n',
+        'asking about unseen referenced context. Use <ACK_OK> as your entire reply only when a ' +
+        'message needs no action and no answer; never append it after doing work or as a ' +
+        'sign-off.]\n',
     );
   });
 
@@ -544,10 +545,12 @@ describe('delivery payload template (byte-exact goldens)', () => {
       '--wait',
       'codor status',
       'codor search --runs',
-      '<ACK_OK>',
+      'Use <ACK_OK> as your entire reply only when a message needs no action and no answer',
+      'never append it after doing work or as a sign-off',
     ]) {
       expect(live, phrase).toContain(phrase);
     }
+    expect(live).not.toContain('If no substantive reply is needed');
   });
   // harn:end agent-briefings-distinguish-invocation-from-discussion
   // harn:end collaboration-briefing-is-capability-aware
