@@ -1,1 +1,1 @@
-../../docs/BUSINESS.md
+<!--@include: ../../docs/BUSINESS.md-->

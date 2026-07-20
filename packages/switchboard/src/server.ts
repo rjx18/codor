@@ -31,6 +31,7 @@ import type { CryptoVault, PairingRequest } from './crypto/pairing.js';
 import { type Daemon, MAX_ATTACHMENT_BYTES } from './daemon.js';
 import { listLocalDirectories, LocalDirectoryError } from './local-dirs.js';
 import type { PushSubscriptionStore } from './push/subscriptions.js';
+import { isPipePath } from './local-socket.js';
 
 export interface ServerOptions {
   daemon: Daemon;
@@ -125,12 +126,23 @@ async function prepareSocketPath(socketPath: string): Promise<void> {
 }
 
 async function listenUnix(server: HttpServer, socketPath: string): Promise<void> {
-  await prepareSocketPath(socketPath);
+  // A tokenless connection here is admitted as the room owner, so the socket's
+  // own access control is the local auth. On POSIX that is mode 0600 on the
+  // socket and a private parent. A Windows named pipe has no filesystem entry;
+  // its default DACL grants write only to the owner, LocalSystem, and
+  // Administrators (Everyone/Anonymous get read only and cannot send the upgrade
+  // request), so both the parent gate and the chmod are inapplicable there.
+  const isPipe = isPipePath(socketPath);
+  if (!isPipe) {
+    await prepareSocketPath(socketPath);
+  }
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(socketPath, () => {
       server.off('error', reject);
-      chmodSync(socketPath, 0o600);
+      if (!isPipe) {
+        chmodSync(socketPath, 0o600);
+      }
       resolve();
     });
   });

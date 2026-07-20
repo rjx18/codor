@@ -1,1 +1,1 @@
-../../docs/SETUP.md
+<!--@include: ../../docs/SETUP.md-->

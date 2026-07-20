@@ -46,6 +46,7 @@ import {
   type GroupRoundPayloadContext,
 } from './collaboration.js';
 import { ContinuationWriter, projectContinuationOutputs } from './continuation.js';
+import { localSocketPath } from './local-socket.js';
 import type { LedgerGraph, LedgerManager } from './ledger/watch.js';
 import type { LedgerNote, LedgerWrite } from './ledger/vault.js';
 import type { HumanPushKind, HumanPushNotifier } from './push/producer.js';
@@ -341,7 +342,7 @@ export class Daemon {
     this.pushProducer = options.pushProducer;
     this.onBackgroundError = options.onBackgroundError ?? (() => undefined);
     this.homeDir = options.homeDir ?? homedir();
-    this.socketPath = options.socketPath ?? join(dirname(options.dbPath), 'codor.sock');
+    this.socketPath = options.socketPath ?? localSocketPath(dirname(options.dbPath));
     this.attachmentsRoot = join(dirname(options.dbPath), 'attachments');
     this.sweepOrphanAttachments(); // boot-time: drop uploads no message ever claimed
     this.ledger?.setRoomValidator((room) => this.store.getRoom(room) !== undefined);
@@ -1448,7 +1449,12 @@ export class Daemon {
   }
 
   private attachChildAlive(lease: AttachLease): boolean {
-    if (lease.process_group_id !== undefined) return this.processProbe(-lease.process_group_id);
+    // Windows has no POSIX process groups; probe the group leader's own pid there.
+    if (lease.process_group_id !== undefined) {
+      return this.processProbe(
+        process.platform === 'win32' ? lease.process_group_id : -lease.process_group_id,
+      );
+    }
     if (lease.child_pid !== undefined) return this.processProbe(lease.child_pid);
     return false;
   }
@@ -3752,7 +3758,7 @@ export class Daemon {
 
   private processAlive(attempt: { pid?: number; process_group_id?: number }): boolean {
     const target = attempt.process_group_id !== undefined
-      ? -attempt.process_group_id
+      ? (process.platform === 'win32' ? attempt.process_group_id : -attempt.process_group_id)
       : attempt.pid;
     if (target === undefined) return false;
     return this.processProbe(target);

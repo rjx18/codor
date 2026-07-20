@@ -63,8 +63,8 @@ async function defaultConfirm(prompt: string): Promise<boolean> {
   }
 }
 
-function uniquePath(parts: Array<string | undefined>): string {
-  return [...new Set(parts.flatMap((part) => part?.split(':') ?? []).filter(Boolean))].join(':');
+function uniquePath(parts: Array<string | undefined>, delimiter = ':'): string {
+  return [...new Set(parts.flatMap((part) => part?.split(delimiter) ?? []).filter(Boolean))].join(delimiter);
 }
 
 // harn:assume wsl-setup-reaches-windows-loopback ref=wsl-bind-selection
@@ -233,14 +233,97 @@ function renderLaunchAgent(options: LaunchAgentOptions): string {
 }
 // harn:end operator-launches-serve-web-next
 
+export function renderServiceScript(options: {
+  nodePath: string;
+  repoRoot: string;
+  dataDir: string;
+  tokenPath: string;
+  servicePath: string;
+  logDir: string;
+}): string {
+  const entrypoint = join(options.repoRoot, 'packages', 'cli', 'dist', 'index.js');
+  const staticRoot = join(options.repoRoot, 'packages', 'web-next', 'dist');
+  const stdoutLog = join(options.logDir, 'codor.out.log');
+  const stderrLog = join(options.logDir, 'codor.err.log');
+
+  const q = (val: string) => val.replaceAll("'", "''");
+
+  return [
+    `$env:CODOR_TOKEN = (Get-Content -Raw -Path '${q(options.tokenPath)}').Trim()`,
+    `$env:PATH = '${q(options.servicePath)}'`,
+    `Set-Location -Path '${q(options.repoRoot)}'`,
+    `& '${q(options.nodePath)}' '${q(entrypoint)}' --data-dir '${q(options.dataDir)}' up --static-root '${q(staticRoot)}' --channel desk --channel-name Desk >> '${q(stdoutLog)}' 2>> '${q(stderrLog)}'`,
+    `exit $LASTEXITCODE`,
+  ].join('\r\n') + '\r\n';
+}
+
+export function renderScheduledTaskXml(options: {
+  ps1Path: string;
+  user: string;
+}): string {
+  const values = {
+    ps1Path: xml(options.ps1Path),
+    user: xml(options.user),
+  };
+  // schtasks /Create /XML parses the file as UTF-16 and rejects a declaration that
+  // disagrees with the byte encoding ("cannot switch encoding"); the file is written
+  // as UTF-16LE with a BOM to match this declaration.
+  return `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>${values.user}</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>${values.user}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>true</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>true</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>10</Count>
+    </RestartOnFailure>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>powershell.exe</Command>
+      <Arguments>-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "${values.ps1Path}"</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+`;
+}
+
 // harn:assume cli-setup-wizard-installs-platform-user-service ref=setup-runtime
 export async function runSetup(options: SetupOptions): Promise<void> {
   const overrides = options.overrides ?? {};
   const platform = overrides.platform ?? process.platform;
-  if (platform !== 'linux' && platform !== 'darwin') {
-    throw new Error(`codor setup supports Linux and macOS; received ${platform}`);
+  if (platform !== 'linux' && platform !== 'darwin' && platform !== 'win32') {
+    throw new Error(`codor setup supports Linux, macOS, and Windows; received ${platform}`);
   }
-  const home = resolve(overrides.home ?? options.env.HOME ?? homedir());
+  const home = resolve(overrides.home ?? options.env.HOME ?? options.env.USERPROFILE ?? homedir());
   const repoRoot = resolve(overrides.repoRoot ?? fileURLToPath(new URL('../../../', import.meta.url)));
   const nodePath = resolve(overrides.nodePath ?? process.execPath);
   const confirm = overrides.confirm ?? defaultConfirm;
@@ -277,12 +360,32 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const harnessPaths = HARNESSES.map((harness) => which(harness)).filter(
     (path): path is string => path !== undefined,
   );
+  const pathDelimiter = platform === 'win32' ? ';' : ':';
   const servicePath = uniquePath([
     join(home, '.local', 'bin'),
     dirname(nodePath),
     ...harnessPaths.map(dirname),
     options.env.PATH,
-  ]);
+  ], pathDelimiter);
+  const win32Ps1Path = join(configDir, 'codor-service.ps1');
+  const win32XmlPath = join(configDir, 'codor-task.xml');
+  const win32User = options.env.USERNAME ?? 'user';
+  const win32Ps1Content = platform === 'win32'
+    ? renderServiceScript({
+      nodePath,
+      repoRoot,
+      dataDir,
+      tokenPath,
+      servicePath,
+      logDir,
+    })
+    : undefined;
+  const win32XmlContent = platform === 'win32'
+    ? renderScheduledTaskXml({
+      ps1Path: win32Ps1Path,
+      user: win32User,
+    })
+    : undefined;
   const launchUid = platform === 'darwin'
     ? overrides.uid ?? (typeof process.getuid === 'function' ? process.getuid() : undefined)
     : undefined;
@@ -303,7 +406,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       options.out(`PATH=${servicePath}`);
       options.out('[dry-run] systemctl --user daemon-reload');
       options.out('[dry-run] systemctl --user enable --now codor.service');
-    } else {
+    } else if (platform === 'darwin') {
       const launchAgent = renderLaunchAgent({
         dataDir,
         logDir,
@@ -320,6 +423,17 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       options.out(`[dry-run] launchctl bootstrap ${launchDomain} ${launchAgentPath}`);
       options.out(`[dry-run] launchctl enable ${launchTarget}`);
       options.out(`[dry-run] launchctl kickstart -k ${launchTarget}`);
+    } else if (platform === 'win32') {
+      options.out(`[dry-run] icacls ${tokenPath} /inheritance:r /grant:r ${win32User}:F`);
+      options.out(`[dry-run] create ${logDir} mode 700`);
+      options.out(`[dry-run] install generated ServiceScript -> ${win32Ps1Path}`);
+      options.out('[dry-run] service script content:');
+      for (const line of win32Ps1Content!.trimEnd().split('\n')) options.out(line.replace(/\r$/, ''));
+      options.out(`[dry-run] install generated ScheduledTaskXml -> ${win32XmlPath}`);
+      options.out('[dry-run] task content:');
+      for (const line of win32XmlContent!.trimEnd().split('\n')) options.out(line.replace(/\r$/, ''));
+      options.out(`[dry-run] schtasks /Create /TN "Codor Switchboard" /XML ${win32XmlPath} /F`);
+      options.out(`[dry-run] schtasks /Run /TN "Codor Switchboard"`);
     }
     if (which('tailscale')) {
       options.out('[dry-run] tailscale serve --bg http://127.0.0.1:8137');
@@ -341,10 +455,17 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       writeFileSync(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     }
     chmodSync(tokenPath, 0o600);
+    if (platform === 'win32') {
+      try {
+        exec('icacls', [tokenPath, '/inheritance:r', '/grant:r', `${win32User}:F`]);
+      } catch (err: any) {
+        options.out(`Warning: Failed to set permissions on token file: ${err?.message ?? String(err)}`);
+      }
+    }
     options.out('Private configuration and data directories are ready.');
   }
 
-  const serviceInstallPath = platform === 'linux' ? userUnitPath : launchAgentPath;
+  const serviceInstallPath = platform === 'linux' ? userUnitPath : (platform === 'win32' ? win32XmlPath : launchAgentPath);
   if (await confirm(`Install the user service at ${serviceInstallPath}?`)) {
     if (!existsSync(tokenPath)) throw new Error(`operator token is missing at ${tokenPath}`);
     const token = readFileSync(tokenPath, 'utf8').trim();
@@ -361,7 +482,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       if (systemdBindHost === '0.0.0.0') {
         options.out('Configured WSL2 NAT access through Windows http://127.0.0.1:8137.');
       }
-    } else {
+    } else if (platform === 'darwin') {
       mkdirSync(launchAgentDir, { recursive: true });
       mkdirSync(logDir, { recursive: true, mode: 0o700 });
       chmodSync(logDir, 0o700);
@@ -376,12 +497,22 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       writeFileSync(launchAgentPath, launchAgent, { encoding: 'utf8', mode: 0o600 });
       chmodSync(launchAgentPath, 0o600);
       options.out(`Installed ${LAUNCH_AGENT_LABEL} with Node ${nodePath}.`);
+    } else if (platform === 'win32') {
+      mkdirSync(logDir, { recursive: true, mode: 0o700 });
+      chmodSync(logDir, 0o700);
+      writeFileSync(win32Ps1Path, win32Ps1Content!, { encoding: 'utf8' });
+      // schtasks reads task XML as UTF-16; write UTF-16LE with a BOM so its parser
+      // does not fail with "cannot switch encoding".
+      writeFileSync(win32XmlPath, Buffer.from(String.fromCharCode(0xFEFF) + win32XmlContent!, 'utf16le'));
+      options.out(`Installed Codor Switchboard with Node ${nodePath}.`);
     }
   }
 
   const startPrompt = platform === 'linux'
     ? 'Reload systemd and enable codor.service now?'
-    : `Load and start ${LAUNCH_AGENT_LABEL} now?`;
+    : (platform === 'win32'
+      ? 'Register and start Codor Switchboard now?'
+      : `Load and start ${LAUNCH_AGENT_LABEL} now?`);
   if (await confirm(startPrompt)) {
     if (platform === 'linux') {
       exec('systemctl', ['--user', 'daemon-reload']);
@@ -393,7 +524,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       } catch {
         options.out(`Check lingering for boot-time startup: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
       }
-    } else {
+    } else if (platform === 'darwin') {
       try {
         exec('launchctl', ['bootout', launchTarget!]);
       } catch {
@@ -403,6 +534,10 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       exec('launchctl', ['enable', launchTarget!]);
       exec('launchctl', ['kickstart', '-k', launchTarget!]);
       options.out(`${LAUNCH_AGENT_LABEL} is loaded and running.`);
+    } else if (platform === 'win32') {
+      exec('schtasks', ['/Create', '/TN', 'Codor Switchboard', '/XML', win32XmlPath, '/F']);
+      exec('schtasks', ['/Run', '/TN', 'Codor Switchboard']);
+      options.out('Codor Switchboard is registered and running.');
     }
   }
 

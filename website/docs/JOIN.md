@@ -1,1 +1,1 @@
-../../docs/JOIN.md
+<!--@include: ../../docs/JOIN.md-->

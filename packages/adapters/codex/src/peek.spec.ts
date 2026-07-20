@@ -1,6 +1,7 @@
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -26,7 +27,7 @@ describe('peekCodexContextUsage', () => {
 
   it('takes the last token_count record as the estimated context pair', () => {
     cpSync(
-      new URL('./test-fixtures/peek-rollout.jsonl', import.meta.url).pathname,
+      fileURLToPath(new URL('./test-fixtures/peek-rollout.jsonl', import.meta.url)),
       join(codexHome, 'sessions', '2026', '07', '17', 'rollout-2026-07-17T10-00-00-abc123.jsonl'),
     );
     expect(peekCodexContextUsage('abc123')).toEqual({

@@ -1,1 +1,1 @@
-../../docs/PRIVACY.md
+<!--@include: ../../docs/PRIVACY.md-->

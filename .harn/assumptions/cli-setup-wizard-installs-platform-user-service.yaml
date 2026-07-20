@@ -1,17 +1,20 @@
 id: cli-setup-wizard-installs-platform-user-service
 hash: a-f40c79c5d9e4
-title: Setup installs a private native user service on Linux and macOS
+title: Setup installs a private native user service on Linux, macOS, and Windows
 state: active
 statement: The setup command must confirm every mutation, create private
   configuration and data plus a mode-600 owner token, resolve the absolute
   current Node path and every detected harness CLI directory, install and start
   either the checked-in systemd user unit plus mode-600 environment file on
-  Linux or a mode-600 per-user LaunchAgent with equivalent arguments,
-  environment, umask, failure restart and private logs on macOS, optionally
-  publish Tailscale Serve, and render the exact platform service with its token
-  redacted under side-effect-free dry-run; because neither systemd nor launchd
-  inherits an interactive shell's nvm or harness PATH and Codor must run
-  persistently without root.
+  Linux, a mode-600 per-user LaunchAgent with equivalent arguments,
+  environment, umask, failure restart and private logs on macOS, or a per-user
+  Task Scheduler logon task driving a hidden PowerShell wrapper that reads the
+  token from disk, propagates the daemon exit code for restart-on-failure, and
+  restricts the token file via icacls on Windows, optionally publish Tailscale
+  Serve, and render the exact platform service with its token redacted under
+  side-effect-free dry-run; because no service manager inherits an interactive
+  shell's nvm or harness PATH and Codor must run persistently without root or
+  admin rights.
 depends_on:
   - fresh-clone-install-proven-by-script
   - tailnet-auto-pairing-explicit-trust

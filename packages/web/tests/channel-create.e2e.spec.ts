@@ -158,7 +158,8 @@ test('channel dialog uses contained folders, starting agents, colors, and author
   // harn:assume spawn-default-cwd-is-absolute-or-empty ref=spawn-cwd-browser-regression
   await page.getByTestId('spawn-agent').click();
   await expect(page.getByTestId('spawn-cwd')).not.toHaveValue('.');
-  await expect(page.getByTestId('spawn-cwd')).toHaveValue(/^\//);
+  // Absolute means a leading slash on POSIX or a drive-letter root on Windows.
+  await expect(page.getByTestId('spawn-cwd')).toHaveValue(/^(\/|[A-Za-z]:[\\/])/);
   // harn:end spawn-default-cwd-is-absolute-or-empty
   const railCyan = await page.getByTestId('room-color-demo-site-2').evaluate(
     (element) => getComputedStyle(element).backgroundColor,

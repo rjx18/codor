@@ -2,10 +2,13 @@ id: unix-socket-parent-private-before-listen
 hash: a-68719e99fcea
 title: Unix socket parent privacy is established before listen
 state: active
-statement: Before binding the unauthenticated local WebSocket, startServer must
-  create or verify that the socket parent directory has no group or other
-  permissions, rejecting a public parent before listen, because post-listen
-  chmod of the socket alone leaves a local authentication window.
+statement: Before binding the unauthenticated local WebSocket on a POSIX socket
+  path, startServer must create or verify that the socket parent directory has
+  no group or other permissions, rejecting a public parent before listen,
+  because post-listen chmod of the socket alone leaves a local authentication
+  window; Windows named pipes have no filesystem entry and skip this gate,
+  because their default DACL already restricts write to the owner, LocalSystem,
+  and Administrators.
 depends_on:
   - unix-socket-same-protocol
 created_by: m1fix-lifecycle-minors

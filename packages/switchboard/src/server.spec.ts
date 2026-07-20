@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { Agent as HttpAgent, request as httpRequest } from 'node:http';
+import { connect as netConnect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -14,6 +15,7 @@ import { signChallenge, type AuthChallenge } from './crypto/challenge.js';
 import { CryptoVault, PAIRING_CODE_ALPHABET } from './crypto/pairing.js';
 import { FakeAdapter } from './fake-adapter.js';
 import { LedgerManager } from './ledger/watch.js';
+import { isPipePath, localSocketPath } from './local-socket.js';
 import { PushSubscriptionStore } from './push/subscriptions.js';
 import { type RunningServer, startServer } from './server.js';
 
@@ -183,17 +185,17 @@ describe('agent member credential principal', () => {
       harness: 'fake', handle: 'socket-agent', cwd: testCwd('socket-agent'),
     });
     const agentToken = session!.env!.CODOR_MEMBER_TOKEN!;
-    const socketPath = join(dir, 'codor.sock');
+    const socketPath = localSocketPath(dir);
     await server.close();
     server = await startServer({ daemon, token: TOKEN, socketPath, crypto, pushSubscriptions });
 
-    const agentClient = await connectUrl(`ws+unix://${socketPath}:/ws?token=${agentToken}`);
+    const agentClient = await connectUrl(unixWsUrl(socketPath, `/ws?token=${agentToken}`));
     agentClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
     expect(await agentClient.next((frame) => frame.type === 'self'))
       .toEqual({ type: 'self', member_id: agent.id });
     agentClient.ws.close();
 
-    const ownerClient = await connectUrl(`ws+unix://${socketPath}:/ws`);
+    const ownerClient = await connectUrl(unixWsUrl(socketPath, '/ws'));
     ownerClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
     expect(await ownerClient.next((frame) => frame.type === 'self'))
       .toEqual({ type: 'self', member_id: daemon.ownerOf('eng').id });
@@ -384,9 +386,26 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+// Named pipes need the same URL and dial workaround as ProtocolClient: the WHATWG
+// parser rejects backslashes in the authority, so the pipe path rides in the URL path
+// (three slashes) and the leading slash ws prepends is stripped before net.connect.
+const unixWsUrl = (socketPath: string, suffix: string): string =>
+  `${isPipePath(socketPath) ? 'ws+unix:///' : 'ws+unix://'}${socketPath}:${suffix}`;
+
 function connectUrl(url: string): Promise<{ ws: WebSocket; frames: ServerFrame[]; next: (pred: (f: ServerFrame) => boolean) => Promise<ServerFrame> }> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
+    const wsOptions: WebSocket.ClientOptions = {};
+    if (url.includes('\\\\.\\pipe\\')) {
+      wsOptions.createConnection = (opts) => {
+        const socketOpts = opts as Record<string, unknown>;
+        for (const key of ['socketPath', 'path']) {
+          const value = socketOpts[key];
+          if (typeof value === 'string' && value.startsWith('/')) socketOpts[key] = value.substring(1);
+        }
+        return netConnect(opts as never);
+      };
+    }
+    const ws = new WebSocket(url, wsOptions);
     const frames: ServerFrame[] = [];
     const waiters: { pred: (f: ServerFrame) => boolean; resolve: (f: ServerFrame) => void }[] = [];
     ws.on('message', (raw: Buffer) => {
@@ -1223,7 +1242,7 @@ describe('REST', () => {
 });
 
 describe('WebSocket', () => {
-  it('rejects a public unix socket parent before listen', async () => {
+  it.skipIf(process.platform === 'win32')('rejects a public unix socket parent before listen', async () => {
     const publicParent = join(dir, 'public-socket-parent');
     mkdirSync(publicParent, { mode: 0o755 });
     chmodSync(publicParent, 0o755);
@@ -1296,7 +1315,7 @@ describe('WebSocket', () => {
     ownerClient.ws.close();
   });
 
-  it('serves the identical room and sync frames over a mode-0600 unix socket', async () => {
+  it.skipIf(process.platform === 'win32')('serves the identical room and sync frames over a mode-0600 unix socket', async () => {
     const socketPath = join(dir, 'codor.sock');
     const ipc = await startServer({ daemon, token: TOKEN, socketPath });
     expect(statSync(socketPath).mode & 0o777).toBe(0o600);
@@ -1742,7 +1761,7 @@ describe('Phase 3 REST boundaries', () => {
     const file = join(dir, 'file.txt');
     writeFileSync(file, 'file');
     const outside = mkdtempSync(join(tmpdir(), 'codor-server-outside-'));
-    symlinkSync(outside, join(dir, 'escape'));
+    symlinkSync(outside, join(dir, 'escape'), 'junction');
     try {
       const listed = await fetch(`${base}/api/local/dirs`, {
         headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
@@ -2575,7 +2594,7 @@ describe('browser protocol epoch', () => {
     const device = enrollBrowser('gated-browser');
     const browserToken = await authenticateDevice(device);
     const { agent, token: agentToken } = spawnAgentWithToken('epoch-agent');
-    const socketPath = join(dir, 'epoch.sock');
+    const socketPath = localSocketPath(dir);
     const observed: number[] = [];
     await server.close();
     server = await startServer({
@@ -2620,7 +2639,7 @@ describe('browser protocol epoch', () => {
     current.ws.close();
     expect(observed).toContain(currentBrowserProtocol);
 
-    const agentClient = await connectUrl(`ws+unix://${socketPath}:/ws?token=${agentToken}`);
+    const agentClient = await connectUrl(unixWsUrl(socketPath, `/ws?token=${agentToken}`));
     agentClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
     expect(await agentClient.next((frame) => frame.type === 'self'))
       .toEqual({ type: 'self', member_id: agent.id });
@@ -2628,7 +2647,7 @@ describe('browser protocol epoch', () => {
       .toMatchObject({ type: 'sync_complete' });
     agentClient.ws.close();
 
-    const ownerClient = await connectUrl(`ws+unix://${socketPath}:/ws`);
+    const ownerClient = await connectUrl(unixWsUrl(socketPath, '/ws'));
     ownerClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
     expect(await ownerClient.next((frame) => frame.type === 'sync_complete'))
       .toMatchObject({ type: 'sync_complete' });

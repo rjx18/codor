@@ -1,1 +1,1 @@
-../../docs/PROTOCOL.md
+<!--@include: ../../docs/PROTOCOL.md-->

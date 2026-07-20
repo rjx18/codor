@@ -56,6 +56,13 @@ The wizard asks before each mutating step. It creates `~/.config/codor` and `~/.
 - On Linux, `~/.config/systemd/user/codor.service` plus a mode-600 environment file.
 - On macOS, `~/Library/LaunchAgents/app.codor.switchboard.plist` plus private logs in
   `~/.codor/logs`. The plist is mode 600 because it contains the owner token.
+- On Windows (native, no WSL), a per-user Task Scheduler logon task named
+  `Codor Switchboard` driving a hidden PowerShell wrapper at
+  `~/.config/codor/codor-service.ps1`. The wrapper reads the token from disk at start,
+  and the token file's ACL is restricted to the owner via `icacls`. Install the CLI with
+  `scripts/install-cli.ps1`, which writes a `codor.cmd` shim into `~/.local/bin`. The
+  local control socket is a named pipe derived from the data directory instead of
+  `codor.sock`.
 
 Both services use the absolute current Node executable. Their explicit `PATH` includes
 `~/.local/bin`, the Node bin directory, and the directory of every detected `claude`, `codex`,

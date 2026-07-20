@@ -7,7 +7,8 @@ statement: An interactive attach must durably identify the room member, lease
   before the daemon releases custody, while the CLI spawns and waits for the
   native resume child with inherited stdio and reports its process identity,
   because custody recovery must distinguish an exited terminal from an orphan
-  still driving the harness session.
+  still driving the harness session; on Windows, where POSIX process groups do
+  not exist, liveness probes target the group leader's own pid.
 depends_on:
   - adoption-explicit-or-sessionend
   - revive-via-session-ref

@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { connect as netConnect } from 'node:net';
 
 import {
   ClientFrameSchema,
@@ -6,6 +6,7 @@ import {
   type ClientFrame,
   type ServerFrame,
 } from '@codor/protocol';
+import { isPipePath, localSocketPath } from '@codor/switchboard';
 import WebSocket from 'ws';
 
 export interface ProtocolClientOptions {
@@ -18,10 +19,11 @@ export interface ProtocolClientOptions {
 
 function transportUrl(options: ProtocolClientOptions): string {
   if (options.remoteUrl === undefined) {
-    const socketPath = options.socketPath ?? join(options.dataDir, 'codor.sock');
+    const socketPath = options.socketPath ?? localSocketPath(options.dataDir);
     // harn:assume member-env-selects-narrow-cli-identity ref=explicit-token-unix-transport
     const query = options.token === undefined ? '' : `?token=${encodeURIComponent(options.token)}`;
-    return `ws+unix://${socketPath}:/ws${query}`;
+    const prefix = isPipePath(socketPath) ? 'ws+unix:///' : 'ws+unix://';
+    return `${prefix}${socketPath}:/ws${query}`;
     // harn:end member-env-selects-narrow-cli-identity
   }
   if (!options.token) throw new Error('--token or CODOR_TOKEN is required with --url');
@@ -63,7 +65,23 @@ export class ProtocolClient {
   }
 
   static async connect(options: ProtocolClientOptions): Promise<ProtocolClient> {
-    const socket = new WebSocket(transportUrl(options));
+    const socketPath = options.socketPath ?? localSocketPath(options.dataDir);
+    const wsOptions: WebSocket.ClientOptions = {};
+    if (isPipePath(socketPath)) {
+      wsOptions.createConnection = (opts) => {
+        if (typeof opts === 'object' && opts !== null) {
+          const socketOpts = opts as Record<string, any>;
+          if (typeof socketOpts.socketPath === 'string' && socketOpts.socketPath.startsWith('/')) {
+            socketOpts.socketPath = socketOpts.socketPath.substring(1);
+          }
+          if (typeof socketOpts.path === 'string' && socketOpts.path.startsWith('/')) {
+            socketOpts.path = socketOpts.path.substring(1);
+          }
+        }
+        return netConnect(opts as any);
+      };
+    }
+    const socket = new WebSocket(transportUrl(options), wsOptions);
     const timeoutMs = options.timeoutMs ?? 5_000;
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
