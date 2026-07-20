@@ -29,6 +29,16 @@ export function parseConversationId(log: string): string | undefined {
   return ids.at(-1);
 }
 
+/**
+ * agy names its models for humans — `Gemini 3.5 Flash (Medium)` — but the
+ * switchboard only promotes slug-shaped ids out of harness stdout, because a
+ * space is how a flag gets smuggled into an argv slot. The adapter owns both
+ * halves: it reports slugs and translates them back before spawning.
+ */
+export function antigravitySlug(display: string): string {
+  return display.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
 export interface AntigravityInvocation {
   mode: 'plan' | 'accept-edits';
   skipPermissions: boolean;
@@ -51,7 +61,13 @@ export function antigravityMode(policy: string | undefined): AntigravityInvocati
   }
 }
 
-export function antigravityArgs(session: Session, payload: string, logFile: string): string[] {
+export function antigravityArgs(
+  session: Session,
+  payload: string,
+  logFile: string,
+  /** agy's display name for `session.model`; the slug itself when unresolvable. */
+  model = session.model,
+): string[] {
   if (session.thinking !== undefined) {
     throw new Error("adapter 'antigravity' does not support thinking levels");
   }
@@ -64,7 +80,7 @@ export function antigravityArgs(session: Session, payload: string, logFile: stri
     // give it a generous ceiling and let the switchboard own real interruption.
     '--print-timeout', '30m',
   ];
-  if (session.model !== undefined) args.push('--model', session.model);
+  if (model !== undefined) args.push('--model', model);
   if (skipPermissions) args.push('--dangerously-skip-permissions');
   if (session.session_ref !== undefined) args.push('--conversation', session.session_ref);
   args.push('--print', payload);
@@ -100,6 +116,8 @@ export class AntigravityAdapter implements HarnessAdapter {
   // harn:end canonical-spawn-controls-enforced
 
   private readonly children = new WeakMap<Session, ChildProcess>();
+  /** slug reported to the switchboard -> the display name `agy --model` takes. */
+  private readonly displayNames = new Map<string, string>();
 
   constructor(private readonly command = 'agy') {}
 
@@ -117,7 +135,7 @@ export class AntigravityAdapter implements HarnessAdapter {
   }
 
   // harn:assume adapters-own-their-model-catalog ref=antigravity-model-catalog
-  /** agy lists its own models locally (zero spend); each is a display name. */
+  /** agy lists its own models locally (zero spend), by display name; report slugs. */
   listModels(): Promise<ModelCatalog> {
     const result = spawn.sync(this.command, ['models'], {
       timeout: 5_000,
@@ -128,12 +146,14 @@ export class AntigravityAdapter implements HarnessAdapter {
     if (result.status !== 0) {
       return Promise.reject(new Error(`Command failed: ${this.command} models`));
     }
-    const models = String(result.stdout)
+    const displayNames = String(result.stdout)
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line !== '');
-    if (models.length === 0) return Promise.reject(new Error('agy listed no models'));
-    return Promise.resolve({ models, source: 'discovered' });
+    if (displayNames.length === 0) return Promise.reject(new Error('agy listed no models'));
+    this.displayNames.clear();
+    for (const display of displayNames) this.displayNames.set(antigravitySlug(display), display);
+    return Promise.resolve({ models: [...this.displayNames.keys()], source: 'discovered' });
   }
   // harn:end adapters-own-their-model-catalog
 
@@ -149,7 +169,13 @@ export class AntigravityAdapter implements HarnessAdapter {
     hooks: AdapterTurnHooks = {},
   ): AsyncIterable<WireEvent> {
     const logFile = join(tmpdir(), `codor-antigravity-${randomUUID()}.log`);
-    const args = antigravityArgs(session, payload, logFile);
+    // A model chosen from the catalog arrives as a slug; agy only knows its own
+    // display names. Anything unknown (a custom name typed by hand, or a slug from
+    // a run where discovery failed) goes through untouched for agy to judge.
+    const model = session.model === undefined
+      ? undefined
+      : this.displayNames.get(session.model) ?? session.model;
+    const args = antigravityArgs(session, payload, logFile, model);
 
     const child = spawn(this.command, args, {
       cwd: session.cwd,
