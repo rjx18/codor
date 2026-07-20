@@ -16,9 +16,9 @@ describe('@codor/adapter-cursor barrel', () => {
       thinking: false,
       live_inbox: false,
       policies: {
-        'read-only': 'plan',
-        'workspace-write': 'force+sandbox',
-        'full-access': 'yolo',
+        'read-only': '--mode plan',
+        'workspace-write': '--force --sandbox enabled',
+        'full-access': '--force --sandbox disabled',
       },
     });
   });

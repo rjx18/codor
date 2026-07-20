@@ -19,9 +19,9 @@ import { PolicySchema } from '@codor/protocol';
  * with the sandbox off. All three are distinct here.
  */
 const POLICY_NATIVE = {
-  'read-only': 'plan',
-  'workspace-write': 'force+sandbox',
-  'full-access': 'yolo',
+  'read-only': '--mode plan',
+  'workspace-write': '--force --sandbox enabled',
+  'full-access': '--force --sandbox disabled',
 } as const;
 // harn:end harness-declares-what-a-policy-becomes
 

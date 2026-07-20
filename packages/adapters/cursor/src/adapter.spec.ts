@@ -31,8 +31,14 @@ afterEach(() => {
 });
 
 describe('cursor subprocess and capability conformance', () => {
+  // harn:assume harness-declares-what-a-policy-becomes ref=cursor-policy-native-regression
   it('maps Codor policy chips onto cursor-agent flags', () => {
     const base = { harness: 'cursor', cwd: '/work' } as const;
+    expect(new CursorAdapter().capabilities.policies).toEqual({
+      'read-only': '--mode plan',
+      'workspace-write': '--force --sandbox enabled',
+      'full-access': '--force --sandbox disabled',
+    });
     expect(cursorArgs({ ...base, policy: 'read-only' }, 'go'))
       .toEqual(expect.arrayContaining(['--mode', 'plan']));
     expect(cursorArgs({ ...base, policy: 'workspace-write' }, 'go'))
@@ -43,6 +49,7 @@ describe('cursor subprocess and capability conformance', () => {
     expect(() => cursorArgs({ ...base, thinking: 'high' }, 'go'))
       .toThrow('does not support thinking');
   });
+  // harn:end harness-declares-what-a-policy-becomes
 
   it('rejects an unknown policy at spawn', () => {
     expect(() => new CursorAdapter().spawn({ cwd: '/work', policy: 'yolo' }))

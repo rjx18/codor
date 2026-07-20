@@ -1,0 +1,32 @@
+id: cursor-policy-label-truth
+title: Make Cursor policy labels match the arguments the adapter executes.
+notes: The Cursor adapter maps policies to the correct argv but advertises
+  shorthand labels that do not match those arguments. In particular, full-access
+  says `yolo` even though cursor-agent has no yolo mode and the adapter executes
+  `--force --sandbox disabled`. The browser renders these capability values to
+  explain permissions, so the declaration, focused policy regression, and
+  package capability golden must all describe the actual native flags.
+assumptions:
+  reviewed:
+    - id: harness-declares-what-a-policy-becomes
+      outcome: unchanged
+      reason: The existing assumption already requires every policy declaration to
+        match the argv the adapter builds; this makes Cursor comply.
+    - id: the-adapter-doc-is-the-contract-it-enforces
+      outcome: unchanged
+      reason: The public adapter contract still requires truthful policy capability
+        declarations; no documentation contract changes.
+files:
+  - packages/adapters/cursor/src/adapter.ts
+  - packages/adapters/cursor/src/adapter.spec.ts
+  - packages/adapters/cursor/src/index.spec.ts
+anchors:
+  harness-declares-what-a-policy-becomes:
+    cursor-policy-native-mapping:
+      action: change
+      reason: Replace invented shorthand with labels matching the actual native flags.
+    cursor-policy-native-regression:
+      action: change
+      reason: Pin capability labels and argv mappings together so they cannot drift.
+applied:
+  applied_at: 2026-07-20T16:13:16.167Z
