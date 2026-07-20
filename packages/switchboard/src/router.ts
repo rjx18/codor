@@ -226,7 +226,8 @@ export function composeDeliveryBriefing(ctx: DeliveryBriefingContext): string {
       `on timeout, check codor status and renew while the peer is active. ` +
       `${ctx.conventions.liveInbox ? '' : 'During long tasks, check codor inbox --new. '}` +
       `Use codor search --runs before asking about unseen referenced context. ` +
-      `If no substantive reply is needed, respond with exactly <ACK_OK>.]\n`;
+      `Use <ACK_OK> as your entire reply only when a message needs no action and no answer; ` +
+      `never append it after doing work or as a sign-off.]\n`;
     // harn:end agent-briefings-distinguish-invocation-from-discussion
     // harn:end collaboration-briefing-is-capability-aware
   }

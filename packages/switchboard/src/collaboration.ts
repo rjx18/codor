@@ -119,8 +119,9 @@ const GROUP_ROUTING_INSTRUCTION =
   'update, question, or answer. An @mention in your final response starts another paid group ' +
   "round, so use one only when you genuinely intend to invoke that member; write the member's " +
   'plain name without @ when merely discussing them. If every peer you are waiting on finishes ' +
-  'without an interim reply, Codor ends the wait automatically. If no substantive onward ' +
-  'response is needed, respond with exactly <ACK_OK>.]';
+  'without an interim reply, Codor ends the wait automatically. Use <ACK_OK> as your entire ' +
+  'onward response only when no action and no answer are needed; never append it after doing ' +
+  'work or as a sign-off.]';
 // harn:end group-routing-briefing-names-cost-and-wait-outcome
 
 export function composeGroupRoundPayload(ctx: GroupRoundPayloadContext, you: string): string {
