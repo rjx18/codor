@@ -61,6 +61,27 @@ describe('cursor stream-json translation', () => {
     });
   });
 
+  it('uses streamed text for final_text so a normalized result echo cannot double the reply', () => {
+    const translator = createTurnTranslator();
+    translator.push('{"type":"assistant","timestamp_ms":1,"message":{"content":[{"type":"text","text":"Fix applied."}]}}');
+    // cursor's terminal `result` echo is whitespace-normalized (here, a leading
+    // newline). Forwarding it as final_text would defeat codor's residual de-dupe
+    // (neither prefix nor suffix of the streamed prose) and re-append the whole
+    // reply, producing the "Fix applied.\nFix applied." doubling seen in rooms.
+    const done = translator.push(
+      '{"type":"result","subtype":"success","is_error":false,"result":"\\nFix applied."}',
+    );
+    expect(done).toEqual([{ type: 'run.completed', status: 'completed', final_text: 'Fix applied.' }]);
+  });
+
+  it('falls back to the result string when nothing streamed', () => {
+    const translator = createTurnTranslator();
+    const done = translator.push(
+      '{"type":"result","subtype":"success","is_error":false,"result":"Done."}',
+    );
+    expect(done).toEqual([{ type: 'run.completed', status: 'completed', final_text: 'Done.' }]);
+  });
+
   it('maps an errored result to a failed run', () => {
     expect(replay('synthetic-failure.jsonl').events.at(-1)).toEqual({
       type: 'run.completed',

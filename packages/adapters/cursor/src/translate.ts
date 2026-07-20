@@ -143,7 +143,14 @@ export function createTurnTranslator(): TurnTranslator {
         case 'result': {
           terminal = true;
           const completed = event.subtype === 'success' && event.is_error !== true;
-          const text = (typeof event.result === 'string' && event.result !== '' ? event.result : finalText);
+          // Prefer the text assembled from streamed `text_delta`s so `final_text`
+          // matches codor's journaled prose byte-for-byte. cursor's `result` is a
+          // whitespace-normalized echo (e.g. it can gain a leading newline); when it
+          // diverges from the streamed text, codor's residual de-dupe fails to match
+          // and re-appends the whole reply, doubling it. Fall back to `result` only
+          // when nothing was streamed.
+          const resultText = typeof event.result === 'string' ? event.result : '';
+          const text = finalText !== '' ? finalText : resultText;
           const usage = event.usage === undefined
             ? undefined
             : {
