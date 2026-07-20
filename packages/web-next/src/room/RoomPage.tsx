@@ -340,9 +340,12 @@ function ChatPanel(props: {
   const meter = useClientStore((state) => roomSlice(state, props.room).meter);
   const connected = useClientStore((state) => state.connected);
   const memberCount = useClientStore((state) =>
-    // Extensions stay out of the count, mirroring the Members tab roster.
+    // Count only the addressable people and agents shown in the Members roster.
+    // Extensions and the structural system member are routing machinery.
     Object.values(roomSlice(state, props.room).members)
-      .filter((member) => member.removed_ts === undefined && member.kind !== 'extension').length,
+      .filter((member) =>
+        member.removed_ts === undefined && (member.kind === 'human' || member.kind === 'agent')
+      ).length,
   );
   const workingAgent = useClientStore((state) =>
     Object.values(roomSlice(state, props.room).members)

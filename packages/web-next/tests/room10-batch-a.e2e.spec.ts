@@ -160,7 +160,7 @@ test.describe('members tab', () => {
     await expect(page.getByTestId('member-fable')).toBeVisible();
     await expect(page.locator(`[data-testid="member-${extension!.handle}"]`)).toHaveCount(0);
     await expect(page.locator('.nx-member')).toHaveCount(
-      members.filter((m) => m.kind !== 'extension').length,
+      members.filter((m) => m.kind === 'human' || m.kind === 'agent').length,
     );
 
     // …and the header count matches the visible roster exactly.
