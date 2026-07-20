@@ -74,6 +74,7 @@ npm install -g pnpm@10.9.0
 Install and sign in to at least one supported agent:
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code/getting-started),
 [Codex](https://github.com/openai/codex),
+[Cursor](https://cursor.com/cli),
 [Gemini](https://github.com/google-gemini/gemini-cli),
 [Copilot](https://docs.github.com/en/copilot/how-tos/copilot-cli/cli-getting-started), or
 [OpenCode](https://opencode.ai/docs/).

@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { ClaudeCodeAdapter } from '@codor/adapter-claude-code';
 import { CodexAdapter } from '@codor/adapter-codex';
 import { CopilotAdapter } from '@codor/adapter-copilot';
+import { CursorAdapter } from '@codor/adapter-cursor';
 import { GeminiAdapter } from '@codor/adapter-gemini';
 import { OpenCodeAdapter } from '@codor/adapter-opencode';
 import {
@@ -33,6 +34,7 @@ const builtinFactories = {
   'claude-code': () => new ClaudeCodeAdapter(),
   codex: () => new CodexAdapter(),
   copilot: () => new CopilotAdapter(),
+  cursor: () => new CursorAdapter(),
   gemini: () => new GeminiAdapter(),
   opencode: () => new OpenCodeAdapter(),
 } satisfies Record<string, AdapterFactory>;

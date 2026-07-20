@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/work","session_id":"22222222-2222-4222-8222-222222222222","model":"Composer 2.5","permissionMode":"default"}
+{"type":"result","subtype":"error","duration_ms":5,"is_error":true,"result":"Authentication required","session_id":"22222222-2222-4222-8222-222222222222","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0}}

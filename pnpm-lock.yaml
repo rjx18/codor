@@ -42,6 +42,12 @@ importers:
         specifier: workspace:*
         version: link:../../protocol
 
+  packages/adapters/cursor:
+    dependencies:
+      '@codor/protocol':
+        specifier: workspace:*
+        version: link:../../protocol
+
   packages/adapters/gemini:
     dependencies:
       '@codor/protocol':
@@ -132,6 +138,9 @@ importers:
       '@codor/adapter-copilot':
         specifier: workspace:*
         version: link:../adapters/copilot
+      '@codor/adapter-cursor':
+        specifier: workspace:*
+        version: link:../adapters/cursor
       '@codor/adapter-gemini':
         specifier: workspace:*
         version: link:../adapters/gemini

@@ -1,0 +1,91 @@
+id: cursor-adapter
+title: Add a cursor-agent harness adapter that declares what its policies become
+  and completes a turn exactly once.
+notes: >-
+  Reconstruction of contributor PR #1 with the merge repairs the review found.
+  The adapter drives `cursor-agent` headlessly, mirroring the gemini driver: it
+  is registered as a builtin, translates the stream-json vocabulary into
+  WireEvents, and maps codor's three canonical policies onto native flags.
+
+  Two defects are repaired rather than carried forward. First, the stream
+  translator set a `terminal` flag on a `result` event but never read it, so a
+  stream carrying two result events emitted two `run.completed` frames — the
+  daemon finalizes on the first and the second arrives against an already
+  settled turn. A duplicate result now yields nothing, with a regression that
+  fails against the old behaviour. Second, the adapter declared a POLICY_NATIVE
+  map — the literal answer to "what does each policy become on this harness" —
+  with no anchor on it, so the assumption that every harness must answer that
+  question had no hold on the newest harness to answer it.
+
+  Coverage is added for the interruption seam: SIGINT finalizes the turn as
+  `interrupted` and the child process is cleaned up, driven through a fake spawn
+  so no Cursor account or network is required.
+
+  Known limitations, left explicitly out of scope: a malformed event missing a
+  call_id can still collide with another malformed event in the same turn, and
+  the native policy labels are the adapter's own wording rather than strings
+  cursor-agent prints.
+assumptions:
+  reviewed:
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Cursor joins the builtin registry through the same factory map and
+        validation every other harness uses; the registry remains the sole
+        source.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: The adapter refuses thinking levels it cannot honour and maps model and
+        policy onto native flags, which is what the assumption already requires.
+    - id: adapter-children-inherit-session-env
+      outcome: unchanged
+      reason: The driver spawns with the session env, and its regression pins that; no
+        change to how children inherit credentials.
+    - id: harness-declares-what-a-policy-becomes
+      outcome: unchanged
+      reason: The statement already requires every harness to say what each canonical
+        policy becomes. Cursor answers it in POLICY_NATIVE, and anchoring that
+        map brings the newest harness under the existing rule rather than
+        changing it.
+    - id: adapter-wrappers-preserve-the-whole-contract
+      outcome: unchanged
+      reason: Cursor implements the published contract members; the wrapper forwards
+        them unchanged.
+files:
+  - packages/adapters/cursor/src/adapter.ts
+  - packages/adapters/cursor/src/adapter.spec.ts
+  - packages/adapters/cursor/src/translate.ts
+  - packages/adapters/cursor/src/translate.spec.ts
+  - packages/adapters/cursor/src/index.ts
+  - packages/adapters/cursor/src/index.spec.ts
+  - packages/adapters/cursor/src/fixtures.spec.ts
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+anchors:
+  harness-declares-what-a-policy-becomes:
+    cursor-policy-native-mapping:
+      action: change
+      reason: The adapter's POLICY_NATIVE map is where cursor answers what each
+        canonical policy becomes; it carries the anchor so the declaration
+        cannot drift from the assumption that requires it.
+    adapter-policy-registry-validation:
+      action: keep
+      reason: Registry-side policy validation is unchanged; cursor simply has to pass
+        it.
+  canonical-spawn-controls-enforced:
+    cursor-spawn-control-mapping:
+      action: change
+      reason: The argv builder refuses unsupported thinking levels and maps model and
+        policy onto native flags.
+    registry-spawn-control-validation:
+      action: keep
+      reason: The shared spawn validation is untouched.
+  adapter-children-inherit-session-env:
+    cursor-env-regression:
+      action: change
+      reason: A regression pins that the spawned child receives the session env.
+  adapter-registry-sole-harness-source:
+    configured-adapter-registry:
+      action: change
+      reason: The builtin factory map gains cursor; the registry stays the sole source.
+applied:
+  applied_at: 2026-07-20T16:01:50.651Z
