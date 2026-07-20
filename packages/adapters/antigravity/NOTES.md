@@ -9,13 +9,28 @@ copilot and opencode adapters.
 - `--print <prompt>` — run one prompt non-interactively and print the response. **Output is
   plain text**, not a structured stream. There is no `--output-format` flag.
 - `--model <name>` — a display name from `agy models` (e.g. `Gemini 3.5 Flash (High)`), not
-  an id slug.
+  an id slug. See the model catalog below.
 - `--mode <accept-edits|plan>` — execution mode. `--dangerously-skip-permissions`
   auto-approves tool permissions.
 - `--conversation <id>` / `--continue` — resume a prior conversation.
 - `--add-dir <dir>` — add a workspace directory. `--log-file <path>` — override the log path.
 - `--print-timeout <dur>` — print-mode wait timeout (default 5m); we set 30m and let the
   switchboard own real interruption.
+
+## Model catalog
+
+`agy` ships two Gemini families, each selectable per reasoning effort. The effort is baked into
+the model rather than passed as a separate flag (which is why `thinking: false` — see below):
+
+| Underlying model         | Reasoning modes        |
+| ------------------------ | ---------------------- |
+| `gemini-3.1-pro-preview` | high, low              |
+| `gemini-3.5-flash`       | high, low, medium      |
+
+`agy models` also lists the Claude and GPT-OSS models Antigravity can route to. The adapter does
+**not** hard-code any of this: `listModels()` shells out to `agy models` at request time and
+returns whatever display names that build offers (`source: 'discovered'`), so a catalog change in
+a future `agy` needs no adapter change. The table here is the probe snapshot, not a source of truth.
 
 ## Session resume — why the log is parsed
 
