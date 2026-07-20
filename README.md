@@ -269,6 +269,39 @@ codor revive -r desk reviewer
 
 Run `codor --help` for the complete CLI. Adapter authors can start with
 [docs/ADAPTERS.md](docs/ADAPTERS.md).
+
+<details>
+<summary><strong>All commands</strong></summary>
+
+| Command | What it does |
+| --- | --- |
+| `codor up` | Start the switchboard in the foreground. |
+| `codor serve` | Host resident members for a remote channel home. |
+| `codor setup [--dry-run]` | Configure the local switchboard user service and first browser pairing. |
+| `codor channels` | List channels. |
+| `codor spawn -r <channel> --harness <id> --as <handle> --cwd <path>` | Spawn a new agent member into a channel. |
+| `codor post [-r <channel>] [--wait] <message>` | Post a message; `--wait` blocks for the first direct reply. |
+| `codor tail [-r <channel>] [--once \| --follow] [--until-mention <handle> \| --until-any]` | Print or follow channel history. |
+| `codor inbox --new [--consume] [--format text\|hook]` | List (and optionally consume) queued deliveries for the authenticated member. |
+| `codor status <member> [-r <channel>]` | Show a member's current state, run, and recent activity. |
+| `codor search <query> [-r <channel>] [--runs] [--limit <n>]` | Search channel messages and bounded run evidence. |
+| `codor members -r <channel>` | List channel members. |
+| `codor join <channel> --as <handle> [--harness <name>] [--session <id>] [--cwd <path>]` | Attach an existing Claude Code/Codex session as a mirrored member. |
+| `codor adopt -r <channel> <member>` | Take custody of a mirrored member. |
+| `codor attach <member> [-r <channel>]` | Temporarily open a session Codor already manages; returns custody on exit. |
+| `codor revive -r <channel> <member>` | Revive a dead agent from its persisted native session. |
+| `codor pair [--endpoint <url>] [--no-qr]` | Create a ten-minute browser or peer pairing link. |
+| `codor peers` | List enrolled devices and switchboards. |
+| `codor revoke <peer>` | Revoke a device or switchboard and rotate channel keys. |
+| `codor ledger init -r <channel>` | Bootstrap the channel's shared-memory ledger. |
+| `codor ledger add <name> <body> -r <channel> --type <decision\|constraint\|contract> --as <handle>` | Add a ledger note. |
+| `codor ledger show <name> -r <channel>` | Print a ledger note. |
+| `codor ledger pull -r <channel> [-d <path>]` | Snapshot the ledger to a local directory. |
+
+Global options (`--data-dir`, `--token`, etc.) and every flag are in `codor --help` and
+`codor <command> --help`.
+
+</details>
 <!-- harn:end global-cli-install-is-idempotent -->
 
 <!-- harn:assume agent-member-credentials-are-defense-in-depth ref=readme-agent-trust-boundary -->
