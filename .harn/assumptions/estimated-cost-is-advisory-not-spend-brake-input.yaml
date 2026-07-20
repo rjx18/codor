@@ -1,0 +1,15 @@
+id: estimated-cost-is-advisory-not-spend-brake-input
+hash: a-161898727c69
+title: Estimated dollars stay separate from exact spend and holds
+state: active
+statement: Room meters, member details, and current browser surfaces must
+  project provider-reported cost, stored estimated cost, and unknown uncosted
+  tokens as separate non-overlapping buckets, label every estimate and any
+  exact-plus-estimated mixture explicitly, and evaluate spend_brake_usd from
+  provider-reported cost alone, because an advisory list-price gauge is useful
+  observability but is not billing truth or enforcement input.
+depends_on:
+  - run-cost-estimates-are-finalization-snapshots
+  - spend-meter-always-on
+  - brakes-opt-in-hold
+created_by: immutable-advisory-run-costs-v2

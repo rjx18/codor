@@ -265,9 +265,14 @@ describe('messages', () => {
         usage: { input_tokens: 26387, output_tokens: 110 },
         events_ref: 'runs/2.jsonl',
         final_text: 'done, tests green',
+        model: 'gpt-5.6-sol',
+        estimated_cost_usd: 0.135595,
       },
     };
-    expect(MessageSchema.safeParse(run).success).toBe(true);
+    expect(MessageSchema.parse(run).run).toMatchObject({
+      model: 'gpt-5.6-sol',
+      estimated_cost_usd: 0.135595,
+    });
   });
 
   it('accepts a running run message flagged stalled', () => {
@@ -545,10 +550,11 @@ describe('room config', () => {
       day: '2026-07-10',
       turns: 4,
       cost_usd: 1.23,
+      estimated_cost_usd: 0.42,
       input_tokens: 1000,
       output_tokens: 200,
       uncosted_tokens: 75,
-    }).uncosted_tokens).toBe(75);
+    })).toMatchObject({ estimated_cost_usd: 0.42, uncosted_tokens: 75 });
   });
 });
 

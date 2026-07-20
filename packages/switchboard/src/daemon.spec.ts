@@ -1458,6 +1458,53 @@ describe('meters, opt-in brakes, and stall flags', () => {
       .toMatchObject({ cost_usd: 0, uncosted_tokens: 15 });
   });
 
+  // harn:assume run-cost-estimates-are-finalization-snapshots ref=run-estimate-regression
+  // harn:assume estimated-cost-is-advisory-not-spend-brake-input ref=advisory-accounting-regression
+  it('stores a tokens-only estimate once without repricing history or tripping the spend brake', async () => {
+    const priced = daemon.spawnMember('eng', {
+      harness: 'fake',
+      handle: 'priced',
+      cwd: testCwd('priced'),
+      model: 'gpt-5.5',
+    });
+    daemon.configureRoom('eng', { spend_brake_usd: 0.5 });
+    fake.enqueue({
+      kind: 'complete',
+      final_text: '@richard priced tokens-only completion',
+      usage: { input_tokens: 200_000, output_tokens: 100_000 },
+    });
+    daemon.postHumanMessage('eng', '@priced spend once');
+    await daemon.settle();
+
+    const root = runMessages().find((message) => message.author === priced.id)!;
+    expect(root.run).toMatchObject({
+      model: 'gpt-5.5',
+      usage: { input_tokens: 200_000, output_tokens: 100_000 },
+      estimated_cost_usd: 4,
+    });
+    expect(daemon.memberDetails('eng').find((detail) => detail.member.id === priced.id)!.spend)
+      .toMatchObject({ cost_usd: 0, estimated_cost_usd: 4, uncosted_tokens: 0 });
+    expect(daemon.store.getMeter('eng', new Date().toISOString().slice(0, 10)))
+      .toMatchObject({ cost_usd: 0, estimated_cost_usd: 4, uncosted_tokens: 0 });
+
+    daemon.configureMember('eng', priced.id, { model: 'gpt-5.6-luna' });
+    expect(daemon.memberDetails('eng').find((detail) => detail.member.id === priced.id)!.spend)
+      .toMatchObject({ cost_usd: 0, estimated_cost_usd: 4, uncosted_tokens: 0 });
+    expect(daemon.store.listDeliveries('eng', { state: 'held' })).toHaveLength(0);
+
+    fake.enqueue({
+      kind: 'complete',
+      final_text: '@richard exact cost wins',
+      usage: { input_tokens: 10, output_tokens: 2, cost_usd: 0.25 },
+    });
+    daemon.postHumanMessage('eng', '@priced exact turn');
+    await daemon.settle();
+    expect(daemon.memberDetails('eng').find((detail) => detail.member.id === priced.id)!.spend)
+      .toMatchObject({ cost_usd: 0.25, estimated_cost_usd: 4, uncosted_tokens: 0 });
+  });
+  // harn:end estimated-cost-is-advisory-not-spend-brake-input
+  // harn:end run-cost-estimates-are-finalization-snapshots
+
   it('rechecks spend before a queued agent hop starts and releases it exactly once', async () => {
     const gamma = spawnAgent('gamma');
     const alpha = spawnAgent('alpha');

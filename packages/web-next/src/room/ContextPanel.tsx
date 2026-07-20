@@ -23,11 +23,12 @@ import { presentRunEvents, type RunRow } from '@legacy/run-presenter.js';
 import type { Connection } from '@legacy/ws.js';
 
 import { roomSlice, sortedMessages, useClientStore } from '../app/store.js';
-import { clockTime, compactCount, memberAccent, usd } from '../primitives/identity.js';
+import { clockTime, compactCount, memberAccent } from '../primitives/identity.js';
 import { Button, Chip, Eyebrow, IconButton, Modal, Segmented, StatusPill } from '../primitives/primitives.js';
 import { useAdapters, useMemberDetails } from '../app/session.js';
 import { ContextWindowMeter } from './ContextWindowMeter.js';
 import { cachedGitWorkingState, fetchGitWorkingState, rememberGitWorkingState, shortenCwd, statusLetter, type GitWorkingState } from './git-diff.js';
+import { costProvenanceLabel } from './spend-label.js';
 
 type Tab = 'members' | 'diff' | 'preview';
 
@@ -350,7 +351,7 @@ function MemberCard(props: {
       {member.kind === 'agent' && (spend !== undefined || (detail?.queued_count ?? 0) > 0) && (
         <p className="nx-member-meter">
           {tokens !== undefined ? `${compactCount(tokens)} tokens` : ''}
-          {spend !== undefined ? ` · ${usd(spend.cost_usd)} · ${spend.turns} turns` : ''}
+          {spend !== undefined ? ` · ${costProvenanceLabel(spend)} · ${spend.turns} turns` : ''}
           {(detail?.queued_count ?? 0) > 0 ? ` · ${detail?.queued_count} queued` : ''}
         </p>
       )}

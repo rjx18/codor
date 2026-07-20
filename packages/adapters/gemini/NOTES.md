@@ -115,15 +115,18 @@ deferred tiny authenticated probe is recorded in `MANUAL-VERIFY.md`.
 <!-- harn:assume adapters-own-their-model-catalog ref=gemini-model-catalog-notes -->
 ## Model catalog (U3)
 
-The Gemini CLI is not installed on the development host, so the catalog cites the CLI's own
-model documentation:
-<https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/model.md>, which lists the
-models selectable via `--model` / `/model`. Checked 2026-07-12; no model call was made.
+The Gemini CLI is not installed on the development host, so the catalog cites Google's
+current Gemini model documentation and changelog:
+<https://ai.google.dev/gemini-api/docs/models> and
+<https://ai.google.dev/gemini-api/docs/changelog>. Checked 2026-07-21; no model call was made.
+Google retired `gemini-3-pro-preview` and now maps that old API alias to 3.1. New selections
+use the current `gemini-3.1-pro-preview` id; accounting alone retains the old spelling for
+already stored run snapshots.
 
 | Label | Model id |
 | --- | --- |
 | Flash | `gemini-3-flash-preview` |
-| Pro | `gemini-3-pro-preview` |
+| Pro | `gemini-3.1-pro-preview` |
 | 2.5 Flash | `gemini-2.5-flash` |
 | 2.5 Pro | `gemini-2.5-pro` |
 

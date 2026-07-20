@@ -179,6 +179,7 @@ CREATE TABLE IF NOT EXISTS meters (
   day TEXT NOT NULL,
   turns INTEGER NOT NULL DEFAULT 0,
   cost_usd REAL NOT NULL DEFAULT 0,
+  estimated_cost_usd REAL NOT NULL DEFAULT 0,
   input_tokens INTEGER NOT NULL DEFAULT 0,
   output_tokens INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (room, day)
@@ -512,6 +513,13 @@ function migrateMeterUncostedTokens(db: Database.Database): void {
   }
 }
 
+function migrateMeterEstimatedCost(db: Database.Database): void {
+  const columns = db.pragma('table_info(meters)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'estimated_cost_usd')) {
+    db.exec('ALTER TABLE meters ADD COLUMN estimated_cost_usd REAL NOT NULL DEFAULT 0');
+  }
+}
+
 // harn:assume bridge-enable-admin-or-owner ref=bridge-origin-uniqueness
 function migrateBridgeOriginUniqueness(db: Database.Database): void {
   db.exec(`
@@ -687,6 +695,7 @@ interface MeterRow {
   day: string;
   turns: number;
   cost_usd: number;
+  estimated_cost_usd: number;
   input_tokens: number;
   output_tokens: number;
   uncosted_tokens: number;
@@ -973,6 +982,7 @@ export class Store {
     migrateApprovalDeliveryResolution(this.db);
     migrateDeliveryHopCount(this.db);
     migrateMeterUncostedTokens(this.db);
+    migrateMeterEstimatedCost(this.db);
     migrateBridgeOriginUniqueness(this.db);
   }
 
@@ -2267,6 +2277,7 @@ export class Store {
       memberId: string;
       deliveryIds: string[];
       startedTs: string;
+      model?: string;
       eventsRef: (messageId: number) => string;
       reuseRunMsgId?: number;
     },
@@ -2348,15 +2359,18 @@ export class Store {
             }, { activity: 'defer' });
       } else {
         const posted = this.postMessage(room, { author: opts.memberId, kind: 'run', body: '' });
+        // harn:assume run-cost-estimates-are-finalization-snapshots ref=run-model-snapshot
         runMessage = this.updateMessage(room, posted.id, {
           run: {
             status: 'running',
             started_ts: opts.startedTs,
+            ...(opts.model !== undefined && { model: opts.model }),
             tool_calls: 0,
             events_ref: opts.eventsRef(posted.id),
             output_mode: 'messages',
           },
         });
+        // harn:end run-cost-estimates-are-finalization-snapshots
       }
 
       const deliveries = admissible.map((delivery) => {
@@ -2391,6 +2405,7 @@ export class Store {
       meterDelta: {
         turns?: number;
         cost_usd?: number;
+        estimated_cost_usd?: number;
         input_tokens?: number;
         output_tokens?: number;
         uncosted_tokens?: number;
@@ -3009,10 +3024,13 @@ export class Store {
       outputs?: TurnOutputPatch[];
       error: string;
       endedTs: string;
+      usage?: RunSummary['usage'];
+      estimatedCostUsd?: number;
       meterDay: string;
       meterDelta: {
         turns?: number;
         cost_usd?: number;
+        estimated_cost_usd?: number;
         input_tokens?: number;
         output_tokens?: number;
         uncosted_tokens?: number;
@@ -3053,6 +3071,8 @@ export class Store {
           ended_ts: opts.endedTs,
           stalled_since: undefined,
           final_text: undefined,
+          usage: opts.usage,
+          estimated_cost_usd: opts.estimatedCostUsd,
           error: opts.error,
         },
       }, { activity: rootOutput.substantive ? 'force' : 'defer' });
@@ -3189,6 +3209,7 @@ export class Store {
       meterDelta: {
         turns?: number;
         cost_usd?: number;
+        estimated_cost_usd?: number;
         input_tokens?: number;
         output_tokens?: number;
         uncosted_tokens?: number;
@@ -3459,20 +3480,23 @@ export class Store {
     delta: {
       turns?: number;
       cost_usd?: number;
+      estimated_cost_usd?: number;
       input_tokens?: number;
       output_tokens?: number;
       uncosted_tokens?: number;
     },
   ): RoomMeter {
+    // harn:assume estimated-cost-is-advisory-not-spend-brake-input ref=separated-meter-accounting
     return this.db.transaction(() => {
       this.db
         .prepare(
           `INSERT INTO meters
-             (room, day, turns, cost_usd, input_tokens, output_tokens, uncosted_tokens)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+             (room, day, turns, cost_usd, estimated_cost_usd, input_tokens, output_tokens, uncosted_tokens)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (room, day) DO UPDATE SET
              turns = turns + excluded.turns,
              cost_usd = cost_usd + excluded.cost_usd,
+             estimated_cost_usd = estimated_cost_usd + excluded.estimated_cost_usd,
              input_tokens = input_tokens + excluded.input_tokens,
              output_tokens = output_tokens + excluded.output_tokens,
              uncosted_tokens = uncosted_tokens + excluded.uncosted_tokens`,
@@ -3482,6 +3506,7 @@ export class Store {
           day,
           delta.turns ?? 0,
           delta.cost_usd ?? 0,
+          delta.estimated_cost_usd ?? 0,
           delta.input_tokens ?? 0,
           delta.output_tokens ?? 0,
           delta.uncosted_tokens ?? 0,
@@ -3492,6 +3517,7 @@ export class Store {
         .get(room, day) as MeterRow;
       return meterFromRow(row);
     })();
+    // harn:end estimated-cost-is-advisory-not-spend-brake-input
   }
 
   getMeter(room: string, day: string): RoomMeter | undefined {

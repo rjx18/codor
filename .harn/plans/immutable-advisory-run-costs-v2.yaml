@@ -1,0 +1,309 @@
+id: immutable-advisory-run-costs-v2
+title: Repair tokens-only cost estimates as immutable advisory run accounting
+  with overlapping guards
+notes: >-
+  Reconstruct contributor PR #4 without its historical-repricing defect. A fresh
+  daemon-owned run snapshots the explicitly selected member model at admission;
+  retrying an existing root preserves its original snapshot and legacy roots are
+  never assigned one retroactively. When a terminal usage report has tokens but
+  no provider-reported cost, finalization calculates one advisory estimate from
+  that run snapshot and stores the result on the lifecycle root in the same
+  transaction as its meter update. Exact provider cost always wins. Unknown or
+  legacy usage remains visibly uncosted, and changing a member model or editing
+  the future price table cannot rewrite a completed run's history.
+
+  Daily room meters and per-member details project exact dollars, stored
+  estimated dollars, and uncosted tokens as separate buckets. Browser surfaces
+  label estimates and exact-plus-estimated mixtures explicitly; the existing
+  spend brake continues to compare only provider-reported cost. Protocol fields
+  are additive and optional, so stale clients ignore them and no browser epoch
+  bump is required. Existing databases gain a zero-default estimated meter
+  column with no guessed backfill, and a copied-live database must migrate
+  without changing message count, message bodies, or change sequence.
+
+  The pricing table uses public standard on-demand token rates checked against
+  the providers on 2026-07-21, including OpenAI's greater-than-272K input tier
+  and the applicable Gemini greater-than-200K tiers. Gemini's curated catalog is
+  refreshed to gemini-3.1-pro-preview; the retired gemini-3-pro-preview spelling
+  remains a pricing-only compatibility alias for already stored run snapshots.
+  Cached-token, audio, batch, data-residency, negotiated, and provider-specific
+  discounts or uplifts are intentionally outside this advisory gauge.
+
+  Acceptance is Harn check/apply, frozen install, full workspace build and unit
+  suite, focused protocol/store/daemon/pricing/Gemini/web-next tests, a rebuilt
+  browser suite where practical, and a copied-live migration/no-op reopen. No
+  provider call, live database write, browser epoch raise, deploy, or daemon
+  restart is in scope.
+assumptions:
+  retire:
+    - id: uncosted-usage-visible-not-guessed
+      reason: "The absolute ban on estimates is replaced by a narrower truthful rule:
+        provider-reported dollars remain exact, known token-only usage may carry
+        a separately labelled immutable estimate, unknown usage stays visibly
+        uncosted, and estimates never participate in spend holds."
+  create:
+    - id: run-cost-estimates-are-finalization-snapshots
+      title: Completed run estimates never change after finalization
+      statement: Every fresh daemon-owned lifecycle root must snapshot the member's
+        explicitly selected model at transactional turn admission, retries must
+        preserve the existing snapshot, and terminal tokens-only usage may store
+        one estimated_cost_usd calculated from that snapshot in the same atomic
+        finalization or repair as its meter update; completed and legacy runs
+        must never be repriced from current member configuration or a later
+        price table, because model changes and rate updates cannot rewrite
+        historical accounting.
+      reason: "Contributor PR #4 reduced every old run through Member.model, causing a
+        settings change to silently rewrite all prior displayed spend."
+      depends_on:
+        - turn-start-transactional
+        - turns-reuse-one-root-and-append-output-messages
+        - turn-output-finalization-is-atomic
+        - estimate-price-table-matches-curated-models
+    - id: estimated-cost-is-advisory-not-spend-brake-input
+      title: Estimated dollars stay separate from exact spend and holds
+      statement: Room meters, member details, and current browser surfaces must
+        project provider-reported cost, stored estimated cost, and unknown
+        uncosted tokens as separate non-overlapping buckets, label every
+        estimate and any exact-plus-estimated mixture explicitly, and evaluate
+        spend_brake_usd from provider-reported cost alone, because an advisory
+        list-price gauge is useful observability but is not billing truth or
+        enforcement input.
+      reason: Tokens-only harnesses need a useful gauge without fabricating exact
+        charges, hiding mixed provenance, or unexpectedly holding agent work.
+      depends_on:
+        - run-cost-estimates-are-finalization-snapshots
+        - spend-meter-always-on
+        - brakes-opt-in-hold
+    - id: estimate-price-table-matches-curated-models
+      title: Advisory token prices use cited provider rates and explicit tiers
+      statement: The advisory price table must key current curated Codex and Gemini
+        model ids, retain only documented compatibility aliases for stored
+        history, use the published standard uncached token rates and applicable
+        input-context thresholds recorded in source, return no estimate for an
+        unknown model, and pin representative base-tier, long-context, and
+        unknown calculations in tests, because a silently stale id, threshold,
+        or rate produces a confidently wrong operator gauge.
+      reason: The submitted table understated GPT-5.5 and used a retired Gemini model
+        id while describing one threshold convention that did not apply to most
+        rows.
+      depends_on:
+        - adapters-own-their-model-catalog
+  reviewed:
+    - id: turn-start-transactional
+      outcome: unchanged
+      reason: The fresh root's model snapshot is written inside the existing atomic
+        admission; delivery binding and reuse remain unchanged.
+    - id: only-an-admissible-delivery-becomes-delivering
+      outcome: unchanged
+      reason: Adding immutable metadata to a newly admitted root does not broaden
+        which deliveries are admissible or create empty turns.
+    - id: turns-reuse-one-root-and-append-output-messages
+      outcome: unchanged
+      reason: A retry reuses the same root and deliberately preserves rather than
+        overwrites its model snapshot.
+    - id: turn-output-finalization-is-atomic
+      outcome: unchanged
+      reason: Stored estimates and their meter delta join the existing
+        root/output/accounting transaction and its explicit repair paths.
+    - id: failed-finalization-reconciles-at-runtime
+      outcome: unchanged
+      reason: The repair still settles exactly once and now persists the same
+        immutable usage estimate as ordinary finalization.
+    - id: lifecycle-retries-only-live-collaboration-work
+      outcome: unchanged
+      reason: Lifecycle retry decisions are unchanged; terminalized attempts account
+        through the same separated meter delta.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: Every finalized owned turn remains visible and atomically metered, with
+        an additional separately projected advisory bucket.
+    - id: brakes-opt-in-hold
+      outcome: unchanged
+      reason: The spend brake continues to consume only RoomMeter.cost_usd and never
+        the new estimated field.
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: Gemini still owns and cites its curated model list; the stale Pro
+        preview id is refreshed from current provider documentation.
+    - id: agent-model-and-thinking-are-durable
+      outcome: unchanged
+      reason: Member configuration remains durable and absent still means harness
+        default; a fresh run only snapshots an explicit value without guessing
+        one.
+    - id: copilot-capability-truth
+      outcome: unchanged
+      reason: Copilot continues to emit tokens without fabricating provider-reported
+        dollars; advisory estimation happens later in switchboard accounting
+        only when an explicit model snapshot is priced.
+    - id: gemini-capability-truth
+      outcome: unchanged
+      reason: Gemini continues to emit tokens without fabricating provider-reported
+        dollars; refreshing its curated model id and estimating later in the
+        switchboard do not change adapter event truth.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: Adding immutable accounting metadata to the lifecycle root does not
+        change exact ACK detection, durable acknowledgement evidence, or routing
+        suppression.
+    - id: group-participant-terminality-commits-with-the-turn
+      outcome: unchanged
+      reason: The grouped result still commits atomically with member, meter, and
+        participant terminal state; its meter now carries a separate estimate
+        bucket.
+    - id: addressed-cold-hydration-is-strict-and-legacy-safe
+      outcome: unchanged
+      reason: The additive optional meter field flows through existing sync snapshots
+        without changing tail selection, support framing, or warm replay.
+files:
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/pricing.ts
+  - packages/switchboard/src/pricing.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/adapters/gemini/src/adapter.ts
+  - packages/adapters/gemini/NOTES.md
+  - packages/web/src/api.ts
+  - packages/web-next/src/room/spend-label.ts
+  - packages/web-next/src/room/spend-label.spec.ts
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/room/RoomPage.tsx
+anchors:
+  substantive-routing-excludes-acknowledgements:
+    exact-ack-finalization:
+      action: change
+      reason: The lifecycle summary inside ACK finalization gains accounting metadata
+        while exact-marker routing behavior remains unchanged.
+  group-participant-terminality-commits-with-the-turn:
+    collaboration-finalization-engine:
+      action: change
+      reason: The existing atomic grouped completion carries the separate estimated
+        meter delta.
+  addressed-cold-hydration-is-strict-and-legacy-safe:
+    addressed-hydration-contract:
+      action: change
+      reason: The optional estimated meter field passes through the existing hydration
+        projection without changing selection.
+  uncosted-usage-visible-not-guessed:
+    room-meter-uncosted-schema:
+      action: remove
+      reason: Replace the absolute no-estimate schema anchor with separated exact,
+        estimated, and unknown accounting truth.
+  run-cost-estimates-are-finalization-snapshots:
+    run-estimate-schema:
+      action: change
+      reason: Add optional immutable model and estimated_cost_usd fields to lifecycle
+        roots.
+    run-model-snapshot:
+      action: change
+      reason: Snapshot an explicit member model only when transactionally creating a
+        fresh root.
+    run-estimate-finalization:
+      action: change
+      reason: Persist the one terminal estimate and use it for normal, repaired, and
+        lifecycle-settled meter deltas.
+    run-estimate-regression:
+      action: change
+      reason: Prove model changes, table changes, retry, repair, and legacy rows
+        cannot reprice completed history.
+  estimated-cost-is-advisory-not-spend-brake-input:
+    room-meter-cost-provenance-schema:
+      action: change
+      reason: Add the optional estimated daily bucket while retaining exact cost and
+        visibly uncosted tokens.
+    separated-meter-accounting:
+      action: change
+      reason: Migrate and atomically increment exact, estimated, and unknown meter
+        buckets separately.
+    advisory-accounting-regression:
+      action: change
+      reason: Pin exact precedence, known estimates, unknown usage, mixed provenance,
+        migration, and exact-only spend braking.
+    member-advisory-cost-projection:
+      action: change
+      reason: Aggregate stored per-run values instead of recomputing from current
+        member configuration.
+    member-advisory-cost-surface:
+      action: change
+      reason: Label exact, estimated, mixed, and unknown member spend without
+        combining provenance.
+    room-advisory-cost-surface:
+      action: change
+      reason: Show today's exact and estimated room buckets separately and retain
+        unknown-token visibility.
+  estimate-price-table-matches-curated-models:
+    estimate-price-table:
+      action: change
+      reason: Record current public rates, thresholds, exclusions, and stored-history
+        compatibility aliases.
+    estimate-price-regression:
+      action: change
+      reason: Pin corrected GPT-5.5, OpenAI and Gemini long-context tiers, current
+        Gemini id, legacy alias, and unknown behavior.
+    gemini-model-catalog:
+      action: change
+      reason: Replace the retired Gemini Pro preview id with the current documented
+        3.1 id.
+    gemini-model-catalog-notes:
+      action: change
+      reason: Cite the current provider model and compatibility history honestly.
+  turn-start-transactional:
+    atomic-turn-start:
+      action: change
+      reason: Carry the immutable model snapshot through the existing transaction.
+  only-an-admissible-delivery-becomes-delivering:
+    turn-start-with-nothing-admissible:
+      action: change
+      reason: The fresh-root construction inside this nested region gains only
+        immutable accounting metadata.
+  turns-reuse-one-root-and-append-output-messages:
+    run-message-lifecycle:
+      action: change
+      reason: Pass the selected model for fresh admission while preserving reused
+        roots byte-for-byte.
+    continuation-root-regression:
+      action: change
+      reason: Add the immutable fresh-root snapshot and retry-preservation regression
+        inside the existing continuation family.
+  turn-output-finalization-is-atomic:
+    atomic-turn-finalization:
+      action: change
+      reason: Add the estimated meter delta to the same atomic output finalization.
+    output-finalization-regression:
+      action: change
+      reason: Pin estimated accounting rollback and commit with the existing output
+        transaction.
+  failed-finalization-reconciles-at-runtime:
+    finalization-repair-transaction:
+      action: change
+      reason: Persist terminal usage and its stored estimate in the exactly-once
+        repair.
+    runtime-finalization-reconcile:
+      action: change
+      reason: Calculate the repair delta from immutable run metadata rather than
+        current member config.
+    delivery-reconciliation-regression:
+      action: change
+      reason: Prove repaired finalization records separated accounting exactly once.
+  lifecycle-retries-only-live-collaboration-work:
+    lifecycle-interruption-settlement:
+      action: change
+      reason: Carry the estimated meter delta through lifecycle settlement without
+        changing retry decisions.
+  spend-meter-always-on:
+    meter-cost-and-token-accounting:
+      action: change
+      reason: Extend the daily meter transaction with a separate estimated-cost column.
+  adapters-own-their-model-catalog:
+    gemini-model-catalog:
+      action: change
+      reason: Refresh the adapter-owned curated Pro id.
+    gemini-model-catalog-notes:
+      action: change
+      reason: Refresh the cited curated catalog and record the retired alias used only
+        for stored accounting compatibility.
+applied:
+  applied_at: 2026-07-20T23:48:56.323Z

@@ -112,12 +112,12 @@ export class GeminiAdapter implements HarnessAdapter {
   // harn:end canonical-spawn-controls-enforced
 
   // harn:assume adapters-own-their-model-catalog ref=gemini-model-catalog
-  /** Curated from the CLI's own model documentation. Cited in NOTES.md. */
+  /** Curated from current provider and CLI model documentation. Cited in NOTES.md. */
   listModels(): Promise<ModelCatalog> {
     return Promise.resolve({
       models: [
         'gemini-3-flash-preview',
-        'gemini-3-pro-preview',
+        'gemini-3.1-pro-preview',
         'gemini-2.5-flash',
         'gemini-2.5-pro',
       ],

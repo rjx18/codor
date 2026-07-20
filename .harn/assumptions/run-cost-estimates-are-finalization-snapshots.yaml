@@ -1,0 +1,17 @@
+id: run-cost-estimates-are-finalization-snapshots
+hash: a-c2a5a62d7d27
+title: Completed run estimates never change after finalization
+state: active
+statement: Every fresh daemon-owned lifecycle root must snapshot the member's
+  explicitly selected model at transactional turn admission, retries must
+  preserve the existing snapshot, and terminal tokens-only usage may store one
+  estimated_cost_usd calculated from that snapshot in the same atomic
+  finalization or repair as its meter update; completed and legacy runs must
+  never be repriced from current member configuration or a later price table,
+  because model changes and rate updates cannot rewrite historical accounting.
+depends_on:
+  - turn-start-transactional
+  - turns-reuse-one-root-and-append-output-messages
+  - turn-output-finalization-is-atomic
+  - estimate-price-table-matches-curated-models
+created_by: immutable-advisory-run-costs-v2

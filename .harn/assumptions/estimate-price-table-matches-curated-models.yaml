@@ -1,0 +1,14 @@
+id: estimate-price-table-matches-curated-models
+hash: a-2dc8ea9ce58f
+title: Advisory token prices use cited provider rates and explicit tiers
+state: active
+statement: The advisory price table must key current curated Codex and Gemini
+  model ids, retain only documented compatibility aliases for stored history,
+  use the published standard uncached token rates and applicable input-context
+  thresholds recorded in source, return no estimate for an unknown model, and
+  pin representative base-tier, long-context, and unknown calculations in tests,
+  because a silently stale id, threshold, or rate produces a confidently wrong
+  operator gauge.
+depends_on:
+  - adapters-own-their-model-catalog
+created_by: immutable-advisory-run-costs-v2

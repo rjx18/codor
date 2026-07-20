@@ -122,18 +122,19 @@ export type CreateRoomRequest = z.infer<typeof CreateRoomRequestSchema>;
 // harn:end channel-create-request-contract
 
 /** Daily per-room spend meter (always on, never blocking). */
-// harn:assume uncosted-usage-visible-not-guessed ref=room-meter-uncosted-schema
+// harn:assume estimated-cost-is-advisory-not-spend-brake-input ref=room-meter-cost-provenance-schema
 export const RoomMeterSchema = z.object({
   room: RoomIdSchema,
   day: z.iso.date(), // YYYY-MM-DD, switchboard clock
   turns: z.number().int().nonnegative(),
   cost_usd: z.number().nonnegative(), // sums only cost-reporting members
+  estimated_cost_usd: z.number().nonnegative().optional(), // immutable advisory estimates
   input_tokens: z.number().int().nonnegative(),
   output_tokens: z.number().int().nonnegative(),
   uncosted_tokens: z.number().int().nonnegative().optional(),
 });
 export type RoomMeter = z.infer<typeof RoomMeterSchema>;
-// harn:end uncosted-usage-visible-not-guessed
+// harn:end estimated-cost-is-advisory-not-spend-brake-input
 
 
 // harn:assume every-channel-has-a-visible-accent ref=channel-accent-derivation

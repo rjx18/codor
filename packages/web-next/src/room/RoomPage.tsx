@@ -16,11 +16,12 @@ import { useRoomSummaries, type RoomSummary } from '../app/summary.js';
 import { roomSlice, useClientStore } from '../app/store.js';
 import { ContextPanel } from './ContextPanel.js';
 import { Chip, IconButton, Eyebrow, Modal, StatusPill } from '../primitives/primitives.js';
-import { compactCount, memberAccent, relativeTime, usd } from '../primitives/identity.js';
+import { compactCount, memberAccent, relativeTime } from '../primitives/identity.js';
 import { Composer } from './Composer.js';
 import { CreateChannelDialog } from './CreateChannel.js';
 import { HoldBanner, InboxControl, SearchOverlay } from './panels.js';
 import { Transcript } from './Transcript.js';
+import { costProvenanceLabel } from './spend-label.js';
 
 export function RoomPage(props: {
   room: string;
@@ -377,9 +378,11 @@ function ChatPanel(props: {
             <h1>{room?.name ?? props.room}</h1>
             <StatusPill tone={connected ? 'live' : 'error'}>{connected ? 'Live' : 'Offline'}</StatusPill>
           </div>
+          {/* harn:assume estimated-cost-is-advisory-not-spend-brake-input ref=room-advisory-cost-surface */}
           <p className="nx-chat-stats" data-testid="meter">
-            {memberCount} members · {meter?.turns ?? 0} turns · {compactCount((meter?.input_tokens ?? 0) + (meter?.output_tokens ?? 0))} tokens · {usd(meter?.cost_usd ?? 0)} today
+            {memberCount} members · {meter?.turns ?? 0} turns · {compactCount((meter?.input_tokens ?? 0) + (meter?.output_tokens ?? 0))} tokens · {costProvenanceLabel(meter ?? { cost_usd: 0 })} today
           </p>
+          {/* harn:end estimated-cost-is-advisory-not-spend-brake-input */}
         </div>
         <div className="nx-chat-actions">
           <IconButton

@@ -639,8 +639,9 @@ describe('deliveries (attempt WAL columns)', () => {
   });
 });
 
+// harn:assume estimated-cost-is-advisory-not-spend-brake-input ref=advisory-accounting-regression
 describe('usage meters', () => {
-  it('keeps reported dollars separate from the uncosted token subtotal', () => {
+  it('keeps exact, estimated, and unpriced usage in separate buckets', () => {
     openRoom(store);
     store.bumpMeter('eng', '2026-07-10', {
       turns: 1,
@@ -649,20 +650,42 @@ describe('usage meters', () => {
       output_tokens: 20,
     });
     const meter = store.bumpMeter('eng', '2026-07-10', {
-      turns: 1,
+      turns: 2,
+      estimated_cost_usd: 0.4,
       input_tokens: 40,
       output_tokens: 10,
       uncosted_tokens: 50,
     });
     expect(meter).toMatchObject({
-      turns: 2,
+      turns: 3,
       cost_usd: 0.25,
+      estimated_cost_usd: 0.4,
       input_tokens: 140,
       output_tokens: 30,
       uncosted_tokens: 50,
     });
   });
+
+  it('migrates an existing meter table without inventing historical estimates', () => {
+    openRoom(store);
+    store.bumpMeter('eng', '2026-07-10', { turns: 1, input_tokens: 20, uncosted_tokens: 20 });
+    const path = join(dir, 'test.sqlite');
+    store.close();
+
+    const legacy = new Database(path);
+    legacy.exec('ALTER TABLE meters DROP COLUMN estimated_cost_usd');
+    legacy.close();
+
+    store = new Store(path);
+    expect(store.getMeter('eng', '2026-07-10')).toMatchObject({
+      turns: 1,
+      estimated_cost_usd: 0,
+      input_tokens: 20,
+      uncosted_tokens: 20,
+    });
+  });
 });
+// harn:end estimated-cost-is-advisory-not-spend-brake-input
 
 describe('atomic turn lifecycle', () => {
   it('rolls back the run placeholder and every binding when one batch delivery is invalid', () => {
@@ -704,6 +727,7 @@ describe('atomic turn lifecycle', () => {
       memberId: agent.id,
       deliveryIds: [delivery.id],
       startedTs: new Date().toISOString(),
+      model: 'gpt-5.6-luna',
       eventsRef: (id) => `runs/${id}.jsonl`,
     });
     const running = started.runMessage;
@@ -724,6 +748,7 @@ describe('atomic turn lifecycle', () => {
       status: 'completed' as const,
       ended_ts: '2026-07-18T10:01:00.000Z',
       final_text: 'first stretchsecond stretch',
+      estimated_cost_usd: 0.5,
       result_message_id: continuation.id,
     };
 
@@ -760,7 +785,7 @@ describe('atomic turn lifecycle', () => {
       memberId: agent.id,
       memberPatch: { state: 'idle' },
       meterDay: '2026-07-18',
-      meterDelta: { turns: 1, input_tokens: 80, output_tokens: 20 },
+      meterDelta: { turns: 1, estimated_cost_usd: 0.5, input_tokens: 80, output_tokens: 20 },
       fanout: [{ recipient: owner.id, state: 'consumed', payload_snapshot: 'full aggregate' }],
     });
 
@@ -768,7 +793,13 @@ describe('atomic turn lifecycle', () => {
       .toEqual([running.id, continuation.id, orphan.id]);
     expect(store.getMessage('eng', running.id)).toMatchObject({
       body: 'first stretch',
-      run: { status: 'completed', final_text: 'first stretchsecond stretch', result_message_id: continuation.id },
+      run: {
+        status: 'completed',
+        model: 'gpt-5.6-luna',
+        estimated_cost_usd: 0.5,
+        final_text: 'first stretchsecond stretch',
+        result_message_id: continuation.id,
+      },
     });
     expect(store.getMessage('eng', continuation.id)).toMatchObject({
       body: 'second stretch', run_parent_id: running.id,
@@ -777,7 +808,7 @@ describe('atomic turn lifecycle', () => {
     expect(store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
     expect(store.getMember('eng', agent.id)?.state).toBe('idle');
     expect(store.getMeter('eng', '2026-07-18')).toMatchObject({
-      turns: 1, input_tokens: 80, output_tokens: 20,
+      turns: 1, estimated_cost_usd: 0.5, input_tokens: 80, output_tokens: 20,
     });
     expect(store.listDeliveries('eng', { recipient: owner.id })).toEqual([
       expect.objectContaining({ message_id: continuation.id }),
@@ -808,6 +839,7 @@ describe('failed finalization reconciliation transaction', () => {
       memberId: alpha.id,
       deliveryIds: [delivery.id],
       startedTs: '2026-07-18T10:00:00.000Z',
+      model: 'gpt-5.6-terra',
       eventsRef: (id) => `runs/${String(id)}.jsonl`,
     })!;
     store.setDeliveryAttemptProcess('eng', [delivery.id], { pid: 1234 });
@@ -818,13 +850,23 @@ describe('failed finalization reconciliation transaction', () => {
       deliveryIds: [delivery.id],
       error: 'finalization could not commit: injected transaction failure',
       endedTs: '2026-07-18T10:01:00.000Z',
+      usage: { input_tokens: 300, output_tokens: 20 },
+      estimatedCostUsd: 0.75,
       meterDay: '2026-07-18',
-      meterDelta: { turns: 1, input_tokens: 300, output_tokens: 20, uncosted_tokens: 320 },
+      meterDelta: {
+        turns: 1,
+        estimated_cost_usd: 0.75,
+        input_tokens: 300,
+        output_tokens: 20,
+      },
     });
 
     expect(first).toMatchObject({ repaired: true, held: [delivery.id] });
     expect(first.message?.run).toMatchObject({
       status: 'failed',
+      model: 'gpt-5.6-terra',
+      usage: { input_tokens: 300, output_tokens: 20 },
+      estimated_cost_usd: 0.75,
       error: 'finalization could not commit: injected transaction failure',
     });
     expect(first.message).toMatchObject({ body: '', mentions: [], refs: [], ledger_refs: [] });
@@ -835,7 +877,7 @@ describe('failed finalization reconciliation transaction', () => {
     expect(first.notice?.body).toContain('release_hold or redeliver');
     expect(store.getDeliveryAttemptProcess('eng', delivery.id)).toBeUndefined();
     expect(store.getMeter('eng', '2026-07-18')).toMatchObject({
-      turns: 1, input_tokens: 300, output_tokens: 20, uncosted_tokens: 320,
+      turns: 1, estimated_cost_usd: 0.75, input_tokens: 300, output_tokens: 20,
     });
 
     const beforeMessages = store.listMessages('eng', { limit: 100 }).length;
@@ -851,7 +893,7 @@ describe('failed finalization reconciliation transaction', () => {
     expect(second).toEqual({ repaired: false, deliveries: [], held: [] });
     expect(store.listMessages('eng', { limit: 100 })).toHaveLength(beforeMessages);
     expect(store.getMeter('eng', '2026-07-18')).toMatchObject({
-      turns: 1, input_tokens: 300, output_tokens: 20, uncosted_tokens: 320,
+      turns: 1, estimated_cost_usd: 0.75, input_tokens: 300, output_tokens: 20,
     });
   });
 
@@ -1383,6 +1425,36 @@ describe('continuation message storage', () => {
     expect(store.listRunMessages('eng', { author: agent.id, limit: 1 })[0]?.id)
       .toBe(current!.runMessage.id);
   });
+
+  // harn:assume run-cost-estimates-are-finalization-snapshots ref=run-estimate-regression
+  it('snapshots the explicit model only on a fresh root and preserves it on retry', () => {
+    const { owner } = openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'priced', display_name: 'Priced', state: 'running',
+    });
+    const trigger = store.postMessage('eng', { author: owner.id, kind: 'chat', body: '@priced go' });
+    const delivery = store.createDelivery('eng', { message_id: trigger.id, recipient: agent.id });
+    const first = store.beginTurn('eng', {
+      memberId: agent.id,
+      deliveryIds: [delivery.id],
+      startedTs: '2026-07-18T00:00:00.000Z',
+      model: 'gpt-5.6-luna',
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    })!;
+    expect(first.runMessage.run?.model).toBe('gpt-5.6-luna');
+
+    const retried = store.beginTurn('eng', {
+      memberId: agent.id,
+      deliveryIds: [delivery.id],
+      startedTs: '2026-07-18T00:01:00.000Z',
+      model: 'gpt-5.6-sol',
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+      reuseRunMsgId: first.runMessage.id,
+    })!;
+    expect(retried.runMessage.id).toBe(first.runMessage.id);
+    expect(retried.runMessage.run?.model).toBe('gpt-5.6-luna');
+  });
+  // harn:end run-cost-estimates-are-finalization-snapshots
 });
 // harn:end turns-reuse-one-root-and-append-output-messages
 

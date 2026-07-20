@@ -23,6 +23,7 @@ import type {
   PendingInteraction,
   Role,
   RoomSupport,
+  RunSummary,
   RunSearchHit,
   ServerFrame,
   Session,
@@ -51,6 +52,7 @@ import type { LedgerGraph, LedgerManager } from './ledger/watch.js';
 import { processProbeTarget } from './process-liveness.js';
 import type { LedgerNote, LedgerWrite } from './ledger/vault.js';
 import type { HumanPushKind, HumanPushNotifier } from './push/producer.js';
+import { estimateCostUsd } from './pricing.js';
 import { redactValue } from './redact.js';
 import {
   RemoteAttemptAmbiguousError,
@@ -203,6 +205,7 @@ export interface MemberDetails {
     input_tokens: number;
     output_tokens: number;
     cost_usd: number;
+    estimated_cost_usd: number;
     uncosted_tokens: number;
   };
 }
@@ -215,6 +218,32 @@ interface TurnCompletion {
   error?: string;
   usage?: { input_tokens: number; output_tokens: number; cost_usd?: number };
 }
+
+interface RunUsageAccounting {
+  costUsd: number;
+  estimatedCostUsd?: number;
+  uncostedTokens: number;
+}
+
+// harn:assume run-cost-estimates-are-finalization-snapshots ref=run-estimate-finalization
+function accountRunUsage(
+  run: Pick<RunSummary, 'model' | 'estimated_cost_usd'>,
+  usage: TurnCompletion['usage'],
+): RunUsageAccounting {
+  if (usage === undefined) return { costUsd: 0, uncostedTokens: 0 };
+  if (usage.cost_usd !== undefined) {
+    return { costUsd: usage.cost_usd, uncostedTokens: 0 };
+  }
+  const estimatedCostUsd = run.estimated_cost_usd ?? estimateCostUsd(run.model, usage);
+  return {
+    costUsd: 0,
+    ...(estimatedCostUsd !== undefined && { estimatedCostUsd }),
+    uncostedTokens: estimatedCostUsd === undefined
+      ? usage.input_tokens + usage.output_tokens
+      : 0,
+  };
+}
+// harn:end run-cost-estimates-are-finalization-snapshots
 
 interface RetryTurnRefusal {
   reason: string;
@@ -1058,20 +1087,35 @@ export class Daemon {
           recipient: member.id,
           state: 'queued',
         }).length,
-        spend: runs.reduce(
-          (total, message) => ({
+        // harn:assume estimated-cost-is-advisory-not-spend-brake-input ref=member-advisory-cost-projection
+        spend: runs.reduce((total, message) => {
+          const usage = message.run?.usage;
+          const accounting = accountRunUsage({
+            // Completed history is read only from stored run snapshots. The
+            // current member model and today's rate table never reprice it.
+            model: undefined,
+            estimated_cost_usd: usage?.cost_usd === undefined
+              ? message.run?.estimated_cost_usd
+              : undefined,
+          }, usage);
+          return {
             turns: total.turns + 1,
-            input_tokens: total.input_tokens + (message.run?.usage?.input_tokens ?? 0),
-            output_tokens: total.output_tokens + (message.run?.usage?.output_tokens ?? 0),
-            cost_usd: total.cost_usd + (message.run?.usage?.cost_usd ?? 0),
-            uncosted_tokens:
-              total.uncosted_tokens +
-              (message.run?.usage !== undefined && message.run.usage.cost_usd === undefined
-                ? message.run.usage.input_tokens + message.run.usage.output_tokens
-                : 0),
-          }),
-          { turns: 0, input_tokens: 0, output_tokens: 0, cost_usd: 0, uncosted_tokens: 0 },
-        ),
+            input_tokens: total.input_tokens + (usage?.input_tokens ?? 0),
+            output_tokens: total.output_tokens + (usage?.output_tokens ?? 0),
+            cost_usd: total.cost_usd + accounting.costUsd,
+            estimated_cost_usd:
+              total.estimated_cost_usd + (accounting.estimatedCostUsd ?? 0),
+            uncosted_tokens: total.uncosted_tokens + accounting.uncostedTokens,
+          };
+        }, {
+          turns: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          cost_usd: 0,
+          estimated_cost_usd: 0,
+          uncosted_tokens: 0,
+        }),
+        // harn:end estimated-cost-is-advisory-not-spend-brake-input
       };
     });
   }
@@ -2484,6 +2528,7 @@ export class Daemon {
       memberId: member.id,
       deliveryIds: batch.map((delivery) => delivery.id),
       startedTs: new Date().toISOString(),
+      model: member.model,
       eventsRef: (messageId) => this.blobs.ref(messageId),
       reuseRunMsgId: reuseRunMsg?.id,
     });
@@ -2785,6 +2830,7 @@ export class Daemon {
       runMsgId,
       this.blobs.read(room, runMsg.run.events_ref),
     );
+    const accounting = accountRunUsage(runMsg.run, completion?.usage);
     const repaired = this.store.repairFailedFinalization(room, {
       runMsgId,
       memberId,
@@ -2792,16 +2838,16 @@ export class Daemon {
       outputs: this.outputPatches(room, runMsg, projection, false, false),
       error: `finalization could not commit: ${detail}`,
       endedTs: new Date().toISOString(),
+      usage: completion?.usage,
+      estimatedCostUsd: accounting.estimatedCostUsd,
       meterDay: new Date().toISOString().slice(0, 10),
       meterDelta: {
         turns: 1,
-        cost_usd: completion?.usage?.cost_usd ?? 0,
+        cost_usd: accounting.costUsd,
+        estimated_cost_usd: accounting.estimatedCostUsd ?? 0,
         input_tokens: completion?.usage?.input_tokens ?? 0,
         output_tokens: completion?.usage?.output_tokens ?? 0,
-        uncosted_tokens:
-          completion?.usage !== undefined && completion.usage.cost_usd === undefined
-            ? completion.usage.input_tokens + completion.usage.output_tokens
-            : 0,
+        uncosted_tokens: accounting.uncostedTokens,
       },
     });
     if (!repaired.repaired) {
@@ -2839,6 +2885,7 @@ export class Daemon {
   ): void {
     const current = this.store.getMember(room, memberId);
     const usage = messagePatch.run?.usage;
+    const accounting = accountRunUsage(messagePatch.run ?? {}, usage);
     const runMsg = this.store.getMessage(room, runMsgId);
     if (runMsg?.run === undefined) throw new Error(`turn #${runMsgId} has no lifecycle root`);
     const projection = projectContinuationOutputs(
@@ -2864,13 +2911,11 @@ export class Daemon {
       meterDay: endedTs.slice(0, 10),
       meterDelta: {
         turns: 1,
-        cost_usd: usage?.cost_usd ?? 0,
+        cost_usd: accounting.costUsd,
+        estimated_cost_usd: accounting.estimatedCostUsd ?? 0,
         input_tokens: usage?.input_tokens ?? 0,
         output_tokens: usage?.output_tokens ?? 0,
-        uncosted_tokens:
-          usage !== undefined && usage.cost_usd === undefined
-            ? usage.input_tokens + usage.output_tokens
-            : 0,
+        uncosted_tokens: accounting.uncostedTokens,
       },
     });
     if (!preserveOtherActiveTurn) {
@@ -3093,6 +3138,7 @@ export class Daemon {
       ? { mentions: [], refs: [], ledger_refs: [], unresolved: [] }
       : parseBody(body, this.store.listMembers(room));
     const endedTs = new Date().toISOString();
+    const accounting = accountRunUsage(runMsg.run!, completion.usage);
     const outputPatches = this.outputPatches(room, runMsg, projection, ack, !failed);
     const resultMessageId = projection.resultMessageId;
     const messagePatch = {
@@ -3108,6 +3154,7 @@ export class Daemon {
         stalled_since: undefined,
         tool_calls: toolCalls,
         usage: completion.usage,
+        estimated_cost_usd: accounting.estimatedCostUsd,
         // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
         final_text: failed ? undefined : body,
         output_mode: 'messages' as const,
@@ -3186,13 +3233,11 @@ export class Daemon {
       meterDay: day,
       meterDelta: {
         turns: 1,
-        cost_usd: completion.usage?.cost_usd ?? 0,
+        cost_usd: accounting.costUsd,
+        estimated_cost_usd: accounting.estimatedCostUsd ?? 0,
         input_tokens: completion.usage?.input_tokens ?? 0,
         output_tokens: completion.usage?.output_tokens ?? 0,
-        uncosted_tokens:
-          completion.usage !== undefined && completion.usage.cost_usd === undefined
-            ? completion.usage.input_tokens + completion.usage.output_tokens
-            : 0,
+        uncosted_tokens: accounting.uncostedTokens,
       },
       fanout,
       ...(groupedDelivery !== undefined && {
