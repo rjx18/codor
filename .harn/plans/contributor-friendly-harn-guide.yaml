@@ -1,0 +1,17 @@
+id: contributor-friendly-harn-guide
+title: Explain contribution and Harn expectations without blocking newcomers
+notes: Add a short contributor guide that keeps the repository's merge-time Harn
+  standard strict while allowing contributors to open ordinary pull requests
+  without first learning or installing Harn. Maintainers may reconstruct a
+  compliant plan on a fresh branch before merge. Contributors must not edit
+  generated assumption truth directly. Documentation and process guidance only;
+  no tracked runtime or product assumptions change.
+assumptions: {}
+anchors: {}
+files:
+  - CONTRIBUTING.md
+verification: Run Harn plan and diff checks, inspect the rendered Markdown, and
+  confirm the quick contribution path is prominent while advanced Harn details
+  remain optional for external contributors.
+applied:
+  applied_at: 2026-07-20T14:05:59.690Z
