@@ -1,0 +1,12 @@
+id: windows-cli-installer-is-idempotent
+hash: a-73617cb48035
+title: Windows CLI installation is one stable idempotent per-user shim
+state: active
+statement: The Windows CLI installer must refuse a missing build, write one
+  stable codor.cmd shim under the user's local bin directory, preserve
+  arguments, and add that directory to the user PATH at most once across
+  repeated runs, because install instructions need one predictable command
+  without accumulating stale shims or PATH entries.
+depends_on:
+  - global-cli-install-is-idempotent
+created_by: windows-native-support

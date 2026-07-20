@@ -1,0 +1,16 @@
+id: windows-cli-adapters-resolve-command-shims
+hash: a-5d53f32968ad
+title: CLI-backed adapters resolve Windows command shims without changing
+  process supervision
+state: active
+statement: CLI-backed adapters that launch Copilot, Gemini, or OpenCode must use
+  a Windows-compatible spawn implementation for asynchronous turns and
+  synchronous discovery while preserving exact argv, inherited session
+  environment, interruption, output parsing, and terminal cleanup, because
+  Node's native spawn does not consistently resolve Windows .cmd and shebang
+  shims.
+depends_on:
+  - adapter-process-lifecycle-supervised
+  - remaining-cli-adapters-use-supervised-subprocesses
+  - adapter-children-inherit-session-env
+created_by: windows-native-support

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { ClaudeCodeAdapter } from '@codor/adapter-claude-code';
 import { CodexAdapter } from '@codor/adapter-codex';
-import { Daemon, FakeAdapter, startServer } from '@codor/switchboard';
+import { Daemon, FakeAdapter, localSocketPath, startServer } from '@codor/switchboard';
 import { describe, expect, it } from 'vitest';
 
 import { runCli } from './index.js';
@@ -50,7 +50,7 @@ describe.skipIf(!LIVE)('M1 live acceptance (CODOR_M1_ACCEPT=1)', () => {
     const server = await startServer({
       daemon,
       token: 'm1-accept-token',
-      socketPath: join(dir, 'codor.sock'),
+      socketPath: localSocketPath(dir),
     });
     const cliOutput: string[] = [];
     let unsubscribe = () => undefined;
@@ -235,7 +235,7 @@ describe.skipIf(!REMAINDER)('M1 zero-spend acceptance remainder', () => {
     const server = await startServer({
       daemon,
       token: 'm1-remainder-token',
-      socketPath: join(dir, 'codor.sock'),
+      socketPath: localSocketPath(dir),
     });
     const cliOutput: string[] = [];
     try {

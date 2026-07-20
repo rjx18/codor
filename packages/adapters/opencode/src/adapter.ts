@@ -1,5 +1,6 @@
-import { execFile, type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import spawn from 'cross-spawn';
 
 import type {
   ModelCatalog,
@@ -118,14 +119,14 @@ export class OpenCodeAdapter implements HarnessAdapter {
    * silently degrades this harness to the custom escape.
    */
   async listModels(): Promise<ModelCatalog> {
-    const listed = await new Promise<string>((resolve, reject) => {
-      execFile(
-        this.command,
-        ['models'],
-        { timeout: 5_000, maxBuffer: 1_000_000 },
-        (error, stdout) => (error ? reject(error) : resolve(stdout)),
-      );
+    const result = spawn.sync(this.command, ['models'], {
+      timeout: 5_000,
+      maxBuffer: 1_000_000,
+      encoding: 'utf8',
     });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(`Command failed: ${this.command} models`);
+    const listed = result.stdout;
     const models = listed.split('\n').map((line) => line.trim()).filter((line) => line !== '');
     if (models.length === 0) throw new Error('opencode listed no models');
     return { models, source: 'discovered' };
@@ -136,6 +137,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
     return { harness: this.id, session_ref, cwd: process.cwd() };
   }
 
+  // harn:assume windows-cli-adapters-resolve-command-shims ref=windows-cli-spawn-provider
   // harn:assume remaining-cli-adapters-use-supervised-subprocesses ref=opencode-cli-subprocess-driver
   // harn:assume adapter-process-lifecycle-supervised ref=opencode-cli-process-supervision
   async *deliver(
@@ -232,6 +234,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
   }
   // harn:end adapter-process-lifecycle-supervised
   // harn:end remaining-cli-adapters-use-supervised-subprocesses
+  // harn:end windows-cli-adapters-resolve-command-shims
 
   respondInteraction(): Promise<void> {
     return Promise.reject(
@@ -240,7 +243,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
   }
 
   discoverSessions(): SessionRef[] {
-    const result = spawnSync(this.command, ['db', '--format', 'json', DISCOVER_QUERY], {
+    const result = spawn.sync(this.command, ['db', '--format', 'json', DISCOVER_QUERY], {
       encoding: 'utf8',
       maxBuffer: 4 * 1024 * 1024,
     });

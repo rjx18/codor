@@ -1,9 +1,10 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import spawn from 'cross-spawn';
 
 import type {
   ModelCatalog,
@@ -102,6 +103,7 @@ export class CopilotAdapter implements HarnessAdapter {
     return { harness: this.id, session_ref, cwd: process.cwd() };
   }
 
+  // harn:assume windows-cli-adapters-resolve-command-shims ref=windows-cli-spawn-provider
   // harn:assume remaining-cli-adapters-use-supervised-subprocesses ref=copilot-cli-subprocess-driver
   // harn:assume adapter-process-lifecycle-supervised ref=copilot-cli-process-supervision
   async *deliver(
@@ -187,6 +189,7 @@ export class CopilotAdapter implements HarnessAdapter {
   }
   // harn:end adapter-process-lifecycle-supervised
   // harn:end remaining-cli-adapters-use-supervised-subprocesses
+  // harn:end windows-cli-adapters-resolve-command-shims
 
   respondInteraction(): Promise<void> {
     return Promise.reject(

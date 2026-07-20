@@ -11,6 +11,7 @@ import Database from 'better-sqlite3';
 
 import { Daemon, RECOVERY_ATTEMPT_CEILING } from './daemon.js';
 import { FakeAdapter } from './fake-adapter.js';
+import { localSocketPath } from './local-socket.js';
 import { Store } from './store.js';
 
 let dir: string;
@@ -226,7 +227,7 @@ describe('agent member session credentials', () => {
     const firstToken = capturedSession!.env!.CODOR_MEMBER_TOKEN!;
     // harn:assume member-session-masks-operator-token ref=member-token-mask-regression
     expect(capturedSession!.env).toMatchObject({
-      CODOR_SOCKET: join(dir, 'codor.sock'),
+      CODOR_SOCKET: localSocketPath(dir),
       CODOR_CHANNEL: 'eng',
       CODOR_MEMBER_ID: alpha.id,
       CODOR_MEMBER_TOKEN: firstToken,
@@ -1140,7 +1141,8 @@ describe('interactive attach custody leases', () => {
       expect(fake.deliveries).toHaveLength(1);
       expect(() => daemon.adoptMember('eng', alpha.id)).toThrow('active interactive attach lease');
 
-      process.kill(-child.pid!, 'SIGKILL');
+      if (process.platform === 'win32') child.kill('SIGKILL');
+      else process.kill(-child.pid!, 'SIGKILL');
       await closed;
       fake.enqueue({ kind: 'complete', final_text: '@richard safely resumed' });
       daemon.reconcileAttachLeases(lease.heartbeat_ts + 7_000);
@@ -1152,7 +1154,8 @@ describe('interactive attach custody leases', () => {
       expect(fake.deliveries).toHaveLength(2);
     } finally {
       try {
-        process.kill(-child.pid!, 'SIGKILL');
+        if (process.platform === 'win32') child.kill('SIGKILL');
+        else process.kill(-child.pid!, 'SIGKILL');
       } catch {
         // already exited
       }

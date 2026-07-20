@@ -1,0 +1,15 @@
+id: windows-named-pipe-shares-local-websocket-protocol
+hash: a-f4d2f5bbb815
+title: Windows local clients use a private deterministic named pipe with the
+  same WebSocket protocol
+state: active
+statement: On Windows the switchboard and CLI must derive the same deterministic
+  named-pipe name from the resolved data directory, avoid Unix filesystem
+  preparation for that pipe, and exchange the existing parsed ClientFrame and
+  ServerFrame WebSocket protocol over it, because local owner admission is
+  tokenless and transport selection must not change protocol or cross-profile
+  isolation.
+depends_on:
+  - unix-socket-same-protocol
+  - unix-socket-parent-private-before-listen
+created_by: windows-native-support

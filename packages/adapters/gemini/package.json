@@ -17,6 +17,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@codor/protocol": "workspace:*"
+    "@codor/protocol": "workspace:*",
+    "cross-spawn": "^7.0.6"
+  },
+  "devDependencies": {
+    "@types/cross-spawn": "^6.0.6"
   }
 }

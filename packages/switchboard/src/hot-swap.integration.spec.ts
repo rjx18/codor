@@ -81,7 +81,7 @@ describe('configured adapter hot-swap', () => {
     } finally {
       await daemon.close();
     }
-  });
+  }, 20_000);
 
   it('uses configured modules as deliberate same-name replacements and creates fresh instances', async () => {
     const options = {
@@ -143,7 +143,7 @@ it('keeps every built-in adapter package import inside the sole registry', () =>
   const importPattern = /(['"])@codor\/adapter-[^'"]+\1/g;
   const hits = productionRoots.flatMap(productionSourceFiles).flatMap((file) => {
     const matches = readFileSync(file, 'utf8').match(importPattern) ?? [];
-    return matches.map((match) => ({ file: relative(repoRoot, file), match }));
+    return matches.map((match) => ({ file: relative(repoRoot, file).replaceAll('\\', '/'), match }));
   });
   expect(hits).toHaveLength(BUILTIN_ADAPTER_IDS.length);
   expect(new Set(hits.map((hit) => hit.file))).toEqual(

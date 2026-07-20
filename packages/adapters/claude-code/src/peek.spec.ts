@@ -1,6 +1,7 @@
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -27,7 +28,7 @@ describe('peekClaudeContextUsage', () => {
 
   const install = (fixture: string, ref: string): void => {
     cpSync(
-      new URL(`../test-fixtures/${fixture}`, import.meta.url).pathname,
+      fileURLToPath(new URL(`../test-fixtures/${fixture}`, import.meta.url)),
       join(configDir, 'projects', '-scratch-project', `${ref}.jsonl`),
     );
   };

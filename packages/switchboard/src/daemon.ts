@@ -46,7 +46,9 @@ import {
   type GroupRoundPayloadContext,
 } from './collaboration.js';
 import { ContinuationWriter, projectContinuationOutputs } from './continuation.js';
+import { localSocketPath } from './local-socket.js';
 import type { LedgerGraph, LedgerManager } from './ledger/watch.js';
+import { processProbeTarget } from './process-liveness.js';
 import type { LedgerNote, LedgerWrite } from './ledger/vault.js';
 import type { HumanPushKind, HumanPushNotifier } from './push/producer.js';
 import { redactValue } from './redact.js';
@@ -341,7 +343,7 @@ export class Daemon {
     this.pushProducer = options.pushProducer;
     this.onBackgroundError = options.onBackgroundError ?? (() => undefined);
     this.homeDir = options.homeDir ?? homedir();
-    this.socketPath = options.socketPath ?? join(dirname(options.dbPath), 'codor.sock');
+    this.socketPath = options.socketPath ?? localSocketPath(dirname(options.dbPath));
     this.attachmentsRoot = join(dirname(options.dbPath), 'attachments');
     this.sweepOrphanAttachments(); // boot-time: drop uploads no message ever claimed
     this.ledger?.setRoomValidator((room) => this.store.getRoom(room) !== undefined);
@@ -1448,9 +1450,8 @@ export class Daemon {
   }
 
   private attachChildAlive(lease: AttachLease): boolean {
-    if (lease.process_group_id !== undefined) return this.processProbe(-lease.process_group_id);
-    if (lease.child_pid !== undefined) return this.processProbe(lease.child_pid);
-    return false;
+    const target = processProbeTarget(process.platform, lease.child_pid, lease.process_group_id);
+    return target === undefined ? false : this.processProbe(target);
   }
 
   private markCustodyUncertain(
@@ -3751,9 +3752,7 @@ export class Daemon {
   // harn:end open-collaboration-groups-reconcile-without-resurrection
 
   private processAlive(attempt: { pid?: number; process_group_id?: number }): boolean {
-    const target = attempt.process_group_id !== undefined
-      ? -attempt.process_group_id
-      : attempt.pid;
+    const target = processProbeTarget(process.platform, attempt.pid, attempt.process_group_id);
     if (target === undefined) return false;
     return this.processProbe(target);
   }

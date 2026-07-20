@@ -47,7 +47,8 @@ const defaultExec = (command: string, args: string[]): string => execFileSync(co
 
 const defaultWhich = (command: string): string | undefined => {
   try {
-    return defaultExec('which', [command]).split('\n')[0]?.trim() || undefined;
+    const locator = process.platform === 'win32' ? 'where.exe' : 'which';
+    return defaultExec(locator, [command]).split(/\r?\n/)[0]?.trim() || undefined;
   } catch {
     return undefined;
   }
@@ -63,8 +64,9 @@ async function defaultConfirm(prompt: string): Promise<boolean> {
   }
 }
 
-function uniquePath(parts: Array<string | undefined>): string {
-  return [...new Set(parts.flatMap((part) => part?.split(':') ?? []).filter(Boolean))].join(':');
+function uniquePath(parts: Array<string | undefined>, delimiter = ':'): string {
+  return [...new Set(parts.flatMap((part) => part?.split(delimiter) ?? []).filter(Boolean))]
+    .join(delimiter);
 }
 
 // harn:assume wsl-setup-reaches-windows-loopback ref=wsl-bind-selection
@@ -233,12 +235,50 @@ function renderLaunchAgent(options: LaunchAgentOptions): string {
 }
 // harn:end operator-launches-serve-web-next
 
+// harn:assume windows-setup-installs-task-scheduler-service ref=windows-service-rendering
+export function renderWindowsServiceScript(options: {
+  dataDir: string;
+  logDir: string;
+  nodePath: string;
+  repoRoot: string;
+  servicePath: string;
+  tokenPath: string;
+}): string {
+  const quote = (value: string): string => value.replaceAll("'", "''");
+  const entrypoint = join(options.repoRoot, 'packages', 'cli', 'dist', 'index.js');
+  const staticRoot = join(options.repoRoot, 'packages', 'web-next', 'dist');
+  return [
+    `$env:CODOR_TOKEN = (Get-Content -Raw -Path '${quote(options.tokenPath)}').Trim()`,
+    `$env:PATH = '${quote(options.servicePath)}'`,
+    `Set-Location -Path '${quote(options.repoRoot)}'`,
+    `& '${quote(options.nodePath)}' '${quote(entrypoint)}' --data-dir '${quote(options.dataDir)}' up --static-root '${quote(staticRoot)}' --channel desk --channel-name Desk >> '${quote(join(options.logDir, 'codor.out.log'))}' 2>> '${quote(join(options.logDir, 'codor.err.log'))}'`,
+    'exit $LASTEXITCODE',
+  ].join('\r\n') + '\r\n';
+}
+
+export function renderWindowsScheduledTask(options: {
+  scriptPath: string;
+  user: string;
+}): string {
+  const command = `-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "${options.scriptPath}"`;
+  return `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${xml(options.user)}</UserId></LogonTrigger></Triggers>
+  <Principals><Principal id="Author"><UserId>${xml(options.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>true</StartWhenAvailable><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>true</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>7</Priority></Settings>
+  <Actions Context="Author"><Exec><Command>powershell.exe</Command><Arguments>${xml(command)}</Arguments></Exec></Actions>
+</Task>
+`;
+}
+// harn:end windows-setup-installs-task-scheduler-service
+
+// harn:assume windows-setup-installs-task-scheduler-service ref=windows-setup-runtime
 // harn:assume cli-setup-wizard-installs-platform-user-service ref=setup-runtime
 export async function runSetup(options: SetupOptions): Promise<void> {
   const overrides = options.overrides ?? {};
   const platform = overrides.platform ?? process.platform;
-  if (platform !== 'linux' && platform !== 'darwin') {
-    throw new Error(`codor setup supports Linux and macOS; received ${platform}`);
+  if (platform !== 'linux' && platform !== 'darwin' && platform !== 'win32') {
+    throw new Error(`codor setup supports Linux, macOS, and Windows; received ${platform}`);
   }
   const home = resolve(overrides.home ?? options.env.HOME ?? homedir());
   const repoRoot = resolve(overrides.repoRoot ?? fileURLToPath(new URL('../../../', import.meta.url)));
@@ -257,6 +297,12 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const launchAgentDir = join(home, 'Library', 'LaunchAgents');
   const launchAgentPath = join(launchAgentDir, `${LAUNCH_AGENT_LABEL}.plist`);
   const logDir = join(dataDir, 'logs');
+  const windowsScriptPath = join(configDir, 'codor-service.ps1');
+  const windowsTaskPath = join(configDir, 'codor-task.xml');
+  const windowsUser = options.env.USERNAME ?? options.env.USER;
+  if (platform === 'win32' && !windowsUser) {
+    throw new Error('codor setup could not determine the Windows user name');
+  }
   const systemdBindHost = platform === 'linux'
     ? wslSystemdBindHost(
       options.env,
@@ -282,7 +328,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     dirname(nodePath),
     ...harnessPaths.map(dirname),
     options.env.PATH,
-  ]);
+  ], platform === 'win32' ? ';' : ':');
   const launchUid = platform === 'darwin'
     ? overrides.uid ?? (typeof process.getuid === 'function' ? process.getuid() : undefined)
     : undefined;
@@ -291,6 +337,19 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   }
   const launchDomain = launchUid === undefined ? undefined : `gui/${String(launchUid)}`;
   const launchTarget = launchDomain === undefined ? undefined : `${launchDomain}/${LAUNCH_AGENT_LABEL}`;
+  const windowsScript = platform === 'win32'
+    ? renderWindowsServiceScript({
+      dataDir,
+      logDir,
+      nodePath,
+      repoRoot,
+      servicePath,
+      tokenPath,
+    })
+    : undefined;
+  const windowsTask = platform === 'win32'
+    ? renderWindowsScheduledTask({ scriptPath: windowsScriptPath, user: windowsUser! })
+    : undefined;
 
   if (options.dryRun) {
     options.out(`[dry-run] create ${configDir} and ${dataDir} mode 700; create ${tokenPath} mode 600 if absent`);
@@ -303,7 +362,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       options.out(`PATH=${servicePath}`);
       options.out('[dry-run] systemctl --user daemon-reload');
       options.out('[dry-run] systemctl --user enable --now codor.service');
-    } else {
+    } else if (platform === 'darwin') {
       const launchAgent = renderLaunchAgent({
         dataDir,
         logDir,
@@ -320,6 +379,15 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       options.out(`[dry-run] launchctl bootstrap ${launchDomain} ${launchAgentPath}`);
       options.out(`[dry-run] launchctl enable ${launchTarget}`);
       options.out(`[dry-run] launchctl kickstart -k ${launchTarget}`);
+    } else {
+      options.out(`[dry-run] protect ${tokenPath} for ${windowsUser} with icacls`);
+      options.out(`[dry-run] create ${logDir}`);
+      options.out(`[dry-run] install generated ServiceScript -> ${windowsScriptPath}`);
+      for (const line of windowsScript!.trimEnd().split(/\r?\n/)) options.out(line);
+      options.out(`[dry-run] install generated ScheduledTaskXml -> ${windowsTaskPath} as UTF-16LE`);
+      for (const line of windowsTask!.trimEnd().split('\n')) options.out(line);
+      options.out(`[dry-run] schtasks /Create /TN "Codor Switchboard" /XML "${windowsTaskPath}" /F`);
+      options.out('[dry-run] schtasks /Run /TN "Codor Switchboard"');
     }
     if (which('tailscale')) {
       options.out('[dry-run] tailscale serve --bg http://127.0.0.1:8137');
@@ -334,21 +402,27 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   if (await confirm(`Create private configuration in ${configDir} and data in ${dataDir}?`)) {
     mkdirSync(configDir, { recursive: true, mode: 0o700 });
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-    chmodSync(configDir, 0o700);
-    chmodSync(dataDir, 0o700);
     if (!existsSync(tokenPath)) {
       const token = overrides.randomToken?.() ?? randomBytes(32).toString('hex');
       writeFileSync(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     }
-    chmodSync(tokenPath, 0o600);
+    if (platform === 'win32') {
+      exec('icacls', [tokenPath, '/inheritance:r', '/grant:r', `${windowsUser}:F`]);
+    } else {
+      chmodSync(configDir, 0o700);
+      chmodSync(dataDir, 0o700);
+      chmodSync(tokenPath, 0o600);
+    }
     options.out('Private configuration and data directories are ready.');
   }
 
-  const serviceInstallPath = platform === 'linux' ? userUnitPath : launchAgentPath;
+  const serviceInstallPath = platform === 'linux'
+    ? userUnitPath
+    : platform === 'darwin' ? launchAgentPath : windowsScriptPath;
   if (await confirm(`Install the user service at ${serviceInstallPath}?`)) {
     if (!existsSync(tokenPath)) throw new Error(`operator token is missing at ${tokenPath}`);
-    const token = readFileSync(tokenPath, 'utf8').trim();
     if (platform === 'linux') {
+      const token = readFileSync(tokenPath, 'utf8').trim();
       mkdirSync(userUnitDir, { recursive: true, mode: 0o700 });
       writeFileSync(userUnitPath, unitContent!, { encoding: 'utf8', mode: 0o600 });
       chmodSync(userUnitPath, 0o600);
@@ -361,7 +435,8 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       if (systemdBindHost === '0.0.0.0') {
         options.out('Configured WSL2 NAT access through Windows http://127.0.0.1:8137.');
       }
-    } else {
+    } else if (platform === 'darwin') {
+      const token = readFileSync(tokenPath, 'utf8').trim();
       mkdirSync(launchAgentDir, { recursive: true });
       mkdirSync(logDir, { recursive: true, mode: 0o700 });
       chmodSync(logDir, 0o700);
@@ -376,12 +451,22 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       writeFileSync(launchAgentPath, launchAgent, { encoding: 'utf8', mode: 0o600 });
       chmodSync(launchAgentPath, 0o600);
       options.out(`Installed ${LAUNCH_AGENT_LABEL} with Node ${nodePath}.`);
+    } else {
+      mkdirSync(logDir, { recursive: true });
+      writeFileSync(windowsScriptPath, windowsScript!, 'utf8');
+      writeFileSync(
+        windowsTaskPath,
+        Buffer.from(`\uFEFF${windowsTask!}`, 'utf16le'),
+      );
+      options.out(`Installed Codor Switchboard with Node ${nodePath}.`);
     }
   }
 
   const startPrompt = platform === 'linux'
     ? 'Reload systemd and enable codor.service now?'
-    : `Load and start ${LAUNCH_AGENT_LABEL} now?`;
+    : platform === 'darwin'
+      ? `Load and start ${LAUNCH_AGENT_LABEL} now?`
+      : 'Register and start Codor Switchboard now?';
   if (await confirm(startPrompt)) {
     if (platform === 'linux') {
       exec('systemctl', ['--user', 'daemon-reload']);
@@ -393,7 +478,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       } catch {
         options.out(`Check lingering for boot-time startup: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
       }
-    } else {
+    } else if (platform === 'darwin') {
       try {
         exec('launchctl', ['bootout', launchTarget!]);
       } catch {
@@ -403,6 +488,10 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       exec('launchctl', ['enable', launchTarget!]);
       exec('launchctl', ['kickstart', '-k', launchTarget!]);
       options.out(`${LAUNCH_AGENT_LABEL} is loaded and running.`);
+    } else {
+      exec('schtasks', ['/Create', '/TN', 'Codor Switchboard', '/XML', windowsTaskPath, '/F']);
+      exec('schtasks', ['/Run', '/TN', 'Codor Switchboard']);
+      options.out('Codor Switchboard is registered and running.');
     }
   }
 
@@ -428,3 +517,4 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   }
 }
 // harn:end cli-setup-wizard-installs-platform-user-service
+// harn:end windows-setup-installs-task-scheduler-service

@@ -1,0 +1,14 @@
+id: windows-process-liveness-probes-own-pid
+hash: a-bd26cb4b5a0a
+title: Windows custody and recovery probe the process leader rather than a POSIX
+  process group
+state: active
+statement: When custody or crash recovery records a process-group leader,
+  liveness checks must probe the positive leader pid on Windows and the negative
+  process-group id on POSIX, because Windows does not implement POSIX negative
+  process-group signalling and a false-dead result can cause concurrent
+  ownership and duplicate work.
+depends_on:
+  - attach-custody-lease-tracks-child-pid
+  - custody-uncertain-never-double-writes
+created_by: windows-native-support

@@ -179,7 +179,7 @@ describe('bridge state and HTTP boundary', () => {
         cursor: 12,
         pendingIngress: [{ externalId: '3', senderName: 'Lea', body: 'Pending' }],
       });
-      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600);
       expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({ cursor: 12 });
     } finally {
       await rm(dir, { recursive: true, force: true });

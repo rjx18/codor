@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { connect as netConnect } from 'node:net';
 
 import {
   ClientFrameSchema,
@@ -6,6 +6,7 @@ import {
   type ClientFrame,
   type ServerFrame,
 } from '@codor/protocol';
+import { isPipePath, localSocketPath } from '@codor/switchboard';
 import WebSocket from 'ws';
 
 export interface ProtocolClientOptions {
@@ -18,10 +19,11 @@ export interface ProtocolClientOptions {
 
 function transportUrl(options: ProtocolClientOptions): string {
   if (options.remoteUrl === undefined) {
-    const socketPath = options.socketPath ?? join(options.dataDir, 'codor.sock');
+    const socketPath = options.socketPath ?? localSocketPath(options.dataDir);
     // harn:assume member-env-selects-narrow-cli-identity ref=explicit-token-unix-transport
     const query = options.token === undefined ? '' : `?token=${encodeURIComponent(options.token)}`;
-    return `ws+unix://${socketPath}:/ws${query}`;
+    const prefix = isPipePath(socketPath) ? 'ws+unix:///' : 'ws+unix://';
+    return `${prefix}${socketPath}:/ws${query}`;
     // harn:end member-env-selects-narrow-cli-identity
   }
   if (!options.token) throw new Error('--token or CODOR_TOKEN is required with --url');
@@ -63,7 +65,27 @@ export class ProtocolClient {
   }
 
   static async connect(options: ProtocolClientOptions): Promise<ProtocolClient> {
-    const socket = new WebSocket(transportUrl(options));
+    // harn:assume windows-named-pipe-shares-local-websocket-protocol ref=windows-pipe-client-transport
+    const localPath = options.remoteUrl === undefined
+      ? options.socketPath ?? localSocketPath(options.dataDir)
+      : undefined;
+    const wsOptions: WebSocket.ClientOptions = {};
+    if (localPath !== undefined && isPipePath(localPath)) {
+      wsOptions.createConnection = (connectOptions) => {
+        const normalized = {
+          ...(connectOptions as unknown as Record<string, unknown>),
+        };
+        for (const key of ['socketPath', 'path']) {
+          const value = normalized[key];
+          if (typeof value === 'string' && value.startsWith('/\\\\.\\pipe\\')) {
+            normalized[key] = value.slice(1);
+          }
+        }
+        return netConnect(normalized as never);
+      };
+    }
+    const socket = new WebSocket(transportUrl(options), wsOptions);
+    // harn:end windows-named-pipe-shares-local-websocket-protocol
     const timeoutMs = options.timeoutMs ?? 5_000;
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {

@@ -30,6 +30,7 @@ import { constantTimeEqual, hashTranscript } from './crypto/challenge.js';
 import type { CryptoVault, PairingRequest } from './crypto/pairing.js';
 import { type Daemon, MAX_ATTACHMENT_BYTES } from './daemon.js';
 import { listLocalDirectories, LocalDirectoryError } from './local-dirs.js';
+import { isPipePath } from './local-socket.js';
 import type { PushSubscriptionStore } from './push/subscriptions.js';
 
 export interface ServerOptions {
@@ -125,15 +126,21 @@ async function prepareSocketPath(socketPath: string): Promise<void> {
 }
 
 async function listenUnix(server: HttpServer, socketPath: string): Promise<void> {
-  await prepareSocketPath(socketPath);
+  // harn:assume windows-named-pipe-shares-local-websocket-protocol ref=windows-pipe-server-listener
+  // A named pipe has no filesystem entry to prepare or chmod. Windows applies the
+  // creating user's default pipe security descriptor; tokenless local admission
+  // therefore still depends on the OS endpoint being unwritable by other profiles.
+  const pipe = isPipePath(socketPath);
+  if (!pipe) await prepareSocketPath(socketPath);
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(socketPath, () => {
       server.off('error', reject);
-      chmodSync(socketPath, 0o600);
+      if (!pipe) chmodSync(socketPath, 0o600);
       resolve();
     });
   });
+  // harn:end windows-named-pipe-shares-local-websocket-protocol
 }
 
 /**
