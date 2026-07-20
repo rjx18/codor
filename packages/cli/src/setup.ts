@@ -16,7 +16,7 @@ import { CryptoVault, pairingUrl } from '@codor/switchboard';
 
 import { renderTerminalQr } from './terminal-qr.js';
 
-const HARNESSES = ['claude', 'codex', 'opencode', 'gemini', 'copilot', 'cursor-agent'] as const;
+const HARNESSES = ['claude', 'codex', 'opencode', 'gemini', 'copilot', 'cursor-agent', 'agy'] as const;
 const LAUNCH_AGENT_LABEL = 'app.codor.switchboard';
 
 export interface SetupOverrides {

@@ -19,6 +19,7 @@ describe('adapter registry spawn controls', () => {
       adapter.capabilities.thinking,
       adapter.capabilities.thinking_levels,
     ])).toEqual([
+      ['antigravity', false, undefined],
       ['claude-code', true, ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']],
       ['codex', true, ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']],
       ['copilot', false, undefined],
@@ -41,7 +42,7 @@ describe('adapter registry spawn controls', () => {
 
   it('rejects thinking before delegating to unsupported adapters', async () => {
     const adapters = await loadAdapterRegistry();
-    for (const id of ['copilot', 'gemini']) {
+    for (const id of ['antigravity', 'copilot', 'gemini']) {
       const adapter = adapters.find((candidate) => candidate.id === id)!;
       expect(() => adapter.spawn({ cwd: '/work', thinking: 'high' })).toThrow(
         `adapter '${id}' does not support thinking levels`,
@@ -84,7 +85,7 @@ describe('the registry wrapper preserves the whole adapter contract', () => {
     const adapters = await loadAdapterRegistry();
     const answering = adapters.filter((adapter) => adapter.listModels !== undefined);
     expect(answering.map((adapter) => adapter.id).sort()).toEqual(
-      ['claude-code', 'codex', 'copilot', 'gemini', 'opencode'],
+      ['antigravity', 'claude-code', 'codex', 'copilot', 'gemini', 'opencode'],
     );
 
     const claude = adapters.find((adapter) => adapter.id === 'claude-code')!;
@@ -115,7 +116,8 @@ describe('the registry wrapper preserves the whole adapter contract', () => {
 
   it('carries every declared member of the contract through the wrapper', async () => {
     // Guards the next member somebody adds to HarnessAdapter and forgets here.
-    const [wrapped] = await loadAdapterRegistry();
+    const wrapped = (await loadAdapterRegistry())
+      .find((adapter) => adapter.id === 'claude-code')!;
     for (const member of [
       'id', 'capabilities', 'spawn', 'attach', 'deliver',
       'respondInteraction', 'interrupt', 'discoverSessions', 'listModels',

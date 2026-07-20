@@ -1,0 +1,12 @@
+id: antigravity-session-resume-is-log-derived
+hash: a-9cd88983613d
+title: Antigravity resume ids are recovered best-effort from the completed turn log
+state: active
+statement: After an agy print child closes, the adapter must read only that
+  turn's temporary log, select the last logged conversation UUID, notify and
+  persist it when it changes, remove the log on every exit path, and start fresh
+  when no UUID is recoverable, because agy does not emit a conversation id on
+  stdout and a guessed or stale id would resume the wrong conversation.
+depends_on:
+  - adapter-process-lifecycle-supervised
+created_by: antigravity-adapter

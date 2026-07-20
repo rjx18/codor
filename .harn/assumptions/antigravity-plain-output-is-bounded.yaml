@@ -1,0 +1,11 @@
+id: antigravity-plain-output-is-bounded
+hash: a-6e41552b2db8
+title: Antigravity plain-text output is bounded before it reaches run evidence
+state: active
+statement: The Antigravity adapter must retain and emit at most 256 KiB of UTF-8
+  assistant stdout per turn, preserve complete code points, and mark a truncated
+  terminal answer, because agy's print interface is unstructured and an
+  unbounded child must not grow daemon memory or produce an oversized run item.
+depends_on:
+  - adapter-process-lifecycle-supervised
+created_by: antigravity-adapter

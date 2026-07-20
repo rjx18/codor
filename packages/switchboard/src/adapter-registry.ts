@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { AntigravityAdapter } from '@codor/adapter-antigravity';
 import { ClaudeCodeAdapter } from '@codor/adapter-claude-code';
 import { CodexAdapter } from '@codor/adapter-codex';
 import { CopilotAdapter } from '@codor/adapter-copilot';
@@ -31,6 +32,7 @@ type AdapterFactory = () => HarnessAdapter;
 
 // harn:assume adapter-registry-sole-harness-source ref=configured-adapter-registry
 const builtinFactories = {
+  antigravity: () => new AntigravityAdapter(),
   'claude-code': () => new ClaudeCodeAdapter(),
   codex: () => new CodexAdapter(),
   copilot: () => new CopilotAdapter(),

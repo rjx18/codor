@@ -1,0 +1,192 @@
+id: antigravity-adapter
+title: Add Antigravity as a bounded, supervised, best-effort-resumable
+  first-party adapter
+notes: >-
+  Reconstruct the Antigravity portion of contributor PR #3 as an isolated
+  adapter unit. The adapter drives the documented agy print interface as one
+  cross-spawn child per turn, maps canonical policies to agy's plan,
+  accept-edits, and skip-permissions controls, rejects unsupported thinking,
+  inherits the member environment, discovers models locally with a fixed command
+  and timeout, and registers through the sole built-in registry. Since agy emits
+  human model names, the adapter exposes safe slugs and reverses them at spawn
+  time; slug collisions fail discovery rather than silently selecting the wrong
+  model. Plain stdout is bounded by UTF-8 bytes for both live deltas and
+  terminal evidence, preventing an unbounded native child from consuming daemon
+  memory. Resume remains explicitly best-effort: the last conversation UUID in
+  the per-turn log is promoted only after the child closes, and a missing or
+  changed log line starts a fresh conversation rather than inventing an id.
+  Setup discovers agy for the service PATH and web-next gives it a Google
+  identity tile. No protocol schema, browser epoch, pricing, public docs,
+  provider call, deploy, or daemon restart is in scope.
+
+  Acceptance is frozen install, adapter build and unit tests, registry and CLI
+  composition tests, web-next unit/build, full workspace build and unit suite,
+  Harn check/apply, and git diff checks. No authenticated agy binary is
+  available, so the CLI surface and log format remain contributor-supplied,
+  explicitly documented evidence rather than a live-provider verification.
+assumptions:
+  create:
+    - id: antigravity-plain-output-is-bounded
+      title: Antigravity plain-text output is bounded before it reaches run evidence
+      statement: The Antigravity adapter must retain and emit at most 256 KiB of UTF-8
+        assistant stdout per turn, preserve complete code points, and mark a
+        truncated terminal answer, because agy's print interface is unstructured
+        and an unbounded child must not grow daemon memory or produce an
+        oversized run item.
+      reason: Unlike structured adapters, agy exposes one plain stdout stream with no
+        upstream item boundary or size guarantee.
+      depends_on:
+        - adapter-process-lifecycle-supervised
+    - id: antigravity-session-resume-is-log-derived
+      title: Antigravity resume ids are recovered best-effort from the completed turn
+        log
+      statement: After an agy print child closes, the adapter must read only that
+        turn's temporary log, select the last logged conversation UUID, notify
+        and persist it when it changes, remove the log on every exit path, and
+        start fresh when no UUID is recoverable, because agy does not emit a
+        conversation id on stdout and a guessed or stale id would resume the
+        wrong conversation.
+      reason: The contributor's observed agy interface offers resume but exposes its
+        id only in verbose lifecycle logs.
+      depends_on:
+        - adapter-process-lifecycle-supervised
+  reviewed:
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Antigravity validates the three canonical policies, maps them to
+        documented agy arguments, and rejects thinking before spawning.
+    - id: harness-declares-what-a-policy-becomes
+      outcome: unchanged
+      reason: The adapter declares exactly the argv its policy mapper emits for all
+        three canonical policies.
+    - id: harness-declares-supported-thinking-levels
+      outcome: unchanged
+      reason: Antigravity truthfully declares thinking unsupported, while the registry
+        continues to reject any requested thinking level before delegation.
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: Antigravity runs agy models locally with a fixed argv and timeout,
+        reports discovered slugs, and retains the display-name mapping inside
+        the adapter.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: Antigravity observes spawn, error, stderr, stdout EOF, and close; it
+        classifies failure/interruption and owns process-group termination and
+        cleanup.
+    - id: adapter-children-inherit-session-env
+      outcome: unchanged
+      reason: The agy child merges session.env over process.env exactly like every
+        other first-party CLI adapter.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Antigravity is added once to the built-in factory registry and all CLI
+        and browser discovery continue to consume that registry.
+    - id: adapter-wrappers-preserve-the-whole-contract
+      outcome: unchanged
+      reason: Registry wrapping continues to preserve listModels and all adapter
+        methods for the new built-in.
+    - id: windows-cli-adapters-resolve-command-shims
+      outcome: unchanged
+      reason: Antigravity uses the same cross-spawn provider and process contract
+        already adopted for Windows command shims.
+    - id: cli-setup-wizard-installs-platform-user-service
+      outcome: unchanged
+      reason: Setup behavior is unchanged except that a discovered agy executable
+        directory joins the service PATH.
+    - id: windows-setup-installs-task-scheduler-service
+      outcome: unchanged
+      reason: The Windows service renderer is unchanged and receives the same
+        de-duplicated service PATH with agy included when installed.
+files:
+  - packages/adapters/antigravity/NOTES.md
+  - packages/adapters/antigravity/package.json
+  - packages/adapters/antigravity/src/adapter.ts
+  - packages/adapters/antigravity/src/adapter.spec.ts
+  - packages/adapters/antigravity/src/index.ts
+  - packages/adapters/antigravity/tsconfig.json
+  - packages/cli/src/setup.ts
+  - packages/switchboard/package.json
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+  - packages/web-next/src/room/AgentControls.tsx
+  - pnpm-lock.yaml
+anchors:
+  antigravity-plain-output-is-bounded:
+    antigravity-output-bound:
+      action: change
+      reason: Bound retained stdout and emitted deltas by UTF-8 bytes with explicit
+        terminal truncation.
+    antigravity-output-bound-regression:
+      action: change
+      reason: Pin Unicode-safe byte limits, truncation disclosure, and one terminal
+        event.
+  antigravity-session-resume-is-log-derived:
+    antigravity-log-resume:
+      action: change
+      reason: Recover the last UUID only after close and remove the per-turn log in
+        every exit path.
+    antigravity-resume-regression:
+      action: change
+      reason: Pin hook delivery, session mutation, last-id selection, and missing-log
+        fallback.
+  canonical-spawn-controls-enforced:
+    antigravity-spawn-control-mapping:
+      action: change
+      reason: Add the canonical policy mapper, argv builder, and thinking rejection.
+    antigravity-capability-map:
+      action: change
+      reason: Declare Antigravity's canonical spawn capabilities truthfully.
+    registry-spawn-control-validation:
+      action: change
+      reason: The sole registry validates the added built-in through the existing
+        wrapper.
+  harness-declares-what-a-policy-becomes:
+    antigravity-policy-declarations:
+      action: change
+      reason: Declare each canonical policy's exact agy native arguments.
+    adapter-policy-registry-validation:
+      action: change
+      reason: The registry applies its existing declaration checks to Antigravity.
+  harness-declares-supported-thinking-levels:
+    registry-thinking-level-regression:
+      action: change
+      reason: Add Antigravity to the exact built-in capability matrix as a harness
+        with thinking disabled and no accepted levels.
+  adapters-own-their-model-catalog:
+    antigravity-model-catalog-notes:
+      action: change
+      reason: Record the contributor-observed agy models interface and the
+        display-name/slug boundary.
+    antigravity-model-catalog:
+      action: change
+      reason: Discover models locally, reject slug collisions, and retain the
+        reversible display mapping.
+  adapter-process-lifecycle-supervised:
+    antigravity-cli-process-supervision:
+      action: change
+      reason: Add supervised spawn, output, close, interrupt, and cleanup behavior.
+  adapter-children-inherit-session-env:
+    antigravity-child-environment:
+      action: change
+      reason: Merge the member session environment into the agy child.
+    antigravity-env-regression:
+      action: change
+      reason: Prove a session-scoped environment value reaches the child.
+  adapter-registry-sole-harness-source:
+    configured-adapter-registry:
+      action: change
+      reason: Add one Antigravity built-in factory and package import.
+    registry-cli-composition:
+      action: change
+      reason: Existing CLI composition expectations gain the new built-in.
+    hardcoded-list-guard:
+      action: change
+      reason: The existing sole-import guard expects one additional adapter import in
+        the registry.
+  adapter-wrappers-preserve-the-whole-contract:
+    registry-wrapper-completeness:
+      action: change
+      reason: Registry wrapping must preserve Antigravity model discovery and
+        lifecycle methods.
+applied:
+  applied_at: 2026-07-20T16:52:42.627Z
