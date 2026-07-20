@@ -1,0 +1,30 @@
+id: release-version-0-10-0
+title: Align every existing workspace package at version 0.10.0.
+notes: Release metadata only. Bump the root and all existing workspace manifests
+  to 0.10.0, including the Cursor adapter added after the contributor branch was
+  opened. Dependency additions, documentation, Windows support, and the
+  Antigravity package are deliberately excluded into later commits.
+assumptions: {}
+anchors: {}
+files:
+  - package.json
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/codex/package.json
+  - packages/adapters/copilot/package.json
+  - packages/adapters/cursor/package.json
+  - packages/adapters/gemini/package.json
+  - packages/adapters/opencode/package.json
+  - packages/bridges/core/package.json
+  - packages/bridges/slack/package.json
+  - packages/bridges/telegram/package.json
+  - packages/cli/package.json
+  - packages/protocol/package.json
+  - packages/switchboard/package.json
+  - packages/web-next/package.json
+  - packages/web/package.json
+  - relay/package.json
+  - website/package.json
+verification: Confirm every tracked workspace manifest reports 0.10.0, run the
+  frozen install and workspace build, and verify no dependency fields changed.
+applied:
+  applied_at: 2026-07-20T16:19:36.136Z
