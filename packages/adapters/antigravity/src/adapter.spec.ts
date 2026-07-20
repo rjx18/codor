@@ -35,7 +35,7 @@ const logIdx = argv.indexOf('--log-file');
 if (logIdx !== -1) {
   fs.writeFileSync(argv[logIdx + 1], 'I0719 server.go:952] Stream goroutine exited for ${FIXTURE_CONVERSATION}, sending completion signal\\n');
 }
-process.stdout.write(${JSON.stringify(reply)});
+process.stdout.write(process.env.CODOR_FAKE_ECHO_ARGV ? argv.join('\\n') : ${JSON.stringify(reply)});
 process.exit(Number(process.env.CODOR_FAKE_EXIT ?? '0'));
 `;
   writeFileSync(path, source);
@@ -51,6 +51,7 @@ async function collect(adapter: AntigravityAdapter, session: Session, payload: s
 
 afterEach(() => {
   delete process.env.CODOR_FAKE_EXIT;
+  delete process.env.CODOR_FAKE_ECHO_ARGV;
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -143,12 +144,33 @@ describe('AntigravityAdapter subprocess and capability conformance', () => {
     expect(events.at(-1)).toMatchObject({ type: 'run.completed', status: 'failed' });
   });
 
-  it('discovers models from the agy models subcommand', async () => {
+  it('discovers models from the agy models subcommand, as slugs', async () => {
+    // The switchboard drops anything with a space in it, so the display names agy
+    // prints would vanish on the way to the dialog. See antigravitySlug.
     const adapter = new AntigravityAdapter(executable('unused'));
     await expect(adapter.listModels()).resolves.toEqual({
-      models: ['Gemini 3.5 Flash (High)', 'Gemini 3.1 Pro (High)'],
+      models: ['gemini-3.5-flash-high', 'gemini-3.1-pro-high'],
       source: 'discovered',
     });
+  });
+
+  it('spawns with the display name agy accepts, not the slug it advertised', async () => {
+    process.env.CODOR_FAKE_ECHO_ARGV = '1';
+    const adapter = new AntigravityAdapter(executable('unused'));
+    await adapter.listModels();
+    const session = adapter.spawn({ cwd: process.cwd(), model: 'gemini-3.5-flash-high' });
+    const events = await collect(adapter, session, 'hello');
+    const argv = String((events.at(-1) as { final_text?: string }).final_text).split('\n');
+    expect(argv[argv.indexOf('--model') + 1]).toBe('Gemini 3.5 Flash (High)');
+  });
+
+  it('passes an unknown model through for agy to reject itself', async () => {
+    process.env.CODOR_FAKE_ECHO_ARGV = '1';
+    const adapter = new AntigravityAdapter(executable('unused'));
+    const session = adapter.spawn({ cwd: process.cwd(), model: 'Some Custom Model' });
+    const events = await collect(adapter, session, 'hello');
+    const argv = String((events.at(-1) as { final_text?: string }).final_text).split('\n');
+    expect(argv[argv.indexOf('--model') + 1]).toBe('Some Custom Model');
   });
 
   it('declares resume without discovery and rejects interaction responses', async () => {

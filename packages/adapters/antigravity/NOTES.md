@@ -28,9 +28,19 @@ the model rather than passed as a separate flag (which is why `thinking: false` 
 | `gemini-3.5-flash`       | high, low, medium      |
 
 `agy models` also lists the Claude and GPT-OSS models Antigravity can route to. The adapter does
-**not** hard-code any of this: `listModels()` shells out to `agy models` at request time and
-returns whatever display names that build offers (`source: 'discovered'`), so a catalog change in
-a future `agy` needs no adapter change. The table here is the probe snapshot, not a source of truth.
+**not** hard-code any of this: `listModels()` shells out to `agy models` and returns whatever that
+build offers (`source: 'discovered'`), so a catalog change in a future `agy` needs no adapter
+change. The table here is the probe snapshot, not a source of truth.
+
+### Why the reported ids are slugs
+
+`agy` names its models for humans — `Gemini 3.5 Flash (Medium)` — and `--model` accepts nothing
+else (`model gemini-3.5-flash-medium is not recognized`). The switchboard, however, only promotes
+slug-shaped ids out of harness stdout, because a space is how a flag gets smuggled into an argv
+slot; a display name is dropped on the way to the dialog and the harness ends up with no models at
+all. So the adapter owns both halves of the mapping: `listModels()` reports
+`gemini-3.5-flash-medium` and `deliver()` translates it back to the display name before spawning.
+A model it cannot resolve is passed through untouched, for `agy` to accept or reject itself.
 
 ## Session resume — why the log is parsed
 
