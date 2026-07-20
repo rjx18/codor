@@ -40,6 +40,7 @@ const HARNESS: Record<string, { icon: typeof Cpu; vendor: string }> = {
   'claude-code': { icon: Sparkles, vendor: 'Anthropic' },
   codex: { icon: SquareTerminal, vendor: 'OpenAI' },
   gemini: { icon: Bot, vendor: 'Google' },
+  antigravity: { icon: Gauge, vendor: 'Google' },
   copilot: { icon: Cat, vendor: 'GitHub' },
   opencode: { icon: Terminal, vendor: 'open source' },
   pi: { icon: Terminal, vendor: 'open source' },
