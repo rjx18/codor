@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@fastify/static": "^9.3.0",
+    "@codor/adapter-antigravity": "workspace:*",
     "@codor/adapter-claude-code": "workspace:*",
     "@codor/adapter-codex": "workspace:*",
     "@codor/adapter-copilot": "workspace:*",

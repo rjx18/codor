@@ -23,6 +23,7 @@ describe('adapter registry spawn controls', () => {
       ['codex', true, ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']],
       ['copilot', false, undefined],
       ['gemini', false, undefined],
+      ['antigravity', false, undefined],
       ['opencode', true, ['low', 'medium', 'high']],
     ]);
   });
@@ -83,7 +84,7 @@ describe('the registry wrapper preserves the whole adapter contract', () => {
     const adapters = await loadAdapterRegistry();
     const answering = adapters.filter((adapter) => adapter.listModels !== undefined);
     expect(answering.map((adapter) => adapter.id).sort()).toEqual(
-      ['claude-code', 'codex', 'copilot', 'gemini', 'opencode'],
+      ['antigravity', 'claude-code', 'codex', 'copilot', 'gemini', 'opencode'],
     );
 
     const claude = adapters.find((adapter) => adapter.id === 'claude-code')!;

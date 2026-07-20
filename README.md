@@ -145,9 +145,14 @@ npm install -g pnpm@10.9.0
 Install and sign in to at least one supported agent:
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code/getting-started),
 [Codex](https://github.com/openai/codex),
-[Gemini](https://github.com/google-gemini/gemini-cli),
+[Antigravity](https://antigravity.google/docs/cli/getting-started) (`agy` — Google's successor
+to the retired Gemini CLI),
 [Copilot](https://docs.github.com/en/copilot/how-tos/copilot-cli/cli-getting-started), or
 [OpenCode](https://opencode.ai/docs/).
+
+The `gemini` adapter still ships for anyone with an existing Gemini CLI install, but that CLI
+is [deprecated](https://antigravity.google/docs/cli/getting-started); new setups should use
+Antigravity.
 
 </details>
 

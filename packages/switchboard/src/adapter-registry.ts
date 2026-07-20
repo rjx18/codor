@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { AntigravityAdapter } from '@codor/adapter-antigravity';
 import { ClaudeCodeAdapter } from '@codor/adapter-claude-code';
 import { CodexAdapter } from '@codor/adapter-codex';
 import { CopilotAdapter } from '@codor/adapter-copilot';
@@ -34,6 +35,7 @@ const builtinFactories = {
   codex: () => new CodexAdapter(),
   copilot: () => new CopilotAdapter(),
   gemini: () => new GeminiAdapter(),
+  antigravity: () => new AntigravityAdapter(),
   opencode: () => new OpenCodeAdapter(),
 } satisfies Record<string, AdapterFactory>;
 
