@@ -1,1 +1,1 @@
-../../docs/SELF-HOST.md
+<!--@include: ../../docs/SELF-HOST.md-->

@@ -1,1 +1,1 @@
-../../docs/VISION.md
+<!--@include: ../../docs/VISION.md-->

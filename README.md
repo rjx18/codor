@@ -36,6 +36,21 @@ background service, optionally enables Tailscale, and prints a one-time browser 
 - **Linux:** systemd user service.
 - **macOS:** LaunchAgent after login—no Terminal window needs to stay open.
 
+<!-- harn:assume windows-setup-installs-task-scheduler-service ref=readme-native-windows-service -->
+- **Windows (native):** hidden per-user Task Scheduler service—no WSL or open terminal required.
+
+  <!-- harn:assume windows-cli-installer-is-idempotent ref=readme-native-windows-installer -->
+  Run the Windows install from PowerShell instead:
+
+  ```powershell
+  pnpm install --frozen-lockfile
+  pnpm -r build
+  powershell -ExecutionPolicy Bypass -File scripts/install-cli.ps1
+  codor setup
+  ```
+  <!-- harn:end windows-cli-installer-is-idempotent -->
+<!-- harn:end windows-setup-installs-task-scheduler-service -->
+
 <!-- harn:assume wsl-setup-reaches-windows-loopback ref=readme-wsl-access -->
 **Windows with WSL2:** run setup inside WSL, then open the same `http://127.0.0.1:8137`
 address in your Windows browser.
@@ -71,10 +86,18 @@ volta install node@22
 npm install -g pnpm@10.9.0
 ```
 
+**Windows** (PowerShell)
+
+```powershell
+winget install Git.Git OpenJS.NodeJS.LTS
+npm install -g pnpm@10.9.0
+```
+
 Install and sign in to at least one supported agent:
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code/getting-started),
 [Codex](https://github.com/openai/codex),
 [Cursor](https://cursor.com/cli),
+[Antigravity](https://antigravity.google/docs/cli/getting-started) (`agy`),
 [Gemini](https://github.com/google-gemini/gemini-cli),
 [Copilot](https://docs.github.com/en/copilot/how-tos/copilot-cli/cli-getting-started), or
 [OpenCode](https://opencode.ai/docs/).

@@ -1,0 +1,111 @@
+id: windows-antigravity-docs
+title: Publish portable Windows and Antigravity setup documentation
+notes: "Finish the documentation portion of contributor PR #3 without
+  reproducing its broken symlink conversion. The public README gains a concise
+  native-Windows path alongside the existing Linux, macOS, and WSL paths; the
+  detailed self-host guide explains the Task Scheduler service, PowerShell
+  installer, named-pipe local transport, logs, and service commands; and the
+  supported agent list includes the repaired Antigravity adapter without
+  claiming a live provider verification. The eleven website documentation
+  mirrors become regular one-line VitePress include files, including VISION.md,
+  and the website verifier rejects symlinks, non-include bodies, and missing
+  canonical targets. LF checkout policy keeps generated and brand assets
+  byte-stable on Windows. The contributor's verbose CLAUDE.md and all-command
+  README expansion are intentionally omitted because CONTRIBUTING.md and the
+  existing concise README already carry the maintained workflow. No runtime
+  behavior, protocol epoch, daemon state, deploy, or provider call is in scope."
+assumptions:
+  create:
+    - id: website-doc-mirrors-are-portable-includes
+      title: Website documentation mirrors are portable regular include files
+      statement: Every Markdown entry under website/docs must be a regular file
+        containing exactly one VitePress include of an existing canonical file
+        under docs, and the website build must reject symlinks, dangling
+        targets, extra wrapper content, or a missing mirror, because Git
+        symlinks are not a portable documentation boundary on native Windows and
+        a malformed link can silently remove a public page or abort the release
+        build.
+      reason: Contributor pull request 3 attempted to replace symlinks by writing
+        through them, leaving ten mode-120000 entries whose targets were literal
+        HTML comments and breaking the website build.
+      depends_on:
+        - fresh-clone-install-proven-by-script
+  reviewed:
+    - id: windows-setup-installs-task-scheduler-service
+      outcome: unchanged
+      reason: Public instructions describe the implemented per-user task, token file,
+        absolute checkout, hidden wrapper, logs, and dry-run behavior.
+    - id: windows-cli-installer-is-idempotent
+      outcome: unchanged
+      reason: The Windows install path uses the checked-in PowerShell installer and
+        its stable per-user codor.cmd shim.
+    - id: windows-named-pipe-shares-local-websocket-protocol
+      outcome: unchanged
+      reason: The self-host guide names the data-directory-derived local pipe but does
+        not invent a second protocol or admission path.
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: The canonical self-host guide remains the full clean-clone contract and
+        the website now includes it through a verified regular-file mirror.
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: Every platform instruction continues to build and serve web-next; the
+        legacy web package is never presented as the application.
+    - id: wsl-setup-reaches-windows-loopback
+      outcome: unchanged
+      reason: Native Windows is additive; the existing WSL2 localhost guidance and
+        conditional wildcard bind contract remain byte-for-byte unchanged.
+files:
+  - .gitattributes
+  - README.md
+  - docs/SELF-HOST.md
+  - website/docs/ADAPTERS.md
+  - website/docs/ARCHITECTURE.md
+  - website/docs/BUSINESS.md
+  - website/docs/JOIN.md
+  - website/docs/PRIVACY.md
+  - website/docs/PROTOCOL.md
+  - website/docs/ROADMAP.md
+  - website/docs/ROLES.md
+  - website/docs/SELF-HOST.md
+  - website/docs/SETUP.md
+  - website/docs/VISION.md
+  - website/scripts/verify-site.mjs
+anchors:
+  website-doc-mirrors-are-portable-includes:
+    portable-doc-mirror-regression:
+      action: change
+      reason: Inspect every expected mirror with lstat, verify its exact include
+        directive, and prove the canonical target exists during the website
+        gate.
+  windows-setup-installs-task-scheduler-service:
+    readme-native-windows-service:
+      action: change
+      reason: Add the concise native-Windows setup and management path.
+    selfhost-native-windows-service:
+      action: change
+      reason: Document the detailed Task Scheduler service, logs, dry-run, and
+        lifecycle commands.
+  windows-cli-installer-is-idempotent:
+    readme-native-windows-installer:
+      action: change
+      reason: Use scripts/install-cli.ps1 as the public native-Windows install step.
+    selfhost-windows-cli-installer:
+      action: change
+      reason: Record the stable per-user codor.cmd shim and new-terminal PATH step.
+  windows-named-pipe-shares-local-websocket-protocol:
+    selfhost-windows-local-transport:
+      action: change
+      reason: Explain that native Windows replaces codor.sock with a deterministic
+        local named pipe while retaining the same browser endpoint.
+  fresh-clone-install-proven-by-script:
+    selfhost-guide:
+      action: change
+      reason: Expand the canonical guide to cover the repaired native-Windows path.
+  operator-launches-serve-web-next:
+    readme-current-web-client:
+      action: change
+      reason: Add Windows inside the existing supported-install region while retaining
+        web-next as the only deployed browser root.
+applied:
+  applied_at: 2026-07-20T16:57:30.597Z

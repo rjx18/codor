@@ -1,0 +1,2 @@
+# Generated assets and byte-for-byte verification must survive Windows checkouts.
+* text=auto eol=lf

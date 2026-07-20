@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, readFile } from 'node:fs/promises';
+import { access, lstat, readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 
 import { darkFirstAppearanceScript } from '../.vitepress/theme/appearance.mjs';
@@ -39,6 +39,24 @@ const selfHost = await readFile(
 assert.match(selfHost, /docs\/PRIVACY\.md/);
 assert.match(selfHost, /Bridged channels: the one deliberate exception/);
 assert.ok(!selfHost.includes(['github.com/', 'wire', 'room/', 'wire', 'room'].join('')));
+
+// harn:assume website-doc-mirrors-are-portable-includes ref=portable-doc-mirror-regression
+const mirroredDocs = [
+  'ADAPTERS', 'ARCHITECTURE', 'BUSINESS', 'JOIN', 'PRIVACY', 'PROTOCOL',
+  'ROADMAP', 'ROLES', 'SELF-HOST', 'SETUP', 'VISION',
+];
+for (const name of mirroredDocs) {
+  const mirror = new URL(`../docs/${name}.md`, import.meta.url);
+  const canonical = new URL(`../../docs/${name}.md`, import.meta.url);
+  assert.equal((await lstat(mirror)).isFile(), true, `${name}.md mirror must be a regular file`);
+  assert.equal(
+    await readFile(mirror, 'utf8'),
+    `<!--@include: ../../docs/${name}.md-->\n`,
+    `${name}.md mirror must contain exactly one canonical include`,
+  );
+  await access(canonical);
+}
+// harn:end website-doc-mirrors-are-portable-includes
 
 const userUnit = await readFile(
   new URL('../../packaging/systemd/codor.service', import.meta.url),

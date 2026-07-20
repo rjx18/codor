@@ -1,1 +1,1 @@
-../../docs/ARCHITECTURE.md
+<!--@include: ../../docs/ARCHITECTURE.md-->

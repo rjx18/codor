@@ -1,0 +1,13 @@
+id: website-doc-mirrors-are-portable-includes
+hash: a-76bf639f6d87
+title: Website documentation mirrors are portable regular include files
+state: active
+statement: Every Markdown entry under website/docs must be a regular file
+  containing exactly one VitePress include of an existing canonical file under
+  docs, and the website build must reject symlinks, dangling targets, extra
+  wrapper content, or a missing mirror, because Git symlinks are not a portable
+  documentation boundary on native Windows and a malformed link can silently
+  remove a public page or abort the release build.
+depends_on:
+  - fresh-clone-install-proven-by-script
+created_by: windows-antigravity-docs

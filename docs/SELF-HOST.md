@@ -7,7 +7,8 @@ machine. No hosted Codor component is required.
 <!-- harn:assume fresh-clone-install-proven-by-script ref=selfhost-guide -->
 ## Prerequisites
 
-- Linux or macOS with Node.js 22 or newer, `corepack`, Git, `curl`, and OpenSSL.
+- Linux, macOS, or native Windows with Node.js 22 or newer, Git, and pnpm 10.9.0.
+  Linux and macOS also need `curl` and OpenSSL for the manual paths below.
 - The harness CLIs you intend to use, installed and authenticated for the service user.
 - pnpm 10.9.0, selected by the repository's `packageManager` field through Corepack.
 - Optional: Tailscale for private HTTPS access from phones and other machines.
@@ -21,11 +22,10 @@ proxy you operate.
 Choose a stable directory and keep the Git checkout for upgrades:
 
 ```sh
-git clone <published-repository-url> ~/codor
+git clone https://github.com/rjx18/codor.git ~/codor
 cd ~/codor
-corepack enable
-corepack pnpm install --frozen-lockfile
-corepack pnpm -r build
+pnpm install --frozen-lockfile
+pnpm -r build
 scripts/install-cli.sh
 ```
 
@@ -35,9 +35,8 @@ service, and the generated macOS LaunchAgent point there directly. Do not serve 
 `packages/web/dist`; that workspace is legacy and is not the installed application.
 <!-- harn:end operator-launches-serve-web-next -->
 
-Until the public repository URL exists, clone the local checkout with
-`git clone file:///absolute/path/to/codor ~/codor`. The fresh-install test uses that exact
-transport so it cannot borrow `node_modules`, build output, or untracked files.
+The fresh-install test clones the selected repository ref over a local file URL so it cannot
+borrow `node_modules`, build output, or untracked files from the working tree.
 
 As an alternative to the install script, run
 `corepack pnpm --filter @codor/cli link --global`.
@@ -59,9 +58,10 @@ The wizard asks before each mutating step. It creates `~/.config/codor` and `~/.
 
 Both services use the absolute current Node executable. Their explicit `PATH` includes
 `~/.local/bin`, the Node bin directory, and the directory of every detected `claude`, `codex`,
-`opencode`, `gemini`, or `copilot` executable, so nvm and shell-only harness installs remain visible
-outside an interactive shell. The wizard then offers to enable the service, publish loopback
-through Tailscale Serve, and generate a ten-minute pairing URL plus a compact terminal QR.
+`cursor-agent`, `agy`, `opencode`, `gemini`, or `copilot` executable, so nvm and shell-only harness
+installs remain visible outside an interactive shell. The wizard then offers to enable the service,
+publish loopback through Tailscale Serve, and generate a ten-minute pairing URL plus a compact
+terminal QR.
 
 Preview the complete action list and generated service content without writing files or invoking
 system commands:
@@ -153,6 +153,46 @@ launchctl kickstart -k "gui/$(id -u)/app.codor.switchboard"
 
 Do not install it as a root LaunchDaemon: that would change which home directory, project files,
 and authenticated harness state the agents can access.
+
+<!-- harn:assume windows-setup-installs-task-scheduler-service ref=selfhost-native-windows-service -->
+## Native Windows setup wizard
+
+From the repository folder in PowerShell, install the built CLI and run the same setup wizard:
+
+<!-- harn:assume windows-cli-installer-is-idempotent ref=selfhost-windows-cli-installer -->
+```powershell
+pnpm install --frozen-lockfile
+pnpm -r build
+powershell -ExecutionPolicy Bypass -File scripts/install-cli.ps1
+```
+
+The installer writes one stable `codor.cmd` shim under `%USERPROFILE%\.local\bin` and adds that
+directory to the user PATH once. Open a new PowerShell window after the first install, then run:
+
+```powershell
+codor setup
+```
+<!-- harn:end windows-cli-installer-is-idempotent -->
+
+The wizard asks before it mutates the machine. It creates the private data and token paths, limits
+the token ACL to the current user, and registers a hidden per-user Task Scheduler logon task named
+`Codor Switchboard`. The task runs the built CLI and `packages/web-next/dist` from this checkout
+using absolute paths. Preview every action first with `codor setup --dry-run`.
+
+```powershell
+schtasks /Query /TN "Codor Switchboard"
+schtasks /Run /TN "Codor Switchboard"
+schtasks /End /TN "Codor Switchboard"
+```
+
+Logs are written to `%USERPROFILE%\.codor\logs\codor.out.log` and `codor.err.log`.
+
+<!-- harn:assume windows-named-pipe-shares-local-websocket-protocol ref=selfhost-windows-local-transport -->
+Native Windows uses a local named pipe derived from the resolved data directory in place of
+`codor.sock`. This changes only the local CLI transport: the browser still opens
+<http://127.0.0.1:8137>, and the wire protocol is unchanged.
+<!-- harn:end windows-named-pipe-shares-local-websocket-protocol -->
+<!-- harn:end windows-setup-installs-task-scheduler-service -->
 
 For development diagnostics only, the single repository-relative fallback is
 `node packages/cli/dist/index.js --help`; installed operation should use `codor`.

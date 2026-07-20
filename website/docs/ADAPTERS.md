@@ -1,1 +1,1 @@
-../../docs/ADAPTERS.md
+<!--@include: ../../docs/ADAPTERS.md-->
