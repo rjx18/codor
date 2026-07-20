@@ -31,7 +31,7 @@ test.describe('Tier-1: spawn payload', () => {
     await openRoom(page);
     const dialog = await openSpawn(page);
     // cwd arrives prefilled by inheritance; the operator retyped it before.
-    const cwd = await dialog.getByTestId('spawn-cwd').inputValue();
+    const cwd = await dialog.getByTestId('spawn-folder-typed').inputValue();
     expect(cwd).not.toBe('');
 
     await dialog.getByTestId('spawn-handle').fill('policyprobe');
@@ -47,7 +47,7 @@ test.describe('Tier-1: spawn payload', () => {
     await openRoom(page);
     const dialog = await openSpawn(page);
     await dialog.getByTestId('spawn-handle').fill('enterling');
-    await dialog.getByTestId('spawn-cwd').press('Enter');
+    await dialog.getByTestId('spawn-folder-typed').press('Enter');
     await expect(page.getByTestId('member-enterling')).toBeVisible({ timeout: 15_000 });
   });
 
@@ -76,13 +76,13 @@ test.describe('Tier-1: spawn payload', () => {
   test('reopening recomputes the inherited cwd rather than keeping stale state', async ({ page }) => {
     await openRoom(page);
     let dialog = await openSpawn(page);
-    const first = await dialog.getByTestId('spawn-cwd').inputValue();
-    await dialog.getByTestId('spawn-cwd').fill('/tmp/typed-over');
+    const first = await dialog.getByTestId('spawn-folder-typed').inputValue();
+    await dialog.getByTestId('spawn-folder-typed').fill('/tmp/typed-over');
     await dialog.getByTestId('spawn-close').click();
     await expect(page.getByTestId('spawn-dialog')).toBeHidden();
 
     dialog = await openSpawn(page);
-    await expect(dialog.getByTestId('spawn-cwd')).toHaveValue(first);
+    await expect(dialog.getByTestId('spawn-folder-typed')).toHaveValue(first);
   });
 });
 
@@ -96,13 +96,13 @@ test.describe('Tier-1 #5: a failed spawn stays visible and recoverable', () => {
     // failure that does not depend on client validation working.
     await dialog.getByTestId('spawn-handle').fill('all');
     await expect(dialog.getByTestId('spawn-handle')).toHaveJSProperty('validity.valid', true);
-    const cwd = await dialog.getByTestId('spawn-cwd').inputValue();
+    const cwd = await dialog.getByTestId('spawn-folder-typed').inputValue();
     await dialog.getByTestId('spawn-go').click();
 
     await expect(page.getByTestId('spawn-dialog')).toBeVisible();
     await expect(dialog.getByTestId('spawn-error')).toBeVisible({ timeout: 15_000 });
     await expect(dialog.getByTestId('spawn-go')).toBeEnabled();
-    await expect(dialog.getByTestId('spawn-cwd')).toHaveValue(cwd);
+    await expect(dialog.getByTestId('spawn-folder-typed')).toHaveValue(cwd);
   });
 
   test('a successful spawn closes the dialog only when the submitted handle arrives', async ({ page }) => {
@@ -166,7 +166,9 @@ test.describe('Tier-1: rendered reconciliation and validation', () => {
     // The fixture harness reports no thinking support, so the group is disabled
     // and the default stays selected — the absence is stated, not hidden.
     await expect(dialog.getByTestId('spawn-thinking-unsupported')).toBeVisible();
-    await expect(dialog.getByTestId('spawn-thinking-default')).toHaveAttribute('aria-pressed', 'true');
+    // No slider at all for a harness that declares no levels — the absence is the
+    // information, and there is nothing to arm by accident.
+    await expect(dialog.getByTestId('spawn-thinking-slider')).toHaveCount(0);
   });
 
   test('a preset arms only what the harness accepts, and fills the visible fields', async ({ page }) => {
@@ -175,9 +177,9 @@ test.describe('Tier-1: rendered reconciliation and validation', () => {
     await dialog.getByTestId('spawn-preset-writer').click();
     await expect(dialog.getByTestId('spawn-handle')).toHaveValue(/writer/);
     await expect(dialog.getByTestId('spawn-policy-workspace-write')).toHaveAttribute('aria-pressed', 'true');
-    // Writer asks for `low`; this harness supports no levels, so it stays default
-    // rather than arming a value that would be rejected.
-    await expect(dialog.getByTestId('spawn-thinking-default')).toHaveAttribute('aria-pressed', 'true');
+    // Writer asks for `low`; this harness supports no levels, so nothing is armed
+    // rather than a value that would be rejected.
+    await expect(dialog.getByTestId('spawn-thinking-slider')).toHaveCount(0);
   });
 
   test('a handle colliding with the channel owner is blocked, unconditionally', async ({ page }) => {
@@ -200,8 +202,9 @@ test.describe('Tier-1: rendered reconciliation and validation', () => {
 
     // thinky declares its own levels; fake supports none.
     await dialog.getByTestId('spawn-harness-thinky').click();
-    await dialog.getByTestId('spawn-thinking-xhigh').click();
-    await expect(dialog.getByTestId('spawn-thinking-xhigh')).toHaveAttribute('aria-pressed', 'true');
+    // The slider's stops are adapter-declared: Default, then thinky's four levels.
+    await dialog.getByTestId('spawn-thinking-range').fill('4');
+    await expect(dialog.getByTestId('spawn-thinking-value')).toHaveText('xhigh');
 
     // thinky defers read-only entirely — null mapping, so the choice changes
     // nothing and the operator must be told.
@@ -210,7 +213,9 @@ test.describe('Tier-1: rendered reconciliation and validation', () => {
 
     await dialog.getByTestId('spawn-harness-fake').click();
     await expect(dialog.getByTestId('spawn-thinking-unsupported')).toBeVisible();
-    await expect(dialog.getByTestId('spawn-thinking-default')).toHaveAttribute('aria-pressed', 'true');
+    // No slider at all for a harness that declares no levels — the absence is the
+    // information, and there is nothing to arm by accident.
+    await expect(dialog.getByTestId('spawn-thinking-slider')).toHaveCount(0);
     await expect(dialog.getByTestId('spawn-policy-deferred')).toBeHidden();
   });
 
@@ -284,6 +289,73 @@ test.describe('the "None" state means none', () => {
   });
 });
 
+test.describe('v2 controls', () => {
+  test('the thinking slider is adapter-sourced and rides its stops', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    await dialog.getByTestId('spawn-harness-thinky').click();
+
+    const range = dialog.getByTestId('spawn-thinking-range');
+    // thinky declares four levels, so the stops are Default + 4 — never the
+    // reference's hardcoded seven.
+    await expect(range).toHaveAttribute('max', '4');
+    await expect(dialog.getByTestId('spawn-thinking-value')).toHaveText('Default');
+
+    await range.fill('1');
+    await expect(dialog.getByTestId('spawn-thinking-value')).toHaveText('low');
+    await range.fill('4');
+    await expect(dialog.getByTestId('spawn-thinking-value')).toHaveText('xhigh');
+
+    // Keyboard reaches it, and the accessible value tracks the visible one.
+    await range.focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(dialog.getByTestId('spawn-thinking-value')).toHaveText('high');
+    await expect(range).toHaveAttribute('aria-valuetext', 'high');
+  });
+
+  test('the model list searches, selects, and still takes a custom id', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    // The fixture harnesses report no catalogue, so the free-text escape is the
+    // whole control — and it must still accept an off-catalogue id.
+    await dialog.getByTestId('spawn-model-input').fill('some-exact-model');
+    await expect(dialog.getByTestId('spawn-model-input')).toHaveValue('some-exact-model');
+    // Switching harness clears it, because model ids are harness-specific.
+    await dialog.getByTestId('spawn-harness-thinky').click();
+    await expect(dialog.getByTestId('spawn-model-input')).toHaveValue('');
+  });
+
+  test('the inline folder picker selects without committing while browsing', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    const picker = dialog.getByTestId('spawn-folder-picker');
+    await expect(picker).toBeVisible();
+
+    const before = await dialog.getByTestId('spawn-folder-typed').inputValue();
+    // Navigating up must not change the selection — only choosing a row does.
+    const up = dialog.getByTestId('spawn-folder-up');
+    if (await up.count() > 0) {
+      await up.click();
+      await expect(dialog.getByTestId('spawn-folder-typed')).toHaveValue(before);
+    }
+    const dir = picker.getByTestId(/^spawn-folder-(?!picker|typed|hidden|up|refresh|parent|selected)/).first();
+    if (await dir.count() > 0) {
+      await dir.click();
+      await expect(dialog.getByTestId('spawn-folder-typed')).not.toHaveValue(before);
+      await expect(dir).toHaveAttribute('aria-pressed', 'true');
+    }
+  });
+
+  test('hidden folders can be revealed', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    const toggle = dialog.getByTestId('spawn-folder-hidden');
+    await expect(toggle).not.toBeChecked();
+    await toggle.check();
+    await expect(toggle).toBeChecked();
+  });
+});
+
 test.describe('all three dialogs share one control', () => {
   test('spawn, create and configure each render the shared groups', async ({ page }) => {
     // The regression this guards: three hand-rolled forms that drifted apart from
@@ -292,14 +364,14 @@ test.describe('all three dialogs share one control', () => {
 
     const spawn = await openSpawn(page);
     await expect(spawn.getByTestId('spawn-policy-read-only')).toBeVisible();
-    await expect(spawn.getByTestId('spawn-thinking-default')).toBeVisible();
+    await expect(spawn.getByTestId('spawn-policy-read-only')).toBeVisible();
     await spawn.getByTestId('spawn-close').click();
 
     await page.getByTestId('create-room').click();
     const create = page.getByTestId('create-channel-dialog');
     await create.getByTestId('create-harness-fake').click();
     await expect(create.getByTestId('create-policy-read-only')).toBeVisible();
-    await expect(create.getByTestId('create-thinking-default')).toBeVisible();
+    await expect(create.getByTestId('create-policy-read-only')).toBeVisible();
     await create.getByTestId('create-close').click();
   });
 });
@@ -332,7 +404,7 @@ test.describe('accessibility', () => {
     await expect(dialog).toBeVisible();
     // Same shared groups as the other two dialogs.
     await expect(dialog.getByTestId('configure-policy-read-only')).toBeVisible();
-    await expect(dialog.getByTestId('configure-thinking-default')).toBeVisible();
+    await expect(dialog.getByTestId('configure-policy-read-only')).toBeVisible();
 
     for (const theme of ['light', 'dark']) {
       await page.evaluate((t) => { document.documentElement.dataset.theme = t; }, theme);

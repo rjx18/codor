@@ -43,21 +43,17 @@ test.describe('channel creation', () => {
     // addresses the channel by.
     await expect(dialog.getByTestId('create-name').locator('..')).toContainText('id:');
 
-    await dialog.getByTestId('folder-open').click();
-    await expect(dialog.getByTestId('folder-picker')).toBeVisible();
+    // v2: the picker is inline — no Browse button, no separate confirm step.
+    const picker = dialog.getByTestId('create-folder-picker');
+    await expect(picker).toBeVisible();
 
-    // Browsing must not mutate the selection. Every navigation used to call
-    // onChange, so opening the picker to look around silently changed the
-    // channel's folder with no way back out.
-    const before = await dialog.getByTestId('folder-typed').inputValue();
-    const firstDir = dialog.getByTestId(/^folder-(?!open|picker|up|typed|hidden|use|crumb)/).first();
+    // Browsing must not commit. Selecting a row does.
+    const before = await dialog.getByTestId('create-folder-typed').inputValue();
+    const firstDir = picker.getByTestId(/^create-folder-(?!picker|typed|hidden|up|refresh|parent|selected)/).first();
     if (await firstDir.count() > 0) {
       await firstDir.click();
-      await expect(dialog.getByTestId('folder-typed')).not.toHaveValue(before);
+      await expect(dialog.getByTestId('create-folder-typed')).not.toHaveValue(before);
     }
-    // Only the explicit confirm commits it.
-    await dialog.getByTestId('folder-use').click();
-    await expect(dialog.getByTestId('folder-picker')).toBeHidden();
 
     await dialog.getByTestId('create-go').click();
     await expect(page.locator('.nx-chat-title h1')).toHaveText(name, { timeout: 10_000 });

@@ -1922,204 +1922,379 @@
 .nx-context-meter.is-estimated { opacity: 0.55; }
 /* harn:end member-context-window-meter-derived-from-last-usage */
 
-/* ── Shared agent controls ────────────────────────────────────────────────
-   Used identically by the spawn, channel-create and configure dialogs, so the
-   three surfaces cannot drift apart visually the way they drifted behaviourally.
-   Every value is a token; nothing here is a raw colour or size. */
 
-.nx-agent-controls {
-  display: grid;
-  gap: var(--sp-5);
-  margin: var(--sp-4) 0;
-}
 
-.nx-control-group {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
-}
-.nx-control-group > legend {
-  font: var(--t-eyebrow);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--c-faded);
-  padding: 0;
-  margin-bottom: var(--sp-2);
-}
-.nx-control-group[disabled] { opacity: 0.55; }
+/* ── Dialogs v2 ───────────────────────────────────────────────────────────
+   Selection is MONOCHROME — a light border, a raised fill and a filled check —
+   not the indigo of the first pass. Colour in these dialogs is reserved for
+   meaning (a deferred policy, an error), so it stops competing with selection. */
 
-.nx-control-note {
-  margin-top: var(--sp-2);
-  font: var(--t-caption);
-  color: var(--c-secondary);
-}
-.nx-control-note.is-warn { color: var(--c-warn-text); }
-
-/* Selectable tiles — the buttons that replaced four <select> menus. */
-.nx-tile-row {
+.nx-sec { margin-top: var(--sp-5); }
+.nx-sec:first-of-type { margin-top: var(--sp-3); }
+.nx-sec-head {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-}
-.nx-tile-row-scroll {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: var(--sp-1);
-}
-
-.nx-tile {
-  display: inline-flex;
   align-items: center;
-  gap: var(--sp-2);
-  /* 44px keeps every control a real touch target on a phone. */
-  min-height: 44px;
-  padding: var(--sp-2) var(--sp-3);
-  background: var(--c-surface);
-  color: var(--c-body);
-  border: 1px solid var(--c-line-strong);
-  border-radius: var(--r-control);
-  font: var(--t-ui);
-  cursor: pointer;
-  transition: border-color var(--m-fast) var(--m-ease), background var(--m-fast) var(--m-ease);
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
 }
-.nx-tile:hover { border-color: var(--c-ink); }
-.nx-tile[aria-pressed='true'] {
-  background: var(--c-agent-tint);
-  border-color: var(--c-agent);
-  color: var(--c-agent-text);
-}
-.nx-tile-name { font: var(--t-ui-strong); }
-.nx-tile-sub { font: var(--t-caption); color: var(--c-faded); }
-.nx-tile-badge {
-  padding: 1px var(--sp-2);
-  border-radius: var(--r-pill);
-  background: var(--c-warn-tint);
-  color: var(--c-warn-text);
+.nx-sec-n {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 6px;
+  background: var(--c-muted);
+  color: var(--c-faded);
   font: var(--t-mono-small);
 }
+.nx-sec-title {
+  margin: 0;
+  font: var(--t-eyebrow);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-secondary);
+}
+.nx-sec-rule { flex: 1; height: 1px; background: var(--c-line); }
 
-/* Permission cards. The native mapping line is the safety-relevant part. */
-.nx-card-row {
+.nx-field { display: block; margin-bottom: var(--sp-4); }
+.nx-label {
+  display: block;
+  margin-bottom: var(--sp-2);
+  font: var(--t-ui-strong);
+  color: var(--c-ink);
+}
+.nx-opt { font: var(--t-caption); color: var(--c-faded); }
+.nx-note { font: var(--t-caption); color: var(--c-secondary); margin-top: var(--sp-2); }
+.nx-note.is-warn { color: var(--c-warn-text); }
+.nx-note.is-error { color: var(--c-error-text); }
+.nx-mono { font: var(--t-mono); }
+
+.nx-input {
+  width: 100%;
+  min-height: 42px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-muted);
+  color: var(--c-ink);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-control);
+  font: var(--t-ui);
+}
+.nx-input:focus-visible { outline: 2px solid var(--c-ink); outline-offset: -1px; }
+
+/* The shared selected-state check, top-right of any selectable surface. */
+.nx-check {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 17px;
+  height: 17px;
+  border-radius: var(--r-full);
+  background: var(--c-ink);
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity var(--m-fast) var(--m-ease), transform var(--m-fast) var(--m-ease);
+}
+.nx-check::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 4px;
+  height: 8px;
+  border: solid var(--c-surface);
+  border-width: 0 1.6px 1.6px 0;
+  transform: translateY(-1px) rotate(45deg);
+}
+[aria-pressed='true'] > .nx-check,
+[aria-selected='true'] > .nx-check { opacity: 1; transform: scale(1); }
+
+/* Harness tiles — a 3-up grid of icon over name. */
+.nx-harness-grid {
   display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--sp-2);
 }
-.nx-policy-card {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: start;
-  gap: var(--sp-1) var(--sp-3);
-  min-height: 44px;
-  padding: var(--sp-3);
-  text-align: left;
-  background: var(--c-surface);
-  border: 1px solid var(--c-line-strong);
+.nx-harness {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 78px;
+  padding: var(--sp-3) var(--sp-2);
+  background: var(--c-canvas);
+  color: var(--c-secondary);
+  border: 1px solid var(--c-line);
   border-radius: var(--r-card);
   cursor: pointer;
   transition: border-color var(--m-fast) var(--m-ease), background var(--m-fast) var(--m-ease);
 }
-.nx-policy-card:hover { border-color: var(--c-ink); }
-.nx-policy-card[aria-pressed='true'] {
-  background: var(--c-agent-tint);
-  border-color: var(--c-agent);
-}
-.nx-policy-card > svg { grid-row: 1 / span 3; color: var(--c-secondary); }
-.nx-policy-card[aria-pressed='true'] > svg { color: var(--c-agent-text); }
-.nx-policy-title { font: var(--t-ui-strong); color: var(--c-ink); }
-.nx-policy-blurb { font: var(--t-caption); color: var(--c-secondary); }
-.nx-policy-native { font: var(--t-mono-small); color: var(--c-faded); }
-/* A harness that does not distinguish this policy: the choice changes nothing. */
-.nx-policy-native.is-deferred { color: var(--c-warn-text); }
-
-.nx-input {
-  width: 100%;
-  min-height: 40px;
-  margin-top: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
-  background: var(--c-surface);
+.nx-harness:hover:not(:disabled) { border-color: var(--c-line-strong); }
+.nx-harness[aria-pressed='true'] {
+  background: var(--c-muted);
+  border-color: var(--c-ink);
   color: var(--c-ink);
-  border: 1px solid var(--c-line-strong);
+}
+.nx-harness:disabled { opacity: 0.5; cursor: not-allowed; }
+.nx-harness-name { font: var(--t-caption-strong); color: var(--c-ink); text-align: center; }
+.nx-harness-sub { font: var(--t-mono-small); color: var(--c-faded); }
+
+.nx-tile-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.nx-tile {
+  position: relative;
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  background: var(--c-canvas);
+  color: var(--c-body);
+  border: 1px solid var(--c-line);
   border-radius: var(--r-control);
   font: var(--t-ui);
+  cursor: pointer;
 }
-.nx-input:focus-visible { outline: 2px solid var(--c-agent); outline-offset: 1px; }
+.nx-tile:hover { border-color: var(--c-line-strong); }
+.nx-tile[aria-pressed='true'] { background: var(--c-muted); border-color: var(--c-ink); color: var(--c-ink); }
+.nx-tile.is-compact { min-height: 34px; font: var(--t-caption-strong); }
 
-.nx-dialog-sub {
-  margin: calc(-1 * var(--sp-2)) 0 var(--sp-4);
-  font: var(--t-caption);
-  color: var(--c-secondary);
-}
-.nx-field-error {
+/* Model list — searchable, scrollable, one row per model. */
+.nx-list {
+  max-height: 168px;
+  overflow-y: auto;
   margin-top: var(--sp-2);
-  font: var(--t-caption);
-  color: var(--c-error-text);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-control);
+  background: var(--c-canvas);
 }
-
-/* ── Channel-create extras ────────────────────────────────────────────────
-   The folder picker's breadcrumb trail and explicit confirm. Browsing must
-   not mutate the selection, so the picker ends in a deliberate action rather
-   than changing the channel's folder as you look. */
-
-.nx-crumbs {
+.nx-list-row {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
-  min-width: 0;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--sp-2) 30px var(--sp-2) var(--sp-3);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--c-line);
+  color: var(--c-body);
+  font: var(--t-ui);
+  text-align: left;
+  cursor: pointer;
 }
+.nx-list-row:last-child { border-bottom: 0; }
+.nx-list-row:hover { background: var(--c-muted); }
+.nx-list-row[aria-selected='true'] { background: var(--c-muted); color: var(--c-ink); }
+.nx-list-row > .nx-check { top: 50%; margin-top: -8px; }
+.nx-list-sub { font: var(--t-caption); color: var(--c-faded); }
+
+/* Thinking slider. The range input is the control; everything else is drawn. */
+.nx-slider { padding: 22px 2px 4px; }
+.nx-slider-rail { position: relative; height: 22px; }
+.nx-slider-rail::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 9px;
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--c-line);
+}
+.nx-slider-fill {
+  position: absolute;
+  left: 0; top: 9px;
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--c-ink);
+}
+.nx-slider-ticks {
+  position: absolute;
+  left: 0; right: 0; top: 6px;
+  display: flex;
+  justify-content: space-between;
+}
+.nx-slider-tick { width: 2px; height: 6px; border-radius: 1px; background: var(--c-line-strong); }
+.nx-slider-tick.is-on { background: var(--c-ink); }
+.nx-slider-tick[data-active='true'] { height: 10px; margin-top: -2px; }
+.nx-slider-knob {
+  position: absolute;
+  top: 4px;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  border-radius: var(--r-full);
+  background: var(--c-surface);
+  border: 2px solid var(--c-ink);
+  pointer-events: none;
+}
+.nx-slider-tip {
+  position: absolute;
+  top: -22px;
+  transform: translateX(-50%);
+  padding: 2px var(--sp-2);
+  border-radius: var(--r-pill);
+  background: var(--c-ink);
+  color: var(--c-surface);
+  font: var(--t-mono-small);
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* The real control: invisible, full-width, and still the thing you focus. */
+.nx-slider-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.nx-slider-input:focus-visible ~ .nx-slider-knob { outline: 2px solid var(--c-ink); outline-offset: 2px; }
+.nx-slider-input:disabled { cursor: not-allowed; }
+
+/* Permissions — three compact cards in one row, title only. */
+.nx-perm-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-2); }
+.nx-perm {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-height: 62px;
+  padding: var(--sp-3);
+  background: var(--c-canvas);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  color: var(--c-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+.nx-perm:hover { border-color: var(--c-line-strong); }
+.nx-perm[aria-pressed='true'] { background: var(--c-muted); border-color: var(--c-ink); color: var(--c-ink); }
+.nx-perm-title { font: var(--t-caption-strong); color: var(--c-ink); }
+.nx-perm-native { font: var(--t-mono-small); color: var(--c-faded); }
+.nx-perm-native.is-deferred { color: var(--c-warn-text); }
+
+/* Inline folder picker. */
+.nx-picker { border: 1px solid var(--c-line); border-radius: var(--r-control); overflow: hidden; }
+.nx-picker-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
+  background: var(--c-muted);
+  border-bottom: 1px solid var(--c-line);
+}
+.nx-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--sp-2);
+  border-radius: var(--r-pill);
+  background: var(--c-live-tint);
+  color: var(--c-live-text);
+  font: var(--t-mono-small);
+  white-space: nowrap;
+}
+.nx-crumbs { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; }
 .nx-crumbs > button {
-  min-height: 32px;
-  padding: 0 var(--sp-2);
+  padding: 2px var(--sp-2);
+  min-height: 28px;
   background: none;
   border: 0;
   border-radius: var(--r-pill);
-  color: var(--c-secondary);
+  color: var(--c-faded);
   font: var(--t-mono-small);
+  white-space: nowrap;
   cursor: pointer;
 }
-.nx-crumbs > button:hover { background: var(--c-muted); color: var(--c-ink); }
+.nx-crumbs > button:hover { color: var(--c-ink); background: var(--c-canvas); }
+.nx-crumbs > button.is-current { color: var(--c-ink); font-weight: 600; }
 .nx-crumbs > button + button::before { content: '/'; margin-right: var(--sp-2); color: var(--c-mark-faint); }
+.nx-picker-tools { display: flex; gap: 2px; }
+.nx-picker-tools > button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  background: none;
+  border: 0;
+  border-radius: var(--r-pill);
+  color: var(--c-faded);
+  cursor: pointer;
+}
+.nx-picker-tools > button:hover { color: var(--c-ink); background: var(--c-canvas); }
 
-.nx-folder-hidden {
+.nx-picker-list { max-height: 148px; overflow-y: auto; margin: 0; padding: var(--sp-1); list-style: none; }
+.nx-picker-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: 44px;
-  font: var(--t-caption);
-  color: var(--c-secondary);
+  width: 100%;
+  min-height: 34px;
+  padding: 0 30px 0 var(--sp-2);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  color: var(--c-body);
+  cursor: pointer;
 }
+.nx-picker-row:hover { background: var(--c-muted); }
+.nx-picker-row[aria-pressed='true'] { border-color: var(--c-ink); background: var(--c-muted); color: var(--c-ink); }
+.nx-picker-row > .nx-check { top: 50%; margin-top: -8px; right: 6px; }
+.nx-picker-row.is-up { color: var(--c-faded); }
 
-.nx-folder-confirm {
+.nx-picker-foot {
   display: flex;
-  justify-content: flex-end;
-  gap: var(--sp-2);
-  margin-top: var(--sp-3);
-}
-
-/* Dialog head: title block plus an explicit close, which all three dialogs lacked. */
-.nx-dialog-head {
-  display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: var(--sp-4);
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-muted);
+  border-top: 1px solid var(--c-line);
+  font: var(--t-caption);
+  color: var(--c-faded);
 }
+.nx-hidden-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; cursor: pointer; }
+.nx-picker-selected { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-picker-selected code { font: var(--t-mono-small); color: var(--c-ink); }
+.nx-picker .nx-input { border-radius: 0; border: 0; border-top: 1px solid var(--c-line); }
+
+.nx-dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
 .nx-dialog-close {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  margin: calc(-1 * var(--sp-2)) calc(-1 * var(--sp-2)) 0 0;
+  width: 34px;
+  height: 34px;
   flex: none;
-  background: none;
+  background: var(--c-muted);
   border: 0;
-  border-radius: var(--r-pill);
+  border-radius: var(--r-full);
   color: var(--c-secondary);
   cursor: pointer;
 }
-.nx-dialog-close:hover { background: var(--c-muted); color: var(--c-ink); }
+.nx-dialog-close:hover { color: var(--c-ink); }
+.nx-dialog-sub { margin: 2px 0 0; font: var(--t-caption); color: var(--c-secondary); }
+.nx-field-error { margin-top: var(--sp-2); font: var(--t-caption); color: var(--c-error-text); }
 
-/* Tile text stacks a name over its vendor/blurb, so harnesses and presets are
-   told apart by more than an icon. */
-.nx-tile-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+/* Colour swatches keep their own accent — this is the one place hue is the point. */
+.nx-swatch-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-2); }
+.nx-swatch { position: relative; width: 44px; height: 44px; padding: 0; background: none; border: 0; border-radius: var(--r-full); cursor: pointer; }
+.nx-swatch::after {
+  content: '';
+  position: absolute;
+  inset: 9px;
+  border-radius: var(--r-full);
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12);
+}
+.nx-swatch[aria-pressed='true']::after {
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12), 0 0 0 2px var(--c-surface), 0 0 0 4px var(--c-ink);
+}
+.nx-swatch:focus-visible { outline: 2px solid var(--c-ink); outline-offset: 2px; }
 
-.nx-field input:disabled { opacity: 0.55; cursor: not-allowed; }
+@media (max-width: 720px) {
+  .nx-harness-grid { grid-template-columns: repeat(2, 1fr); }
+  .nx-perm-row { grid-template-columns: 1fr; }
+  .nx-picker-bar { flex-wrap: wrap; }
+}

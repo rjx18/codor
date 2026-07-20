@@ -3,7 +3,8 @@ import { LoaderCircle, Minimize2, MoreVertical, Plus, Square, X } from 'lucide-r
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@legacy/api.js';
-import { AgentControls } from './AgentControls.js';
+import { AgentControls, Section } from './AgentControls.js';
+import { FolderPicker } from './FolderPicker.js';
 import {
   DEFAULT_POLICY,
   type AgentConfig,
@@ -174,6 +175,7 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
       {spawning && (
         <SpawnDialog
           adapters={adapters}
+          token={props.token}
           room={room}
           members={roster}
           pending={pendingHandle !== undefined}
@@ -556,6 +558,8 @@ function ConfigureDialog(props: {
           config={config}
           onChange={setConfig}
           lockHarness
+          behaviourSection={1}
+          permissionsSection={2}
           idPrefix="configure"
         />
         <div className="nx-dialog-actions">
@@ -569,6 +573,7 @@ function ConfigureDialog(props: {
 
 function SpawnDialog(props: {
   adapters: AdapterRegistration[];
+  token: () => string;
   room: Room | undefined;
   members: readonly Member[];
   onClose: () => void;
@@ -624,8 +629,9 @@ function SpawnDialog(props: {
           </button>
         </div>
 
+        <Section n={1} title="Identity">
         <label className="nx-field">
-          Handle
+          <span className="nx-label">Handle</span>
           {/* HANDLE_PATTERN's hyphen must stay escaped: HTML compiles `pattern`
               with the `v` flag, under which a bare `-` here is a syntax error —
               and an invalid pattern is silently ignored, so validation vanishes
@@ -647,16 +653,11 @@ function SpawnDialog(props: {
           </p>
         )}
 
-        <label className="nx-field">
-          Working directory
-          <input
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-            placeholder="/home/you/project"
-            required
-            data-testid="spawn-cwd"
-          />
-        </label>
+        <div className="nx-field">
+          <span className="nx-label">Working directory</span>
+          <FolderPicker token={props.token} value={cwd} onChange={setCwd} idPrefix="spawn" />
+        </div>
+        </Section>
 
         <AgentControls
           adapters={props.adapters}
@@ -675,11 +676,14 @@ function SpawnDialog(props: {
               setPurpose(applied.purpose);
             },
           }}
+          behaviourSection={2}
+          permissionsSection={3}
           idPrefix="spawn"
         />
 
+        <Section n={4} title="Purpose">
         <label className="nx-field">
-          Purpose (optional)
+          <span className="nx-label">Purpose <span className="nx-opt">· optional</span></span>
           <textarea
             value={purpose}
             rows={3}
@@ -688,6 +692,7 @@ function SpawnDialog(props: {
             data-testid="spawn-purpose"
           />
         </label>
+        </Section>
 
         {props.failure !== undefined && (
           // A failed spawn used to close the dialog silently, losing both the

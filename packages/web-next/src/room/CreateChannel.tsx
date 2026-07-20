@@ -1,6 +1,6 @@
 import type { Room } from '@codor/protocol';
 import { deriveAssignableHandle, deriveRoomId } from '@codor/protocol';
-import { ArrowUp, Folder, X } from 'lucide-react';
+import { Ban, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -10,7 +10,9 @@ import {
   type LocalDirectoryListing,
 } from '@legacy/api.js';
 
-import { AgentControls } from './AgentControls.js';
+import { AgentControls, Section } from './AgentControls.js';
+import { FolderPicker } from './FolderPicker.js';
+import { harnessLabel, harnessMark } from './harness-marks.js';
 import {
   DEFAULT_POLICY,
   type AgentConfig,
@@ -113,8 +115,9 @@ export function CreateChannelDialog(props: {
           <X size={16} aria-hidden="true" />
         </button>
       </div>
+      <Section n={1} title="Workspace">
       <label className="nx-field">
-        Name
+        <span className="nx-label">Name</span>
         <input
           value={name}
           required
@@ -128,38 +131,44 @@ export function CreateChannelDialog(props: {
         )}
       </label>
       <div className="nx-field">
-        Working folder (optional)
-        <FolderPicker token={props.token} value={cwd} onChange={setCwd} />
+        <span className="nx-label">Working folder <span className="nx-opt">· optional</span></span>
+        <FolderPicker token={props.token} value={cwd} onChange={setCwd} idPrefix="create" />
       </div>
+      </Section>
+      <Section n={2} title="Starting agent">
       <div className="nx-field">
-        Starting agent (optional)
-        <div className="nx-tile-row" role="group" aria-label="Starting agent">
+        <span className="nx-label">Harness <span className="nx-opt">· optional</span></span>
+        <div className="nx-harness-grid" role="group" aria-label="Starting agent">
           <button
             type="button"
-            className="nx-tile"
+            className="nx-harness"
             aria-pressed={agentHarness === ''}
             data-testid="create-harness-none"
-            onClick={() => setAgentConfig({ ...agentConfig, harness: '' })}
+            onClick={() => { setAgentConfig({ ...agentConfig, harness: '' }); }}
           >
-            None
+            <Ban size={22} aria-hidden="true" />
+            <span className="nx-harness-name">None</span>
+            <span className="nx-check" aria-hidden="true" />
           </button>
           {adapters.map((adapter: AdapterRegistration) => (
             <button
               key={adapter.id}
               type="button"
-              className="nx-tile"
+              className="nx-harness"
               aria-pressed={agentHarness === adapter.id}
               data-testid={`create-harness-${adapter.id}`}
-              onClick={() => setAgentConfig({ ...agentConfig, harness: adapter.id, model: '', thinking: '' })}
+              onClick={() => { setAgentConfig({ ...agentConfig, harness: adapter.id, model: '', thinking: '' }); }}
             >
-              {adapter.id}
+              {harnessMark(adapter.id)}
+              <span className="nx-harness-name">{harnessLabel(adapter.id)}</span>
+              <span className="nx-check" aria-hidden="true" />
             </button>
           ))}
         </div>
       </div>
       <>
           <label className="nx-field">
-            Agent name
+            <span className="nx-label">Agent name</span>
             {/* Disabled rather than unmounted elsewhere, so the dialog never jumps. */}
             {/* Disabled, never unmounted: unmounting made the dialog jump as the
                 harness changed, and hid the control instead of explaining it. */}
@@ -191,10 +200,18 @@ export function CreateChannelDialog(props: {
           {/* The same control the spawn and configure dialogs use, so a channel-seeded
               agent is configured exactly as thoroughly as a later one. */}
           {agentHarness !== '' && (
-            <AgentControls adapters={adapters} config={agentConfig} onChange={setAgentConfig}
-              hideHarness idPrefix="create" />
+            <AgentControls
+              adapters={adapters}
+              config={agentConfig}
+              onChange={setAgentConfig}
+              hideHarness
+              behaviourSection={3}
+              permissionsSection={4}
+              idPrefix="create"
+            />
           )}
       </>
+      </Section>
       {error !== undefined && <p className="nx-field-note is-error" role="alert">{error}</p>}
       <div className="nx-dialog-actions">
         <Button variant="quiet" type="button" onClick={props.onClose}>Cancel</Button>
@@ -208,97 +225,3 @@ export function CreateChannelDialog(props: {
 }
 
 /** Minimal directory browser over the daemon's home-contained listing. */
-function FolderPicker(props: { token: () => string; value: string; onChange: (path: string) => void }) {
-  const [listing, setListing] = useState<LocalDirectoryListing>();
-  const [browsing, setBrowsing] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [hidden, setHidden] = useState(false);
-  const [typed, setTyped] = useState('');
-
-  // Browsing no longer mutates the selection. Every navigation used to call
-  // onChange, so opening the picker to look around silently changed the channel's
-  // folder and there was no way back out of a partial browse.
-  const load = (path?: string, showHidden = hidden): void => {
-    void fetchLocalDirectories(path, showHidden, { token: props.token() })
-      .then((next) => { setListing(next); setTyped(next.path); setFailed(false); })
-      .catch(() => setFailed(true));
-  };
-
-  useEffect(() => {
-    if (browsing && listing === undefined && !failed) load(props.value === '' ? undefined : props.value);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [browsing]);
-
-  if (!browsing) {
-    return (
-      <button type="button" className="nx-folder-summary" data-testid="folder-open" onClick={() => setBrowsing(true)}>
-        <Folder size={15} aria-hidden="true" />
-        {props.value === '' ? 'Choose a folder…' : props.value}
-      </button>
-    );
-  }
-  if (failed) return <p className="nx-field-note is-error">Couldn’t list folders on this device.</p>;
-  if (listing === undefined) return <p className="nx-field-note">Loading folders…</p>;
-
-  // Clickable trail back to the root, rather than one step of "up" at a time.
-  const segments = listing.path.split('/').filter((part) => part !== '');
-  const crumbs = segments.map((name, index) => ({
-    name,
-    path: `/${segments.slice(0, index + 1).join('/')}`,
-  }));
-
-  return (
-    <div className="nx-folder-picker" data-testid="folder-picker">
-      <div className="nx-folder-path">
-        <nav className="nx-crumbs" aria-label="Folder path">
-          <button type="button" data-testid="folder-crumb-root" onClick={() => load('/')}>/</button>
-          {crumbs.map((crumb) => (
-            <button key={crumb.path} type="button" data-testid={`folder-crumb-${crumb.name}`}
-              onClick={() => load(crumb.path)}>{crumb.name}</button>
-          ))}
-        </nav>
-        {listing.parent !== null && (
-          <button type="button" className="nx-folder-up" data-testid="folder-up" onClick={() => load(listing.parent ?? undefined)}>
-            <ArrowUp size={13} aria-hidden="true" /> up
-          </button>
-        )}
-      </div>
-
-      <ul className="nx-folder-list">
-        {listing.dirs.length === 0 && <li className="nx-field-note">no subfolders</li>}
-        {listing.dirs.map((dir) => (
-          <li key={dir.path}>
-            <button type="button" data-testid={`folder-${dir.name}`} onClick={() => load(dir.path)}>
-              <Folder size={14} aria-hidden="true" /> {dir.name}
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      <label className="nx-folder-hidden">
-        {/* Without this, ~/.config and every other dotfile directory is unreachable. */}
-        <input type="checkbox" checked={hidden} data-testid="folder-hidden"
-          onChange={(e) => { setHidden(e.target.checked); load(listing.path, e.target.checked); }} />
-        Show hidden folders
-      </label>
-
-      <label className="nx-field">
-        {/* A path outside the browsable tree — a mount, a symlink target — is
-            otherwise unreachable, because browsing is the only way in. */}
-        Or type a path
-        <input className="nx-input" value={typed} data-testid="folder-typed"
-          onChange={(e) => setTyped(e.target.value)}
-          placeholder="/home/you/project" />
-      </label>
-
-      <div className="nx-folder-confirm">
-        <Button variant="quiet" type="button" onClick={() => setBrowsing(false)}>Cancel</Button>
-        <Button variant="primary" type="button" data-testid="folder-use"
-          onClick={() => { props.onChange(typed.trim()); setBrowsing(false); }}>
-          Use this folder
-        </Button>
-      </div>
-      <p className="nx-field-note">selected <Code>{typed}</Code></p>
-    </div>
-  );
-}

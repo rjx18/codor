@@ -67,7 +67,7 @@ test.describe('spawn dialog', () => {
     expect(focusInside).toBe(true);
 
     await dialog.getByTestId('spawn-handle').fill('nova');
-    await dialog.getByTestId('spawn-cwd').fill('/tmp');
+    await dialog.getByTestId('spawn-folder-typed').fill('/tmp');
     await expect(dialog.getByTestId('spawn-go')).toBeEnabled();
     await dialog.getByTestId('spawn-go').click();
     await expect(page.getByTestId('member-nova')).toBeVisible();
@@ -95,7 +95,7 @@ test.describe('spawn before adapter discovery', () => {
 
     // Fill everything a human can fill while the harness list is still absent.
     await dialog.getByTestId('spawn-handle').fill('lateling');
-    await dialog.getByTestId('spawn-cwd').fill('/tmp');
+    await dialog.getByTestId('spawn-folder-typed').fill('/tmp');
     await expect(dialog.getByTestId('spawn-go')).toBeDisabled();
 
     holding = false;
