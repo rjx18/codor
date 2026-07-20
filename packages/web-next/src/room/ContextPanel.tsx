@@ -176,6 +176,7 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
         <SpawnDialog
           adapters={adapters}
           token={props.token}
+          roomId={props.room}
           room={room}
           members={roster}
           pending={pendingHandle !== undefined}
@@ -553,6 +554,7 @@ function ConfigureDialog(props: {
             <X size={16} aria-hidden="true" />
           </button>
         </div>
+        <div className="nx-dialog-body">
         <AgentControls
           adapters={props.adapters}
           config={config}
@@ -562,6 +564,7 @@ function ConfigureDialog(props: {
           permissionsSection={2}
           idPrefix="configure"
         />
+        </div>
         <div className="nx-dialog-actions">
           <Button variant="quiet" type="button" onClick={props.onClose}>Cancel</Button>
           <Button variant="primary" type="submit" data-testid="configure-go">Save</Button>
@@ -574,6 +577,7 @@ function ConfigureDialog(props: {
 function SpawnDialog(props: {
   adapters: AdapterRegistration[];
   token: () => string;
+  roomId: string;
   room: Room | undefined;
   members: readonly Member[];
   onClose: () => void;
@@ -621,7 +625,7 @@ function SpawnDialog(props: {
         <div className="nx-dialog-head">
           <div>
             <h2 className="nx-dialog-title">Spawn agent</h2>
-            <p className="nx-dialog-sub">Choose a harness and how much autonomy it gets.</p>
+            <p className="nx-dialog-sub">Into <code className="nx-mono">#{props.room?.name ?? props.roomId}</code></p>
           </div>
           <button type="button" className="nx-dialog-close" aria-label="Close spawn agent"
             data-testid="spawn-close" onClick={props.onClose}>
@@ -629,6 +633,7 @@ function SpawnDialog(props: {
           </button>
         </div>
 
+        <div className="nx-dialog-body">
         <Section n={1} title="Identity">
         <label className="nx-field">
           <span className="nx-label">Handle</span>
@@ -699,6 +704,8 @@ function SpawnDialog(props: {
           // error and everything the operator had typed.
           <p className="nx-field-error" role="alert" data-testid="spawn-error">{props.failure}</p>
         )}
+
+        </div>
 
         <div className="nx-dialog-actions">
           <Button variant="quiet" type="button" onClick={props.onClose}>Cancel</Button>

@@ -338,12 +338,19 @@ test.describe('v2 controls', () => {
       await up.click();
       await expect(dialog.getByTestId('spawn-folder-typed')).toHaveValue(before);
     }
-    const dir = picker.getByTestId(/^spawn-folder-(?!picker|typed|hidden|up|refresh|parent|selected)/).first();
-    if (await dir.count() > 0) {
-      await dir.click();
-      await expect(dialog.getByTestId('spawn-folder-typed')).not.toHaveValue(before);
-      await expect(dir).toHaveAttribute('aria-pressed', 'true');
-    }
+    // Select and Open are separate controls now — double-click carried "open"
+    // before, which no keyboard user can reach.
+    const dir = picker.getByTestId(/^spawn-folder-(?!picker|typed|hidden|up|refresh|parent|selected|retry)/).first();
+    await expect(dir).toBeVisible();
+    const name = (await dir.getAttribute('data-testid'))!.replace('spawn-folder-', '');
+    await dir.click();
+    await expect(dir).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByTestId('spawn-folder-typed')).not.toHaveValue(before);
+
+    // Opening descends without changing what is selected.
+    const selected = await dialog.getByTestId('spawn-folder-typed').inputValue();
+    await dialog.getByTestId(`spawn-open-${name}`).click();
+    await expect(dialog.getByTestId('spawn-folder-typed')).toHaveValue(selected);
   });
 
   test('hidden folders can be revealed', async ({ page }) => {

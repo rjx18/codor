@@ -102,7 +102,7 @@ export function CreateChannelDialog(props: {
   };
 
   return (
-    <Modal label="Create channel" onClose={props.onClose} testid="create-channel-dialog" wide>
+    <Modal label="Create channel" onClose={props.onClose} testid="create-channel-dialog">
       {/* Native form so Enter submits from any field. */}
       <form onSubmit={(event) => { event.preventDefault(); submit(); }}>
       <div className="nx-dialog-head">
@@ -115,6 +115,8 @@ export function CreateChannelDialog(props: {
           <X size={16} aria-hidden="true" />
         </button>
       </div>
+
+      <div className="nx-dialog-body">
       <Section n={1} title="Workspace">
       <label className="nx-field">
         <span className="nx-label">Name</span>
@@ -213,6 +215,7 @@ export function CreateChannelDialog(props: {
       </>
       </Section>
       {error !== undefined && <p className="nx-field-note is-error" role="alert">{error}</p>}
+      </div>
       <div className="nx-dialog-actions">
         <Button variant="quiet" type="button" onClick={props.onClose}>Cancel</Button>
         <Button variant="primary" type="submit" disabled={!canCreate} data-testid="create-go">

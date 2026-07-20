@@ -9,7 +9,7 @@
  * the picker to look around silently changed the channel's folder with no way
  * back out; the selection moves only when a row is chosen.
  */
-import { ArrowUp, CornerLeftUp, Folder, Monitor, RotateCw } from 'lucide-react';
+import { ArrowUp, ChevronRight, CornerLeftUp, Folder, Monitor, RotateCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { fetchLocalDirectories, type LocalDirectoryListing } from '@legacy/api.js';
@@ -45,7 +45,30 @@ export function FolderPicker(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (failed) return <p className="nx-note is-error">Couldn’t list folders on this device.</p>;
+  if (failed) {
+    // An error used to replace the whole control, stranding the operator with no
+    // retry and no way to type a path they already knew.
+    return (
+      <div className="nx-picker" data-testid={`${props.idPrefix}-folder-picker`}>
+        <div className="nx-picker-foot">
+          <span className="nx-note is-error">Couldn’t list folders on this device.</span>
+          <button type="button" className="nx-tile is-compact"
+            data-testid={`${props.idPrefix}-folder-retry`}
+            onClick={() => { setFailed(false); load(undefined, hidden, false); }}>
+            Retry
+          </button>
+        </div>
+        <input
+          className="nx-input"
+          value={props.value}
+          onChange={(e) => { props.onChange(e.target.value); }}
+          placeholder="or type a path"
+          aria-label="Folder path"
+          data-testid={`${props.idPrefix}-folder-typed`}
+        />
+      </div>
+    );
+  }
   if (listing === undefined) return <p className="nx-note">Loading folders…</p>;
 
   const segments = listing.path.split('/').filter((part) => part !== '');
@@ -108,20 +131,32 @@ export function FolderPicker(props: {
         {listing.dirs.length === 0 && <li className="nx-note">no subfolders</li>}
         {listing.dirs.map((dir) => (
           <li key={dir.path}>
-            <button
-              type="button"
-              className="nx-picker-row"
-              aria-pressed={props.value === dir.path}
-              data-testid={`${props.idPrefix}-folder-${dir.name}`}
-              // One click selects. Double-click descends, so browsing deeper and
-              // choosing where you are stay distinct actions.
-              onClick={() => { props.onChange(dir.path); }}
-              onDoubleClick={() => { load(dir.path); }}
-            >
-              <Folder size={14} aria-hidden="true" />
-              <span className="nx-mono">{dir.name}</span>
-              <span className="nx-check" aria-hidden="true" />
-            </button>
+            {/* Two distinct affordances, both keyboard- and touch-reachable:
+                the row selects, the chevron opens. Double-click carried the
+                "open" meaning before, which no keyboard user can reach and
+                touch fires unreliably. */}
+            <span className="nx-picker-pair">
+              <button
+                type="button"
+                className="nx-picker-row"
+                aria-pressed={props.value === dir.path}
+                data-testid={`${props.idPrefix}-folder-${dir.name}`}
+                onClick={() => { props.onChange(dir.path); }}
+              >
+                <Folder size={14} aria-hidden="true" />
+                <span className="nx-mono">{dir.name}</span>
+                <span className="nx-check" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="nx-picker-open"
+                aria-label={`Open ${dir.name}`}
+                data-testid={`${props.idPrefix}-open-${dir.name}`}
+                onClick={() => { load(dir.path); }}
+              >
+                <ChevronRight size={14} aria-hidden="true" />
+              </button>
+            </span>
           </li>
         ))}
       </ul>
@@ -138,9 +173,9 @@ export function FolderPicker(props: {
           Hidden
         </label>
         <span className="nx-picker-selected">
-          Selected <code data-testid={`${props.idPrefix}-folder-selected`}>
-            {props.value === '' ? listing.path : props.value}
-          </code>
+          {props.value === ''
+            ? <span data-testid={`${props.idPrefix}-folder-selected`}>No folder selected</span>
+            : <>Selected <code data-testid={`${props.idPrefix}-folder-selected`}>{props.value}</code></>}
         </span>
       </div>
 
