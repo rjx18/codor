@@ -49,6 +49,7 @@ import { ContinuationWriter, projectContinuationOutputs } from './continuation.j
 import type { LedgerGraph, LedgerManager } from './ledger/watch.js';
 import type { LedgerNote, LedgerWrite } from './ledger/vault.js';
 import type { HumanPushKind, HumanPushNotifier } from './push/producer.js';
+import { estimateCostUsd } from './pricing.js';
 import { redactValue } from './redact.js';
 import {
   RemoteAttemptAmbiguousError,
@@ -201,6 +202,7 @@ export interface MemberDetails {
     input_tokens: number;
     output_tokens: number;
     cost_usd: number;
+    estimated_cost_usd: number; // tokens-only harnesses priced from the model table
     uncosted_tokens: number;
   };
 }
@@ -1057,18 +1059,36 @@ export class Daemon {
           state: 'queued',
         }).length,
         spend: runs.reduce(
-          (total, message) => ({
-            turns: total.turns + 1,
-            input_tokens: total.input_tokens + (message.run?.usage?.input_tokens ?? 0),
-            output_tokens: total.output_tokens + (message.run?.usage?.output_tokens ?? 0),
-            cost_usd: total.cost_usd + (message.run?.usage?.cost_usd ?? 0),
-            uncosted_tokens:
-              total.uncosted_tokens +
-              (message.run?.usage !== undefined && message.run.usage.cost_usd === undefined
-                ? message.run.usage.input_tokens + message.run.usage.output_tokens
-                : 0),
-          }),
-          { turns: 0, input_tokens: 0, output_tokens: 0, cost_usd: 0, uncosted_tokens: 0 },
+          (total, message) => {
+            const usage = message.run?.usage;
+            // Self-reported cost wins. Otherwise estimate from tokens when the
+            // member's model has a known price; an unpriced model stays uncosted
+            // rather than being guessed.
+            const estimate =
+              usage !== undefined && usage.cost_usd === undefined
+                ? estimateCostUsd(member.model, usage)
+                : undefined;
+            return {
+              turns: total.turns + 1,
+              input_tokens: total.input_tokens + (usage?.input_tokens ?? 0),
+              output_tokens: total.output_tokens + (usage?.output_tokens ?? 0),
+              cost_usd: total.cost_usd + (usage?.cost_usd ?? 0),
+              estimated_cost_usd: total.estimated_cost_usd + (estimate ?? 0),
+              uncosted_tokens:
+                total.uncosted_tokens +
+                (usage !== undefined && usage.cost_usd === undefined && estimate === undefined
+                  ? usage.input_tokens + usage.output_tokens
+                  : 0),
+            };
+          },
+          {
+            turns: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost_usd: 0,
+            estimated_cost_usd: 0,
+            uncosted_tokens: 0,
+          },
         ),
       };
     });

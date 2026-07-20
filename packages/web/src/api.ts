@@ -28,6 +28,7 @@ export interface MemberDetail {
     input_tokens: number;
     output_tokens: number;
     cost_usd: number;
+    estimated_cost_usd?: number; // tokens-only harnesses priced from the model table
     uncosted_tokens?: number;
   };
 }

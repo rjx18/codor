@@ -219,6 +219,14 @@ function MemberCard(props: {
 
   const spend = detail?.spend;
   const tokens = spend !== undefined ? spend.input_tokens + spend.output_tokens : undefined;
+  // Self-reported cost wins; a tokens-only harness shows its price-table estimate
+  // flagged "est." so it is never mistaken for a real charge.
+  const spendLabel =
+    spend === undefined
+      ? undefined
+      : spend.cost_usd > 0 || (spend.estimated_cost_usd ?? 0) === 0
+        ? usd(spend.cost_usd)
+        : `~${usd(spend.estimated_cost_usd ?? 0)} est.`;
 
   // Compaction is a round trip to the engine with no run to watch, so the card
   // owns the only evidence the operator has that their click did anything. It
@@ -350,7 +358,7 @@ function MemberCard(props: {
       {member.kind === 'agent' && (spend !== undefined || (detail?.queued_count ?? 0) > 0) && (
         <p className="nx-member-meter">
           {tokens !== undefined ? `${compactCount(tokens)} tokens` : ''}
-          {spend !== undefined ? ` · ${usd(spend.cost_usd)} · ${spend.turns} turns` : ''}
+          {spend !== undefined ? ` · ${spendLabel} · ${spend.turns} turns` : ''}
           {(detail?.queued_count ?? 0) > 0 ? ` · ${detail?.queued_count} queued` : ''}
         </p>
       )}

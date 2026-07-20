@@ -1455,6 +1455,27 @@ describe('meters, opt-in brakes, and stall flags', () => {
       .toMatchObject({ cost_usd: 0, uncosted_tokens: 15 });
   });
 
+  it('estimates cost for a tokens-only member whose model has a known price', async () => {
+    const alpha = spawnAgent('alpha');
+    daemon.spawnMember('eng', { harness: 'fake', handle: 'codexy', cwd: testCwd(), model: 'gpt-5.5' });
+    const codexy = daemon.store.getMemberByHandle('eng', 'codexy')!;
+    // gpt-5.5: $1.25/Mtok in, $10/Mtok out -> 1_000_000*1.25e-6 + 200_000*1e-5 = 1.25 + 2.00
+    fake.enqueue({
+      kind: 'complete',
+      final_text: '@richard priced tokens-only completion',
+      usage: { input_tokens: 1_000_000, output_tokens: 200_000 },
+    });
+    daemon.postHumanMessage('eng', '@codexy spend once');
+    await daemon.settle();
+    const spend = daemon.memberDetails('eng').find((detail) => detail.member.id === codexy.id)!.spend;
+    expect(spend.cost_usd).toBe(0);
+    expect(spend.uncosted_tokens).toBe(0); // priced -> no longer uncosted
+    expect(spend.estimated_cost_usd).toBeCloseTo(3.25, 6);
+    // A member with no priced model still reports nothing spent.
+    expect(daemon.memberDetails('eng').find((detail) => detail.member.id === alpha.id)!.spend)
+      .toMatchObject({ estimated_cost_usd: 0, uncosted_tokens: 0 });
+  });
+
   it('rechecks spend before a queued agent hop starts and releases it exactly once', async () => {
     const gamma = spawnAgent('gamma');
     const alpha = spawnAgent('alpha');
