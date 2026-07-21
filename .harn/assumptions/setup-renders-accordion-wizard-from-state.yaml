@@ -1,7 +1,7 @@
 id: setup-renders-accordion-wizard-from-state
 hash: a-1fc5a2188a7a
 title: Interactive setup renders as an accordion of collapsing steps
-state: active
+state: retired
 statement: Interactive setup must render as an accordion whose active or running
   step is expanded with its content, choices, bounded dim rolling logs, any
   error, and its Back and Next controls, whose completed steps collapse to a
@@ -15,3 +15,4 @@ statement: Interactive setup must render as an accordion whose active or running
 depends_on:
   - adapter-registry-sole-harness-source
 created_by: codor-setup-accordion-wizard
+retired_by: codor-setup-progressive-consent-wizard

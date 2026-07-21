@@ -46,10 +46,19 @@ export class SetupCancelled extends Error {
   }
 }
 
+/** A step's outcome: a one-line summary when its work ran, or a skip decision.
+ *  `skipFollowing` cascades the skip to every later step (declining Start also
+ *  skips pairing) so the wizard can finish honestly without mutating. */
+export type SetupStepOutcome =
+  | string
+  | { skip: true; summary?: string; skipFollowing?: boolean };
+
 /** What a wizard step does when the flow enters it. `run` performs the step's
- *  effectful work and returns a one-line summary; throwing marks the step failed
- *  and keeps the operator inside it with Retry. A `menu` makes the step a choice
- *  whose selected option id is passed to `run` as `context.choice`. */
+ *  effectful work and returns a summary; throwing marks the step failed and
+ *  keeps the operator inside it with Retry. A `menu` makes the step a vertical
+ *  choice whose selected option id is passed to `run` as `context.choice`; a
+ *  consent step returns a skip outcome when the operator declines, and no
+ *  mutation happens because the effectful work is never called. */
 export interface SetupStepContext {
   log(message: string): void;
   choice?: string;
@@ -58,7 +67,7 @@ export interface SetupStepContext {
 export interface SetupStepDefinition {
   title: string;
   menu?: { message: string; options: SetupAccessOption[] };
-  run(context: SetupStepContext): Promise<string>;
+  run(context: SetupStepContext): Promise<SetupStepOutcome>;
 }
 
 // harn:assume setup-restores-terminal-on-every-exit ref=setup-terminal-session
@@ -145,8 +154,11 @@ export class SetupSession {
       summary: this.summaries[index],
       error: step.error,
     }));
+    // Controls are supplied only while awaiting a settled action; a live menu
+    // renders its own navigation hint. Forward appears when a later step can be
+    // reviewed, Finish only on the completed final step.
     const controls: SetupControls | undefined = this.awaitingNav
-      ? { back: flow.canBack, next: flow.canNext, retry: flow.canRetry, finish: flow.complete }
+      ? { back: flow.canBack, forward: flow.canNext, retry: flow.canRetry, finish: flow.complete }
       : undefined;
     this.output.write(renderSetupFrame({
       version: this.version,
@@ -161,11 +173,14 @@ export class SetupSession {
     }));
   }
 
+  // harn:assume setup-auto-advances-and-gates-mutation-on-consent ref=setup-consent-navigation
   /**
-   * Drive the wizard over the given steps. Each step's work runs at most once;
-   * navigation moves the cursor without re-running committed steps; Retry
-   * re-runs a failed step. A recoverable failure stays inside its step (Retry /
-   * Back) and is never rethrown out of the session.
+   * Drive the wizard over the given steps. Automatic steps run and advance
+   * without asking for Next; a choice step waits at its vertical menu; a consent
+   * decline skips honestly (cascading to later steps when asked) without
+   * mutating; a failure stays inside its step with Retry; Back only moves the
+   * cursor and never re-runs committed work; the completed final step waits for
+   * Finish. A recoverable failure is never rethrown out of the session.
    */
   async run(steps: readonly SetupStepDefinition[]): Promise<void> {
     const flow = new SetupFlow(steps.map((step) => ({
@@ -176,6 +191,10 @@ export class SetupSession {
     this.summaries.length = 0;
     this.start();
 
+    // Forward momentum: a step that just settled advances automatically; landing
+    // on a step via Back clears it so the reviewed step pauses for navigation.
+    let advance = true;
+
     for (;;) {
       const index = flow.cursor;
       const definition = steps[index]!;
@@ -183,75 +202,101 @@ export class SetupSession {
       if (flow.activeNeedsRun) {
         let choice: string | undefined;
         if (definition.menu !== undefined) {
-          // A choice step waits for a selection before its work commits.
-          const decision = await this.selectFromMenu(definition.menu);
+          const decision = await this.selectFromMenu(definition.menu, flow.canBack);
           if (decision.type === 'cancel') { this.stop(); throw new SetupCancelled(); }
-          if (decision.type === 'back') { flow.back(); continue; }
+          if (decision.type === 'back') { flow.back(); advance = false; continue; }
           choice = decision.id;
         }
 
         flow.markRunning(index);
         this.render();
         try {
-          const summary = await definition.run({ log: (message) => { flow.log(index, message); this.render(); }, choice });
-          this.summaries[index] = summary;
-          flow.markDone(index, { choice, summary });
+          const outcome = await definition.run({ log: (message) => { flow.log(index, message); this.render(); }, choice });
+          if (typeof outcome === 'object') {
+            this.summaries[index] = outcome.summary;
+            flow.markSkipped(index);
+            if (outcome.skipFollowing === true) {
+              for (let later = index + 1; later < steps.length; later += 1) {
+                this.summaries[later] = undefined;
+                flow.markSkipped(later);
+              }
+            }
+          } else {
+            this.summaries[index] = outcome;
+            flow.markDone(index, { choice, summary: outcome });
+          }
         } catch (error) {
           // The failure renders once inside the step. It is not rethrown.
           flow.markFailed(index, error instanceof Error ? error.message : String(error));
         }
         this.render();
+        advance = true;
       }
 
-      // The step has settled; wait for a navigation action.
-      const action = await this.awaitNavigation();
-      if (action === 'cancel') { this.stop(); throw new SetupCancelled(); }
-      if (action === 'retry') { flow.retry(); continue; }
-      if (action === 'back') { flow.back(); continue; }
-      if (action === 'next') {
-        if (flow.canNext) { flow.next(); continue; }
-        if (flow.complete) return; // Next on the last, completed step finishes.
+      if (flow.active.state === 'failed') {
+        const action = await this.awaitSettledAction();
+        if (action === 'cancel') { this.stop(); throw new SetupCancelled(); }
+        if (action === 'retry') { flow.retry(); advance = true; continue; }
+        if (action === 'back') { flow.back(); advance = false; continue; }
+        continue;
       }
+
+      // A step that just settled advances automatically; automatic steps never
+      // wait for Next. Only a genuine stop — the completed final step or a step
+      // reviewed via Back — pauses for a navigation action.
+      if (advance && flow.canNext) { flow.next(); continue; }
+
+      const action = await this.awaitSettledAction();
+      if (action === 'cancel') { this.stop(); throw new SetupCancelled(); }
+      if (action === 'back') { flow.back(); advance = false; continue; }
+      if (action === 'forward' && flow.canNext) { flow.next(); advance = false; continue; }
+      if (action === 'finish' && flow.complete) return;
     }
   }
+  // harn:end setup-auto-advances-and-gates-mutation-on-consent
 
-  private awaitNavigation(): Promise<'next' | 'back' | 'retry' | 'cancel'> {
+  /** Await a settled step's navigation. Left is Back, r retries a failed step,
+   *  Enter/Right retries a failed step, finishes the completed last step, or
+   *  moves forward over a reviewed step. */
+  private awaitSettledAction(): Promise<'back' | 'forward' | 'retry' | 'finish' | 'cancel'> {
     this.awaitingNav = true;
     this.render();
-    return this.readKeys<'next' | 'back' | 'retry' | 'cancel'>((key, settle) => {
+    return this.readKeys<'back' | 'forward' | 'retry' | 'finish' | 'cancel'>((key, settle) => {
+      const flow = this.flow!;
       if (key.type === 'cancel') return settle('cancel');
-      if (key.type === 'left' && this.flow!.canBack) return settle('back');
-      if ((key.type === 'char' && key.value.toLowerCase() === 'r') && this.flow!.canRetry) return settle('retry');
+      if (key.type === 'left' && flow.canBack) return settle('back');
+      if (key.type === 'char' && key.value.toLowerCase() === 'r' && flow.canRetry) return settle('retry');
       if (key.type === 'enter' || key.type === 'right') {
-        if (this.flow!.canNext || this.flow!.complete) return settle('next');
-        if (this.flow!.canRetry) return settle('retry');
+        if (flow.canRetry) return settle('retry');
+        if (flow.complete) return settle('finish');
+        if (flow.canNext) return settle('forward');
       }
       return false;
     }).finally(() => { this.awaitingNav = false; });
   }
 
-  private selectFromMenu(menu: { message: string; options: SetupAccessOption[] }):
+  /** A vertical single-select menu. Up/Down move focus, Enter selects the
+   *  focused option when it is available, Left goes Back, q cancels. */
+  private selectFromMenu(menu: { message: string; options: SetupAccessOption[] }, canBack: boolean):
   Promise<{ type: 'select'; id: string } | { type: 'back' } | { type: 'cancel' }> {
     const firstAvailable = menu.options.findIndex((option) => option.available);
     let focused = firstAvailable < 0 ? 0 : firstAvailable;
-    let selected = firstAvailable < 0 ? undefined : menu.options[firstAvailable]!.id;
-    this.menu = { message: menu.message, options: menu.options, focused, selected };
+    this.menu = { message: menu.message, options: menu.options, focused, canBack };
     this.render();
 
     return this.readKeys<{ type: 'select'; id: string } | { type: 'back' } | { type: 'cancel' }>((key, settle) => {
       if (key.type === 'cancel') { this.menu = undefined; return settle({ type: 'cancel' }); }
-      if (key.type === 'left' && this.flow!.canBack) { this.menu = undefined; return settle({ type: 'back' }); }
+      if (key.type === 'left' && canBack) { this.menu = undefined; return settle({ type: 'back' }); }
       if (key.type === 'up') focused = (focused - 1 + menu.options.length) % menu.options.length;
       if (key.type === 'down') focused = (focused + 1) % menu.options.length;
-      if (key.type === 'space') {
+      if (key.type === 'enter' || key.type === 'right') {
         const option = menu.options[focused];
-        if (option?.available === true) selected = option.id;
+        if (option?.available === true) {
+          this.menu = undefined;
+          return settle({ type: 'select', id: option.id });
+        }
       }
-      if ((key.type === 'enter' || key.type === 'right') && selected !== undefined) {
-        this.menu = undefined;
-        return settle({ type: 'select', id: selected });
-      }
-      this.menu = { message: menu.message, options: menu.options, focused, selected };
+      this.menu = { message: menu.message, options: menu.options, focused, canBack };
       this.render();
       return false;
     });

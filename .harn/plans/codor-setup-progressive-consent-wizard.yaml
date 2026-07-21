@@ -1,8 +1,7 @@
 id: codor-setup-progressive-consent-wizard
-title: >-
-  Redesign the interactive setup wizard - auto-advance automatic steps, keep full
-  results visible with strong hierarchy, gate steps 4 and 5 behind vertical consent
-  choices, and replace the word art
+title: Redesign the interactive setup wizard - auto-advance automatic steps,
+  keep full results visible with strong hierarchy, gate steps 4 and 5 behind
+  vertical consent choices, and replace the word art
 notes: >-
   Codex UI/flow correction (#503, refined by #507). Four behaviors change in the
   interactive setup wizard only; the non-interactive (--yes) and --dry-run paths
@@ -22,8 +21,8 @@ notes: >-
   unmistakable. 80x10 and 40x24 stay readable by dropping the farthest completed
   context first, never hiding the active actionable choice.
 
-  3. CONSENT FOR STEPS 4 AND 5. Step 4 presents a spacious vertical choice
-  ("Run Codor in the background?" -> Start Codor / Not now) and installs/starts
+  3. CONSENT FOR STEPS 4 AND 5. Step 4 presents a spacious vertical choice ("Run
+  Codor in the background?" -> Start Codor / Not now) and installs/starts
   nothing until Start is selected. Step 5 presents ("Pair a browser now?" ->
   Create a pairing code / Set this up later) and mints no code until Create is
   selected. Back is a footer keyboard action, not an inline option. Declining
@@ -75,16 +74,16 @@ assumptions:
         menu, its result lines, any error, and only the controls the current
         input requires; every completed step stays visible as a bold title with
         a green check and its full result lines in a prominent (non-dim)
-        foreground rather than a collapsed one-line summary; skipped steps show a
-        skipped marker and future steps show their numbered title; steps are
+        foreground rather than a collapsed one-line summary; skipped steps show
+        a skipped marker and future steps show their numbered title; steps are
         separated by blank-line spacing and the choice block pads its prompt,
         options, and navigation hint with the focused option unmistakable; frame
         production stays a pure function of supplied state, renders the Codor
         word art, version, and byline, never enters the alternate screen, and
         keeps the active step's actionable choice visible by dropping the
-        farthest completed context first at 80x10 and 40x24; because the operator
-        must always see what already happened and what to do next without a Next
-        prompt on automatic work.
+        farthest completed context first at 80x10 and 40x24; because the
+        operator must always see what already happened and what to do next
+        without a Next prompt on automatic work.
       reason: Replaces the retired accordion assumption with the progressive,
         full-results renderer the redesign requires.
       depends_on:
@@ -95,25 +94,25 @@ assumptions:
       statement: Interactive setup must run each step's work at most once per
         invocation and memoize its result, advancing automatic steps (host
         detection and private-file preparation) to the next step without asking
-        for Next and showing no navigation control on a completed automatic step;
-        it must gate the two mutating stages behind explicit vertical consent
-        choices - "Run Codor in the background?" before installing or starting
-        the service and "Pair a browser now?" before minting a pairing code -
-        performing no host mutation until the affirmative option is selected;
-        Back only moves the view cursor and never re-runs a completed step, Retry
-        is offered solely on a failed step and is the only re-run, a recoverable
-        failure renders once inside its own step without throwing out of the
-        session, and the effectful stages stay idempotent (an absent-only token,
-        a Start stage that short-circuits when the daemon already answers the
-        readiness probe, and a pairing stage that reuses a still-valid offer);
-        declining the service marks the service and pairing stages skipped and
-        finishes honestly telling the operator to rerun `codor install`,
-        declining pairing leaves the running service intact and marks pairing
-        skipped telling the operator to run `codor pair` later, and unattended
-        --yes keeps confirming both through the non-interactive path; because
-        setup must not re-run a completed step, restart a service, regenerate a
-        token, or mint credentials without deliberate operator consent, while
-        automatic detection never prompts.
+        for Next and showing no navigation control on a completed automatic
+        step; it must gate the two mutating stages behind explicit vertical
+        consent choices - "Run Codor in the background?" before installing or
+        starting the service and "Pair a browser now?" before minting a pairing
+        code - performing no host mutation until the affirmative option is
+        selected; Back only moves the view cursor and never re-runs a completed
+        step, Retry is offered solely on a failed step and is the only re-run, a
+        recoverable failure renders once inside its own step without throwing
+        out of the session, and the effectful stages stay idempotent (an
+        absent-only token, a Start stage that short-circuits when the daemon
+        already answers the readiness probe, and a pairing stage that reuses a
+        still-valid offer); declining the service marks the service and pairing
+        stages skipped and finishes honestly telling the operator to rerun
+        `codor install`, declining pairing leaves the running service intact and
+        marks pairing skipped telling the operator to run `codor pair` later,
+        and unattended --yes keeps confirming both through the non-interactive
+        path; because setup must not re-run a completed step, restart a service,
+        regenerate a token, or mint credentials without deliberate operator
+        consent, while automatic detection never prompts.
       reason: Replaces the retired cursor-navigation assumption, preserving its
         run-once and idempotent invariants and adding auto-advance and consent-
         gated, honestly skippable mutation as one reviewable behavior.
@@ -128,8 +127,8 @@ assumptions:
       reason: The session still owns the TTY only while interactive and restores raw
         mode, cursor, timers, and every listener on exit, never entering the
         alternate screen. The run loop gains auto-advance and consent dispatch
-        and its regression gains coverage, but the terminal-ownership contract is
-        unchanged.
+        and its regression gains coverage, but the terminal-ownership contract
+        is unchanged.
     - id: setup-preserves-private-platform-service
       outcome: unchanged
       reason: Directory modes, the absent-only token, the resolved paths, the service
@@ -140,9 +139,10 @@ assumptions:
     - id: setup-verifies-codor-before-creating-pairing-code
       outcome: unchanged
       reason: The start stage still requires the bounded readiness probe before the
-        pairing stage, and the final display still shows one QR, the byte-identical
-        URL, the formatted code, and expiry when pairing runs. A declined pairing
-        simply does not display, which the statement already permits.
+        pairing stage, and the final display still shows one QR, the
+        byte-identical URL, the formatted code, and expiry when pairing runs. A
+        declined pairing simply does not display, which the statement already
+        permits.
 anchors:
   setup-renders-accordion-wizard-from-state:
     setup-frame-renderer:
@@ -214,3 +214,5 @@ verification: >
 
   - Gates: the setup flow/UI/session/PTY suites pass together in one run, plus
     tsc typecheck and harn check.
+applied:
+  applied_at: 2026-07-21T10:55:12.487Z

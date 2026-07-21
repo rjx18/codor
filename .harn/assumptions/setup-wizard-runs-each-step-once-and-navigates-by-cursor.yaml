@@ -1,7 +1,7 @@
 id: setup-wizard-runs-each-step-once-and-navigates-by-cursor
 hash: a-cc717e299a27
 title: Wizard steps run once and navigation never repeats their effects
-state: active
+state: retired
 statement: The interactive wizard must run each step's work at most once per
   invocation and memoize its result, must advance the view cursor on Next and
   move it only on Back without re-running any step, must never re-run a step
@@ -18,3 +18,4 @@ depends_on:
   - setup-renders-accordion-wizard-from-state
   - setup-verifies-codor-before-creating-pairing-code
 created_by: codor-setup-accordion-wizard
+retired_by: codor-setup-progressive-consent-wizard

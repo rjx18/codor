@@ -742,7 +742,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       {
         title: stepTitles[2],
         menu: {
-          message: 'Choose how you will reach Codor.',
+          message: 'How will you reach Codor?',
           options: [
             { id: 'localhost', label: 'Localhost', description: 'This computer only.', available: true },
             {
@@ -759,13 +759,47 @@ export async function runSetup(options: SetupOptions): Promise<void> {
         },
         run: async ({ log, choice }) => chooseStep(log, choice),
       },
-      { title: stepTitles[3], run: async ({ log }) => startStep(log) },
-      { title: stepTitles[4], run: async ({ log }) => pairStep(log) },
+      {
+        title: stepTitles[3],
+        // Consent gate: nothing is installed or started until Start is chosen.
+        menu: {
+          message: 'Run Codor in the background?',
+          options: [
+            { id: 'start', label: 'Start Codor', description: 'Install and start the private background service.', available: true },
+            { id: 'later', label: 'Not now', description: 'Do not install or start anything yet.', available: true },
+          ],
+        },
+        run: async ({ log, choice }) => (choice === 'start'
+          ? startStep(log)
+          : { skip: true, summary: '(run codor install when ready)', skipFollowing: true }),
+      },
+      {
+        title: stepTitles[4],
+        // Consent gate: no pairing code is minted until Create is chosen.
+        menu: {
+          message: 'Pair a browser now?',
+          options: [
+            { id: 'create', label: 'Create a pairing code', description: 'Mint a ten-minute code and QR now.', available: true },
+            { id: 'later', label: 'Set this up later', description: 'Keep the service running and pair from a browser later.', available: true },
+          ],
+        },
+        run: async ({ log, choice }) => (choice === 'create'
+          ? pairStep(log)
+          : { skip: true, summary: '(run codor pair later)' }),
+      },
     ];
     await session.run(steps);
-    const nextAction = `Enter ${pairing!.code} in your browser or scan the QR.`;
-    session.finish({ endpoint, harnesses: detected.map(({ harness }) => harness), nextAction });
-    emitPairing();
+    const harnesses = detected.map(({ harness }) => harness);
+    if (!serviceStarted) {
+      // Start was declined: nothing was installed, and pairing was skipped too.
+      session.finish({ headline: 'Setup paused - Codor is not running.', harnesses, nextAction: 'Run `codor install` when you are ready to install and start Codor.' });
+    } else if (pairing === undefined) {
+      // The service is up but the operator declined pairing.
+      session.finish({ headline: 'Codor is running.', endpoint, harnesses, nextAction: 'Run `codor pair` when you want to connect a browser.' });
+    } else {
+      session.finish({ headline: 'Codor is ready.', endpoint, harnesses, nextAction: `Enter ${pairing.code} in your browser or scan the QR.` });
+      emitPairing();
+    }
   } else {
     const linear = (index: number) => (message: string): void => options.out(`[${String(index + 1)}/5] ${message}`);
     options.out(`[1/5] ${stepTitles[0]}`); checkStep(linear(0));

@@ -42,10 +42,23 @@ function harness() {
   return { input, output, signals, raised, session };
 }
 
+const DOWN = '\u001B[B';
+const LEFT = '\u001B[D';
+const RIGHT = '\u001B[C';
+const ENTER = '\r';
+
 /** Let pending step work resolve and the next input listener register. */
 const settle = async (): Promise<void> => {
-  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 2));
+  for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setTimeout(resolve, 2));
 };
+
+const consentMenu = (message: string, affirm: string, decline: string) => ({
+  message,
+  options: [
+    { id: 'affirm', label: affirm, description: '', available: true },
+    { id: 'decline', label: decline, description: '', available: true },
+  ],
+});
 
 // harn:assume setup-restores-terminal-on-every-exit ref=setup-terminal-session-regression
 describe('setup terminal ownership', () => {
@@ -77,7 +90,7 @@ describe('setup terminal ownership', () => {
     expect(signals.listenerCount('SIGINT')).toBe(initial.int);
     expect(signals.listenerCount('SIGTERM')).toBe(initial.term);
     expect(vi.getTimerCount()).toBe(0);
-    expect(output.chunks.join('')).not.toContain('[?1049h');
+    expect(output.chunks.join('')).not.toContain('[?1049h');
     vi.useRealTimers();
   });
 
@@ -91,9 +104,11 @@ describe('setup terminal ownership', () => {
     expect(signals.listenerCount(signal)).toBe(0);
   });
 });
+// harn:end setup-restores-terminal-on-every-exit
 
-describe('setup wizard navigation', () => {
-  it('runs each step once, advances on Next, and finishes', async () => {
+// harn:assume setup-auto-advances-and-gates-mutation-on-consent ref=setup-consent-navigation-regression
+describe('setup wizard auto-advance', () => {
+  it('runs automatic steps and advances without asking for Next', async () => {
     const { input, session } = harness();
     const runs: string[] = [];
     const steps: SetupStepDefinition[] = [
@@ -102,15 +117,14 @@ describe('setup wizard navigation', () => {
     ];
     const done = session.run(steps);
     await settle();
-    input.emit('data', Buffer.from('\r')); // Next -> step Two
-    await settle();
-    input.emit('data', Buffer.from('\r')); // Next on the last, completed step -> finish
-    await done;
+    // Both automatic steps ran with no key press between them.
     expect(runs).toEqual(['one', 'two']);
+    input.emit('data', Buffer.from(ENTER)); // Finish on the completed last step
+    await done;
     session.stop();
   });
 
-  it('offers a visible Finish action on the completed final step', async () => {
+  it('advertises Finish on the completed final step, not Next', async () => {
     const { input, output, session } = harness();
     const steps: SetupStepDefinition[] = [
       { title: 'One', run: async () => 'a' },
@@ -118,16 +132,15 @@ describe('setup wizard navigation', () => {
     ];
     const done = session.run(steps);
     await settle();
-    input.emit('data', Buffer.from('\r')); // Next -> the last, completed step
-    await settle();
-    // While parked on the completed last step the frame advertises Finish, not Next.
-    expect(output.chunks.join('')).toContain('Enter/→ Finish');
-    input.emit('data', Buffer.from('\r')); // Finish
+    const frame = output.chunks.join('');
+    expect(frame).toContain('Enter Finish');
+    expect(frame).not.toContain('Enter/→ Next');
+    input.emit('data', Buffer.from(ENTER));
     await done;
     session.stop();
   });
 
-  it('does not re-run a completed step when navigating Back then Next', async () => {
+  it('does not re-run a completed step when navigating Back then Forward', async () => {
     const { input, session } = harness();
     const runs: string[] = [];
     const steps: SetupStepDefinition[] = [
@@ -136,19 +149,18 @@ describe('setup wizard navigation', () => {
     ];
     const done = session.run(steps);
     await settle();
-    input.emit('data', Buffer.from('\r')); // -> Two (runs)
+    expect(runs).toEqual(['one', 'two']); // both auto-advanced
+    input.emit('data', Buffer.from(LEFT)); // Back to step One (no re-run)
     await settle();
-    input.emit('data', Buffer.from('[D')); // Back -> One (no re-run)
+    input.emit('data', Buffer.from(RIGHT)); // Forward to step Two (already done)
     await settle();
-    input.emit('data', Buffer.from('\r')); // Next -> Two (already done, no re-run)
-    await settle();
-    input.emit('data', Buffer.from('\r')); // Next -> finish
+    input.emit('data', Buffer.from(ENTER)); // Finish
     await done;
     expect(runs).toEqual(['one', 'two']);
     session.stop();
   });
 
-  it('keeps a recoverable failure inside its step and re-runs only on Retry, without rethrowing', async () => {
+  it('keeps a recoverable failure inside its step and re-runs only on Retry', async () => {
     const { input, output, session } = harness();
     let attempts = 0;
     const steps: SetupStepDefinition[] = [
@@ -156,24 +168,38 @@ describe('setup wizard navigation', () => {
     ];
     const done = session.run(steps);
     await settle();
-    // The failure is rendered in-step; run() has not rejected.
     expect(output.chunks.join('')).toContain('bootstrap failed');
     input.emit('data', Buffer.from('r')); // Retry -> re-run
     await settle();
-    input.emit('data', Buffer.from('\r')); // Next -> finish
+    input.emit('data', Buffer.from(ENTER)); // Finish
     await expect(done).resolves.toBeUndefined();
     expect(attempts).toBe(2);
     session.stop();
   });
 
-  it('presents a choice menu and passes the selection to the step work', async () => {
+  it('cancels on q, restoring the terminal', async () => {
+    const { input, output, session } = harness();
+    const steps: SetupStepDefinition[] = [
+      { title: 'Choose', menu: consentMenu('Pick?', 'A', 'B'), run: async () => 'a' },
+    ];
+    const done = session.run(steps);
+    await settle();
+    input.emit('data', Buffer.from('q'));
+    await expect(done).rejects.toBeInstanceOf(SetupCancelled);
+    expect(output.chunks.at(-1)).toBe(SETUP_CURSOR_SHOW);
+    expect(input.isRaw).toBe(false);
+  });
+});
+
+describe('setup consent gates', () => {
+  it('presents a vertical choice and passes the focused selection to the step', async () => {
     const { input, session } = harness();
     let chosen: string | undefined;
     const steps: SetupStepDefinition[] = [
       {
         title: 'Choose',
         menu: {
-          message: 'Choose.',
+          message: 'How will you reach Codor?',
           options: [
             { id: 'localhost', label: 'Localhost', description: 'Local.', available: true },
             { id: 'tailscale', label: 'Tailscale', description: 'Remote.', available: true },
@@ -184,27 +210,102 @@ describe('setup wizard navigation', () => {
     ];
     const done = session.run(steps);
     await settle();
-    input.emit('data', Buffer.from('[B')); // focus Tailscale
-    input.emit('data', Buffer.from(' ')); // select it
-    input.emit('data', Buffer.from('\r')); // confirm -> run work
+    input.emit('data', Buffer.from(DOWN)); // focus Tailscale
+    input.emit('data', Buffer.from(ENTER)); // Enter selects the focused option directly
     await settle();
-    input.emit('data', Buffer.from('\r')); // Next -> finish
+    input.emit('data', Buffer.from(ENTER)); // Finish
     await done;
     expect(chosen).toBe('tailscale');
     session.stop();
   });
 
-  it('cancels on q, restoring the terminal', async () => {
-    const { input, output, session } = harness();
+  it('mutates only on the affirmative and skips both stages when Start is declined', async () => {
+    const { input, session } = harness();
+    const ran = { start: false, pair: false };
     const steps: SetupStepDefinition[] = [
-      { title: 'One', run: async () => 'a' },
+      {
+        title: 'Start Codor',
+        menu: consentMenu('Run Codor in the background?', 'Start Codor', 'Not now'),
+        run: async ({ choice }) => (choice === 'affirm'
+          ? ((ran.start = true), 'started')
+          : { skip: true, summary: '(run codor install when ready)', skipFollowing: true }),
+      },
+      {
+        title: 'Create pairing code',
+        menu: consentMenu('Pair a browser now?', 'Create a pairing code', 'Set this up later'),
+        run: async ({ choice }) => (choice === 'affirm' ? ((ran.pair = true), 'paired') : { skip: true }),
+      },
     ];
     const done = session.run(steps);
     await settle();
-    input.emit('data', Buffer.from('q'));
-    await expect(done).rejects.toBeInstanceOf(SetupCancelled);
-    expect(output.chunks.at(-1)).toBe(SETUP_CURSOR_SHOW);
-    expect(input.isRaw).toBe(false);
+    input.emit('data', Buffer.from(DOWN)); // focus "Not now"
+    input.emit('data', Buffer.from(ENTER)); // decline -> skip start and cascade-skip pairing
+    await settle();
+    input.emit('data', Buffer.from(ENTER)); // Finish (both skipped)
+    await done;
+    expect(ran).toEqual({ start: false, pair: false });
+    session.stop();
+  });
+
+  it('keeps the running service and skips only pairing when pairing is declined', async () => {
+    const { input, session } = harness();
+    const ran = { start: false, pair: false };
+    const steps: SetupStepDefinition[] = [
+      {
+        title: 'Start Codor',
+        menu: consentMenu('Run Codor in the background?', 'Start Codor', 'Not now'),
+        run: async ({ choice }) => (choice === 'affirm'
+          ? ((ran.start = true), 'started')
+          : { skip: true, skipFollowing: true }),
+      },
+      {
+        title: 'Create pairing code',
+        menu: consentMenu('Pair a browser now?', 'Create a pairing code', 'Set this up later'),
+        run: async ({ choice }) => (choice === 'affirm' ? ((ran.pair = true), 'paired') : { skip: true }),
+      },
+    ];
+    const done = session.run(steps);
+    await settle();
+    input.emit('data', Buffer.from(ENTER)); // accept Start (focused affirmative)
+    await settle();
+    input.emit('data', Buffer.from(DOWN)); // focus "Set this up later"
+    input.emit('data', Buffer.from(ENTER)); // decline pairing
+    await settle();
+    input.emit('data', Buffer.from(ENTER)); // Finish
+    await done;
+    expect(ran).toEqual({ start: true, pair: false });
+    session.stop();
+  });
+
+  it('returns to the previous step with Back from a choice menu without re-running it', async () => {
+    const { input, session } = harness();
+    const runs: string[] = [];
+    const steps: SetupStepDefinition[] = [
+      {
+        title: 'Choose access',
+        menu: consentMenu('How will you reach Codor?', 'Localhost', 'Tailscale'),
+        run: async () => { runs.push('access'); return 'localhost'; },
+      },
+      {
+        title: 'Start Codor',
+        menu: consentMenu('Run Codor in the background?', 'Start Codor', 'Not now'),
+        run: async ({ choice }) => (choice === 'affirm' ? 'started' : { skip: true, skipFollowing: true }),
+      },
+    ];
+    const done = session.run(steps);
+    await settle();
+    input.emit('data', Buffer.from(ENTER)); // select access (runs once) -> advance to Start menu
+    await settle();
+    input.emit('data', Buffer.from(LEFT)); // Back off the Start menu -> reviewing the done access step
+    await settle();
+    input.emit('data', Buffer.from(RIGHT)); // Forward -> Start menu again
+    await settle();
+    input.emit('data', Buffer.from(ENTER)); // accept Start
+    await settle();
+    input.emit('data', Buffer.from(ENTER)); // Finish
+    await done;
+    expect(runs).toEqual(['access']); // access ran exactly once despite Back/Forward
+    session.stop();
   });
 });
-// harn:end setup-restores-terminal-on-every-exit
+// harn:end setup-auto-advances-and-gates-mutation-on-consent
