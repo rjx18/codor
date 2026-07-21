@@ -67,6 +67,10 @@ export interface SetupStage {
   title: string;
   state: SetupStageState;
   logs: string[];
+  /** One-line recap shown when the step is collapsed after completion. */
+  summary?: string;
+  /** Failure text shown inside the active step when it has failed. */
+  error?: string;
 }
 
 export interface SetupAccessOption {
@@ -89,16 +93,24 @@ export interface SetupSummary {
   nextAction: string;
 }
 
+/** Which navigation actions the active step currently offers. */
+export interface SetupControls {
+  back: boolean;
+  next: boolean;
+  retry: boolean;
+}
+
 export interface SetupFrameState {
   version: string;
   byline: string;
-  title: string;
-  stages: SetupStage[];
+  steps: SetupStage[];
+  /** Index of the expanded active step. */
+  cursor: number;
   spinnerFrame: number;
   viewport: { rows: number; columns: number };
   menu?: SetupMenu;
+  controls?: SetupControls;
   summary?: SetupSummary;
-  failure?: string;
 }
 
 export function createSetupStages(): SetupStage[] {
@@ -150,51 +162,89 @@ function truncateAnsi(line: string, columns: number): string {
   return `${result}${style.reset}`;
 }
 
-// harn:assume setup-renders-five-stage-interactive-session ref=setup-frame-renderer
+/** A completed or future step, collapsed to a single line. */
+function collapsedLine(index: number, step: SetupStage): string {
+  if (step.state === 'done') {
+    const head = `${style.green('✓')} ${style.dim(`(${String(index + 1)})`)} ${step.title}`;
+    return step.summary !== undefined ? `${head} ${style.dim(`— ${step.summary}`)}` : head;
+  }
+  if (step.state === 'skipped') {
+    return `${style.yellow('◦')} ${style.dim(`(${String(index + 1)}) ${step.title} — skipped`)}`;
+  }
+  return style.dim(`  (${String(index + 1)}) ${step.title}`);
+}
+
+function controlHints(controls: SetupControls | undefined): string | undefined {
+  if (controls === undefined) return undefined;
+  const parts: string[] = [];
+  if (controls.back) parts.push('← Back');
+  if (controls.retry) parts.push('r Retry');
+  if (controls.next) parts.push('Enter/→ Next');
+  parts.push('q Cancel');
+  return `    ${style.dim(parts.join('   '))}`;
+}
+
+/** The expanded active step. Its title, menu, error and controls are the
+ *  essential parts kept visible; the rolling logs are clamped to whatever line
+ *  budget remains so the actionable content survives on a small terminal. */
+function activeBlock(index: number, step: SetupStage, state: SetupFrameState, maxLines: number): string[] {
+  const title = `${style.cyan(`(${String(index + 1)})`)} ${style.bold(step.title)}  ${status(step.state, state.spinnerFrame)}`;
+  const menu = state.menu !== undefined ? menuLines(state.menu) : [];
+  const errorLines = step.error !== undefined ? ['', `    ${style.red(step.error)}`] : [];
+  const hints = controlHints(state.controls);
+  const hintLines = hints !== undefined ? ['', hints] : [];
+  const essential = 1 + menu.length + errorLines.length + hintLines.length;
+  const logRoom = Math.max(0, Math.min(MAX_SETUP_STAGE_LOGS, maxLines - essential));
+  const logs = logRoom <= 0 ? [] : step.logs.slice(-logRoom).map((log) => `    ${style.dim(`> ${log}`)}`);
+  return [title, ...logs, ...menu, ...errorLines, ...hintLines];
+}
+
+function summaryLines(summary: SetupSummary | undefined): string[] {
+  if (summary === undefined) return [];
+  return [
+    '',
+    style.green('Codor is ready.'),
+    `Open ${style.cyan(summary.endpoint)}`,
+    summary.harnesses.length > 0
+      ? `Detected ${summary.harnesses.join(', ')}`
+      : 'No supported coding agents detected on PATH',
+    summary.nextAction,
+  ];
+}
+
+// harn:assume setup-renders-accordion-wizard-from-state ref=setup-frame-renderer
 export function renderSetupFrame(state: SetupFrameState): string {
   const budget = Math.max(1, state.viewport.rows - 1);
   const version = style.dim(`v${state.version} - ${state.byline}`);
-  const fullHeader = [
-    ...CODOR_WORD_ART.split('\n').map(style.cyan),
-    version,
-    '',
-    style.bold(state.title),
-    '',
-  ];
+  const fullHeader = [...CODOR_WORD_ART.split('\n').map(style.cyan), version, ''];
   const compactHeader = [version, ''];
-  const priority: string[] = [];
-  if (state.menu !== undefined) priority.push(...menuLines(state.menu));
-  if (state.failure !== undefined) priority.push('', style.red(state.failure));
-  if (state.summary !== undefined) {
-    priority.push(
-      '',
-      style.green('Codor is ready.'),
-      `Open ${style.cyan(state.summary.endpoint)}`,
-      state.summary.harnesses.length > 0
-        ? `Detected ${state.summary.harnesses.join(', ')}`
-        : 'No supported coding agents detected on PATH',
-      state.summary.nextAction,
-    );
-  }
 
-  const header = fullHeader.length + state.stages.length + priority.length <= budget
-    ? fullHeader
-    : compactHeader;
-  const stageBudget = Math.max(0, budget - header.length - priority.length);
-  const stageLines: string[] = [];
-  let remaining = stageBudget;
-  for (const [index, stage] of state.stages.entries()) {
-    if (remaining <= 0) break;
-    stageLines.push(`${style.cyan(`[${String(index + 1)}]`)} ${stage.title}  ${status(stage.state, state.spinnerFrame)}`);
-    remaining -= 1;
-    const logs = stage.logs.slice(-Math.min(MAX_SETUP_STAGE_LOGS, remaining));
-    for (const log of logs) stageLines.push(`    ${style.dim(`> ${log}`)}`);
-    remaining -= logs.length;
+  const before: string[] = [];
+  const after: string[] = [];
+  for (const [index, step] of state.steps.entries()) {
+    if (index === state.cursor) continue;
+    (index < state.cursor ? before : after).push(collapsedLine(index, step));
   }
+  const tail = summaryLines(state.summary);
 
-  const lines = [...header, ...stageLines, ...priority]
+  // The active block and the closing summary are always kept; collapsed context
+  // fills whatever budget remains, dropping the rows farthest from the cursor.
+  const assemble = (header: string[]): string[] => {
+    const activeMax = Math.max(1, budget - header.length - tail.length);
+    const active = state.steps[state.cursor] === undefined
+      ? []
+      : activeBlock(state.cursor, state.steps[state.cursor]!, state, activeMax);
+    let room = budget - header.length - active.length - tail.length;
+    const shownBefore = room > 0 ? before.slice(Math.max(0, before.length - room)) : [];
+    room -= shownBefore.length;
+    const shownAfter = room > 0 ? after.slice(0, room) : [];
+    return [...header, ...shownBefore, ...active, ...shownAfter, ...tail];
+  };
+
+  const full = assemble(fullHeader);
+  const lines = (full.length <= budget ? full : assemble(compactHeader))
     .slice(0, budget)
     .map((line) => truncateAnsi(line, state.viewport.columns));
   return `${SETUP_CLEAR_SCREEN}${lines.join('\n')}\n`;
 }
-// harn:end setup-renders-five-stage-interactive-session
+// harn:end setup-renders-accordion-wizard-from-state

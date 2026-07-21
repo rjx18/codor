@@ -17,7 +17,9 @@ import {
   SetupSession,
   isInteractiveSetup,
   type SetupSessionStreams,
+  type SetupStepDefinition,
 } from './setup-session.js';
+import { SETUP_STAGE_TITLES } from './setup-ui.js';
 import { renderTerminalQr } from './terminal-qr.js';
 
 const HARNESSES = ['claude', 'codex', 'opencode', 'gemini', 'copilot', 'cursor-agent', 'agy'] as const;
@@ -441,144 +443,165 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   }
   // harn:end setup-dry-run-reports-without-mutation-or-secret
 
-  const session = interactive
-    ? new SetupSession({
-      version: overrides.version ?? runtimeVersion(runtime),
-      streams: overrides.streams,
-    })
-    : undefined;
-  session?.start();
-  let completed = false;
-  const log = (stage: number, message: string): void => {
-    if (session !== undefined) session.log(stage, message);
-    else options.out(`[${String(stage + 1)}/5] ${message}`);
+  const version = overrides.version ?? runtimeVersion(runtime);
+  const stepTitles = SETUP_STAGE_TITLES;
+
+  // Shared state the steps thread through. `pairing` and `serviceStarted` are
+  // memoized so a Retry re-runs the step's work idempotently: the daemon is not
+  // restarted and the pairing code is not re-minted.
+  let endpoint = 'http://127.0.0.1:8137';
+  let selectedAccess: SetupAccess | undefined = options.access;
+  let pairing: { code: string; expires: string; qr: string; url: string } | undefined;
+  let serviceStarted = false;
+
+  const checkStep = (log: (message: string) => void): string => {
+    log(`${platform} with Node ${process.versions.node}`);
+    log(detected.length > 0
+      ? `found ${detected.map(({ harness }) => harness).join(', ')}`
+      : 'no supported coding agents detected');
+    log(tailscalePath === undefined ? 'Tailscale not detected' : 'Tailscale detected');
+    return detected.length > 0
+      ? `${platform}; ${detected.map(({ harness }) => harness).join(', ')}`
+      : `${platform}; no agents on PATH`;
   };
-  const runStage = async <T>(index: number, work: () => Promise<T> | T): Promise<T> => {
-    session?.setStage(index, 'running');
-    if (session === undefined) options.out(`[${String(index + 1)}/5] ${['Checking this computer', 'Preparing private files', 'Choosing access', 'Starting Codor', 'Creating pairing code'][index]}`);
-    try {
-      const value = await work();
-      session?.setStage(index, 'done');
-      return value;
-    } catch (error) {
-      session?.setStage(index, 'failed');
-      session?.fail(error instanceof Error ? error.message : String(error));
-      throw error;
+
+  const prepareStep = (log: (message: string) => void): string => {
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    if (!existsSync(tokenPath)) {
+      const token = overrides.randomToken?.() ?? randomBytes(32).toString('hex');
+      writeFileSync(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     }
+    if (platform === 'win32') exec('icacls', [tokenPath, '/inheritance:r', '/grant:r', `${windowsUser}:F`]);
+    else {
+      chmodSync(configDir, 0o700);
+      chmodSync(dataDir, 0o700);
+      chmodSync(tokenPath, 0o600);
+    }
+    log('private configuration and data are ready');
+    return 'config and mode-600 token ready';
   };
 
-  try {
-    await runStage(0, () => {
-      log(0, `${platform} with Node ${process.versions.node}`);
-      log(0, detected.length > 0
-        ? `found ${detected.map(({ harness }) => harness).join(', ')}`
-        : 'no supported coding agents detected');
-      log(0, tailscalePath === undefined ? 'Tailscale not detected' : 'Tailscale detected');
-    });
+  const chooseStep = (log: (message: string) => void, choice: string | undefined): string => {
+    if (choice !== 'localhost' && choice !== 'tailscale') throw new Error('setup requires an access choice');
+    if (choice === 'tailscale' && tailscalePath === undefined) {
+      throw new Error('--access tailscale requires the tailscale CLI on PATH');
+    }
+    selectedAccess = choice;
+    log(choice === 'localhost' ? 'localhost only' : 'private Tailscale Serve');
+    return choice === 'localhost' ? 'Localhost' : 'Tailscale Serve';
+  };
 
-    await runStage(1, () => {
-      mkdirSync(configDir, { recursive: true, mode: 0o700 });
-      mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-      if (!existsSync(tokenPath)) {
-        const token = overrides.randomToken?.() ?? randomBytes(32).toString('hex');
-        writeFileSync(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+  const startStep = async (log: (message: string) => void): Promise<string> => {
+    // A Retry must not reinstall or restart a daemon that is already up; when
+    // the service was started this run and still answers, short-circuit.
+    if (serviceStarted && await probe(endpoint)) {
+      log('Codor is already running; reusing it');
+      return 'service already running';
+    }
+    if (!existsSync(tokenPath)) throw new Error(`operator token is missing at ${tokenPath}`);
+    serviceStarted = true;
+    if (platform === 'linux') {
+      const token = readFileSync(tokenPath, 'utf8').trim();
+      mkdirSync(userUnitDir, { recursive: true, mode: 0o700 });
+      writeFileSync(userUnitPath, unitContent!, { encoding: 'utf8', mode: 0o600 });
+      chmodSync(userUnitPath, 0o600);
+      writeFileSync(envPath, `CODOR_TOKEN=${token}\nPATH=${servicePath}\n`, { encoding: 'utf8', mode: 0o600 });
+      chmodSync(envPath, 0o600);
+      exec('systemctl', ['--user', 'daemon-reload']);
+      exec('systemctl', ['--user', 'enable', '--now', 'codor.service']);
+      try {
+        const linger = exec('loginctl', ['show-user', options.env.USER ?? '', '-p', 'Linger', '--value']);
+        if (linger.trim() !== 'yes') log(`for boot startup: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
+      } catch {
+        log(`check lingering: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
       }
-      if (platform === 'win32') exec('icacls', [tokenPath, '/inheritance:r', '/grant:r', `${windowsUser}:F`]);
-      else {
-        chmodSync(configDir, 0o700);
-        chmodSync(dataDir, 0o700);
-        chmodSync(tokenPath, 0o600);
-      }
-      log(1, 'private configuration and data are ready');
-    });
+    } else if (platform === 'darwin') {
+      const token = readFileSync(tokenPath, 'utf8').trim();
+      mkdirSync(launchAgentDir, { recursive: true });
+      mkdirSync(logDir, { recursive: true, mode: 0o700 });
+      chmodSync(logDir, 0o700);
+      writeFileSync(launchAgentPath, renderLaunchAgent({
+        dataDir, logDir, nodePath, runtime, servicePath, token,
+      }), { encoding: 'utf8', mode: 0o600 });
+      chmodSync(launchAgentPath, 0o600);
+      try { exec('launchctl', ['bootout', launchTarget!]); } catch { /* first install */ }
+      exec('launchctl', ['bootstrap', launchDomain!, launchAgentPath]);
+      exec('launchctl', ['enable', launchTarget!]);
+      exec('launchctl', ['kickstart', '-k', launchTarget!]);
+    } else {
+      mkdirSync(logDir, { recursive: true });
+      writeFileSync(windowsScriptPath, windowsScript!, 'utf8');
+      writeFileSync(windowsTaskPath, Buffer.from(`﻿${windowsTask!}`, 'utf16le'));
+      exec('schtasks', ['/Create', '/TN', 'Codor Switchboard', '/XML', windowsTaskPath, '/F']);
+      exec('schtasks', ['/Run', '/TN', 'Codor Switchboard']);
+    }
+    await waitForCodor(endpoint, probe, sleep);
+    log('Codor answered its pairing status check');
+    if (systemdBindHost === '0.0.0.0') log('WSL2 NAT is reachable through Windows localhost');
+    if (selectedAccess === 'tailscale') {
+      exec('tailscale', ['serve', '--bg', endpoint]);
+      const status = exec('tailscale', ['serve', 'status']);
+      endpoint = status.match(/https:\/\/[^\s/]+/)?.[0]
+        ?? (() => { throw new Error('Tailscale Serve did not report a private HTTPS origin'); })();
+      log(`private browser origin ${endpoint}`);
+    }
+    return 'service enabled and answering';
+  };
 
-    const selectedAccess = await runStage(2, async (): Promise<SetupAccess> => {
-      const selected = options.access ?? (session === undefined ? undefined : await session.chooseAccess(
-        'Choose how you will reach Codor.',
-        [
-          { id: 'localhost', label: 'Localhost', description: 'This computer only.', available: true },
-          { id: 'tailscale', label: 'Tailscale Serve', description: 'Private access from your tailnet.', available: tailscalePath !== undefined },
-        ],
-      ));
-      if (selected !== 'localhost' && selected !== 'tailscale') {
-        throw new Error('setup requires an access choice');
-      }
-      if (selected === 'tailscale' && tailscalePath === undefined) {
-        throw new Error('--access tailscale requires the tailscale CLI on PATH');
-      }
-      log(2, selected === 'localhost' ? 'localhost only' : 'private Tailscale Serve');
-      return selected;
-    });
-
-    let endpoint = 'http://127.0.0.1:8137';
-    await runStage(3, async () => {
-      if (!existsSync(tokenPath)) throw new Error(`operator token is missing at ${tokenPath}`);
-      if (platform === 'linux') {
-        const token = readFileSync(tokenPath, 'utf8').trim();
-        mkdirSync(userUnitDir, { recursive: true, mode: 0o700 });
-        writeFileSync(userUnitPath, unitContent!, { encoding: 'utf8', mode: 0o600 });
-        chmodSync(userUnitPath, 0o600);
-        writeFileSync(envPath, `CODOR_TOKEN=${token}\nPATH=${servicePath}\n`, { encoding: 'utf8', mode: 0o600 });
-        chmodSync(envPath, 0o600);
-        exec('systemctl', ['--user', 'daemon-reload']);
-        exec('systemctl', ['--user', 'enable', '--now', 'codor.service']);
-        try {
-          const linger = exec('loginctl', ['show-user', options.env.USER ?? '', '-p', 'Linger', '--value']);
-          if (linger.trim() !== 'yes') log(3, `for boot startup: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
-        } catch {
-          log(3, `check lingering: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
-        }
-      } else if (platform === 'darwin') {
-        const token = readFileSync(tokenPath, 'utf8').trim();
-        mkdirSync(launchAgentDir, { recursive: true });
-        mkdirSync(logDir, { recursive: true, mode: 0o700 });
-        chmodSync(logDir, 0o700);
-        writeFileSync(launchAgentPath, renderLaunchAgent({
-          dataDir, logDir, nodePath, runtime, servicePath, token,
-        }), { encoding: 'utf8', mode: 0o600 });
-        chmodSync(launchAgentPath, 0o600);
-        try { exec('launchctl', ['bootout', launchTarget!]); } catch { /* first install */ }
-        exec('launchctl', ['bootstrap', launchDomain!, launchAgentPath]);
-        exec('launchctl', ['enable', launchTarget!]);
-        exec('launchctl', ['kickstart', '-k', launchTarget!]);
-      } else {
-        mkdirSync(logDir, { recursive: true });
-        writeFileSync(windowsScriptPath, windowsScript!, 'utf8');
-        writeFileSync(windowsTaskPath, Buffer.from(`\uFEFF${windowsTask!}`, 'utf16le'));
-        exec('schtasks', ['/Create', '/TN', 'Codor Switchboard', '/XML', windowsTaskPath, '/F']);
-        exec('schtasks', ['/Run', '/TN', 'Codor Switchboard']);
-      }
-      await waitForCodor(endpoint, probe, sleep);
-      log(3, 'Codor answered its pairing status check');
-      if (systemdBindHost === '0.0.0.0') log(3, 'WSL2 NAT is reachable through Windows localhost');
-      if (selectedAccess === 'tailscale') {
-        exec('tailscale', ['serve', '--bg', endpoint]);
-        const status = exec('tailscale', ['serve', 'status']);
-        endpoint = status.match(/https:\/\/[^\s/]+/)?.[0]
-          ?? (() => { throw new Error('Tailscale Serve did not report a private HTTPS origin'); })();
-        log(3, `private browser origin ${endpoint}`);
-      }
-    });
-
-    const pairing = await runStage(4, () => {
+  const pairStep = (log: (message: string) => void): string => {
+    if (pairing === undefined) {
       const crypto = new CryptoVault(dataDir);
       try {
         const offer = crypto.pairing.issue(endpoint);
         const url = pairingUrl(offer);
-        return { code: offer.pairing_code, expires: offer.expires_at, qr: renderQr(url), url };
+        pairing = { code: offer.pairing_code, expires: offer.expires_at, qr: renderQr(url), url };
       } finally {
         crypto.close();
       }
-    });
-    const nextAction = `Enter ${pairing.code} in your browser or scan the QR.`;
-    session?.finish({ endpoint, harnesses: detected.map(({ harness }) => harness), nextAction });
-    completed = true;
-    options.out(pairing.qr);
-    options.out(pairing.url);
-    options.out(`code: ${pairing.code}`);
-    options.out(`expires ${pairing.expires}`);
-  } finally {
-    if (!completed) session?.stop();
+    }
+    log(`pairing code ${pairing.code}`);
+    return `code ${pairing.code}`;
+  };
+
+  const emitPairing = (): void => {
+    options.out(pairing!.qr);
+    options.out(pairing!.url);
+    options.out(`code: ${pairing!.code}`);
+    options.out(`expires ${pairing!.expires}`);
+  };
+
+  if (interactive) {
+    const session = new SetupSession({ version, streams: overrides.streams });
+    const steps: SetupStepDefinition[] = [
+      { title: stepTitles[0], run: async ({ log }) => checkStep(log) },
+      { title: stepTitles[1], run: async ({ log }) => prepareStep(log) },
+      {
+        title: stepTitles[2],
+        menu: {
+          message: 'Choose how you will reach Codor.',
+          options: [
+            { id: 'localhost', label: 'Localhost', description: 'This computer only.', available: true },
+            { id: 'tailscale', label: 'Tailscale Serve', description: 'Private access from your tailnet.', available: tailscalePath !== undefined },
+          ],
+        },
+        run: async ({ log, choice }) => chooseStep(log, choice),
+      },
+      { title: stepTitles[3], run: async ({ log }) => startStep(log) },
+      { title: stepTitles[4], run: async ({ log }) => pairStep(log) },
+    ];
+    await session.run(steps);
+    const nextAction = `Enter ${pairing!.code} in your browser or scan the QR.`;
+    session.finish({ endpoint, harnesses: detected.map(({ harness }) => harness), nextAction });
+    emitPairing();
+  } else {
+    const linear = (index: number) => (message: string): void => options.out(`[${String(index + 1)}/5] ${message}`);
+    options.out(`[1/5] ${stepTitles[0]}`); checkStep(linear(0));
+    options.out(`[2/5] ${stepTitles[1]}`); prepareStep(linear(1));
+    options.out(`[3/5] ${stepTitles[2]}`); chooseStep(linear(2), options.access);
+    options.out(`[4/5] ${stepTitles[3]}`); await startStep(linear(3));
+    options.out(`[5/5] ${stepTitles[4]}`); pairStep(linear(4));
+    emitPairing();
   }
 }
 // harn:end setup-preserves-private-platform-service

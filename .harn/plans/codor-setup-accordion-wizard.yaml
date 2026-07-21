@@ -57,11 +57,10 @@ notes: >-
   a new code. (Plan B and Plan C build their macOS resilience and Tailscale
   recovery on this navigation and idempotency; this plan establishes it.)
 
-  SCOPE. This plan is the interaction and rendering rewrite plus the
-  idempotency guards the wizard needs. It does not change the launchctl
-  sequence (Plan B) or Tailscale detection (Plan C) beyond routing their
-  failures through the new Retry/Back model, and it does not touch the public
-  command name (Plan D).
+  SCOPE. This plan is the interaction and rendering rewrite plus the idempotency
+  guards the wizard needs. It does not change the launchctl sequence (Plan B) or
+  Tailscale detection (Plan C) beyond routing their failures through the new
+  Retry/Back model, and it does not touch the public command name (Plan D).
 assumptions:
   retire:
     - id: setup-renders-five-stage-interactive-session
@@ -76,16 +75,16 @@ assumptions:
   create:
     - id: setup-renders-accordion-wizard-from-state
       title: Interactive setup renders as an accordion of collapsing steps
-      statement: Interactive setup must render as an accordion whose active or
-        running step is expanded with its content, choices, bounded dim rolling
-        logs, any error, and its Back and Next controls, whose completed steps
+      statement: Interactive setup must render as an accordion whose active or running
+        step is expanded with its content, choices, bounded dim rolling logs,
+        any error, and its Back and Next controls, whose completed steps
         collapse to a single summary line, and whose future steps collapse to
         their numbered title, above the Codor word art, version and byline;
-        frame production must remain a pure function of supplied state, must keep
-        the active step's actionable content visible at 80x10 and 40x24, and must
-        stay a primary-buffer repaint that never enters the alternate screen,
-        because deterministic terminal behavior requires frames asserted as
-        values and an operator needs the step they are acting on visible on a
+        frame production must remain a pure function of supplied state, must
+        keep the active step's actionable content visible at 80x10 and 40x24,
+        and must stay a primary-buffer repaint that never enters the alternate
+        screen, because deterministic terminal behavior requires frames asserted
+        as values and an operator needs the step they are acting on visible on a
         small terminal.
       reason: Richard's direction is a real accordion wizard; this is the replacement
         rendering contract.
@@ -95,8 +94,8 @@ assumptions:
       title: Wizard steps run once and navigation never repeats their effects
       statement: The interactive wizard must run each step's work at most once per
         invocation and memoize its result, must advance the view cursor on Next
-        and move it only on Back without re-running any step, must never re-run a
-        step that has completed, must re-run a step only through an explicit
+        and move it only on Back without re-running any step, must never re-run
+        a step that has completed, must re-run a step only through an explicit
         Retry offered solely on a failed step, must render a recoverable failure
         once inside its own step without also throwing that exception out of the
         session, and must preserve each completed step's result within the
@@ -114,8 +113,8 @@ assumptions:
   reviewed:
     - id: setup-restores-terminal-on-every-exit
       outcome: unchanged
-      reason: The session gains navigation input handling, but raw-mode entry only on a
-        TTY, cursor hide/show, timer and listener teardown on every exit path
+      reason: The session gains navigation input handling, but raw-mode entry only on
+        a TTY, cursor hide/show, timer and listener teardown on every exit path
         including signals, re-raising a signal only after cleanup, and never
         entering the alternate screen are all preserved. The anchored region is
         edited to add navigation, but the terminal-restoration contract it
@@ -129,28 +128,29 @@ assumptions:
     - id: setup-dry-run-reports-without-mutation-or-secret
       outcome: unchanged
       reason: Dry-run still runs before any session, previews localhost by default,
-        emits no terminal-control sequences, and redacts the token. The accordion
-        is not rendered under dry-run.
+        emits no terminal-control sequences, and redacts the token. The
+        accordion is not rendered under dry-run.
     - id: setup-terminal-input-survives-chunk-boundaries
       outcome: unchanged
-      reason: The key decoder is reused as-is; the wizard adds Back/Next handling on top
-        of the same coalesced-chunk-safe decoding, without changing the decoder.
+      reason: The key decoder is reused as-is; the wizard adds Back/Next handling on
+        top of the same coalesced-chunk-safe decoding, without changing the
+        decoder.
     - id: setup-preserves-private-platform-service
       outcome: unchanged
       depends_on:
         - setup-renders-accordion-wizard-from-state
         - public-package-bundles-complete-codor-runtime
       reason: This assumption depended on the retired five-stage rendering assumption
-        because the platform-service install is driven by the wizard's stages. The
-        edge is repointed to the replacement accordion-render assumption; the
-        platform-service install behavior itself is unchanged by this plan.
+        because the platform-service install is driven by the wizard's stages.
+        The edge is repointed to the replacement accordion-render assumption;
+        the platform-service install behavior itself is unchanged by this plan.
     - id: windows-setup-installs-private-task-service
       outcome: unchanged
-      reason: The Windows Task Scheduler service install - the rendered service script,
-        the UTF-16 task XML, the ACL-protected token, and the schtasks create/run
-        sequence - is unchanged. The accordion rewrite edits the shared runSetup
-        body that this assumption's runtime anchor wraps, but not the Windows
-        install code itself.
+      reason: The Windows Task Scheduler service install - the rendered service
+        script, the UTF-16 task XML, the ACL-protected token, and the schtasks
+        create/run sequence - is unchanged. The accordion rewrite edits the
+        shared runSetup body that this assumption's runtime anchor wraps, but
+        not the Windows install code itself.
 anchors:
   setup-renders-accordion-wizard-from-state:
     setup-frame-renderer:
@@ -171,8 +171,8 @@ anchors:
     setup-terminal-session:
       action: change
       reason: SetupSession gains navigation (Back/Next/Retry) input handling and step
-        execution wiring. The terminal-restoration contract is unchanged, but the
-        anchored class region is edited.
+        execution wiring. The terminal-restoration contract is unchanged, but
+        the anchored class region is edited.
     setup-terminal-session-regression:
       action: change
       reason: The session regression gains navigation and retry coverage while keeping
@@ -185,8 +185,8 @@ anchors:
   setup-unattended-mutation-requires-explicit-intent:
     setup-unattended-runtime:
       action: keep
-      reason: The non-interactive guard is unchanged; the linear path does not enter the
-        accordion.
+      reason: The non-interactive guard is unchanged; the linear path does not enter
+        the accordion.
   setup-dry-run-reports-without-mutation-or-secret:
     setup-dry-run-runtime:
       action: keep
@@ -264,10 +264,12 @@ verification: >
   recoverable failure does not rethrow out of the session.
 
   Preserved gates: the non-interactive linear path and the dry-run output are
-  unchanged (their existing tests stay green), and no step re-runs on
-  navigation - the token is written once, the service started once, one pairing
-  code minted per invocation.
+  unchanged (their existing tests stay green), and no step re-runs on navigation
+  - the token is written once, the service started once, one pairing code minted
+  per invocation.
 
   Negative gates: removing the memoization must make a Back/Next re-run a step
   and fail the no-repeat test; making a recoverable failure rethrow must fail
   the render-error-once / no-double-print test.
+applied:
+  applied_at: 2026-07-21T08:43:50.573Z

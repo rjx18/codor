@@ -1,0 +1,20 @@
+id: setup-wizard-runs-each-step-once-and-navigates-by-cursor
+hash: a-cc717e299a27
+title: Wizard steps run once and navigation never repeats their effects
+state: active
+statement: The interactive wizard must run each step's work at most once per
+  invocation and memoize its result, must advance the view cursor on Next and
+  move it only on Back without re-running any step, must never re-run a step
+  that has completed, must re-run a step only through an explicit Retry offered
+  solely on a failed step, must render a recoverable failure once inside its own
+  step without also throwing that exception out of the session, and must
+  preserve each completed step's result within the invocation including the
+  issued pairing offer, while the effectful steps stay idempotent - an
+  absent-only token, a Start step that short-circuits when the daemon already
+  answers the readiness probe, and a pairing step that reuses a still-valid
+  offer - because navigating back to review a completed step must not restart a
+  service, regenerate a token, or mint a second pairing code.
+depends_on:
+  - setup-renders-accordion-wizard-from-state
+  - setup-verifies-codor-before-creating-pairing-code
+created_by: codor-setup-accordion-wizard

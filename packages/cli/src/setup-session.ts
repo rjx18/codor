@@ -1,13 +1,13 @@
 import { EventEmitter } from 'node:events';
 
+import { SetupFlow } from './setup-flow.js';
 import {
   SETUP_CURSOR_HIDE,
   SETUP_CURSOR_SHOW,
-  createSetupStages,
   renderSetupFrame,
   type SetupAccessOption,
+  type SetupControls,
   type SetupStage,
-  type SetupStageState,
   type SetupSummary,
 } from './setup-ui.js';
 import { TerminalKeyDecoder, type SetupKey } from './terminal-keys.js';
@@ -46,9 +46,25 @@ export class SetupCancelled extends Error {
   }
 }
 
+/** What a wizard step does when the flow enters it. `run` performs the step's
+ *  effectful work and returns a one-line summary; throwing marks the step failed
+ *  and keeps the operator inside it with Retry. A `menu` makes the step a choice
+ *  whose selected option id is passed to `run` as `context.choice`. */
+export interface SetupStepContext {
+  log(message: string): void;
+  choice?: string;
+}
+
+export interface SetupStepDefinition {
+  title: string;
+  menu?: { message: string; options: SetupAccessOption[] };
+  run(context: SetupStepContext): Promise<string>;
+}
+
 // harn:assume setup-restores-terminal-on-every-exit ref=setup-terminal-session
 export class SetupSession {
-  readonly stages: SetupStage[] = createSetupStages();
+  private flow: SetupFlow | undefined;
+  private readonly summaries: (string | undefined)[] = [];
 
   private readonly input: NodeJS.ReadStream;
   private readonly output: NodeJS.WriteStream;
@@ -59,10 +75,9 @@ export class SetupSession {
   private readonly detachers: Array<() => void> = [];
   private spinner: NodeJS.Timeout | undefined;
   private frame = 0;
-  private title = 'Setup';
   private summary: SetupSummary | undefined;
-  private failure: string | undefined;
   private menu: Parameters<typeof renderSetupFrame>[0]['menu'];
+  private awaitingNav = false;
   private priorRawMode = false;
   private started = false;
 
@@ -114,93 +129,148 @@ export class SetupSession {
     this.output.write(SETUP_CURSOR_SHOW);
   }
 
-  setStage(index: number, state: SetupStageState): void {
-    if (this.stages[index] !== undefined) this.stages[index]!.state = state;
-    this.render();
-  }
-
-  log(index: number, message: string): void {
-    this.stages[index]?.logs.push(message);
-    this.render();
-  }
-
   finish(summary: SetupSummary): void {
     this.summary = summary;
-    this.title = 'Setup complete';
-    this.stop();
-    this.render();
-  }
-
-  fail(message: string): void {
-    this.failure = message;
-    this.title = 'Setup failed';
     this.stop();
     this.render();
   }
 
   render(): void {
+    const flow = this.flow;
+    if (flow === undefined) return;
+    const steps: SetupStage[] = flow.steps.map((step, index) => ({
+      title: step.title,
+      state: step.state,
+      logs: step.logs,
+      summary: this.summaries[index],
+      error: step.error,
+    }));
+    const controls: SetupControls | undefined = this.awaitingNav
+      ? { back: flow.canBack, next: flow.canNext, retry: flow.canRetry }
+      : undefined;
     this.output.write(renderSetupFrame({
       version: this.version,
       byline: this.byline,
-      title: this.title,
-      stages: this.stages,
+      steps,
+      cursor: flow.cursor,
       spinnerFrame: this.frame,
       viewport: { rows: this.output.rows ?? 24, columns: this.output.columns ?? 80 },
       menu: this.menu,
+      controls,
       summary: this.summary,
-      failure: this.failure,
     }));
   }
 
-  async chooseAccess(message: string, options: SetupAccessOption[]): Promise<string> {
-    const firstAvailable = options.findIndex((option) => option.available);
-    if (firstAvailable < 0) throw new Error('setup has no available access method');
-    let focused = firstAvailable;
-    let selected = options[firstAvailable]!.id;
-    this.menu = { message, options, focused, selected };
+  /**
+   * Drive the wizard over the given steps. Each step's work runs at most once;
+   * navigation moves the cursor without re-running committed steps; Retry
+   * re-runs a failed step. A recoverable failure stays inside its step (Retry /
+   * Back) and is never rethrown out of the session.
+   */
+  async run(steps: readonly SetupStepDefinition[]): Promise<void> {
+    const flow = new SetupFlow(steps.map((step) => ({
+      title: step.title,
+      kind: step.menu !== undefined ? 'choice' : 'auto',
+    })));
+    this.flow = flow;
+    this.summaries.length = 0;
+    this.start();
+
+    for (;;) {
+      const index = flow.cursor;
+      const definition = steps[index]!;
+
+      if (flow.activeNeedsRun) {
+        let choice: string | undefined;
+        if (definition.menu !== undefined) {
+          // A choice step waits for a selection before its work commits.
+          const decision = await this.selectFromMenu(definition.menu);
+          if (decision.type === 'cancel') { this.stop(); throw new SetupCancelled(); }
+          if (decision.type === 'back') { flow.back(); continue; }
+          choice = decision.id;
+        }
+
+        flow.markRunning(index);
+        this.render();
+        try {
+          const summary = await definition.run({ log: (message) => { flow.log(index, message); this.render(); }, choice });
+          this.summaries[index] = summary;
+          flow.markDone(index, { choice, summary });
+        } catch (error) {
+          // The failure renders once inside the step. It is not rethrown.
+          flow.markFailed(index, error instanceof Error ? error.message : String(error));
+        }
+        this.render();
+      }
+
+      // The step has settled; wait for a navigation action.
+      const action = await this.awaitNavigation();
+      if (action === 'cancel') { this.stop(); throw new SetupCancelled(); }
+      if (action === 'retry') { flow.retry(); continue; }
+      if (action === 'back') { flow.back(); continue; }
+      if (action === 'next') {
+        if (flow.canNext) { flow.next(); continue; }
+        if (flow.complete) return; // Next on the last, completed step finishes.
+      }
+    }
+  }
+
+  private awaitNavigation(): Promise<'next' | 'back' | 'retry' | 'cancel'> {
+    this.awaitingNav = true;
+    this.render();
+    return this.readKeys<'next' | 'back' | 'retry' | 'cancel'>((key, settle) => {
+      if (key.type === 'cancel') return settle('cancel');
+      if (key.type === 'left' && this.flow!.canBack) return settle('back');
+      if ((key.type === 'char' && key.value.toLowerCase() === 'r') && this.flow!.canRetry) return settle('retry');
+      if (key.type === 'enter' || key.type === 'right') {
+        if (this.flow!.canNext || this.flow!.complete) return settle('next');
+        if (this.flow!.canRetry) return settle('retry');
+      }
+      return false;
+    }).finally(() => { this.awaitingNav = false; });
+  }
+
+  private selectFromMenu(menu: { message: string; options: SetupAccessOption[] }):
+  Promise<{ type: 'select'; id: string } | { type: 'back' } | { type: 'cancel' }> {
+    const firstAvailable = menu.options.findIndex((option) => option.available);
+    let focused = firstAvailable < 0 ? 0 : firstAvailable;
+    let selected = firstAvailable < 0 ? undefined : menu.options[firstAvailable]!.id;
+    this.menu = { message: menu.message, options: menu.options, focused, selected };
     this.render();
 
-    return new Promise<string>((resolve, reject) => {
+    return this.readKeys<{ type: 'select'; id: string } | { type: 'back' } | { type: 'cancel' }>((key, settle) => {
+      if (key.type === 'cancel') { this.menu = undefined; return settle({ type: 'cancel' }); }
+      if (key.type === 'left' && this.flow!.canBack) { this.menu = undefined; return settle({ type: 'back' }); }
+      if (key.type === 'up') focused = (focused - 1 + menu.options.length) % menu.options.length;
+      if (key.type === 'down') focused = (focused + 1) % menu.options.length;
+      if (key.type === 'space') {
+        const option = menu.options[focused];
+        if (option?.available === true) selected = option.id;
+      }
+      if ((key.type === 'enter' || key.type === 'right') && selected !== undefined) {
+        this.menu = undefined;
+        return settle({ type: 'select', id: selected });
+      }
+      this.menu = { message: menu.message, options: menu.options, focused, selected };
+      this.render();
+      return false;
+    });
+  }
+
+  /** Shared raw-input reader. `handle` returns a settle() call to resolve, or
+   *  false to keep listening. Registers its teardown so stop() detaches it. */
+  private readKeys<T>(handle: (key: SetupKey, settle: (value: T) => true) => boolean | true): Promise<T> {
+    return new Promise<T>((resolve) => {
       const decoder = new TerminalKeyDecoder();
       let flushTimer: NodeJS.Timeout | undefined;
-
-      const detachInput = (): void => {
+      const detach = (): void => {
         this.input.off('data', onData);
         if (flushTimer !== undefined) clearTimeout(flushTimer);
         flushTimer = undefined;
       };
-      this.detachers.push(detachInput);
-
-      const settle = (finish: () => void): void => {
-        detachInput();
-        this.menu = undefined;
-        finish();
-      };
-
-      const apply = (key: SetupKey): boolean => {
-        if (key.type === 'cancel') {
-          settle(() => reject(new SetupCancelled()));
-          return true;
-        }
-        if (key.type === 'up') focused = (focused - 1 + options.length) % options.length;
-        if (key.type === 'down') focused = (focused + 1) % options.length;
-        if (key.type === 'space') {
-          const option = options[focused];
-          if (option?.available === true) selected = option.id;
-          else this.stages[2]?.logs.push(`${option?.label ?? 'That option'} is unavailable`);
-        }
-        if (key.type === 'enter' && selected !== undefined) {
-          settle(() => resolve(selected!));
-          return true;
-        }
-        return false;
-      };
-
-      const renderOnce = (): void => {
-        this.menu = { message, options, focused, selected };
-        this.render();
-      };
-
+      this.detachers.push(detach);
+      const settle = (value: T): true => { detach(); resolve(value); return true; };
+      const apply = (key: SetupKey): boolean => handle(key, settle) === true;
       const onData = (chunk: Buffer): void => {
         if (flushTimer !== undefined) clearTimeout(flushTimer);
         flushTimer = undefined;
@@ -212,12 +282,9 @@ export class SetupSession {
             for (const key of decoder.flush()) {
               if (apply(key)) return;
             }
-            renderOnce();
           }, ESCAPE_FLUSH_MS);
         }
-        renderOnce();
       };
-
       this.input.on('data', onData);
     });
   }

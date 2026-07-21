@@ -7,6 +7,7 @@ import {
   SetupSession,
   isInteractiveSetup,
   type SetupSessionStreams,
+  type SetupStepDefinition,
 } from './setup-session.js';
 import { SETUP_CURSOR_HIDE, SETUP_CURSOR_SHOW } from './setup-ui.js';
 
@@ -41,6 +42,11 @@ function harness() {
   return { input, output, signals, raised, session };
 }
 
+/** Let pending step work resolve and the next input listener register. */
+const settle = async (): Promise<void> => {
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 2));
+};
+
 // harn:assume setup-restores-terminal-on-every-exit ref=setup-terminal-session-regression
 describe('setup terminal ownership', () => {
   it('requires both streams to be TTYs', () => {
@@ -71,7 +77,7 @@ describe('setup terminal ownership', () => {
     expect(signals.listenerCount('SIGINT')).toBe(initial.int);
     expect(signals.listenerCount('SIGTERM')).toBe(initial.term);
     expect(vi.getTimerCount()).toBe(0);
-    expect(output.chunks.join('')).not.toContain('\u001B[?1049h');
+    expect(output.chunks.join('')).not.toContain('[?1049h');
     vi.useRealTimers();
   });
 
@@ -84,37 +90,104 @@ describe('setup terminal ownership', () => {
     expect(raised).toEqual([signal]);
     expect(signals.listenerCount(signal)).toBe(0);
   });
+});
 
-  it('moves focus, makes Space selection visible, and confirms with Enter', async () => {
-    const { input, output, session } = harness();
-    session.start();
-    const selected = session.chooseAccess('Choose.', [
-      { id: 'localhost', label: 'Localhost', description: 'Local.', available: true },
-      { id: 'tailscale', label: 'Tailscale', description: 'Remote.', available: true },
-    ]);
-    input.emit('data', Buffer.from('\u001B[B'));
-    input.emit('data', Buffer.from(' '));
-    expect(output.chunks.join('')).toContain('Tailscale');
-    input.emit('data', Buffer.from('\r'));
-    await expect(selected).resolves.toBe('tailscale');
+describe('setup wizard navigation', () => {
+  it('runs each step once, advances on Next, and finishes', async () => {
+    const { input, session } = harness();
+    const runs: string[] = [];
+    const steps: SetupStepDefinition[] = [
+      { title: 'One', run: async ({ log }) => { runs.push('one'); log('did one'); return 'one done'; } },
+      { title: 'Two', run: async () => { runs.push('two'); return 'two done'; } },
+    ];
+    const done = session.run(steps);
+    await settle();
+    input.emit('data', Buffer.from('\r')); // Next -> step Two
+    await settle();
+    input.emit('data', Buffer.from('\r')); // Next on the last, completed step -> finish
+    await done;
+    expect(runs).toEqual(['one', 'two']);
     session.stop();
   });
 
-  it('flushes a bare Escape into cancellation and removes the data listener', async () => {
-    vi.useFakeTimers();
+  it('does not re-run a completed step when navigating Back then Next', async () => {
     const { input, session } = harness();
-    session.start();
-    const selected = session.chooseAccess('Choose.', [
-      { id: 'localhost', label: 'Localhost', description: 'Local.', available: true },
-    ]);
-    const cancelled = expect(selected).rejects.toBeInstanceOf(SetupCancelled);
-    input.emit('data', Buffer.from('\u001B'));
-    await vi.advanceTimersByTimeAsync(50);
-    await cancelled;
-    expect(input.listenerCount('data')).toBe(0);
+    const runs: string[] = [];
+    const steps: SetupStepDefinition[] = [
+      { title: 'One', run: async () => { runs.push('one'); return 'a'; } },
+      { title: 'Two', run: async () => { runs.push('two'); return 'b'; } },
+    ];
+    const done = session.run(steps);
+    await settle();
+    input.emit('data', Buffer.from('\r')); // -> Two (runs)
+    await settle();
+    input.emit('data', Buffer.from('[D')); // Back -> One (no re-run)
+    await settle();
+    input.emit('data', Buffer.from('\r')); // Next -> Two (already done, no re-run)
+    await settle();
+    input.emit('data', Buffer.from('\r')); // Next -> finish
+    await done;
+    expect(runs).toEqual(['one', 'two']);
     session.stop();
-    expect(vi.getTimerCount()).toBe(0);
-    vi.useRealTimers();
+  });
+
+  it('keeps a recoverable failure inside its step and re-runs only on Retry, without rethrowing', async () => {
+    const { input, output, session } = harness();
+    let attempts = 0;
+    const steps: SetupStepDefinition[] = [
+      { title: 'Flaky', run: async () => { attempts += 1; if (attempts === 1) throw new Error('bootstrap failed'); return 'ok'; } },
+    ];
+    const done = session.run(steps);
+    await settle();
+    // The failure is rendered in-step; run() has not rejected.
+    expect(output.chunks.join('')).toContain('bootstrap failed');
+    input.emit('data', Buffer.from('r')); // Retry -> re-run
+    await settle();
+    input.emit('data', Buffer.from('\r')); // Next -> finish
+    await expect(done).resolves.toBeUndefined();
+    expect(attempts).toBe(2);
+    session.stop();
+  });
+
+  it('presents a choice menu and passes the selection to the step work', async () => {
+    const { input, session } = harness();
+    let chosen: string | undefined;
+    const steps: SetupStepDefinition[] = [
+      {
+        title: 'Choose',
+        menu: {
+          message: 'Choose.',
+          options: [
+            { id: 'localhost', label: 'Localhost', description: 'Local.', available: true },
+            { id: 'tailscale', label: 'Tailscale', description: 'Remote.', available: true },
+          ],
+        },
+        run: async ({ choice }) => { chosen = choice; return String(choice); },
+      },
+    ];
+    const done = session.run(steps);
+    await settle();
+    input.emit('data', Buffer.from('[B')); // focus Tailscale
+    input.emit('data', Buffer.from(' ')); // select it
+    input.emit('data', Buffer.from('\r')); // confirm -> run work
+    await settle();
+    input.emit('data', Buffer.from('\r')); // Next -> finish
+    await done;
+    expect(chosen).toBe('tailscale');
+    session.stop();
+  });
+
+  it('cancels on q, restoring the terminal', async () => {
+    const { input, output, session } = harness();
+    const steps: SetupStepDefinition[] = [
+      { title: 'One', run: async () => 'a' },
+    ];
+    const done = session.run(steps);
+    await settle();
+    input.emit('data', Buffer.from('q'));
+    await expect(done).rejects.toBeInstanceOf(SetupCancelled);
+    expect(output.chunks.at(-1)).toBe(SETUP_CURSOR_SHOW);
+    expect(input.isRaw).toBe(false);
   });
 });
 // harn:end setup-restores-terminal-on-every-exit

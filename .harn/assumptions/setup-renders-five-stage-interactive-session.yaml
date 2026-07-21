@@ -1,7 +1,7 @@
 id: setup-renders-five-stage-interactive-session
 hash: a-4bdda758a064
 title: Setup renders five numbered stages from pure state
-state: active
+state: retired
 statement: Interactive setup must render Codor word art, version and byline,
   five numbered named stages with pending, running, done, skipped or failed
   state, an animated running indicator, bounded dim rolling logs, and a closing
@@ -12,3 +12,4 @@ statement: Interactive setup must render Codor word art, version and byline,
 depends_on:
   - adapter-registry-sole-harness-source
 created_by: codor-interactive-setup-session
+retired_by: codor-setup-accordion-wizard

@@ -1,0 +1,17 @@
+id: setup-renders-accordion-wizard-from-state
+hash: a-1fc5a2188a7a
+title: Interactive setup renders as an accordion of collapsing steps
+state: active
+statement: Interactive setup must render as an accordion whose active or running
+  step is expanded with its content, choices, bounded dim rolling logs, any
+  error, and its Back and Next controls, whose completed steps collapse to a
+  single summary line, and whose future steps collapse to their numbered title,
+  above the Codor word art, version and byline; frame production must remain a
+  pure function of supplied state, must keep the active step's actionable
+  content visible at 80x10 and 40x24, and must stay a primary-buffer repaint
+  that never enters the alternate screen, because deterministic terminal
+  behavior requires frames asserted as values and an operator needs the step
+  they are acting on visible on a small terminal.
+depends_on:
+  - adapter-registry-sole-harness-source
+created_by: codor-setup-accordion-wizard
