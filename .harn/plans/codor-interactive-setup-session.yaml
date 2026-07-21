@@ -174,6 +174,10 @@ assumptions:
     - id: operator-launches-serve-web-next
       outcome: unchanged
       reason: Every recreated platform service keeps using the resolved web-next build.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Setup test additions move the later CLI registry regression without
+        changing its composition contract or assertions.
 files:
   - packages/cli/src/setup-ui.ts
   - packages/cli/src/setup-ui.spec.ts
@@ -239,6 +243,11 @@ anchors:
     readme-wsl-access:
       action: keep
       reason: Documentation changes belong to contract 3.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Setup regression additions above this region move its source position;
+        its registry contract and contents remain unchanged.
   setup-renders-five-stage-interactive-session:
     setup-frame-renderer:
       action: change
