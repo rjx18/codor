@@ -33,11 +33,16 @@ describe('pure setup frame', () => {
       'Start Codor',
       'Create pairing code',
     ]);
-    expect(frame).toContain(CODOR_WORD_ART.split('\n')[0]);
     expect(frame).toContain('v0.10.0 - created by richhardry');
     for (const [index, title] of SETUP_STAGE_TITLES.entries()) {
       expect(frame).toContain(`[${String(index + 1)}] ${title}`);
     }
+    // The Codor emblem shows once the viewport is tall enough to seat it above
+    // the stages; assert a glyph row, not the art's blank leading padding.
+    const artRow = CODOR_WORD_ART.split('\n').find((line) => line.includes('█'))!;
+    expect(plain(renderSetupFrame(state({ viewport: { rows: 48, columns: 100 } })))).toContain(artRow);
+    // On a standard-height terminal it compacts away so the stages stay visible.
+    expect(frame).not.toContain(artRow);
   });
 
   it.each(['pending', 'running', 'done', 'skipped', 'failed'] as const)(
