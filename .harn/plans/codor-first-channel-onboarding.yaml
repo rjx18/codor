@@ -1,0 +1,112 @@
+id: codor-first-channel-onboarding
+title: Turn the paired empty state into a complete first-channel journey
+notes: >-
+  Phase 5. A successfully paired owner with zero authorized channels must be
+  able to create the first real channel without leaving the browser. The
+  lightweight form asks for the channel name, an editable owner display name,
+  an optional project folder, and an optional starting agent using the same
+  adapter-driven controls as every other creation path. Selecting a folder may
+  suggest its basename only until the operator edits the channel name; it must
+  never overwrite an explicit name. The authoritative server response drives
+  navigation. Because a paired device initially receives keys only for rooms
+  that existed at enrollment, the additive create response also seals the new
+  room key to the creating device and the client persists it before opening the
+  room. Existing operator-token clients remain byte-compatible, and browser
+  protocol epoch 2 does not change. Tests exercise the real paired-device path,
+  first-channel creation, key delivery, optional agent configuration, phone
+  layout, and accessibility.
+assumptions:
+  create:
+    - id: paired-empty-state-creates-first-channel
+      title: A paired owner can create and enter the first channel in place
+      statement: >-
+        A paired owner with a confirmed empty room list must see a complete
+        first-channel form that creates an authoritative room, keeps an
+        operator-edited channel name stable when the project folder changes,
+        accepts a valid owner identity, optionally seeds an adapter-driven
+        agent, surfaces failures in place, and navigates without putting the
+        bearer token in the URL; because an empty account must not strand a new
+        operator on instructions to use another surface.
+      reason: >-
+        NoChannels is currently a terminal message even though the authenticated
+        global owner principal already has manage_rooms authority.
+      depends_on:
+        - channel-creation-derived-and-seeded
+        - web-room-rail-creates-owner-room
+        - one-control-chooses-an-agent-everywhere
+    - id: browser-created-channel-delivers-its-room-key
+      title: A paired browser receives the encryption key for a room it creates
+      statement: >-
+        When a browser-device principal creates a room, the server must include
+        that room's current key sealed only to the creating device and the
+        browser must open and persist it before treating creation as complete;
+        operator-token and non-crypto responses remain compatible, because a
+        device paired before the room existed otherwise opens a channel whose
+        encrypted history it cannot read.
+      reason: >-
+        Pairing distributes only keys that exist at enrollment, while the room
+        creation endpoint currently ensures a new key without returning it.
+      depends_on:
+        - ed25519-identity-x25519-encryption
+        - paired-browser-challenge-session
+        - channel-creation-derived-and-seeded
+  reviewed:
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: >-
+        The existing authoritative room, owner, system member, metadata, and
+        best-effort starting-agent behavior is unchanged; the response gains an
+        optional device-specific key envelope after creation.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: >-
+        The shared create client still uses authenticated REST and returns the
+        authoritative room; it additionally persists an optional key envelope.
+    - id: paired-browser-challenge-session
+      outcome: unchanged
+      reason: >-
+        Room creation uses the existing short-lived browser bearer and the
+        server resolves its authenticated device id before sealing a key.
+    - id: local-directory-listing-home-contained
+      outcome: unchanged
+      reason: >-
+        Onboarding reuses the contained directory listing and typed-path escape
+        without widening what the server exposes.
+    - id: release-gate-runs-unit-and-browser
+      outcome: unchanged
+      reason: >-
+        The real paired-device first-channel journey and accessibility checks
+        live in the existing Playwright release gate.
+files:
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/main.tsx
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/runtime/api.spec.ts
+  - packages/web-next/src/surfaces/NoChannels.tsx
+  - packages/web-next/src/styles/onboarding.css
+  - packages/web-next/tests/room29-onboarding.e2e.spec.ts
+  - scripts/release-audit.mjs
+anchors:
+  paired-empty-state-creates-first-channel:
+    first-channel-onboarding-audit:
+      action: change
+      reason: >-
+        Add a tracked release assertion that the paired empty state owns a real
+        create form and preserves an explicitly edited channel name.
+  browser-created-channel-delivers-its-room-key:
+    browser-room-key-response:
+      action: change
+      reason: >-
+        Seal the newly ensured room key to the authenticated creating device.
+    browser-room-key-regression:
+      action: change
+      reason: >-
+        Prove the returned envelope opens only for the creating browser and
+        matches the new room's current key.
+  channel-creation-derived-and-seeded:
+    create-room-rest-contract:
+      action: change
+      reason: >-
+        Keep creation semantics and add the optional device-specific room-key
+        envelope to the successful response.
