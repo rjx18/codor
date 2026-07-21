@@ -1,0 +1,107 @@
+id: codor-agent-onboarding-phase2
+title: Bootstrap Desk with service HOME and one atomic tutorial welcome
+notes: >-
+  When startCodor opens an empty database, seed its initial Desk with the
+  service user's resolved absolute home directory and one persisted chat message
+  authored by a lightweight Tutorial system member. Extend Store.createRoom only
+  with an internal optional bootstrap welcome seed so the room, owner,
+  switchboard member, tutorial member, and message share one transaction. Keep
+  ordinary daemon/REST room creation and existing databases untouched, and prove
+  restart idempotence plus rollback on an injected message insertion failure.
+assumptions:
+  create:
+    - id: empty-database-desk-uses-service-home
+      title: A freshly bootstrapped Desk starts in the service user's home
+      statement: >-
+        startCodor must persist the service user's resolved absolute home
+        directory as the initial Desk cwd only when the database contains no
+        rooms, because a newly installed service must open in a real usable
+        directory rather than its runtime, npm cache, or process working
+        directory.
+      reason: >-
+        Installed services run from Codor's runtime directory, which is not the
+        operator workspace the first Desk should expose to agents.
+    - id: empty-database-desk-seeds-tutorial-atomically
+      title: A fresh Desk contains one durable Tutorial welcome and nothing is half-seeded
+      statement: >-
+        startCodor must seed exactly one persisted chat message authored by the
+        system member @tutorial only while creating the first room in an empty
+        database, and the room, owner, switchboard member, tutorial member, and
+        message must commit or roll back together; restarts, existing rooms, and
+        ordinary room creation must not add or duplicate that guidance, because
+        onboarding must be durable and idempotent without polluting normal
+        channel creation or presenting Tutorial as a running agent.
+      reason: >-
+        A first-run welcome is useful only if it renders as real attributed chat
+        and cannot leave a partial Desk or reappear on every daemon restart.
+      depends_on:
+        - owner-and-system-members-seeded
+        - message-id-txn-allocation
+  reviewed:
+    - id: owner-and-system-members-seeded
+      outcome: unchanged
+      reason: >-
+        Every room still atomically receives its owner and reserved switchboard
+        member. Only the explicit internal bootstrap option adds Tutorial and its
+        welcome inside that same transaction.
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: >-
+        Daemon and REST room creation keep the same generic Store.createRoom call
+        without a bootstrap welcome, so ordinary browser-created channels retain
+        their existing structural-member and optional-agent behavior.
+    - id: spawn-default-cwd-is-absolute-or-empty
+      outcome: unchanged
+      reason: >-
+        Spawn cwd inheritance remains unchanged; the bootstrap Desk now supplies
+        a valid absolute room cwd from the service user's home.
+    - id: message-id-txn-allocation
+      outcome: unchanged
+      reason: >-
+        The Tutorial welcome uses the existing transactional postMessage path, so
+        its room-local id and changelog sequence retain the established allocation
+        contract.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: >-
+        startCodor still loads and composes adapters exactly once; the enclosing
+        CLI composition region changes only to accept an injectable homeDir and
+        seed empty-database room metadata.
+anchors:
+  empty-database-desk-uses-service-home:
+    bootstrap-service-home:
+      action: change
+      reason: Resolve the service home once and persist it as the empty-database Desk cwd.
+    bootstrap-service-home-regression:
+      action: change
+      reason: Prove the configured service HOME is absolute and not process cwd.
+  empty-database-desk-seeds-tutorial-atomically:
+    bootstrap-tutorial-seed:
+      action: change
+      reason: Supply the exact Tutorial identity and welcome only in the empty-database branch.
+    bootstrap-welcome-transaction:
+      action: change
+      reason: Insert the optional Tutorial member and chat inside room seeding's transaction.
+    bootstrap-tutorial-regression:
+      action: change
+      reason: Prove exact authorship, copy, restart idempotence, and no retrofit of existing rooms.
+    bootstrap-welcome-transaction-regression:
+      action: change
+      reason: Prove ordinary creation stays structural-only and an injected message failure rolls back all rows.
+  owner-and-system-members-seeded:
+    room-seeding:
+      action: change
+      reason: Add the internal optional welcome while preserving unconditional owner and switchboard seeding.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Add homeDir to startCodor composition without changing adapter loading.
+files:
+  - packages/cli/src/up.ts
+  - packages/cli/src/index.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+verification: >-
+  Run the focused switchboard room-seeding tests and CLI startCodor bootstrap
+  tests, build/typecheck the affected packages, and pass Harn checks before
+  applying and committing Phase 2 as one implementation transaction.
