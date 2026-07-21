@@ -58,7 +58,7 @@ function defaultCheckoutRoot(): string {
   return resolve(fileURLToPath(new URL('../../../', import.meta.url)));
 }
 
-// harn:assume setup-resolves-installed-or-checkout-runtime ref=setup-runtime-resolution
+// harn:assume setup-resolves-complete-invoking-runtime ref=setup-runtime-resolution
 export function runtimeCandidates(options: RuntimePathOptions = {}): Candidate[] {
   const candidates: Candidate[] = [];
   if (options.repoRoot !== undefined) {
@@ -88,4 +88,4 @@ export function resolveRuntimePaths(options: RuntimePathOptions = {}): RuntimePa
   );
   throw new Error(`codor setup could not find a complete runtime; checked ${inspected.join(' | ')}`);
 }
-// harn:end setup-resolves-installed-or-checkout-runtime
+// harn:end setup-resolves-complete-invoking-runtime

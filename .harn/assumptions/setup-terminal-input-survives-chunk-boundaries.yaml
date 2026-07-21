@@ -1,0 +1,11 @@
+id: setup-terminal-input-survives-chunk-boundaries
+hash: a-decd575eb770
+title: Setup key decoding preserves split terminal sequences
+state: active
+statement: The setup key decoder must retain incomplete escape sequences across
+  data events, consume unknown CSI sequences without emitting their trailing
+  letter, apply coalesced keys in order, and expose a pure flush that turns a
+  retained bare Escape into cancel; because terminals split arrow sequences
+  arbitrarily and a trailing letter must never become an unintended command.
+depends_on: []
+created_by: codor-interactive-setup-session

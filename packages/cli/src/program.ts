@@ -31,7 +31,7 @@ import {
 import { ProtocolClient, type ProtocolClientOptions } from './connection.js';
 import { detectSession } from './detect.js';
 import { parseMirrorHook } from './mirror.js';
-import { runSetup, type SetupOverrides } from './setup.js';
+import { runSetup, type SetupAccess, type SetupOverrides } from './setup.js';
 import { renderTerminalQr } from './terminal-qr.js';
 import { parseLine, startOutpost, startCodor, waitForShutdown } from './up.js';
 
@@ -474,13 +474,16 @@ export function createProgram(context: CliContext = {}): Command {
     });
   // harn:end adapter-registry-sole-harness-source
 
-  // harn:assume cli-setup-wizard-installs-platform-user-service ref=setup-command-surface
+  // harn:assume setup-unattended-mutation-requires-explicit-intent ref=setup-command-surface
   program
     .command('setup')
     .description('configure the local switchboard user service and first browser pairing')
     .option('--dry-run', 'print every action and generated service content without changing the host')
-    .action(async (options: { dryRun?: boolean }) => {
+    .option('--yes', 'approve every setup mutation for unattended use')
+    .addOption(new Option('--access <method>', 'browser access method').choices(['localhost', 'tailscale']))
+    .action(async (options: { access?: SetupAccess; dryRun?: boolean; yes?: boolean }) => {
       await runSetup({
+        access: options.access,
         dryRun: options.dryRun === true,
         env,
         out,
@@ -488,9 +491,10 @@ export function createProgram(context: CliContext = {}): Command {
           ...context.setup,
           renderQr: context.renderQr ?? context.setup?.renderQr,
         },
+        yes: options.yes === true,
       });
     });
-  // harn:end cli-setup-wizard-installs-platform-user-service
+  // harn:end setup-unattended-mutation-requires-explicit-intent
 
   program
     .command('spawn')

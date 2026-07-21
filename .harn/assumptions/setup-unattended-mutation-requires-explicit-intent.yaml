@@ -1,0 +1,14 @@
+id: setup-unattended-mutation-requires-explicit-intent
+hash: a-cebcbdcf7bc2
+title: Unattended setup never blocks or guesses an exposure choice
+state: active
+statement: A mutating setup run with either stream non-TTY must make the
+  interactive session unreachable and require both --yes and an explicit
+  --access localhost or tailscale, naming a missing flag and exiting nonzero
+  instead of waiting; dry-run must bypass interaction with neither flag
+  required, preview localhost by default, accept an explicit access choice, and
+  emit no terminal-control sequences, because CI must not hang and remote
+  tailnet exposure must never be inferred from detection alone.
+depends_on:
+  - tailnet-auto-pairing-explicit-trust
+created_by: codor-interactive-setup-session

@@ -1,6 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +32,7 @@ import {
 } from './index.js';
 import { parseLine, startOutpost } from './up.js';
 import { parseAdapterModules } from './program.js';
+import { probeCodorStatus, waitForCodor } from './setup.js';
 
 let dir: string;
 let daemon: Daemon;
@@ -281,7 +284,7 @@ describe('@codor/cli', () => {
   });
   // harn:end pairing-code-enrollment-surfaces
 
-  // harn:assume cli-setup-wizard-installs-platform-user-service ref=setup-regression
+  // harn:assume setup-dry-run-reports-without-mutation-or-secret ref=setup-dry-run-regression
   posixHostIt('snapshots setup dry-run with the absolute Node path and every detected harness directory', async () => {
     const repoRoot = join(fileURLToPath(new URL('../../../', import.meta.url)), '.');
     const home = '/home/setup-test';
@@ -332,14 +335,39 @@ describe('@codor/cli', () => {
       PATH=/home/setup-test/.local/bin:/home/setup-test/.nvm/versions/node/v22.8.0/bin:/home/setup-test/.opencode/bin:/usr/local/bin:/usr/bin
       [dry-run] systemctl --user daemon-reload
       [dry-run] systemctl --user enable --now codor.service
-      [dry-run] tailscale serve --bg http://127.0.0.1:8137
-      [dry-run] tailscale serve status
-      [dry-run] generate a ten-minute pairing link and exact-payload terminal QR"
+      [dry-run] access localhost; skip Tailscale Serve
+      [dry-run] wait for Codor pairing status, then generate a ten-minute QR, URL, and pairing code"
     `);
     expect(existsSync(join(home, '.config', 'codor'))).toBe(false);
   });
 
-  // harn:assume setup-service-runs-from-current-checkout ref=linux-service-current-checkout-regression
+  // harn:end setup-dry-run-reports-without-mutation-or-secret
+
+  // harn:assume setup-unattended-mutation-requires-explicit-intent ref=setup-unattended-regression
+  posixHostIt('requires explicit approval and access for non-TTY mutation but not dry-run', async () => {
+    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const context = {
+      env: { HOME: '/home/unattended', USER: 'unattended', PATH: '/usr/bin' },
+      stdout: (line: string) => output.push(line),
+      setup: {
+        home: '/home/unattended',
+        nodePath: process.execPath,
+        platform: 'linux' as const,
+        repoRoot,
+        which: () => undefined,
+      },
+    };
+    await expect(runCli(['node', 'codor', 'setup'], context))
+      .rejects.toThrow('requires --yes and --access');
+    await expect(runCli(['node', 'codor', 'setup', '--yes'], context))
+      .rejects.toThrow('also requires --access');
+    await expect(runCli(['node', 'codor', 'setup', '--dry-run'], context)).resolves.toBeUndefined();
+    expect(output.join('\n')).not.toMatch(/\u001B\[/);
+  });
+  // harn:end setup-unattended-mutation-requires-explicit-intent
+
+  // harn:assume setup-preserves-private-platform-service ref=setup-platform-service-regression
+  // harn:assume setup-resolves-complete-invoking-runtime ref=setup-runtime-resolution-regression
   posixHostIt('renders the Linux service from the checkout that invoked setup', async () => {
     const sourceRoot = fileURLToPath(new URL('../../../', import.meta.url));
     const repoRoot = join(dir, 'repo checkout with spaces');
@@ -352,17 +380,18 @@ describe('@codor/cli', () => {
     mkdirSync(join(repoRoot, 'packages', 'cli', 'dist'), { recursive: true }); writeFileSync(join(repoRoot, 'packages', 'cli', 'dist', 'index.js'), '', 'utf8');
     mkdirSync(join(repoRoot, 'packages', 'web-next', 'dist'), { recursive: true });
 
-    await runCli(['node', 'codor', 'setup'], {
+    await runCli(['node', 'codor', 'setup', '--yes', '--access', 'localhost'], {
       env: { HOME: home, USER: 'setup-test', PATH: '/usr/bin' },
       stdout: (line) => output.push(line),
       setup: {
-        confirm: async () => true,
         exec: (command) => command === 'loginctl' ? 'yes' : '',
         home,
         nodePath: process.execPath,
         platform: 'linux',
+        probe: async () => true,
         randomToken: () => 'a'.repeat(64),
         repoRoot,
+        sleep: async () => undefined,
         which: () => undefined,
       },
     });
@@ -386,9 +415,9 @@ describe('@codor/cli', () => {
       })).not.toThrow();
     }
   });
-  // harn:end setup-service-runs-from-current-checkout
+  // harn:end setup-resolves-complete-invoking-runtime
 
-  // harn:assume wsl-setup-reaches-windows-loopback ref=wsl-bind-regression
+  // harn:assume wsl-setup-keeps-private-windows-loopback ref=wsl-bind-regression
   it.each([
     {
       name: 'ordinary Linux',
@@ -472,21 +501,50 @@ describe('@codor/cli', () => {
     expect(wslProbes).toEqual(hasWslinfo && /wsl2/i.test(kernelRelease)
       ? ['--networking-mode']
       : []);
-    expect(output.join('\n')).toContain('generate a ten-minute pairing link');
+    expect(output.join('\n')).toContain('generate a ten-minute QR, URL, and pairing code');
     expect(output.join('\n')).not.toContain('http://0.0.0.0:8137');
   });
-  // harn:end wsl-setup-reaches-windows-loopback
+  // harn:end wsl-setup-keeps-private-windows-loopback
+
+  // harn:assume setup-verifies-codor-before-creating-pairing-code ref=setup-readiness-and-pairing-regression
+  it('rejects an arbitrary HTTP listener and bounds Codor readiness retries', async () => {
+    let body: unknown = { ok: true };
+    const listener = createServer((_request, response) => {
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify(body));
+    });
+    listener.listen(0, '127.0.0.1');
+    await once(listener, 'listening');
+    const address = listener.address();
+    if (address === null || typeof address === 'string') throw new Error('expected TCP listener');
+    const endpoint = `http://127.0.0.1:${String(address.port)}`;
+    try {
+      await expect(probeCodorStatus(endpoint)).resolves.toBe(false);
+      body = { trusted_enrollment: false };
+      await expect(probeCodorStatus(endpoint)).resolves.toBe(true);
+    } finally {
+      listener.close();
+      await once(listener, 'close');
+    }
+
+    const sleeps: number[] = [];
+    await expect(waitForCodor(
+      'http://127.0.0.1:65535',
+      async () => false,
+      async (milliseconds) => { sleeps.push(milliseconds); },
+    )).rejects.toThrow('did not become ready');
+    expect(sleeps).toEqual(Array.from({ length: 19 }, () => 250));
+  });
 
   posixHostIt('writes private setup files, runs confirmed host steps, and pairs against the Serve origin', async () => {
     const repoRoot = join(fileURLToPath(new URL('../../../', import.meta.url)), '.');
     const home = join(dir, 'setup-home');
     const commands: string[] = [];
     let qrPayload: string | undefined;
-    await runCli(['node', 'codor', 'setup'], {
+    await runCli(['node', 'codor', 'setup', '--yes', '--access', 'tailscale'], {
       env: { HOME: home, USER: 'setup-test', PATH: '/usr/bin' },
       stdout: (line) => output.push(line),
       setup: {
-        confirm: async () => true,
         exec: (command, args) => {
           commands.push([command, ...args].join(' '));
           if (command === 'loginctl') return 'no';
@@ -498,12 +556,14 @@ describe('@codor/cli', () => {
         home,
         nodePath: '/opt/node/bin/node',
         platform: 'linux',
+        probe: async () => true,
         randomToken: () => 'a'.repeat(64),
         renderQr: (payload) => {
           qrPayload = payload;
           return '<setup-qr>';
         },
         repoRoot,
+        sleep: async () => undefined,
         which: (command) => new Map([
           ['claude', join(home, '.local', 'bin', 'claude')],
           ['codex', '/opt/node/bin/codex'],
@@ -538,6 +598,7 @@ describe('@codor/cli', () => {
     ]);
     expect(qrPayload).toBe(output[output.indexOf('<setup-qr>') + 1]);
     expect(new URL(qrPayload!).origin).toBe('https://setup-host.example.ts.net');
+    expect(output.join('\n')).toMatch(/code: [23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}/);
     expect(output.join('\n')).not.toContain('a'.repeat(64));
   });
 
@@ -586,22 +647,23 @@ describe('@codor/cli', () => {
     expect(dryRunPlist).toContain('<key>Umask</key>\n  <integer>63</integer>');
 
     output = [];
-    await runCli(['node', 'codor', 'setup'], {
+    await runCli(['node', 'codor', 'setup', '--yes', '--access', 'localhost'], {
       env: { HOME: home, USER: 'setup-test', PATH: '/opt/homebrew/bin:/usr/bin' },
       stdout: (line) => output.push(line),
       setup: {
         ...common,
-        confirm: async () => true,
         exec: (command, args) => {
           commands.push([command, ...args].join(' '));
           if (command === 'launchctl' && args[0] === 'bootout') throw new Error('not loaded');
           return '';
         },
         randomToken: () => token,
+        probe: async () => true,
         renderQr: (payload) => {
           qrPayload = payload;
           return '<mac-setup-qr>';
         },
+        sleep: async () => undefined,
       },
     });
 
@@ -629,7 +691,8 @@ describe('@codor/cli', () => {
     expect(new URL(qrPayload!).origin).toBe('http://127.0.0.1:8137');
     expect(output.join('\n')).not.toContain(token);
   });
-  // harn:end cli-setup-wizard-installs-platform-user-service
+  // harn:end setup-verifies-codor-before-creating-pairing-code
+  // harn:end setup-preserves-private-platform-service
 
   it('resolves Gemini interactive resume through the supervised attach path', () => {
     expect(nativeResumeCommand({

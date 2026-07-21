@@ -1,0 +1,12 @@
+id: wsl-setup-keeps-private-windows-loopback
+hash: a-3cfd039ec1e1
+title: WSL setup remains private while reaching the Windows browser
+state: active
+statement: WSL2 NAT-style setup must bind the guest daemon to 0.0.0.0 so Windows
+  localhost forwarding reaches it, while ordinary Linux, WSL1, and mirrored WSL2
+  remain loopback-only and every displayed browser endpoint stays
+  http://127.0.0.1:8137; because a universal wildcard creates LAN exposure while
+  guest loopback alone is unreliable under WSL2 NAT.
+depends_on:
+  - setup-preserves-private-platform-service
+created_by: codor-interactive-setup-session

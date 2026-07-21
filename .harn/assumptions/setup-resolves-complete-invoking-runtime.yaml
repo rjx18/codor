@@ -1,0 +1,15 @@
+id: setup-resolves-complete-invoking-runtime
+hash: a-e499faca9ab0
+title: Setup services resolve one complete installed or checkout runtime
+state: active
+statement: Setup and the foreground default must resolve one complete runtime
+  containing CLI entrypoint, built web-next assets, and service template,
+  preferring an injected checkout, then package-relative installed assets, then
+  source checkout, and every platform service must use those absolute paths;
+  because mixing partial roots or assuming a repository breaks npx installs
+  while source installs remain supported.
+depends_on:
+  - public-package-bundles-complete-codor-runtime
+  - setup-preserves-private-platform-service
+  - operator-launches-serve-web-next
+created_by: codor-interactive-setup-session

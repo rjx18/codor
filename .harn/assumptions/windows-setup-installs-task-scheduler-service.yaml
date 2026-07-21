@@ -1,7 +1,7 @@
 id: windows-setup-installs-task-scheduler-service
 hash: a-b5c7396b6976
 title: Windows setup installs a hidden per-user Task Scheduler service
-state: active
+state: retired
 statement: On Windows codor setup must confirm mutations, create private
   configuration and data paths, protect the operator token with the current
   user's ACL, render a hidden logon Task Scheduler job that runs the built CLI
@@ -14,3 +14,4 @@ depends_on:
   - setup-service-runs-from-current-checkout
   - operator-launches-serve-web-next
 created_by: windows-native-support
+retired_by: codor-interactive-setup-session

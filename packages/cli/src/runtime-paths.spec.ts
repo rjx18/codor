@@ -40,7 +40,7 @@ afterEach(() => {
   while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
-// harn:assume setup-resolves-installed-or-checkout-runtime ref=setup-runtime-resolution-regression
+// harn:assume setup-resolves-complete-invoking-runtime ref=setup-runtime-resolution-regression
 describe('runtime path resolution', () => {
   it('prefers an explicitly injected checkout', () => {
     const injected = temp('injected');
@@ -90,4 +90,4 @@ describe('runtime path resolution', () => {
     })).toBeUndefined();
   });
 });
-// harn:end setup-resolves-installed-or-checkout-runtime
+// harn:end setup-resolves-complete-invoking-runtime

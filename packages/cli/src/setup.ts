@@ -9,18 +9,21 @@ import {
 } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { createInterface } from 'node:readline/promises';
 
 import { CryptoVault, pairingUrl } from '@codor/switchboard';
 
 import { resolveRuntimePaths, type RuntimePaths } from './runtime-paths.js';
+import {
+  SetupSession,
+  isInteractiveSetup,
+  type SetupSessionStreams,
+} from './setup-session.js';
 import { renderTerminalQr } from './terminal-qr.js';
 
 const HARNESSES = ['claude', 'codex', 'opencode', 'gemini', 'copilot', 'cursor-agent', 'agy'] as const;
 const LAUNCH_AGENT_LABEL = 'app.codor.switchboard';
 
 export interface SetupOverrides {
-  confirm?(prompt: string): Promise<boolean>;
   exec?(command: string, args: string[]): string;
   home?: string;
   kernelRelease?: string;
@@ -29,15 +32,23 @@ export interface SetupOverrides {
   randomToken?(): string;
   renderQr?(payload: string): string;
   repoRoot?: string;
+  probe?(endpoint: string): Promise<boolean>;
+  sleep?(milliseconds: number): Promise<void>;
+  streams?: SetupSessionStreams;
   uid?: number;
+  version?: string;
   which?(command: string): string | undefined;
 }
 
+export type SetupAccess = 'localhost' | 'tailscale';
+
 export interface SetupOptions {
+  access?: SetupAccess;
   dryRun: boolean;
   env: NodeJS.ProcessEnv;
   out(line: string): void;
   overrides?: SetupOverrides;
+  yes?: boolean;
 }
 
 const defaultExec = (command: string, args: string[]): string => execFileSync(command, args, {
@@ -54,22 +65,12 @@ const defaultWhich = (command: string): string | undefined => {
   }
 };
 
-async function defaultConfirm(prompt: string): Promise<boolean> {
-  const terminal = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const answer = await terminal.question(`${prompt} [y/N] `);
-    return /^(?:y|yes)$/i.test(answer.trim());
-  } finally {
-    terminal.close();
-  }
-}
-
 function uniquePath(parts: Array<string | undefined>, delimiter = ':'): string {
   return [...new Set(parts.flatMap((part) => part?.split(delimiter) ?? []).filter(Boolean))]
     .join(delimiter);
 }
 
-// harn:assume wsl-setup-reaches-windows-loopback ref=wsl-bind-selection
+// harn:assume wsl-setup-keeps-private-windows-loopback ref=wsl-bind-selection
 function wslSystemdBindHost(
   env: NodeJS.ProcessEnv,
   kernelRelease: string,
@@ -100,9 +101,8 @@ function wslSystemdBindHost(
   }
   return '127.0.0.1';
 }
-// harn:end wsl-setup-reaches-windows-loopback
+// harn:end wsl-setup-keeps-private-windows-loopback
 
-// harn:assume setup-service-runs-from-current-checkout ref=linux-service-current-checkout
 function systemdQuote(value: string): string {
   if (/[\0\r\n]/.test(value)) throw new Error('codor setup paths cannot contain control characters');
   return `"${value
@@ -148,7 +148,6 @@ function renderSystemdUnit(template: string, options: SystemdUnitOptions): strin
   }
   return rendered;
 }
-// harn:end setup-service-runs-from-current-checkout
 
 function xml(value: string): string {
   return value
@@ -235,7 +234,7 @@ function renderLaunchAgent(options: LaunchAgentOptions): string {
 }
 // harn:end operator-launches-serve-web-next
 
-// harn:assume windows-setup-installs-task-scheduler-service ref=windows-service-rendering
+// harn:assume windows-setup-installs-private-task-service ref=windows-service-rendering
 export function renderWindowsServiceScript(options: {
   dataDir: string;
   logDir: string;
@@ -270,30 +269,72 @@ export function renderWindowsScheduledTask(options: {
 </Task>
 `;
 }
-// harn:end windows-setup-installs-task-scheduler-service
+// harn:end windows-setup-installs-private-task-service
 
-// harn:assume windows-setup-installs-task-scheduler-service ref=windows-setup-runtime
-// harn:assume cli-setup-wizard-installs-platform-user-service ref=setup-runtime
+export async function probeCodorStatus(endpoint: string): Promise<boolean> {
+  try {
+    const response = await fetch(new URL('/api/pairing/status', endpoint), {
+      signal: AbortSignal.timeout(1_000),
+    });
+    if (!response.ok) return false;
+    const body = await response.json() as { trusted_enrollment?: unknown };
+    return typeof body.trusted_enrollment === 'boolean';
+  } catch {
+    return false;
+  }
+}
+
+const defaultSleep = async (milliseconds: number): Promise<void> =>
+  new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
+
+// harn:assume setup-verifies-codor-before-creating-pairing-code ref=setup-readiness-and-pairing
+export async function waitForCodor(
+  endpoint: string,
+  probe: (value: string) => Promise<boolean>,
+  sleep: (milliseconds: number) => Promise<void>,
+): Promise<void> {
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    if (await probe(endpoint)) return;
+    if (attempt < 20) await sleep(250);
+  }
+  throw new Error(`Codor did not become ready at ${endpoint}; inspect the user-service logs`);
+}
+// harn:end setup-verifies-codor-before-creating-pairing-code
+
+function runtimeVersion(runtime: RuntimePaths): string {
+  const manifestPath = runtime.layout === 'installed-package'
+    ? join(runtime.root, 'package.json')
+    : join(runtime.root, 'packages', 'cli', 'package.json');
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { version?: unknown };
+    return typeof manifest.version === 'string' ? manifest.version : 'dev';
+  } catch {
+    return 'dev';
+  }
+}
+
+// harn:assume windows-setup-installs-private-task-service ref=windows-setup-runtime
+// harn:assume setup-preserves-private-platform-service ref=setup-platform-service-runtime
 export async function runSetup(options: SetupOptions): Promise<void> {
   const overrides = options.overrides ?? {};
   const platform = overrides.platform ?? process.platform;
   if (platform !== 'linux' && platform !== 'darwin' && platform !== 'win32') {
     throw new Error(`codor setup supports Linux, macOS, and Windows; received ${platform}`);
   }
-  const home = resolve(overrides.home ?? options.env.HOME ?? homedir());
   const runtime = resolveRuntimePaths({ repoRoot: overrides.repoRoot });
+  const home = resolve(overrides.home ?? options.env.HOME ?? homedir());
   const nodePath = resolve(overrides.nodePath ?? process.execPath);
-  const confirm = overrides.confirm ?? defaultConfirm;
   const exec = overrides.exec ?? defaultExec;
   const which = overrides.which ?? defaultWhich;
   const renderQr = overrides.renderQr ?? renderTerminalQr;
+  const probe = overrides.probe ?? probeCodorStatus;
+  const sleep = overrides.sleep ?? defaultSleep;
   const configDir = join(home, '.config', 'codor');
   const dataDir = join(home, '.codor');
   const tokenPath = join(configDir, 'token');
   const envPath = join(configDir, 'env');
   const userUnitDir = join(home, '.config', 'systemd', 'user');
   const userUnitPath = join(userUnitDir, 'codor.service');
-  const templatePath = runtime.serviceTemplate;
   const launchAgentDir = join(home, 'Library', 'LaunchAgents');
   const launchAgentPath = join(launchAgentDir, `${LAUNCH_AGENT_LABEL}.plist`);
   const logDir = join(dataDir, 'logs');
@@ -303,32 +344,26 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   if (platform === 'win32' && !windowsUser) {
     throw new Error('codor setup could not determine the Windows user name');
   }
-  const systemdBindHost = platform === 'linux'
-    ? wslSystemdBindHost(
-      options.env,
-      overrides.kernelRelease ?? release(),
-      exec,
-      which,
-    )
-    : '127.0.0.1';
-  const unitContent = platform === 'linux'
-    ? renderSystemdUnit(readFileSync(templatePath, 'utf8'), {
-      dataDir,
-      envPath,
-      host: systemdBindHost,
-      nodePath,
-      runtime,
-    })
-    : undefined;
-  const harnessPaths = HARNESSES.map((harness) => which(harness)).filter(
-    (path): path is string => path !== undefined,
-  );
+
+  const detected = HARNESSES.flatMap((harness) => {
+    const path = which(harness);
+    return path === undefined ? [] : [{ harness, path }];
+  });
+  const tailscalePath = which('tailscale');
   const servicePath = uniquePath([
     join(home, '.local', 'bin'),
     dirname(nodePath),
-    ...harnessPaths.map(dirname),
+    ...detected.map(({ path }) => dirname(path)),
     options.env.PATH,
   ], platform === 'win32' ? ';' : ':');
+  const systemdBindHost = platform === 'linux'
+    ? wslSystemdBindHost(options.env, overrides.kernelRelease ?? release(), exec, which)
+    : '127.0.0.1';
+  const unitContent = platform === 'linux'
+    ? renderSystemdUnit(readFileSync(runtime.serviceTemplate, 'utf8'), {
+      dataDir, envPath, host: systemdBindHost, nodePath, runtime,
+    })
+    : undefined;
   const launchUid = platform === 'darwin'
     ? overrides.uid ?? (typeof process.getuid === 'function' ? process.getuid() : undefined)
     : undefined;
@@ -338,23 +373,33 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const launchDomain = launchUid === undefined ? undefined : `gui/${String(launchUid)}`;
   const launchTarget = launchDomain === undefined ? undefined : `${launchDomain}/${LAUNCH_AGENT_LABEL}`;
   const windowsScript = platform === 'win32'
-    ? renderWindowsServiceScript({
-      dataDir,
-      logDir,
-      nodePath,
-      runtime,
-      servicePath,
-      tokenPath,
-    })
+    ? renderWindowsServiceScript({ dataDir, logDir, nodePath, runtime, servicePath, tokenPath })
     : undefined;
   const windowsTask = platform === 'win32'
     ? renderWindowsScheduledTask({ scriptPath: windowsScriptPath, user: windowsUser! })
     : undefined;
 
+  // harn:assume setup-unattended-mutation-requires-explicit-intent ref=setup-unattended-runtime
+  const interactive = !options.dryRun && options.yes !== true && isInteractiveSetup(overrides.streams);
+  if (!options.dryRun && !interactive) {
+    if (options.yes !== true) {
+      throw new Error('non-interactive setup requires --yes and --access <localhost|tailscale>');
+    }
+    if (options.access === undefined) {
+      throw new Error('non-interactive setup with --yes also requires --access <localhost|tailscale>');
+    }
+  }
+  // harn:end setup-unattended-mutation-requires-explicit-intent
+
+  // harn:assume setup-dry-run-reports-without-mutation-or-secret ref=setup-dry-run-runtime
   if (options.dryRun) {
+    const access = options.access ?? 'localhost';
+    if (access === 'tailscale' && tailscalePath === undefined) {
+      throw new Error('--access tailscale requires the tailscale CLI on PATH');
+    }
     options.out(`[dry-run] create ${configDir} and ${dataDir} mode 700; create ${tokenPath} mode 600 if absent`);
     if (platform === 'linux') {
-      options.out(`[dry-run] install ${templatePath} -> ${userUnitPath} mode 600`);
+      options.out(`[dry-run] install ${runtime.serviceTemplate} -> ${userUnitPath} mode 600`);
       options.out('[dry-run] unit content:');
       for (const line of unitContent!.trimEnd().split('\n')) options.out(line);
       options.out(`[dry-run] write ${envPath} mode 600`);
@@ -364,11 +409,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       options.out('[dry-run] systemctl --user enable --now codor.service');
     } else if (platform === 'darwin') {
       const launchAgent = renderLaunchAgent({
-        dataDir,
-        logDir,
-        nodePath,
-        runtime,
-        servicePath,
+        dataDir, logDir, nodePath, runtime, servicePath,
         token: '<redacted generated-or-existing token>',
       });
       options.out(`[dry-run] create ${logDir} mode 700`);
@@ -389,132 +430,156 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       options.out(`[dry-run] schtasks /Create /TN "Codor Switchboard" /XML "${windowsTaskPath}" /F`);
       options.out('[dry-run] schtasks /Run /TN "Codor Switchboard"');
     }
-    if (which('tailscale')) {
+    if (access === 'tailscale') {
       options.out('[dry-run] tailscale serve --bg http://127.0.0.1:8137');
       options.out('[dry-run] tailscale serve status');
     } else {
-      options.out('[dry-run] Tailscale not detected; skip private HTTPS publication');
+      options.out('[dry-run] access localhost; skip Tailscale Serve');
     }
-    options.out('[dry-run] generate a ten-minute pairing link and exact-payload terminal QR');
+    options.out('[dry-run] wait for Codor pairing status, then generate a ten-minute QR, URL, and pairing code');
     return;
   }
+  // harn:end setup-dry-run-reports-without-mutation-or-secret
 
-  if (await confirm(`Create private configuration in ${configDir} and data in ${dataDir}?`)) {
-    mkdirSync(configDir, { recursive: true, mode: 0o700 });
-    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-    if (!existsSync(tokenPath)) {
-      const token = overrides.randomToken?.() ?? randomBytes(32).toString('hex');
-      writeFileSync(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-    }
-    if (platform === 'win32') {
-      exec('icacls', [tokenPath, '/inheritance:r', '/grant:r', `${windowsUser}:F`]);
-    } else {
-      chmodSync(configDir, 0o700);
-      chmodSync(dataDir, 0o700);
-      chmodSync(tokenPath, 0o600);
-    }
-    options.out('Private configuration and data directories are ready.');
-  }
-
-  const serviceInstallPath = platform === 'linux'
-    ? userUnitPath
-    : platform === 'darwin' ? launchAgentPath : windowsScriptPath;
-  if (await confirm(`Install the user service at ${serviceInstallPath}?`)) {
-    if (!existsSync(tokenPath)) throw new Error(`operator token is missing at ${tokenPath}`);
-    if (platform === 'linux') {
-      const token = readFileSync(tokenPath, 'utf8').trim();
-      mkdirSync(userUnitDir, { recursive: true, mode: 0o700 });
-      writeFileSync(userUnitPath, unitContent!, { encoding: 'utf8', mode: 0o600 });
-      chmodSync(userUnitPath, 0o600);
-      writeFileSync(envPath, `CODOR_TOKEN=${token}\nPATH=${servicePath}\n`, {
-        encoding: 'utf8',
-        mode: 0o600,
-      });
-      chmodSync(envPath, 0o600);
-      options.out(`Installed codor.service with Node ${nodePath}.`);
-      if (systemdBindHost === '0.0.0.0') {
-        options.out('Configured WSL2 NAT access through Windows http://127.0.0.1:8137.');
-      }
-    } else if (platform === 'darwin') {
-      const token = readFileSync(tokenPath, 'utf8').trim();
-      mkdirSync(launchAgentDir, { recursive: true });
-      mkdirSync(logDir, { recursive: true, mode: 0o700 });
-      chmodSync(logDir, 0o700);
-      const launchAgent = renderLaunchAgent({
-        dataDir,
-        logDir,
-        nodePath,
-        runtime,
-        servicePath,
-        token,
-      });
-      writeFileSync(launchAgentPath, launchAgent, { encoding: 'utf8', mode: 0o600 });
-      chmodSync(launchAgentPath, 0o600);
-      options.out(`Installed ${LAUNCH_AGENT_LABEL} with Node ${nodePath}.`);
-    } else {
-      mkdirSync(logDir, { recursive: true });
-      writeFileSync(windowsScriptPath, windowsScript!, 'utf8');
-      writeFileSync(
-        windowsTaskPath,
-        Buffer.from(`\uFEFF${windowsTask!}`, 'utf16le'),
-      );
-      options.out(`Installed Codor Switchboard with Node ${nodePath}.`);
-    }
-  }
-
-  const startPrompt = platform === 'linux'
-    ? 'Reload systemd and enable codor.service now?'
-    : platform === 'darwin'
-      ? `Load and start ${LAUNCH_AGENT_LABEL} now?`
-      : 'Register and start Codor Switchboard now?';
-  if (await confirm(startPrompt)) {
-    if (platform === 'linux') {
-      exec('systemctl', ['--user', 'daemon-reload']);
-      exec('systemctl', ['--user', 'enable', '--now', 'codor.service']);
-      options.out('codor.service is enabled and running.');
-      try {
-        const linger = exec('loginctl', ['show-user', options.env.USER ?? '', '-p', 'Linger', '--value']);
-        if (linger.trim() !== 'yes') options.out(`For boot-time startup, run: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
-      } catch {
-        options.out(`Check lingering for boot-time startup: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
-      }
-    } else if (platform === 'darwin') {
-      try {
-        exec('launchctl', ['bootout', launchTarget!]);
-      } catch {
-        // First install and an already-stopped agent both legitimately have nothing to boot out.
-      }
-      exec('launchctl', ['bootstrap', launchDomain!, launchAgentPath]);
-      exec('launchctl', ['enable', launchTarget!]);
-      exec('launchctl', ['kickstart', '-k', launchTarget!]);
-      options.out(`${LAUNCH_AGENT_LABEL} is loaded and running.`);
-    } else {
-      exec('schtasks', ['/Create', '/TN', 'Codor Switchboard', '/XML', windowsTaskPath, '/F']);
-      exec('schtasks', ['/Run', '/TN', 'Codor Switchboard']);
-      options.out('Codor Switchboard is registered and running.');
-    }
-  }
-
-  let endpoint = 'http://127.0.0.1:8137';
-  if (which('tailscale') && await confirm('Publish private HTTPS with Tailscale Serve?')) {
-    exec('tailscale', ['serve', '--bg', endpoint]);
-    const status = exec('tailscale', ['serve', 'status']);
-    endpoint = status.match(/https:\/\/[^\s/]+/)?.[0] ?? endpoint;
-    options.out(`Private browser origin: ${endpoint}`);
-  }
-
-  if (await confirm(`Generate the first pairing link for ${endpoint}?`)) {
-    const crypto = new CryptoVault(dataDir);
+  const session = interactive
+    ? new SetupSession({
+      version: overrides.version ?? runtimeVersion(runtime),
+      streams: overrides.streams,
+    })
+    : undefined;
+  session?.start();
+  let completed = false;
+  const log = (stage: number, message: string): void => {
+    if (session !== undefined) session.log(stage, message);
+    else options.out(`[${String(stage + 1)}/5] ${message}`);
+  };
+  const runStage = async <T>(index: number, work: () => Promise<T> | T): Promise<T> => {
+    session?.setStage(index, 'running');
+    if (session === undefined) options.out(`[${String(index + 1)}/5] ${['Checking this computer', 'Preparing private files', 'Choosing access', 'Starting Codor', 'Creating pairing code'][index]}`);
     try {
-      const offer = crypto.pairing.issue(endpoint);
-      const url = pairingUrl(offer);
-      options.out(renderQr(url));
-      options.out(url);
-      options.out(`expires ${offer.expires_at}`);
-    } finally {
-      crypto.close();
+      const value = await work();
+      session?.setStage(index, 'done');
+      return value;
+    } catch (error) {
+      session?.setStage(index, 'failed');
+      session?.fail(error instanceof Error ? error.message : String(error));
+      throw error;
     }
+  };
+
+  try {
+    await runStage(0, () => {
+      log(0, `${platform} with Node ${process.versions.node}`);
+      log(0, detected.length > 0
+        ? `found ${detected.map(({ harness }) => harness).join(', ')}`
+        : 'no supported coding agents detected');
+      log(0, tailscalePath === undefined ? 'Tailscale not detected' : 'Tailscale detected');
+    });
+
+    await runStage(1, () => {
+      mkdirSync(configDir, { recursive: true, mode: 0o700 });
+      mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+      if (!existsSync(tokenPath)) {
+        const token = overrides.randomToken?.() ?? randomBytes(32).toString('hex');
+        writeFileSync(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+      }
+      if (platform === 'win32') exec('icacls', [tokenPath, '/inheritance:r', '/grant:r', `${windowsUser}:F`]);
+      else {
+        chmodSync(configDir, 0o700);
+        chmodSync(dataDir, 0o700);
+        chmodSync(tokenPath, 0o600);
+      }
+      log(1, 'private configuration and data are ready');
+    });
+
+    const selectedAccess = await runStage(2, async (): Promise<SetupAccess> => {
+      const selected = options.access ?? (session === undefined ? undefined : await session.chooseAccess(
+        'Choose how you will reach Codor.',
+        [
+          { id: 'localhost', label: 'Localhost', description: 'This computer only.', available: true },
+          { id: 'tailscale', label: 'Tailscale Serve', description: 'Private access from your tailnet.', available: tailscalePath !== undefined },
+        ],
+      ));
+      if (selected !== 'localhost' && selected !== 'tailscale') {
+        throw new Error('setup requires an access choice');
+      }
+      if (selected === 'tailscale' && tailscalePath === undefined) {
+        throw new Error('--access tailscale requires the tailscale CLI on PATH');
+      }
+      log(2, selected === 'localhost' ? 'localhost only' : 'private Tailscale Serve');
+      return selected;
+    });
+
+    let endpoint = 'http://127.0.0.1:8137';
+    await runStage(3, async () => {
+      if (!existsSync(tokenPath)) throw new Error(`operator token is missing at ${tokenPath}`);
+      if (platform === 'linux') {
+        const token = readFileSync(tokenPath, 'utf8').trim();
+        mkdirSync(userUnitDir, { recursive: true, mode: 0o700 });
+        writeFileSync(userUnitPath, unitContent!, { encoding: 'utf8', mode: 0o600 });
+        chmodSync(userUnitPath, 0o600);
+        writeFileSync(envPath, `CODOR_TOKEN=${token}\nPATH=${servicePath}\n`, { encoding: 'utf8', mode: 0o600 });
+        chmodSync(envPath, 0o600);
+        exec('systemctl', ['--user', 'daemon-reload']);
+        exec('systemctl', ['--user', 'enable', '--now', 'codor.service']);
+        try {
+          const linger = exec('loginctl', ['show-user', options.env.USER ?? '', '-p', 'Linger', '--value']);
+          if (linger.trim() !== 'yes') log(3, `for boot startup: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
+        } catch {
+          log(3, `check lingering: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
+        }
+      } else if (platform === 'darwin') {
+        const token = readFileSync(tokenPath, 'utf8').trim();
+        mkdirSync(launchAgentDir, { recursive: true });
+        mkdirSync(logDir, { recursive: true, mode: 0o700 });
+        chmodSync(logDir, 0o700);
+        writeFileSync(launchAgentPath, renderLaunchAgent({
+          dataDir, logDir, nodePath, runtime, servicePath, token,
+        }), { encoding: 'utf8', mode: 0o600 });
+        chmodSync(launchAgentPath, 0o600);
+        try { exec('launchctl', ['bootout', launchTarget!]); } catch { /* first install */ }
+        exec('launchctl', ['bootstrap', launchDomain!, launchAgentPath]);
+        exec('launchctl', ['enable', launchTarget!]);
+        exec('launchctl', ['kickstart', '-k', launchTarget!]);
+      } else {
+        mkdirSync(logDir, { recursive: true });
+        writeFileSync(windowsScriptPath, windowsScript!, 'utf8');
+        writeFileSync(windowsTaskPath, Buffer.from(`\uFEFF${windowsTask!}`, 'utf16le'));
+        exec('schtasks', ['/Create', '/TN', 'Codor Switchboard', '/XML', windowsTaskPath, '/F']);
+        exec('schtasks', ['/Run', '/TN', 'Codor Switchboard']);
+      }
+      await waitForCodor(endpoint, probe, sleep);
+      log(3, 'Codor answered its pairing status check');
+      if (systemdBindHost === '0.0.0.0') log(3, 'WSL2 NAT is reachable through Windows localhost');
+      if (selectedAccess === 'tailscale') {
+        exec('tailscale', ['serve', '--bg', endpoint]);
+        const status = exec('tailscale', ['serve', 'status']);
+        endpoint = status.match(/https:\/\/[^\s/]+/)?.[0]
+          ?? (() => { throw new Error('Tailscale Serve did not report a private HTTPS origin'); })();
+        log(3, `private browser origin ${endpoint}`);
+      }
+    });
+
+    const pairing = await runStage(4, () => {
+      const crypto = new CryptoVault(dataDir);
+      try {
+        const offer = crypto.pairing.issue(endpoint);
+        const url = pairingUrl(offer);
+        return { code: offer.pairing_code, expires: offer.expires_at, qr: renderQr(url), url };
+      } finally {
+        crypto.close();
+      }
+    });
+    const nextAction = `Enter ${pairing.code} in your browser or scan the QR.`;
+    session?.finish({ endpoint, harnesses: detected.map(({ harness }) => harness), nextAction });
+    completed = true;
+    options.out(pairing.qr);
+    options.out(pairing.url);
+    options.out(`code: ${pairing.code}`);
+    options.out(`expires ${pairing.expires}`);
+  } finally {
+    if (!completed) session?.stop();
   }
 }
-// harn:end cli-setup-wizard-installs-platform-user-service
-// harn:end windows-setup-installs-task-scheduler-service
+// harn:end setup-preserves-private-platform-service
+// harn:end windows-setup-installs-private-task-service

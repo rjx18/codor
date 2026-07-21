@@ -1,0 +1,13 @@
+id: setup-restores-terminal-on-every-exit
+hash: a-029cdfef8523
+title: Setup restores terminal ownership on success, failure, cancel, and signal
+state: active
+statement: The setup session must enter raw mode and hide the cursor only while
+  it owns an interactive TTY, and on every exit must restore prior raw mode,
+  show the cursor, clear repaint and Escape-flush timers, detach input, resize,
+  SIGINT, and SIGTERM listeners, and re-raise a signal only after cleanup; it
+  must never enter the alternate screen, because setup must not damage the
+  operator's shell and its final summary must remain visible.
+depends_on:
+  - setup-terminal-input-survives-chunk-boundaries
+created_by: codor-interactive-setup-session

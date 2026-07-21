@@ -1,0 +1,15 @@
+id: setup-verifies-codor-before-creating-pairing-code
+hash: a-498f6cb97acf
+title: Setup proves Codor answers before reporting readiness
+state: active
+statement: The start stage must use bounded retries to require a successful
+  response from the expected local Codor pairing-status endpoint whose JSON
+  contains a boolean trusted_enrollment field before marking done, rejecting an
+  open socket or arbitrary 200 response; only then may the final stage display
+  one QR, the byte-identical pairing URL, formatted eight-character code, and
+  expiry without claiming enrollment, because service-manager success is not
+  daemon readiness and an operator with a phone needs the short-code path.
+depends_on:
+  - terminal-pairing-qr-matches-plain-url
+  - pairing-code-enrollment-surfaces
+created_by: codor-interactive-setup-session

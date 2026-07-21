@@ -1,7 +1,7 @@
 id: setup-resolves-installed-or-checkout-runtime
 hash: a-29b2310991ce
 title: Setup services resolve the runtime that actually invoked setup
-state: active
+state: retired
 statement: Setup and the default foreground launch path must resolve one
   complete runtime containing the CLI entrypoint, built web-next assets, and
   service template, preferring an explicitly injected checkout for tests, then
@@ -14,3 +14,4 @@ depends_on:
   - operator-launches-serve-web-next
   - cli-setup-wizard-installs-platform-user-service
 created_by: codor-installable-runtime-artifact
+retired_by: codor-interactive-setup-session

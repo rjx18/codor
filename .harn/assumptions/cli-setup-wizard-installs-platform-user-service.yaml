@@ -1,7 +1,7 @@
 id: cli-setup-wizard-installs-platform-user-service
 hash: a-f40c79c5d9e4
 title: Setup installs a private native user service on Linux and macOS
-state: active
+state: retired
 statement: The setup command must confirm every mutation, create private
   configuration and data plus a mode-600 owner token, resolve the absolute
   current Node path and every detected harness CLI directory, install and start
@@ -16,3 +16,4 @@ depends_on:
   - fresh-clone-install-proven-by-script
   - tailnet-auto-pairing-explicit-trust
 created_by: macos-launchagent-readme-header
+retired_by: codor-interactive-setup-session

@@ -1,0 +1,14 @@
+id: windows-setup-installs-private-task-service
+hash: a-cceeae6a9dd5
+title: Windows setup installs a hidden private per-user Task Scheduler service
+state: active
+statement: Native Windows setup must protect the token with the current user's
+  ACL, render a hidden logon task whose wrapper reads the token from disk, runs
+  the resolved Codor CLI and browser runtime, logs privately, propagates the
+  daemon exit code, and starts without an open terminal; because Windows needs
+  the same durable user-service outcome as Linux and macOS without exposing
+  credentials.
+depends_on:
+  - setup-preserves-private-platform-service
+  - setup-resolves-complete-invoking-runtime
+created_by: codor-interactive-setup-session

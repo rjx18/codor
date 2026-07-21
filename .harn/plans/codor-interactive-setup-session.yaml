@@ -1,8 +1,8 @@
 id: codor-interactive-setup-session
-title: Replace setup prompts with a five-stage terminal session and explicit unattended mode
-notes: >-
-  Phase 6, contract 2 of 3. Replace the five independent y/N prompts with the
-  Harn-style staged terminal experience Richard requested. Rendering and key
+title: Replace setup prompts with a five-stage terminal session and explicit
+  unattended mode
+notes: "Phase 6, contract 2 of 3. Replace the five independent y/N prompts with
+  the Harn-style staged terminal experience Richard requested. Rendering and key
   decoding are pure; one effectful session exclusively owns streams, raw mode,
   cursor, timers, resize, and signals. TTY setup runs five stages: check this
   computer, prepare private files, choose access, start Codor, and create a
@@ -12,13 +12,14 @@ notes: >-
   under bounded retries before setup reports readiness. Stage five displays the
   QR, exact URL, formatted short code, and expiry without claiming a browser
   enrolled. Existing Linux, macOS, Windows, and WSL service guarantees are
-  recreated against the installed-or-checkout runtime contract.
+  recreated against the installed-or-checkout runtime contract."
 assumptions:
   retire:
     - id: cli-setup-wizard-installs-platform-user-service
       reason: Confirming every mutation is the prompt-by-prompt interaction model
-        being removed; its service, privacy, PATH, dry-run, Tailscale, and pairing
-        obligations are split into independently reviewable replacements.
+        being removed; its service, privacy, PATH, dry-run, Tailscale, and
+        pairing obligations are split into independently reviewable
+        replacements.
     - id: setup-service-runs-from-current-checkout
       reason: Setup now supports the package runtime as well as a checkout; the
         complete invoking-runtime contract replaces this narrower dependency.
@@ -35,20 +36,20 @@ assumptions:
     - id: setup-renders-five-stage-interactive-session
       title: Setup renders five numbered stages from pure state
       statement: Interactive setup must render Codor word art, version and byline,
-        five numbered named stages with pending, running, done, skipped or failed
-        state, an animated running indicator, bounded dim rolling logs, and a
-        closing summary naming endpoint, detected harnesses, and next action;
-        frame production must be a pure function of supplied state and must keep
-        actionable content visible at 80x10 and 40x24, because deterministic
-        terminal behavior requires frames that can be asserted as values rather
-        than scraped from side effects.
+        five numbered named stages with pending, running, done, skipped or
+        failed state, an animated running indicator, bounded dim rolling logs,
+        and a closing summary naming endpoint, detected harnesses, and next
+        action; frame production must be a pure function of supplied state and
+        must keep actionable content visible at 80x10 and 40x24, because
+        deterministic terminal behavior requires frames that can be asserted as
+        values rather than scraped from side effects.
       reason: Richard explicitly requested the Harn CLI visual language and stages.
       depends_on:
         - adapter-registry-sole-harness-source
     - id: setup-terminal-input-survives-chunk-boundaries
       title: Setup key decoding preserves split terminal sequences
-      statement: The setup key decoder must retain incomplete escape sequences
-        across data events, consume unknown CSI sequences without emitting their
+      statement: The setup key decoder must retain incomplete escape sequences across
+        data events, consume unknown CSI sequences without emitting their
         trailing letter, apply coalesced keys in order, and expose a pure flush
         that turns a retained bare Escape into cancel; because terminals split
         arrow sequences arbitrarily and a trailing letter must never become an
@@ -56,12 +57,13 @@ assumptions:
       reason: Coalesced-only tests cannot reach the split-escape defect.
     - id: setup-restores-terminal-on-every-exit
       title: Setup restores terminal ownership on success, failure, cancel, and signal
-      statement: The setup session must enter raw mode and hide the cursor only
-        while it owns an interactive TTY, and on every exit must restore prior raw
-        mode, show the cursor, clear repaint and Escape-flush timers, detach input,
-        resize, SIGINT, and SIGTERM listeners, and re-raise a signal only after
-        cleanup; it must never enter the alternate screen, because setup must not
-        damage the operator's shell and its final summary must remain visible.
+      statement: The setup session must enter raw mode and hide the cursor only while
+        it owns an interactive TTY, and on every exit must restore prior raw
+        mode, show the cursor, clear repaint and Escape-flush timers, detach
+        input, resize, SIGINT, and SIGTERM listeners, and re-raise a signal only
+        after cleanup; it must never enter the alternate screen, because setup
+        must not damage the operator's shell and its final summary must remain
+        visible.
       reason: Terminal cleanup is independent from setup business logic and must be
         reviewable on its own.
       depends_on:
@@ -80,16 +82,18 @@ assumptions:
       depends_on:
         - tailnet-auto-pairing-explicit-trust
     - id: setup-preserves-private-platform-service
-      title: Setup installs a private native user service with the operator's executable paths
-      statement: Setup must create configuration and data directories mode 700 and
-        an absent-only operator token mode 600, install and start the native
-        per-user Linux, macOS, or Windows service using the resolved absolute Node,
-        CLI, browser, data, and service paths, preserve a service PATH containing
-        local user bin, Node bin, and every detected supported harness directory,
-        and keep secrets out of output; because persistent harness processes do
-        not inherit the interactive shell and must run without root.
-      reason: This carries the durable service guarantees forward independently of
-        the retired confirmation model.
+      title: Setup installs a private native user service with the operator's
+        executable paths
+      statement: Setup must create configuration and data directories mode 700 and an
+        absent-only operator token mode 600, install and start the native
+        per-user Linux, macOS, or Windows service using the resolved absolute
+        Node, CLI, browser, data, and service paths, preserve a service PATH
+        containing local user bin, Node bin, and every detected supported
+        harness directory, and keep secrets out of output; because persistent
+        harness processes do not inherit the interactive shell and must run
+        without root.
+      reason: This carries the durable service guarantees forward independently of the
+        retired confirmation model.
       depends_on:
         - setup-renders-five-stage-interactive-session
         - public-package-bundles-complete-codor-runtime
@@ -101,7 +105,8 @@ assumptions:
         then source checkout, and every platform service must use those absolute
         paths; because mixing partial roots or assuming a repository breaks npx
         installs while source installs remain supported.
-      reason: Recreates the applied runtime contract without depending on the retired wizard.
+      reason: Recreates the applied runtime contract without depending on the retired
+        wizard.
       depends_on:
         - public-package-bundles-complete-codor-runtime
         - setup-preserves-private-platform-service
@@ -111,32 +116,33 @@ assumptions:
       statement: Dry-run must report the complete platform action list, rendered
         service content, computed PATH, chosen access preview, and pairing-code
         intent while performing no filesystem, service-manager, readiness, or
-        Tailscale effect and substituting a redaction for every token; because it
-        is the safe way to inspect setup and the install proof runs it in a clean
-        non-TTY container.
-      reason: The existing dry-run safety survives while its access default becomes explicit.
+        Tailscale effect and substituting a redaction for every token; because
+        it is the safe way to inspect setup and the install proof runs it in a
+        clean non-TTY container.
+      reason: The existing dry-run safety survives while its access default becomes
+        explicit.
       depends_on:
         - setup-unattended-mutation-requires-explicit-intent
         - setup-preserves-private-platform-service
     - id: setup-verifies-codor-before-creating-pairing-code
       title: Setup proves Codor answers before reporting readiness
       statement: The start stage must use bounded retries to require a successful
-        response from the expected local Codor pairing-status endpoint whose JSON
-        contains a boolean trusted_enrollment field before marking done, rejecting
-        an open socket or arbitrary 200 response; only then may the final stage
-        display one QR, the byte-identical pairing URL, formatted eight-character
-        code, and expiry without claiming enrollment, because service-manager
-        success is not daemon readiness and an operator with a phone needs the
-        short-code path.
+        response from the expected local Codor pairing-status endpoint whose
+        JSON contains a boolean trusted_enrollment field before marking done,
+        rejecting an open socket or arbitrary 200 response; only then may the
+        final stage display one QR, the byte-identical pairing URL, formatted
+        eight-character code, and expiry without claiming enrollment, because
+        service-manager success is not daemon readiness and an operator with a
+        phone needs the short-code path.
       reason: Current setup trusts the service command and omits the pairing code.
       depends_on:
         - terminal-pairing-qr-matches-plain-url
         - pairing-code-enrollment-surfaces
     - id: windows-setup-installs-private-task-service
       title: Windows setup installs a hidden private per-user Task Scheduler service
-      statement: Native Windows setup must protect the token with the current
-        user's ACL, render a hidden logon task whose wrapper reads the token from
-        disk, runs the resolved Codor CLI and browser runtime, logs privately,
+      statement: Native Windows setup must protect the token with the current user's
+        ACL, render a hidden logon task whose wrapper reads the token from disk,
+        runs the resolved Codor CLI and browser runtime, logs privately,
         propagates the daemon exit code, and starts without an open terminal;
         because Windows needs the same durable user-service outcome as Linux and
         macOS without exposing credentials.
@@ -146,8 +152,8 @@ assumptions:
         - setup-resolves-complete-invoking-runtime
     - id: wsl-setup-keeps-private-windows-loopback
       title: WSL setup remains private while reaching the Windows browser
-      statement: WSL2 NAT-style setup must bind the guest daemon to 0.0.0.0 so
-        Windows localhost forwarding reaches it, while ordinary Linux, WSL1, and
+      statement: WSL2 NAT-style setup must bind the guest daemon to 0.0.0.0 so Windows
+        localhost forwarding reaches it, while ordinary Linux, WSL1, and
         mirrored WSL2 remain loopback-only and every displayed browser endpoint
         stays http://127.0.0.1:8137; because a universal wildcard creates LAN
         exposure while guest loopback alone is unreliable under WSL2 NAT.
@@ -157,8 +163,8 @@ assumptions:
   reviewed:
     - id: public-package-bundles-complete-codor-runtime
       outcome: unchanged
-      reason: Setup consumes the package layout emitted by contract 1 without
-        changing its closure or staged assets.
+      reason: Setup consumes the package layout emitted by contract 1 without changing
+        its closure or staged assets.
     - id: cli-tests-delete-inherited-codor-environment
       outcome: unchanged
       reason: PTY and process tests continue to run through the established scrubber.
@@ -167,7 +173,8 @@ assumptions:
       reason: Setup adds the code and expiry beside the same URL used for the QR.
     - id: pairing-code-enrollment-surfaces
       outcome: unchanged
-      reason: Setup extends the existing CLI short-code surface without changing the exchange.
+      reason: Setup extends the existing CLI short-code surface without changing the
+        exchange.
     - id: tailnet-auto-pairing-explicit-trust
       outcome: unchanged
       reason: Tailscale remains explicit and unavailable choices are refused.
@@ -282,7 +289,8 @@ anchors:
   setup-preserves-private-platform-service:
     setup-platform-service-runtime:
       action: change
-      reason: Preserve private files, PATH, and native services within staged execution.
+      reason: Preserve private files, PATH, and native services within staged
+        execution.
     setup-platform-service-regression:
       action: change
       reason: Preserve mode, path, platform, and command assertions.
@@ -324,18 +332,20 @@ anchors:
     wsl-bind-regression:
       action: change
       reason: Re-anchor the WSL matrix and endpoint assertions.
-verification: >-
-  Run pure frame and decoder tests, including split escape input, bare-Escape
-  flush, purity, every stage state, width and height at 80x10 and 40x24, and
-  Space-visible radio selection. Exercise the effectful session with fake TTY
-  streams and signal targets to prove prior raw mode, cursor, every listener,
-  repaint timer, and flush timer restore on success, cancellation, failure,
-  SIGINT, and SIGTERM; assert no alternate-screen sequence. Run a real PTY
-  smoke through util-linux script when available. Update Linux, macOS, Windows,
-  and WSL tests to use explicit unattended flags and a fixture Codor readiness
-  probe while retaining existing modes, PATH, commands, service contents,
-  redaction, QR URL equality, and endpoint assertions. Add negative readiness
-  responses for an open listener and arbitrary JSON. Prove non-TTY mutation
-  without both flags exits promptly and ANSI-free; prove dry-run needs neither,
-  defaults localhost even when Tailscale is detected, and explicit Tailscale
-  preview remains side-effect-free. Build and test CLI, run audits and Harn.
+verification: Run pure frame and decoder tests, including split escape input,
+  bare-Escape flush, purity, every stage state, width and height at 80x10 and
+  40x24, and Space-visible radio selection. Exercise the effectful session with
+  fake TTY streams and signal targets to prove prior raw mode, cursor, every
+  listener, repaint timer, and flush timer restore on success, cancellation,
+  failure, SIGINT, and SIGTERM; assert no alternate-screen sequence. Run a real
+  PTY smoke through util-linux script when available. Update Linux, macOS,
+  Windows, and WSL tests to use explicit unattended flags and a fixture Codor
+  readiness probe while retaining existing modes, PATH, commands, service
+  contents, redaction, QR URL equality, and endpoint assertions. Add negative
+  readiness responses for an open listener and arbitrary JSON. Prove non-TTY
+  mutation without both flags exits promptly and ANSI-free; prove dry-run needs
+  neither, defaults localhost even when Tailscale is detected, and explicit
+  Tailscale preview remains side-effect-free. Build and test CLI, run audits and
+  Harn.
+applied:
+  applied_at: 2026-07-21T01:32:57.305Z

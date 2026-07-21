@@ -1,0 +1,16 @@
+id: setup-preserves-private-platform-service
+hash: a-43d881f8e115
+title: Setup installs a private native user service with the operator's
+  executable paths
+state: active
+statement: Setup must create configuration and data directories mode 700 and an
+  absent-only operator token mode 600, install and start the native per-user
+  Linux, macOS, or Windows service using the resolved absolute Node, CLI,
+  browser, data, and service paths, preserve a service PATH containing local
+  user bin, Node bin, and every detected supported harness directory, and keep
+  secrets out of output; because persistent harness processes do not inherit the
+  interactive shell and must run without root.
+depends_on:
+  - setup-renders-five-stage-interactive-session
+  - public-package-bundles-complete-codor-runtime
+created_by: codor-interactive-setup-session

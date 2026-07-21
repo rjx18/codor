@@ -15,7 +15,6 @@ const winOptions = (root: string, commands: string[], output: string[]) => {
   writeFileSync(join(repoRoot, 'packages', 'web-next', 'dist', 'index.html'), '', 'utf8');
   writeFileSync(join(repoRoot, 'packaging', 'systemd', 'codor.service'), 'ExecStart=/usr/bin/node\n', 'utf8');
   return ({
-  confirm: async () => true,
   exec: (command: string, args: string[]) => {
     commands.push([command, ...args].join(' '));
     return '';
@@ -26,13 +25,15 @@ const winOptions = (root: string, commands: string[], output: string[]) => {
   randomToken: () => 'a'.repeat(64),
   renderQr: () => '[qr]',
   repoRoot,
+  probe: async () => true,
+  sleep: async () => undefined,
   which: (command: string) => command === 'codex'
     ? join(root, 'tools', 'codex.cmd')
     : undefined,
   });
 };
 
-// harn:assume windows-setup-installs-task-scheduler-service ref=windows-setup-regression
+// harn:assume windows-setup-installs-private-task-service ref=windows-setup-regression
 describe('codor setup on Windows', () => {
   it('dry-runs the private service without executing commands or disclosing the token', async () => {
     const root = mkdtempSync(join(tmpdir(), 'codor-win32-dry-'));
@@ -66,10 +67,12 @@ describe('codor setup on Windows', () => {
     const home = join(root, 'home');
     try {
       await runSetup({
+        access: 'localhost',
         dryRun: false,
         env: { USERNAME: 'test-user', PATH: 'C:\\Windows\\System32' },
         out: (line) => output.push(line),
         overrides: winOptions(root, commands, output),
+        yes: true,
       });
       const configDir = join(home, '.config', 'codor');
       const tokenPath = join(configDir, 'token');
@@ -100,4 +103,4 @@ describe('codor setup on Windows', () => {
     })).rejects.toThrow('Linux, macOS, and Windows');
   });
 });
-// harn:end windows-setup-installs-task-scheduler-service
+// harn:end windows-setup-installs-private-task-service
