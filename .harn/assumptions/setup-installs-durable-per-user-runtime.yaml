@@ -1,0 +1,19 @@
+id: setup-installs-durable-per-user-runtime
+hash: a-8b04d170703d
+title: Install copies the invoking runtime into a durable per-user location when
+  it is ephemeral
+state: active
+statement: codor install must give the background service a durable runtime -
+  when the invoking runtime resolves under an ephemeral npx cache or OS temp
+  directory it must copy the complete self-contained module tree, preserving
+  prebuilt native binaries, into a stable per-user location (~/.codor/runtime)
+  and resolve the service's CLI entrypoint, static root, and service template
+  from that copy rather than the ephemeral path, while a source checkout or an
+  already-stable install is used in place; an existing install of the same
+  version is reused and a different version is updated by re-copying; because a
+  per-user service whose ExecStart points into an npx cache breaks when npm
+  garbage-collects that cache.
+depends_on:
+  - setup-resolves-complete-invoking-runtime
+  - setup-preserves-private-platform-service
+created_by: codor-install-durable-runtime
