@@ -268,6 +268,12 @@ assumptions:
     - id: web-waits-are-visible-across-live-surfaces-v5
       outcome: unchanged
       reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+    - id: release-audits-enforce-codor-clean-break
+      outcome: unchanged
+      reason: The existing release audit remains the tracked release boundary and is extended to reject a returned legacy browser workspace or source alias.
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The CLI and platform services already serve web-next; documentation is tightened to describe it as the only complete browser application.
 files:
   - README.md
   - docs/ARCHITECTURE.md
@@ -460,6 +466,20 @@ anchors:
     standalone-browser-release-audit:
       action: change
       reason: Add a tracked release assertion that packages/web, @legacy aliases, and cross-workspace service-worker source paths cannot return.
+  release-audits-enforce-codor-clean-break:
+    rename-release-audit:
+      action: change
+      reason: Extend the clean-break release audit from product naming to the supported browser workspace boundary.
+  operator-launches-serve-web-next:
+    readme-current-web-client:
+      action: change
+      reason: State that web-next contains the complete browser runtime rather than contrasting it with a legacy build.
+    selfhost-current-web-client:
+      action: change
+      reason: Remove the obsolete instruction about packages/web and document the one-workspace deployment.
+    architecture-current-web-client:
+      action: change
+      reason: Record the standalone runtime and remove the legacy workspace from the architecture map.
   a-permission-change-is-never-silent:
     configure-audit-regression:
       action: remove
@@ -1231,4 +1251,3 @@ anchors:
     waiting-run-header:
       action: remove
       reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
-
