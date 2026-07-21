@@ -1,0 +1,12 @@
+id: public-cli-delegation-reports-concise-failures
+hash: a-cf2c3a42c74b
+title: The public wrapper invokes the CLI and preserves its one-line failure contract
+state: active
+statement: The generated public codor executable must call the exported runCli
+  entry explicitly and convert a rejected invocation into one nonzero,
+  stack-free stderr line; because importing @codor/cli through a wrapper does
+  not trigger its argv-based self-invocation guard and an unhandled rejection
+  would expose implementation detail instead of an actionable error.
+depends_on:
+  - public-package-bundles-complete-codor-runtime
+created_by: codor-installable-runtime-artifact

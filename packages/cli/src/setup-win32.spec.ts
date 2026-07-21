@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -6,7 +6,15 @@ import { describe, expect, it } from 'vitest';
 
 import { runSetup } from './setup.js';
 
-const winOptions = (root: string, commands: string[], output: string[]) => ({
+const winOptions = (root: string, commands: string[], output: string[]) => {
+  const repoRoot = join(root, 'repo with spaces');
+  mkdirSync(join(repoRoot, 'packages', 'cli', 'dist'), { recursive: true });
+  mkdirSync(join(repoRoot, 'packages', 'web-next', 'dist'), { recursive: true });
+  mkdirSync(join(repoRoot, 'packaging', 'systemd'), { recursive: true });
+  writeFileSync(join(repoRoot, 'packages', 'cli', 'dist', 'index.js'), '', 'utf8');
+  writeFileSync(join(repoRoot, 'packages', 'web-next', 'dist', 'index.html'), '', 'utf8');
+  writeFileSync(join(repoRoot, 'packaging', 'systemd', 'codor.service'), 'ExecStart=/usr/bin/node\n', 'utf8');
+  return ({
   confirm: async () => true,
   exec: (command: string, args: string[]) => {
     commands.push([command, ...args].join(' '));
@@ -17,11 +25,12 @@ const winOptions = (root: string, commands: string[], output: string[]) => ({
   platform: 'win32' as const,
   randomToken: () => 'a'.repeat(64),
   renderQr: () => '[qr]',
-  repoRoot: join(root, 'repo with spaces'),
+  repoRoot,
   which: (command: string) => command === 'codex'
     ? join(root, 'tools', 'codex.cmd')
     : undefined,
-});
+  });
+};
 
 // harn:assume windows-setup-installs-task-scheduler-service ref=windows-setup-regression
 describe('codor setup on Windows', () => {

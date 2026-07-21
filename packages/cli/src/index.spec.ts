@@ -349,7 +349,7 @@ describe('@codor/cli', () => {
       join(repoRoot, 'packaging', 'systemd', 'codor.service'),
       readFileSync(join(sourceRoot, 'packaging', 'systemd', 'codor.service'), 'utf8'),
     );
-    mkdirSync(join(repoRoot, 'packages', 'cli', 'dist'), { recursive: true });
+    mkdirSync(join(repoRoot, 'packages', 'cli', 'dist'), { recursive: true }); writeFileSync(join(repoRoot, 'packages', 'cli', 'dist', 'index.js'), '', 'utf8');
     mkdirSync(join(repoRoot, 'packages', 'web-next', 'dist'), { recursive: true });
 
     await runCli(['node', 'codor', 'setup'], {
@@ -543,7 +543,7 @@ describe('@codor/cli', () => {
 
   posixHostIt('dry-runs and installs an equivalent private macOS LaunchAgent', async () => {
     const home = join(dir, 'setup & home');
-    const repoRoot = join(dir, 'repo & checkout');
+    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
     const commands: string[] = [];
     const token = 'mac&<>-token';
     let qrPayload: string | undefined;

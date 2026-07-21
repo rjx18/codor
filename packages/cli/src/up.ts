@@ -20,6 +20,8 @@ import {
   type RunningServer,
 } from '@codor/switchboard';
 
+import { tryResolveRuntimePaths } from './runtime-paths.js';
+
 // harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition
 export interface UpOptions {
   dataDir?: string;
@@ -134,7 +136,8 @@ export async function startCodor(options: UpOptions): Promise<RunningCodor> {
   }
   for (const room of daemon.store.listRooms()) crypto.roomKeys.ensureRoom(room.id);
   // harn:assume operator-launches-serve-web-next ref=cli-default-static-root
-  const defaultStatic = resolve(process.cwd(), 'packages/web-next/dist');
+  const defaultStatic = tryResolveRuntimePaths()?.staticRoot
+    ?? resolve(process.cwd(), 'packages/web-next/dist');
   // harn:end operator-launches-serve-web-next
   try {
     await transport?.start();

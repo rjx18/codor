@@ -1,0 +1,15 @@
+id: public-package-bundles-complete-codor-runtime
+hash: a-fc90006a4afb
+title: The public package carries the complete Codor runtime behind one npm name
+state: active
+statement: The generated @richhardry/codor package must recursively discover and
+  bundle the exact @codor runtime closure from @codor/cli, rewrite every staged
+  workspace dependency to the exact bundled version, install the closure's
+  third-party dependencies through npm, and include the built web-next
+  application and native service resources; because a one-command install must
+  not depend on unpublished workspace packages or a Git checkout while workspace
+  identities remain @codor.
+depends_on:
+  - workspace-packages-use-codor-scope
+  - supported-browser-is-standalone-web-next
+created_by: codor-installable-runtime-artifact

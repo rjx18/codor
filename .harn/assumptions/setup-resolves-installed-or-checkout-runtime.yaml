@@ -1,0 +1,16 @@
+id: setup-resolves-installed-or-checkout-runtime
+hash: a-29b2310991ce
+title: Setup services resolve the runtime that actually invoked setup
+state: active
+statement: Setup and the default foreground launch path must resolve one
+  complete runtime containing the CLI entrypoint, built web-next assets, and
+  service template, preferring an explicitly injected checkout for tests, then
+  package-relative installed assets, then the source checkout; every generated
+  Linux, macOS, and Windows service must use those absolute paths, because an
+  npx-installed service cannot point at a repository that is not present and a
+  checkout install must remain supported.
+depends_on:
+  - public-package-bundles-complete-codor-runtime
+  - operator-launches-serve-web-next
+  - cli-setup-wizard-installs-platform-user-service
+created_by: codor-installable-runtime-artifact

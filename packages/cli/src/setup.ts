@@ -10,10 +10,10 @@ import {
 import { homedir, release } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { fileURLToPath } from 'node:url';
 
 import { CryptoVault, pairingUrl } from '@codor/switchboard';
 
+import { resolveRuntimePaths, type RuntimePaths } from './runtime-paths.js';
 import { renderTerminalQr } from './terminal-qr.js';
 
 const HARNESSES = ['claude', 'codex', 'opencode', 'gemini', 'copilot', 'cursor-agent', 'agy'] as const;
@@ -121,30 +121,30 @@ interface SystemdUnitOptions {
   envPath: string;
   host: '127.0.0.1' | '0.0.0.0';
   nodePath: string;
-  repoRoot: string;
+  runtime: RuntimePaths;
 }
 
 function renderSystemdUnit(template: string, options: SystemdUnitOptions): string {
   const args = [
     options.nodePath,
-    join(options.repoRoot, 'packages', 'cli', 'dist', 'index.js'),
+    options.runtime.cliEntrypoint,
     '--data-dir',
     options.dataDir,
     'up',
     ...(options.host === '0.0.0.0' ? ['--host', options.host] : []),
     '--static-root',
-    join(options.repoRoot, 'packages', 'web-next', 'dist'),
+    options.runtime.staticRoot,
     '--channel',
     'desk',
     '--channel-name',
     'Desk',
   ];
   const rendered = template
-    .replace(/^WorkingDirectory=.*$/m, `WorkingDirectory=${systemdPath(options.repoRoot)}`)
+    .replace(/^WorkingDirectory=.*$/m, `WorkingDirectory=${systemdPath(options.runtime.root)}`)
     .replace(/^EnvironmentFile=.*$/m, `EnvironmentFile=${systemdPath(options.envPath)}`)
     .replace(/^ExecStart=.*$/m, `ExecStart=${args.map(systemdQuote).join(' ')}`);
   if (rendered === template || rendered.includes('%h/codor')) {
-    throw new Error('codor setup could not render the systemd service for the current checkout');
+    throw new Error('codor setup could not render the systemd service for the invoking runtime');
   }
   return rendered;
 }
@@ -163,7 +163,7 @@ interface LaunchAgentOptions {
   dataDir: string;
   logDir: string;
   nodePath: string;
-  repoRoot: string;
+  runtime: RuntimePaths;
   servicePath: string;
   token: string;
 }
@@ -172,13 +172,13 @@ interface LaunchAgentOptions {
 function renderLaunchAgent(options: LaunchAgentOptions): string {
   const values = {
     dataDir: xml(options.dataDir),
-    entrypoint: xml(join(options.repoRoot, 'packages', 'cli', 'dist', 'index.js')),
+    entrypoint: xml(options.runtime.cliEntrypoint),
     errorLog: xml(join(options.logDir, 'codor.err.log')),
     nodePath: xml(options.nodePath),
     outputLog: xml(join(options.logDir, 'codor.log')),
-    repoRoot: xml(options.repoRoot),
+    repoRoot: xml(options.runtime.root),
     servicePath: xml(options.servicePath),
-    staticRoot: xml(join(options.repoRoot, 'packages', 'web-next', 'dist')),
+    staticRoot: xml(options.runtime.staticRoot),
     token: xml(options.token),
   };
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -240,17 +240,17 @@ export function renderWindowsServiceScript(options: {
   dataDir: string;
   logDir: string;
   nodePath: string;
-  repoRoot: string;
+  runtime: RuntimePaths;
   servicePath: string;
   tokenPath: string;
 }): string {
   const quote = (value: string): string => value.replaceAll("'", "''");
-  const entrypoint = join(options.repoRoot, 'packages', 'cli', 'dist', 'index.js');
-  const staticRoot = join(options.repoRoot, 'packages', 'web-next', 'dist');
+  const entrypoint = options.runtime.cliEntrypoint;
+  const staticRoot = options.runtime.staticRoot;
   return [
     `$env:CODOR_TOKEN = (Get-Content -Raw -Path '${quote(options.tokenPath)}').Trim()`,
     `$env:PATH = '${quote(options.servicePath)}'`,
-    `Set-Location -Path '${quote(options.repoRoot)}'`,
+    `Set-Location -Path '${quote(options.runtime.root)}'`,
     `& '${quote(options.nodePath)}' '${quote(entrypoint)}' --data-dir '${quote(options.dataDir)}' up --static-root '${quote(staticRoot)}' --channel desk --channel-name Desk >> '${quote(join(options.logDir, 'codor.out.log'))}' 2>> '${quote(join(options.logDir, 'codor.err.log'))}'`,
     'exit $LASTEXITCODE',
   ].join('\r\n') + '\r\n';
@@ -281,7 +281,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     throw new Error(`codor setup supports Linux, macOS, and Windows; received ${platform}`);
   }
   const home = resolve(overrides.home ?? options.env.HOME ?? homedir());
-  const repoRoot = resolve(overrides.repoRoot ?? fileURLToPath(new URL('../../../', import.meta.url)));
+  const runtime = resolveRuntimePaths({ repoRoot: overrides.repoRoot });
   const nodePath = resolve(overrides.nodePath ?? process.execPath);
   const confirm = overrides.confirm ?? defaultConfirm;
   const exec = overrides.exec ?? defaultExec;
@@ -293,7 +293,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const envPath = join(configDir, 'env');
   const userUnitDir = join(home, '.config', 'systemd', 'user');
   const userUnitPath = join(userUnitDir, 'codor.service');
-  const templatePath = join(repoRoot, 'packaging', 'systemd', 'codor.service');
+  const templatePath = runtime.serviceTemplate;
   const launchAgentDir = join(home, 'Library', 'LaunchAgents');
   const launchAgentPath = join(launchAgentDir, `${LAUNCH_AGENT_LABEL}.plist`);
   const logDir = join(dataDir, 'logs');
@@ -317,7 +317,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       envPath,
       host: systemdBindHost,
       nodePath,
-      repoRoot,
+      runtime,
     })
     : undefined;
   const harnessPaths = HARNESSES.map((harness) => which(harness)).filter(
@@ -342,7 +342,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       dataDir,
       logDir,
       nodePath,
-      repoRoot,
+      runtime,
       servicePath,
       tokenPath,
     })
@@ -367,7 +367,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
         dataDir,
         logDir,
         nodePath,
-        repoRoot,
+        runtime,
         servicePath,
         token: '<redacted generated-or-existing token>',
       });
@@ -444,7 +444,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
         dataDir,
         logDir,
         nodePath,
-        repoRoot,
+        runtime,
         servicePath,
         token,
       });

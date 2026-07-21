@@ -20,3 +20,6 @@ xcuserdata/
 .DS_Store
 .env
 tmp/
+
+# staged publishable package, produced by `pnpm build:artifact`
+/artifact/

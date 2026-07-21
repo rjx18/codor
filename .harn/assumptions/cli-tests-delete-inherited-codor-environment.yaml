@@ -1,0 +1,11 @@
+id: cli-tests-delete-inherited-codor-environment
+hash: a-4ccaa056e816
+title: CLI tests delete every inherited CODOR_ variable before running
+state: active
+statement: The CLI test command must run through a wrapper that deletes every
+  CODOR_-prefixed key from the child environment, never prints a value, and
+  preserves the child exit status; because blank values remain defined and a
+  test inheriting live socket and bearer variables can authenticate against the
+  operator's running daemon instead of its fixture.
+depends_on: []
+created_by: codor-installable-runtime-artifact

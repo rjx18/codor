@@ -1,25 +1,25 @@
 id: codor-installable-runtime-artifact
-title: Emit one installable @richhardry/codor package with its CLI, adapters, browser, and service runtime
-notes: >-
-  Phase 6, contract 1 of 3. Generate the public package without renaming any
-  @codor workspace. The wrapper carries the complete runtime workspace closure
-  discovered recursively from @codor/cli, rewrites every staged workspace:*
-  dependency to the exact bundled version, installs third-party dependencies
-  normally from npm, delegates the public bin through runCli with concise error
-  handling, and includes the production web-next build plus the systemd
-  template beside the staged CLI. Setup and the foreground `up` default resolve
-  that package-relative runtime first while preserving an explicit checkout
-  fallback, so source installs and npx installs both render absolute service
-  paths. The artifact build compiles its own inputs and its test command removes
-  all inherited CODOR_ variables rather than blanking them. Interactive setup
-  behavior, publication, and the final clean-container release proof belong to
-  the next two contracts.
+title: Emit one installable @richhardry/codor package with its CLI, adapters,
+  browser, and service runtime
+notes: Phase 6, contract 1 of 3. Generate the public package without renaming
+  any @codor workspace. The wrapper carries the complete runtime workspace
+  closure discovered recursively from @codor/cli, rewrites every staged
+  workspace:* dependency to the exact bundled version, installs third-party
+  dependencies normally from npm, delegates the public bin through runCli with
+  concise error handling, and includes the production web-next build plus the
+  systemd template beside the staged CLI. Setup and the foreground `up` default
+  resolve that package-relative runtime first while preserving an explicit
+  checkout fallback, so source installs and npx installs both render absolute
+  service paths. The artifact build compiles its own inputs and its test command
+  removes all inherited CODOR_ variables rather than blanking them. Interactive
+  setup behavior, publication, and the final clean-container release proof
+  belong to the next two contracts.
 assumptions:
   create:
     - id: public-package-bundles-complete-codor-runtime
       title: The public package carries the complete Codor runtime behind one npm name
-      statement: The generated @richhardry/codor package must recursively discover
-        and bundle the exact @codor runtime closure from @codor/cli, rewrite every
+      statement: The generated @richhardry/codor package must recursively discover and
+        bundle the exact @codor runtime closure from @codor/cli, rewrite every
         staged workspace dependency to the exact bundled version, install the
         closure's third-party dependencies through npm, and include the built
         web-next application and native service resources; because a one-command
@@ -31,24 +31,27 @@ assumptions:
         - workspace-packages-use-codor-scope
         - supported-browser-is-standalone-web-next
     - id: public-cli-delegation-reports-concise-failures
-      title: The public wrapper invokes the CLI and preserves its one-line failure contract
+      title: The public wrapper invokes the CLI and preserves its one-line failure
+        contract
       statement: The generated public codor executable must call the exported runCli
         entry explicitly and convert a rejected invocation into one nonzero,
-        stack-free stderr line; because importing @codor/cli through a wrapper does
-        not trigger its argv-based self-invocation guard and an unhandled rejection
-        would expose implementation detail instead of an actionable error.
+        stack-free stderr line; because importing @codor/cli through a wrapper
+        does not trigger its argv-based self-invocation guard and an unhandled
+        rejection would expose implementation detail instead of an actionable
+        error.
       reason: The public bin is a different argv entrypoint from the staged CLI module.
       depends_on:
         - public-package-bundles-complete-codor-runtime
     - id: setup-resolves-installed-or-checkout-runtime
       title: Setup services resolve the runtime that actually invoked setup
       statement: Setup and the default foreground launch path must resolve one
-        complete runtime containing the CLI entrypoint, built web-next assets, and
-        service template, preferring an explicitly injected checkout for tests,
-        then package-relative installed assets, then the source checkout; every
-        generated Linux, macOS, and Windows service must use those absolute paths,
-        because an npx-installed service cannot point at a repository that is not
-        present and a checkout install must remain supported.
+        complete runtime containing the CLI entrypoint, built web-next assets,
+        and service template, preferring an explicitly injected checkout for
+        tests, then package-relative installed assets, then the source checkout;
+        every generated Linux, macOS, and Windows service must use those
+        absolute paths, because an npx-installed service cannot point at a
+        repository that is not present and a checkout install must remain
+        supported.
       reason: Every current service renderer hard-codes packages/cli/dist and
         packages/web-next/dist under repoRoot.
       depends_on:
@@ -56,12 +59,14 @@ assumptions:
         - operator-launches-serve-web-next
         - cli-setup-wizard-installs-platform-user-service
     - id: artifact-build-runs-from-clean-source
-      title: Building the public artifact compiles every input from a clean source tree
+      title: Building the public artifact compiles every input from a clean source
+        tree
       statement: The root artifact command must build the recursively selected CLI
         runtime dependencies and web-next before staging the package, ignore its
-        generated output, and be regression-tested without relying on pre-existing
-        dist directories; because a tarball packed by hand from a warm worktree can
-        look complete while the documented build command fails for a new contributor.
+        generated output, and be regression-tested without relying on
+        pre-existing dist directories; because a tarball packed by hand from a
+        warm worktree can look complete while the documented build command fails
+        for a new contributor.
       reason: Phase 6 must hand Richard a reproducible tarball, not an artifact that
         only exists after unrelated prior builds.
       depends_on:
@@ -69,10 +74,10 @@ assumptions:
     - id: cli-tests-delete-inherited-codor-environment
       title: CLI tests delete every inherited CODOR_ variable before running
       statement: The CLI test command must run through a wrapper that deletes every
-        CODOR_-prefixed key from the child environment, never prints a value, and
-        preserves the child exit status; because blank values remain defined and a
-        test inheriting live socket and bearer variables can authenticate against
-        the operator's running daemon instead of its fixture.
+        CODOR_-prefixed key from the child environment, never prints a value,
+        and preserves the child exit status; because blank values remain defined
+        and a test inheriting live socket and bearer variables can authenticate
+        against the operator's running daemon instead of its fixture.
       reason: Codor agent sessions export live CODOR_ variables in this worktree.
   reviewed:
     - id: workspace-packages-use-codor-scope
@@ -86,8 +91,9 @@ assumptions:
     - id: cli-setup-wizard-installs-platform-user-service
       outcome: unchanged
       reason: This contract changes runtime path resolution but retains the current
-        confirmation flow, private modes, platform services, harness PATH, dry-run,
-        optional Tailscale, and pairing behavior. The interactive flow is contract 2.
+        confirmation flow, private modes, platform services, harness PATH,
+        dry-run, optional Tailscale, and pairing behavior. The interactive flow
+        is contract 2.
     - id: setup-service-runs-from-current-checkout
       outcome: unchanged
       reason: An injected or detected checkout remains a fully tested runtime branch;
@@ -95,7 +101,8 @@ assumptions:
     - id: windows-setup-installs-task-scheduler-service
       outcome: unchanged
       reason: Windows still installs the same hidden per-user task and token-reading
-        wrapper, now using the resolved invoking runtime instead of assuming a repo.
+        wrapper, now using the resolved invoking runtime instead of assuming a
+        repo.
     - id: wsl-setup-reaches-windows-loopback
       outcome: unchanged
       reason: WSL bind selection and browser endpoint semantics do not change.
@@ -109,8 +116,8 @@ assumptions:
         packed install proof is added later without weakening it.
     - id: global-cli-install-is-idempotent
       outcome: unchanged
-      reason: The checked-in checkout installer and its documentation are untouched
-        in this contract; primary-install documentation changes in contract 3.
+      reason: The checked-in checkout installer and its documentation are untouched in
+        this contract; primary-install documentation changes in contract 3.
     - id: release-gate-runs-unit-and-browser
       outcome: unchanged
       reason: CLI artifact tests run inside the existing recursive unit-test stage;
@@ -135,15 +142,18 @@ anchors:
       reason: Discover, validate, and stage the full runtime closure plus web assets.
     artifact-runtime-regression:
       action: change
-      reason: Assert exact closure, manifest rewriting, runtime assets, and package shape.
+      reason: Assert exact closure, manifest rewriting, runtime assets, and package
+        shape.
   public-cli-delegation-reports-concise-failures:
     public-wrapper-delegation:
       action: change
-      reason: Generate and test the explicit runCli wrapper with one-line rejection handling.
+      reason: Generate and test the explicit runCli wrapper with one-line rejection
+        handling.
   setup-resolves-installed-or-checkout-runtime:
     setup-runtime-resolution:
       action: change
-      reason: Resolve complete package or checkout runtime paths and reject partial layouts.
+      reason: Resolve complete package or checkout runtime paths and reject partial
+        layouts.
     setup-runtime-resolution-regression:
       action: change
       reason: Prove both layouts and failures that name every attempted candidate.
@@ -154,7 +164,8 @@ anchors:
   cli-tests-delete-inherited-codor-environment:
     cli-test-environment-wrapper:
       action: change
-      reason: Delete all CODOR_ variables and test deletion, secrecy, and exit propagation.
+      reason: Delete all CODOR_ variables and test deletion, secrecy, and exit
+        propagation.
   cli-setup-wizard-installs-platform-user-service:
     setup-runtime:
       action: change
@@ -181,21 +192,24 @@ anchors:
       reason: Pass the resolved runtime into Windows setup.
     windows-setup-regression:
       action: change
-      reason: Prove checkout and installed paths without weakening ACL or redaction checks.
+      reason: Prove checkout and installed paths without weakening ACL or redaction
+        checks.
   operator-launches-serve-web-next:
     launchd-current-web-client:
       action: change
       reason: Launchd points to the resolved web-next build in either layout.
     cli-default-static-root:
       action: change
-      reason: Foreground installed CLI discovers its packaged web build before cwd fallback.
+      reason: Foreground installed CLI discovers its packaged web build before cwd
+        fallback.
   wsl-setup-reaches-windows-loopback:
     wsl-bind-selection:
       action: keep
       reason: Runtime layout changes must not alter WSL exposure selection.
     wsl-bind-regression:
       action: change
-      reason: The surrounding setup snapshot changes paths while preserving host assertions.
+      reason: The surrounding setup snapshot changes paths while preserving host
+        assertions.
   workspace-packages-use-codor-scope:
     codor-package-scope-regression:
       action: keep
@@ -207,14 +221,15 @@ anchors:
     cli-install-regression:
       action: keep
       reason: The checkout installer regression remains byte-for-byte unchanged.
-verification: >-
-  Run the CLI artifact unit suite, including exact current closure discovery,
-  workspace-protocol rewriting, third-party range conflict rejection, absence of
-  source/spec/fixture files, built web and service resource presence, public
-  wrapper delegation, and deletion of poisoned CODOR_ variables. Build from a
-  clean exported source tree with no dist or node_modules, install dependencies,
-  run pnpm build:artifact, and assert the ignored artifact contains all runtime
-  assets. Pack the staged directory locally and verify npm's tar listing has no
-  workspace protocol or symlink. Run CLI, switchboard, web build, audits, Harn,
-  and whitespace gates. The networked clean-container and published-package
-  proofs remain contract 3.
+verification: Run the CLI artifact unit suite, including exact current closure
+  discovery, workspace-protocol rewriting, third-party range conflict rejection,
+  absence of source/spec/fixture files, built web and service resource presence,
+  public wrapper delegation, and deletion of poisoned CODOR_ variables. Build
+  from a clean exported source tree with no dist or node_modules, install
+  dependencies, run pnpm build:artifact, and assert the ignored artifact
+  contains all runtime assets. Pack the staged directory locally and verify
+  npm's tar listing has no workspace protocol or symlink. Run CLI, switchboard,
+  web build, audits, Harn, and whitespace gates. The networked clean-container
+  and published-package proofs remain contract 3.
+applied:
+  applied_at: 2026-07-21T01:12:11.537Z

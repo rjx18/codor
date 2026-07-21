@@ -17,7 +17,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "build:artifact": "node dist/artifact.js",
+    "test": "node ../../scripts/test-env.mjs vitest run"
   },
   "dependencies": {
     "@codor/protocol": "workspace:*",

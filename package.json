@@ -12,6 +12,7 @@
     "audit:license": "node scripts/license-audit.mjs",
     "audit:release": "node scripts/release-audit.mjs",
     "build": "pnpm -r build",
+    "build:artifact": "pnpm --filter '@codor/cli...' build && pnpm --filter @codor/web-next build && pnpm --filter @codor/cli build:artifact",
     "build:icons": "node scripts/build-icons.mjs",
     "lint": "pnpm -r --if-present lint",
     "release:check": "pnpm test:all && pnpm audit:license && pnpm audit:release",

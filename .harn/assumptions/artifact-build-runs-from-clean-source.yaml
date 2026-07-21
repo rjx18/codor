@@ -1,0 +1,12 @@
+id: artifact-build-runs-from-clean-source
+hash: a-a83d38fcc0cb
+title: Building the public artifact compiles every input from a clean source tree
+state: active
+statement: The root artifact command must build the recursively selected CLI
+  runtime dependencies and web-next before staging the package, ignore its
+  generated output, and be regression-tested without relying on pre-existing
+  dist directories; because a tarball packed by hand from a warm worktree can
+  look complete while the documented build command fails for a new contributor.
+depends_on:
+  - public-package-bundles-complete-codor-runtime
+created_by: codor-installable-runtime-artifact
