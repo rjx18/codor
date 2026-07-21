@@ -151,7 +151,9 @@ test.describe('members tab', () => {
     // The extension member truly exists server-side…
     const listed = await fetch(`${API}/api/rooms/eng/members`, {
       headers: { authorization: `Bearer ${TOKEN}` },
-    }).then((res) => res.json() as Promise<{ members: { member: { kind: string; handle: string } }[] }>);
+    }).then((res) => res.json() as Promise<{
+      members: { member: { kind: string; handle: string; removed_ts?: number } }[];
+    }>);
     const members = listed.members.map((entry) => entry.member);
     const extension = members.find((m) => m.kind === 'extension');
     expect(extension?.handle).toMatch(/^fable-ext-/);
@@ -160,7 +162,9 @@ test.describe('members tab', () => {
     await expect(page.getByTestId('member-fable')).toBeVisible();
     await expect(page.locator(`[data-testid="member-${extension!.handle}"]`)).toHaveCount(0);
     await expect(page.locator('.nx-member')).toHaveCount(
-      members.filter((m) => m.kind === 'human' || m.kind === 'agent').length,
+      // The daemon also returns its structural system member. The roster's
+      // contract is narrower: active, addressable humans and agents only.
+      members.filter((m) => m.removed_ts === undefined && (m.kind === 'human' || m.kind === 'agent')).length,
     );
 
     // …and the header count matches the visible roster exactly.
