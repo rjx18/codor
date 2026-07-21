@@ -68,6 +68,24 @@ test.describe('first-channel onboarding', () => {
     });
   });
 
+  test('the project folder is required: a valid name alone does not enable the first channel', async ({ page }) => {
+    await showEmptyStateOnce(page);
+    await page.goto(`/?token=${OWNER_TOKEN}`);
+    await expect(page.getByTestId('first-channel-onboarding')).toBeVisible();
+
+    // A valid channel name with no folder chosen: a still-disabled Create
+    // isolates the folder requirement rather than a blank name. Filling the
+    // name first also marks it edited, so choosing a folder cannot overwrite it.
+    await page.getByTestId('first-channel-name').fill('Needs A Folder');
+    await expect(page.getByTestId('first-channel-name')).toHaveValue('Needs A Folder');
+    await expect(page.getByTestId('first-channel-create')).toBeDisabled();
+
+    // Choosing a project folder is precisely what enables creation.
+    await page.getByTestId('first-folder-alpha-project').click();
+    await expect(page.getByTestId('first-channel-name')).toHaveValue('Needs A Folder');
+    await expect(page.getByTestId('first-channel-create')).toBeEnabled();
+  });
+
   test('the complete empty-state form fits a phone and is axe-clean', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 780 });
     await showEmptyStateOnce(page);

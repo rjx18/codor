@@ -1,0 +1,31 @@
+id: release-version-0-10-2
+title: Align every existing workspace package at version 0.10.2.
+notes: Release metadata only. Version 0.10.1 was already published and npm
+  versions are immutable, so bump the corrected Tailscale recovery and QR-fit
+  build to 0.10.2. No runtime behavior, dependencies, documentation, or tests
+  change.
+assumptions: {}
+anchors: {}
+files:
+  - package.json
+  - packages/adapters/antigravity/package.json
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/codex/package.json
+  - packages/adapters/copilot/package.json
+  - packages/adapters/cursor/package.json
+  - packages/adapters/gemini/package.json
+  - packages/adapters/opencode/package.json
+  - packages/bridges/core/package.json
+  - packages/bridges/slack/package.json
+  - packages/bridges/telegram/package.json
+  - packages/cli/package.json
+  - packages/protocol/package.json
+  - packages/switchboard/package.json
+  - packages/web-next/package.json
+  - relay/package.json
+  - website/package.json
+verification: Confirm every tracked workspace manifest reports 0.10.2, rebuild
+  the public artifact once, and pack a new 0.10.2 TGZ without running test
+  suites.
+applied:
+  applied_at: 2026-07-21T17:17:38.132Z

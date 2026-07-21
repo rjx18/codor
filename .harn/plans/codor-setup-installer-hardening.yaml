@@ -1,0 +1,216 @@
+id: codor-setup-installer-hardening
+title: Close the installer release-blocking gaps in exit-5 parsing, loaded-state
+  confirmation, plist validation, the Finish control, Tailscale edges, and the
+  packed proof
+notes: >-
+  Follow-up to the installer overhaul after Codex's final gate (#468). Six
+  release-blocking gaps:
+
+  1. EXIT-5 NOT RECLASSIFIED. bootstrapLaunchAgent classified on
+  message.split('\n')[0], but Richard's real error carries "Bootstrap failed: 5"
+  on the second line and the exit status in error.status. The classifier now
+  reads the full message plus stderr and the structured status, so the real
+  transient error retries. Regression uses Richard's exact multiline error.
+
+  2. HEALTHY-BUT-UNLOADED FALSE SUCCESS. The helper boots out, and on a
+  bootstrap error it accepted an HTTP probe alone - a just-booted-out process
+  can answer briefly, so setup returned with no LaunchAgent loaded. It now
+  continues only when launchctl print confirms the target is loaded AND the API
+  is healthy; a briefly-healthy orphan with an absent print is not success.
+  Regression added.
+
+  3. WEAK PRE-UNLOAD VALIDATION. existsSync did not validate plist syntax,
+  isAbsolute did not establish that Node exists, and the CLI entrypoint was
+  unchecked. The helper now runs plutil -lint and verifies Node and the CLI
+  entrypoint exist (through an injected exists) before booting anything out; the
+  Linux-host fixtures inject existing paths rather than weakening production
+  validation.
+
+  4. NO VISIBLE FINISH. On the completed last step flow.complete accepted Enter
+  but controls.next was false, so only Back and Cancel showed. The renderer now
+  shows an explicit Enter/→ Finish control on the completed final step, covered
+  in renderer and PTY tests.
+
+  5. TAILSCALE EDGES. Dry-run with --access tailscale no longer promises Serve
+  when the resolved CLI fails the capability probe; a serve status failure is
+  wrapped as the distinct "Serve command failed" category; and a PATH result is
+  normalized to the absolute executable path actually invoked.
+
+  6. PACKED PROOF. The packed smoke uses the produced local tarball's absolute
+  path in --package, not the npm-cache package name, and drives the non-dry-run
+  command far enough to prove install dispatches into the non-TTY unattended
+  guard rather than only parsing.
+
+  ASSUMPTIONS. The macOS launchd assumption changes meaning - probe-alone is no
+  longer authoritative and validation is stronger - so it is retired and
+  replaced. The Tailscale assumption's statement already covers capability,
+  absolute-path resolution, and the Serve-command-failed category; these are
+  implementation corrections, so it is reviewed unchanged. The render, terminal,
+  dry-run, platform-service, and readiness assumptions are reviewed unchanged
+  with their anchored regions edited.
+assumptions:
+  retire:
+    - id: setup-macos-launchd-recovers-from-transient-bootstrap
+      reason: Its statement made a successful HTTP probe authoritative on a bootstrap
+        error and required only a plist-and-Node validation. Both are now
+        corrected - a briefly-answering orphan is not success without launchctl
+        print confirming the target is loaded, and validation must prove plist
+        syntax and the existence of Node and the CLI entrypoint. The meaning
+        changes, so it is retired and replaced.
+  create:
+    - id: setup-macos-launchd-confirms-loaded-and-healthy
+      title: macOS Start confirms the LaunchAgent is loaded and healthy, and validates
+        first
+      statement: On macOS the Start step must validate the generated plist's syntax
+        and that the resolved Node executable and CLI entrypoint exist before
+        unloading any prior instance, must classify a launchctl bootstrap error
+        as the transient Input/output (exit 5) condition using the full error
+        output and its structured exit status rather than only the first line,
+        must continue past a bootstrap error only when launchctl print confirms
+        the target is loaded and the Codor HTTP probe answers - treating a
+        briefly-answering process whose target print reports absent as not
+        loaded - must otherwise perform a bounded unload, wait, and re-bootstrap
+        retry for that transient condition, must enable and kickstart only after
+        a bootstrap it performed, must fail with a single concise diagnostic
+        drawn from the launchctl output and print only after the bounded
+        recovery is exhausted, and must never suggest root, because a service
+        manager's exit code and a momentarily-answering orphan are each
+        insufficient evidence that the per-user LaunchAgent is actually
+        installed and running.
+      reason: Codex's gate found the probe-alone acceptance and first-line-only
+        classification unsafe; the corrected contract confirms
+        loaded-and-healthy and parses the real error.
+      depends_on:
+        - setup-preserves-private-platform-service
+        - setup-verifies-codor-before-creating-pairing-code
+  reviewed:
+    - id: setup-resolves-and-capability-probes-tailscale-serve
+      outcome: unchanged
+      reason: The statement already requires resolving to an absolute path,
+        capability-probing Serve, and distinguishing a Serve command failure.
+        This plan corrects the implementation to match it - normalizing the PATH
+        result to an absolute executable, wrapping serve status failures in the
+        Serve-command-failed category, and refusing to promise Serve in dry-run
+        when the capability probe failed.
+    - id: setup-renders-accordion-wizard-from-state
+      outcome: unchanged
+      reason: The assumption already requires the active step to render its controls;
+        the completed final step now shows an explicit Finish control, which is
+        the terminal Next. The renderer anchor is edited but the contract holds.
+    - id: setup-restores-terminal-on-every-exit
+      outcome: unchanged
+      reason: The session gains a Finish control on the completed step; terminal
+        ownership and teardown are unchanged.
+    - id: setup-dry-run-reports-without-mutation-or-secret
+      outcome: unchanged
+      reason: Dry-run still previews without mutation and redacts the token; it now
+        refuses --access tailscale when the CLI fails the Serve capability
+        probe, which is a more honest preview, not a contract change.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: The per-user service, paths, modes, and no-root invariant are unchanged;
+        the darwin Start branch passes the entrypoint and an exists check to the
+        hardened bootstrap helper.
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: The readiness probe is unchanged; the macOS regression's command
+        sequence gains the plutil validation step.
+    - id: windows-setup-installs-private-task-service
+      outcome: unchanged
+      reason: The Windows install is untouched.
+anchors:
+  setup-macos-launchd-recovers-from-transient-bootstrap:
+    launchd-bootstrap-recovery:
+      action: remove
+      reason: The retired assumption's anchor is removed; the helper is re-anchored to
+        the replacement assumption.
+  setup-macos-launchd-confirms-loaded-and-healthy:
+    launchd-bootstrap-recovery:
+      action: change
+      reason: The hardened bootstrapLaunchAgent carries the replacement assumption's
+        anchor.
+  setup-resolves-and-capability-probes-tailscale-serve:
+    tailscale-resolution:
+      action: change
+      reason: resolveTailscale normalizes the PATH result and configureTailscaleServe
+        wraps serve status failures.
+  setup-renders-accordion-wizard-from-state:
+    setup-frame-renderer:
+      action: change
+      reason: The renderer adds the Finish control on the completed final step.
+  setup-restores-terminal-on-every-exit:
+    setup-terminal-session:
+      action: change
+      reason: The session marks the Finish control when the flow is complete.
+    setup-terminal-session-regression:
+      action: change
+      reason: The session regression gains Finish-control coverage.
+  setup-dry-run-reports-without-mutation-or-secret:
+    setup-dry-run-runtime:
+      action: change
+      reason: The dry-run tailscale branch refuses to promise Serve when the
+        capability probe failed.
+    setup-dry-run-regression:
+      action: change
+      reason: A dry-run regression covers the tailscale capability guard.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: The darwin Start branch passes the CLI entrypoint and an exists check to
+        the hardened helper.
+    setup-platform-service-regression:
+      action: change
+      reason: The macOS install regression injects existing paths and asserts the
+        plutil validation step.
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-readiness-and-pairing-regression:
+      action: change
+      reason: The macOS regression's command sequence gains the plutil step.
+  windows-setup-installs-private-task-service:
+    windows-setup-runtime:
+      action: keep
+      reason: The change is inside the nested platform-service region.
+files:
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-ui.ts
+  - packages/cli/src/setup-session.ts
+  - packages/cli/src/setup-flow.ts
+  - packages/cli/src/setup-darwin.spec.ts
+  - packages/cli/src/setup-tailscale.spec.ts
+  - packages/cli/src/setup-ui.spec.ts
+  - packages/cli/src/setup-pty.spec.ts
+  - packages/cli/src/setup-session.spec.ts
+  - packages/cli/src/index.spec.ts
+verification: >
+  - Exit-5: Richard's exact two-line "Command failed...\nBootstrap failed: 5:
+    Input/output error" (and a status-5 error with no matching text) both
+    classify as retryable and recover; a non-transient error does not.
+
+  - Loaded confirmation: a bootstrap error with a healthy probe but an absent
+    launchctl print is NOT accepted; it retries or fails. A loaded print plus a
+    healthy probe is accepted without a restart.
+
+  - Validation: plutil -lint runs and a missing Node or CLI entrypoint (via the
+    injected exists) throws before any bootout; the macOS regression injects
+    existing paths and asserts plutil precedes bootout.
+
+  - Finish: the renderer shows Enter/→ Finish on the completed final step, and a
+    PTY run finishes via that control.
+
+  - Tailscale: dry-run --access tailscale with a failing capability probe
+  errors;
+    a serve status failure is the Serve-command-failed category; the invoked
+    path is the resolved absolute path.
+
+  - Packed proof: npx --offline --package=<absolute tarball path> codor install
+    --dry-run runs, and the non-dry-run install without --yes in a non-TTY exits
+    non-zero naming the missing flag (proving dispatch into the guard).
+
+  - The full CLI suite passes (the pre-existing adapter-flags failure aside),
+  and
+    a clean-checkout artifact rebuild + packed smoke pass.
+
+  Real launchctl/plutil and the Mac App Store path remain Richard's to confirm;
+  the logic is proven through injected exec/probe/exists.
+applied:
+  applied_at: 2026-07-21T09:31:19.495Z

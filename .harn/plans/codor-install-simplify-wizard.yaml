@@ -1,0 +1,164 @@
+id: codor-install-simplify-wizard
+title: Simplify the installer - single active step, no word art, Step N of 5,
+  in-frame pairing result before Finish, and a smaller QR
+notes: >-
+  Approved simplification (Codex #566). One plan:
+
+  - Remove the word art; render only the active step (no completed/future list).
+  - Show a muted "Step N of 5" progress label. - Carry the read-only Check
+  results forward as muted context on later steps and
+    the final summary, instead of redisplaying earlier steps.
+  - Preserve bold headings, muted descriptions, generous spacing, one accent
+    colour, and vertical choices.
+  - After the pairing stage creates an offer, replace its question in-frame with
+    the QR/code result card; the QR and code are visible before Finish, and
+    Finish only closes the installer after the result has been shown.
+  - Keep omitting the QR on terminals too narrow for it while retaining the
+    wrapped code and URL.
+  - Change terminal QR generation from error correction M to L (smaller QR for
+    the same pairing URL); keep the two-module quiet zone.
+
+  ASSUMPTIONS. The renderer assumption's contract (completed steps stay visible,
+  word art) is reversed, so it is retired and replaced by a single-active-step
+  renderer. The consent assumption is reviewed unchanged with its renderer
+  dependency repointed; terminal-QR, pairing, terminal-session, and
+  platform-service are reviewed unchanged with their anchored regions edited.
+assumptions:
+  retire:
+    - id: setup-renders-progressive-wizard-with-visible-results
+      reason: Its statement requires completed steps to stay visible, future steps to
+        show, and the Codor word art to render. The simplification renders only
+        the active step, drops the word art, adds a Step N of 5 label, and
+        carries the Check results forward as context. The meaning reverses, so
+        it is retired and replaced.
+  create:
+    - id: setup-renders-single-active-step-installer
+      title: Interactive setup renders only the current step with a progress label and
+        carried context
+      statement: Interactive setup must render only the current step - no word art and
+        no completed or future step list - showing a muted "Step N of M"
+        progress label and carrying the read-only Check results forward as muted
+        context on later steps rather than redisplaying earlier steps; the
+        active step keeps a bold heading, a muted description, generous
+        blank-line spacing, one accent colour, and vertical choices, and when
+        the step supplies a result block (the pairing QR/code card) its question
+        is replaced in-frame by that block; frame production stays a pure
+        function of supplied state, never enters the alternate screen, and keeps
+        every rendered line within the terminal width (omitting the QR when too
+        narrow while retaining the wrapped code and URL).
+      reason: Replaces the progressive renderer with the simplified single-active-step
+        installer.
+      depends_on:
+        - setup-restores-terminal-on-every-exit
+  reviewed:
+    - id: setup-auto-advances-and-gates-mutation-on-consent
+      outcome: unchanged
+      reason: Auto-advance, consent gating, skip, and the run-once invariants are
+        unchanged; the run loop now also carries the Check context forward and
+        presents a completed step's result block (the pairing card) before
+        Finish. Its renderer dependency is repointed to the single-active-step
+        renderer.
+      depends_on:
+        - setup-preserves-private-platform-service
+        - setup-verifies-codor-before-creating-pairing-code
+        - setup-renders-single-active-step-installer
+        - setup-restores-terminal-on-every-exit
+    - id: setup-restores-terminal-on-every-exit
+      outcome: unchanged
+      reason: Terminal ownership and teardown are unchanged; the session carries the
+        Check context and a result block into the frame.
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: The final stage still shows the QR, byte-identical URL, code, and expiry
+        after the readiness probe and never the raw token; the card is now shown
+        in-frame before Finish and its QR is a smaller error-correction-L
+        symbol.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: The interactive pairing step presents its result in-frame and the finish
+        orchestration no longer re-emits it; service, mode, token, and no-root
+        invariants are unchanged.
+    - id: terminal-pairing-qr-matches-plain-url
+      outcome: unchanged
+      reason: The terminal QR still encodes the identical pairing URL with the
+        two-module quiet zone; only the error-correction level drops from M to
+        L, producing a smaller symbol.
+anchors:
+  setup-renders-progressive-wizard-with-visible-results:
+    setup-frame-renderer:
+      action: remove
+      reason: The retired assumption's renderer anchor is re-anchored to the
+        replacement.
+  setup-renders-single-active-step-installer:
+    setup-frame-renderer:
+      action: change
+      reason: renderSetupFrame renders only the active step with a progress label,
+        carried context, and an in-frame result block.
+  setup-auto-advances-and-gates-mutation-on-consent:
+    setup-consent-navigation:
+      action: change
+      reason: The run loop carries the Check context and presents a result block
+        before Finish.
+    setup-consent-navigation-regression:
+      action: change
+      reason: A regression proves the result block is visible before Finish and only
+        one step renders.
+  setup-restores-terminal-on-every-exit:
+    setup-terminal-session:
+      action: change
+      reason: The session threads the progress label, context, and result block into
+        the frame.
+    setup-terminal-session-regression:
+      action: change
+      reason: A regression proves the carried context and result block reach the frame.
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-pairing-card:
+      action: change
+      reason: The card is presented in-frame; rendering stays width-aware.
+    setup-pairing-card-regression:
+      action: change
+      reason: A regression proves the in-frame card content and QR omission.
+  terminal-pairing-qr-matches-plain-url:
+    terminal-qr-renderer:
+      action: change
+      reason: Error correction drops from M to L.
+    terminal-qr-renderer-regression:
+      action: change
+      reason: A new regression proves the L QR is smaller yet encodes the identical
+        URL.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: The pairing step presents its result in-frame; the finish path no longer
+        re-emits it.
+  windows-setup-installs-private-task-service:
+    windows-setup-runtime:
+      action: keep
+      reason: The change is inside the nested platform-service region.
+files:
+  - packages/cli/src/setup-ui.ts
+  - packages/cli/src/setup-session.ts
+  - packages/cli/src/setup.ts
+  - packages/cli/src/terminal-qr.ts
+  - packages/cli/src/setup-ui.spec.ts
+  - packages/cli/src/setup-session.spec.ts
+  - packages/cli/src/setup-pty.spec.ts
+  - packages/cli/src/terminal-qr.spec.ts
+verification: >
+  - The frame renders only the active step (no other step titles, no word art),
+    a muted "Step N of 5" label, and the carried Check results as context.
+
+  - After pairing, the QR/code card replaces the question in-frame and is
+  visible
+    before Finish; a real PTY run shows the QR before the installer closes.
+
+  - Narrow terminals stay within width and omit the QR while keeping the wrapped
+    code and URL.
+
+  - The error-correction-L QR is smaller than the M QR for the same URL and
+    scans to the identical pairing URL.
+
+  - Focused setup UI/session/PTY + terminal-qr suites, tsc, harn, and the packed
+    proof pass; the TGZ is rebuilt.
+applied:
+  applied_at: 2026-07-21T14:28:03.137Z

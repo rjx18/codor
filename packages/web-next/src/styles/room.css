@@ -1330,7 +1330,8 @@
   color: var(--c-secondary);
 }
 .nx-field input,
-.nx-field select {
+.nx-field select,
+.nx-field textarea {
   min-height: 38px;
   padding: 0 var(--sp-3);
   border: 1px solid var(--c-line-strong);
@@ -1340,8 +1341,58 @@
   font: var(--t-ui);
   outline: none;
 }
+/* A multi-line field needs vertical padding and room to grow; without this
+   the Purpose textarea inherited only width and read as bare native text. */
+.nx-field textarea {
+  min-height: 76px;
+  padding: var(--sp-2) var(--sp-3);
+  line-height: 1.5;
+  resize: vertical;
+}
 .nx-field input:focus-visible,
-.nx-field select:focus-visible { border-color: var(--c-ink); }
+.nx-field select:focus-visible,
+.nx-field textarea:focus-visible { border-color: var(--c-ink); }
+
+/* "Use current directory" toggle: a native checkbox drawn as a switch. */
+.nx-switch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 38px;
+  cursor: pointer;
+  font: var(--t-ui);
+  color: var(--c-body);
+}
+.nx-switch-row input[role='switch'] {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 22px;
+  /* Reset the generic .nx-field input styling, which would otherwise force a
+     38px min-height and add padding and a border to this control. */
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--c-line-strong);
+  cursor: pointer;
+  transition: background var(--m-fast) var(--m-ease);
+}
+.nx-switch-row input[role='switch']::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--c-surface);
+  transition: transform var(--m-fast) var(--m-ease);
+}
+.nx-switch-row input[role='switch']:checked { background: var(--c-ink); }
+.nx-switch-row input[role='switch']:checked::after { transform: translateX(16px); }
+.nx-switch-row input[role='switch']:focus-visible { outline: 2px solid var(--c-ink); outline-offset: 2px; }
 
 /* ── Create channel: field notes + folder picker ─────────────────────── */
 
@@ -1969,6 +2020,7 @@
   color: var(--c-ink);
 }
 .nx-opt { font: var(--t-caption); color: var(--c-faded); }
+.nx-req { font: var(--t-caption); color: var(--c-secondary); }
 .nx-note { font: var(--t-caption); color: var(--c-secondary); margin-top: var(--sp-2); }
 .nx-note.is-warn { color: var(--c-warn-text); }
 .nx-note.is-error { color: var(--c-error-text); }
@@ -2060,6 +2112,9 @@
 .nx-tile:hover { border-color: var(--c-line-strong); }
 .nx-tile[aria-pressed='true'] { background: var(--c-muted); border-color: var(--c-ink); color: var(--c-ink); }
 .nx-tile.is-compact { min-height: 34px; font: var(--t-caption-strong); }
+/* Preset shortcuts are a primary control in the spawn dialog, so they read
+   larger than the base tile rather than as compact chips. */
+.nx-tile.nx-preset { min-height: 48px; padding: 0 var(--sp-4); font: var(--t-ui-strong); }
 
 /* Model list — searchable, scrollable, one row per model. */
 .nx-list {

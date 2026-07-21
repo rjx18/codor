@@ -1,6 +1,6 @@
 {
   "name": "@codor/adapter-codex",
-  "version": "0.10.0",
+  "version": "0.10.2",
   "license": "MIT",
   "private": true,
   "type": "module",

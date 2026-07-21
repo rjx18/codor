@@ -43,6 +43,9 @@ test.describe('channel creation', () => {
     // addresses the channel by.
     await expect(dialog.getByTestId('create-name').locator('..')).toContainText('id:');
 
+    // The working folder is required: a name alone does not enable creation.
+    await expect(dialog.getByTestId('create-go')).toBeDisabled();
+
     // v2: the picker is inline — no Browse button, no separate confirm step.
     const picker = dialog.getByTestId('create-folder-picker');
     await expect(picker).toBeVisible();
@@ -66,5 +69,22 @@ test.describe('channel creation', () => {
     await expect(page).toHaveURL(/room=/);
     await expect(page.getByTestId(/room-link-/).filter({ hasText: name })).toBeVisible();
     await expect(page.getByTestId('timeline-empty').or(page.locator('.nx-system').first())).toBeVisible();
+  });
+
+  test('the working folder is required: a valid name alone does not enable Create', async ({ page }) => {
+    await openRoom(page);
+    await page.getByTestId('create-room').click();
+    const dialog = page.getByTestId('create-channel-dialog');
+    await expect(dialog).toBeVisible();
+
+    // A valid channel name is present, so a still-disabled Create cannot be
+    // blamed on a blank name — the working folder is what is missing.
+    await dialog.getByTestId('create-name').fill('needs-a-folder');
+    await expect(dialog.getByTestId('create-name')).toHaveValue('needs-a-folder');
+    await expect(dialog.getByTestId('create-go')).toBeDisabled();
+
+    // Choosing a folder is precisely what enables creation.
+    await dialog.getByTestId('create-folder-alpha-project').click();
+    await expect(dialog.getByTestId('create-go')).toBeEnabled();
   });
 });

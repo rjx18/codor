@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# harn:assume packed-release-proof-runs-offline-runtime ref=packed-install-script
+# harn:assume packed-release-proof-runs-install-runtime ref=packed-install-script
 while IFS= read -r name; do
   unset "$name"
 done < <(compgen -A variable | grep '^CODOR_' || true)
@@ -55,6 +55,38 @@ docker run --rm \
     npm install "$TARBALL"
     npm ls --all --omit=dev >/proof/npm-ls.txt
     npm install
+    # Prove Richard exact operator invocation (#434): run the CLI straight from
+    # the local tarball absolute path via --package, from a directory with no
+    # local codor, so the tarball an operator downloads is what dispatches. This
+    # runs with network on because the tarball bundles only the @codor/* closure;
+    # its third-party and native dependencies resolve from the registry here just
+    # as they do on the operator machine.
+    cd /proof
+    PACKAGED_DRY_RUN="$(npx --yes --package="$TARBALL" codor install --dry-run)"
+    grep -Fq "access localhost; skip Tailscale Serve" <<<"$PACKAGED_DRY_RUN"
+    grep -Fq "[dry-run] wait for Codor pairing status" <<<"$PACKAGED_DRY_RUN"
+    # Durability: the install copies a durable runtime, and the rendered service
+    # ExecStart references that ~/.codor/runtime copy, never the ephemeral npx
+    # cache the CLI is invoked from.
+    grep -Fq "install a durable Codor runtime" <<<"$PACKAGED_DRY_RUN"
+    PACKAGED_EXEC="$(grep -m1 "ExecStart=" <<<"$PACKAGED_DRY_RUN" || true)"
+    grep -Fq ".codor/runtime" <<<"$PACKAGED_EXEC"
+    if grep -q "_npx" <<<"$PACKAGED_EXEC"; then
+      printf "packed install would point the service ExecStart at the npx cache\n" >&2
+      exit 1
+    fi
+    # Non-dry-run must dispatch into the non-TTY unattended guard, not merely
+    # parse: install --yes with no --access exits non-zero naming the flag.
+    set +e
+    PACKAGED_GUARD="$(npx --yes --package="$TARBALL" codor install --yes 2>&1 >/dev/null)"
+    PACKAGED_GUARD_STATUS=$?
+    set -e
+    [[ "$PACKAGED_GUARD_STATUS" -ne 0 ]]
+    grep -Fq "also requires --access" <<<"$PACKAGED_GUARD"
+    if grep -Eq "[[:space:]]at[[:space:]]|node:internal|Unhandled" <<<"$PACKAGED_GUARD"; then
+      printf "packed install guard leaked a stack\n" >&2
+      exit 1
+    fi
   '
 
 docker run --rm --network none \
@@ -85,7 +117,7 @@ docker run --rm --network none \
     "
     "$BIN" --help | grep -Fq "Usage: codor"
 
-    DRY_RUN="$(npx --offline @richhardry/codor setup --dry-run)"
+    DRY_RUN="$("$BIN" install --dry-run)"
     grep -Fq "node_modules/@richhardry/codor/node_modules/@codor/cli/runtime/web" <<<"$DRY_RUN"
     grep -Fq "access localhost; skip Tailscale Serve" <<<"$DRY_RUN"
     if grep -q $'\033' <<<"$DRY_RUN"; then
@@ -94,7 +126,7 @@ docker run --rm --network none \
     fi
 
     set +e
-    SETUP_ERROR="$("$BIN" setup --yes 2>&1 >/dev/null)"
+    SETUP_ERROR="$("$BIN" install --yes 2>&1 >/dev/null)"
     SETUP_STATUS=$?
     set -e
     [[ "$SETUP_STATUS" -eq 1 ]]
@@ -156,5 +188,5 @@ docker run --rm --network none \
 PACKED_OFFLINE
 
 TARBALL_NAME="$(tr -d '\r\n' <"$PROOF_ROOT/pack-name.txt")"
-printf 'packed install passed: clean clone, build, %s, repeat install, offline setup, native daemon, browser, CLI, API, teardown\n' "$TARBALL_NAME"
-# harn:end packed-release-proof-runs-offline-runtime
+printf 'packed install passed: clean clone, build, %s, repeat install, offline install, native daemon, browser, CLI, API, teardown\n' "$TARBALL_NAME"
+# harn:end packed-release-proof-runs-install-runtime

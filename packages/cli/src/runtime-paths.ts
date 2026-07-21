@@ -33,6 +33,13 @@ function packageCandidate(root: string, label = 'installed package'): Candidate 
   };
 }
 
+/** Build installed-package RuntimePaths from a resolved `@codor/cli` package
+ *  root — used to point a service at a durable copy of the runtime. */
+export function packageRuntimePaths(cliPackageRoot: string): RuntimePaths {
+  const { label: _label, ...runtime } = packageCandidate(resolve(cliPackageRoot));
+  return runtime;
+}
+
 function checkoutCandidate(root: string, label = 'source checkout'): Candidate {
   return {
     cliEntrypoint: join(root, 'packages', 'cli', 'dist', 'index.js'),

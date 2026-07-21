@@ -147,7 +147,7 @@ describe('@codor/cli', () => {
       'up',
       'channels',
       'serve',
-      'setup',
+      'install',
       'spawn',
       'post',
       'tail',
@@ -306,7 +306,8 @@ describe('@codor/cli', () => {
       },
     });
     expect(output.join('\n').replaceAll(repoRoot, '<repo>')).toMatchInlineSnapshot(`
-      "[dry-run] create /home/setup-test/.config/codor and /home/setup-test/.codor mode 700; create /home/setup-test/.config/codor/token mode 600 if absent
+      "[dry-run] use the Codor runtime in place at <repo>
+      [dry-run] create /home/setup-test/.config/codor and /home/setup-test/.codor mode 700; create /home/setup-test/.config/codor/token mode 600 if absent
       [dry-run] install <repo>/packaging/systemd/codor.service -> /home/setup-test/.config/systemd/user/codor.service mode 600
       [dry-run] unit content:
       [Unit]
@@ -339,6 +340,26 @@ describe('@codor/cli', () => {
       [dry-run] wait for Codor pairing status, then generate a ten-minute QR, URL, and pairing code"
     `);
     expect(existsSync(join(home, '.config', 'codor'))).toBe(false);
+  });
+
+  posixHostIt('refuses to promise Tailscale Serve in a dry-run when the CLI cannot Serve', async () => {
+    const home = '/home/setup-test';
+    await expect(runCli(['node', 'codor', 'setup', '--dry-run', '--access', 'tailscale'], {
+      env: { HOME: home, USER: 'setup-test', PATH: '/usr/bin' },
+      stdout: (line) => output.push(line),
+      setup: {
+        home,
+        nodePath: `${home}/.nvm/versions/node/v22.8.0/bin/node`,
+        platform: 'linux',
+        which: (command) => (command === 'tailscale' ? '/usr/bin/tailscale' : undefined),
+        // The CLI is present but its `serve --help` probe fails: no Serve support.
+        exec: (command, args) => {
+          if (command === '/usr/bin/tailscale' && args[0] === 'serve') throw new Error("flag provided but not defined: 'serve'");
+          return '';
+        },
+      },
+    })).rejects.toThrow(/requires a Tailscale CLI that supports Serve/);
+    expect(output.join('\n')).not.toContain('serve --bg');
   });
 
   // harn:end setup-dry-run-reports-without-mutation-or-secret
@@ -416,6 +437,52 @@ describe('@codor/cli', () => {
     }
   });
   // harn:end setup-resolves-complete-invoking-runtime
+
+  posixHostIt('installs a durable runtime and points the Linux service there when invoked from an npx cache', async () => {
+    const sourceRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const home = join(dir, 'npx home');
+    const npxCli = join(dir, 'npx cache', '.npm', '_npx', 'deadbeef', 'node_modules', '@richhardry', 'codor', 'node_modules', '@codor', 'cli');
+    const copies: Array<[string, string]> = [];
+    await runCli(['node', 'codor', 'setup', '--yes', '--access', 'localhost'], {
+      env: { HOME: home, USER: 'setup-test', PATH: '/usr/bin' },
+      stdout: (line) => output.push(line),
+      setup: {
+        exec: () => '',
+        home,
+        nodePath: process.execPath,
+        platform: 'linux',
+        probe: async () => true,
+        randomToken: () => 'a'.repeat(64),
+        sleep: async () => undefined,
+        which: () => undefined,
+        runtime: {
+          root: npxCli,
+          layout: 'installed-package',
+          cliEntrypoint: join(npxCli, 'dist', 'index.js'),
+          staticRoot: join(npxCli, 'runtime', 'web'),
+          serviceTemplate: join(sourceRoot, 'packaging', 'systemd', 'codor.service'),
+        },
+        installIo: {
+          exists: (path) => path.includes('.staging'), // staged assets validate; nothing pre-exists
+          copyTree: (from, to) => { copies.push([from, to]); },
+          move: () => undefined,
+          remove: () => undefined,
+          readVersion: () => undefined,
+        },
+      },
+    });
+
+    const durableCli = join(home, '.codor', 'runtime', 'node_modules', '@richhardry', 'codor', 'node_modules', '@codor', 'cli', 'dist', 'index.js');
+    const unit = readFileSync(join(home, '.config', 'systemd', 'user', 'codor.service'), 'utf8');
+    // The service ExecStart references the durable ~/.codor/runtime copy, never the npx cache.
+    expect(unit).toContain(`\"${durableCli}\"`);
+    expect(unit).not.toContain('_npx');
+    // The durable install stages the npx module tree beside ~/.codor/runtime.
+    expect(copies).toEqual([[
+      join(dir, 'npx cache', '.npm', '_npx', 'deadbeef', 'node_modules'),
+      join(`${join(home, '.codor', 'runtime')}.staging`, 'node_modules'),
+    ]]);
+  });
 
   // harn:assume wsl-setup-keeps-private-windows-loopback ref=wsl-bind-regression
   it.each([
@@ -548,7 +615,9 @@ describe('@codor/cli', () => {
         exec: (command, args) => {
           commands.push([command, ...args].join(' '));
           if (command === 'loginctl') return 'no';
-          if (command === 'tailscale' && args.join(' ') === 'serve status') {
+          // Serve is invoked through the resolved absolute path now, not the
+          // bare command name; match on the arguments.
+          if (args.join(' ') === 'serve status') {
             return 'https://setup-host.example.ts.net (tailnet only)';
           }
           return '';
@@ -589,16 +658,19 @@ describe('@codor/cli', () => {
     expect(readFileSync(envPath, 'utf8')).toContain(
       `PATH=${join(home, '.local', 'bin')}:/opt/node/bin:/usr/bin`,
     );
+    // Tailscale is resolved to an absolute path, capability-probed, and Serve is
+    // published during Choose access — before the daemon is started.
     expect(commands).toEqual([
+      '/usr/bin/tailscale serve --help',
+      '/usr/bin/tailscale serve --bg http://127.0.0.1:8137',
+      '/usr/bin/tailscale serve status',
       'systemctl --user daemon-reload',
       'systemctl --user enable --now codor.service',
       'loginctl show-user setup-test -p Linger --value',
-      'tailscale serve --bg http://127.0.0.1:8137',
-      'tailscale serve status',
     ]);
-    expect(qrPayload).toBe(output[output.indexOf('<setup-qr>') + 1]);
+    expect(output.join('\n')).toContain('setup-host.example.ts.net');
     expect(new URL(qrPayload!).origin).toBe('https://setup-host.example.ts.net');
-    expect(output.join('\n')).toMatch(/code: [23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}/);
+    expect(output.join('\n')).toMatch(/[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}/);
     expect(output.join('\n')).not.toContain('a'.repeat(64));
   });
 
@@ -657,6 +729,7 @@ describe('@codor/cli', () => {
           if (command === 'launchctl' && args[0] === 'bootout') throw new Error('not loaded');
           return '';
         },
+        exists: () => true,
         randomToken: () => token,
         probe: async () => true,
         renderQr: (payload) => {
@@ -683,6 +756,7 @@ describe('@codor/cli', () => {
       `<string>${join(home, '.local', 'bin').replace('&', '&amp;')}:/opt/homebrew/bin:/Applications/Claude Code/bin:/opt/codor tools/bin:/usr/bin</string>`,
     );
     expect(commands).toEqual([
+      `plutil -lint ${launchAgentPath}`,
       'launchctl bootout gui/501/app.codor.switchboard',
       `launchctl bootstrap gui/501 ${launchAgentPath}`,
       'launchctl enable gui/501/app.codor.switchboard',
@@ -1434,4 +1508,34 @@ describe('@codor/cli', () => {
     expect(enabled.opts().trustTailscaleServe).toBe(true);
   });
   // harn:end adapter-registry-sole-harness-source
+
+  it('exposes install as the primary installer command with setup as a working alias', () => {
+    const program = createProgram();
+    const install = program.commands.find((command) => command.name() === 'install');
+    expect(install).toBeDefined();
+    expect(install!.aliases()).toContain('setup');
+    // setup is not a second command, only an alias of install.
+    expect(program.commands.map((command) => command.name())).not.toContain('setup');
+  });
+
+  it('runs the installer under codor install as well as the codor setup alias', async () => {
+    const context = {
+      env: { HOME: '/home/inst', USER: 'inst', PATH: '/usr/bin' },
+      stdout: (line: string) => output.push(line),
+      setup: {
+        home: '/home/inst',
+        nodePath: process.execPath,
+        platform: 'linux' as const,
+        repoRoot: fileURLToPath(new URL('../../../', import.meta.url)),
+        which: () => undefined,
+      },
+    };
+    output = [];
+    await runCli(['node', 'codor', 'install', '--dry-run'], context);
+    const viaInstall = output.join('\n');
+    output = [];
+    await runCli(['node', 'codor', 'setup', '--dry-run'], context);
+    expect(viaInstall).toContain('[dry-run]');
+    expect(output.join('\n')).toContain('[dry-run]');
+  });
 });

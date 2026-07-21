@@ -42,12 +42,12 @@ quota, or subscription failure.
    `docs/BUSINESS.md`; 0.1.0 must not collect payment or imply that hosted mailbox, directory,
    presence, or native iPhone/Watch products already exist.
 
-<!-- harn:assume release-candidate-requires-publishable-tarball ref=final-release-verification-record -->
+<!-- harn:assume release-candidate-requires-publishable-install-tarball ref=final-release-verification-record -->
 ## Codor packed release-candidate verification
 
 For the public-package candidate, retain the final `pnpm release:check` result, Harn result, tarball
 filename, npm integrity, unpacked package identity, and exact reviewed commit. The packed proof must
-start from a clean clone, install only the tarball, execute setup without network or inherited
+start from a clean clone, install only the tarball, execute install without network or inherited
 `CODOR_*` variables, and boot the packaged daemon and browser runtime. Richard performs the final
 `npm publish <verified-tarball> --access public` handoff. Do not record tokens, pairing URLs, device
 identities, session references, private keys, or temporary data paths.
@@ -97,7 +97,7 @@ mandatory full repository review of `1a442f2..e71b584`, accounted for every comm
 confirmed that every earlier finding was fixed or formally resolved, and reported no open finding.
 This records-only disposition commit was explicitly authorized after approval; any later code change
 must reopen the full review before release.
-<!-- harn:end release-candidate-requires-publishable-tarball -->
+<!-- harn:end release-candidate-requires-publishable-install-tarball -->
 
 ## Launch-sweep live acceptance record
 

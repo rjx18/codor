@@ -1,0 +1,218 @@
+id: codor-setup-progressive-consent-wizard
+title: Redesign the interactive setup wizard - auto-advance automatic steps,
+  keep full results visible with strong hierarchy, gate steps 4 and 5 behind
+  vertical consent choices, and replace the word art
+notes: >-
+  Codex UI/flow correction (#503, refined by #507). Four behaviors change in the
+  interactive setup wizard only; the non-interactive (--yes) and --dry-run paths
+  are untouched, so the CLI/dry-run suites are unaffected.
+
+  1. AUTO-ADVANCE. Automatic steps (Check this computer, Prepare private files)
+  run, gain a green check, and immediately advance without asking for Next.
+  Their full result lines stay permanently visible; no navigation control shows
+  on a completed automatic step. The wizard only pauses for genuine input: the
+  access choice, the two consent choices, a failure (Retry/Back), and the final
+  Finish.
+
+  2. VISIBLE RESULTS + HIERARCHY. Completed steps render as a bold title with a
+  green check and their full result lines in a prominent foreground — never a
+  dim one-line summary. Steps are separated by blank-line spacing; the choice
+  block pads its prompt, options, and navigation hint; the focused option is
+  unmistakable. 80x10 and 40x24 stay readable by dropping the farthest completed
+  context first, never hiding the active actionable choice.
+
+  3. CONSENT FOR STEPS 4 AND 5. Step 4 presents a spacious vertical choice ("Run
+  Codor in the background?" -> Start Codor / Not now) and installs/starts
+  nothing until Start is selected. Step 5 presents ("Pair a browser now?" ->
+  Create a pairing code / Set this up later) and mints no code until Create is
+  selected. Back is a footer keyboard action, not an inline option. Declining
+  step 4 marks steps 4 and 5 skipped and finishes honestly, telling the operator
+  to rerun `codor install`; declining step 5 leaves the running service intact,
+  marks pairing skipped, and tells the operator to run `codor pair` later.
+  Unattended --yes keeps confirming both through the non-interactive path.
+  Automatic detection/file-preparation never prompts.
+
+  4. WORD ART. Replace CODOR_WORD_ART byte-for-byte with the attachment at
+  /home/richard/.codor/attachments/codor-setup/fcc66137709ebe1f2acdeb325345ecf6,
+  preserving whitespace and the compact-terminal fallback.
+
+  ASSUMPTIONS. The renderer assumption said completed steps "collapse to a
+  single summary line" and always show "Back and Next controls" — both are now
+  false, so it is retired and replaced by a progressive-results renderer
+  assumption. A new assumption captures auto-advance plus consent-gated mutation
+  and honest skips. Terminal restoration is unchanged (region edited). The
+  platform-service contract is unchanged when it runs; it is now consent-gated
+  and its pairing display is conditional, so it is reviewed with its runtime
+  region edited. The readiness/pairing assumption still holds — a skipped
+  pairing simply does not display — so it is reviewed unchanged. setup-flow.ts
+  is unanchored; auto-advance and skip-cascade are driven by the session over
+  the existing state machine.
+assumptions:
+  retire:
+    - id: setup-renders-accordion-wizard-from-state
+      reason: Its statement requires completed steps to collapse to a single summary
+        line and the active step to always show Back and Next controls. The
+        redesign keeps full completed results visible in a prominent foreground,
+        removes Next from completed automatic steps, adds strong hierarchy and
+        padded vertical consent choices, and changes the header word art. The
+        meaning changes, so it is retired and replaced.
+    - id: setup-wizard-runs-each-step-once-and-navigates-by-cursor
+      reason: Its statement requires the operator to advance the view cursor on Next.
+        The redesign advances automatic steps without a Next and gates the
+        mutating stages behind consent choices that can skip. Its still-true
+        invariants (run each step at most once, Back never re-runs, Retry is the
+        only re-run, a failure renders once without throwing, idempotent
+        effects) are preserved and absorbed into the replacement consent-and-
+        auto-advance assumption, and it also depended on the retired accordion
+        assumption. It is retired and replaced.
+  create:
+    - id: setup-renders-progressive-wizard-with-visible-results
+      title: Interactive setup renders progressively with full completed results and
+        strong visual hierarchy
+      statement: Interactive setup must render progressively — the active step is
+        expanded with its title, a running spinner or a padded vertical choice
+        menu, its result lines, any error, and only the controls the current
+        input requires; every completed step stays visible as a bold title with
+        a green check and its full result lines in a prominent (non-dim)
+        foreground rather than a collapsed one-line summary; skipped steps show
+        a skipped marker and future steps show their numbered title; steps are
+        separated by blank-line spacing and the choice block pads its prompt,
+        options, and navigation hint with the focused option unmistakable; frame
+        production stays a pure function of supplied state, renders the Codor
+        word art, version, and byline, never enters the alternate screen, and
+        keeps the active step's actionable choice visible by dropping the
+        farthest completed context first at 80x10 and 40x24; because the
+        operator must always see what already happened and what to do next
+        without a Next prompt on automatic work.
+      reason: Replaces the retired accordion assumption with the progressive,
+        full-results renderer the redesign requires.
+      depends_on:
+        - setup-restores-terminal-on-every-exit
+    - id: setup-auto-advances-and-gates-mutation-on-consent
+      title: Interactive setup auto-advances automatic steps and gates the mutating
+        stages behind consent choices that skip honestly
+      statement: Interactive setup must run each step's work at most once per
+        invocation and memoize its result, advancing automatic steps (host
+        detection and private-file preparation) to the next step without asking
+        for Next and showing no navigation control on a completed automatic
+        step; it must gate the two mutating stages behind explicit vertical
+        consent choices - "Run Codor in the background?" before installing or
+        starting the service and "Pair a browser now?" before minting a pairing
+        code - performing no host mutation until the affirmative option is
+        selected; Back only moves the view cursor and never re-runs a completed
+        step, Retry is offered solely on a failed step and is the only re-run, a
+        recoverable failure renders once inside its own step without throwing
+        out of the session, and the effectful stages stay idempotent (an
+        absent-only token, a Start stage that short-circuits when the daemon
+        already answers the readiness probe, and a pairing stage that reuses a
+        still-valid offer); declining the service marks the service and pairing
+        stages skipped and finishes honestly telling the operator to rerun
+        `codor install`, declining pairing leaves the running service intact and
+        marks pairing skipped telling the operator to run `codor pair` later,
+        and unattended --yes keeps confirming both through the non-interactive
+        path; because setup must not re-run a completed step, restart a service,
+        regenerate a token, or mint credentials without deliberate operator
+        consent, while automatic detection never prompts.
+      reason: Replaces the retired cursor-navigation assumption, preserving its
+        run-once and idempotent invariants and adding auto-advance and consent-
+        gated, honestly skippable mutation as one reviewable behavior.
+      depends_on:
+        - setup-preserves-private-platform-service
+        - setup-verifies-codor-before-creating-pairing-code
+        - setup-renders-progressive-wizard-with-visible-results
+        - setup-restores-terminal-on-every-exit
+  reviewed:
+    - id: setup-restores-terminal-on-every-exit
+      outcome: unchanged
+      reason: The session still owns the TTY only while interactive and restores raw
+        mode, cursor, timers, and every listener on exit, never entering the
+        alternate screen. The run loop gains auto-advance and consent dispatch
+        and its regression gains coverage, but the terminal-ownership contract
+        is unchanged.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: Directory modes, the absent-only token, the resolved paths, the service
+        PATH, and the no-root, no-secret-in-output invariants are unchanged when
+        the service installs; the interactive runtime now gates that install
+        behind consent and emits the pairing block only when pairing ran. The
+        service behavior itself is unchanged.
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: The start stage still requires the bounded readiness probe before the
+        pairing stage, and the final display still shows one QR, the
+        byte-identical URL, the formatted code, and expiry when pairing runs. A
+        declined pairing simply does not display, which the statement already
+        permits.
+anchors:
+  setup-renders-accordion-wizard-from-state:
+    setup-frame-renderer:
+      action: remove
+      reason: The retired assumption's renderer anchor is removed; the renderer is
+        re-anchored to the replacement assumption.
+  setup-renders-progressive-wizard-with-visible-results:
+    setup-frame-renderer:
+      action: change
+      reason: renderSetupFrame now shows full completed results with strong hierarchy,
+        padded vertical choices, per-step spacing, and the new word art header.
+  setup-auto-advances-and-gates-mutation-on-consent:
+    setup-consent-navigation:
+      action: change
+      reason: New nested anchor around the session run loop that auto-advances
+        automatic steps and dispatches the consent choices and honest skips.
+    setup-consent-navigation-regression:
+      action: change
+      reason: New nested anchor covering the session regression for auto-advance,
+        consent selection, and skip-cascade.
+  setup-restores-terminal-on-every-exit:
+    setup-terminal-session:
+      action: change
+      reason: The session run loop, render controls, and menu hints are edited around
+        the unchanged terminal-ownership teardown.
+    setup-terminal-session-regression:
+      action: change
+      reason: The session regression is edited to add consent and auto-advance
+        coverage around the unchanged teardown assertions.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: Steps 4 and 5 in the interactive runtime become consent choices whose
+        work runs only on the affirmative, and the pairing block is emitted only
+        when pairing ran.
+  windows-setup-installs-private-task-service:
+    windows-setup-runtime:
+      action: keep
+      reason: The change is inside the nested platform-service region; the outer
+        Windows runtime anchor is not directly touched.
+files:
+  - packages/cli/src/setup-ui.ts
+  - packages/cli/src/setup-session.ts
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-flow.ts
+  - packages/cli/src/setup-ui.spec.ts
+  - packages/cli/src/setup-session.spec.ts
+  - packages/cli/src/setup-pty.spec.ts
+  - packages/cli/src/setup-flow.spec.ts
+verification: >
+  - Renderer: completed steps show a bold title, a green check, and their full
+    result lines (not a dim one-line summary); the active choice block pads its
+    prompt/options/hint with an unmistakable focused option; the new word art is
+    present; 80x10 and 40x24 keep the active choice visible. Covered in
+    setup-ui.spec.
+
+  - Auto-advance: an automatic step runs and advances with no Next control, and
+    the session never awaits navigation on a completed automatic step. Covered in
+    setup-session.spec and a real-PTY run in setup-pty.spec.
+
+  - Consent: selecting the affirmative runs the stage; selecting Not now on step
+    4 performs no mutation, marks steps 4 and 5 skipped, and finishes with the
+    rerun-`codor install` guidance; selecting the later option on step 5 keeps
+    the service and finishes with the run-`codor pair` guidance; Back only
+    navigates. Covered in setup-session.spec and setup-pty.spec.
+
+  - Non-interactive: --yes and --dry-run paths are unchanged (asserted by the
+    existing index.spec setup tests, not re-run here per the focused scope).
+
+  - Gates: the setup flow/UI/session/PTY suites pass together in one run, plus
+    tsc typecheck and harn check.
+applied:
+  applied_at: 2026-07-21T10:55:12.487Z

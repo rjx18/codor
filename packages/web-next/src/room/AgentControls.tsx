@@ -132,13 +132,13 @@ export function RolePresetControls(props: {
   const id = props.idPrefix ?? 'agent';
   return (
     <div className="nx-field">
-      <span className="nx-label">Role <span className="nx-opt">· optional</span></span>
-      <div className="nx-tile-row" role="group" aria-label="Role preset">
+      <span className="nx-label">Preset <span className="nx-opt">· optional</span></span>
+      <div className="nx-tile-row" role="group" aria-label="Preset">
         {SPAWN_PRESETS.map((preset) => (
           <button
             key={preset.id}
             type="button"
-            className="nx-tile is-compact"
+            className="nx-tile nx-preset"
             data-testid={`${id}-preset-${preset.id}`}
             onClick={() => { props.onApply(preset); }}
           >

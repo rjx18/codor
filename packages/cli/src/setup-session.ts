@@ -1,13 +1,13 @@
 import { EventEmitter } from 'node:events';
 
+import { SetupFlow } from './setup-flow.js';
 import {
   SETUP_CURSOR_HIDE,
   SETUP_CURSOR_SHOW,
-  createSetupStages,
   renderSetupFrame,
   type SetupAccessOption,
+  type SetupControls,
   type SetupStage,
-  type SetupStageState,
   type SetupSummary,
 } from './setup-ui.js';
 import { TerminalKeyDecoder, type SetupKey } from './terminal-keys.js';
@@ -46,9 +46,42 @@ export class SetupCancelled extends Error {
   }
 }
 
+/** A step's outcome: a one-line summary when its work ran, or a skip decision.
+ *  `skipFollowing` cascades the skip to every later step (declining Start also
+ *  skips pairing) so the wizard can finish honestly without mutating. */
+export type SetupStepOutcome =
+  | string
+  | { skip: true; summary?: string; skipFollowing?: boolean };
+
+/** What a wizard step does when the flow enters it. `run` performs the step's
+ *  effectful work and returns a summary; throwing marks the step failed and
+ *  keeps the operator inside it with Retry. A `menu` makes the step a vertical
+ *  choice whose selected option id is passed to `run` as `context.choice`; a
+ *  consent step returns a skip outcome when the operator declines, and no
+ *  mutation happens because the effectful work is never called. */
+export interface SetupStepContext {
+  log(message: string): void;
+  choice?: string;
+  /** Present a vertical choice while the step is running and resolve to the
+   *  selected option id. Cancel (q / Ctrl-C) aborts setup. */
+  choose(menu: { message: string; options: SetupAccessOption[] }): Promise<string>;
+  /** Replace the step's question in-frame with a pre-rendered result block (the
+   *  pairing card), so it is visible before Finish. */
+  presentResult(block: string): void;
+}
+
+export interface SetupStepDefinition {
+  title: string;
+  /** Short muted line shown under the heading while the step is active. */
+  description?: string;
+  menu?: { message: string; options: SetupAccessOption[] };
+  run(context: SetupStepContext): Promise<SetupStepOutcome>;
+}
+
 // harn:assume setup-restores-terminal-on-every-exit ref=setup-terminal-session
 export class SetupSession {
-  readonly stages: SetupStage[] = createSetupStages();
+  private flow: SetupFlow | undefined;
+  private readonly summaries: (string | undefined)[] = [];
 
   private readonly input: NodeJS.ReadStream;
   private readonly output: NodeJS.WriteStream;
@@ -59,10 +92,12 @@ export class SetupSession {
   private readonly detachers: Array<() => void> = [];
   private spinner: NodeJS.Timeout | undefined;
   private frame = 0;
-  private title = 'Setup';
   private summary: SetupSummary | undefined;
-  private failure: string | undefined;
+  private context: string[] | undefined;
+  private card: string | undefined;
+  private cardStep: number | undefined;
   private menu: Parameters<typeof renderSetupFrame>[0]['menu'];
+  private awaitingNav = false;
   private priorRawMode = false;
   private started = false;
 
@@ -114,93 +149,203 @@ export class SetupSession {
     this.output.write(SETUP_CURSOR_SHOW);
   }
 
-  setStage(index: number, state: SetupStageState): void {
-    if (this.stages[index] !== undefined) this.stages[index]!.state = state;
-    this.render();
-  }
-
-  log(index: number, message: string): void {
-    this.stages[index]?.logs.push(message);
-    this.render();
-  }
-
-  finish(summary: SetupSummary): void {
+  finish(summary?: SetupSummary): void {
+    // A pairing result already shown in-frame is kept as the final frame; a
+    // paused/running finish renders its summary instead.
     this.summary = summary;
-    this.title = 'Setup complete';
-    this.stop();
-    this.render();
-  }
-
-  fail(message: string): void {
-    this.failure = message;
-    this.title = 'Setup failed';
     this.stop();
     this.render();
   }
 
   render(): void {
+    const flow = this.flow;
+    if (flow === undefined) return;
+    const steps: SetupStage[] = flow.steps.map((step, index) => ({
+      title: step.title,
+      state: step.state,
+      logs: step.logs,
+      summary: this.summaries[index],
+      error: step.error,
+      description: step.description,
+    }));
+    // Controls are supplied only while awaiting a settled action; a live menu
+    // renders its own navigation hint. Forward appears when a later step can be
+    // reviewed, Finish only on the completed final step.
+    const controls: SetupControls | undefined = this.awaitingNav
+      ? { back: flow.canBack, forward: flow.canNext, retry: flow.canRetry, finish: flow.complete }
+      : undefined;
     this.output.write(renderSetupFrame({
       version: this.version,
       byline: this.byline,
-      title: this.title,
-      stages: this.stages,
+      steps,
+      cursor: flow.cursor,
       spinnerFrame: this.frame,
       viewport: { rows: this.output.rows ?? 24, columns: this.output.columns ?? 80 },
       menu: this.menu,
+      controls,
       summary: this.summary,
-      failure: this.failure,
+      progress: { current: flow.cursor + 1, total: flow.steps.length },
+      context: this.context,
+      // Scope the result card to the step that presented it, so Back never shows
+      // it on another step.
+      card: flow.cursor === this.cardStep ? this.card : undefined,
     }));
   }
 
-  async chooseAccess(message: string, options: SetupAccessOption[]): Promise<string> {
-    const firstAvailable = options.findIndex((option) => option.available);
-    if (firstAvailable < 0) throw new Error('setup has no available access method');
-    let focused = firstAvailable;
-    let selected = options[firstAvailable]!.id;
-    this.menu = { message, options, focused, selected };
+  // harn:assume setup-auto-advances-and-gates-mutation-on-consent ref=setup-consent-navigation
+  /**
+   * Drive the wizard over the given steps. Automatic steps run and advance
+   * without asking for Next; a choice step waits at its vertical menu; a consent
+   * decline skips honestly (cascading to later steps when asked) without
+   * mutating; a failure stays inside its step with Retry; Back only moves the
+   * cursor and never re-runs committed work; the completed final step waits for
+   * Finish. A recoverable failure is never rethrown out of the session.
+   */
+  async run(steps: readonly SetupStepDefinition[]): Promise<void> {
+    const flow = new SetupFlow(steps.map((step) => ({
+      title: step.title,
+      kind: step.menu !== undefined ? 'choice' : 'auto',
+      description: step.description,
+    })));
+    this.flow = flow;
+    this.summaries.length = 0;
+    this.start();
+
+    // Forward momentum: a step that just settled advances automatically; landing
+    // on a step via Back clears it so the reviewed step pauses for navigation.
+    let advance = true;
+
+    for (;;) {
+      const index = flow.cursor;
+      const definition = steps[index]!;
+
+      if (flow.activeNeedsRun) {
+        let choice: string | undefined;
+        if (definition.menu !== undefined) {
+          const decision = await this.selectFromMenu(definition.menu, flow.canBack);
+          if (decision.type === 'cancel') { this.stop(); throw new SetupCancelled(); }
+          if (decision.type === 'back') { flow.back(); advance = false; continue; }
+          choice = decision.id;
+        }
+
+        flow.markRunning(index);
+        this.render();
+        // A running step may ask further vertical choices (e.g. remote access
+        // consent) through choose(); cancel aborts the whole session.
+        const choose = async (menu: { message: string; options: SetupAccessOption[] }): Promise<string> => {
+          const decision = await this.selectFromMenu(menu, false);
+          if (decision.type !== 'select') { this.stop(); throw new SetupCancelled(); }
+          return decision.id;
+        };
+        const presentResult = (block: string): void => { this.card = block; this.cardStep = index; this.render(); };
+        try {
+          const outcome = await definition.run({ log: (message) => { flow.log(index, message); this.render(); }, choice, choose, presentResult });
+          if (typeof outcome === 'object') {
+            this.summaries[index] = outcome.summary;
+            flow.markSkipped(index);
+            if (outcome.skipFollowing === true) {
+              for (let later = index + 1; later < steps.length; later += 1) {
+                this.summaries[later] = undefined;
+                flow.markSkipped(later);
+              }
+            }
+          } else {
+            this.summaries[index] = outcome;
+            flow.markDone(index, { choice, summary: outcome });
+          }
+        } catch (error) {
+          // The failure renders once inside the step. It is not rethrown.
+          flow.markFailed(index, error instanceof Error ? error.message : String(error));
+        }
+        // Carry the first (read-only Check) step's results forward as context.
+        if (index === 0 && flow.steps[0]!.state !== 'pending') this.context = [...flow.steps[0]!.logs];
+        this.render();
+        advance = true;
+      }
+
+      if (flow.active.state === 'failed') {
+        const action = await this.awaitSettledAction();
+        if (action === 'cancel') { this.stop(); throw new SetupCancelled(); }
+        if (action === 'retry') { flow.retry(); advance = true; continue; }
+        if (action === 'back') { flow.back(); advance = false; continue; }
+        continue;
+      }
+
+      // A step that just settled advances automatically; automatic steps never
+      // wait for Next. Only a genuine stop — the completed final step or a step
+      // reviewed via Back — pauses for a navigation action.
+      if (advance && flow.canNext) { flow.next(); continue; }
+
+      const action = await this.awaitSettledAction();
+      if (action === 'cancel') { this.stop(); throw new SetupCancelled(); }
+      if (action === 'back') { flow.back(); advance = false; continue; }
+      if (action === 'forward' && flow.canNext) { flow.next(); advance = false; continue; }
+      if (action === 'finish' && flow.complete) return;
+    }
+  }
+  // harn:end setup-auto-advances-and-gates-mutation-on-consent
+
+  /** Await a settled step's navigation. Left is Back, r retries a failed step,
+   *  Enter/Right retries a failed step, finishes the completed last step, or
+   *  moves forward over a reviewed step. */
+  private awaitSettledAction(): Promise<'back' | 'forward' | 'retry' | 'finish' | 'cancel'> {
+    this.awaitingNav = true;
+    this.render();
+    return this.readKeys<'back' | 'forward' | 'retry' | 'finish' | 'cancel'>((key, settle) => {
+      const flow = this.flow!;
+      if (key.type === 'cancel') return settle('cancel');
+      if (key.type === 'left' && flow.canBack) return settle('back');
+      if (key.type === 'char' && key.value.toLowerCase() === 'r' && flow.canRetry) return settle('retry');
+      if (key.type === 'enter' || key.type === 'right') {
+        if (flow.canRetry) return settle('retry');
+        if (flow.complete) return settle('finish');
+        if (flow.canNext) return settle('forward');
+      }
+      return false;
+    }).finally(() => { this.awaitingNav = false; });
+  }
+
+  /** A vertical single-select menu. Up/Down move focus, Enter selects the
+   *  focused option when it is available, Left goes Back, q cancels. */
+  private selectFromMenu(menu: { message: string; options: SetupAccessOption[] }, canBack: boolean):
+  Promise<{ type: 'select'; id: string } | { type: 'back' } | { type: 'cancel' }> {
+    const firstAvailable = menu.options.findIndex((option) => option.available);
+    let focused = firstAvailable < 0 ? 0 : firstAvailable;
+    this.menu = { message: menu.message, options: menu.options, focused, canBack };
     this.render();
 
-    return new Promise<string>((resolve, reject) => {
+    return this.readKeys<{ type: 'select'; id: string } | { type: 'back' } | { type: 'cancel' }>((key, settle) => {
+      if (key.type === 'cancel') { this.menu = undefined; return settle({ type: 'cancel' }); }
+      if (key.type === 'left' && canBack) { this.menu = undefined; return settle({ type: 'back' }); }
+      if (key.type === 'up') focused = (focused - 1 + menu.options.length) % menu.options.length;
+      if (key.type === 'down') focused = (focused + 1) % menu.options.length;
+      if (key.type === 'enter' || key.type === 'right') {
+        const option = menu.options[focused];
+        if (option?.available === true) {
+          this.menu = undefined;
+          return settle({ type: 'select', id: option.id });
+        }
+      }
+      this.menu = { message: menu.message, options: menu.options, focused, canBack };
+      this.render();
+      return false;
+    });
+  }
+
+  /** Shared raw-input reader. `handle` returns a settle() call to resolve, or
+   *  false to keep listening. Registers its teardown so stop() detaches it. */
+  private readKeys<T>(handle: (key: SetupKey, settle: (value: T) => true) => boolean | true): Promise<T> {
+    return new Promise<T>((resolve) => {
       const decoder = new TerminalKeyDecoder();
       let flushTimer: NodeJS.Timeout | undefined;
-
-      const detachInput = (): void => {
+      const detach = (): void => {
         this.input.off('data', onData);
         if (flushTimer !== undefined) clearTimeout(flushTimer);
         flushTimer = undefined;
       };
-      this.detachers.push(detachInput);
-
-      const settle = (finish: () => void): void => {
-        detachInput();
-        this.menu = undefined;
-        finish();
-      };
-
-      const apply = (key: SetupKey): boolean => {
-        if (key.type === 'cancel') {
-          settle(() => reject(new SetupCancelled()));
-          return true;
-        }
-        if (key.type === 'up') focused = (focused - 1 + options.length) % options.length;
-        if (key.type === 'down') focused = (focused + 1) % options.length;
-        if (key.type === 'space') {
-          const option = options[focused];
-          if (option?.available === true) selected = option.id;
-          else this.stages[2]?.logs.push(`${option?.label ?? 'That option'} is unavailable`);
-        }
-        if (key.type === 'enter' && selected !== undefined) {
-          settle(() => resolve(selected!));
-          return true;
-        }
-        return false;
-      };
-
-      const renderOnce = (): void => {
-        this.menu = { message, options, focused, selected };
-        this.render();
-      };
-
+      this.detachers.push(detach);
+      const settle = (value: T): true => { detach(); resolve(value); return true; };
+      const apply = (key: SetupKey): boolean => handle(key, settle) === true;
       const onData = (chunk: Buffer): void => {
         if (flushTimer !== undefined) clearTimeout(flushTimer);
         flushTimer = undefined;
@@ -212,12 +357,9 @@ export class SetupSession {
             for (const key of decoder.flush()) {
               if (apply(key)) return;
             }
-            renderOnce();
           }, ESCAPE_FLUSH_MS);
         }
-        renderOnce();
       };
-
       this.input.on('data', onData);
     });
   }

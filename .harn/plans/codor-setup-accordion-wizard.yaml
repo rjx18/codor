@@ -1,0 +1,275 @@
+id: codor-setup-accordion-wizard
+title: Rebuild the interactive setup as a navigable accordion wizard whose steps
+  run once and never repeat their side effects
+notes: >-
+  Plan A of the installer overhaul (Codex #460, architecture gated #462). The
+  interactive setup is a forward-only pipeline: runStage runs each step once,
+  every failure rethrows and is fatal, and the "skipped" state is defined but
+  never assigned. Richard wants an accordion wizard - completed steps collapse
+  to a summary, the active step expands with its content, choices, logs, errors
+  and Back/Next, future steps stay collapsed, and a recoverable failure stays
+  inside its step with Retry rather than terminating the installer.
+
+  THE STRUCTURAL IDEA - DECOUPLE THE VIEW CURSOR FROM EXECUTION. A step's
+  effectful work runs at most once per invocation and its result is memoized.
+  Navigation moves a cursor over already-computed steps; it never re-runs a
+  committed step. That is how "Back must not repeat or undo completed side
+  effects" is guaranteed structurally rather than by hoping the effects are
+  idempotent. Retry is the only action that re-runs a step, and only a failed
+  one.
+
+  THREE PURE-OR-EFFECTFUL LAYERS, kept separate so each is independently
+  testable:
+    setup-flow.ts     PURE state machine: steps, their states, the view cursor,
+                      and memoized results. next()/back()/retry()/enter return
+                      new state; no I/O, no terminal, no timers. Snapshot-tested
+                      as values.
+    setup-ui.ts       PURE renderer: renders the flow as an accordion - the
+                      active or running step expanded with content/logs/errors
+                      and Back/Next, completed steps collapsed to a one-line
+                      summary, future steps collapsed to their title. Preserves
+                      the viewport clamp, compact header, and the #436 word art.
+    setup-session.ts  EFFECTFUL: owns the terminal (unchanged cleanup), maps
+                      keys to flow actions, runs each step's work when the flow
+                      enters it, and repaints.
+
+  EXPLICIT INTERACTIVE SEMANTICS (Codex #462.2), which the tests assert:
+    - Entering a pending step may run its work.
+    - Once done, the step's content stays visible until the user presses Next.
+    - Next advances the cursor; Back only moves the view cursor.
+    - Returning to a completed step never re-runs it.
+    - Retry is the only action that re-runs a failed step.
+    - Non-interactive mode stays a prompt-free linear execution (no session,
+      plain [n/5] lines), unchanged.
+    - A running automatic step is expanded; completed and future steps collapse.
+    - An error renders once, inside the active step. The same exception is NOT
+      also printed outside the session - today runStage both calls
+      session.fail() and rethrows, which double-prints; the wizard renders the
+      failure in-step and does not rethrow a recoverable one.
+    - Successful step results are preserved within the invocation, including the
+      pairing offer - re-viewing the pairing step shows the same code, it is not
+      re-minted.
+
+  IDEMPOTENCY OF THE EFFECTFUL STEPS, so even a Retry is safe: the operator
+  token stays absent-only (already guarded); Start Codor short-circuits when the
+  daemon already answers the readiness probe rather than reinstalling and
+  restarting; Create pairing code reuses a still-valid offer instead of issuing
+  a new code. (Plan B and Plan C build their macOS resilience and Tailscale
+  recovery on this navigation and idempotency; this plan establishes it.)
+
+  SCOPE. This plan is the interaction and rendering rewrite plus the idempotency
+  guards the wizard needs. It does not change the launchctl sequence (Plan B) or
+  Tailscale detection (Plan C) beyond routing their failures through the new
+  Retry/Back model, and it does not touch the public command name (Plan D).
+assumptions:
+  retire:
+    - id: setup-renders-five-stage-interactive-session
+      reason: Its statement fixes the rendering contract as "five numbered named
+        stages" produced as a flat frame. The accordion changes that contract
+        materially - steps collapse to summaries, the active step expands with
+        its own content and Back/Next controls, and a running step expands while
+        others collapse. The meaning changes, so it is retired and replaced
+        rather than reviewed. Its surviving guarantees - pure function of state,
+        word art, version and byline, bounded logs, actionable content visible
+        at 80x10 and 40x24 - are carried forward verbatim into the replacement.
+  create:
+    - id: setup-renders-accordion-wizard-from-state
+      title: Interactive setup renders as an accordion of collapsing steps
+      statement: Interactive setup must render as an accordion whose active or running
+        step is expanded with its content, choices, bounded dim rolling logs,
+        any error, and its Back and Next controls, whose completed steps
+        collapse to a single summary line, and whose future steps collapse to
+        their numbered title, above the Codor word art, version and byline;
+        frame production must remain a pure function of supplied state, must
+        keep the active step's actionable content visible at 80x10 and 40x24,
+        and must stay a primary-buffer repaint that never enters the alternate
+        screen, because deterministic terminal behavior requires frames asserted
+        as values and an operator needs the step they are acting on visible on a
+        small terminal.
+      reason: Richard's direction is a real accordion wizard; this is the replacement
+        rendering contract.
+      depends_on:
+        - adapter-registry-sole-harness-source
+    - id: setup-wizard-runs-each-step-once-and-navigates-by-cursor
+      title: Wizard steps run once and navigation never repeats their effects
+      statement: The interactive wizard must run each step's work at most once per
+        invocation and memoize its result, must advance the view cursor on Next
+        and move it only on Back without re-running any step, must never re-run
+        a step that has completed, must re-run a step only through an explicit
+        Retry offered solely on a failed step, must render a recoverable failure
+        once inside its own step without also throwing that exception out of the
+        session, and must preserve each completed step's result within the
+        invocation including the issued pairing offer, while the effectful steps
+        stay idempotent - an absent-only token, a Start step that short-circuits
+        when the daemon already answers the readiness probe, and a pairing step
+        that reuses a still-valid offer - because navigating back to review a
+        completed step must not restart a service, regenerate a token, or mint a
+        second pairing code.
+      reason: The forward-only fatal-rethrow pipeline cannot express Back/Next, Retry,
+        or the no-repeat-side-effects rule; this is the new obligation.
+      depends_on:
+        - setup-renders-accordion-wizard-from-state
+        - setup-verifies-codor-before-creating-pairing-code
+  reviewed:
+    - id: setup-restores-terminal-on-every-exit
+      outcome: unchanged
+      reason: The session gains navigation input handling, but raw-mode entry only on
+        a TTY, cursor hide/show, timer and listener teardown on every exit path
+        including signals, re-raising a signal only after cleanup, and never
+        entering the alternate screen are all preserved. The anchored region is
+        edited to add navigation, but the terminal-restoration contract it
+        protects is unchanged.
+    - id: setup-unattended-mutation-requires-explicit-intent
+      outcome: unchanged
+      reason: Non-interactive mutating runs still require --yes and explicit --access,
+        still make the session unreachable when a stream is not a TTY, and still
+        run as a prompt-free linear sequence. The accordion exists only on the
+        interactive path.
+    - id: setup-dry-run-reports-without-mutation-or-secret
+      outcome: unchanged
+      reason: Dry-run still runs before any session, previews localhost by default,
+        emits no terminal-control sequences, and redacts the token. The
+        accordion is not rendered under dry-run.
+    - id: setup-terminal-input-survives-chunk-boundaries
+      outcome: unchanged
+      reason: The key decoder is reused as-is; the wizard adds Back/Next handling on
+        top of the same coalesced-chunk-safe decoding, without changing the
+        decoder.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      depends_on:
+        - setup-renders-accordion-wizard-from-state
+        - public-package-bundles-complete-codor-runtime
+      reason: This assumption depended on the retired five-stage rendering assumption
+        because the platform-service install is driven by the wizard's stages.
+        The edge is repointed to the replacement accordion-render assumption;
+        the platform-service install behavior itself is unchanged by this plan.
+    - id: windows-setup-installs-private-task-service
+      outcome: unchanged
+      reason: The Windows Task Scheduler service install - the rendered service
+        script, the UTF-16 task XML, the ACL-protected token, and the schtasks
+        create/run sequence - is unchanged. The accordion rewrite edits the
+        shared runSetup body that this assumption's runtime anchor wraps, but
+        not the Windows install code itself.
+anchors:
+  setup-renders-accordion-wizard-from-state:
+    setup-frame-renderer:
+      action: change
+      reason: renderSetupFrame is rewritten as the accordion renderer and carries the
+        new assumption's anchor where the retired five-stage anchor used to sit.
+  setup-renders-five-stage-interactive-session:
+    setup-frame-renderer:
+      action: remove
+      reason: The retired assumption's renderer anchor is removed; renderSetupFrame is
+        rewritten for the accordion and re-anchored to
+        setup-renders-accordion-wizard-from-state.
+    setup-frame-regression:
+      action: remove
+      reason: The retired assumption's spec anchor is removed; the frame regression is
+        rewritten for the accordion contract under the replacement assumption.
+  setup-restores-terminal-on-every-exit:
+    setup-terminal-session:
+      action: change
+      reason: SetupSession gains navigation (Back/Next/Retry) input handling and step
+        execution wiring. The terminal-restoration contract is unchanged, but
+        the anchored class region is edited.
+    setup-terminal-session-regression:
+      action: change
+      reason: The session regression gains navigation and retry coverage while keeping
+        the cleanup assertions.
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-readiness-and-pairing:
+      action: keep
+      reason: The readiness probe and pairing-offer contract are unchanged; the wizard
+        reuses waitForCodor and reuses the issued offer rather than re-minting.
+  setup-unattended-mutation-requires-explicit-intent:
+    setup-unattended-runtime:
+      action: keep
+      reason: The non-interactive guard is unchanged; the linear path does not enter
+        the accordion.
+  setup-dry-run-reports-without-mutation-or-secret:
+    setup-dry-run-runtime:
+      action: keep
+      reason: The dry-run block is unchanged and runs before any session.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: runSetup's body is rewritten to drive the accordion flow through the
+        session instead of the forward-only runStage. The service-install
+        behavior this anchor wraps is preserved verbatim, but the enclosing
+        region is edited.
+  windows-setup-installs-private-task-service:
+    windows-setup-runtime:
+      action: keep
+      reason: This anchor wraps runSetup one line outside the platform-service anchor.
+        The rewrite lands entirely inside the nested platform-service region, so
+        by Harn's direct-touch semantics this outer region is unchanged.
+    windows-service-rendering:
+      action: keep
+      reason: The Windows service-script and scheduled-task renderers are not touched.
+files:
+  - packages/cli/src/setup-flow.ts
+  - packages/cli/src/setup-flow.spec.ts
+  - packages/cli/src/setup-ui.ts
+  - packages/cli/src/setup-ui.spec.ts
+  - packages/cli/src/setup-session.ts
+  - packages/cli/src/setup-session.spec.ts
+  - packages/cli/src/setup-pty.spec.ts
+  - packages/cli/src/setup.ts
+verification: >
+  Pure state-machine gates (setup-flow.spec, asserted on values):
+
+  - Entering a pending automatic step runs its work once and memoizes the
+    result; a second enter of the same step does not run it again.
+
+  - Next advances the cursor; Back moves the cursor to a previous step and that
+    step's state and result are unchanged; advancing forward again over a
+    completed step does not re-run it.
+
+  - A failed step exposes Retry, and only Retry re-runs it; Retry is not offered
+    on a pending, running, or done step.
+
+  - A completed step's memoized result (including a pairing offer object) is the
+    same object on re-view.
+
+  Pure renderer gates (setup-ui.spec):
+
+  - The active step renders expanded with its content and Back/Next; completed
+    steps render as a one-line summary; future steps render as a collapsed
+    numbered title. A running automatic step renders expanded.
+
+  - A failure renders once inside the active step. The frame stays a
+    primary-buffer repaint with no alternate-screen sequence, and the active
+    step's actionable content stays visible at 80x10 and 40x24.
+
+  - The word art, version and byline still render, and the compact header still
+    drops the art on a short terminal.
+
+  PTY gates (setup-pty.spec, real terminal via the existing script harness):
+
+  - Navigation: driving Next through the steps reaches the ready summary and
+    exits zero with the cursor restored.
+
+  - Back then Next returns to a completed step and advances again without
+    re-running it - asserted by the step not re-emitting its side-effect log.
+
+  - Retry on a forced failure re-runs that step and then completes; the failure
+    text appears once.
+
+  - Constrained viewports (80x10, 40x24) keep the active step usable, and q /
+    Ctrl-C restore the cursor.
+
+  Session/regression gates (setup-session.spec): terminal teardown on normal
+  exit, signal, and cancel is unchanged; navigation keys drive the flow; a
+  recoverable failure does not rethrow out of the session.
+
+  Preserved gates: the non-interactive linear path and the dry-run output are
+  unchanged (their existing tests stay green), and no step re-runs on navigation
+  - the token is written once, the service started once, one pairing code minted
+  per invocation.
+
+  Negative gates: removing the memoization must make a Back/Next re-run a step
+  and fail the no-repeat test; making a recoverable failure rethrow must fail
+  the render-error-once / no-double-print test.
+applied:
+  applied_at: 2026-07-21T08:43:50.573Z

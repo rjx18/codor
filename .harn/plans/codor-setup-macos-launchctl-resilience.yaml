@@ -1,0 +1,117 @@
+id: codor-setup-macos-launchctl-resilience
+title: Make the macOS Start step survive a transient launchctl bootstrap error
+  by treating Codor's HTTP health as authoritative
+notes: >-
+  Plan B of the installer overhaul (Codex #460, corrections #462.3). Richard hit
+  `launchctl bootstrap ... -> Bootstrap failed: 5: Input/output error` on his
+  Mac. Today the darwin branch runs bare bootstrap/enable/kickstart: only
+  bootout is fault-tolerant, so a bootstrap exit-5 throws, is reported twice
+  (the old runStage both failed the stage and rethrew), and never checks whether
+  Codor actually came up.
+
+  THE FIX, EXTRACTED INTO A TESTABLE HELPER. bootstrapLaunchAgent validates the
+  generated plist and the Node executable it points at BEFORE unloading any
+  prior instance, so a broken install never tears down a working one. It
+  bootouts any stale instance, then bootstraps with a bounded retry. On a
+  bootstrap error it treats the daemon's HTTP health as authoritative: if Codor
+  already answers, it keeps the running daemon and does not restart it; only
+  when Codor is unhealthy AND the error is the known transient Input/output
+  (exit 5) condition does it perform a bounded unload/wait/bootstrap retry. It
+  enables and kickstarts only after a bootstrap it actually performed, and it
+  fails with a single concise diagnostic - the first line of the launchctl error
+  plus a short `launchctl print` summary - only after the bounded recovery is
+  exhausted. It never suggests root or sudo; the LaunchAgent stays per-user.
+
+  API HEALTH IS AUTHORITATIVE, not launchctl print alone (Codex #462.3). print
+  is only a diagnostic string; whether setup continues is decided by the probe.
+
+  HAPPY PATH UNCHANGED. When bootstrap succeeds the command sequence is exactly
+  bootout, bootstrap, enable, kickstart, so the existing macOS regression is
+  preserved; the probe and print are consulted only on a bootstrap error.
+
+  SCOPE. Only the darwin Start behavior and its new helper. Tailscale is Plan C;
+  the accordion navigation that routes this step's failure into Retry/Back is
+  already in place from Plan A.
+assumptions:
+  create:
+    - id: setup-macos-launchd-recovers-from-transient-bootstrap
+      title: macOS Start tolerates a transient bootstrap error when Codor is healthy
+      statement: On macOS the Start step must validate the generated LaunchAgent plist
+        and its Node executable before unloading any prior instance, must treat
+        a successful Codor HTTP health probe as authoritative when launchctl
+        bootstrap reports an error - keeping the already-loaded daemon without
+        restarting it - must perform a bounded unload, wait, and re-bootstrap
+        retry only for the known transient Input/output (exit 5) condition when
+        the daemon is unhealthy, must enable and kickstart only after a
+        bootstrap it actually performed, must fail with a single concise
+        diagnostic drawn from the launchctl error and a launchctl print summary
+        only after the bounded recovery is exhausted, and must never suggest
+        root, because a per-user LaunchAgent bootstrap can fail transiently
+        while the service is fine or already running, and a service manager's
+        exit status is not authoritative about whether Codor is actually up.
+      reason: Richard's macOS bootstrap failed transiently; the installer must recover
+        rather than treat one launchctl exit code as definitive.
+      depends_on:
+        - setup-preserves-private-platform-service
+        - setup-verifies-codor-before-creating-pairing-code
+  reviewed:
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: The service is still a per-user LaunchAgent installed with the resolved
+        absolute paths and mode-600 plist, run without root. Only the bootstrap
+        sequencing inside the darwin branch changes, to recover from a transient
+        error; the installed artifact and its modes are identical.
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: The readiness probe and its bounded retry are reused unchanged; the new
+        helper consults the same probe to decide whether a bootstrap error is
+        real, and the caller still runs waitForCodor before pairing.
+anchors:
+  setup-macos-launchd-recovers-from-transient-bootstrap:
+    launchd-bootstrap-recovery:
+      action: change
+      reason: The new bootstrapLaunchAgent helper carries this assumption's anchor.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: The darwin branch of the Start step is rewritten to call
+        bootstrapLaunchAgent instead of the bare bootstrap/enable/kickstart; the
+        region inside the platform-service anchor changes.
+  windows-setup-installs-private-task-service:
+    windows-setup-runtime:
+      action: keep
+      reason: The change is inside the nested platform-service region; the outer
+        Windows runtime anchor is unchanged by Harn's direct-touch semantics.
+files:
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-darwin.spec.ts
+verification: >
+  Unit gates on the extracted helper (setup-darwin.spec, stubbed
+  exec/probe/sleep):
+
+  - Clean start: bootout, bootstrap, enable, kickstart in order; nothing probed.
+
+  - Already loaded / healthy despite a bootstrap error: bootstrap throws, the
+    probe answers true, the helper keeps the daemon and does NOT enable, kickstart
+    or otherwise restart it.
+
+  - Transient exit-5 then success: the first bootstrap throws
+    "Bootstrap failed: 5: Input/output error", the probe is false, the helper
+    unloads, waits, re-bootstraps, and then enables and kickstarts.
+
+  - Genuine blocking failure: repeated exit-5 with an unhealthy probe, or a
+    non-retryable error, throws exactly one concise diagnostic that includes the
+    launchctl message and never contains "sudo" or "root".
+
+  - Validation: a missing plist or a missing Node executable throws before any
+    launchctl command runs.
+
+  Preserved gates: the existing macOS real-install regression in index.spec
+  still asserts the bootout/bootstrap/enable/kickstart sequence and the mode-600
+  plist, because the happy path is unchanged.
+
+  Real launchctl on a Mac is out of reach on this Linux host; the exit-5 path is
+  proven deterministically through the stubbed exec, and Richard confirms the
+  real bootstrap-exit-5 recovery on his machine.
+applied:
+  applied_at: 2026-07-21T08:51:43.053Z

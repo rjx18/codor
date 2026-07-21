@@ -1,0 +1,34 @@
+id: codor-install-packed-durability
+title: Phase 5 - prove the packed install points the service at the durable
+  runtime, not the npx cache
+notes: Final phase. The packed release proof already runs the operator's exact
+  `npx --package=<tgz> codor install --dry-run`. Extend that check to assert the
+  rendered service references the durable ~/.codor/runtime copy and never the
+  ephemeral _npx cache the CLI is invoked from - the durability guarantee added
+  in Phase 1, verified against the real tarball.
+assumptions:
+  reviewed:
+    - id: packed-release-proof-runs-offline-runtime
+      outcome: unchanged
+      reason: The gate still builds from a clean clone and proves the offline runtime;
+        it now also asserts the packed install's rendered service references the
+        durable ~/.codor/runtime and not the npx cache. A stronger proof of the
+        same contract.
+anchors:
+  packed-release-proof-runs-offline-runtime:
+    packed-install-script:
+      action: change
+      reason: The packaged dry-run asserts the durable runtime path and the absence of
+        the _npx cache in the rendered service.
+files:
+  - scripts/packed-install-test.sh
+verification: |
+  - The packed `npx --package=<tgz> codor install --dry-run` output references
+    the durable ~/.codor/runtime install and its rendered service ExecStart, and
+    contains no _npx cache path.
+
+  - scripts/packed-install-test.sh runs end to end (clean clone, build, pack,
+    packaged proofs including the durability assertions, offline runtime) and
+    passes.
+applied:
+  applied_at: 2026-07-21T13:02:12.820Z

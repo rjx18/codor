@@ -1,0 +1,31 @@
+id: release-version-0-10-1
+title: Align every existing workspace package at version 0.10.1.
+notes: Release metadata only. The already-published 0.10.0 package is immutable,
+  so bump the root and all existing workspace manifests to 0.10.1 before
+  rebuilding the public TGZ. No runtime behavior, dependencies, documentation,
+  or tests are changed.
+assumptions: {}
+anchors: {}
+files:
+  - package.json
+  - packages/adapters/antigravity/package.json
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/codex/package.json
+  - packages/adapters/copilot/package.json
+  - packages/adapters/cursor/package.json
+  - packages/adapters/gemini/package.json
+  - packages/adapters/opencode/package.json
+  - packages/bridges/core/package.json
+  - packages/bridges/slack/package.json
+  - packages/bridges/telegram/package.json
+  - packages/cli/package.json
+  - packages/protocol/package.json
+  - packages/switchboard/package.json
+  - packages/web-next/package.json
+  - relay/package.json
+  - website/package.json
+verification: Confirm every tracked workspace manifest reports 0.10.1, rebuild
+  the public artifact once, and pack a new 0.10.1 TGZ without running test
+  suites.
+applied:
+  applied_at: 2026-07-21T16:08:35.270Z

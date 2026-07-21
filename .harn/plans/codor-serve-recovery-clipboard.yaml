@@ -1,0 +1,144 @@
+id: codor-serve-recovery-clipboard
+title: Tailscale Serve failure recovery, Linux/WSL operator hint, and an OSC 8
+  clickable, auto-copied pairing link
+notes: >-
+  Codex #585 + #589. Three visible fixes under one plan:
+
+  1. A Tailscale Serve failure no longer auto-degrades to local. It stays in the
+     remote-access step, keeps the real error and the exact resolved serve
+     command visible, and offers Retry / Continue-on-this-computer; Continue
+     confirms the local-only fallback before advancing.
+  2. When the error indicates a permission/operator/root problem on Linux or
+     WSL, it also shows the documented `sudo tailscale set --operator=$USER`
+     recovery plus the resolved serve command. sudo is never run automatically,
+     and unrelated errors never claim to be a sudo problem.
+  3. The pairing URL stays inside the bordered card; every wrapped segment is an
+     OSC 8 hyperlink to the complete URL, and the full URL is copied to the
+     clipboard exactly once via a native tool that reads stdin (never argv):
+     pbcopy / clip.exe / wl-copy|xclip|xsel. Clipboard failure never fails
+     pairing; the card truthfully says whether the link was copied.
+
+  truncateAnsi and width measurement are extended so OSC 8 sequences count as
+  zero visible columns and are never split; menuLines renders a multiline
+  message line-by-line so the failure error and recovery commands stay onscreen.
+assumptions:
+  create:
+    - id: setup-copies-pairing-link-once-via-clipboard
+      title: The pairing link is auto-copied once via a native clipboard tool, over
+        stdin, and the card tells the truth about it
+      statement: Creating the pairing offer copies the complete pairing URL to the
+        system clipboard exactly once, through a platform-native tool that reads
+        the URL from stdin so the URL and its token never appear in process
+        arguments or command output - pbcopy on macOS, clip.exe on WSL and
+        Windows, and wl-copy then xclip then xsel on Linux. The clipboard step
+        is injectable, its failure never fails pairing, and the pairing card
+        states that the link was copied only when the copy succeeded and
+        otherwise tells the operator to copy the pairing link below.
+      reason: "Codex #589. A pairing URL is long and easy to mistype; copying it once
+        automatically removes that friction, but a clipboard tool that leaks the
+        token through argv or that fails the whole install would be worse than
+        none - so the mechanism must be injectable, stdin-only, failure-safe,
+        and honest about whether it worked."
+      depends_on:
+        - setup-verifies-codor-before-creating-pairing-code
+  reviewed:
+    - id: setup-defers-remote-access-behind-consent
+      outcome: changed
+      statement: Interactive setup must ask where Codor will be used (this computer
+        only, or remotely) and must not detect, capability-probe, or configure
+        Tailscale until the operator chooses remote; only then may it resolve
+        the CLI, probe Serve, explain that Serve enables secure access from
+        other devices, and ask a separate consent before configuring Serve. A
+        missing or Serve-incapable Tailscale offers Retry or
+        Continue-on-this-computer. A Serve configuration failure must not
+        auto-degrade - it stays in the remote-access step showing the real error
+        and the exact resolved tailscale serve command, and, only when the error
+        indicates a permission/operator/root authorization problem on Linux or
+        WSL, the documented sudo tailscale set --operator recovery command -
+        then offers Retry, which re-runs Serve, or Continue-on-this-computer,
+        which confirms the local-only fallback before advancing. It never runs
+        sudo automatically, never claims a sudo fix for unrelated errors, and
+        never breaks local Codor.
+      reason: "Codex #585/#589 changed the failure UX from a silent degrade to a
+        persistent Retry/Continue screen with documented operator recovery; the
+        consent-gating and never-invent-sudo intent is preserved."
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: The final stage still verifies Codor, then shows the QR, byte-identical
+        URL, code, and expiry and never the raw token; the URL text is now also
+        an OSC 8 hyperlink and a muted clipboard-status line is added, both of
+        which are additive rendering within the same contract.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: Service and mutation behavior are unchanged; the pair step gains a
+        once-only clipboard copy of the freshly minted URL and threads the
+        copied flag into the card.
+anchors:
+  setup-copies-pairing-link-once-via-clipboard:
+    clipboard-copy:
+      action: change
+      reason: The native-tool selection and stdin piping live in the new clipboard
+        module.
+    clipboard-copy-regression:
+      action: change
+      reason: Tests prove per-platform selection, stdin-not-argv, and failure safety.
+    pairing-clipboard-copy:
+      action: change
+      reason: The pair step copies the minted URL exactly once and records success.
+  setup-defers-remote-access-behind-consent:
+    setup-remote-access-subflow:
+      action: change
+      reason: Serve failure now loops Retry/Continue with the real error, resolved
+        serve command, and Linux/WSL operator recovery instead of
+        auto-degrading.
+    setup-remote-access-regression:
+      action: change
+      reason: Regressions assert persistence, operator recovery, retry-succeeds, and
+        no sudo for unrelated errors.
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-pairing-card:
+      action: change
+      reason: URL segments become OSC 8 links inside the box and a clipboard-status
+        line is rendered.
+    setup-pairing-card-regression:
+      action: change
+      reason: Tests assert valid OSC 8 links, a reconstructable copyable URL,
+        width-bounding at 80 and 40, and truthful status wording.
+    setup-readiness-and-pairing:
+      action: keep
+      reason: waitForCodor is unchanged.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: The pair step copies the URL once and passes the copied flag to the card.
+  windows-setup-installs-private-task-service:
+    windows-setup-runtime:
+      action: keep
+      reason: The change is outside the nested Windows platform-service region.
+files:
+  - packages/cli/src/setup-ui.ts
+  - packages/cli/src/setup-ui.spec.ts
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-remote-access.spec.ts
+  - packages/cli/src/setup-pty.spec.ts
+  - packages/cli/src/clipboard.ts
+  - packages/cli/src/clipboard.spec.ts
+verification: >
+  - Serve failure stays onscreen until Retry or Continue is chosen; Continue
+    confirms the local-only fallback before advancing.
+  - A permission/operator error on Linux/WSL shows the exact operator command
+  and
+    the resolved serve command and does not advance automatically; Retry succeeds
+    after a simulated operator fix; an unrelated error shows neither sudo nor a
+    false operator claim.
+  - The pairing URL is copied exactly once over stdin; the URL/token never
+  appear
+    in argv or command output; clipboard failure does not fail pairing; the card
+    says copied vs. copy-below truthfully.
+  - Every wrapped URL segment is a valid OSC 8 link to the complete URL, the URL
+    reconstructs and stays copyable, and every rendered line stays within 80 and
+    40 columns.
+  - Focused UI/clipboard/remote-access/session/PTY suites, tsc, harn, and the
+    packed proof pass; the TGZ is rebuilt.
+applied:
+  applied_at: 2026-07-21T15:54:46.712Z

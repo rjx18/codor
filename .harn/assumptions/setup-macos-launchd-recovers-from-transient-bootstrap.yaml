@@ -1,0 +1,21 @@
+id: setup-macos-launchd-recovers-from-transient-bootstrap
+hash: a-50493fc1e40a
+title: macOS Start tolerates a transient bootstrap error when Codor is healthy
+state: retired
+statement: On macOS the Start step must validate the generated LaunchAgent plist
+  and its Node executable before unloading any prior instance, must treat a
+  successful Codor HTTP health probe as authoritative when launchctl bootstrap
+  reports an error - keeping the already-loaded daemon without restarting it -
+  must perform a bounded unload, wait, and re-bootstrap retry only for the known
+  transient Input/output (exit 5) condition when the daemon is unhealthy, must
+  enable and kickstart only after a bootstrap it actually performed, must fail
+  with a single concise diagnostic drawn from the launchctl error and a
+  launchctl print summary only after the bounded recovery is exhausted, and must
+  never suggest root, because a per-user LaunchAgent bootstrap can fail
+  transiently while the service is fine or already running, and a service
+  manager's exit status is not authoritative about whether Codor is actually up.
+depends_on:
+  - setup-preserves-private-platform-service
+  - setup-verifies-codor-before-creating-pairing-code
+created_by: codor-setup-macos-launchctl-resilience
+retired_by: codor-setup-installer-hardening

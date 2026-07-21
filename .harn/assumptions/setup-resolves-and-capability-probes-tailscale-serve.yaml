@@ -1,0 +1,19 @@
+id: setup-resolves-and-capability-probes-tailscale-serve
+hash: a-aade89805def
+title: Setup resolves Tailscale by path and app location and probes Serve support
+state: active
+statement: Setup must resolve the Tailscale CLI through PATH and then the
+  standard macOS application locations to an absolute path, must invoke Serve
+  through that resolved absolute path rather than the bare command name, must
+  decide availability by capability-probing the resolved CLI's Serve support
+  rather than by an operating-system allowlist, must present Tailscale as
+  unavailable with an explanation distinguishing not-installed from
+  Serve-unsupported, and must attempt Serve as part of choosing access so that a
+  Serve command failure keeps the interactive operator in Choose access with
+  Retry and Back and lets them select Localhost without restarting an
+  already-started daemon, because a Mac App Store install keeps the CLI off PATH
+  and an operating system is not a reliable proxy for whether this CLI supports
+  Serve.
+depends_on:
+  - setup-preserves-private-platform-service
+created_by: codor-setup-tailscale-capability

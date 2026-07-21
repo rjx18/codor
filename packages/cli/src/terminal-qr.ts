@@ -2,7 +2,9 @@ import QRCode from 'qrcode';
 
 // harn:assume terminal-pairing-qr-matches-plain-url ref=terminal-qr-renderer
 export function renderTerminalQr(payload: string): string {
-  const matrix = QRCode.create(payload, { errorCorrectionLevel: 'M' }).modules;
+  // Low error correction keeps the symbol small for a long pairing URL; the
+  // two-module quiet zone preserves reliable scanning.
+  const matrix = QRCode.create(payload, { errorCorrectionLevel: 'L' }).modules;
   const quietZone = 2;
   const size = matrix.size + quietZone * 2;
   const dark = (row: number, column: number): boolean => {

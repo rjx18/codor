@@ -590,8 +590,15 @@ function SpawnDialog(props: {
     harness: '', model: '', thinking: '', policy: DEFAULT_POLICY,
   });
   const [handle, setHandle] = useState('');
-  // The operator should not retype the project path on every spawn.
-  const [cwd, setCwd] = useState(() => defaultSpawnCwd(props.room, props.members));
+  // The operator should not retype the project path on every spawn. "Use current
+  // directory" is on by default and inherits the channel's folder; turning it
+  // off reveals the picker, pre-seeded with that same directory to edit from.
+  const inheritedCwd = defaultSpawnCwd(props.room, props.members);
+  // Default the switch off when there is nothing to inherit, so the operator
+  // sees the picker instead of a switch that hides it while spawn stays blocked.
+  const [useCurrentDir, setUseCurrentDir] = useState(inheritedCwd !== '');
+  const [pickedCwd, setPickedCwd] = useState(inheritedCwd);
+  const cwd = useCurrentDir ? inheritedCwd : pickedCwd;
   const [purpose, setPurpose] = useState('');
   // Without this the X close button is the first focusable and takes focus on
   // open, so the dialog greets you with "Cancel" instead of the first field.
@@ -669,7 +676,21 @@ function SpawnDialog(props: {
 
         <div className="nx-field">
           <span className="nx-label">Working directory</span>
-          <FolderPicker token={props.token} value={cwd} onChange={setCwd} idPrefix="spawn" />
+          <label className="nx-switch-row">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={useCurrentDir}
+              onChange={(event) => { setUseCurrentDir(event.target.checked); }}
+              data-testid="spawn-use-current-dir"
+            />
+            <span>Use current directory</span>
+          </label>
+          {useCurrentDir
+            ? inheritedCwd !== '' && (
+              <span className="nx-field-note" data-testid="spawn-inherited-cwd">Inherits {inheritedCwd}</span>
+            )
+            : <FolderPicker token={props.token} value={pickedCwd} onChange={setPickedCwd} idPrefix="spawn" />}
         </div>
         <RolePresetControls
           idPrefix="spawn"

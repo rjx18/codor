@@ -4,60 +4,226 @@ import {
   CODOR_WORD_ART,
   SETUP_CLEAR_SCREEN,
   SETUP_CURSOR_HIDE,
-  SETUP_STAGE_TITLES,
   createSetupStages,
+  renderPairingCard,
   renderSetupFrame,
+  type SetupControls,
   type SetupFrameState,
+  type SetupStage,
 } from './setup-ui.js';
+import { renderTerminalQr } from './terminal-qr.js';
 
 const ansi = /\u001B\[[0-?]*[ -/]*[@-~]/g;
-const plain = (value: string): string => value.replace(ansi, '');
+// OSC 8 hyperlink open/close markers (ESC ]8;; … BEL); stripping them leaves the
+// visible link text so tests measure what the operator actually sees.
+const OSC_ESC = String.fromCharCode(27);
+const OSC_BEL = String.fromCharCode(7);
+const osc8Link = new RegExp(`${OSC_ESC}\\]8;;[^${OSC_BEL}]*${OSC_BEL}`, 'g');
+const plain = (value: string): string => value.replace(ansi, '').replace(osc8Link, '');
+
+const controls = (overrides: Partial<SetupControls> = {}): SetupControls => ({
+  back: false, forward: false, retry: false, finish: false, ...overrides,
+});
+
 const state = (overrides: Partial<SetupFrameState> = {}): SetupFrameState => ({
   version: '0.10.0',
   byline: 'created by richhardry',
-  title: 'Setup',
-  stages: createSetupStages(),
+  steps: createSetupStages(),
+  cursor: 0,
   spinnerFrame: 0,
-  viewport: { rows: 40, columns: 100 },
+  viewport: { rows: 64, columns: 100 },
   ...overrides,
 });
 
-// harn:assume setup-renders-five-stage-interactive-session ref=setup-frame-regression
-describe('pure setup frame', () => {
-  it('renders the exact five-stage sequence and supplied identity', () => {
-    const frame = plain(renderSetupFrame(state()));
-    expect(SETUP_STAGE_TITLES).toEqual([
-      'Check this computer',
-      'Prepare private files',
-      'Choose access',
-      'Start Codor',
-      'Create pairing code',
-    ]);
-    expect(frame).toContain(CODOR_WORD_ART.split('\n')[0]);
-    expect(frame).toContain('v0.10.0 - created by richhardry');
-    for (const [index, title] of SETUP_STAGE_TITLES.entries()) {
-      expect(frame).toContain(`[${String(index + 1)}] ${title}`);
-    }
+/** Steps 0-1 completed with full result logs, cursor on step 2. */
+const midway = (): SetupStage[] => {
+  const steps = createSetupStages();
+  steps[0] = { ...steps[0]!, state: 'done', logs: ['darwin with Node 25.5.0', 'found claude, codex, agy', 'Tailscale detected'] };
+  steps[1] = { ...steps[1]!, state: 'done', logs: ['private configuration and data are ready'] };
+  return steps;
+};
+
+const accessMenu = {
+  message: 'How will you reach Codor?',
+  focused: 0,
+  canBack: true,
+  options: [
+    { id: 'localhost', label: 'Localhost', description: 'This computer only.', available: true },
+    { id: 'tailscale', label: 'Tailscale Serve', description: 'This Tailscale CLI does not support Serve.', available: false },
+  ],
+};
+
+describe('single active step', () => {
+  it('renders only the active step, not completed or future steps', () => {
+    const frame = plain(renderSetupFrame(state({ steps: midway(), cursor: 2 })));
+    expect(frame).toContain('(3) Where you will use Codor'); // the active step
+    expect(frame).not.toContain('Check this computer'); // earlier steps not redisplayed
+    expect(frame).not.toContain('Install Codor');
+    expect(frame).not.toContain('(5) Create pairing code'); // future steps not shown
   });
 
-  it.each(['pending', 'running', 'done', 'skipped', 'failed'] as const)(
-    'renders a %s stage state',
-    (stageState) => {
-      const stages = createSetupStages();
-      stages[0]!.state = stageState;
-      expect(plain(renderSetupFrame(state({ stages })))).toContain(
-        stageState === 'running' ? 'working' : stageState,
-      );
-    },
-  );
+  it('drops the word art', () => {
+    const frame = plain(renderSetupFrame(state({ steps: midway(), cursor: 2 })));
+    const artRow = CODOR_WORD_ART.split('\n').find((line) => line.includes('█'))!;
+    expect(frame).not.toContain(artRow);
+  });
 
-  it('is side-effect free and emits one primary-buffer repaint', () => {
-    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => {
-      throw new Error('renderer touched stdout');
-    });
-    const timer = vi.spyOn(globalThis, 'setInterval').mockImplementation(() => {
-      throw new Error('renderer started a timer');
-    });
+  it('shows a muted Step N of M progress label', () => {
+    const raw = renderSetupFrame(state({ steps: midway(), cursor: 2, progress: { current: 3, total: 5 } }));
+    expect(plain(raw)).toContain('Step 3 of 5');
+    expect(raw).toContain('\u001B[2mStep 3 of 5\u001B[0m');
+  });
+
+  it('carries the Check results forward as muted context', () => {
+    const raw = renderSetupFrame(state({
+      steps: midway(), cursor: 2, context: ['macOS with Node 25.5.0', 'found Claude, Codex'],
+    }));
+    expect(plain(raw)).toContain('macOS with Node 25.5.0');
+    expect(plain(raw)).toContain('found Claude, Codex');
+    expect(raw).toContain('\u001B[2mmacOS with Node 25.5.0\u001B[0m');
+  });
+
+  it('replaces the active step question with a supplied result card and Finish', () => {
+    const frame = plain(renderSetupFrame(state({
+      steps: midway(), cursor: 4, card: 'THE-PAIRING-RESULT-CARD', controls: controls({ finish: true }),
+    })));
+    expect(frame).toContain('THE-PAIRING-RESULT-CARD');
+    expect(frame).toContain('Enter Finish');
+  });
+});
+
+describe('active step controls only when input is required', () => {
+  it('shows no navigation control while an automatic step is running', () => {
+    const steps = midway();
+    steps[2] = { ...steps[2]!, state: 'running', logs: ['probing the daemon'] };
+    const frame = plain(renderSetupFrame(state({ steps, cursor: 2 })));
+    expect(frame).toContain('> probing the daemon');
+    expect(frame).toContain('working');
+    expect(frame).not.toContain('Back');
+    expect(frame).not.toContain('Next');
+  });
+
+  it('renders a muted description directly under the active heading', () => {
+    const steps = midway();
+    steps[2] = { ...steps[2]!, description: 'Decide how you will reach Codor.' };
+    const raw = renderSetupFrame(state({ steps, cursor: 2 }));
+    expect(plain(raw)).toContain('Decide how you will reach Codor.');
+    // The description is muted (dim), not the accent color.
+    expect(raw).toContain('\u001B[2mDecide how you will reach Codor.\u001B[0m');
+    expect(raw).not.toContain('\u001B[36mDecide how you will reach Codor');
+  });
+
+  it('renders a failure once inside the active step with Retry offered', () => {
+    const steps = midway();
+    steps[3] = { ...steps[3]!, state: 'failed', error: 'launchctl bootstrap failed' };
+    const frame = plain(renderSetupFrame(state({
+      steps, cursor: 3, controls: controls({ back: true, retry: true }),
+    })));
+    expect(frame.split('launchctl bootstrap failed').length - 1).toBe(1);
+    expect(frame).toContain('r Retry');
+  });
+
+  it('offers an explicit Finish action on the completed final step', () => {
+    const steps = createSetupStages().map((step) => ({ ...step, state: 'done' as const }));
+    const frame = plain(renderSetupFrame(state({
+      steps, cursor: 4, controls: controls({ back: true, finish: true }),
+    })));
+    expect(frame).toContain('Enter Finish');
+    expect(frame).not.toContain('→ Next');
+  });
+});
+
+describe('vertical choice menus', () => {
+  it('stacks the prompt, options, and hint with an unmistakable focused option', () => {
+    const raw = renderSetupFrame(state({
+      steps: midway(), cursor: 2, menu: { ...accessMenu, focused: 0 }, controls: controls({ back: true }),
+    }));
+    const frame = plain(raw);
+    expect(frame).toContain('How will you reach Codor?');
+    // The question uses the accent color (cyan), matching the focused option.
+    expect(raw).toContain('\u001B[36m\u001B[1mHow will you reach Codor?');
+    // Options are vertical, the focused one carries the pointer.
+    expect(frame).toContain('❯ Localhost');
+    expect(frame).toContain('Tailscale Serve');
+    expect(frame).toContain('(unavailable)');
+    // The navigation hint stacks below, not crowded inline with the options.
+    expect(frame).toContain('↑/↓ Move');
+    expect(frame).toContain('Enter Select');
+    expect(frame).toContain('← Back');
+  });
+
+  it('moves the pointer to the focused option', () => {
+    const frame = plain(renderSetupFrame(state({
+      steps: midway(), cursor: 2, menu: { ...accessMenu, focused: 1 }, controls: controls({ back: true }),
+    })));
+    expect(frame).toContain('❯ Tailscale Serve');
+    expect(frame).not.toContain('❯ Localhost');
+  });
+
+  it('renders a multiline menu message line by line so recovery detail stays onscreen', () => {
+    // A Serve-failure prompt carries the real error and copyable commands; each
+    // line must survive rather than collapse into a single truncated line.
+    const message = [
+      'Tailscale needs permission to configure Serve.',
+      'Run this once in another terminal (do not run Serve with sudo):',
+      'sudo tailscale set --operator=$USER',
+      'Then return here and choose Retry. It will run:',
+      '/usr/bin/tailscale serve --bg http://127.0.0.1:8137',
+      'Error: sending serve config: Access denied: serve config denied',
+    ].join('\n');
+    const raw = renderSetupFrame(state({
+      steps: midway(), cursor: 2, viewport: { rows: 24, columns: 80 },
+      menu: {
+        message, focused: 0, canBack: true,
+        options: [
+          { id: 'retry', label: 'Retry Tailscale Serve', description: '', available: true },
+          { id: 'here', label: 'Continue on this computer', description: '', available: true },
+        ],
+      },
+      controls: controls({ back: true }),
+    }));
+    const frame = plain(raw);
+    // The last message line proves lines after the first are not dropped.
+    expect(frame).toContain('sudo tailscale set --operator=$USER');
+    expect(frame).toContain('Tailscale needs permission to configure Serve.');
+    expect(frame).toContain('Continue on this computer');
+    expect(frame).toContain('Enter Select');
+    expect(frame.split('\n').every((line) => [...line].length <= 80)).toBe(true);
+    // Recovery detail is readable foreground, while the copyable command uses
+    // the same single accent as the question and focused option.
+    expect(raw).not.toContain('\u001B[2mRun this once in another terminal');
+    expect(raw).toContain('\u001B[36m\u001B[1msudo tailscale set --operator=$USER');
+  });
+
+  it('pads the choice block with blank lines above the prompt and around the hint', () => {
+    const frame = plain(renderSetupFrame(state({
+      steps: midway(), cursor: 3, menu: {
+        message: 'Run Codor in the background?',
+        focused: 0,
+        canBack: true,
+        options: [
+          { id: 'start', label: 'Start Codor', description: '', available: true },
+          { id: 'later', label: 'Not now', description: '', available: true },
+        ],
+      },
+    })));
+    expect(frame).toMatch(/\n\n {4}Run Codor in the background\?\n\n/);
+    expect(frame).toContain('❯ Start Codor');
+    expect(frame).toContain('Not now');
+  });
+});
+
+describe('identity, purity and primary-buffer', () => {
+  it('renders a compact version/byline header with no word art', () => {
+    const frame = plain(renderSetupFrame(state()));
+    const artRow = CODOR_WORD_ART.split('\n').find((line) => line.includes('█'))!;
+    expect(frame).not.toContain(artRow);
+    expect(frame).toContain('v0.10.0 - created by richhardry');
+  });
+
+  it('is side-effect free and emits one primary-buffer repaint with no alternate screen', () => {
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => { throw new Error('touched stdout'); });
+    const timer = vi.spyOn(globalThis, 'setInterval').mockImplementation(() => { throw new Error('started a timer'); });
     expect(() => renderSetupFrame(state())).not.toThrow();
     write.mockRestore();
     timer.mockRestore();
@@ -67,54 +233,196 @@ describe('pure setup frame', () => {
     expect(frame).not.toContain('\u001B[?1049h');
   });
 
-  it('bounds logs and keeps actionable access content in constrained viewports', () => {
-    const stages = createSetupStages();
-    stages[0]!.logs = Array.from({ length: 20 }, (_, index) => `line ${String(index)}`);
-    const menu = {
-      message: 'Choose how you will reach Codor.',
-      focused: 0,
-      selected: 'localhost',
-      options: [
-        { id: 'localhost', label: 'Localhost', description: 'This computer.', available: true },
-        { id: 'tailscale', label: 'Tailscale', description: 'Your tailnet.', available: false },
-      ],
-    };
-    for (const viewport of [{ rows: 10, columns: 80 }, { rows: 24, columns: 40 }]) {
-      const frame = plain(renderSetupFrame(state({ stages, menu, viewport })));
-      const lines = frame.split('\n').filter(Boolean);
-      expect(lines.length).toBeLessThanOrEqual(viewport.rows);
-      expect(lines.every((line) => [...line].length <= viewport.columns)).toBe(true);
-      expect(frame).toContain('Choose how you will reach Codor.');
-      expect(frame).toContain('Localhost');
-    }
-  });
-
-  it('shows focus and Space selection as separate radio state', () => {
+  it('renders a ready summary with the endpoint and pairing action', () => {
+    const steps = createSetupStages().map((step) => ({ ...step, state: 'done' as const }));
     const frame = plain(renderSetupFrame(state({
-      menu: {
-        message: 'Choose access.', focused: 1, selected: 'localhost', options: [
-          { id: 'localhost', label: 'Localhost', description: 'Local.', available: true },
-          { id: 'tailscale', label: 'Tailscale', description: 'Remote.', available: true },
-        ],
-      },
-    })));
-    expect(frame).toContain('\u276F');
-    expect(frame).toContain('\u25C9');
-    expect(frame).toContain('\u25CB');
-  });
-
-  it('renders a closing summary without claiming browser enrollment', () => {
-    const frame = plain(renderSetupFrame(state({
-      title: 'Setup complete',
-      summary: {
-        endpoint: 'http://127.0.0.1:8137',
-        harnesses: ['claude', 'codex'],
-        nextAction: 'Enter ABCD-2345 in your browser.',
-      },
+      steps,
+      cursor: 4,
+      summary: { headline: 'Codor is ready.', endpoint: 'http://127.0.0.1:8137', harnesses: ['claude', 'codex'], nextAction: 'Enter ABCD-2345.' },
     })));
     expect(frame).toContain('Codor is ready.');
+    expect(frame).toContain('Open http://127.0.0.1:8137');
     expect(frame).toContain('ABCD-2345');
     expect(frame).not.toContain('browser paired');
   });
+
+  it('renders a paused summary that omits the endpoint when the service was declined', () => {
+    const steps = createSetupStages();
+    steps[0] = { ...steps[0]!, state: 'done' };
+    steps[3] = { ...steps[3]!, state: 'skipped' };
+    steps[4] = { ...steps[4]!, state: 'skipped' };
+    const frame = plain(renderSetupFrame(state({
+      steps,
+      cursor: 4,
+      summary: { headline: 'Setup paused - Codor is not running.', harnesses: [], nextAction: 'Run `codor install` when you are ready.' },
+    })));
+    expect(frame).toContain('Setup paused - Codor is not running.');
+    expect(frame).toContain('Run `codor install` when you are ready.');
+    expect(frame).not.toContain('Open http');
+  });
 });
-// harn:end setup-renders-five-stage-interactive-session
+
+describe('constrained viewports keep the active choice usable', () => {
+  const menu = {
+    message: 'How will you reach Codor?',
+    focused: 0,
+    canBack: true,
+    options: [
+      { id: 'localhost', label: 'Localhost', description: 'This computer.', available: true },
+      { id: 'tailscale', label: 'Tailscale', description: 'Your tailnet.', available: false },
+    ],
+  };
+
+  it.each([{ rows: 10, columns: 80 }, { rows: 24, columns: 40 }])(
+    'never exceeds %o and keeps the active choice content visible',
+    (viewport) => {
+      const steps = midway();
+      steps[2] = { ...steps[2]!, logs: Array.from({ length: 20 }, (_, index) => `line ${String(index)}`) };
+      const frame = plain(renderSetupFrame(state({
+        steps, cursor: 2, menu, controls: controls({ back: true }), viewport,
+      })));
+      const lines = frame.split('\n').filter(Boolean);
+      expect(lines.length).toBeLessThanOrEqual(viewport.rows);
+      expect(lines.every((line) => [...line].length <= viewport.columns)).toBe(true);
+      expect(frame).toContain('How will you reach Codor?');
+      expect(frame).toContain('Localhost');
+    },
+  );
+
+  it('drops the word art on a short terminal but keeps the active step', () => {
+    const short = plain(renderSetupFrame(state({ steps: midway(), cursor: 2, viewport: { rows: 14, columns: 80 } })));
+    const artRow = CODOR_WORD_ART.split('\n').find((line) => line.includes('█'))!;
+    expect(short).not.toContain(artRow);
+    expect(short).toContain('(3) Where you will use Codor');
+  });
+});
+
+// harn:assume setup-verifies-codor-before-creating-pairing-code ref=setup-pairing-card-regression
+describe('pairing result card', () => {
+  const card = {
+    code: 'ABCD-2345',
+    url: 'http://127.0.0.1:8137',
+    expires: 'in 10 minutes',
+    qr: '<qr-row-1>\n<qr-row-2>',
+    instruction: 'Scan the QR or enter the code in your browser.',
+  };
+
+  it('renders a bordered card with the QR, code, URL, expiry, and instruction', () => {
+    const frame = plain(renderPairingCard(card));
+    expect(frame).toContain('<qr-row-1>');
+    expect(frame).toContain('ABCD-2345');
+    expect(frame).toContain('http://127.0.0.1:8137');
+    expect(frame).toContain('in 10 minutes');
+    expect(frame).toContain('Scan the QR or enter the code in your browser.');
+    expect(frame).toContain('╭');
+    expect(frame).toContain('╰');
+  });
+
+  it('shows the code in the accent color and the expiry in the warning color', () => {
+    const raw = renderPairingCard(card);
+    expect(raw).toContain('\u001B[36m\u001B[1mABCD-2345\u001B[0m');
+    expect(raw).toContain('\u001B[33min 10 minutes\u001B[0m');
+  });
+
+  it('receives no token and shows none', () => {
+    const raw = renderPairingCard(card);
+    expect(raw).not.toContain('CODOR_TOKEN');
+  });
+
+  const LONG_URL = 'https://setup-host.example.ts.net/pair?endpoint=https%3A%2F%2Fsetup-host.example.ts.net&pairing_token=YrBG41M28KVjYaR05P7Zb7HcykxA-3pPGa18bPCXvoo&switchboard_sign_pub=XV5Tvp6uechAVjeX_Okb-SKSR8UunmvFTOzTxL_rLNw';
+  const WIDE_QR = Array.from({ length: 3 }, () => '█'.repeat(45)).join('\n');
+
+  // Rejoin the wrapped URL by removing the box chrome and whitespace it wraps around.
+  const compact = (frame: string): string => frame.replace(/[\s│╭╮╰╯─]/g, '');
+
+  it.each([80, 40])('keeps every rendered line within %i columns and wraps the whole long URL inside the border', (columns) => {
+    const frame = plain(renderPairingCard({ ...card, url: LONG_URL, qr: WIDE_QR }, columns));
+    const lines = frame.split('\n');
+    expect(lines.every((line) => [...line].length <= columns)).toBe(true);
+    expect(frame).toContain('ABCD-2345');
+    // The URL is wrapped but complete — not truncated.
+    expect(compact(frame)).toContain(LONG_URL);
+  });
+
+  it('omits the QR when the terminal is too narrow, keeping the code and wrapped URL', () => {
+    const frame = plain(renderPairingCard({ ...card, url: LONG_URL, qr: WIDE_QR }, 40));
+    expect(frame).not.toContain('█'); // a 45-wide QR does not fit 40 columns
+    expect(frame).toContain('ABCD-2345');
+    expect(compact(frame)).toContain(LONG_URL);
+  });
+
+  // Every non-empty OSC 8 link target in the card.
+  const oscTargets = (raw: string): string[] =>
+    [...raw.matchAll(new RegExp(`${OSC_ESC}\\]8;;([^${OSC_BEL}]*)${OSC_BEL}`, 'g'))].map((match) => match[1]!).filter(Boolean);
+
+  it.each([80, 40])('links every wrapped URL segment to the complete URL, inside the box, at %i columns', (columns) => {
+    const raw = renderPairingCard({ ...card, url: LONG_URL, qr: '' }, columns);
+    const targets = oscTargets(raw);
+    expect(targets.length).toBeGreaterThan(1); // the long URL wraps into several linked segments
+    expect(targets.every((target) => target === LONG_URL)).toBe(true); // each segment links to the whole URL
+    // The visible link text reconstructs the complete URL and it lives in the box.
+    expect(compact(plain(raw))).toContain(LONG_URL);
+    const urlLine = raw.split('\n').find((line) => plain(line).includes('Open'))!;
+    expect(urlLine).toContain('│');
+    // OSC 8 markers carry zero visible width: the lines are still column-bounded.
+    expect(plain(raw).split('\n').every((line) => [...line].length <= columns)).toBe(true);
+  });
+
+  it('states the link was copied only when it was, otherwise says to copy it', () => {
+    expect(plain(renderPairingCard({ ...card, copied: true }))).toContain('Pairing link copied to clipboard.');
+    expect(plain(renderPairingCard({ ...card, copied: true }))).not.toContain('Copy the pairing link below.');
+    expect(plain(renderPairingCard({ ...card, copied: false }))).toContain('Copy the pairing link below.');
+    expect(plain(renderPairingCard({ ...card }))).toContain('Copy the pairing link below.'); // undefined → fallback
+  });
+
+  // The card as it actually appears inside the wizard frame (the #570 bug: the
+  // multiline card was truncated to one line's width).
+  const inFrameCard = { ...card, url: LONG_URL, qr: renderTerminalQr(LONG_URL), instruction: 'Scan the QR or enter the code in your browser.' };
+  const inFrame = (columns: number, rows: number): string => {
+    // Match setup.ts: rows - 1 frame budget minus five fixed rows (two header,
+    // blank, heading, Finish) leaves rows - 6 for the complete card.
+    const rendered = renderPairingCard(inFrameCard, columns, rows - 6);
+    const steps = createSetupStages().map((step) => ({ ...step, state: 'done' as const }));
+    return renderSetupFrame(state({
+      steps, cursor: 4, card: rendered, controls: controls({ back: true, finish: true }),
+      progress: { current: 5, total: 5 }, context: ['macOS with Node 25.5.0'],
+      viewport: { rows, columns },
+    }));
+  };
+
+  it.each([{ columns: 80, rows: 24 }, { columns: 40, rows: 24 }])(
+    'shows the code, complete URL, expiry, instruction, and Finish in-frame at $columns x $rows',
+    ({ columns, rows }) => {
+      const frame = plain(inFrame(columns, rows));
+      expect(frame.split('\n').every((line) => [...line].length <= columns)).toBe(true);
+      expect(frame).toContain('ABCD-2345'); // code
+      expect(frame).toContain('in 10 minutes'); // expiry
+      expect(compact(frame)).toContain(LONG_URL); // complete URL, not truncated
+      expect(compact(frame)).toContain(compact('Scan the QR or enter the code in your browser.')); // instruction, possibly wrapped
+      expect(frame).toContain('Copy the pairing link below.'); // clipboard status survives in-frame
+      expect(frame).toContain('Enter Finish'); // reserved
+      expect(frame).not.toContain('█'); // the tall QR is omitted at 24 rows
+    },
+  );
+
+  it('shows the QR in-frame when the terminal has the rows for it', () => {
+    const raw = inFrame(80, 60);
+    expect(raw).toContain('█'); // the QR fits a tall terminal
+    expect(plain(raw)).toContain('ABCD-2345');
+    expect(plain(raw)).toContain('Enter Finish');
+  });
+
+  it('shows the complete real QR at 80x46 because it actually fits', () => {
+    const raw = inFrame(80, 46);
+    const frame = plain(raw);
+    const qr = plain(renderTerminalQr(LONG_URL));
+    const glyphs = (value: string): number => [...value].filter((char) => char === '█' || char === '▀' || char === '▄').length;
+    expect(frame).toContain('ABCD-2345');
+    expect(compact(frame)).toContain(LONG_URL);
+    expect(frame).toContain('in 10 minutes');
+    expect(frame).toContain('Enter Finish');
+    expect(glyphs(frame)).toBe(glyphs(qr)); // no omitted or partial QR
+    expect(frame.split('\n').every((line) => [...line].length <= 80)).toBe(true);
+  });
+});
+// harn:end setup-verifies-codor-before-creating-pairing-code

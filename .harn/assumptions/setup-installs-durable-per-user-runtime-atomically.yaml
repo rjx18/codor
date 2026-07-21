@@ -1,0 +1,22 @@
+id: setup-installs-durable-per-user-runtime-atomically
+hash: a-d305e6a2b9be
+title: Install produces a durable per-user runtime with intent-driven reuse and
+  an atomic, non-destructive update
+state: active
+statement: codor install must give the background service a durable runtime -
+  when the invoking runtime resolves under an ephemeral npx cache or OS temp
+  directory it copies the complete self-contained module tree, preserving
+  prebuilt native binaries, into a stable per-user location (~/.codor/runtime)
+  and resolves the service paths from that copy, while a source checkout or
+  already-stable install is used in place; the caller's intent decides an
+  existing install - keep retains the installed version even when it differs,
+  update re-copies, and ensure installs when missing and reuses a matching
+  version; and an install or update stages the copy in a sibling directory,
+  validates the CLI entrypoint and static assets, then swaps it in with a backup
+  and rollback so an interrupted copy never destroys a working install; because
+  a per-user service must reference a stable runtime and an update must never
+  break an existing one.
+depends_on:
+  - setup-resolves-complete-invoking-runtime
+  - setup-preserves-private-platform-service
+created_by: codor-install-review-fixes

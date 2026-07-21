@@ -1,0 +1,31 @@
+id: setup-auto-advances-and-gates-mutation-on-consent
+hash: a-ebfa137fbd4f
+title: Interactive setup auto-advances automatic steps and gates the mutating
+  stages behind consent choices that skip honestly
+state: active
+statement: Interactive setup must run each step's work at most once per
+  invocation and memoize its result, advancing automatic steps (host detection
+  and private-file preparation) to the next step without asking for Next and
+  showing no navigation control on a completed automatic step; it must gate the
+  two mutating stages behind explicit vertical consent choices - "Run Codor in
+  the background?" before installing or starting the service and "Pair a browser
+  now?" before minting a pairing code - performing no host mutation until the
+  affirmative option is selected; Back only moves the view cursor and never
+  re-runs a completed step, Retry is offered solely on a failed step and is the
+  only re-run, a recoverable failure renders once inside its own step without
+  throwing out of the session, and the effectful stages stay idempotent (an
+  absent-only token, a Start stage that short-circuits when the daemon already
+  answers the readiness probe, and a pairing stage that reuses a still-valid
+  offer); declining the service marks the service and pairing stages skipped and
+  finishes honestly telling the operator to rerun `codor install`, declining
+  pairing leaves the running service intact and marks pairing skipped telling
+  the operator to run `codor pair` later, and unattended --yes keeps confirming
+  both through the non-interactive path; because setup must not re-run a
+  completed step, restart a service, regenerate a token, or mint credentials
+  without deliberate operator consent, while automatic detection never prompts.
+depends_on:
+  - setup-preserves-private-platform-service
+  - setup-verifies-codor-before-creating-pairing-code
+  - setup-renders-progressive-wizard-with-visible-results
+  - setup-restores-terminal-on-every-exit
+created_by: codor-setup-progressive-consent-wizard

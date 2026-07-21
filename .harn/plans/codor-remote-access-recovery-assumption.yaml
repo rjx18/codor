@@ -1,0 +1,73 @@
+id: codor-remote-access-recovery-assumption
+title: Retire the auto-degrade remote-access assumption and replace it with the
+  persistent Serve-failure recovery contract
+notes: "Bookkeeping correction for Codex #585/#589. The prior plan
+  (codor-serve-recovery-clipboard) tried to update
+  setup-defers-remote-access-behind-consent with reviewed: changed, but Harn
+  apply only re-validates reviewed assumptions and never rewrote the statement,
+  so the ground truth still describes the old auto-degrade behavior and claims
+  the flow never shows sudo. The behavior genuinely changed (persist + Retry /
+  Continue + Linux/WSL operator recovery), so the assumption is retired and
+  replaced, and the two anchors are re-pointed to the replacement. No runtime
+  behavior changes here - only the harn:assume marker ids are renamed."
+assumptions:
+  retire:
+    - id: setup-defers-remote-access-behind-consent
+      reason: Its statement said a Serve failure keeps local Codor working while
+        showing the resolved serve command rather than inventing sudo, and it
+        auto-degraded to local. The behavior now stays in the step with Retry /
+        Continue and shows the documented Linux/WSL operator (sudo) recovery for
+        permission errors. The meaning changes, so it is retired and replaced.
+  create:
+    - id: setup-recovers-or-defers-remote-access
+      title: Remote access defers Tailscale behind consent and recovers a Serve
+        failure in place instead of auto-degrading
+      statement: Interactive setup must ask where Codor will be used (this computer
+        only, or remotely) and must not detect, capability-probe, or configure
+        Tailscale until the operator chooses remote; only then may it resolve
+        the CLI, probe Serve, explain that Serve enables secure access from
+        other devices, and ask a separate consent before configuring Serve. A
+        missing or Serve-incapable Tailscale offers Retry or
+        Continue-on-this-computer. A Serve configuration failure must not
+        auto-degrade - it stays in the remote-access step showing the real error
+        and the exact resolved tailscale serve command, and, only when the error
+        indicates a permission/operator/root authorization problem on Linux or
+        WSL, the documented sudo tailscale set --operator recovery command -
+        then offers Retry, which re-runs Serve, or Continue-on-this-computer,
+        which confirms the local-only fallback before advancing. It never runs
+        sudo automatically, never claims a sudo fix for unrelated errors, and
+        never breaks local Codor.
+      reason: "Codex #585/#589 replaced the silent degrade with a persistent
+        Retry/Continue screen and documented operator recovery, preserving the
+        consent-gating and never-run-sudo intent."
+      depends_on:
+        - setup-resolves-and-capability-probes-tailscale-serve
+        - setup-auto-advances-and-gates-mutation-on-consent
+anchors:
+  setup-defers-remote-access-behind-consent:
+    setup-remote-access-subflow:
+      action: remove
+      reason: The retired assumption's sub-flow anchor is re-pointed to the
+        replacement.
+    setup-remote-access-regression:
+      action: remove
+      reason: The retired assumption's spec anchor is re-pointed to the replacement.
+  setup-recovers-or-defers-remote-access:
+    setup-remote-access-subflow:
+      action: change
+      reason: The harn:assume marker on runRemoteAccess is renamed to the replacement
+        id.
+    setup-remote-access-regression:
+      action: change
+      reason: The harn:assume marker on the regression suite is renamed to the
+        replacement id.
+files:
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-remote-access.spec.ts
+verification: >
+  - The retired assumption is gone from ground truth and the replacement carries
+    the persistent-recovery + operator-recovery statement.
+  - Only the harn:assume/harn:end marker ids change in code; runRemoteAccess and
+    its regression suite behave identically (all remote-access tests still pass).
+applied:
+  applied_at: 2026-07-21T15:59:03.152Z

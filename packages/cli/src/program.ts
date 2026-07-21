@@ -475,9 +475,11 @@ export function createProgram(context: CliContext = {}): Command {
   // harn:end adapter-registry-sole-harness-source
 
   // harn:assume setup-unattended-mutation-requires-explicit-intent ref=setup-command-surface
+  // harn:assume public-install-is-the-primary-command-with-setup-alias ref=install-command-alias
   program
-    .command('setup')
-    .description('configure the local switchboard user service and first browser pairing')
+    .command('install')
+    .alias('setup')
+    .description('install and start the local switchboard service, then pair your first browser')
     .option('--dry-run', 'print every action and generated service content without changing the host')
     .option('--yes', 'approve every setup mutation for unattended use')
     .addOption(new Option('--access <method>', 'browser access method').choices(['localhost', 'tailscale']))
@@ -494,6 +496,7 @@ export function createProgram(context: CliContext = {}): Command {
         yes: options.yes === true,
       });
     });
+  // harn:end public-install-is-the-primary-command-with-setup-alias
   // harn:end setup-unattended-mutation-requires-explicit-intent
 
   program

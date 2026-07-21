@@ -1,7 +1,7 @@
 id: packed-release-proof-runs-offline-runtime
 hash: a-d4952778b0a8
 title: The release gate proves the packed runtime from a clean source clone
-state: active
+state: retired
 statement: The release gate must use the pinned glibc Node 22 container to build
   from a clean selected Git ref, pack and install @richhardry/codor with no
   workspace resolution, repeat npm install, load its native switchboard, run the
@@ -15,3 +15,4 @@ depends_on:
   - cli-tests-delete-inherited-codor-environment
   - supported-browser-is-standalone-web-next
 created_by: codor-packed-release-proof
+retired_by: public-npx-install-docs

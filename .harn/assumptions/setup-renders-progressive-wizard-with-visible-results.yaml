@@ -1,0 +1,23 @@
+id: setup-renders-progressive-wizard-with-visible-results
+hash: a-6934c0f49cfd
+title: Interactive setup renders progressively with full completed results and
+  strong visual hierarchy
+state: retired
+statement: Interactive setup must render progressively — the active step is
+  expanded with its title, a running spinner or a padded vertical choice menu,
+  its result lines, any error, and only the controls the current input requires;
+  every completed step stays visible as a bold title with a green check and its
+  full result lines in a prominent (non-dim) foreground rather than a collapsed
+  one-line summary; skipped steps show a skipped marker and future steps show
+  their numbered title; steps are separated by blank-line spacing and the choice
+  block pads its prompt, options, and navigation hint with the focused option
+  unmistakable; frame production stays a pure function of supplied state,
+  renders the Codor word art, version, and byline, never enters the alternate
+  screen, and keeps the active step's actionable choice visible by dropping the
+  farthest completed context first at 80x10 and 40x24; because the operator must
+  always see what already happened and what to do next without a Next prompt on
+  automatic work.
+depends_on:
+  - setup-restores-terminal-on-every-exit
+created_by: codor-setup-progressive-consent-wizard
+retired_by: codor-install-simplify-wizard

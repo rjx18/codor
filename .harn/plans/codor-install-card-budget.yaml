@@ -1,0 +1,109 @@
+id: codor-install-card-budget
+title: Fix the in-frame pairing card - split multiline lines before truncation,
+  budget with a reserved Finish, and scope the card to Step 5
+notes: >-
+  Codex #570 release blocker. renderSetupFrame inserted state.card as one array
+  item, so truncateAnsi treated the whole multiline card as a single line and
+  cut everything after the first terminal-width characters; the code, URL,
+  expiry, and instruction were lost. Also this.card was not scoped, so
+  navigating Back from Step 5 could render the card as Step 4's content.
+
+  Fix: - Split the card into real renderer lines before budgeting/truncation, so
+  each
+    line is truncated independently.
+  - Always reserve the Finish control; the card fills the remaining rows. - Drop
+  the optional carried Check context before dropping any pairing content. -
+  renderPairingCard sizes the QR to the available width AND rows: at 40 columns
+    it omits the QR and keeps the complete wrapped code, URL, expiry, and
+    instruction; when the rows are too few it omits the QR rather than the body.
+  - Scope the card to the step that presented it, so Back never shows it on
+    another step.
+  - Replace the one-line fake-card PTY assertion with a real multiline
+    renderPairingCard result and assert the code, reconstructed URL, expiry,
+    instruction, and Finish are present before Enter.
+
+  All touched assumptions are reviewed unchanged - these are rendering/budgeting
+  fixes within their contracts.
+assumptions:
+  reviewed:
+    - id: setup-renders-single-active-step-installer
+      outcome: unchanged
+      reason: The renderer still shows only the active step with the progress label
+        and carried context; it now splits a supplied multiline result block
+        into lines, budgets it while reserving the Finish control, and drops the
+        context before any card content.
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: The final stage still shows the QR, byte-identical URL, code, and expiry
+        and never the raw token; renderPairingCard now also omits the QR when
+        the available rows are too few, always keeping the code, URL, expiry,
+        and instruction.
+    - id: setup-restores-terminal-on-every-exit
+      outcome: unchanged
+      reason: Terminal ownership is unchanged; the session scopes the result card to
+        the step that presented it so Back never shows it elsewhere.
+    - id: setup-auto-advances-and-gates-mutation-on-consent
+      outcome: unchanged
+      reason: Auto-advance, consent, and skip are unchanged; presentResult records the
+        presenting step so the card is scoped to it.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: The pairing step renders the card to the available width and rows;
+        service and mutation behavior are unchanged.
+anchors:
+  setup-renders-single-active-step-installer:
+    setup-frame-renderer:
+      action: change
+      reason: The card is split into lines and budgeted with a reserved Finish,
+        context dropped first.
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-pairing-card:
+      action: change
+      reason: renderPairingCard sizes the QR to width and rows.
+    setup-pairing-card-regression:
+      action: change
+      reason: 80x24 and 40x24 regressions assert the in-frame code, URL, expiry,
+        instruction, and Finish.
+  setup-restores-terminal-on-every-exit:
+    setup-terminal-session:
+      action: change
+      reason: render scopes the card to the presenting step.
+    setup-terminal-session-regression:
+      action: change
+      reason: A regression proves Back from the card step does not show the card.
+  setup-auto-advances-and-gates-mutation-on-consent:
+    setup-consent-navigation:
+      action: change
+      reason: presentResult records the presenting step index.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: The pairing step passes the available rows to renderPairingCard.
+  windows-setup-installs-private-task-service:
+    windows-setup-runtime:
+      action: keep
+      reason: The change is inside the nested platform-service region.
+files:
+  - packages/cli/src/setup-ui.ts
+  - packages/cli/src/setup-session.ts
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-ui.spec.ts
+  - packages/cli/src/setup-session.spec.ts
+  - packages/cli/src/setup-pty.spec.ts
+verification: |
+  - At 80x24 and 40x24 the in-frame pairing result contains the code, the
+    complete reconstructed URL, the expiry, the instruction, and the Finish
+    action; every rendered line stays within the width; at 40 columns the QR is
+    omitted.
+
+  - The multiline card is split into lines (no single-line truncation) and the
+    Finish control is always reserved; the Check context is dropped first.
+
+  - Back from the pairing step does not render the card on another step.
+  - The PTY fixture uses a real multiline renderPairingCard result and asserts
+    the code, URL, expiry, instruction, and Finish before Enter.
+
+  - Focused UI/session/PTY suites, tsc, harn, and the packed proof pass; the TGZ
+    is rebuilt.
+applied:
+  applied_at: 2026-07-21T14:52:10.021Z

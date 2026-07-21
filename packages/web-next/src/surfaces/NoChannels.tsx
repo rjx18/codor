@@ -68,7 +68,7 @@ export function NoChannels(props: { token: string }) {
   );
   const hasAgent = agentConfig.harness !== '';
   const identityClash = hasAgent && ownerHandle !== undefined && agentHandle === ownerHandle;
-  const canCreate = name.trim() !== '' && ownerHandle !== undefined && !busy
+  const canCreate = name.trim() !== '' && cwd.trim() !== '' && ownerHandle !== undefined && !busy
     && (!hasAgent || (agentHandle !== undefined && !identityClash));
 
   const chooseFolder = (path: string): void => {
@@ -85,7 +85,7 @@ export function NoChannels(props: { token: string }) {
     void createRoom({
       name: name.trim(),
       owner: { handle: ownerHandle, display_name: ownerName.trim() },
-      ...(cwd.trim() !== '' && { cwd: cwd.trim() }),
+      cwd: cwd.trim(),
       ...(hasAgent && agentHandle !== undefined && {
         starting_agent: {
           harness: agentConfig.harness,
@@ -152,7 +152,7 @@ export function NoChannels(props: { token: string }) {
           </label>
 
           <div className="nx-field">
-            <span className="nx-label">Project folder <span className="nx-opt">· optional</span></span>
+            <span className="nx-label">Project folder <span className="nx-req">· required</span></span>
             <FolderPicker token={() => props.token} value={cwd} onChange={chooseFolder} idPrefix="first" />
             {!nameEdited && cwd !== '' && (
               <span className="nx-field-note" data-testid="first-channel-folder-suggestion">

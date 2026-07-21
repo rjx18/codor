@@ -18,21 +18,22 @@ Never expose port 8137 directly to the public internet. The browser token is a b
 use loopback plus Tailscale Serve, another authenticated private tunnel, or a hardened reverse
 proxy you operate.
 
-<!-- harn:assume public-npx-setup-is-primary-install ref=selfhost-primary-install -->
+<!-- harn:assume public-npx-install-is-primary-install ref=selfhost-primary-install -->
 ## Install
 
 Install and start the complete local runtime:
 
 ```sh
-npx @richhardry/codor setup
+npx @richhardry/codor install
 ```
 
 The five-stage session checks the computer, prepares private files, chooses localhost or Tailscale,
 installs the native per-user service, requires the Codor pairing-status response, and then prints a
-QR, URL, eight-character code, and expiry. Use `npx @richhardry/codor setup --dry-run` for a
+QR, URL, eight-character code, and expiry. Use `npx @richhardry/codor install --dry-run` for a
 side-effect-free preview. Unattended mutation requires both `--yes` and
-`--access localhost|tailscale`; setup never guesses remote exposure from detection alone.
-<!-- harn:end public-npx-setup-is-primary-install -->
+`--access localhost|tailscale`; installation never guesses remote exposure from detection alone.
+`npx @richhardry/codor setup` remains available as a backward-compatible alias.
+<!-- harn:end public-npx-install-is-primary-install -->
 
 <!-- harn:assume source-cli-installers-remain-idempotent-fallback ref=selfhost-windows-cli-installer -->
 For source development, clone a stable ref and use the checkout installer:
@@ -47,7 +48,7 @@ scripts/install-cli.sh
 
 On Windows, replace the last command with
 `powershell -ExecutionPolicy Bypass -File scripts/install-cli.ps1`. Both checkout installers are
-idempotent fallbacks; normal installation uses `npx @richhardry/codor setup`.
+idempotent fallbacks; normal installation uses `npx @richhardry/codor install`.
 <!-- harn:end source-cli-installers-remain-idempotent-fallback -->
 
 <!-- harn:assume operator-launches-serve-web-next ref=selfhost-current-web-client -->
@@ -65,7 +66,7 @@ borrow `node_modules`, build output, or untracked files from the working tree.
 Run the one-shot wizard under the service user:
 
 ```sh
-codor setup
+codor install
 ```
 
 The interactive session shows the five stages and asks for one access choice before mutation. It
@@ -180,13 +181,13 @@ and authenticated harness state the agents can access.
 Run the same public setup command from PowerShell:
 
 ```powershell
-npx @richhardry/codor setup
+npx @richhardry/codor install
 ```
 
 Setup creates the private data and token paths, limits the token ACL to the current user, and
 registers a hidden per-user Task Scheduler logon task named `Codor Switchboard`. The task runs the
 installed CLI and its packaged browser runtime using absolute paths. Preview every action first
-with `npx @richhardry/codor setup --dry-run`.
+with `npx @richhardry/codor install --dry-run`.
 
 ```powershell
 schtasks /Query /TN "Codor Switchboard"
