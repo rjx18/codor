@@ -1,0 +1,220 @@
+id: codor-agent-onboarding-phase3
+title: Detect, refresh, and enforce installed harness availability
+notes: Keep every adapter registration available to daemon internals while deriving
+  built-in installation from canonical executables on the daemon PATH. Treat a
+  successfully loaded configured adapter as installed, expose availability to
+  clients, reject unavailable harnesses before new agent creation, and add one
+  authorized incremental refresh path shared by the three unlocked selection
+  surfaces. Detection resolves presence only and never invokes provider CLIs.
+assumptions:
+  create:
+    - id: built-in-adapters-require-daemon-path
+      title: Built-in harness availability comes from the daemon PATH
+      statement: A built-in adapter is available for new agents only when its
+        registry-owned canonical executable resolves on the daemon host PATH,
+        while a successfully loaded configured adapter is available by virtue of
+        module loading; full registered metadata remains available internally and
+        the public catalog reports installation state without executing a harness.
+      reason: Browser-side guesses and provider version commands cannot reliably or
+        safely describe what the long-running daemon can spawn.
+      depends_on:
+        - adapter-registry-sole-harness-source
+        - adapters-own-their-model-catalog
+    - id: adapter-refresh-is-authorized-and-incremental
+      title: Harness refresh rescans safely and discovers only newly available models
+      statement: An authenticated global manage_agents operation may rescan canonical
+        executable presence without restarting the daemon or mutating PATH, and
+        model discovery starts only for adapters that transition from unavailable
+        to available.
+      reason: Operators need to recognize newly installed harnesses without paying
+        repeated provider-discovery costs or changing daemon process state.
+      depends_on:
+        - built-in-adapters-require-daemon-path
+        - model-catalogs-reach-a-browser-that-arrives-early
+        - roles-gate-human-acts-not-agents
+    - id: new-agent-requests-require-installed-harness
+      title: Stale clients cannot create agents with unavailable harnesses
+      statement: New member spawn requests and room creation requests with a starting
+        agent must reject an unavailable adapter before spawning or persisting the
+        room, while failures after a valid installed-harness preflight retain the
+        established room-creation behavior.
+      reason: Catalog filtering is advisory unless daemon-side creation contracts
+        enforce the same host availability state.
+      depends_on:
+        - built-in-adapters-require-daemon-path
+        - canonical-spawn-controls-enforced
+        - channel-creation-derived-and-seeded
+    - id: agent-selection-catalog-is-refreshable
+      title: Unlocked agent selectors share one refreshable installed catalog
+      statement: Create Channel, first-channel onboarding, and Add Agent select only
+        installed adapters from one shared refreshable catalog, expose accessible
+        busy, failure, and empty states, and reconcile a disappeared selection
+        without clearing unrelated typed fields; Configure Agent keeps the full
+        registered metadata and no refresh action because its harness is locked.
+      reason: Every place that can choose a new harness must present the same honest
+        daemon-owned state and recover safely when refresh changes it.
+      depends_on:
+        - built-in-adapters-require-daemon-path
+        - adapter-refresh-is-authorized-and-incremental
+        - agent-controls-shared-by-both-dialogs
+        - paired-empty-state-creates-first-channel
+        - web-spawn-dialog-exposes-canonical-agent-controls
+  reviewed:
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The existing built-in composition table gains each adapter's canonical
+        executable and remains the only built-in registry source.
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: Adapters still own model discovery; the daemon only gates when their
+        existing listModels contract starts based on host availability.
+    - id: model-catalogs-reach-a-browser-that-arrives-early
+      outcome: unchanged
+      reason: Initial and newly available discovery retain the same pending signal and
+        catalog publication path.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Availability is an additional precondition before the existing canonical
+        normalization and validation wrapper executes.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Refresh is a human administrative action protected by the existing
+        global manage_agents capability; agent authority is not changed.
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: Missing harness availability is rejected as request validation before
+        room persistence. Once that precondition passes, a genuine spawn failure
+        still retains the created room as before.
+    - id: agent-controls-shared-by-both-dialogs
+      outcome: unchanged
+      reason: The shared harness control receives optional refresh presentation props;
+        Configure omits them and keeps its locked-harness behavior.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: Add Agent preserves its fields and canonical reconciliation while using
+        only installed catalog entries and selecting a safe replacement.
+    - id: paired-empty-state-creates-first-channel
+      outcome: unchanged
+      reason: First-channel onboarding retains its current form and optional-agent
+        semantics, gaining only the shared catalog and refresh states.
+    - id: one-control-chooses-an-agent-everywhere
+      outcome: unchanged
+      reason: None remains available only in optional creation flows and all unlocked
+        harness tiles still use the shared identity control.
+anchors:
+  built-in-adapters-require-daemon-path:
+    builtin-executable-registry:
+      action: change
+      reason: Co-locate each built-in's canonical executable with its factory and
+        preserve that metadata through registry wrappers.
+    builtin-executable-regression:
+      action: change
+      reason: Prove the exact mapping and presence-only PATH resolution.
+    custom-adapter-installation-regression:
+      action: change
+      reason: Prove a successfully loaded configured adapter remains installed even
+        when no built-in executable resolves.
+    daemon-adapter-availability:
+      action: change
+      reason: Maintain registered metadata separately from current availability.
+    daemon-adapter-availability-regression:
+      action: change
+      reason: Prove installed metadata and unavailable filtering semantics.
+    adapter-availability-rest:
+      action: change
+      reason: Publish installed state through the authenticated adapter catalog.
+  adapter-refresh-is-authorized-and-incremental:
+    adapter-refresh-runtime:
+      action: change
+      reason: Rescan daemon-host executable presence and discover models only on
+        unavailable-to-available transitions.
+    adapter-refresh-rest:
+      action: change
+      reason: Add the global manage_agents POST refresh operation and authorization
+        regression.
+    adapter-refresh-client:
+      action: change
+      reason: Add the client POST contract and one polling-aware shared catalog hook.
+  new-agent-requests-require-installed-harness:
+    new-agent-availability-preflight:
+      action: change
+      reason: Reject unavailable harnesses before member spawn or starting-agent room
+        persistence.
+    new-agent-availability-regression:
+      action: change
+      reason: Prove stale REST and daemon requests cannot create an unavailable agent.
+  agent-selection-catalog-is-refreshable:
+    refreshable-adapter-catalog:
+      action: change
+      reason: Replace duplicate polling with shared registered and installed views.
+    refreshable-harness-control:
+      action: change
+      reason: Render accessible refresh, busy, honest error, and exact empty states.
+    create-harness-refresh:
+      action: change
+      reason: Use installed entries and reconcile disappearance to None without
+        clearing dormant identity fields.
+    first-channel-harness-refresh:
+      action: change
+      reason: Use the shared catalog in onboarding while preserving unrelated fields.
+    spawn-harness-refresh:
+      action: change
+      reason: Use installed entries in Add Agent, select a safe replacement, and keep
+        full registered metadata for Configure Agent.
+    harness-refresh-browser-regression:
+      action: change
+      reason: Prove filtering, refresh states, empty state, and selection
+        reconciliation in the three unlocked selection surfaces.
+  adapter-registry-sole-harness-source:
+    configured-adapter-registry:
+      action: change
+      reason: Enrich the sole built-in table without introducing another registry.
+    third-party-hot-swap-acceptance:
+      action: change
+      reason: Extend the configured-module acceptance proof with installation state.
+  adapter-wrappers-preserve-the-whole-contract:
+    registry-wrapper-completeness:
+      action: change
+      reason: Preserve internal executable metadata through canonical spawn wrapping.
+  adapters-own-their-model-catalog:
+    adapter-model-discovery:
+      action: change
+      reason: Gate discovery scheduling on current installed state.
+    adapter-model-discovery-regression:
+      action: change
+      reason: Extend model tests for initial and newly available adapters.
+  model-catalogs-reach-a-browser-that-arrives-early:
+    adapter-discovery-pending-rest:
+      action: change
+      reason: Keep pending discovery honest in refresh responses.
+  channel-creation-derived-and-seeded:
+    derived-channel-creation:
+      action: change
+      reason: Validate starting-agent availability before entering the room transaction.
+  working-directories-validated-before-spawn:
+    daemon-cwd-enforcement:
+      action: change
+      reason: Add availability before the existing cwd and adapter validation path.
+files:
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+  - packages/switchboard/src/hot-swap.integration.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/runtime/api.spec.ts
+  - packages/web-next/src/app/session.ts
+  - packages/web-next/src/room/AgentControls.tsx
+  - packages/web-next/src/room/CreateChannel.tsx
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/surfaces/NoChannels.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room3-context.e2e.spec.ts
+  - packages/web-next/tests/room10-dialogs.e2e.spec.ts
+  - packages/web-next/tests/room29-onboarding.e2e.spec.ts
+verification: Run focused adapter-registry, daemon availability/discovery, server
+  authorization/stale request, configured-adapter, client runtime, and harness
+  selection browser tests; run switchboard and web-next typecheck/build plus Harn
+  gates, then apply and commit Phase 3 as one implementation transaction.
