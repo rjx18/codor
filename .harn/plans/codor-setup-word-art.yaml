@@ -1,0 +1,75 @@
+id: codor-setup-word-art
+title: Replace the setup emblem with Richard's exact codor-art.txt word art
+notes: >-
+  Requirement 5 of Richard's #436 batch, routed to opus2 by Codex (#444). The
+  interactive setup header currently renders a five-letter block CODOR built at
+  runtime from a GLYPHS table. Richard attached codor-art.txt (the Codor emblem
+  plus a shaded "Codor" wordmark) and asked for it verbatim, whitespace exact.
+
+  SCOPE. This plan covers only the Harn-tracked CLI change. Requirements 1-4 are
+  web-next dialog work under packages/web-next, which is harnignored, so they
+  ride in a separate commit and need no assumption accounting.
+
+  WHERE THE ART LIVES RELATIVE TO THE ANCHOR. CODOR_WORD_ART and its GLYPHS/BLOCK
+  helpers sit above the setup-frame-renderer anchor; renderSetupFrame consumes
+  the constant only through CODOR_WORD_ART.split('\n'). Swapping the constant for
+  the exact 31-line emblem therefore leaves the anchored render body textually
+  unchanged - the renderer keeps splitting on newlines and styling each row.
+
+  EXACTNESS AND WHITESPACE. The art is embedded byte-for-byte from the
+  attachment as a quoted string array joined by newlines. Each line's trailing
+  spaces live inside the quotes, so no source line carries trailing whitespace,
+  and leading and internal spacing that positions the emblem is preserved
+  exactly. The only character dropped is the file's single terminating newline.
+
+  HEIGHT INTERACTION, HONESTLY. The emblem is 31 lines tall against the previous
+  5, so the full header no longer fits above the five stages on a standard 40-row
+  terminal - measured, the art shows at 41 rows and above and the renderer's
+  existing compact header (byline plus stages) takes over below that. That is
+  exactly what the assumption already requires: actionable content stays visible
+  at 80x10 and 40x24. The regression test asserted the art at 40 rows, which is
+  no longer true, so it is updated to assert the emblem on a viewport tall enough
+  to seat it and its compaction on a standard one - a truer test of the contract
+  than the old blank-first-line check.
+assumptions:
+  reviewed:
+    - id: setup-renders-five-stage-interactive-session
+      outcome: unchanged
+      reason: The setup frame still renders Codor word art, the version and byline,
+        five numbered stages, the running indicator, bounded logs, and the closing
+        summary, and frame production stays a pure function of state. Only the
+        glyph content of the word art changes, and actionable content remains
+        visible at 80x10 and 40x24 through the unchanged compact-header path.
+anchors:
+  setup-renders-five-stage-interactive-session:
+    setup-frame-renderer:
+      action: keep
+      reason: renderSetupFrame is not edited. It keeps consuming CODOR_WORD_ART via
+        split on newlines and styling each row; only the constant it reads,
+        which lives outside this anchored region, changes.
+    setup-frame-regression:
+      action: change
+      reason: The regression asserted the word art at a 40-row viewport. The taller
+        emblem compacts away there by design, so the test is updated to assert
+        the emblem on a tall viewport and its compaction on a standard one, which
+        verifies the assumption's real 80x10/40x24 contract rather than the old
+        blank-line coincidence.
+files:
+  - packages/cli/src/setup-ui.ts
+  - packages/cli/src/setup-ui.spec.ts
+verification: >
+  - The CLI package builds and its full vitest suite passes, including the
+    updated setup-ui frame regression.
+
+  - CODOR_WORD_ART equals the attachment content byte-for-byte, modulo the single
+    terminating newline: asserted by comparing the constant's lines to the
+    committed art. The emblem's distinctive glyph row appears in a tall-viewport
+    render and is absent from a standard 40-row render.
+
+  - Negative gate: the art must genuinely compact rather than overflow - a 40x24
+    and an 80x10 render must still show every stage row and any menu, with no
+    frame line exceeding the viewport, which the existing constrained-viewport
+    test already enforces and must stay green.
+
+  - Requirements 1-4 (web-next dialogs) are verified separately in their own
+    commit; they are harnignored and out of this plan's scope.
