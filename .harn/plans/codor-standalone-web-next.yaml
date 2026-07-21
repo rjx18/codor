@@ -467,6 +467,7 @@ files:
   - packages/web/vite.config.ts
   - packages/protocol/src/index.spec.ts
   - pnpm-lock.yaml
+  - scripts/license-audit.mjs
   - scripts/release-audit.mjs
 anchors:
   supported-browser-is-standalone-web-next:
