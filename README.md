@@ -8,7 +8,7 @@
 <h1 align="center">Codor</h1>
 <p align="center"><strong>One channel. Every agent on the wire.</strong></p>
 <p align="center">
-  <img alt="Node.js 22.12+" src="https://img.shields.io/badge/Node.js-22.12%2B-3c873a">
+  <img alt="Node.js 22+" src="https://img.shields.io/badge/Node.js-22%2B-3c873a">
   <img alt="pnpm 10.9" src="https://img.shields.io/badge/pnpm-10.9-f69220">
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-222222">
   <a href="https://discord.gg/PtUfM6BhBy"><img alt="Join the Codor Discord" src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white"></a>
@@ -19,52 +19,49 @@
 > broken or unfinished, along with frequent updates.
 
 <!-- harn:assume operator-launches-serve-web-next ref=readme-current-web-client -->
-<!-- harn:assume public-npx-setup-is-primary-install ref=readme-primary-install -->
 ## Install
 
-Install and configure Codor in one command (Node.js 22.12.0 or newer):
+From the repository folder:
 
 ```sh
-npx @richhardry/codor setup
+pnpm install --frozen-lockfile
+pnpm -r build
+scripts/install-cli.sh
+codor setup
 ```
 
-The interactive setup checks this computer, prepares private files, asks how the browser should
-connect, starts Codor, verifies the daemon, and prints a QR, URL, eight-character pairing code, and
-expiry. It never sends channel data through a Codor-hosted service.
-
-Preview without changing the host:
-
-```sh
-npx @richhardry/codor setup --dry-run
-```
-
-For unattended setup, approve mutation and choose exposure explicitly:
-
-```sh
-npx @richhardry/codor setup --yes --access localhost
-# or: --access tailscale
-```
+That is the normal installation. The wizard creates the private token, installs and starts the
+background service, optionally enables Tailscale, and prints a one-time browser pairing link.
 
 - **Linux:** systemd user service.
 - **macOS:** LaunchAgent after login—no Terminal window needs to stay open.
 
-<!-- harn:assume windows-setup-installs-private-task-service ref=readme-native-windows-service -->
+<!-- harn:assume windows-setup-installs-task-scheduler-service ref=readme-native-windows-service -->
 - **Windows (native):** hidden per-user Task Scheduler service—no WSL or open terminal required.
-<!-- harn:end windows-setup-installs-private-task-service -->
 
-<!-- harn:assume wsl-setup-keeps-private-windows-loopback ref=readme-wsl-access -->
+  <!-- harn:assume windows-cli-installer-is-idempotent ref=readme-native-windows-installer -->
+  Run the Windows install from PowerShell instead:
+
+  ```powershell
+  pnpm install --frozen-lockfile
+  pnpm -r build
+  powershell -ExecutionPolicy Bypass -File scripts/install-cli.ps1
+  codor setup
+  ```
+  <!-- harn:end windows-cli-installer-is-idempotent -->
+<!-- harn:end windows-setup-installs-task-scheduler-service -->
+
+<!-- harn:assume wsl-setup-reaches-windows-loopback ref=readme-wsl-access -->
 **Windows with WSL2:** run setup inside WSL, then open the same `http://127.0.0.1:8137`
 address in your Windows browser.
-<!-- harn:end wsl-setup-keeps-private-windows-loopback -->
+<!-- harn:end wsl-setup-reaches-windows-loopback -->
 
 Open the pairing link. Codor is then available locally at <http://127.0.0.1:8137>.
-<!-- harn:end public-npx-setup-is-primary-install -->
 
 <details>
 <summary><strong>First time? Install prerequisites</strong></summary>
 
-You need Node.js 22.12.0 or newer and one authenticated agent CLI. Git and pnpm are needed only
-for source development.
+You need Git, Node.js 22+, pnpm 10.9, and one authenticated agent CLI.
 
 **macOS**
 
@@ -85,7 +82,7 @@ curl https://get.volta.sh | bash
 Open a new terminal, then run:
 
 ```sh
-volta install node@22.12.0
+volta install node@22
 npm install -g pnpm@10.9.0
 ```
 
@@ -178,17 +175,9 @@ launchctl print "gui/$(id -u)/app.codor.switchboard"
 tail -f "$HOME/.codor/logs/codor.err.log"
 ```
 
-For package upgrades, rerun `npx @richhardry/codor setup`; it refreshes the user service against
-the invoking installed runtime. Restart `codor.service` on Linux or
-`app.codor.switchboard` with `launchctl kickstart -k` on macOS if the service manager has not
-already restarted it.
-
-<!-- harn:assume source-cli-installers-remain-idempotent-fallback ref=readme-native-windows-installer -->
-For source development, clone the repository, run `pnpm install --frozen-lockfile && pnpm -r build`,
-then use `scripts/install-cli.sh` on POSIX or
-`powershell -ExecutionPolicy Bypass -File scripts/install-cli.ps1` on Windows. These idempotent
-checkout installers are contributor fallbacks, not the normal product installation.
-<!-- harn:end source-cli-installers-remain-idempotent-fallback -->
+For upgrades, run `git pull --ff-only`, reinstall with the same frozen pnpm command, rebuild, then
+restart `codor.service` on Linux or
+`app.codor.switchboard` with `launchctl kickstart -k` on macOS.
 
 The supported browser build is `packages/web-next/dist`; it contains the complete browser runtime
 and service worker. Foreground development, backup, restore, and detailed operations are in
@@ -214,10 +203,10 @@ machine.
 
 ## Everyday CLI
 
-<!-- harn:assume source-cli-installers-remain-idempotent-fallback ref=cli-install-docs -->
-The source-checkout installers remain idempotent development fallbacks. Normal installation uses
-`npx @richhardry/codor setup`. Most use happens in the PWA, but these commands are useful from a
-terminal:
+<!-- harn:assume global-cli-install-is-idempotent ref=cli-install-docs -->
+`scripts/install-cli.sh` is the primary idempotent per-user install; alternatively use
+`pnpm --filter @codor/cli link --global`. Most use happens in the PWA, but these commands
+are useful from a terminal:
 
 ```sh
 codor channels
@@ -228,7 +217,7 @@ codor revive -r desk reviewer
 
 Run `codor --help` for the complete CLI. Adapter authors can start with
 [docs/ADAPTERS.md](docs/ADAPTERS.md).
-<!-- harn:end source-cli-installers-remain-idempotent-fallback -->
+<!-- harn:end global-cli-install-is-idempotent -->
 
 <!-- harn:assume agent-member-credentials-are-defense-in-depth ref=readme-agent-trust-boundary -->
 > [!IMPORTANT]
