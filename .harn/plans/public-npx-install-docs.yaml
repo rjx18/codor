@@ -1,44 +1,38 @@
 id: public-npx-install-docs
 title: Make the public documentation use the primary npx install command
-notes: >-
-  The CLI and packed proof already use `install` as the primary public command,
-  with `setup` retained as a compatibility alias, but the README, setup guides,
-  release audit, and Harn truth still call `setup` primary. Align the public
-  operator path and release evidence before merging the completed installer
-  work to main.
+notes: The CLI and packed proof already use `install` as the primary public
+  command, with `setup` retained as a compatibility alias, but the README, setup
+  guides, release audit, and Harn truth still call `setup` primary. Align the
+  public operator path and release evidence before merging the completed
+  installer work to main.
 assumptions:
   retire:
     - id: public-npx-setup-is-primary-install
-      reason: >-
-        Its statement requires `npx @richhardry/codor setup` to be the primary
+      reason: Its statement requires `npx @richhardry/codor setup` to be the primary
         public command, which contradicts the implemented and approved `install`
         command. Replace it with an install-primary contract that retains setup
         only as a compatibility alias.
     - id: packed-release-proof-runs-offline-runtime
-      reason: >-
-        Its dependency points at the retired setup-primary documentation
+      reason: Its dependency points at the retired setup-primary documentation
         contract and its statement calls the packed dry-run a setup dry-run.
         Replace it with the same release proof expressed through the primary
         install command.
     - id: release-candidate-requires-publishable-tarball
-      reason: >-
-        Its dependency points at the retired packed-proof contract. Replace it
+      reason: Its dependency points at the retired packed-proof contract. Replace it
         with the same release handoff contract depending on the install-command
         packed proof.
   create:
     - id: public-npx-install-is-primary-install
       title: The public npx install command is Codor's primary installation path
-      statement: >-
-        Operator documentation must present `npx @richhardry/codor install` as
-        the primary Linux, macOS, and Windows installation, require Node.js
+      statement: Operator documentation must present `npx @richhardry/codor install`
+        as the primary Linux, macOS, and Windows installation, require Node.js
         22.12.0 or newer, explain the five-stage interactive flow and explicit
         unattended flags, retain `setup` as a backward-compatible alias, and
         keep the Git checkout build only as a development fallback; because the
         product promise is one install command and the documentation must match
         the command operators actually publish and run.
-      reason: >-
-        Aligns the public docs with the already-implemented install command while
-        explicitly preserving setup compatibility.
+      reason: Aligns the public docs with the already-implemented install command
+        while explicitly preserving setup compatibility.
       depends_on:
         - public-package-bundles-complete-codor-runtime
         - public-install-is-the-primary-command-with-setup-alias
@@ -46,17 +40,15 @@ assumptions:
         - setup-preserves-private-platform-service
     - id: packed-release-proof-runs-install-runtime
       title: The release gate proves the packed install runtime from a clean clone
-      statement: >-
-        The release gate must use the pinned glibc Node 22 container to build
-        from a clean selected Git ref, pack and install @richhardry/codor with no
-        workspace resolution, repeat npm install, load its native switchboard,
-        run the installed CLI and install dry-run under no network and no
-        inherited CODOR variables, boot the packaged daemon with isolated data,
-        verify root, referenced app bundle, service worker, CLI post-tail,
+      statement: The release gate must use the pinned glibc Node 22 container to build
+        from a clean selected Git ref, pack and install @richhardry/codor with
+        no workspace resolution, repeat npm install, load its native
+        switchboard, run the installed CLI and install dry-run under no network
+        and no inherited CODOR variables, boot the packaged daemon with isolated
+        data, verify root, referenced app bundle, service worker, CLI post-tail,
         authenticated room API, and teardown; because a green workspace cannot
         prove the tarball operators receive.
-      reason: >-
-        Preserves the packed proof while making its command and dependency match
+      reason: Preserves the packed proof while making its command and dependency match
         the primary public installer.
       depends_on:
         - public-npx-install-is-primary-install
@@ -64,15 +56,13 @@ assumptions:
         - supported-browser-is-standalone-web-next
     - id: release-candidate-requires-publishable-install-tarball
       title: Release candidate requires the exact publishable install tarball proof
-      statement: >-
-        The final release checklist must require deterministic repository gates,
-        the clean packed-install proof, review of the exact candidate commit, and
-        publication of the verified @richhardry/codor tarball with a signed tag
-        matching its version, while keeping secret values out of the record;
-        because the release handoff must identify exactly what Richard can
-        publish rather than prohibit npm distribution.
-      reason: >-
-        Preserves the release handoff contract while depending on the renamed
+      statement: The final release checklist must require deterministic repository
+        gates, the clean packed-install proof, review of the exact candidate
+        commit, and publication of the verified @richhardry/codor tarball with a
+        signed tag matching its version, while keeping secret values out of the
+        record; because the release handoff must identify exactly what Richard
+        can publish rather than prohibit npm distribution.
+      reason: Preserves the release handoff contract while depending on the renamed
         install-command packed proof.
       depends_on:
         - packed-release-proof-runs-install-runtime
@@ -80,9 +70,8 @@ assumptions:
   reviewed:
     - id: public-install-is-the-primary-command-with-setup-alias
       outcome: unchanged
-      reason: >-
-        The CLI command registration is already correct: install remains primary
-        and setup remains an identical compatibility alias.
+      reason: "The CLI command registration is already correct: install remains
+        primary and setup remains an identical compatibility alias."
 anchors:
   public-npx-setup-is-primary-install:
     readme-primary-install:
@@ -100,7 +89,8 @@ anchors:
   public-npx-install-is-primary-install:
     readme-primary-install:
       action: change
-      reason: Use npx install throughout the primary README flow and name setup only as an alias.
+      reason: Use npx install throughout the primary README flow and name setup only
+        as an alias.
     selfhost-primary-install:
       action: change
       reason: Use npx install throughout the packaged self-host flow.
@@ -129,7 +119,8 @@ anchors:
       reason: Rename the root release-gate anchor.
     release-proof-audit:
       action: change
-      reason: Audit the primary install dry-run rather than the obsolete setup invocation.
+      reason: Audit the primary install dry-run rather than the obsolete setup
+        invocation.
   release-candidate-requires-publishable-tarball:
     final-release-verification-record:
       action: remove
@@ -141,7 +132,8 @@ anchors:
   public-install-is-the-primary-command-with-setup-alias:
     install-command-alias:
       action: keep
-      reason: The CLI registration is already correct and is not changed by documentation work.
+      reason: The CLI registration is already correct and is not changed by
+        documentation work.
 files:
   - README.md
   - docs/SELF-HOST.md
@@ -149,8 +141,10 @@ files:
   - MANUAL-VERIFY.md
   - scripts/release-audit.mjs
   - scripts/packed-install-test.sh
-verification: >-
-  Harn plan/diff/staged gates pass; the release audit accepts install as the
-  primary public command and verifies setup is documented as an alias; no
-  primary-install section tells operators to use npx setup; and the branch is
-  merged into main without altering the completed implementation history.
+verification: Harn plan/diff/staged gates pass; the release audit accepts
+  install as the primary public command and verifies setup is documented as an
+  alias; no primary-install section tells operators to use npx setup; and the
+  branch is merged into main without altering the completed implementation
+  history.
+applied:
+  applied_at: 2026-07-21T18:11:36.889Z

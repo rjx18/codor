@@ -124,25 +124,26 @@ const selfHost = await readFile(new URL('../docs/SELF-HOST.md', import.meta.url)
 const setupGuide = await readFile(new URL('../docs/SETUP.md', import.meta.url), 'utf8');
 const rootManifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 
-// harn:assume public-npx-setup-is-primary-install ref=release-install-audit
+// harn:assume public-npx-install-is-primary-install ref=release-install-audit
 for (const [name, body] of [['README', readme], ['self-host guide', selfHost], ['setup guide', setupGuide]]) {
-  assert.match(body, /npx @richhardry\/codor setup/, `${name} must document the public setup command`);
+  assert.match(body, /npx @richhardry\/codor install/, `${name} must document the public install command`);
+  assert.match(body, /setup.*backward-compatible alias/i, `${name} must retain the setup compatibility alias`);
 }
 assert.equal(rootManifest.engines?.node, '>=22.12.0');
 assert.doesNotMatch(readme.slice(0, readme.indexOf('## Everyday CLI')), /scripts\/install-cli\.sh\s*\n(?:codor setup)?/);
-// harn:end public-npx-setup-is-primary-install
+// harn:end public-npx-install-is-primary-install
 
-// harn:assume packed-release-proof-runs-offline-runtime ref=root-release-gate
+// harn:assume packed-release-proof-runs-install-runtime ref=root-release-gate
 assert.match(rootManifest.scripts?.['release:check'] ?? '', /scripts\/packed-install-test\.sh/);
 assert.match(rootManifest.scripts?.['release:check'] ?? '', /scripts\/fresh-install-test\.sh/);
-// harn:end packed-release-proof-runs-offline-runtime
+// harn:end packed-release-proof-runs-install-runtime
 
-// harn:assume packed-release-proof-runs-offline-runtime ref=release-proof-audit
+// harn:assume packed-release-proof-runs-install-runtime ref=release-proof-audit
 const packedProof = await readFile(new URL('../scripts/packed-install-test.sh', import.meta.url), 'utf8');
 assert.match(packedProof, /--network none/);
-assert.match(packedProof, /npx --offline @richhardry\/codor setup --dry-run/);
+assert.match(packedProof, /--package="\$TARBALL" codor install --dry-run/);
 assert.match(packedProof, /\/sw\.js/);
 assert.match(packedProof, /third-party-adapter\.mjs/);
-// harn:end packed-release-proof-runs-offline-runtime
+// harn:end packed-release-proof-runs-install-runtime
 
 process.stdout.write('release audit passed: pre-tag gates, rename, relay disclosure, and acceptance provenance\n');

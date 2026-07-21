@@ -19,13 +19,13 @@
 > broken or unfinished, along with frequent updates.
 
 <!-- harn:assume operator-launches-serve-web-next ref=readme-current-web-client -->
-<!-- harn:assume public-npx-setup-is-primary-install ref=readme-primary-install -->
+<!-- harn:assume public-npx-install-is-primary-install ref=readme-primary-install -->
 ## Install
 
 Install and configure Codor in one command (Node.js 22.12.0 or newer):
 
 ```sh
-npx @richhardry/codor setup
+npx @richhardry/codor install
 ```
 
 The interactive setup checks this computer, prepares private files, asks how the browser should
@@ -35,15 +35,17 @@ expiry. It never sends channel data through a Codor-hosted service.
 Preview without changing the host:
 
 ```sh
-npx @richhardry/codor setup --dry-run
+npx @richhardry/codor install --dry-run
 ```
 
 For unattended setup, approve mutation and choose exposure explicitly:
 
 ```sh
-npx @richhardry/codor setup --yes --access localhost
+npx @richhardry/codor install --yes --access localhost
 # or: --access tailscale
 ```
+
+`npx @richhardry/codor setup` remains available as a backward-compatible alias.
 
 - **Linux:** systemd user service.
 - **macOS:** LaunchAgent after login—no Terminal window needs to stay open.
@@ -58,7 +60,7 @@ address in your Windows browser.
 <!-- harn:end wsl-setup-keeps-private-windows-loopback -->
 
 Open the pairing link. Codor is then available locally at <http://127.0.0.1:8137>.
-<!-- harn:end public-npx-setup-is-primary-install -->
+<!-- harn:end public-npx-install-is-primary-install -->
 
 <details>
 <summary><strong>First time? Install prerequisites</strong></summary>
@@ -113,7 +115,7 @@ Tailscale lets you open Codor privately from your phone, tablet, or another comp
 putting it on the public internet. [Install Tailscale](https://tailscale.com/download) and sign in
 on both devices with the same account.
 
-`codor setup` can publish Codor privately over Tailscale automatically. If you skipped that step,
+`codor install` can publish Codor privately over Tailscale automatically. If you skipped that step,
 run:
 
 ```sh
@@ -166,7 +168,7 @@ resumable Claude Code, Codex, Gemini, OpenCode, and Copilot members. See the com
 <details>
 <summary><strong>Service checks, upgrades, and development mode</strong></summary>
 
-Preview changes with `codor setup --dry-run`.
+Preview changes with `codor install --dry-run`.
 
 ```sh
 # Linux service
@@ -178,7 +180,7 @@ launchctl print "gui/$(id -u)/app.codor.switchboard"
 tail -f "$HOME/.codor/logs/codor.err.log"
 ```
 
-For package upgrades, rerun `npx @richhardry/codor setup`; it refreshes the user service against
+For package upgrades, rerun `npx @richhardry/codor install`; it refreshes the user service against
 the invoking installed runtime. Restart `codor.service` on Linux or
 `app.codor.switchboard` with `launchctl kickstart -k` on macOS if the service manager has not
 already restarted it.
@@ -216,7 +218,7 @@ machine.
 
 <!-- harn:assume source-cli-installers-remain-idempotent-fallback ref=cli-install-docs -->
 The source-checkout installers remain idempotent development fallbacks. Normal installation uses
-`npx @richhardry/codor setup`. Most use happens in the PWA, but these commands are useful from a
+`npx @richhardry/codor install`. Most use happens in the PWA, but these commands are useful from a
 terminal:
 
 ```sh

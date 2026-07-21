@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# harn:assume packed-release-proof-runs-offline-runtime ref=packed-install-script
+# harn:assume packed-release-proof-runs-install-runtime ref=packed-install-script
 while IFS= read -r name; do
   unset "$name"
 done < <(compgen -A variable | grep '^CODOR_' || true)
@@ -188,5 +188,5 @@ docker run --rm --network none \
 PACKED_OFFLINE
 
 TARBALL_NAME="$(tr -d '\r\n' <"$PROOF_ROOT/pack-name.txt")"
-printf 'packed install passed: clean clone, build, %s, repeat install, offline setup, native daemon, browser, CLI, API, teardown\n' "$TARBALL_NAME"
-# harn:end packed-release-proof-runs-offline-runtime
+printf 'packed install passed: clean clone, build, %s, repeat install, offline install, native daemon, browser, CLI, API, teardown\n' "$TARBALL_NAME"
+# harn:end packed-release-proof-runs-install-runtime
