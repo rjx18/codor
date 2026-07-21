@@ -2,7 +2,7 @@ id: setup-installs-durable-per-user-runtime
 hash: a-8b04d170703d
 title: Install copies the invoking runtime into a durable per-user location when
   it is ephemeral
-state: active
+state: retired
 statement: codor install must give the background service a durable runtime -
   when the invoking runtime resolves under an ephemeral npx cache or OS temp
   directory it must copy the complete self-contained module tree, preserving
@@ -17,3 +17,4 @@ depends_on:
   - setup-resolves-complete-invoking-runtime
   - setup-preserves-private-platform-service
 created_by: codor-install-durable-runtime
+retired_by: codor-install-review-fixes

@@ -463,8 +463,9 @@ describe('@codor/cli', () => {
           serviceTemplate: join(sourceRoot, 'packaging', 'systemd', 'codor.service'),
         },
         installIo: {
-          exists: () => false,
+          exists: (path) => path.includes('.staging'), // staged assets validate; nothing pre-exists
           copyTree: (from, to) => { copies.push([from, to]); },
+          move: () => undefined,
           remove: () => undefined,
           readVersion: () => undefined,
         },
@@ -476,10 +477,10 @@ describe('@codor/cli', () => {
     // The service ExecStart references the durable ~/.codor/runtime copy, never the npx cache.
     expect(unit).toContain(`\"${durableCli}\"`);
     expect(unit).not.toContain('_npx');
-    // The durable install copied the whole npx module tree into ~/.codor/runtime.
+    // The durable install stages the npx module tree beside ~/.codor/runtime.
     expect(copies).toEqual([[
       join(dir, 'npx cache', '.npm', '_npx', 'deadbeef', 'node_modules'),
-      join(home, '.codor', 'runtime', 'node_modules'),
+      join(`${join(home, '.codor', 'runtime')}.staging`, 'node_modules'),
     ]]);
   });
 
@@ -667,7 +668,7 @@ describe('@codor/cli', () => {
       'systemctl --user enable --now codor.service',
       'loginctl show-user setup-test -p Linger --value',
     ]);
-    expect(output.join('\n')).toContain(qrPayload!);
+    expect(output.join('\n')).toContain('setup-host.example.ts.net');
     expect(new URL(qrPayload!).origin).toBe('https://setup-host.example.ts.net');
     expect(output.join('\n')).toMatch(/[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}/);
     expect(output.join('\n')).not.toContain('a'.repeat(64));

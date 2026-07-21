@@ -1,17 +1,16 @@
 id: codor-install-review-fixes
-title: >-
-  Installer review fixes - keep-current, width-safe pairing card, atomic runtime
-  update, and full Tailscale diagnostics
+title: Installer review fixes - keep-current, width-safe pairing card, atomic
+  runtime update, and full Tailscale diagnostics
 notes: >-
   Codex final-review found four concrete release blockers (#557). One follow-up
   plan fixes all four:
 
-  1. "Keep current" must keep the installed version. The menu called
-  installStep with forceReinstall=false, but installDurableRuntime re-copied on
-  any version mismatch. Replace forceReinstall with an explicit intent
-  (ensure | update | keep): keep reuses the existing install even at a different
-  version; update re-copies; ensure installs when missing and reuses a matching
-  version. Regression exercises the exact keep-vs-update menu decision.
+  1. "Keep current" must keep the installed version. The menu called installStep
+  with forceReinstall=false, but installDurableRuntime re-copied on any version
+  mismatch. Replace forceReinstall with an explicit intent (ensure | update |
+  keep): keep reuses the existing install even at a different version; update
+  re-copies; ensure installs when missing and reuses a matching version.
+  Regression exercises the exact keep-vs-update menu decision.
 
   2. The pairing card must be width-safe. A realistic URL produced 200+ column
   box lines. renderPairingCard becomes width-aware: it wraps the URL and
@@ -41,8 +40,8 @@ assumptions:
       reason: Its statement said a different version is always updated by re-copying
         and implied a delete-then-copy update. The fix makes the operator's
         intent decide reuse/update/keep (Keep current retains a different
-        version) and makes the update an atomic staged swap that never destroys a
-        working install. The meaning changes, so it is retired and replaced.
+        version) and makes the update an atomic staged swap that never destroys
+        a working install. The meaning changes, so it is retired and replaced.
   create:
     - id: setup-installs-durable-per-user-runtime-atomically
       title: Install produces a durable per-user runtime with intent-driven reuse and
@@ -51,15 +50,16 @@ assumptions:
         when the invoking runtime resolves under an ephemeral npx cache or OS
         temp directory it copies the complete self-contained module tree,
         preserving prebuilt native binaries, into a stable per-user location
-        (~/.codor/runtime) and resolves the service paths from that copy, while a
-        source checkout or already-stable install is used in place; the caller's
-        intent decides an existing install - keep retains the installed version
-        even when it differs, update re-copies, and ensure installs when missing
-        and reuses a matching version; and an install or update stages the copy
-        in a sibling directory, validates the CLI entrypoint and static assets,
-        then swaps it in with a backup and rollback so an interrupted copy never
-        destroys a working install; because a per-user service must reference a
-        stable runtime and an update must never break an existing one.
+        (~/.codor/runtime) and resolves the service paths from that copy, while
+        a source checkout or already-stable install is used in place; the
+        caller's intent decides an existing install - keep retains the installed
+        version even when it differs, update re-copies, and ensure installs when
+        missing and reuses a matching version; and an install or update stages
+        the copy in a sibling directory, validates the CLI entrypoint and static
+        assets, then swaps it in with a backup and rollback so an interrupted
+        copy never destroys a working install; because a per-user service must
+        reference a stable runtime and an update must never break an existing
+        one.
       reason: Replaces the durable-runtime assumption with intent-driven reuse and an
         atomic, non-destructive update.
       depends_on:
@@ -75,13 +75,13 @@ assumptions:
     - id: setup-resolves-and-capability-probes-tailscale-serve
       outcome: unchanged
       reason: resolveTailscale, tailscaleServeSupported, and configureTailscaleServe
-        keep their contracts; a Serve failure now carries the full message+stderr
-        diagnostic instead of only the first line.
+        keep their contracts; a Serve failure now carries the full
+        message+stderr diagnostic instead of only the first line.
     - id: setup-preserves-private-platform-service
       outcome: unchanged
-      reason: The Install step passes an intent to the durable installer and emitPairing
-        renders a width-aware card; service, mode, token, and no-root invariants
-        are unchanged.
+      reason: The Install step passes an intent to the durable installer and
+        emitPairing renders a width-aware card; service, mode, token, and
+        no-root invariants are unchanged.
 anchors:
   setup-installs-durable-per-user-runtime:
     durable-runtime-install:
@@ -97,8 +97,8 @@ anchors:
   setup-installs-durable-per-user-runtime-atomically:
     durable-runtime-install:
       action: change
-      reason: installDurableRuntime gains intent-driven reuse/update/keep and an atomic
-        staged swap with rollback.
+      reason: installDurableRuntime gains intent-driven reuse/update/keep and an
+        atomic staged swap with rollback.
     durable-runtime-install-regression:
       action: change
       reason: Regressions for keep-vs-update and failed-copy survival.
@@ -151,8 +151,11 @@ verification: >
     line fits, the URL/instruction wrap inside the border, and the QR is omitted
     when too narrow while the code and URL remain.
 
-  - Tailscale: a multiline permission error keeps its later actionable line in the
+  - Tailscale: a multiline permission error keeps its later actionable line in
+  the
     diagnostic, alongside the resolved serve command in the recovery output.
 
   - Focused installer suites, tsc, harn, and the packed proof pass; the TGZ is
     rebuilt.
+applied:
+  applied_at: 2026-07-21T13:26:26.598Z

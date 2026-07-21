@@ -284,5 +284,27 @@ describe('pairing result card', () => {
     const raw = renderPairingCard(card);
     expect(raw).not.toContain('CODOR_TOKEN');
   });
+
+  const LONG_URL = 'https://setup-host.example.ts.net/pair?endpoint=https%3A%2F%2Fsetup-host.example.ts.net&pairing_token=YrBG41M28KVjYaR05P7Zb7HcykxA-3pPGa18bPCXvoo&switchboard_sign_pub=XV5Tvp6uechAVjeX_Okb-SKSR8UunmvFTOzTxL_rLNw';
+  const WIDE_QR = Array.from({ length: 3 }, () => '█'.repeat(45)).join('\n');
+
+  // Rejoin the wrapped URL by removing the box chrome and whitespace it wraps around.
+  const compact = (frame: string): string => frame.replace(/[\s│╭╮╰╯─]/g, '');
+
+  it.each([80, 40])('keeps every rendered line within %i columns and wraps the whole long URL inside the border', (columns) => {
+    const frame = plain(renderPairingCard({ ...card, url: LONG_URL, qr: WIDE_QR }, columns));
+    const lines = frame.split('\n');
+    expect(lines.every((line) => [...line].length <= columns)).toBe(true);
+    expect(frame).toContain('ABCD-2345');
+    // The URL is wrapped but complete — not truncated.
+    expect(compact(frame)).toContain(LONG_URL);
+  });
+
+  it('omits the QR when the terminal is too narrow, keeping the code and wrapped URL', () => {
+    const frame = plain(renderPairingCard({ ...card, url: LONG_URL, qr: WIDE_QR }, 40));
+    expect(frame).not.toContain('█'); // a 45-wide QR does not fit 40 columns
+    expect(frame).toContain('ABCD-2345');
+    expect(compact(frame)).toContain(LONG_URL);
+  });
 });
 // harn:end setup-verifies-codor-before-creating-pairing-code

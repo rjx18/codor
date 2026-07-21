@@ -294,32 +294,55 @@ export interface PairingCardData {
   instruction: string;
 }
 
+function wrapText(text: string, width: number): string[] {
+  const chars = [...text];
+  if (width <= 0 || chars.length <= width) return [text];
+  const out: string[] = [];
+  for (let index = 0; index < chars.length; index += width) out.push(chars.slice(index, index + width).join(''));
+  return out;
+}
+
 // harn:assume setup-verifies-codor-before-creating-pairing-code ref=setup-pairing-card
-/** The final pairing result: the QR with padding, then a bordered card with the
- *  prominent accent-colored code, the high-contrast URL, and the warning-colored
- *  expiry. Built only from the offer — the raw authority token is never passed
- *  in, so it can never be shown. */
-export function renderPairingCard(card: PairingCardData): string {
-  const rows = [
-    { plain: `Code     ${card.code}`, rendered: `${style.gray('Code')}     ${style.cyan(style.bold(card.code))}` },
-    { plain: `Open     ${card.url}`, rendered: `${style.gray('Open')}     ${style.cyan(card.url)}` },
-    { plain: `Expires  ${card.expires}`, rendered: `${style.gray('Expires')}  ${style.yellow(card.expires)}` },
-  ];
-  const inner = Math.max(...rows.map((row) => row.plain.length));
-  const border = (left: string, right: string): string => style.dim(`${left}${'─'.repeat(inner + 4)}${right}`);
-  const blank = `${style.dim('│')}${' '.repeat(inner + 4)}${style.dim('│')}`;
-  const row = (entry: { plain: string; rendered: string }): string =>
-    `${style.dim('│')}  ${entry.rendered}${' '.repeat(inner - entry.plain.length)}  ${style.dim('│')}`;
-  const box = [border('╭', '╮'), blank, ...rows.map(row), blank, border('╰', '╯')];
-  const qrLines = card.qr.split('\n').map((line) => `    ${line}`);
+/** The final pairing result: a width-aware bordered card. The URL and
+ *  instruction wrap inside the border, every rendered line stays within the
+ *  terminal width, and the QR is shown with padding only when it fits — when the
+ *  terminal is too narrow it is omitted while the code and wrapped URL remain.
+ *  Built only from the offer, so the raw authority token can never be shown. */
+export function renderPairingCard(card: PairingCardData, columns = 80): string {
+  const margin = '    ';
+  const box = Math.max(16, columns - margin.length); // outer box width
+  const inner = box - 4; // content width inside "│ … │"
+  const label = (name: string): string => `${name}${' '.repeat(Math.max(1, 9 - name.length))}`;
+
+  const content: Array<{ plain: string; rendered: string }> = [];
+  content.push({ plain: `${label('Code')}${card.code}`, rendered: `${style.gray(label('Code'))}${style.cyan(style.bold(card.code))}` });
+  wrapText(card.url, Math.max(1, inner - 9)).forEach((chunk, index) => {
+    const prefix = index === 0 ? label('Open') : ' '.repeat(9);
+    content.push({ plain: `${prefix}${chunk}`, rendered: `${style.gray(prefix)}${style.cyan(chunk)}` });
+  });
+  content.push({ plain: `${label('Expires')}${card.expires}`, rendered: `${style.gray(label('Expires'))}${style.yellow(card.expires)}` });
+  content.push({ plain: '', rendered: '' });
+  for (const chunk of wrapText(card.instruction, inner)) content.push({ plain: chunk, rendered: style.dim(chunk) });
+
+  const border = (left: string, right: string): string => style.dim(`${left}${'─'.repeat(inner + 2)}${right}`);
+  const blank = `${style.dim('│')} ${' '.repeat(inner)} ${style.dim('│')}`;
+  const line = (entry: { plain: string; rendered: string }): string =>
+    `${style.dim('│')} ${entry.rendered}${' '.repeat(Math.max(0, inner - [...entry.plain].length))} ${style.dim('│')}`;
+  const boxLines = [border('╭', '╮'), blank, ...content.map(line), blank, border('╰', '╯')];
+
+  // The QR is shown only when it fits within the terminal width; otherwise it is
+  // omitted and the code plus wrapped URL still carry the pairing.
+  const qrLines = card.qr.split('\n');
+  const qrWidth = Math.max(0, ...qrLines.map((qrLine) => [...qrLine].length));
+  const qrBlock = qrWidth > 0 && qrWidth + margin.length <= columns
+    ? ['', ...qrLines.map((qrLine) => `${margin}${qrLine}`)]
+    : [];
+
   return [
+    ...qrBlock,
     '',
-    ...qrLines,
-    '',
-    `    ${style.bold('Pair a browser')}`,
-    ...box.map((line) => `    ${line}`),
-    '',
-    `    ${style.dim(card.instruction)}`,
+    `${margin}${style.bold('Pair a browser')}`,
+    ...boxLines.map((boxLine) => `${margin}${boxLine}`),
     '',
   ].join('\n');
 }

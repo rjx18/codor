@@ -59,6 +59,17 @@ describe('configureTailscaleServe', () => {
     })).toThrow(/Serve command failed: serve: not logged in/);
   });
 
+  it('preserves the full multiline diagnostic, including a later actionable stderr line', () => {
+    // The actionable guidance is on a later stderr line, not the first message line.
+    const error = Object.assign(new Error('serve: access denied'), {
+      stderr: 'enable Tailscale Serve for your tailnet in the admin console, then retry',
+    });
+    expect(() => configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
+      if (args[0] === 'serve' && args[1] === '--bg') throw error;
+      return '';
+    })).toThrow(/enable Tailscale Serve for your tailnet in the admin console/);
+  });
+
   it('wraps a serve status command failure as the Serve-command-failed category', () => {
     expect(() => configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
       if (args.join(' ') === 'serve status') throw new Error('serve status: connection refused');

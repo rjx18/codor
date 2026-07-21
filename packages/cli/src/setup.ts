@@ -20,6 +20,7 @@ import {
   installDurableRuntime,
   installedCliRoot,
   resolveInstallSource,
+  type InstallIntent,
   type InstallIo,
 } from './runtime-install.js';
 import {
@@ -381,13 +382,18 @@ export function configureTailscaleServe(
   localEndpoint: string,
   exec: (command: string, args: string[]) => string,
 ): string {
-  const firstLine = (error: unknown): string => (error instanceof Error ? error.message : String(error)).split('\n')[0]!.trim();
+  // Preserve the full message and stderr: real permission/operator guidance often
+  // lands on a later line (the same class of bug fixed for launchctl).
+  const diagnostic = (error: unknown): string => {
+    const err = error as { message?: string; stderr?: string | Buffer };
+    return [err.message, err.stderr?.toString()].filter(Boolean).join('\n').trim() || String(error);
+  };
   let status: string;
   try {
     exec(tailscalePath, ['serve', '--bg', localEndpoint]);
     status = exec(tailscalePath, ['serve', 'status']);
   } catch (error) {
-    throw new Error(`Tailscale Serve command failed: ${firstLine(error)}`);
+    throw new Error(`Tailscale Serve command failed: ${diagnostic(error)}`);
   }
   const origin = status.match(/https:\/\/[^\s/]+/)?.[0];
   if (origin === undefined) throw new Error('Tailscale Serve did not report a private HTTPS origin');
@@ -744,18 +750,18 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     return 'config and mode-600 token ready';
   };
 
-  // harn:assume setup-installs-durable-per-user-runtime ref=setup-install-runtime-wiring
+  // harn:assume setup-installs-durable-per-user-runtime-atomically ref=setup-install-runtime-wiring
   // Install Codor: make the invoking runtime durable (so the service never
   // references an npx cache), then create the private config, data, and token.
-  const installStep = (log: (message: string) => void, forceReinstall = false): string => {
-    const result = installDurableRuntime({ runtime, dataDir, version, forceReinstall, io: installIo });
+  const installStep = (log: (message: string) => void, intent: InstallIntent = 'ensure'): string => {
+    const result = installDurableRuntime({ runtime, dataDir, version, intent, io: installIo });
     log(result.action === 'in-place'
       ? `using the Codor runtime in place at ${result.location}`
-      : `${result.action} a durable Codor runtime at ${result.location}`);
+      : `${result.action} the Codor ${result.version} runtime at ${result.location}`);
     prepareStep(log);
-    return `Codor ${version} at ${result.location}`;
+    return `Codor ${result.version} at ${result.location}`;
   };
-  // harn:end setup-installs-durable-per-user-runtime
+  // harn:end setup-installs-durable-per-user-runtime-atomically
 
   // Non-interactive access selection (used by --yes and the linear fallback).
   const chooseStep = (log: (message: string) => void, choice: string | undefined): string => {
@@ -865,6 +871,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     return `code ${pairing.code}`;
   };
 
+  const cardColumns = overrides.streams?.output?.columns ?? process.stdout.columns ?? 80;
   const emitPairing = (): void => {
     options.out(renderPairingCard({
       code: pairing!.code,
@@ -872,7 +879,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       expires: pairing!.expires,
       qr: pairing!.qr,
       instruction: 'Scan the QR or enter the code in your browser to finish pairing.',
-    }));
+    }, cardColumns));
   };
 
   if (interactive) {
@@ -899,7 +906,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
           message: `Update Codor from ${existingInstall.version} to ${version}?`,
           options: [
             { id: 'update', label: 'Update Codor', description: 'Re-copy the durable runtime at the new version.', available: true },
-            { id: 'continue', label: 'Keep current', description: `Keep ${existingInstall.version} and ensure your private files.`, available: true },
+            { id: 'keep', label: 'Keep current', description: `Keep ${existingInstall.version} and ensure your private files.`, available: true },
             { id: 'later', label: 'Not now', description: 'Do not change anything.', available: true },
           ],
         };
@@ -913,7 +920,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
         menu: installMenu,
         run: async ({ log, choice }) => (choice === 'later'
           ? { skip: true, summary: '(run codor install when ready)', skipFollowing: true }
-          : installStep(log, choice === 'update')),
+          : installStep(log, choice === 'update' ? 'update' : choice === 'keep' ? 'keep' : 'ensure')),
       },
       {
         title: stepTitles[2],
