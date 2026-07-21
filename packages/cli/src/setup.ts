@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, release } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, isAbsolute } from 'node:path';
 
 import { CryptoVault, pairingUrl } from '@codor/switchboard';
 
@@ -235,6 +235,76 @@ function renderLaunchAgent(options: LaunchAgentOptions): string {
 `;
 }
 // harn:end operator-launches-serve-web-next
+
+export interface LaunchAgentBootstrap {
+  exec(command: string, args: string[]): string;
+  probe(endpoint: string): Promise<boolean>;
+  sleep(milliseconds: number): Promise<void>;
+  domain: string;
+  target: string;
+  plistPath: string;
+  nodePath: string;
+  endpoint: string;
+  log(message: string): void;
+}
+
+// harn:assume setup-macos-launchd-recovers-from-transient-bootstrap ref=launchd-bootstrap-recovery
+/**
+ * Bootstrap the per-user LaunchAgent, recovering from a transient
+ * `Bootstrap failed: 5: Input/output error`. Codor's HTTP health is
+ * authoritative: a bootstrap error against an already-answering daemon is not a
+ * failure and the daemon is not restarted. Never suggests root.
+ */
+export async function bootstrapLaunchAgent(deps: LaunchAgentBootstrap): Promise<void> {
+  const { exec, probe, sleep, domain, target, plistPath, nodePath, endpoint, log } = deps;
+  const MAX_ATTEMPTS = 3;
+  const RETRY_DELAY_MS = 500;
+
+  // Validate before unloading anything, so a broken install never tears down a
+  // working prior instance. The plist must exist; the executable it points at
+  // must be an absolute path (its existence is the operator's macOS, not this
+  // host's, so it is not stat-ed here).
+  if (!existsSync(plistPath)) throw new Error(`the LaunchAgent plist is missing at ${plistPath}`);
+  if (!isAbsolute(nodePath)) throw new Error(`the LaunchAgent Node path must be absolute, got ${nodePath}`);
+
+  const bootout = (): void => { try { exec('launchctl', ['bootout', target]); } catch { /* not loaded */ } };
+  const printSummary = (): string => {
+    try {
+      const printed = exec('launchctl', ['print', target]).trim();
+      const line = printed.split('\n').map((entry) => entry.trim()).find((entry) => entry.length > 0);
+      return line === undefined ? '' : ` (launchctl print: ${line})`;
+    } catch { return ''; }
+  };
+
+  bootout();
+  let bootstrapped = false;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      exec('launchctl', ['bootstrap', domain, plistPath]);
+      bootstrapped = true;
+      break;
+    } catch (error) {
+      const message = (error instanceof Error ? error.message : String(error)).split('\n')[0]!.trim();
+      // API health decides whether this error matters, not launchctl's exit code.
+      if (await probe(endpoint)) {
+        log('Codor was already loaded and healthy; keeping it running');
+        return;
+      }
+      const retryable = /input\/output error|bootstrap failed: 5\b/i.test(message);
+      if (attempt >= MAX_ATTEMPTS || !retryable) {
+        throw new Error(`launchctl could not start the Codor LaunchAgent: ${message}${printSummary()}`);
+      }
+      log(`launchctl bootstrap did not take (attempt ${String(attempt)}); unloading and retrying`);
+      bootout();
+      await sleep(RETRY_DELAY_MS);
+    }
+  }
+  if (bootstrapped) {
+    exec('launchctl', ['enable', target]);
+    exec('launchctl', ['kickstart', '-k', target]);
+  }
+}
+// harn:end setup-macos-launchd-recovers-from-transient-bootstrap
 
 // harn:assume windows-setup-installs-private-task-service ref=windows-service-rendering
 export function renderWindowsServiceScript(options: {
@@ -525,10 +595,15 @@ export async function runSetup(options: SetupOptions): Promise<void> {
         dataDir, logDir, nodePath, runtime, servicePath, token,
       }), { encoding: 'utf8', mode: 0o600 });
       chmodSync(launchAgentPath, 0o600);
-      try { exec('launchctl', ['bootout', launchTarget!]); } catch { /* first install */ }
-      exec('launchctl', ['bootstrap', launchDomain!, launchAgentPath]);
-      exec('launchctl', ['enable', launchTarget!]);
-      exec('launchctl', ['kickstart', '-k', launchTarget!]);
+      await bootstrapLaunchAgent({
+        exec, probe, sleep,
+        domain: launchDomain!,
+        target: launchTarget!,
+        plistPath: launchAgentPath,
+        nodePath,
+        endpoint,
+        log,
+      });
     } else {
       mkdirSync(logDir, { recursive: true });
       writeFileSync(windowsScriptPath, windowsScript!, 'utf8');
