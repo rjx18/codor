@@ -1,0 +1,59 @@
+id: codor-install-pairing-card
+title: >-
+  Phase 4 - a spacious bordered pairing result card with a prominent code, and no
+  raw token
+notes: >-
+  Fifth phase. Replace the plain pairing output with a padded, bordered result
+  card: the QR with padding, the eight-character pairing code prominent in the
+  accent color, the pairing URL in a high-contrast color, the expiry in a warning
+  color, and a short next-step instruction. The card is built only from the
+  pairing offer (code, URL, expiry, QR); the raw authority token is never passed
+  to it, so it cannot be displayed. Purely a presentation upgrade of the final
+  stage.
+assumptions:
+  reviewed:
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: The final stage still displays one QR, the byte-identical pairing URL,
+        the formatted eight-character code, and the expiry after the readiness
+        probe; it now renders them in a bordered card. The raw authority token is
+        still never displayed - the card receives only the offer fields.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: emitPairing renders the card instead of plain lines; no service or
+        mutation behavior changes.
+anchors:
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-pairing-card:
+      action: change
+      reason: New renderPairingCard produces the bordered result card from the offer.
+    setup-pairing-card-regression:
+      action: change
+      reason: New regression for the card layout and token-free content.
+    setup-readiness-and-pairing-regression:
+      action: change
+      reason: The pairing integration assertion updates to the card format and keeps
+        the token-absence check.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: emitPairing renders the card.
+  windows-setup-installs-private-task-service:
+    windows-setup-runtime:
+      action: keep
+      reason: The change is inside the nested platform-service region.
+files:
+  - packages/cli/src/setup-ui.ts
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-ui.spec.ts
+  - packages/cli/src/index.spec.ts
+verification: >
+  - renderPairingCard renders a bordered card containing the QR, the prominent
+    accent-colored eight-character code, the URL in a high-contrast color, the
+    expiry in a warning color, and a next-step line; it receives no token and
+    shows none.
+
+  - emitPairing emits the card; the pairing contract (readiness before display,
+    no enrollment claim) is unchanged.
+
+  - setup UI/flow/session/PTY suites, tsc build, and harn check pass.
