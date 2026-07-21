@@ -1,0 +1,15 @@
+id: browser-created-channel-delivers-its-room-key
+hash: a-081bc586395f
+title: A paired browser receives the encryption key for a room it creates
+state: active
+statement: When a browser-device principal creates a room, the server must
+  include that room's current key sealed only to the creating device and the
+  browser must open and persist it before treating creation as complete;
+  operator-token and non-crypto responses remain compatible, because a device
+  paired before the room existed otherwise opens a channel whose encrypted
+  history it cannot read.
+depends_on:
+  - ed25519-identity-x25519-encryption
+  - paired-browser-challenge-session
+  - channel-creation-derived-and-seeded
+created_by: codor-first-channel-onboarding

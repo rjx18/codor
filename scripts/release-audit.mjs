@@ -90,6 +90,7 @@ for (const path of existingTracked.filter((candidate) =>
 // harn:end release-audits-enforce-codor-clean-break
 
 const landingSource = await readFile(new URL('../packages/web-next/src/surfaces/LandingPage.tsx', import.meta.url), 'utf8');
+const firstChannelSource = await readFile(new URL('../packages/web-next/src/surfaces/NoChannels.tsx', import.meta.url), 'utf8');
 
 // harn:assume unpaired-root-offers-two-step-local-setup ref=landing-setup-truth-audit
 assert.equal((landingSource.match(/className="nx-setup-step"/g) ?? []).length, 2, 'landing setup must have exactly two steps');
@@ -104,5 +105,13 @@ assert.match(landingSource, /prefers-reduced-motion: reduce/);
 assert.match(landingSource, /Pause demo/);
 assert.match(landingSource, /phase >= FINAL_PHASE/);
 // harn:end landing-demo-plays-once-and-settles
+
+// harn:assume paired-empty-state-creates-first-channel ref=first-channel-onboarding-audit
+assert.match(firstChannelSource, /createRoom\(/);
+assert.match(firstChannelSource, /first-channel-name/);
+assert.match(firstChannelSource, /nameEdited/);
+assert.match(firstChannelSource, /AgentControls/);
+assert.doesNotMatch(firstChannelSource, /Create one from another surface/);
+// harn:end paired-empty-state-creates-first-channel
 
 process.stdout.write('release audit passed: pre-tag gates, rename, relay disclosure, and acceptance provenance\n');

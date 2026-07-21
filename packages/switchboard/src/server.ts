@@ -636,7 +636,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       const body = CreateRoomRequestSchema.parse(req.body);
       const created = daemon.createRoom(body);
       options.crypto?.roomKeys.ensureRoom(created.room.id);
-      return reply.send(created);
+      // harn:assume browser-created-channel-delivers-its-room-key ref=browser-room-key-response
+      // Pairing can only seal rooms that already exist. A device that creates a
+      // later room therefore needs that one additive envelope before it opens
+      // the room; operator tokens have no device key and keep the old response.
+      const roomKey = principal.kind === 'browser'
+        ? options.crypto?.roomKeys.sealedFor(principal.deviceId)
+          .find((candidate) => candidate.room === created.room.id)
+        : undefined;
+      return reply.send({ ...created, ...(roomKey !== undefined && { room_key: roomKey }) });
+      // harn:end browser-created-channel-delivers-its-room-key
     } catch (error) {
       return reply.code(400).send({ error: String(error) });
     }

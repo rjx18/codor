@@ -13,6 +13,7 @@ import { Daemon, MAX_ATTACHMENT_BYTES } from './daemon.js';
 import { BlobStore } from './blobs.js';
 import { signChallenge, type AuthChallenge } from './crypto/challenge.js';
 import { CryptoVault, PAIRING_CODE_ALPHABET } from './crypto/pairing.js';
+import { openSealedBox } from './crypto/roomkeys.js';
 import { FakeAdapter } from './fake-adapter.js';
 import { LedgerManager } from './ledger/watch.js';
 import { isPipePath, localSocketPath } from './local-socket.js';
@@ -1755,6 +1756,45 @@ describe('Phase 3 REST boundaries', () => {
     });
     expect((await second.json() as { room: { id: string } }).room.id).toBe('demo-site-2');
   });
+
+  // harn:assume browser-created-channel-delivers-its-room-key ref=browser-room-key-regression
+  it('returns a new room key only to the paired browser that created it', async () => {
+    const browser = new CryptoVault(join(dir, 'creating-browser'));
+    const peer = crypto.keys.enrollPeer({
+      ...browser.keys.publicIdentity(), kind: 'device', label: 'creating browser',
+    });
+    crypto.roomKeys.enrollPeer(peer);
+    const browserToken = await authenticateDevice(browser);
+
+    const response = await fetch(`${base}/api/rooms`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${browserToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'First Browser Room',
+        owner: { handle: 'browser-owner', display_name: 'Browser Owner' },
+      }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      room: { id: string };
+      room_key: { room: string; generation: number; sealed_key: string };
+    };
+    expect(body.room_key).toMatchObject({ room: body.room.id, generation: 1 });
+    expect(openSealedBox(body.room_key.sealed_key, browser.keys.identity))
+      .toEqual(crypto.roomKeys.roomKey(body.room.id));
+
+    const operatorResponse = await fetch(`${base}/api/rooms`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Operator Room',
+        owner: { handle: 'operator-owner', display_name: 'Operator Owner' },
+      }),
+    });
+    expect(await operatorResponse.json()).not.toHaveProperty('room_key');
+    browser.close();
+  });
+  // harn:end browser-created-channel-delivers-its-room-key
 
   it('lists only home-contained directories for admins with precise status codes', async () => {
     mkdirSync(join(dir, 'alpha'));

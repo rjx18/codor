@@ -1,0 +1,16 @@
+id: paired-empty-state-creates-first-channel
+hash: a-2162cf4d88c7
+title: A paired owner can create and enter the first channel in place
+state: active
+statement: A paired owner with a confirmed empty room list must see a complete
+  first-channel form that creates an authoritative room, keeps an
+  operator-edited channel name stable when the project folder changes, accepts a
+  valid owner identity, optionally seeds an adapter-driven agent, surfaces
+  failures in place, and navigates without putting the bearer token in the URL;
+  because an empty account must not strand a new operator on instructions to use
+  another surface.
+depends_on:
+  - channel-creation-derived-and-seeded
+  - web-room-rail-creates-owner-room
+  - one-control-chooses-an-agent-everywhere
+created_by: codor-first-channel-onboarding

@@ -18,6 +18,7 @@ import './styles/base.css';
 import './styles/primitives.css';
 import './styles/room.css';
 import './styles/landing.css';
+import './styles/onboarding.css';
 
 applyThemeChoice();
 
@@ -93,7 +94,7 @@ async function render(): Promise<void> {
       // A successful, genuinely empty authorization: say so, open nothing.
       if (rememberedRoom() !== undefined) forgetRoom();
       const { NoChannels } = await import('./surfaces/NoChannels.js');
-      return <NoChannels />;
+      return <NoChannels token={token} />;
     }
     // A stale or invalid remembered id is discarded rather than carried.
     const remembered = rememberedRoom();

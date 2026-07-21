@@ -7,6 +7,8 @@ import type {
   WireEvent,
 } from '@codor/protocol';
 
+import { openForBrowser, persistBrowserRoomKey } from './crypto.js';
+
 export interface ApiOptions {
   token: string;
   origin?: string;
@@ -157,7 +159,21 @@ export async function createRoom(
   input: CreateRoomRequest,
   options: ApiOptions,
 ): Promise<Room> {
-  const created = await sendJson<{ room: Room }>('/api/rooms', 'POST', input, options);
+  const created = await sendJson<{
+    room: Room;
+    room_key?: { room: string; generation: number; sealed_key: string };
+  }>('/api/rooms', 'POST', input, options);
+  if (created.room_key !== undefined) {
+    if (created.room_key.room !== created.room.id) {
+      throw new Error('created channel key does not match the created channel');
+    }
+    const roomKey = await openForBrowser(created.room_key.sealed_key);
+    await persistBrowserRoomKey(
+      created.room_key.room,
+      created.room_key.generation,
+      roomKey,
+    );
+  }
   return created.room;
 }
 // harn:end channel-accent-projects-accessibly-across-themes

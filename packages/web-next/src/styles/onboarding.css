@@ -1,0 +1,99 @@
+.nx-onboarding {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  justify-items: center;
+  gap: 32px;
+  padding: clamp(42px, 7vw, 80px) 20px;
+  background:
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--c-accent) 9%, transparent), transparent 30rem),
+    var(--c-canvas);
+}
+
+.nx-onboarding-head {
+  width: min(720px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.nx-onboarding-mark {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 6px;
+  background: var(--c-ink);
+  mask: url('/codor-mark.svg') center / contain no-repeat;
+}
+
+.nx-onboarding-head h1 {
+  margin: 0;
+  font: 620 clamp(34px, 5vw, 52px)/1.02 var(--f-sans);
+  letter-spacing: -0.045em;
+}
+
+.nx-onboarding-head > p:last-child {
+  max-width: 570px;
+  margin: 0;
+  color: var(--c-secondary);
+  font: var(--t-body);
+}
+
+.nx-onboarding-card {
+  width: min(720px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px;
+  padding: clamp(22px, 4vw, 38px);
+  border: 1px solid var(--c-line);
+  border-radius: 24px;
+  background: var(--c-surface);
+  box-shadow: var(--e-float);
+}
+
+.nx-onboarding-card .nx-sec { gap: 20px; }
+.nx-onboarding-card .nx-picker-list { max-height: 174px; }
+.nx-first-agent { display: grid; gap: 18px; }
+.nx-first-agent .nx-agent-embedded-group { display: grid; gap: 18px; }
+
+.nx-first-later {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--r-control);
+  background: var(--c-muted);
+  color: var(--c-secondary);
+  font: var(--t-ui);
+}
+
+.nx-first-error { margin: 0; }
+
+.nx-onboarding-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-top: 22px;
+  border-top: 1px solid var(--c-line);
+}
+
+.nx-onboarding-actions > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--c-faded);
+  font: var(--t-caption);
+}
+
+.nx-onboarding-actions .nx-btn { gap: 8px; white-space: nowrap; }
+
+@media (max-width: 520px) {
+  .nx-onboarding { padding: 28px 10px; gap: 24px; }
+  .nx-onboarding-card { padding: 20px 12px; border-radius: 18px; }
+  .nx-onboarding-actions { align-items: stretch; flex-direction: column; }
+  .nx-onboarding-actions .nx-btn { width: 100%; }
+  .nx-onboarding-actions > span { justify-content: center; text-align: center; }
+}
