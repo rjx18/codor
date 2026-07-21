@@ -306,6 +306,58 @@ export async function bootstrapLaunchAgent(deps: LaunchAgentBootstrap): Promise<
 }
 // harn:end setup-macos-launchd-recovers-from-transient-bootstrap
 
+const TAILSCALE_MACOS_LOCATIONS = [
+  '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
+] as const;
+
+// harn:assume setup-resolves-and-capability-probes-tailscale-serve ref=tailscale-resolution
+/** Resolve the Tailscale CLI through PATH, then standard macOS app locations. */
+export function resolveTailscale(
+  which: (command: string) => string | undefined,
+  platform: NodeJS.Platform,
+  exists: (path: string) => boolean = existsSync,
+): string | undefined {
+  const onPath = which('tailscale');
+  if (onPath !== undefined) return onPath;
+  if (platform === 'darwin') {
+    for (const location of TAILSCALE_MACOS_LOCATIONS) if (exists(location)) return location;
+  }
+  return undefined;
+}
+
+/** Capability-probe the resolved CLI for Serve support (not an OS allowlist). */
+export function tailscaleServeSupported(
+  tailscalePath: string,
+  exec: (command: string, args: string[]) => string,
+): boolean {
+  try {
+    exec(tailscalePath, ['serve', '--help']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Publish Serve through the resolved absolute path and return the HTTPS origin.
+ *  Throws a distinct diagnostic when the serve command itself fails. */
+export function configureTailscaleServe(
+  tailscalePath: string,
+  localEndpoint: string,
+  exec: (command: string, args: string[]) => string,
+): string {
+  try {
+    exec(tailscalePath, ['serve', '--bg', localEndpoint]);
+  } catch (error) {
+    const message = (error instanceof Error ? error.message : String(error)).split('\n')[0]!.trim();
+    throw new Error(`Tailscale Serve command failed: ${message}`);
+  }
+  const status = exec(tailscalePath, ['serve', 'status']);
+  const origin = status.match(/https:\/\/[^\s/]+/)?.[0];
+  if (origin === undefined) throw new Error('Tailscale Serve did not report a private HTTPS origin');
+  return origin;
+}
+// harn:end setup-resolves-and-capability-probes-tailscale-serve
+
 // harn:assume windows-setup-installs-private-task-service ref=windows-service-rendering
 export function renderWindowsServiceScript(options: {
   dataDir: string;
@@ -421,7 +473,8 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     const path = which(harness);
     return path === undefined ? [] : [{ harness, path }];
   });
-  const tailscalePath = which('tailscale');
+  const tailscalePath = resolveTailscale(which, platform);
+  const tailscaleServe = tailscalePath !== undefined && tailscaleServeSupported(tailscalePath, exec);
   const servicePath = uniquePath([
     join(home, '.local', 'bin'),
     dirname(nodePath),
@@ -519,7 +572,10 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   // Shared state the steps thread through. `pairing` and `serviceStarted` are
   // memoized so a Retry re-runs the step's work idempotently: the daemon is not
   // restarted and the pairing code is not re-minted.
-  let endpoint = 'http://127.0.0.1:8137';
+  // The readiness probe always targets the local daemon; the pairing endpoint
+  // becomes the tailnet HTTPS origin only when Tailscale Serve succeeds.
+  const localEndpoint = 'http://127.0.0.1:8137';
+  let endpoint = localEndpoint;
   let selectedAccess: SetupAccess | undefined = options.access;
   let pairing: { code: string; expires: string; qr: string; url: string } | undefined;
   let serviceStarted = false;
@@ -554,18 +610,27 @@ export async function runSetup(options: SetupOptions): Promise<void> {
 
   const chooseStep = (log: (message: string) => void, choice: string | undefined): string => {
     if (choice !== 'localhost' && choice !== 'tailscale') throw new Error('setup requires an access choice');
-    if (choice === 'tailscale' && tailscalePath === undefined) {
-      throw new Error('--access tailscale requires the tailscale CLI on PATH');
+    if (choice === 'localhost') {
+      selectedAccess = 'localhost';
+      endpoint = localEndpoint;
+      log('localhost only');
+      return 'Localhost';
     }
-    selectedAccess = choice;
-    log(choice === 'localhost' ? 'localhost only' : 'private Tailscale Serve');
-    return choice === 'localhost' ? 'Localhost' : 'Tailscale Serve';
+    // Tailscale: resolve, capability-check, and publish Serve here so a failure
+    // keeps the operator in this step with Retry/Back and the daemon is not yet
+    // running to be disturbed.
+    if (tailscalePath === undefined) throw new Error('Tailscale is not installed; pick localhost or install Tailscale');
+    if (!tailscaleServe) throw new Error('this Tailscale CLI does not support Serve; pick localhost');
+    endpoint = configureTailscaleServe(tailscalePath, localEndpoint, exec);
+    selectedAccess = 'tailscale';
+    log(`private browser origin ${endpoint}`);
+    return 'Tailscale Serve';
   };
 
   const startStep = async (log: (message: string) => void): Promise<string> => {
     // A Retry must not reinstall or restart a daemon that is already up; when
     // the service was started this run and still answers, short-circuit.
-    if (serviceStarted && await probe(endpoint)) {
+    if (serviceStarted && await probe(localEndpoint)) {
       log('Codor is already running; reusing it');
       return 'service already running';
     }
@@ -601,7 +666,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
         target: launchTarget!,
         plistPath: launchAgentPath,
         nodePath,
-        endpoint,
+        endpoint: localEndpoint,
         log,
       });
     } else {
@@ -611,16 +676,9 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       exec('schtasks', ['/Create', '/TN', 'Codor Switchboard', '/XML', windowsTaskPath, '/F']);
       exec('schtasks', ['/Run', '/TN', 'Codor Switchboard']);
     }
-    await waitForCodor(endpoint, probe, sleep);
+    await waitForCodor(localEndpoint, probe, sleep);
     log('Codor answered its pairing status check');
     if (systemdBindHost === '0.0.0.0') log('WSL2 NAT is reachable through Windows localhost');
-    if (selectedAccess === 'tailscale') {
-      exec('tailscale', ['serve', '--bg', endpoint]);
-      const status = exec('tailscale', ['serve', 'status']);
-      endpoint = status.match(/https:\/\/[^\s/]+/)?.[0]
-        ?? (() => { throw new Error('Tailscale Serve did not report a private HTTPS origin'); })();
-      log(`private browser origin ${endpoint}`);
-    }
     return 'service enabled and answering';
   };
 
@@ -657,7 +715,16 @@ export async function runSetup(options: SetupOptions): Promise<void> {
           message: 'Choose how you will reach Codor.',
           options: [
             { id: 'localhost', label: 'Localhost', description: 'This computer only.', available: true },
-            { id: 'tailscale', label: 'Tailscale Serve', description: 'Private access from your tailnet.', available: tailscalePath !== undefined },
+            {
+              id: 'tailscale',
+              label: 'Tailscale Serve',
+              description: tailscalePath === undefined
+                ? 'Tailscale is not installed on this computer.'
+                : tailscaleServe
+                  ? 'Private access from your tailnet.'
+                  : 'This Tailscale CLI does not support Serve.',
+              available: tailscaleServe,
+            },
           ],
         },
         run: async ({ log, choice }) => chooseStep(log, choice),

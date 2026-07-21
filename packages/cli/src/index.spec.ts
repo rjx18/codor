@@ -548,7 +548,9 @@ describe('@codor/cli', () => {
         exec: (command, args) => {
           commands.push([command, ...args].join(' '));
           if (command === 'loginctl') return 'no';
-          if (command === 'tailscale' && args.join(' ') === 'serve status') {
+          // Serve is invoked through the resolved absolute path now, not the
+          // bare command name; match on the arguments.
+          if (args.join(' ') === 'serve status') {
             return 'https://setup-host.example.ts.net (tailnet only)';
           }
           return '';
@@ -589,12 +591,15 @@ describe('@codor/cli', () => {
     expect(readFileSync(envPath, 'utf8')).toContain(
       `PATH=${join(home, '.local', 'bin')}:/opt/node/bin:/usr/bin`,
     );
+    // Tailscale is resolved to an absolute path, capability-probed, and Serve is
+    // published during Choose access — before the daemon is started.
     expect(commands).toEqual([
+      '/usr/bin/tailscale serve --help',
+      '/usr/bin/tailscale serve --bg http://127.0.0.1:8137',
+      '/usr/bin/tailscale serve status',
       'systemctl --user daemon-reload',
       'systemctl --user enable --now codor.service',
       'loginctl show-user setup-test -p Linger --value',
-      'tailscale serve --bg http://127.0.0.1:8137',
-      'tailscale serve status',
     ]);
     expect(qrPayload).toBe(output[output.indexOf('<setup-qr>') + 1]);
     expect(new URL(qrPayload!).origin).toBe('https://setup-host.example.ts.net');
