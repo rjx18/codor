@@ -1,0 +1,15 @@
+id: public-install-is-the-primary-command-with-setup-alias
+hash: a-66a0afff3607
+title: The public installer command is install, with setup as a compatible alias
+state: active
+statement: The CLI must register the installer as the primary command `install`
+  with `setup` retained as a backward-compatible alias, so that both `codor
+  install` and `codor setup` run the identical configuration and first-pairing
+  flow with the same --dry-run, --yes, and --access options and the same
+  non-interactive guard, and so that the packed public artifact resolves `npx
+  --package=<tgz> codor install`, because the published landing command is
+  `codor install` and existing `codor setup` usage and documentation must keep
+  working.
+depends_on:
+  - setup-unattended-mutation-requires-explicit-intent
+created_by: codor-setup-install-command

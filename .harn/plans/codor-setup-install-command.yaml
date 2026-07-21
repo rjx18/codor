@@ -1,14 +1,14 @@
 id: codor-setup-install-command
-title: Make install the primary public command with setup as a backward-compatible alias
-notes: >-
-  Plan D of the installer overhaul (Codex #460.5, #462.5). Richard's published
-  install command from #434 is `npx --package=<tgz> codor install`, but the CLI
-  only registers `setup`, so `codor install` errors with "unknown command
-  'install'". This makes `install` the primary command and keeps `setup` as a
-  backward-compatible alias: both run the identical configure-and-pair flow,
-  both appear in help, and both enforce the same non-TTY unattended guard. The
-  packed artifact runs `codor install` because install is an ordinary
-  subcommand dispatched by runCli.
+title: Make install the primary public command with setup as a
+  backward-compatible alias
+notes: "Plan D of the installer overhaul (Codex #460.5, #462.5). Richard's
+  published install command from #434 is `npx --package=<tgz> codor install`,
+  but the CLI only registers `setup`, so `codor install` errors with \"unknown
+  command 'install'\". This makes `install` the primary command and keeps
+  `setup` as a backward-compatible alias: both run the identical
+  configure-and-pair flow, both appear in help, and both enforce the same
+  non-TTY unattended guard. The packed artifact runs `codor install` because
+  install is an ordinary subcommand dispatched by runCli."
 assumptions:
   create:
     - id: public-install-is-the-primary-command-with-setup-alias
@@ -33,9 +33,9 @@ assumptions:
         change, and the action body is identical.
     - id: human-facing-surfaces-call-rooms-channels
       outcome: unchanged
-      reason: The rooms-are-channels contract is unchanged. The command-list regression
-        is updated only to name the installer command install where it named
-        setup.
+      reason: The rooms-are-channels contract is unchanged. The command-list
+        regression is updated only to name the installer command install where
+        it named setup.
 anchors:
   public-install-is-the-primary-command-with-setup-alias:
     install-command-alias:
@@ -69,4 +69,7 @@ verification: >
     `npx --package=<tgz> codor install --dry-run` offline and prints the rendered
     service content — the exact public command Richard reported.
 
-  - Existing setup regressions that invoke `codor setup` still pass via the alias.
+  - Existing setup regressions that invoke `codor setup` still pass via the
+  alias.
+applied:
+  applied_at: 2026-07-21T09:09:15.272Z

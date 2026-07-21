@@ -147,7 +147,7 @@ describe('@codor/cli', () => {
       'up',
       'channels',
       'serve',
-      'setup',
+      'install',
       'spawn',
       'post',
       'tail',
@@ -1439,4 +1439,34 @@ describe('@codor/cli', () => {
     expect(enabled.opts().trustTailscaleServe).toBe(true);
   });
   // harn:end adapter-registry-sole-harness-source
+
+  it('exposes install as the primary installer command with setup as a working alias', () => {
+    const program = createProgram();
+    const install = program.commands.find((command) => command.name() === 'install');
+    expect(install).toBeDefined();
+    expect(install!.aliases()).toContain('setup');
+    // setup is not a second command, only an alias of install.
+    expect(program.commands.map((command) => command.name())).not.toContain('setup');
+  });
+
+  it('runs the installer under codor install as well as the codor setup alias', async () => {
+    const context = {
+      env: { HOME: '/home/inst', USER: 'inst', PATH: '/usr/bin' },
+      stdout: (line: string) => output.push(line),
+      setup: {
+        home: '/home/inst',
+        nodePath: process.execPath,
+        platform: 'linux' as const,
+        repoRoot: fileURLToPath(new URL('../../../', import.meta.url)),
+        which: () => undefined,
+      },
+    };
+    output = [];
+    await runCli(['node', 'codor', 'install', '--dry-run'], context);
+    const viaInstall = output.join('\n');
+    output = [];
+    await runCli(['node', 'codor', 'setup', '--dry-run'], context);
+    expect(viaInstall).toContain('[dry-run]');
+    expect(output.join('\n')).toContain('[dry-run]');
+  });
 });
