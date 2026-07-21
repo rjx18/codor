@@ -65,6 +65,16 @@ docker run --rm \
     PACKAGED_DRY_RUN="$(npx --yes --package="$TARBALL" codor install --dry-run)"
     grep -Fq "access localhost; skip Tailscale Serve" <<<"$PACKAGED_DRY_RUN"
     grep -Fq "[dry-run] wait for Codor pairing status" <<<"$PACKAGED_DRY_RUN"
+    # Durability: the install copies a durable runtime, and the rendered service
+    # ExecStart references that ~/.codor/runtime copy, never the ephemeral npx
+    # cache the CLI is invoked from.
+    grep -Fq "install a durable Codor runtime" <<<"$PACKAGED_DRY_RUN"
+    PACKAGED_EXEC="$(grep -m1 "ExecStart=" <<<"$PACKAGED_DRY_RUN" || true)"
+    grep -Fq ".codor/runtime" <<<"$PACKAGED_EXEC"
+    if grep -q "_npx" <<<"$PACKAGED_EXEC"; then
+      printf "packed install would point the service ExecStart at the npx cache\n" >&2
+      exit 1
+    fi
     # Non-dry-run must dispatch into the non-TTY unattended guard, not merely
     # parse: install --yes with no --access exits non-zero naming the flag.
     set +e
