@@ -35,6 +35,10 @@ export function turaArgs(session: Session, payload: string): string[] {
   const args = [
     '--cwd', session.cwd,
     'run',
+    // Tura's plain run surface can complete the model turn then return a
+    // non-zero runtime status. The gateway-owned command-run surface is the
+    // proven headless contract used by Wheel's source wrappers.
+    '--zsh',
     '--output', 'ndjson',
     '--agent-id', process.env.CODOR_TURA_AGENT_ID ?? 'balanced',
     '--session-type', 'coding',
@@ -147,6 +151,7 @@ export class TuraAdapter implements HarnessAdapter {
         for (const event of translator.push(line)) {
           reportSessionRef();
           yield event;
+          if (event.type === 'run.completed') return;
         }
         reportSessionRef();
       }

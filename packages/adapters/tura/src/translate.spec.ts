@@ -15,7 +15,6 @@ describe('Tura NDJSON translation', () => {
 
     expect(translator.sessionId()).toBe('ses_tura');
     expect(events).toEqual([
-      { type: 'run.item', item_type: 'text_delta', payload: { text: 'PONG' } },
       {
         type: 'run.item', item_type: 'tool_call',
         payload: {
@@ -81,5 +80,17 @@ describe('Tura NDJSON translation', () => {
       raw: expect.any(Object),
     } }]);
     expect(duplicate).toEqual([]);
+  });
+
+  it('normalizes an idle resumed command-run session', () => {
+    const translator = createTurnTranslator();
+    expect(translator.push(JSON.stringify({
+      type: 'message.updated', sessionID: 'ses_resume', text: 'PONG', raw: { payload: { properties: {
+        info: { role: 'assistant' },
+      } } },
+    }))).toEqual([]);
+    expect(translator.push(JSON.stringify({
+      type: 'session.status', sessionID: 'ses_resume', status: 'idle',
+    }))).toEqual([{ type: 'run.completed', status: 'completed', final_text: 'PONG' }]);
   });
 });

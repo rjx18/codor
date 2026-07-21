@@ -54,7 +54,7 @@ console.log(JSON.stringify({type:'cli.completed',sessionID:'ses_existing',status
     for await (const event of adapter.deliver(session, 'PONG')) events.push(event);
     const done = events.at(-1) as Extract<WireEvent, { type: 'run.completed' }>;
     expect(JSON.parse(done.final_text!)).toEqual({
-      argv: ['--cwd', cwd, 'run', '--output', 'ndjson', '--agent-id', 'balanced', '--session-type', 'coding', '--model', 'openai/gpt-5.6-sol', '--session', 'ses_existing', 'PONG'],
+      argv: ['--cwd', cwd, 'run', '--zsh', '--output', 'ndjson', '--agent-id', 'balanced', '--session-type', 'coding', '--model', 'openai/gpt-5.6-sol', '--session', 'ses_existing', 'PONG'],
       cwd: realpathSync(cwd),
       input: '',
       projectRoot: undefined,
@@ -102,7 +102,7 @@ console.log(JSON.stringify([{id:'ses_first'},{id:'ses_second'},{title:'missing i
 const fs = require('node:fs');
 if (process.argv.includes('abort')) { fs.writeFileSync(process.env.TURA_ABORT_OUT, JSON.stringify(process.argv.slice(2))); process.exit(0); }
 console.log(JSON.stringify({type:'cli.started',sessionID:'ses_abort'}));
-console.log(JSON.stringify({type:'message.part.delta',sessionID:'ses_abort',text:'working'}));
+console.log(JSON.stringify({type:'command.updated',sessionID:'ses_abort',raw:{payload:{properties:{commandID:'cmd_abort',status:'ready',command:{command_type:'zsh',command_line:'{}'}}}}}));
 setInterval(() => {}, 1000);
 `);
     const adapter = new TuraAdapter(command);

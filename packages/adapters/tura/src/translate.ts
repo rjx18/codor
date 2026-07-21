@@ -3,6 +3,7 @@ import type { WireEvent } from '@codor/protocol';
 interface TuraEvent {
   type?: string;
   sessionID?: string;
+  messageID?: string;
   text?: string;
   finalText?: string;
   status?: string;
@@ -10,6 +11,7 @@ interface TuraEvent {
   raw?: {
     payload?: {
       properties?: {
+        info?: { role?: unknown };
         commandID?: unknown;
         status?: unknown;
         command?: unknown;
@@ -67,6 +69,7 @@ export interface TurnTranslator {
 export function createTurnTranslator(): TurnTranslator {
   let sessionId: string | undefined;
   let finalText = '';
+  let streamedText = '';
   let streamError: string | undefined;
   let terminal = false;
   const toolCalls = new Set<string>();
@@ -77,7 +80,7 @@ export function createTurnTranslator(): TurnTranslator {
   ): WireEvent[] => {
     if (terminal) return [];
     terminal = true;
-    const resolved = finalText || streamError || error;
+    const resolved = finalText || streamedText || streamError || error;
     return [{
       type: 'run.completed',
       status,
@@ -102,8 +105,19 @@ export function createTurnTranslator(): TurnTranslator {
       switch (event.type) {
         case 'message.part.delta':
           if (typeof event.text !== 'string' || event.text === '') return [];
-          finalText += event.text;
-          return [{ type: 'run.item', item_type: 'text_delta', payload: { text: event.text } }];
+          // The source gateway can publish a partial delta after it has already
+          // committed the final assistant message (for example `ONG` then
+          // `PONG`). Keep it as a fallback, but publish the authoritative
+          // final/message update only once at completion.
+          streamedText += event.text;
+          return [];
+        case 'message.updated':
+          // A resumed command-run turn reports its final answer through a
+          // repeatable message update before reporting the session as idle.
+          if (event.raw?.payload?.properties?.info?.role === 'assistant' && typeof event.text === 'string') {
+            finalText = event.text;
+          }
+          return [];
         case 'command.updated': {
           const properties = event.raw?.payload?.properties;
           const callId = typeof properties?.commandID === 'string' && properties.commandID !== ''
@@ -147,6 +161,10 @@ export function createTurnTranslator(): TurnTranslator {
         case 'cli.failed':
           streamError = errorText(event.error) ?? 'Tura reported a failed run';
           return finish('failed');
+        case 'session.status':
+          // `run --zsh --session` remains subscribed when the native session
+          // reaches idle instead of emitting cli.completed.
+          return event.status === 'idle' ? finish('completed') : [];
         default:
           return [];
       }
