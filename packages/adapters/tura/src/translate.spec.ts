@@ -53,4 +53,33 @@ describe('Tura NDJSON translation', () => {
     expect(translator.push('{"type":"cli.completed","sessionID":"ses_bad","status":"failed","finalText":"gateway error"}'))
       .toEqual([{ type: 'run.completed', status: 'failed', final_text: 'gateway error', error: 'gateway error' }]);
   });
+
+  it('maps the current source runtime command payload without duplicate results', () => {
+    const translator = createTurnTranslator();
+    const ready = translator.push(JSON.stringify({
+      type: 'command.updated', sessionID: 'ses_current', status: 'ready', raw: { payload: { properties: {
+        commandID: 'cmd_current', status: 'ready', command: { command_type: 'zsh', command_line: '{"command":"pwd"}' },
+      } } },
+    }));
+    const completed = translator.push(JSON.stringify({
+      type: 'command.updated', sessionID: 'ses_current', status: 'completed', raw: { payload: { properties: {
+        commandID: 'cmd_current', status: 'completed', command: { command_type: 'zsh', command_line: '{"command":"pwd"}' },
+        result: { success: true, output: { stdout: '/work\\n', stderr: '' } },
+      } } },
+    }));
+    const duplicate = translator.push(JSON.stringify({
+      type: 'command.updated', sessionID: 'ses_current', status: 'completed', raw: { payload: { properties: {
+        commandID: 'cmd_current', status: 'completed', command: { command_type: 'zsh', command_line: '{"command":"pwd"}' }, result: null,
+      } } },
+    }));
+
+    expect(ready).toEqual([{ type: 'run.item', item_type: 'tool_call', payload: {
+      call_id: 'cmd_current', tool: 'zsh', title: 'zsh', input: { command: 'pwd' },
+    } }]);
+    expect(completed).toEqual([{ type: 'run.item', item_type: 'tool_result', payload: {
+      call_id: 'cmd_current', status: 'ok', output_text: '/work\\n',
+      raw: expect.any(Object),
+    } }]);
+    expect(duplicate).toEqual([]);
+  });
 });

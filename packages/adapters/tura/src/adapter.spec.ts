@@ -57,7 +57,7 @@ console.log(JSON.stringify({type:'cli.completed',sessionID:'ses_existing',status
       argv: ['--cwd', cwd, 'run', '--output', 'ndjson', '--agent-id', 'balanced', '--session-type', 'coding', '--model', 'openai/gpt-5.6-sol', '--session', 'ses_existing', 'PONG'],
       cwd: realpathSync(cwd),
       input: '',
-      projectRoot: cwd,
+      projectRoot: undefined,
     });
     expect(session.session_ref).toBe('ses_existing');
   });

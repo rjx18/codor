@@ -25,6 +25,12 @@ function commandFor(command: string | undefined): string {
   return command;
 }
 
+function turaEnv(sessionEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env = { ...process.env, ...sessionEnv };
+  delete env.TURA_PROJECT_ROOT;
+  return env;
+}
+
 export function turaArgs(session: Session, payload: string): string[] {
   const args = [
     '--cwd', session.cwd,
@@ -96,7 +102,7 @@ export class TuraAdapter implements HarnessAdapter {
       cwd: session.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,
-      env: { ...process.env, ...session.env, TURA_PROJECT_ROOT: session.cwd },
+      env: turaEnv(session.env),
     });
     this.children.set(session, child);
 
@@ -169,7 +175,7 @@ export class TuraAdapter implements HarnessAdapter {
     ], {
       cwd: session.cwd,
       stdio: 'ignore',
-      env: { ...process.env, ...session.env, TURA_PROJECT_ROOT: session.cwd },
+      env: turaEnv(session.env),
     });
     const forceStop = (): void => {
       if (child && child.exitCode === null && child.signalCode === null) this.signal(child, 'SIGKILL');
@@ -189,7 +195,7 @@ export class TuraAdapter implements HarnessAdapter {
     const result = spawn.sync(this.command, ['--json', 'session', 'list', '--all'], {
       encoding: 'utf8',
       maxBuffer: 4 * 1024 * 1024,
-      env: { ...process.env, TURA_PROJECT_ROOT: process.cwd() },
+      env: turaEnv(),
     });
     if (result.error || result.status !== 0) return [];
     try {
