@@ -285,3 +285,42 @@ function truncateAnsi(line: string, columns: number): string {
   }
   return `${result}${style.reset}`;
 }
+
+export interface PairingCardData {
+  code: string;
+  url: string;
+  expires: string;
+  qr: string;
+  instruction: string;
+}
+
+// harn:assume setup-verifies-codor-before-creating-pairing-code ref=setup-pairing-card
+/** The final pairing result: the QR with padding, then a bordered card with the
+ *  prominent accent-colored code, the high-contrast URL, and the warning-colored
+ *  expiry. Built only from the offer — the raw authority token is never passed
+ *  in, so it can never be shown. */
+export function renderPairingCard(card: PairingCardData): string {
+  const rows = [
+    { plain: `Code     ${card.code}`, rendered: `${style.gray('Code')}     ${style.cyan(style.bold(card.code))}` },
+    { plain: `Open     ${card.url}`, rendered: `${style.gray('Open')}     ${style.cyan(card.url)}` },
+    { plain: `Expires  ${card.expires}`, rendered: `${style.gray('Expires')}  ${style.yellow(card.expires)}` },
+  ];
+  const inner = Math.max(...rows.map((row) => row.plain.length));
+  const border = (left: string, right: string): string => style.dim(`${left}${'─'.repeat(inner + 4)}${right}`);
+  const blank = `${style.dim('│')}${' '.repeat(inner + 4)}${style.dim('│')}`;
+  const row = (entry: { plain: string; rendered: string }): string =>
+    `${style.dim('│')}  ${entry.rendered}${' '.repeat(inner - entry.plain.length)}  ${style.dim('│')}`;
+  const box = [border('╭', '╮'), blank, ...rows.map(row), blank, border('╰', '╯')];
+  const qrLines = card.qr.split('\n').map((line) => `    ${line}`);
+  return [
+    '',
+    ...qrLines,
+    '',
+    `    ${style.bold('Pair a browser')}`,
+    ...box.map((line) => `    ${line}`),
+    '',
+    `    ${style.dim(card.instruction)}`,
+    '',
+  ].join('\n');
+}
+// harn:end setup-verifies-codor-before-creating-pairing-code

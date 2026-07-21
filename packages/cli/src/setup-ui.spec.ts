@@ -5,6 +5,7 @@ import {
   SETUP_CLEAR_SCREEN,
   SETUP_CURSOR_HIDE,
   createSetupStages,
+  renderPairingCard,
   renderSetupFrame,
   type SetupControls,
   type SetupFrameState,
@@ -251,3 +252,37 @@ describe('constrained viewports keep the active choice usable', () => {
     expect(short).toContain('(3) Where you will use Codor');
   });
 });
+
+// harn:assume setup-verifies-codor-before-creating-pairing-code ref=setup-pairing-card-regression
+describe('pairing result card', () => {
+  const card = {
+    code: 'ABCD-2345',
+    url: 'http://127.0.0.1:8137',
+    expires: 'in 10 minutes',
+    qr: '<qr-row-1>\n<qr-row-2>',
+    instruction: 'Scan the QR or enter the code in your browser.',
+  };
+
+  it('renders a bordered card with the QR, code, URL, expiry, and instruction', () => {
+    const frame = plain(renderPairingCard(card));
+    expect(frame).toContain('<qr-row-1>');
+    expect(frame).toContain('ABCD-2345');
+    expect(frame).toContain('http://127.0.0.1:8137');
+    expect(frame).toContain('in 10 minutes');
+    expect(frame).toContain('Scan the QR or enter the code in your browser.');
+    expect(frame).toContain('╭');
+    expect(frame).toContain('╰');
+  });
+
+  it('shows the code in the accent color and the expiry in the warning color', () => {
+    const raw = renderPairingCard(card);
+    expect(raw).toContain('\u001B[36m\u001B[1mABCD-2345\u001B[0m');
+    expect(raw).toContain('\u001B[33min 10 minutes\u001B[0m');
+  });
+
+  it('receives no token and shows none', () => {
+    const raw = renderPairingCard(card);
+    expect(raw).not.toContain('CODOR_TOKEN');
+  });
+});
+// harn:end setup-verifies-codor-before-creating-pairing-code

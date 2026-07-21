@@ -667,9 +667,9 @@ describe('@codor/cli', () => {
       'systemctl --user enable --now codor.service',
       'loginctl show-user setup-test -p Linger --value',
     ]);
-    expect(qrPayload).toBe(output[output.indexOf('<setup-qr>') + 1]);
+    expect(output.join('\n')).toContain(qrPayload!);
     expect(new URL(qrPayload!).origin).toBe('https://setup-host.example.ts.net');
-    expect(output.join('\n')).toMatch(/code: [23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}/);
+    expect(output.join('\n')).toMatch(/[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}/);
     expect(output.join('\n')).not.toContain('a'.repeat(64));
   });
 

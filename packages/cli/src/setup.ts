@@ -28,7 +28,7 @@ import {
   type SetupSessionStreams,
   type SetupStepDefinition,
 } from './setup-session.js';
-import { SETUP_STAGE_TITLES, type SetupAccessOption } from './setup-ui.js';
+import { SETUP_STAGE_TITLES, renderPairingCard, type SetupAccessOption } from './setup-ui.js';
 import { renderTerminalQr } from './terminal-qr.js';
 
 const HARNESSES = ['claude', 'codex', 'opencode', 'gemini', 'copilot', 'cursor-agent', 'agy'] as const;
@@ -866,10 +866,13 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   };
 
   const emitPairing = (): void => {
-    options.out(pairing!.qr);
-    options.out(pairing!.url);
-    options.out(`code: ${pairing!.code}`);
-    options.out(`expires ${pairing!.expires}`);
+    options.out(renderPairingCard({
+      code: pairing!.code,
+      url: pairing!.url,
+      expires: pairing!.expires,
+      qr: pairing!.qr,
+      instruction: 'Scan the QR or enter the code in your browser to finish pairing.',
+    }));
   };
 
   if (interactive) {
