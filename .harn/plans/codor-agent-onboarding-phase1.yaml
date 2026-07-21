@@ -1,50 +1,48 @@
 id: codor-agent-onboarding-phase1
 title: Hide agent-only channel controls when no starting harness is selected
-notes: >-
-  The ordinary create-channel dialog currently leaves the starting-agent name
-  mounted but disabled under None, even though the optional first-channel flow
-  already removes its agent-only controls. Make None an honest agentless state:
-  retain only the harness choice and a muted explanation, preserve all typed
-  agent state while hidden, suppress agent validation, and continue omitting
-  starting_agent from the request. Update the focused browser regression to
-  prove absence, restoration, validation suppression, and the submitted payload.
+notes: "The ordinary create-channel dialog currently leaves the starting-agent
+  name mounted but disabled under None, even though the optional first-channel
+  flow already removes its agent-only controls. Make None an honest agentless
+  state: retain only the harness choice and a muted explanation, preserve all
+  typed agent state while hidden, suppress agent validation, and continue
+  omitting starting_agent from the request. Update the focused browser
+  regression to prove absence, restoration, validation suppression, and the
+  submitted payload."
 assumptions:
   reviewed:
     - id: channel-create-request-contract
       outcome: unchanged
-      reason: >-
-        Starting agents remain optional in the request schema. The UI continues
-        to omit starting_agent under None and this phase adds browser-level proof
-        of that existing request contract.
+      reason: Starting agents remain optional in the request schema. The UI continues
+        to omit starting_agent under None and this phase adds browser-level
+        proof of that existing request contract.
     - id: agent-controls-shared-by-both-dialogs
       outcome: unchanged
-      reason: >-
-        A selected starting harness continues to expose the same shared identity,
-        model, thinking, and policy controls. None merely unmounts the controls
-        that cannot configure an absent agent while retaining their React state.
+      reason: A selected starting harness continues to expose the same shared
+        identity, model, thinking, and policy controls. None merely unmounts the
+        controls that cannot configure an absent agent while retaining their
+        React state.
     - id: one-control-chooses-an-agent-everywhere
       outcome: unchanged
-      reason: >-
-        Every actual agent still uses the shared controls and can express its
-        model, thinking, and policy. This phase changes only the optional no-agent
-        presentation and does not duplicate or alter those controls.
+      reason: Every actual agent still uses the shared controls and can express its
+        model, thinking, and policy. This phase changes only the optional
+        no-agent presentation and does not duplicate or alter those controls.
     - id: web-room-rail-creates-owner-room
       outcome: unchanged
-      reason: >-
-        The authenticated create action, error handling, authoritative result,
+      reason: The authenticated create action, error handling, authoritative result,
         and navigation remain unchanged; the agentless branch gains a clearer UI
         and explicit payload regression coverage.
     - id: starting-agent-name-derives-one-valid-identity-v6
       outcome: unchanged
-      reason: >-
-        Name derivation, preview, owner-collision handling, and field errors stay
-        intact whenever a starting harness is selected. Under None the dormant
-        name is intentionally not validated because no identity is submitted.
+      reason: Name derivation, preview, owner-collision handling, and field errors
+        stay intact whenever a starting harness is selected. Under None the
+        dormant name is intentionally not validated because no identity is
+        submitted.
 anchors: {}
 files:
   - packages/web-next/src/room/CreateChannel.tsx
   - packages/web-next/tests/room10-dialogs.e2e.spec.ts
-verification: >-
-  Run the focused Playwright create-dialog tests in room10-dialogs.e2e.spec.ts,
-  build @codor/web-next, and pass harn check before applying and committing the
-  phase as one implementation transaction.
+verification: Run the focused Playwright create-dialog tests in
+  room10-dialogs.e2e.spec.ts, build @codor/web-next, and pass harn check before
+  applying and committing the phase as one implementation transaction.
+applied:
+  applied_at: 2026-07-21T18:28:24.395Z

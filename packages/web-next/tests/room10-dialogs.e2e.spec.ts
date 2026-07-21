@@ -184,19 +184,26 @@ test.describe('Tier-1: the create dialog seeds a fully configured agent', () => 
     await dialog.getByTestId('create-name').fill('seeded');
     await expect(dialog).toContainText('id:');
 
-    // The agent-name field stays mounted while None is selected, disabled.
-    await expect(dialog.getByTestId('create-agent-name')).toBeDisabled();
+    // None is an honestly agentless state: only the harness choice and guidance
+    // remain, with every agent-only field absent.
+    await expect(dialog.getByTestId('create-agent-name')).toHaveCount(0);
+    await expect(dialog.getByTestId('create-agent-none-note')).toBeVisible();
     await dialog.getByTestId('create-harness-fake').click();
-    await expect(dialog.getByTestId('create-agent-name')).toBeEnabled();
+    await expect(dialog.getByTestId('create-agent-name')).toBeVisible();
     // It defaults to codor rather than starting empty.
     await expect(dialog.getByTestId('create-agent-name')).toHaveValue('codor');
+    await dialog.getByTestId('create-agent-name').fill('restored');
+    await dialog.getByTestId('create-harness-none').click();
+    await expect(dialog.getByTestId('create-agent-name')).toHaveCount(0);
+    await dialog.getByTestId('create-harness-fake').click();
+    await expect(dialog.getByTestId('create-agent-name')).toHaveValue('restored');
 
     // The working folder is required, so pick one before creating.
     await dialog.getByTestId('create-folder-alpha-project').click();
     await dialog.getByTestId('create-go').click();
     await expect(page.locator('.nx-chat-title h1')).toHaveText('seeded', { timeout: 15_000 });
-    await expect(page.getByTestId('member-codor')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('member-codor')).toContainText('read-only');
+    await expect(page.getByTestId('member-restored')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('member-restored')).toContainText('read-only');
   });
 });
 
@@ -309,11 +316,17 @@ test.describe('the "None" state means none', () => {
 
     // Back to None: the same text is inert, and creation is possible again.
     await dialog.getByTestId('create-harness-none').click();
-    await expect(dialog.getByTestId('create-agent-name')).toBeDisabled();
+    await expect(dialog.getByTestId('create-agent-name')).toHaveCount(0);
+    await expect(dialog.getByTestId('create-policy-read-only')).toHaveCount(0);
     await expect(dialog.getByTestId('create-owner-clash')).toBeHidden();
     await expect(dialog.getByTestId('create-go')).toBeEnabled();
 
+    const createRequest = page.waitForRequest((request) => (
+      request.method() === 'POST' && new URL(request.url()).pathname === '/api/rooms'
+    ));
     await dialog.getByTestId('create-go').click();
+    const payload = (await createRequest).postDataJSON() as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('starting_agent');
     await expect(page.locator('.nx-chat-title h1')).toHaveText('agentless', { timeout: 15_000 });
   });
 

@@ -146,48 +146,50 @@ export function CreateChannelDialog(props: {
             optional
             idPrefix="create"
           />
-          <label className="nx-field">
-            <span className="nx-label">Agent name</span>
-            {/* Disabled, never unmounted: unmounting made the dialog jump as the
-                harness changed, and hid the control instead of explaining it. */}
-            <input
-              value={agentName}
-              disabled={agentHarness === ''}
-              onChange={(e) => setAgentName(e.target.value)}
-              placeholder="e.g. Scout"
-              data-testid="create-agent-name"
-            />
-            {agentHarness !== '' && agentError !== undefined && (
-              <span className="nx-field-note is-error" role="alert" data-testid="create-agent-error">
-                {agentError}
-              </span>
-            )}
-            {/* Only claim an agent will join when one actually will — under "None"
-                this promised "@codor joins" and nothing was created. */}
-            {agentHarness !== '' && agentName.trim() !== '' && (
-              derivedHandle !== undefined
-                ? <span className="nx-field-note">joins as <Code>@{derivedHandle}</Code></span>
-                : <span className="nx-field-note is-error">that name resolves to a reserved handle — pick another</span>
-            )}
-            {ownerClash && (
-              <span className="nx-field-note is-error" data-testid="create-owner-clash">
-                @{derivedHandle} is already in use by the channel owner.
-              </span>
-            )}
-          </label>
-          {/* The same control the spawn and configure dialogs use, so a channel-seeded
-              agent is configured exactly as thoroughly as a later one. */}
+          {agentHarness === '' && (
+            <p className="nx-field-note" data-testid="create-agent-none-note">
+              You can add an agent later.
+            </p>
+          )}
           {agentHarness !== '' && (
-            <AgentControls
-              adapters={adapters}
-              config={agentConfig}
-              onChange={setAgentConfig}
-              hideHarness
-              behaviourSection={3}
-              permissionsSection={4}
-              embedded
-              idPrefix="create"
-            />
+            <>
+              <label className="nx-field">
+                <span className="nx-label">Agent name</span>
+                <input
+                  value={agentName}
+                  onChange={(e) => setAgentName(e.target.value)}
+                  placeholder="e.g. Scout"
+                  data-testid="create-agent-name"
+                />
+                {agentError !== undefined && (
+                  <span className="nx-field-note is-error" role="alert" data-testid="create-agent-error">
+                    {agentError}
+                  </span>
+                )}
+                {agentName.trim() !== '' && (
+                  derivedHandle !== undefined
+                    ? <span className="nx-field-note">joins as <Code>@{derivedHandle}</Code></span>
+                    : <span className="nx-field-note is-error">that name resolves to a reserved handle — pick another</span>
+                )}
+                {ownerClash && (
+                  <span className="nx-field-note is-error" data-testid="create-owner-clash">
+                    @{derivedHandle} is already in use by the channel owner.
+                  </span>
+                )}
+              </label>
+              {/* The same control the spawn and configure dialogs use, so a channel-seeded
+                  agent is configured exactly as thoroughly as a later one. */}
+              <AgentControls
+                adapters={adapters}
+                config={agentConfig}
+                onChange={setAgentConfig}
+                hideHarness
+                behaviourSection={3}
+                permissionsSection={4}
+                embedded
+                idPrefix="create"
+              />
+            </>
           )}
       </div>
       </Section>
