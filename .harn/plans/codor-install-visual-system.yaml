@@ -1,14 +1,12 @@
 id: codor-install-visual-system
-title: >-
-  Phase 2 - one accent color for questions and choices, with a muted description
-  under each active step heading
-notes: >-
-  Third phase of the installer redesign: the visual system. Each active step
-  shows a short muted description directly below its heading explaining what the
-  step will do, threaded from the step definition through the flow to the pure
-  renderer. Questions (menu prompts) and the focused choice share one accent
-  color; descriptions and secondary text stay muted. No flow, install, or
-  Tailscale behavior changes here.
+title: Phase 2 - one accent color for questions and choices, with a muted
+  description under each active step heading
+notes: "Third phase of the installer redesign: the visual system. Each active
+  step shows a short muted description directly below its heading explaining
+  what the step will do, threaded from the step definition through the flow to
+  the pure renderer. Questions (menu prompts) and the focused choice share one
+  accent color; descriptions and secondary text stay muted. No flow, install, or
+  Tailscale behavior changes here."
 assumptions:
   reviewed:
     - id: setup-renders-progressive-wizard-with-visible-results
@@ -62,11 +60,12 @@ files:
   - packages/cli/src/setup-ui.spec.ts
   - packages/cli/src/setup-session.spec.ts
   - packages/cli/src/setup-flow.spec.ts
-verification: >
+verification: |
   - The active step renders a muted (dim) description line directly under its
     heading; the prompt and focused option share one accent color; descriptions
     are not the accent color.
 
   - The session threads a step's description into the frame (regression).
-
   - setup flow/UI/session/PTY suites, tsc build, and harn check pass.
+applied:
+  applied_at: 2026-07-21T12:08:35.645Z

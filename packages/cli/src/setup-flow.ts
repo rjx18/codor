@@ -23,6 +23,8 @@ export type SetupStepKind = 'auto' | 'choice';
 export interface SetupFlowStep {
   readonly title: string;
   readonly kind: SetupStepKind;
+  /** Short muted line shown under the heading while the step is active. */
+  readonly description?: string;
   state: SetupStepState;
   logs: string[];
   /** Memoized result of a completed step; undefined until done. */
@@ -34,6 +36,7 @@ export interface SetupFlowStep {
 export interface SetupStepDescriptor {
   title: string;
   kind?: SetupStepKind;
+  description?: string;
 }
 
 export class SetupFlow {
@@ -44,6 +47,7 @@ export class SetupFlow {
     this.steps = descriptors.map((descriptor) => ({
       title: descriptor.title,
       kind: descriptor.kind ?? 'auto',
+      description: descriptor.description,
       state: 'pending' as SetupStepState,
       logs: [],
     }));

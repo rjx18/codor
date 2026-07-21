@@ -66,6 +66,8 @@ export interface SetupStepContext {
 
 export interface SetupStepDefinition {
   title: string;
+  /** Short muted line shown under the heading while the step is active. */
+  description?: string;
   menu?: { message: string; options: SetupAccessOption[] };
   run(context: SetupStepContext): Promise<SetupStepOutcome>;
 }
@@ -153,6 +155,7 @@ export class SetupSession {
       logs: step.logs,
       summary: this.summaries[index],
       error: step.error,
+      description: step.description,
     }));
     // Controls are supplied only while awaiting a settled action; a live menu
     // renders its own navigation hint. Forward appears when a later step can be
@@ -186,6 +189,7 @@ export class SetupSession {
     const flow = new SetupFlow(steps.map((step) => ({
       title: step.title,
       kind: step.menu !== undefined ? 'choice' : 'auto',
+      description: step.description,
     })));
     this.flow = flow;
     this.summaries.length = 0;

@@ -71,6 +71,8 @@ export interface SetupStage {
   title: string;
   state: SetupStageState;
   logs: string[];
+  /** Short muted line shown under the heading while the step is active. */
+  description?: string;
   /** Optional note shown after a skipped step's title. */
   summary?: string;
   /** Failure text shown inside the active step when it has failed. */
@@ -164,7 +166,8 @@ function futureLine(index: number, step: SetupStage): string {
  *  unmistakable focused row, and a navigation hint — never crowded onto one
  *  line. */
 function menuLines(menu: SetupMenu): string[] {
-  const lines: string[] = ['', `    ${style.bold(menu.message)}`, ''];
+  // The question uses the one accent color, matching the focused option below.
+  const lines: string[] = ['', `    ${style.cyan(style.bold(menu.message))}`, ''];
   menu.options.forEach((option, index) => {
     const focused = index === menu.focused;
     const pointer = focused ? style.cyan('❯') : ' ';
@@ -195,14 +198,16 @@ function controlHints(controls: SetupControls | undefined): string[] {
  *  so the actionable choice survives on a small terminal. */
 function activeBlock(index: number, step: SetupStage, state: SetupFrameState, maxLines: number): string[] {
   const title = `${style.cyan(`(${String(index + 1)})`)} ${style.bold(step.title)}  ${status(step.state, state.spinnerFrame)}`;
+  // A short muted description sits directly under the heading.
+  const descriptionLines = step.description !== undefined ? [`    ${style.dim(step.description)}`] : [];
   const menu = state.menu !== undefined ? menuLines(state.menu) : [];
   const errorLines = step.error !== undefined ? ['', `    ${style.red(step.error)}`] : [];
   // A live menu supplies its own navigation footer; controls are for settled steps.
   const hintLines = state.menu !== undefined ? [] : controlHints(state.controls);
-  const essential = 1 + menu.length + errorLines.length + hintLines.length;
+  const essential = 1 + descriptionLines.length + menu.length + errorLines.length + hintLines.length;
   const logRoom = Math.max(0, Math.min(MAX_SETUP_STAGE_LOGS, maxLines - essential));
   const logs = logRoom <= 0 ? [] : resultLines(step.logs.slice(-logRoom));
-  return [title, ...logs, ...menu, ...errorLines, ...hintLines];
+  return [title, ...descriptionLines, ...logs, ...menu, ...errorLines, ...hintLines];
 }
 
 function summaryLines(summary: SetupSummary | undefined): string[] {

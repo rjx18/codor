@@ -10,6 +10,13 @@ const flow = () => new SetupFlow([
   { title: 'Create pairing code' },
 ]);
 
+describe('step metadata', () => {
+  it('stores an optional per-step description from the descriptor', () => {
+    const f = new SetupFlow([{ title: 'Install Codor', description: 'Set up Codor in a stable location.' }]);
+    expect(f.steps[0]!.description).toBe('Set up Codor in a stable location.');
+  });
+});
+
 describe('running a step at most once', () => {
   it('marks a pending active step as needing a run, and a done step as not', () => {
     const f = flow();

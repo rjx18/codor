@@ -93,6 +93,16 @@ describe('active step controls only when input is required', () => {
     expect(frame).not.toContain('Next');
   });
 
+  it('renders a muted description directly under the active heading', () => {
+    const steps = midway();
+    steps[2] = { ...steps[2]!, description: 'Decide how you will reach Codor.' };
+    const raw = renderSetupFrame(state({ steps, cursor: 2 }));
+    expect(plain(raw)).toContain('Decide how you will reach Codor.');
+    // The description is muted (dim), not the accent color.
+    expect(raw).toContain('\u001B[2mDecide how you will reach Codor.\u001B[0m');
+    expect(raw).not.toContain('\u001B[36mDecide how you will reach Codor');
+  });
+
   it('renders a failure once inside the active step with Retry offered', () => {
     const steps = midway();
     steps[3] = { ...steps[3]!, state: 'failed', error: 'launchctl bootstrap failed' };
@@ -115,10 +125,13 @@ describe('active step controls only when input is required', () => {
 
 describe('vertical choice menus', () => {
   it('stacks the prompt, options, and hint with an unmistakable focused option', () => {
-    const frame = plain(renderSetupFrame(state({
+    const raw = renderSetupFrame(state({
       steps: midway(), cursor: 2, menu: { ...accessMenu, focused: 0 }, controls: controls({ back: true }),
-    })));
+    }));
+    const frame = plain(raw);
     expect(frame).toContain('How will you reach Codor?');
+    // The question uses the accent color (cyan), matching the focused option.
+    expect(raw).toContain('\u001B[36m\u001B[1mHow will you reach Codor?');
     // Options are vertical, the focused one carries the pointer.
     expect(frame).toContain('❯ Localhost');
     expect(frame).toContain('Tailscale Serve');

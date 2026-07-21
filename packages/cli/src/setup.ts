@@ -798,9 +798,10 @@ export async function runSetup(options: SetupOptions): Promise<void> {
           ],
         };
     const steps: SetupStepDefinition[] = [
-      { title: stepTitles[0], run: async ({ log }) => checkStep(log) },
+      { title: stepTitles[0], description: 'Read-only — nothing on your computer changes.', run: async ({ log }) => checkStep(log) },
       {
         title: stepTitles[1],
+        description: 'Set up Codor in a stable per-user location.',
         // Consent gate: no runtime is copied and no files are created until an
         // affirmative choice; "Not now" leaves the computer unchanged.
         menu: installMenu,
@@ -810,6 +811,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       },
       {
         title: stepTitles[2],
+        description: 'Decide how you will reach Codor.',
         menu: {
           message: 'How will you reach Codor?',
           options: [
@@ -830,6 +832,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       },
       {
         title: stepTitles[3],
+        description: 'Install and start the private background service.',
         // Consent gate: nothing is installed or started until Start is chosen.
         menu: {
           message: 'Run Codor in the background?',
@@ -844,6 +847,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       },
       {
         title: stepTitles[4],
+        description: 'Connect a browser with a short-lived pairing code.',
         // Consent gate: no pairing code is minted until Create is chosen.
         menu: {
           message: 'Pair a browser now?',

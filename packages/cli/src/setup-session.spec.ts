@@ -94,6 +94,19 @@ describe('setup terminal ownership', () => {
     vi.useRealTimers();
   });
 
+  it('threads a step description into the rendered frame', async () => {
+    const { input, output, session } = harness();
+    const steps: SetupStepDefinition[] = [
+      { title: 'One', description: 'a short muted explanation', run: async () => 'a' },
+    ];
+    const done = session.run(steps);
+    await settle();
+    expect(output.chunks.join('')).toContain('a short muted explanation');
+    input.emit('data', Buffer.from(ENTER));
+    await done;
+    session.stop();
+  });
+
   it.each(['SIGINT', 'SIGTERM'] as const)('cleans up before re-raising %s', (signal) => {
     const { input, output, signals, raised, session } = harness();
     session.start();
