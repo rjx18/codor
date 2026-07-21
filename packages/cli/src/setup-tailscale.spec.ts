@@ -70,6 +70,30 @@ describe('configureTailscaleServe', () => {
     })).toThrow(/enable Tailscale Serve for your tailnet in the admin console/);
   });
 
+  it('does not duplicate stderr when Node already embedded it in the command message', () => {
+    const stderr = [
+      'sending serve config: Access denied: serve config denied',
+      '',
+      "Use 'sudo tailscale serve --bg http://127.0.0.1:8137'.",
+      "To not require root, use 'sudo tailscale set --operator=$USER' once.",
+    ].join('\n');
+    const error = Object.assign(new Error([
+      'Command failed: /usr/bin/tailscale serve --bg http://127.0.0.1:8137',
+      stderr,
+    ].join('\n')), { stderr });
+    let message = '';
+    try {
+      configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
+        if (args[0] === 'serve' && args[1] === '--bg') throw error;
+        return '';
+      });
+    } catch (caught) {
+      message = caught instanceof Error ? caught.message : String(caught);
+    }
+    expect(message.match(/sending serve config: Access denied: serve config denied/g)).toHaveLength(1);
+    expect(message.match(/To not require root/g)).toHaveLength(1);
+  });
+
   it('wraps a serve status command failure as the Serve-command-failed category', () => {
     expect(() => configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
       if (args.join(' ') === 'serve status') throw new Error('serve status: connection refused');

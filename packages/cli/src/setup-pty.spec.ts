@@ -98,7 +98,7 @@ const SOURCE = `
         presentResult(renderPairingCard(
           { code: 'ABCD-2345', url: LONG_URL, expires: 'in 10 minutes', qr: renderTerminalQr(LONG_URL), instruction: 'Scan the QR or enter the code in your browser.', copied },
           columns,
-          Math.max(8, rows - 8),
+          Math.max(8, rows - 6),
         ));
         paired = true;
         return 'paired';
@@ -141,9 +141,10 @@ const posixDescribe = describe.skipIf(process.platform === 'win32');
 
 posixDescribe('setup wizard in a real pseudo-terminal', () => {
   it.each([
-    { rows: 24, columns: 80 },
-    { rows: 24, columns: 40 },
-  ])('shows the full pairing card with a clickable, copied link before Finish at $columns x $rows', ({ rows, columns }) => {
+    { rows: 24, columns: 80, expectQr: false },
+    { rows: 24, columns: 40, expectQr: false },
+    { rows: 46, columns: 80, expectQr: true },
+  ])('shows the full pairing card with a clickable, copied link before Finish at $columns x $rows', ({ rows, columns, expectQr }) => {
     // One auto-advances; Enter: Localhost, Start, Create pairing; Enter finishes.
     const result = runPty([ENTER, ENTER, ENTER, ENTER], rows, columns);
     expect(result.error).toBeUndefined();
@@ -166,11 +167,11 @@ posixDescribe('setup wizard in a real pseudo-terminal', () => {
     const clipArgvLine = result.stdout.split('\n').find((line) => line.includes('CLIP-ARGV='))!;
     expect(clipArgvLine).not.toContain('pairing_token');
     expect(result.stdout).toContain('Pairing link copied to clipboard.'); // truthful status
+    expect(/[█▀▄]/.test(stripEscapes(result.stdout))).toBe(expectQr); // complete QR fits at 80x46
     expect(result.stdout).toContain('RUN:pair');
     expect(result.stdout).toContain('SELECTED=localhost');
     expect(result.stdout).toContain('START=started');
-    // No word art; the QR is omitted at 24 rows, so no block glyphs appear.
-    expect(result.stdout).not.toContain('█');
+    // No alternate-screen switch or repeated automatic work.
     expect(result.stdout.split('RUN:one').length - 1).toBe(1);
     expect(result.stdout).not.toContain('[?1049h');
   });

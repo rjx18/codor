@@ -160,11 +160,15 @@ function resultLines(logs: string[]): string[] {
 function menuLines(menu: SetupMenu): string[] {
   // The question uses the one accent color, matching the focused option below.
   // A multiline message (a failure explanation with recovery commands) keeps its
-  // first line as the accented prompt and renders the rest as muted detail, so
-  // the error and copyable commands stay onscreen above the choices.
+  // first line as the accented prompt and renders the rest at normal contrast,
+  // so an actionable error is never buried in dim gray. Copyable recovery
+  // commands reuse the same single accent as the question and focused option.
   const [prompt, ...detail] = menu.message.split('\n');
   const lines: string[] = ['', `    ${style.cyan(style.bold(prompt ?? ''))}`,
-    ...detail.map((text) => `    ${style.dim(text)}`), ''];
+    ...detail.map((text) => {
+      const command = /^(?:sudo\s+tailscale\b|\/.*\btailscale\b.*\bserve\b)/i.test(text.trim());
+      return `    ${command ? style.cyan(style.bold(text)) : text}`;
+    }), ''];
   menu.options.forEach((option, index) => {
     const focused = index === menu.focused;
     const pointer = focused ? style.cyan('❯') : ' ';

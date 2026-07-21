@@ -1,0 +1,114 @@
+id: codor-tailscale-recovery-qr-fit
+title: Make Tailscale recovery concise and single-step, and show a fitting QR.
+notes: "Richard #611/#613 exposed three operator-facing defects: Node's command
+  error already embeds stderr and setup appended the same stderr again;
+  permission recovery was dim and repeated Tailscale's competing sudo advice;
+  choosing the local fallback opened a redundant second confirmation; and the
+  pairing-card row budget suppressed a real 69-column by 29-row QR that fits an
+  80x46 terminal. Classify permission failures into one prominent recovery path,
+  deduplicate diagnostics, make Retry visibly report progress, let Continue be
+  the explicit local decision, and reserve the renderer's exact fixed overhead
+  so a complete QR appears whenever it truly fits."
+assumptions:
+  retire:
+    - id: setup-recovers-or-defers-remote-access
+      reason: Its contract requires Continue-on-this-computer to open another
+        confirmation before advancing. That duplicate question is now removed,
+        and the permission-failure contract is tightened to a classified,
+        deduplicated, high-contrast recovery screen with visible Retry progress.
+  create:
+    - id: setup-recovers-remote-access-with-one-clear-decision
+      title: Remote access recovery presents one clear Retry or local decision
+      statement: Interactive setup must defer all Tailscale detection and
+        configuration until the operator chooses remote and separately consents
+        to Serve. A Serve failure must remain in Step 3 and present one
+        readable, deduplicated recovery screen. Linux or WSL permission/operator
+        failures must be classified into a concise instruction to run `sudo
+        tailscale set --operator=$USER` once, explicitly avoid recommending that
+        setup run Serve through sudo, show the exact resolved Serve command
+        Retry will execute, and keep the underlying unique diagnostic visible.
+        Retry must visibly report that Serve is being tried again and then rerun
+        it; Continue-on-this-computer is itself the explicit local-only decision
+        and advances without asking the same question twice. Unrelated failures
+        must preserve their real diagnostic without false sudo guidance, setup
+        must never execute sudo, and local Codor must remain usable.
+      reason: Operators need one unambiguous recovery path and one local fallback
+        decision; duplicate stderr, competing sudo suggestions, dim
+        instructions, and a second confirmation obscure what action setup is
+        waiting for.
+      depends_on:
+        - setup-resolves-and-capability-probes-tailscale-serve
+        - setup-auto-advances-and-gates-mutation-on-consent
+  reviewed:
+    - id: setup-resolves-and-capability-probes-tailscale-serve
+      outcome: unchanged
+      reason: Resolution, capability probing, absolute-path execution, Serve status,
+        and origin parsing are unchanged; error collection only stops appending
+        stderr when Node already included the identical block in its message.
+    - id: setup-renders-single-active-step-installer
+      outcome: unchanged
+      reason: The single active step, vertical menu, accent hierarchy, clamping, and
+        pure renderer contract remain; multiline recovery detail becomes
+        readable foreground and command lines use the existing single accent.
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: The same verified offer, code, URL, expiry, and complete QR are
+        rendered; the row budget is corrected so the QR is omitted only when the
+        complete card truly cannot fit.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: Service installation and pairing behavior are unchanged; only the
+        terminal row budget passed to the final card changes.
+anchors:
+  setup-recovers-or-defers-remote-access:
+    setup-remote-access-subflow:
+      action: remove
+      reason: Re-point the runtime recovery anchor to the replacement contract.
+    setup-remote-access-regression:
+      action: remove
+      reason: Re-point the remote-access regressions to the replacement contract.
+  setup-recovers-remote-access-with-one-clear-decision:
+    setup-remote-access-subflow:
+      action: change
+      reason: Classify and condense permission diagnostics, show one recovery path,
+        report Retry progress, and remove the duplicate local confirmation.
+    setup-remote-access-regression:
+      action: change
+      reason: Regressions cover Richard's exact duplicated error, one-choice local
+        fallback, readable operator instructions, and visible retry progress.
+  setup-resolves-and-capability-probes-tailscale-serve:
+    tailscale-resolution:
+      action: change
+      reason: Avoid appending stderr when the thrown command message contains it.
+  setup-renders-single-active-step-installer:
+    setup-frame-renderer:
+      action: keep
+      reason: The frame composition contract itself is unchanged.
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-pairing-card:
+      action: keep
+      reason: Pairing-card construction and omission logic are unchanged.
+    setup-pairing-card-regression:
+      action: change
+      reason: A real 80x46 frame must include the complete QR and Finish action.
+    setup-readiness-and-pairing:
+      action: keep
+      reason: Daemon readiness verification is unchanged.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: Pass the exact available row count to the pairing-card renderer.
+files:
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-remote-access.spec.ts
+  - packages/cli/src/setup-tailscale.spec.ts
+  - packages/cli/src/setup-pty.spec.ts
+  - packages/cli/src/setup-ui.ts
+  - packages/cli/src/setup-ui.spec.ts
+verification: Run the focused Tailscale, remote-access, UI, session, and PTY
+  tests plus the TypeScript build and Harn gates. Reproduce Richard's real
+  permission error to prove it appears once with prominent instructions and a
+  single local choice; render a real long-URL QR at 80x46 and prove the QR,
+  code, URL, expiry, and Finish all fit before rebuilding the local 0.10.1 TGZ.
+applied:
+  applied_at: 2026-07-21T16:35:20.249Z

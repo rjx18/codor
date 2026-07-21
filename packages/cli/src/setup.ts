@@ -384,10 +384,16 @@ export function configureTailscaleServe(
   exec: (command: string, args: string[]) => string,
 ): string {
   // Preserve the full message and stderr: real permission/operator guidance often
-  // lands on a later line (the same class of bug fixed for launchctl).
+  // lands on a later line (the same class of bug fixed for launchctl). Node's
+  // command error often already embeds stderr in `message`, so never append the
+  // same block twice.
   const diagnostic = (error: unknown): string => {
     const err = error as { message?: string; stderr?: string | Buffer };
-    return [err.message, err.stderr?.toString()].filter(Boolean).join('\n').trim() || String(error);
+    const message = err.message?.trim();
+    const stderr = err.stderr?.toString().trim();
+    const parts = message === undefined || message === '' ? [] : [message];
+    if (stderr !== undefined && stderr !== '' && message?.includes(stderr) !== true) parts.push(stderr);
+    return parts.join('\n').trim() || String(error);
   };
   let status: string;
   try {
@@ -430,15 +436,10 @@ const RETRY_OR_LOCAL: SetupAccessOption[] = [
 
 const RETRY_OR_CONTINUE: SetupAccessOption[] = [
   { id: 'retry', label: 'Retry Tailscale Serve', description: 'Run Serve again after fixing the problem above.', available: true },
-  { id: 'here', label: 'Continue on this computer', description: 'Skip remote access for now.', available: true },
+  { id: 'here', label: 'Continue on this computer', description: 'Use Codor locally and continue setup.', available: true },
 ];
 
-const CONFIRM_LOCAL: SetupAccessOption[] = [
-  { id: 'confirm', label: 'Yes, continue on this computer', description: 'Codor stays local; set up Tailscale Serve later.', available: true },
-  { id: 'retry', label: 'Retry Tailscale Serve instead', description: 'Go back and run Serve again.', available: true },
-];
-
-// harn:assume setup-recovers-or-defers-remote-access ref=setup-remote-access-subflow
+// harn:assume setup-recovers-remote-access-with-one-clear-decision ref=setup-remote-access-subflow
 /** A Serve failure is an operator/permission problem only on Linux/WSL (platform
  *  'linux'), where tailscaled runs as root and a non-root user must be granted
  *  operator rights. Unrelated errors must never be treated as a sudo problem. */
@@ -451,15 +452,42 @@ function isOperatorError(detail: string, platform: NodeJS.Platform): boolean {
  *  serve command, and — only for a Linux/WSL operator problem — the documented
  *  `sudo tailscale set --operator=$USER` recovery. sudo is never run here; the
  *  command is shown for the operator to run in another shell. */
+function conciseServeDiagnostic(error: unknown): string[] {
+  const detail = error instanceof Error ? error.message : String(error);
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const raw of detail.split(/\r?\n/)) {
+    const line = raw.trim().replace(/^Tailscale Serve command failed:\s*/i, '');
+    if (
+      line === ''
+      || /^Command failed:/i.test(line)
+      || /^Use ['"]?sudo tailscale serve\b/i.test(line)
+      || /^To not require root,/i.test(line)
+      || seen.has(line)
+    ) continue;
+    seen.add(line);
+    lines.push(line);
+  }
+  return lines;
+}
+
 function serveFailureMessage(error: unknown, path: string, deps: RemoteAccessDeps): string {
   const detail = error instanceof Error ? error.message : String(error);
   const serveCommand = `${path} serve --bg ${deps.localEndpoint}`;
-  const lines = ['Tailscale Serve could not be configured.', '', ...detail.split('\n'), ''];
+  const diagnostic = conciseServeDiagnostic(error);
+  const lines: string[] = [];
   if (isOperatorError(detail, deps.platform)) {
-    lines.push('Run this in another terminal, then choose Retry:', 'sudo tailscale set --operator=$USER', serveCommand);
+    lines.push(
+      'Tailscale needs permission to configure Serve.',
+      'Run this once in another terminal (do not run Serve with sudo):',
+      'sudo tailscale set --operator=$USER',
+      'Then return here and choose Retry. It will run:',
+      serveCommand,
+    );
   } else {
-    lines.push('To finish remote access later, run:', serveCommand);
+    lines.push('Tailscale Serve could not be configured.', 'Retry will run:', serveCommand);
   }
+  diagnostic.forEach((line, index) => lines.push(`${index === 0 ? 'Error: ' : '       '}${line}`));
   return lines.join('\n');
 }
 
@@ -469,8 +497,8 @@ function serveFailureMessage(error: unknown, path: string, deps: RemoteAccessDep
  * cannot Serve, and asks a separate consent before configuring Serve. A Serve
  * failure does not auto-degrade: it stays here, showing the real error and the
  * exact resolved serve command (plus the Linux/WSL operator recovery when the
- * error is a permission problem), and offers Retry or an explicitly confirmed
- * local-only fallback. Purely a decision function: it mutates nothing but log.
+ * error is a permission problem), and offers one clear Retry or local-only
+ * decision. Purely a decision function: it mutates nothing but log.
  */
 export async function runRemoteAccess(deps: RemoteAccessDeps): Promise<RemoteAccessResult> {
   const local = (note: string): RemoteAccessResult => {
@@ -500,9 +528,13 @@ export async function runRemoteAccess(deps: RemoteAccessDeps): Promise<RemoteAcc
     if (consent !== 'configure') return local('this computer only');
 
     // Configure Serve, and on failure stay here: show the real error and recovery
-    // and let the operator Retry or explicitly confirm the local-only fallback. A
-    // failure never auto-degrades, and sudo is never run automatically.
+    // and let the operator Retry or choose the local-only fallback. A failure
+    // never auto-degrades, sudo is never run automatically, and Continue is the
+    // decision — it does not open a second confirmation screen.
+    let attempt = 0;
     for (;;) {
+      attempt += 1;
+      deps.log(attempt === 1 ? 'configuring Tailscale Serve' : 'retrying Tailscale Serve');
       let failure: unknown;
       try {
         const endpoint = deps.configureServe(path);
@@ -513,19 +545,13 @@ export async function runRemoteAccess(deps: RemoteAccessDeps): Promise<RemoteAcc
       }
       const next = await deps.choose({ message: serveFailureMessage(failure, path, deps), options: RETRY_OR_CONTINUE });
       if (next === 'retry') continue;
-      const confirm = await deps.choose({
-        message: 'Continue on this computer only? Codor stays local until you configure Tailscale Serve.',
-        options: CONFIRM_LOCAL,
-      });
-      if (confirm === 'retry') continue;
-      deps.log(`could not configure Tailscale Serve: ${failure instanceof Error ? failure.message : String(failure)}`);
+      deps.log('remote access deferred; Codor will stay on this computer');
       deps.log(`to finish remote access later, run: ${path} serve --bg ${deps.localEndpoint}`);
-      deps.log('Codor still works on this computer.');
       return { access: 'localhost', endpoint: deps.localEndpoint, summary: 'This computer (remote access deferred)' };
     }
   }
 }
-// harn:end setup-recovers-or-defers-remote-access
+// harn:end setup-recovers-remote-access-with-one-clear-decision
 
 // harn:assume windows-setup-installs-private-task-service ref=windows-service-rendering
 export function renderWindowsServiceScript(options: {
@@ -931,10 +957,11 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   };
 
   const cardColumns = overrides.streams?.output?.columns ?? process.stdout.columns ?? 80;
-  // Rows available to the pairing card once the frame's header, heading, and the
-  // reserved Finish control are set aside; the card omits its QR to fit.
+  // The frame budget is rows - 1. Its fixed pairing overhead is two header rows,
+  // one blank, one heading, and the reserved Finish control: five rows. Therefore
+  // a complete card gets rows - 6; at 80x46 the real 29-row QR fits exactly.
   const cardRows = overrides.streams?.output?.rows ?? process.stdout.rows ?? 24;
-  const cardMaxRows = Math.max(8, cardRows - 8);
+  const cardMaxRows = Math.max(8, cardRows - 6);
   const emitPairing = (): void => {
     options.out(renderPairingCard({
       code: pairing!.code,

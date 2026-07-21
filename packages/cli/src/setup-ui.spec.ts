@@ -164,12 +164,15 @@ describe('vertical choice menus', () => {
     // A Serve-failure prompt carries the real error and copyable commands; each
     // line must survive rather than collapse into a single truncated line.
     const message = [
-      'Tailscale Serve failed to configure.',
-      'Run this, then choose Retry:',
+      'Tailscale needs permission to configure Serve.',
+      'Run this once in another terminal (do not run Serve with sudo):',
       'sudo tailscale set --operator=$USER',
+      'Then return here and choose Retry. It will run:',
+      '/usr/bin/tailscale serve --bg http://127.0.0.1:8137',
+      'Error: sending serve config: Access denied: serve config denied',
     ].join('\n');
-    const frame = plain(renderSetupFrame(state({
-      steps: midway(), cursor: 2, viewport: { rows: 24, columns: 40 },
+    const raw = renderSetupFrame(state({
+      steps: midway(), cursor: 2, viewport: { rows: 24, columns: 80 },
       menu: {
         message, focused: 0, canBack: true,
         options: [
@@ -178,11 +181,18 @@ describe('vertical choice menus', () => {
         ],
       },
       controls: controls({ back: true }),
-    })));
+    }));
+    const frame = plain(raw);
     // The last message line proves lines after the first are not dropped.
     expect(frame).toContain('sudo tailscale set --operator=$USER');
-    expect(frame).toContain('Tailscale Serve failed to configure.');
-    expect(frame.split('\n').every((line) => [...line].length <= 40)).toBe(true);
+    expect(frame).toContain('Tailscale needs permission to configure Serve.');
+    expect(frame).toContain('Continue on this computer');
+    expect(frame).toContain('Enter Select');
+    expect(frame.split('\n').every((line) => [...line].length <= 80)).toBe(true);
+    // Recovery detail is readable foreground, while the copyable command uses
+    // the same single accent as the question and focused option.
+    expect(raw).not.toContain('\u001B[2mRun this once in another terminal');
+    expect(raw).toContain('\u001B[36m\u001B[1msudo tailscale set --operator=$USER');
   });
 
   it('pads the choice block with blank lines above the prompt and around the hint', () => {
@@ -369,7 +379,9 @@ describe('pairing result card', () => {
   // multiline card was truncated to one line's width).
   const inFrameCard = { ...card, url: LONG_URL, qr: renderTerminalQr(LONG_URL), instruction: 'Scan the QR or enter the code in your browser.' };
   const inFrame = (columns: number, rows: number): string => {
-    const rendered = renderPairingCard(inFrameCard, columns, rows - 8);
+    // Match setup.ts: rows - 1 frame budget minus five fixed rows (two header,
+    // blank, heading, Finish) leaves rows - 6 for the complete card.
+    const rendered = renderPairingCard(inFrameCard, columns, rows - 6);
     const steps = createSetupStages().map((step) => ({ ...step, state: 'done' as const }));
     return renderSetupFrame(state({
       steps, cursor: 4, card: rendered, controls: controls({ back: true, finish: true }),
@@ -398,6 +410,19 @@ describe('pairing result card', () => {
     expect(raw).toContain('█'); // the QR fits a tall terminal
     expect(plain(raw)).toContain('ABCD-2345');
     expect(plain(raw)).toContain('Enter Finish');
+  });
+
+  it('shows the complete real QR at 80x46 because it actually fits', () => {
+    const raw = inFrame(80, 46);
+    const frame = plain(raw);
+    const qr = plain(renderTerminalQr(LONG_URL));
+    const glyphs = (value: string): number => [...value].filter((char) => char === '█' || char === '▀' || char === '▄').length;
+    expect(frame).toContain('ABCD-2345');
+    expect(compact(frame)).toContain(LONG_URL);
+    expect(frame).toContain('in 10 minutes');
+    expect(frame).toContain('Enter Finish');
+    expect(glyphs(frame)).toBe(glyphs(qr)); // no omitted or partial QR
+    expect(frame.split('\n').every((line) => [...line].length <= 80)).toBe(true);
   });
 });
 // harn:end setup-verifies-codor-before-creating-pairing-code

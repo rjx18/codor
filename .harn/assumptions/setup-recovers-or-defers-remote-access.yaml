@@ -2,7 +2,7 @@ id: setup-recovers-or-defers-remote-access
 hash: a-759febaf3325
 title: Remote access defers Tailscale behind consent and recovers a Serve
   failure in place instead of auto-degrading
-state: active
+state: retired
 statement: Interactive setup must ask where Codor will be used (this computer
   only, or remotely) and must not detect, capability-probe, or configure
   Tailscale until the operator chooses remote; only then may it resolve the CLI,
@@ -21,3 +21,4 @@ depends_on:
   - setup-resolves-and-capability-probes-tailscale-serve
   - setup-auto-advances-and-gates-mutation-on-consent
 created_by: codor-remote-access-recovery-assumption
+retired_by: codor-tailscale-recovery-qr-fit

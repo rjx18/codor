@@ -1,0 +1,21 @@
+id: setup-recovers-remote-access-with-one-clear-decision
+hash: a-53132b9c59ac
+title: Remote access recovery presents one clear Retry or local decision
+state: active
+statement: Interactive setup must defer all Tailscale detection and
+  configuration until the operator chooses remote and separately consents to
+  Serve. A Serve failure must remain in Step 3 and present one readable,
+  deduplicated recovery screen. Linux or WSL permission/operator failures must
+  be classified into a concise instruction to run `sudo tailscale set
+  --operator=$USER` once, explicitly avoid recommending that setup run Serve
+  through sudo, show the exact resolved Serve command Retry will execute, and
+  keep the underlying unique diagnostic visible. Retry must visibly report that
+  Serve is being tried again and then rerun it; Continue-on-this-computer is
+  itself the explicit local-only decision and advances without asking the same
+  question twice. Unrelated failures must preserve their real diagnostic without
+  false sudo guidance, setup must never execute sudo, and local Codor must
+  remain usable.
+depends_on:
+  - setup-resolves-and-capability-probes-tailscale-serve
+  - setup-auto-advances-and-gates-mutation-on-consent
+created_by: codor-tailscale-recovery-qr-fit
