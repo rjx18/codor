@@ -2,7 +2,7 @@ id: setup-defers-remote-access-behind-consent
 hash: a-8db33073cce3
 title: Remote access detects and configures Tailscale only after the operator
   chooses remote and consents, degrading to local on failure
-state: active
+state: retired
 statement: Interactive setup must ask where Codor will be used (this computer
   only, or remotely) and must not detect, capability-probe, or configure
   Tailscale until the operator chooses remote; only then may it resolve the CLI,
@@ -17,3 +17,4 @@ depends_on:
   - setup-resolves-and-capability-probes-tailscale-serve
   - setup-auto-advances-and-gates-mutation-on-consent
 created_by: codor-install-remote-access
+retired_by: codor-remote-access-recovery-assumption

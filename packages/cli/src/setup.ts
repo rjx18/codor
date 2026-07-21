@@ -438,7 +438,7 @@ const CONFIRM_LOCAL: SetupAccessOption[] = [
   { id: 'retry', label: 'Retry Tailscale Serve instead', description: 'Go back and run Serve again.', available: true },
 ];
 
-// harn:assume setup-defers-remote-access-behind-consent ref=setup-remote-access-subflow
+// harn:assume setup-recovers-or-defers-remote-access ref=setup-remote-access-subflow
 /** A Serve failure is an operator/permission problem only on Linux/WSL (platform
  *  'linux'), where tailscaled runs as root and a non-root user must be granted
  *  operator rights. Unrelated errors must never be treated as a sudo problem. */
@@ -525,7 +525,7 @@ export async function runRemoteAccess(deps: RemoteAccessDeps): Promise<RemoteAcc
     }
   }
 }
-// harn:end setup-defers-remote-access-behind-consent
+// harn:end setup-recovers-or-defers-remote-access
 
 // harn:assume windows-setup-installs-private-task-service ref=windows-service-rendering
 export function renderWindowsServiceScript(options: {

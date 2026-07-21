@@ -15,7 +15,7 @@ function scripted(answers: string[], shown: Menu[] = []): (menu: Menu) => Promis
   };
 }
 
-// harn:assume setup-defers-remote-access-behind-consent ref=setup-remote-access-regression
+// harn:assume setup-recovers-or-defers-remote-access ref=setup-remote-access-regression
 describe('runRemoteAccess', () => {
   const base = (over: Partial<Parameters<typeof runRemoteAccess>[0]> = {}): Parameters<typeof runRemoteAccess>[0] => ({
     choice: 'remote',
@@ -150,4 +150,4 @@ describe('runRemoteAccess', () => {
     expect(result.access).toBe('tailscale');
   });
 });
-// harn:end setup-defers-remote-access-behind-consent
+// harn:end setup-recovers-or-defers-remote-access
