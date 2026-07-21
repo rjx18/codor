@@ -49,11 +49,17 @@ test.describe('channel creation', () => {
 
     // Browsing must not commit. Selecting a row does.
     const before = await dialog.getByTestId('create-folder-typed').inputValue();
-    const firstDir = picker.getByTestId(/^create-folder-(?!picker|typed|hidden|up|refresh|parent|selected)/).first();
-    if (await firstDir.count() > 0) {
-      await firstDir.click();
-      await expect(dialog.getByTestId('create-folder-typed')).not.toHaveValue(before);
-    }
+    const alpha = picker.getByTestId('create-folder-alpha-project');
+    await expect(alpha).toBeVisible();
+    await alpha.click();
+    await expect(alpha).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByTestId('create-folder-typed')).toHaveValue(/\/alpha-project$/);
+
+    const selected = await dialog.getByTestId('create-folder-typed').inputValue();
+    await dialog.getByTestId('create-open-alpha-project').click();
+    await expect(dialog.getByTestId('create-folder-nested')).toBeVisible();
+    await expect(dialog.getByTestId('create-folder-typed')).toHaveValue(selected);
+    expect(selected).not.toBe(before);
 
     await dialog.getByTestId('create-go').click();
     await expect(page.locator('.nx-chat-title h1')).toHaveText(name, { timeout: 10_000 });

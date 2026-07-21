@@ -31,6 +31,15 @@ const CONTROL_PORT = readPort('CODOR_NEXT_E2E_CONTROL_PORT', 28_138);
 const TOKEN = 'next-e2e-token';
 
 const dir = mkdtempSync(join(tmpdir(), 'codor-next-e2e-'));
+// A deterministic operator home makes the inline directory picker testable
+// without depending on whichever folders happen to exist on the developer's
+// machine. The inherited repo cwd intentionally remains outside this root so
+// spawn also exercises its 403 -> safe-root recovery path.
+const operatorHome = join(dir, 'operator-home');
+mkdirSync(join(operatorHome, 'alpha-project', 'nested'), { recursive: true });
+mkdirSync(join(operatorHome, 'beta-project'), { recursive: true });
+mkdirSync(join(operatorHome, '.hidden-project'), { recursive: true });
+process.env.HOME = operatorHome;
 const fake = new FakeAdapter('fake', {
   extensions: true,
   policies: {
@@ -44,9 +53,10 @@ const fake = new FakeAdapter('fake', {
 // exercised for real rather than against a single-adapter list: it supports
 // thinking with its own declared levels, cannot resume, and defers two of the
 // three policies (null = the harness makes no distinction at all, which is the
-// safety-critical case the permission cards must surface). No model list —
-// discovery is off in this fixture, so models come from the free-text escape.
-const thinky = new FakeAdapter('thinky', {
+// safety-critical case the permission cards must surface). Its deterministic
+// catalogue is deliberately larger than the UI threshold so browser tests
+// exercise the real searchable-list path rather than only the free-text escape.
+const thinky = Object.assign(new FakeAdapter('thinky', {
   resume: false,
   thinking: true,
   thinking_levels: ['low', 'medium', 'high', 'xhigh'],
@@ -55,12 +65,28 @@ const thinky = new FakeAdapter('thinky', {
     'workspace-write': null,
     'full-access': 'danger-full-access',
   },
+}), {
+  listModels: () => Promise.resolve({
+    source: 'curated',
+    models: [
+      'thinky/alpha',
+      'thinky/beta',
+      'thinky/delta',
+      'thinky/epsilon',
+      'thinky/eta',
+      'thinky/gamma',
+      'thinky/iota',
+      'thinky/kappa',
+      'thinky/theta',
+      'thinky/zeta',
+    ],
+  }),
 });
 
 const ledger = new LedgerManager({ dataDir: dir });
 const crypto = new CryptoVault(dir);
 const daemon = new Daemon({
-  discoverModels: false,
+  discoverModels: true,
   dbPath: join(dir, 'db.sqlite'),
   blobRoot: join(dir, 'blobs'),
   adapters: [fake, thinky],

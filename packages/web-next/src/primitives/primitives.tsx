@@ -126,6 +126,8 @@ export function Modal(props: {
   initialFocus?: RefObject<HTMLElement | null>;
   wide?: boolean;
   alert?: boolean;
+  /** Opt into the fixed header / scrolling body / fixed footer dialog shell. */
+  structured?: boolean;
 }): ReactPortal | null {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(props.onClose);
@@ -180,7 +182,7 @@ export function Modal(props: {
         aria-label={props.label}
         data-testid={props.testid}
         tabIndex={-1}
-        className={`nx-modal ${props.wide ? 'is-wide' : ''}`}
+        className={`nx-modal ${props.wide ? 'is-wide' : ''} ${props.structured ? 'is-structured' : ''}`}
       >
         {props.children}
       </div>

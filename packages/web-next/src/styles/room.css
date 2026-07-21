@@ -1346,6 +1346,8 @@
 /* ── Create channel: field notes + folder picker ─────────────────────── */
 
 .nx-field-note {
+  display: block;
+  margin-top: var(--sp-1);
   font: var(--t-caption);
   color: var(--c-faded);
 }
@@ -1958,6 +1960,8 @@
 .nx-sec-rule { flex: 1; height: 1px; background: var(--c-line); }
 
 .nx-field { display: block; margin-bottom: var(--sp-4); }
+.nx-field > input,
+.nx-field > textarea { width: 100%; }
 .nx-label {
   display: block;
   margin-bottom: var(--sp-2);
@@ -2084,7 +2088,7 @@
 }
 .nx-list-row:last-child { border-bottom: 0; }
 .nx-list-row:hover { background: var(--c-muted); }
-.nx-list-row[aria-selected='true'] { background: var(--c-muted); color: var(--c-ink); }
+.nx-list-row[aria-pressed='true'] { background: var(--c-muted); color: var(--c-ink); }
 .nx-list-row > .nx-check { top: 50%; margin-top: -8px; }
 .nx-list-sub { font: var(--t-caption); color: var(--c-faded); }
 
@@ -2094,21 +2098,21 @@
 .nx-slider-rail::before {
   content: '';
   position: absolute;
-  left: 0; right: 0; top: 9px;
+  left: 8px; right: 8px; top: 9px;
   height: 4px;
   border-radius: var(--r-full);
   background: var(--c-line);
 }
 .nx-slider-fill {
   position: absolute;
-  left: 0; top: 9px;
+  left: 8px; top: 9px;
   height: 4px;
   border-radius: var(--r-full);
   background: var(--c-ink);
 }
 .nx-slider-ticks {
   position: absolute;
-  left: 0; right: 0; top: 6px;
+  left: 8px; right: 8px; top: 6px;
   display: flex;
   justify-content: space-between;
 }
@@ -2155,6 +2159,14 @@
   outline-offset: 2px;
 }
 .nx-slider-input:disabled { cursor: not-allowed; }
+.nx-slider-ends {
+  display: flex;
+  justify-content: space-between;
+  margin: var(--sp-1) 8px 0;
+  color: var(--c-faded);
+  font: var(--t-mono-small);
+  text-transform: capitalize;
+}
 
 /* Permissions — three compact cards in one row, title only. */
 .nx-perm-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-2); }
@@ -2277,6 +2289,7 @@
   color: var(--c-ink);
 }
 .nx-dialog-headings { display: flex; align-items: flex-start; gap: var(--sp-3); min-width: 0; }
+.nx-dialog-head .nx-dialog-title { margin: 0; }
 .nx-dialog-close {
   display: grid;
   place-items: center;
@@ -2292,6 +2305,17 @@
 .nx-dialog-close:hover { color: var(--c-ink); }
 .nx-dialog-sub { margin: 2px 0 0; font: var(--t-caption); color: var(--c-secondary); }
 .nx-field-error { margin-top: var(--sp-2); font: var(--t-caption); color: var(--c-error-text); }
+.nx-agent-panel {
+  padding: var(--sp-4);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-raised);
+}
+.nx-agent-embedded-group + .nx-agent-embedded-group {
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--c-line);
+}
+.nx-agent-embedded-group:last-child > :last-child { margin-bottom: 0; }
 
 /* Colour swatches keep their own accent — this is the one place hue is the point. */
 .nx-swatch-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-2); }

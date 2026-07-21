@@ -1,9 +1,9 @@
 import type { AgentLimit, Member, Policy, Room, RunItemDiff, ThinkingLevel, WireEvent } from '@codor/protocol';
-import { LoaderCircle, Minimize2, MoreVertical, Plus, Square, X } from 'lucide-react';
+import { Bot, LoaderCircle, Minimize2, MoreVertical, Plus, Square, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@legacy/api.js';
-import { AgentControls, Section } from './AgentControls.js';
+import { AgentControls, AgentIdentityControls, RolePresetControls, Section } from './AgentControls.js';
 import { FolderPicker } from './FolderPicker.js';
 import {
   DEFAULT_POLICY,
@@ -542,7 +542,7 @@ function ConfigureDialog(props: {
   };
 
   return (
-    <Modal label="Configure agent" onClose={props.onClose} testid="configure-dialog">
+    <Modal label="Configure agent" onClose={props.onClose} testid="configure-dialog" structured>
       <form onSubmit={submit}>
         <div className="nx-dialog-head">
           <div>
@@ -619,13 +619,16 @@ function SpawnDialog(props: {
   };
 
   return (
-    <Modal label="Spawn agent" onClose={props.onClose} testid="spawn-dialog" initialFocus={handleRef}>
+    <Modal label="Spawn agent" onClose={props.onClose} testid="spawn-dialog" initialFocus={handleRef} structured>
       {/* A native form so Enter submits from any field. */}
       <form onSubmit={submit}>
         <div className="nx-dialog-head">
-          <div>
-            <h2 className="nx-dialog-title">Spawn agent</h2>
-            <p className="nx-dialog-sub">Into <code className="nx-mono">#{props.room?.name ?? props.roomId}</code></p>
+          <div className="nx-dialog-headings">
+            <span className="nx-dialog-icon" aria-hidden="true"><Bot size={19} /></span>
+            <div>
+              <h2 className="nx-dialog-title">Spawn agent</h2>
+              <p className="nx-dialog-sub">Into <code className="nx-mono">#{props.room?.name ?? props.roomId}</code></p>
+            </div>
           </div>
           <button type="button" className="nx-dialog-close" aria-label="Close spawn agent"
             data-testid="spawn-close" onClick={props.onClose}>
@@ -635,6 +638,12 @@ function SpawnDialog(props: {
 
         <div className="nx-dialog-body">
         <Section n={1} title="Identity">
+        <AgentIdentityControls
+          adapters={props.adapters}
+          config={{ ...config, harness }}
+          onChange={setConfig}
+          idPrefix="spawn"
+        />
         <label className="nx-field">
           <span className="nx-label">Handle</span>
           {/* HANDLE_PATTERN's hyphen must stay escaped: HTML compiles `pattern`
@@ -662,25 +671,27 @@ function SpawnDialog(props: {
           <span className="nx-label">Working directory</span>
           <FolderPicker token={props.token} value={cwd} onChange={setCwd} idPrefix="spawn" />
         </div>
+        <RolePresetControls
+          idPrefix="spawn"
+          onApply={(preset) => {
+            const applied = applyPreset({
+              preset,
+              config: { ...config, harness },
+              adapters: props.adapters,
+              members: props.members,
+            });
+            setConfig(applied.config);
+            setHandle(applied.handle);
+            setPurpose(applied.purpose);
+          }}
+        />
         </Section>
 
         <AgentControls
           adapters={props.adapters}
           config={{ ...config, harness }}
           onChange={setConfig}
-          presets={{
-            onApply: (preset) => {
-              const applied = applyPreset({
-                preset,
-                config: { ...config, harness },
-                adapters: props.adapters,
-                members: props.members,
-              });
-              setConfig(applied.config);
-              setHandle(applied.handle);
-              setPurpose(applied.purpose);
-            },
-          }}
+          hideHarness
           behaviourSection={2}
           permissionsSection={3}
           idPrefix="spawn"

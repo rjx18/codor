@@ -223,7 +223,7 @@ test.describe('Tier-1: rendered reconciliation and validation', () => {
     await openRoom(page);
     const dialog = await openSpawn(page);
     await dialog.getByTestId('spawn-harness-thinky').click();
-    await dialog.getByTestId('spawn-model-input').fill('thinky-only-model');
+    await dialog.getByTestId('spawn-model-custom').fill('thinky-only-model');
     await dialog.getByTestId('spawn-harness-fake').click();
     await expect(dialog.getByTestId('spawn-model-input')).toHaveValue('');
   });
@@ -300,6 +300,7 @@ test.describe('v2 controls', () => {
     // reference's hardcoded seven.
     await expect(range).toHaveAttribute('max', '4');
     await expect(dialog.getByTestId('spawn-thinking-value')).toHaveText('Default');
+    await expect(dialog.getByTestId('spawn-thinking-ends')).toHaveText('Defaultxhigh');
 
     await range.fill('1');
     await expect(dialog.getByTestId('spawn-thinking-value')).toHaveText('low');
@@ -316,12 +317,26 @@ test.describe('v2 controls', () => {
   test('the model list searches, selects, and still takes a custom id', async ({ page }) => {
     await openRoom(page);
     const dialog = await openSpawn(page);
-    // The fixture harnesses report no catalogue, so the free-text escape is the
-    // whole control — and it must still accept an off-catalogue id.
-    await dialog.getByTestId('spawn-model-input').fill('some-exact-model');
-    await expect(dialog.getByTestId('spawn-model-input')).toHaveValue('some-exact-model');
-    // Switching harness clears it, because model ids are harness-specific.
     await dialog.getByTestId('spawn-harness-thinky').click();
+
+    // thinky reports ten models: above the eight-model threshold, so this proves
+    // the actual searchable catalogue rather than only the free-text fallback.
+    const search = dialog.getByTestId('spawn-model-search');
+    await expect(search).toHaveAttribute('placeholder', 'Search 10 models…');
+    await search.fill('kappa');
+    await expect(dialog.getByTestId('spawn-model-thinky/kappa')).toBeVisible();
+    await expect(dialog.getByTestId('spawn-model-thinky/alpha')).toBeHidden();
+
+    await dialog.getByTestId('spawn-model-thinky/kappa').click();
+    await expect(dialog.getByTestId('spawn-model-thinky/kappa')).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByTestId('spawn-model-custom')).toHaveValue('thinky/kappa');
+
+    // The list is an aid, never a trap: an exact off-catalogue id remains valid.
+    await dialog.getByTestId('spawn-model-custom').fill('some-exact-model');
+    await expect(dialog.getByTestId('spawn-model-custom')).toHaveValue('some-exact-model');
+
+    // Switching harness clears the harness-specific model selection.
+    await dialog.getByTestId('spawn-harness-fake').click();
     await expect(dialog.getByTestId('spawn-model-input')).toHaveValue('');
   });
 
@@ -332,25 +347,24 @@ test.describe('v2 controls', () => {
     await expect(picker).toBeVisible();
 
     const before = await dialog.getByTestId('spawn-folder-typed').inputValue();
-    // Navigating up must not change the selection — only choosing a row does.
-    const up = dialog.getByTestId('spawn-folder-up');
-    if (await up.count() > 0) {
-      await up.click();
-      await expect(dialog.getByTestId('spawn-folder-typed')).toHaveValue(before);
-    }
+    const alpha = picker.getByTestId('spawn-folder-alpha-project');
+    await expect(alpha).toBeVisible();
+
     // Select and Open are separate controls now — double-click carried "open"
-    // before, which no keyboard user can reach.
-    const dir = picker.getByTestId(/^spawn-folder-(?!picker|typed|hidden|up|refresh|parent|selected|retry)/).first();
-    await expect(dir).toBeVisible();
-    const name = (await dir.getAttribute('data-testid'))!.replace('spawn-folder-', '');
-    await dir.click();
-    await expect(dir).toHaveAttribute('aria-pressed', 'true');
-    await expect(dialog.getByTestId('spawn-folder-typed')).not.toHaveValue(before);
+    // before, which no keyboard or touch user can reach reliably.
+    await alpha.click();
+    await expect(alpha).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByTestId('spawn-folder-typed')).toHaveValue(/\/alpha-project$/);
 
     // Opening descends without changing what is selected.
     const selected = await dialog.getByTestId('spawn-folder-typed').inputValue();
-    await dialog.getByTestId(`spawn-open-${name}`).click();
+    await dialog.getByTestId('spawn-open-alpha-project').click();
+    await expect(dialog.getByTestId('spawn-folder-nested')).toBeVisible();
     await expect(dialog.getByTestId('spawn-folder-typed')).toHaveValue(selected);
+
+    await dialog.getByTestId('spawn-folder-up').click();
+    await expect(dialog.getByTestId('spawn-folder-typed')).toHaveValue(selected);
+    expect(selected).not.toBe(before);
   });
 
   test('hidden folders can be revealed', async ({ page }) => {
@@ -358,26 +372,39 @@ test.describe('v2 controls', () => {
     const dialog = await openSpawn(page);
     const toggle = dialog.getByTestId('spawn-folder-hidden');
     await expect(toggle).not.toBeChecked();
+    await expect(dialog.getByTestId('spawn-folder-.hidden-project')).toHaveCount(0);
     await toggle.check();
     await expect(toggle).toBeChecked();
+    await expect(dialog.getByTestId('spawn-folder-.hidden-project')).toBeVisible();
   });
 });
 
 test.describe('all three dialogs share one control', () => {
-  test('spawn, create and configure each render the shared groups', async ({ page }) => {
+  test('spawn, create and configure each render the shared groups', async ({ page }, testInfo) => {
     // The regression this guards: three hand-rolled forms that drifted apart from
     // each other and from the protocol.
     await openRoom(page);
 
     const spawn = await openSpawn(page);
     await expect(spawn.getByTestId('spawn-policy-read-only')).toBeVisible();
-    await expect(spawn.getByTestId('spawn-policy-read-only')).toBeVisible();
-    await spawn.getByTestId('spawn-close').click();
+    await expect(spawn.getByTestId('spawn-harness-fake')).toBeVisible();
+    const handle = `sharedctrl${String(testInfo.workerIndex)}${String(testInfo.retry)}${String(testInfo.repeatEachIndex)}`;
+    await spawn.getByTestId('spawn-handle').fill(handle);
+    await spawn.getByTestId('spawn-go').click();
+    await expect(page.getByTestId(`member-${handle}`)).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId(`member-${handle}-menu`).click();
+    await page.getByRole('menuitem', { name: 'Configure…' }).click();
+    const configure = page.getByTestId('configure-dialog');
+    await expect(configure).toBeVisible();
+    await expect(configure.getByTestId('configure-harness-fake')).toBeVisible();
+    await expect(configure.getByTestId('configure-policy-read-only')).toBeVisible();
+    await configure.getByTestId('configure-close').click();
 
     await page.getByTestId('create-room').click();
     const create = page.getByTestId('create-channel-dialog');
     await create.getByTestId('create-harness-fake').click();
-    await expect(create.getByTestId('create-policy-read-only')).toBeVisible();
+    await expect(create.getByTestId('create-harness-fake')).toBeVisible();
     await expect(create.getByTestId('create-policy-read-only')).toBeVisible();
     await create.getByTestId('create-close').click();
   });
@@ -389,6 +416,8 @@ test.describe('accessibility', () => {
     await page.getByTestId('create-room').click();
     const dialog = page.getByTestId('create-channel-dialog');
     await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId('create-close')).toBeVisible();
+    await expect(dialog.getByTestId('create-go')).toBeVisible();
     await dialog.getByTestId('create-harness-fake').click();
     for (const theme of ['light', 'dark']) {
       await page.evaluate((t) => { document.documentElement.dataset.theme = t; }, theme);
@@ -441,6 +470,22 @@ test.describe('accessibility', () => {
     // make a cosmetic decision before doing the useful work.
     await expect(dialog.getByText('Colour', { exact: true })).toHaveCount(0);
     await expect(dialog.locator('[data-testid^="create-color-"]')).toHaveCount(0);
+
+    // The three permission cards stay in one row and inside the modal at 320px.
+    await dialog.getByTestId('create-harness-thinky').click();
+    const body = dialog.locator('.nx-dialog-body');
+    await body.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+    await expect(dialog.getByTestId('create-go')).toBeVisible();
+    const permissionGeometry = await dialog.locator('.nx-perm-row').evaluate((row) => {
+      const parent = row.closest('[role="dialog"]')?.getBoundingClientRect();
+      const cards = [...row.querySelectorAll<HTMLElement>('.nx-perm')].map((card) => card.getBoundingClientRect());
+      return {
+        count: cards.length,
+        oneRow: cards.every((card) => Math.abs(card.top - (cards[0]?.top ?? card.top)) < 1),
+        contained: parent !== undefined && cards.every((card) => card.left >= parent.left && card.right <= parent.right),
+      };
+    });
+    expect(permissionGeometry).toEqual({ count: 3, oneRow: true, contained: true });
 
     // And it still works: name it and create from the phone.
     await dialog.getByTestId('create-name').fill('phonemade');

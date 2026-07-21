@@ -28,11 +28,17 @@ export function ThinkingSlider(props: {
   const index = Math.max(0, stops.indexOf(props.value));
   const pct = max === 0 ? 0 : index / max;
   const label = (stop: string) => (stop === '' ? 'Default' : stop);
+  // Keep the visual thumb and tooltip inside the rail at both endpoints. The
+  // native range uses the same half-thumb inset rather than putting its center
+  // on the element's outer edge.
+  const position = `calc(8px + ${String(pct * 100)}% - ${String(pct * 16)}px)`;
+  const fillWidth = `calc(${String(pct * 100)}% - ${String(pct * 16)}px)`;
+  const tipTransform = pct === 0 ? 'translateX(0)' : pct === 1 ? 'translateX(-100%)' : 'translateX(-50%)';
 
   return (
     <div className="nx-slider" data-testid={`${props.idPrefix}-thinking-slider`}>
       <div className="nx-slider-rail">
-        <div className="nx-slider-fill" style={{ width: `${String(pct * 100)}%` }} />
+        <div className="nx-slider-fill" style={{ width: fillWidth }} />
         <div className="nx-slider-ticks" aria-hidden="true">
           {stops.map((stop, i) => (
             <span
@@ -43,10 +49,10 @@ export function ThinkingSlider(props: {
           ))}
         </div>
         {/* The knob and tooltip ride the same percentage as the fill. */}
-        <span className="nx-slider-knob" style={{ left: `${String(pct * 100)}%` }} aria-hidden="true" />
+        <span className="nx-slider-knob" style={{ left: position }} aria-hidden="true" />
         <span
           className="nx-slider-tip"
-          style={{ left: `${String(pct * 100)}%` }}
+          style={{ left: position, transform: tipTransform }}
           data-testid={`${props.idPrefix}-thinking-value`}
         >
           {label(stops[index] ?? '')}
@@ -66,6 +72,10 @@ export function ThinkingSlider(props: {
           data-testid={`${props.idPrefix}-thinking-range`}
           onChange={(event) => props.onChange(stops[Number(event.target.value)] ?? '')}
         />
+      </div>
+      <div className="nx-slider-ends" aria-hidden="true" data-testid={`${props.idPrefix}-thinking-ends`}>
+        <span>{label(stops[0] ?? '')}</span>
+        <span>{label(stops[max] ?? '')}</span>
       </div>
     </div>
   );

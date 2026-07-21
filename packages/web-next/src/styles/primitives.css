@@ -175,12 +175,8 @@
 .nx-modal {
   width: min(100%, 560px);
   max-height: min(84dvh, 820px);
-  /* The modal itself never scrolls: its body does. Otherwise the header and the
-     actions scroll away, which is what made the dialog captures start halfway
-     down and left the mobile footer unreachable. */
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  padding: var(--sp-5);
+  overflow: auto;
   border: 1px solid var(--c-line);
   border-radius: var(--r-panel);
   background: var(--c-surface);
@@ -189,23 +185,33 @@
 }
 /* Both reference dialogs are 560px; is-wide is retained for other consumers. */
 .nx-modal.is-wide { width: min(100%, 680px); }
-.nx-modal > form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.nx-modal .nx-dialog-head {
+.nx-modal.is-structured {
+  /* Structured dialogs keep their chrome fixed while only their body scrolls.
+     Other Modal consumers retain the original padded, scrolling container. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.nx-modal.is-structured > form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.nx-modal.is-structured .nx-dialog-head {
   flex: none;
   padding: var(--sp-5) var(--sp-5) var(--sp-4);
   border-bottom: 1px solid var(--c-line);
 }
-.nx-modal .nx-dialog-body {
+.nx-modal.is-structured .nx-dialog-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  margin: 0;
   padding: var(--sp-4) var(--sp-5);
 }
-.nx-modal .nx-dialog-actions {
+.nx-modal.is-structured .nx-dialog-actions {
   flex: none;
   display: flex;
   justify-content: flex-end;
   gap: var(--sp-2);
+  margin: 0;
   padding: var(--sp-4) var(--sp-5);
   border-top: 1px solid var(--c-line);
   background: var(--c-raised);

@@ -1,18 +1,14 @@
 import type { Room } from '@codor/protocol';
 import { deriveAssignableHandle, deriveRoomId } from '@codor/protocol';
-import { Ban, X } from 'lucide-react';
+import { FolderPlus, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
   createRoom,
-  fetchLocalDirectories,
-  type AdapterRegistration,
-  type LocalDirectoryListing,
 } from '@legacy/api.js';
 
-import { AgentControls, Section } from './AgentControls.js';
+import { AgentControls, AgentIdentityControls, Section } from './AgentControls.js';
 import { FolderPicker } from './FolderPicker.js';
-import { harnessLabel, harnessMark } from './harness-marks.js';
 import {
   DEFAULT_POLICY,
   type AgentConfig,
@@ -102,13 +98,16 @@ export function CreateChannelDialog(props: {
   };
 
   return (
-    <Modal label="Create channel" onClose={props.onClose} testid="create-channel-dialog">
+    <Modal label="Create channel" onClose={props.onClose} testid="create-channel-dialog" structured>
       {/* Native form so Enter submits from any field. */}
       <form onSubmit={(event) => { event.preventDefault(); submit(); }}>
       <div className="nx-dialog-head">
-        <div>
-          <h2 className="nx-dialog-title">Create channel</h2>
-          <p className="nx-dialog-sub">A workspace for a task and its agents.</p>
+        <div className="nx-dialog-headings">
+          <span className="nx-dialog-icon" aria-hidden="true"><FolderPlus size={19} /></span>
+          <div>
+            <h2 className="nx-dialog-title">Create channel</h2>
+            <p className="nx-dialog-sub">A workspace for a task and its agents.</p>
+          </div>
         </div>
         <button type="button" className="nx-dialog-close" aria-label="Close create channel"
           data-testid="create-close" onClick={props.onClose}>
@@ -138,40 +137,17 @@ export function CreateChannelDialog(props: {
       </div>
       </Section>
       <Section n={2} title="Starting agent">
-      <div className="nx-field">
-        <span className="nx-label">Harness <span className="nx-opt">· optional</span></span>
-        <div className="nx-harness-grid" role="group" aria-label="Starting agent">
-          <button
-            type="button"
-            className="nx-harness"
-            aria-pressed={agentHarness === ''}
-            data-testid="create-harness-none"
-            onClick={() => { setAgentConfig({ ...agentConfig, harness: '' }); }}
-          >
-            <Ban size={22} aria-hidden="true" />
-            <span className="nx-harness-name">None</span>
-            <span className="nx-check" aria-hidden="true" />
-          </button>
-          {adapters.map((adapter: AdapterRegistration) => (
-            <button
-              key={adapter.id}
-              type="button"
-              className="nx-harness"
-              aria-pressed={agentHarness === adapter.id}
-              data-testid={`create-harness-${adapter.id}`}
-              onClick={() => { setAgentConfig({ ...agentConfig, harness: adapter.id, model: '', thinking: '' }); }}
-            >
-              {harnessMark(adapter.id)}
-              <span className="nx-harness-name">{harnessLabel(adapter.id)}</span>
-              <span className="nx-check" aria-hidden="true" />
-            </button>
-          ))}
-        </div>
-      </div>
-      <>
+      <div className="nx-agent-panel">
+          <AgentIdentityControls
+            adapters={adapters}
+            config={agentConfig}
+            onChange={setAgentConfig}
+            allowNone
+            optional
+            idPrefix="create"
+          />
           <label className="nx-field">
             <span className="nx-label">Agent name</span>
-            {/* Disabled rather than unmounted elsewhere, so the dialog never jumps. */}
             {/* Disabled, never unmounted: unmounting made the dialog jump as the
                 harness changed, and hid the control instead of explaining it. */}
             <input
@@ -209,10 +185,11 @@ export function CreateChannelDialog(props: {
               hideHarness
               behaviourSection={3}
               permissionsSection={4}
+              embedded
               idPrefix="create"
             />
           )}
-      </>
+      </div>
       </Section>
       {error !== undefined && <p className="nx-field-note is-error" role="alert">{error}</p>}
       </div>
@@ -226,5 +203,3 @@ export function CreateChannelDialog(props: {
     </Modal>
   );
 }
-
-/** Minimal directory browser over the daemon's home-contained listing. */
