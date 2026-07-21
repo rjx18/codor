@@ -68,7 +68,8 @@ describe('Tura NDJSON translation', () => {
     }));
     const duplicate = translator.push(JSON.stringify({
       type: 'command.updated', sessionID: 'ses_current', status: 'completed', raw: { payload: { properties: {
-        commandID: 'cmd_current', status: 'completed', command: { command_type: 'zsh', command_line: '{"command":"pwd"}' }, result: null,
+        commandID: 'cmd_current', status: 'completed', command: { command_type: 'zsh', command_line: '{"command":"pwd"}' },
+        result: { success: true, output: { stdout: '/work\\n', stderr: '' } },
       } } },
     }));
 
@@ -92,5 +93,18 @@ describe('Tura NDJSON translation', () => {
     expect(translator.push(JSON.stringify({
       type: 'session.status', sessionID: 'ses_resume', status: 'idle',
     }))).toEqual([{ type: 'run.completed', status: 'completed', final_text: 'PONG' }]);
+  });
+
+  it('ignores idle before a terminal turn event', () => {
+    const translator = createTurnTranslator();
+    expect(translator.push(JSON.stringify({
+      type: 'session.status', sessionID: 'ses_resume', status: 'idle',
+    }))).toEqual([]);
+    expect(translator.push(JSON.stringify({
+      type: 'message.part.delta', sessionID: 'ses_resume', text: 'ONG',
+    }))).toEqual([]);
+    expect(translator.push(JSON.stringify({
+      type: 'session.status', sessionID: 'ses_resume', status: 'idle',
+    }))).toEqual([]);
   });
 });

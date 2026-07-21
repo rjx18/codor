@@ -69,10 +69,11 @@ export interface TurnTranslator {
 export function createTurnTranslator(): TurnTranslator {
   let sessionId: string | undefined;
   let finalText = '';
-  let streamedText = '';
   let streamError: string | undefined;
   let terminal = false;
   const toolCalls = new Set<string>();
+  const toolResults = new Set<string>();
+  let sawTerminalTurnActivity = false;
 
   const finish = (
     status: 'completed' | 'failed' | 'interrupted',
@@ -80,7 +81,7 @@ export function createTurnTranslator(): TurnTranslator {
   ): WireEvent[] => {
     if (terminal) return [];
     terminal = true;
-    const resolved = finalText || streamedText || streamError || error;
+    const resolved = finalText || streamError || error;
     return [{
       type: 'run.completed',
       status,
@@ -105,17 +106,15 @@ export function createTurnTranslator(): TurnTranslator {
       switch (event.type) {
         case 'message.part.delta':
           if (typeof event.text !== 'string' || event.text === '') return [];
-          // The source gateway can publish a partial delta after it has already
-          // committed the final assistant message (for example `ONG` then
-          // `PONG`). Keep it as a fallback, but publish the authoritative
-          // final/message update only once at completion.
-          streamedText += event.text;
+          // Source deltas can be partial or reordered. The authoritative final
+          // is the assistant message update or cli.completed.finalText.
           return [];
         case 'message.updated':
           // A resumed command-run turn reports its final answer through a
           // repeatable message update before reporting the session as idle.
           if (event.raw?.payload?.properties?.info?.role === 'assistant' && typeof event.text === 'string') {
             finalText = event.text;
+            sawTerminalTurnActivity = true;
           }
           return [];
         case 'command.updated': {
@@ -141,14 +140,20 @@ export function createTurnTranslator(): TurnTranslator {
             });
           }
           const result = properties?.result;
-          if (status !== undefined && TERMINAL_COMMAND_STATUSES.has(status) && (properties?.output !== undefined || result != null)) {
+          if (
+            status !== undefined && TERMINAL_COMMAND_STATUSES.has(status) &&
+            (properties?.output !== undefined || result != null) && !toolResults.has(callId)
+          ) {
+            toolResults.add(callId);
+            sawTerminalTurnActivity = true;
+            const output = outputText(properties?.output ?? result?.output);
             events.push({
               type: 'run.item',
               item_type: 'tool_result',
               payload: {
                 call_id: callId,
                 status: result?.success === false || (status !== 'completed' && status !== 'succeeded') ? 'error' : 'ok',
-                ...(outputText(properties?.output ?? result?.output) && { output_text: outputText(properties?.output ?? result?.output) }),
+                ...(output && { output_text: output }),
                 raw: event.raw,
               },
             });
@@ -164,7 +169,7 @@ export function createTurnTranslator(): TurnTranslator {
         case 'session.status':
           // `run --zsh --session` remains subscribed when the native session
           // reaches idle instead of emitting cli.completed.
-          return event.status === 'idle' ? finish('completed') : [];
+          return event.status === 'idle' && sawTerminalTurnActivity ? finish('completed') : [];
         default:
           return [];
       }
