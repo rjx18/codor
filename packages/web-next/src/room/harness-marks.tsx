@@ -15,7 +15,7 @@
  * An adapter this file does not know renders the generic fallback rather than
  * borrowing someone else's shape.
  */
-import { Cpu } from 'lucide-react';
+import { Cat, Cpu, Gauge } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 interface HarnessMark {
@@ -45,6 +45,17 @@ const MARKS: Record<string, HarnessMark> = {
     mark: (size: number) => (
       <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden="true"><path d="M12 2c0 5.52-4.48 10-10 10 5.52 0 10 4.48 10 10 0-5.52 4.48-10 10-10-5.52 0-10-4.48-10-10Z"/></svg>
     ),
+  },
+  'antigravity': {
+    label: 'Antigravity',
+    // Antigravity does not publish a standalone product glyph in this repo;
+    // retain main's neutral gauge identity rather than inventing a vendor mark.
+    mark: (size: number) => <Gauge width={size} height={size} aria-hidden="true" />,
+  },
+  'copilot': {
+    label: 'GitHub Copilot',
+    // A neutral code-assistant identity avoids embedding an unlicensed logo.
+    mark: (size: number) => <Cat width={size} height={size} aria-hidden="true" />,
   },
   'opencode': {
     label: 'OpenCode',
