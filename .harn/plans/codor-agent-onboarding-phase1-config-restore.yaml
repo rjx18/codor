@@ -1,0 +1,35 @@
+id: codor-agent-onboarding-phase1-config-restore
+title: Preserve selected starting-agent configuration across the None state
+notes: >-
+  Correct the Phase 1 review miss without changing the shared control. The
+  create-channel host will remember the last selected harness configuration
+  before AgentIdentityControls emits its intentionally empty None state, then
+  restore that complete configuration only when the same harness is reselected.
+  A focused browser regression will prove custom model, supported thinking,
+  policy, and name survive while the agentless payload behavior remains covered.
+assumptions:
+  reviewed:
+    - id: agent-controls-shared-by-both-dialogs
+      outcome: unchanged
+      reason: >-
+        AgentIdentityControls and AgentControls keep their shared reconciliation
+        behavior. Create Channel supplies a host-level change handler solely to
+        preserve its optional None branch's dormant configuration.
+    - id: one-control-chooses-an-agent-everywhere
+      outcome: unchanged
+      reason: >-
+        Model, thinking, and policy are still edited through the one shared
+        control. The correction only restores values that control previously
+        emitted when the same starting harness returns from None.
+    - id: channel-create-request-contract
+      outcome: unchanged
+      reason: >-
+        The request continues to omit starting_agent while None is active and to
+        submit the restored configuration only after a harness is reselected.
+anchors: {}
+files:
+  - packages/web-next/src/room/CreateChannel.tsx
+  - packages/web-next/tests/room10-dialogs.e2e.spec.ts
+verification: >-
+  Run the focused Phase 1 create-dialog restoration and agentless submission
+  Playwright cases, the web-next production build/typecheck, and Harn checks.
