@@ -274,6 +274,12 @@ assumptions:
     - id: operator-launches-serve-web-next
       outcome: unchanged
       reason: The CLI and platform services already serve web-next; documentation is tightened to describe it as the only complete browser application.
+    - id: workspace-packages-use-codor-scope
+      outcome: unchanged
+      reason: The workspace identity regression drops the deleted browser package and includes the two newer adapter packages while every remaining scoped package stays under @codor.
+    - id: release-gate-runs-unit-and-browser
+      outcome: unchanged
+      reason: The full release gate continues to build and unit-test every workspace before running the sole supported browser suite, now under @codor/web-next.
 files:
   - README.md
   - docs/ARCHITECTURE.md
@@ -459,6 +465,7 @@ files:
   - packages/web/tests/run-stream.e2e.spec.ts
   - packages/web/tsconfig.json
   - packages/web/vite.config.ts
+  - packages/protocol/src/index.spec.ts
   - pnpm-lock.yaml
   - scripts/release-audit.mjs
 anchors:
@@ -480,6 +487,14 @@ anchors:
     architecture-current-web-client:
       action: change
       reason: Record the standalone runtime and remove the legacy workspace from the architecture map.
+  workspace-packages-use-codor-scope:
+    codor-package-scope-regression:
+      action: change
+      reason: Remove packages/web from the exact manifest inventory and add the Cursor and Antigravity adapter manifests introduced since the original scope test.
+  release-gate-runs-unit-and-browser:
+    root-release-test-script:
+      action: change
+      reason: Point the browser release gate at the only supported browser package.
   a-permission-change-is-never-silent:
     configure-audit-regression:
       action: remove
