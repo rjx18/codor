@@ -85,6 +85,15 @@ assumptions:
       reason: Missing harness availability is rejected as request validation before
         room persistence. Once that precondition passes, a genuine spawn failure
         still retains the created room as before.
+    - id: channel-starting-agent-handle-persisted
+      outcome: unchanged
+      reason: A starting identity is still retained when an installed adapter reaches
+        spawn and then fails; only unavailable or unregistered harnesses now fail
+        request preflight before a room exists.
+    - id: human-room-read-cursors-are-durable-and-monotonic
+      outcome: unchanged
+      reason: Availability fields share the daemon and server implementation files but
+        do not alter room-read cursor storage, monotonicity, or dispatch.
     - id: agent-controls-shared-by-both-dialogs
       outcome: unchanged
       reason: The shared harness control receives optional refresh presentation props;
@@ -172,6 +181,21 @@ anchors:
     third-party-hot-swap-acceptance:
       action: change
       reason: Extend the configured-module acceptance proof with installation state.
+  canonical-spawn-controls-enforced:
+    registry-spawn-control-validation:
+      action: change
+      reason: Preserve built-in executable metadata across the same production wrapper
+        that continues to enforce canonical spawn controls.
+  channel-starting-agent-handle-persisted:
+    starting-agent-config-regression:
+      action: change
+      reason: Keep the retained-identity regression on a registered installed adapter
+        whose real spawn fails after availability preflight.
+  human-room-read-cursors-are-durable-and-monotonic:
+    durable-room-read-storage:
+      action: change
+      reason: Account for the shared daemon/server files while leaving cursor behavior
+        unchanged.
   adapter-wrappers-preserve-the-whole-contract:
     registry-wrapper-completeness:
       action: change
