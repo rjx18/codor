@@ -1,13 +1,12 @@
 id: codor-install-simplify-wizard
-title: >-
-  Simplify the installer - single active step, no word art, Step N of 5, in-frame
-  pairing result before Finish, and a smaller QR
+title: Simplify the installer - single active step, no word art, Step N of 5,
+  in-frame pairing result before Finish, and a smaller QR
 notes: >-
   Approved simplification (Codex #566). One plan:
 
   - Remove the word art; render only the active step (no completed/future list).
-  - Show a muted "Step N of 5" progress label.
-  - Carry the read-only Check results forward as muted context on later steps and
+  - Show a muted "Step N of 5" progress label. - Carry the read-only Check
+  results forward as muted context on later steps and
     the final summary, instead of redisplaying earlier steps.
   - Preserve bold headings, muted descriptions, generous spacing, one accent
     colour, and vertical choices.
@@ -30,23 +29,23 @@ assumptions:
       reason: Its statement requires completed steps to stay visible, future steps to
         show, and the Codor word art to render. The simplification renders only
         the active step, drops the word art, adds a Step N of 5 label, and
-        carries the Check results forward as context. The meaning reverses, so it
-        is retired and replaced.
+        carries the Check results forward as context. The meaning reverses, so
+        it is retired and replaced.
   create:
     - id: setup-renders-single-active-step-installer
       title: Interactive setup renders only the current step with a progress label and
         carried context
       statement: Interactive setup must render only the current step - no word art and
-        no completed or future step list - showing a muted "Step N of M" progress
-        label and carrying the read-only Check results forward as muted context
-        on later steps rather than redisplaying earlier steps; the active step
-        keeps a bold heading, a muted description, generous blank-line spacing,
-        one accent colour, and vertical choices, and when the step supplies a
-        result block (the pairing QR/code card) its question is replaced in-frame
-        by that block; frame production stays a pure function of supplied state,
-        never enters the alternate screen, and keeps every rendered line within
-        the terminal width (omitting the QR when too narrow while retaining the
-        wrapped code and URL).
+        no completed or future step list - showing a muted "Step N of M"
+        progress label and carrying the read-only Check results forward as muted
+        context on later steps rather than redisplaying earlier steps; the
+        active step keeps a bold heading, a muted description, generous
+        blank-line spacing, one accent colour, and vertical choices, and when
+        the step supplies a result block (the pairing QR/code card) its question
+        is replaced in-frame by that block; frame production stays a pure
+        function of supplied state, never enters the alternate screen, and keeps
+        every rendered line within the terminal width (omitting the QR when too
+        narrow while retaining the wrapped code and URL).
       reason: Replaces the progressive renderer with the simplified single-active-step
         installer.
       depends_on:
@@ -72,7 +71,8 @@ assumptions:
       outcome: unchanged
       reason: The final stage still shows the QR, byte-identical URL, code, and expiry
         after the readiness probe and never the raw token; the card is now shown
-        in-frame before Finish and its QR is a smaller error-correction-L symbol.
+        in-frame before Finish and its QR is a smaller error-correction-L
+        symbol.
     - id: setup-preserves-private-platform-service
       outcome: unchanged
       reason: The interactive pairing step presents its result in-frame and the finish
@@ -81,8 +81,8 @@ assumptions:
     - id: terminal-pairing-qr-matches-plain-url
       outcome: unchanged
       reason: The terminal QR still encodes the identical pairing URL with the
-        two-module quiet zone; only the error-correction level drops from M to L,
-        producing a smaller symbol.
+        two-module quiet zone; only the error-correction level drops from M to
+        L, producing a smaller symbol.
 anchors:
   setup-renders-progressive-wizard-with-visible-results:
     setup-frame-renderer:
@@ -97,8 +97,8 @@ anchors:
   setup-auto-advances-and-gates-mutation-on-consent:
     setup-consent-navigation:
       action: change
-      reason: The run loop carries the Check context and presents a result block before
-        Finish.
+      reason: The run loop carries the Check context and presents a result block
+        before Finish.
     setup-consent-navigation-regression:
       action: change
       reason: A regression proves the result block is visible before Finish and only
@@ -124,7 +124,8 @@ anchors:
       reason: Error correction drops from M to L.
     terminal-qr-renderer-regression:
       action: change
-      reason: A new regression proves the L QR is smaller yet encodes the identical URL.
+      reason: A new regression proves the L QR is smaller yet encodes the identical
+        URL.
   setup-preserves-private-platform-service:
     setup-platform-service-runtime:
       action: change
@@ -147,7 +148,8 @@ verification: >
   - The frame renders only the active step (no other step titles, no word art),
     a muted "Step N of 5" label, and the carried Check results as context.
 
-  - After pairing, the QR/code card replaces the question in-frame and is visible
+  - After pairing, the QR/code card replaces the question in-frame and is
+  visible
     before Finish; a real PTY run shows the QR before the installer closes.
 
   - Narrow terminals stay within width and omit the QR while keeping the wrapped
@@ -158,3 +160,5 @@ verification: >
 
   - Focused setup UI/session/PTY + terminal-qr suites, tsc, harn, and the packed
     proof pass; the TGZ is rebuilt.
+applied:
+  applied_at: 2026-07-21T14:28:03.137Z

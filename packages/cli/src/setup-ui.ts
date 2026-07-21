@@ -126,6 +126,13 @@ export interface SetupFrameState {
   menu?: SetupMenu;
   controls?: SetupControls;
   summary?: SetupSummary;
+  /** Muted "Step N of M" progress label. */
+  progress?: { current: number; total: number };
+  /** Read-only Check results carried forward as muted context. */
+  context?: string[];
+  /** A pre-rendered result block (the pairing card) shown in place of the
+   *  active step's question. */
+  card?: string;
 }
 
 export function createSetupStages(): SetupStage[] {
@@ -146,21 +153,6 @@ function resultLines(logs: string[]): string[] {
   return logs.map((log) => `    ${style.dim('>')} ${log}`);
 }
 
-/** A completed step: a green check, a bold title, and its full results kept
- *  visible — never collapsed to a one-line summary. */
-function completedBlock(index: number, step: SetupStage): string[] {
-  const title = `${style.green('✓')} ${style.dim(`(${String(index + 1)})`)} ${style.bold(step.title)}`;
-  return [title, ...resultLines(step.logs)];
-}
-
-function skippedBlock(index: number, step: SetupStage): string[] {
-  const note = step.summary !== undefined ? ` ${step.summary}` : '';
-  return [`${style.yellow('◦')} ${style.dim(`(${String(index + 1)})`)} ${style.bold(step.title)} ${style.dim(`— skipped${note}`)}`];
-}
-
-function futureLine(index: number, step: SetupStage): string {
-  return style.dim(`  (${String(index + 1)}) ${step.title}`);
-}
 
 /** The active step's vertical choice: a padded prompt, stacked options with an
  *  unmistakable focused row, and a navigation hint — never crowded onto one
@@ -221,49 +213,42 @@ function summaryLines(summary: SetupSummary | undefined): string[] {
   return lines;
 }
 
-// harn:assume setup-renders-progressive-wizard-with-visible-results ref=setup-frame-renderer
+// harn:assume setup-renders-single-active-step-installer ref=setup-frame-renderer
 export function renderSetupFrame(state: SetupFrameState): string {
   const budget = Math.max(1, state.viewport.rows - 1);
-  const version = style.dim(`v${state.version} - ${state.byline}`);
-  const fullHeader = [...CODOR_WORD_ART.split('\n').map(style.cyan), version, ''];
-  const compactHeader = [version, ''];
 
-  // Completed and skipped steps stay visible above the cursor, each separated by
-  // a blank line; future steps collapse to a numbered title below it.
-  const beforeLines: string[] = [];
-  const after: string[] = [];
-  for (const [index, step] of state.steps.entries()) {
-    if (index === state.cursor) continue;
-    if (index < state.cursor) {
-      const block = step.state === 'skipped' ? skippedBlock(index, step) : completedBlock(index, step);
-      beforeLines.push(...block, '');
-    } else {
-      after.push(futureLine(index, step));
-    }
+  // A compact header: version/byline, a muted "Step N of M" label, and the
+  // carried read-only Check results as muted context. No word art.
+  const header: string[] = [style.dim(`v${state.version} - ${state.byline}`)];
+  if (state.progress !== undefined) {
+    header.push(style.dim(`Step ${String(state.progress.current)} of ${String(state.progress.total)}`));
   }
-  const tail = summaryLines(state.summary);
+  if ((state.context ?? []).length > 0) {
+    header.push('', ...state.context!.map((line) => `  ${style.dim(line)}`));
+  }
+  header.push('');
 
-  // The active block and closing summary are always kept; completed context
-  // fills whatever budget remains, dropping the rows farthest above the cursor.
-  const assemble = (header: string[]): string[] => {
-    const activeMax = Math.max(1, budget - header.length - tail.length);
-    const active = state.steps[state.cursor] === undefined
-      ? []
-      : ['', ...activeBlock(state.cursor, state.steps[state.cursor]!, state, activeMax)];
-    let room = budget - header.length - active.length - tail.length;
-    const shownBefore = room > 0 ? beforeLines.slice(Math.max(0, beforeLines.length - room)) : [];
-    room -= shownBefore.length;
-    const shownAfter = room > 0 ? after.slice(0, room) : [];
-    return [...header, ...shownBefore, ...active, ...shownAfter, ...tail];
-  };
+  // Only the active step renders. When it supplies a result block (the pairing
+  // card) its question is replaced in-frame by that block.
+  const active = state.steps[state.cursor];
+  let stepLines: string[] = [];
+  if (active !== undefined && state.card !== undefined) {
+    stepLines = [
+      `${style.cyan(`(${String(state.cursor + 1)})`)} ${style.bold(active.title)}`,
+      ...(active.description !== undefined ? [`    ${style.dim(active.description)}`] : []),
+      state.card,
+      ...controlHints(state.controls),
+    ];
+  } else if (active !== undefined) {
+    stepLines = activeBlock(state.cursor, active, state, Math.max(1, budget - header.length));
+  }
 
-  const full = assemble(fullHeader);
-  const lines = (full.length <= budget ? full : assemble(compactHeader))
+  const lines = [...header, ...stepLines, ...summaryLines(state.summary)]
     .slice(0, budget)
     .map((line) => truncateAnsi(line, state.viewport.columns));
   return `${SETUP_CLEAR_SCREEN}${lines.join('\n')}\n`;
 }
-// harn:end setup-renders-progressive-wizard-with-visible-results
+// harn:end setup-renders-single-active-step-installer
 
 function truncateAnsi(line: string, columns: number): string {
   if (columns <= 0) return '';

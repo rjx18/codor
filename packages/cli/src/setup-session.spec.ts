@@ -107,6 +107,23 @@ describe('setup terminal ownership', () => {
     session.stop();
   });
 
+  it('carries the first Check step results forward and renders only the active step', async () => {
+    const { input, output, session } = harness();
+    const steps: SetupStepDefinition[] = [
+      { title: 'Check computer', run: async ({ log }) => { log('macOS with Node 25'); return 'ok'; } },
+      { title: 'Second step', run: async () => 'b' },
+    ];
+    const done = session.run(steps);
+    await settle();
+    const last = output.chunks.at(-1)!;
+    expect(last).toContain('macOS with Node 25'); // carried Check context
+    expect(last).toContain('Second step'); // the active step
+    expect(last).not.toContain('Check computer'); // the earlier step is not redisplayed
+    input.emit('data', Buffer.from(ENTER));
+    await done;
+    session.stop();
+  });
+
   it('lets a running step ask a mid-step vertical choice via choose()', async () => {
     const { input, session } = harness();
     let picked: string | undefined;
@@ -224,6 +241,21 @@ describe('setup wizard auto-advance', () => {
     await expect(done).rejects.toBeInstanceOf(SetupCancelled);
     expect(output.chunks.at(-1)).toBe(SETUP_CURSOR_SHOW);
     expect(input.isRaw).toBe(false);
+  });
+
+  it('presents a step result block in-frame before Finish and keeps it as the final frame', async () => {
+    const { input, output, session } = harness();
+    const steps: SetupStepDefinition[] = [
+      { title: 'Pair', run: async ({ presentResult }) => { presentResult('THE-QR-RESULT-CARD'); return 'paired'; } },
+    ];
+    const done = session.run(steps);
+    await settle();
+    // The result card is on screen while awaiting Finish, before the key press.
+    expect(output.chunks.join('')).toContain('THE-QR-RESULT-CARD');
+    input.emit('data', Buffer.from(ENTER)); // Finish
+    await done;
+    session.finish(); // no summary: the card stays as the final frame
+    expect(output.chunks.at(-1)).toContain('THE-QR-RESULT-CARD');
   });
 });
 

@@ -65,6 +65,9 @@ export interface SetupStepContext {
   /** Present a vertical choice while the step is running and resolve to the
    *  selected option id. Cancel (q / Ctrl-C) aborts setup. */
   choose(menu: { message: string; options: SetupAccessOption[] }): Promise<string>;
+  /** Replace the step's question in-frame with a pre-rendered result block (the
+   *  pairing card), so it is visible before Finish. */
+  presentResult(block: string): void;
 }
 
 export interface SetupStepDefinition {
@@ -90,6 +93,8 @@ export class SetupSession {
   private spinner: NodeJS.Timeout | undefined;
   private frame = 0;
   private summary: SetupSummary | undefined;
+  private context: string[] | undefined;
+  private card: string | undefined;
   private menu: Parameters<typeof renderSetupFrame>[0]['menu'];
   private awaitingNav = false;
   private priorRawMode = false;
@@ -143,7 +148,9 @@ export class SetupSession {
     this.output.write(SETUP_CURSOR_SHOW);
   }
 
-  finish(summary: SetupSummary): void {
+  finish(summary?: SetupSummary): void {
+    // A pairing result already shown in-frame is kept as the final frame; a
+    // paused/running finish renders its summary instead.
     this.summary = summary;
     this.stop();
     this.render();
@@ -176,6 +183,9 @@ export class SetupSession {
       menu: this.menu,
       controls,
       summary: this.summary,
+      progress: { current: flow.cursor + 1, total: flow.steps.length },
+      context: this.context,
+      card: this.card,
     }));
   }
 
@@ -224,8 +234,9 @@ export class SetupSession {
           if (decision.type !== 'select') { this.stop(); throw new SetupCancelled(); }
           return decision.id;
         };
+        const presentResult = (block: string): void => { this.card = block; this.render(); };
         try {
-          const outcome = await definition.run({ log: (message) => { flow.log(index, message); this.render(); }, choice, choose });
+          const outcome = await definition.run({ log: (message) => { flow.log(index, message); this.render(); }, choice, choose, presentResult });
           if (typeof outcome === 'object') {
             this.summaries[index] = outcome.summary;
             flow.markSkipped(index);
@@ -243,6 +254,8 @@ export class SetupSession {
           // The failure renders once inside the step. It is not rethrown.
           flow.markFailed(index, error instanceof Error ? error.message : String(error));
         }
+        // Carry the first (read-only Check) step's results forward as context.
+        if (index === 0 && flow.steps[0]!.state !== 'pending') this.context = [...flow.steps[0]!.logs];
         this.render();
         advance = true;
       }

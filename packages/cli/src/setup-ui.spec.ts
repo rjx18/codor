@@ -47,39 +47,42 @@ const accessMenu = {
   ],
 };
 
-describe('progressive layout keeps completed results visible', () => {
-  it('shows every completed result line rather than a collapsed one-line summary', () => {
+describe('single active step', () => {
+  it('renders only the active step, not completed or future steps', () => {
     const frame = plain(renderSetupFrame(state({ steps: midway(), cursor: 2 })));
-    // All three result lines of step 1 stay on screen, each on its own row.
-    expect(frame).toContain('darwin with Node 25.5.0');
-    expect(frame).toContain('found claude, codex, agy');
-    expect(frame).toContain('Tailscale detected');
-    // Step 2's single result line is also fully present.
-    expect(frame).toContain('private configuration and data are ready');
-    // Active step 3 (Choose access) is expanded with its number and title.
-    expect(frame).toContain('(3) Where you will use Codor');
-    // Future step 5 collapses to just its numbered title.
-    expect(frame).toContain('(5) Create pairing code');
+    expect(frame).toContain('(3) Where you will use Codor'); // the active step
+    expect(frame).not.toContain('Check this computer'); // earlier steps not redisplayed
+    expect(frame).not.toContain('Install Codor');
+    expect(frame).not.toContain('(5) Create pairing code'); // future steps not shown
   });
 
-  it('renders completed result text in a prominent, non-dim foreground', () => {
-    const raw = renderSetupFrame(state({ steps: midway(), cursor: 2 }));
-    // The result text is not wrapped in the dim SGR; only its leading marker is.
-    expect(raw).not.toContain('\u001B[2mdarwin with Node');
-    expect(raw).toContain('darwin with Node 25.5.0');
-  });
-
-  it('marks each completed step with a bold title and a green check', () => {
-    const raw = renderSetupFrame(state({ steps: midway(), cursor: 2 }));
-    expect(raw).toContain('\u001B[32m✓\u001B[0m');
-    expect(raw).toContain('\u001B[1mCheck this computer\u001B[0m');
-  });
-
-  it('separates steps with blank-line spacing', () => {
+  it('drops the word art', () => {
     const frame = plain(renderSetupFrame(state({ steps: midway(), cursor: 2 })));
-    // A blank line follows the last result line of a completed step.
-    expect(frame).toContain('found claude, codex, agy\n');
-    expect(frame).toMatch(/Tailscale detected\n\n/);
+    const artRow = CODOR_WORD_ART.split('\n').find((line) => line.includes('█'))!;
+    expect(frame).not.toContain(artRow);
+  });
+
+  it('shows a muted Step N of M progress label', () => {
+    const raw = renderSetupFrame(state({ steps: midway(), cursor: 2, progress: { current: 3, total: 5 } }));
+    expect(plain(raw)).toContain('Step 3 of 5');
+    expect(raw).toContain('\u001B[2mStep 3 of 5\u001B[0m');
+  });
+
+  it('carries the Check results forward as muted context', () => {
+    const raw = renderSetupFrame(state({
+      steps: midway(), cursor: 2, context: ['macOS with Node 25.5.0', 'found Claude, Codex'],
+    }));
+    expect(plain(raw)).toContain('macOS with Node 25.5.0');
+    expect(plain(raw)).toContain('found Claude, Codex');
+    expect(raw).toContain('\u001B[2mmacOS with Node 25.5.0\u001B[0m');
+  });
+
+  it('replaces the active step question with a supplied result card and Finish', () => {
+    const frame = plain(renderSetupFrame(state({
+      steps: midway(), cursor: 4, card: 'THE-PAIRING-RESULT-CARD', controls: controls({ finish: true }),
+    })));
+    expect(frame).toContain('THE-PAIRING-RESULT-CARD');
+    expect(frame).toContain('Enter Finish');
   });
 });
 
@@ -170,10 +173,10 @@ describe('vertical choice menus', () => {
 });
 
 describe('identity, purity and primary-buffer', () => {
-  it('renders the replacement word art, version and byline', () => {
+  it('renders a compact version/byline header with no word art', () => {
     const frame = plain(renderSetupFrame(state()));
     const artRow = CODOR_WORD_ART.split('\n').find((line) => line.includes('█'))!;
-    expect(frame).toContain(artRow);
+    expect(frame).not.toContain(artRow);
     expect(frame).toContain('v0.10.0 - created by richhardry');
   });
 

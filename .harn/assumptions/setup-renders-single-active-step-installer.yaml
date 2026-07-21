@@ -1,0 +1,18 @@
+id: setup-renders-single-active-step-installer
+hash: a-a03f97415d58
+title: Interactive setup renders only the current step with a progress label and
+  carried context
+state: active
+statement: Interactive setup must render only the current step - no word art and
+  no completed or future step list - showing a muted "Step N of M" progress
+  label and carrying the read-only Check results forward as muted context on
+  later steps rather than redisplaying earlier steps; the active step keeps a
+  bold heading, a muted description, generous blank-line spacing, one accent
+  colour, and vertical choices, and when the step supplies a result block (the
+  pairing QR/code card) its question is replaced in-frame by that block; frame
+  production stays a pure function of supplied state, never enters the alternate
+  screen, and keeps every rendered line within the terminal width (omitting the
+  QR when too narrow while retaining the wrapped code and URL).
+depends_on:
+  - setup-restores-terminal-on-every-exit
+created_by: codor-install-simplify-wizard

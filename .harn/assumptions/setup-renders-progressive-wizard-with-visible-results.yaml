@@ -2,7 +2,7 @@ id: setup-renders-progressive-wizard-with-visible-results
 hash: a-6934c0f49cfd
 title: Interactive setup renders progressively with full completed results and
   strong visual hierarchy
-state: active
+state: retired
 statement: Interactive setup must render progressively — the active step is
   expanded with its title, a running spinner or a padded vertical choice menu,
   its result lines, any error, and only the controls the current input requires;
@@ -20,3 +20,4 @@ statement: Interactive setup must render progressively — the active step is
 depends_on:
   - setup-restores-terminal-on-every-exit
 created_by: codor-setup-progressive-consent-wizard
+retired_by: codor-install-simplify-wizard

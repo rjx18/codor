@@ -960,9 +960,20 @@ export async function runSetup(options: SetupOptions): Promise<void> {
             { id: 'later', label: 'Set this up later', description: 'Keep the service running and pair from a browser later.', available: true },
           ],
         },
-        run: async ({ log, choice }) => (choice === 'create'
-          ? pairStep(log)
-          : { skip: true, summary: '(run codor pair later)' }),
+        run: async ({ log, choice, presentResult }) => {
+          if (choice !== 'create') return { skip: true, summary: '(run codor pair later)' };
+          const summary = pairStep(log);
+          // Replace the question in-frame with the QR/code result card, so it is
+          // visible before Finish closes the installer.
+          presentResult(renderPairingCard({
+            code: pairing!.code,
+            url: pairing!.url,
+            expires: pairing!.expires,
+            qr: pairing!.qr,
+            instruction: 'Scan the QR or enter the code in your browser to finish pairing.',
+          }, cardColumns));
+          return summary;
+        },
       },
     ];
     await session.run(steps);
@@ -974,8 +985,9 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       // The service is up but the operator declined pairing.
       session.finish({ headline: 'Codor is running.', endpoint, harnesses, nextAction: 'Run `codor pair` when you want to connect a browser.' });
     } else {
-      session.finish({ headline: 'Codor is ready.', endpoint, harnesses, nextAction: `Enter ${pairing.code} in your browser or scan the QR.` });
-      emitPairing();
+      // The pairing result card is already visible in-frame; keep it as the
+      // final frame and close without re-emitting it.
+      session.finish();
     }
   } else {
     const linear = (index: number) => (message: string): void => options.out(`[${String(index + 1)}/5] ${message}`);

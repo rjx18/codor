@@ -19,6 +19,7 @@ const SOURCE = `
   let attempts = 0;
   let access;
   let startState = 'pending';
+  let paired = false;
   const steps = [
     { title: 'One', run: async ({ log }) => { process.stdout.write('RUN:one\\n'); log('checked'); return 'one'; } },
     {
@@ -36,7 +37,7 @@ const SOURCE = `
         { id: 'later', label: 'Not now', description: '', available: true },
       ] },
       run: async ({ choice }) => {
-        if (choice !== 'start') { startState = 'skipped'; return { skip: true, summary: '(run codor install when ready)' }; }
+        if (choice !== 'start') { startState = 'skipped'; return { skip: true, summary: '(run codor install when ready)', skipFollowing: true }; }
         attempts += 1;
         process.stdout.write('RUN:start:' + attempts + '\\n');
         if (scenario === 'retry' && attempts === 1) throw new Error('transient bootstrap boom');
@@ -44,12 +45,31 @@ const SOURCE = `
         return 'started';
       },
     },
+    {
+      title: 'Pair a browser',
+      menu: { message: 'Pair a browser now?', options: [
+        { id: 'create', label: 'Create a pairing code', description: '', available: true },
+        { id: 'later', label: 'Set up later', description: '', available: true },
+      ] },
+      run: async ({ choice, presentResult }) => {
+        if (choice !== 'create') return { skip: true, summary: '(run codor pair later)' };
+        process.stdout.write('RUN:pair\\n');
+        // Present a result block standing in for the QR/code card.
+        presentResult('QRCARD-VISIBLE code ABCD-2345');
+        paired = true;
+        return 'paired';
+      },
+    },
   ];
   try {
     await session.run(steps);
-    session.finish(startState === 'started'
-      ? { headline: 'Codor is ready.', endpoint: 'http://127.0.0.1:8137', harnesses: ['codex'], nextAction: 'Enter ABCD-2345.' }
-      : { headline: 'Setup paused - Codor is not running.', harnesses: ['codex'], nextAction: 'Run codor install when ready.' });
+    if (startState !== 'started') {
+      session.finish({ headline: 'Setup paused - Codor is not running.', harnesses: ['codex'], nextAction: 'Run codor install when ready.' });
+    } else if (!paired) {
+      session.finish({ headline: 'Codor is running.', harnesses: ['codex'], nextAction: 'Run codor pair when ready.' });
+    } else {
+      session.finish(); // keep the in-frame result card as the final frame
+    }
     process.stdout.write('SELECTED=' + access + '\\n');
     process.stdout.write('START=' + startState + '\\n');
   } catch (error) {
@@ -79,18 +99,21 @@ posixDescribe('setup wizard in a real pseudo-terminal', () => {
   it.each([
     { rows: 10, columns: 80 },
     { rows: 24, columns: 40 },
-  ])('auto-advances, gates Start on consent, and reaches the ready summary at $columns x $rows', ({ rows, columns }) => {
-    // One auto-advances; Enter selects Localhost; Enter accepts Start; Enter finishes.
-    const result = runPty([ENTER, ENTER, ENTER], rows, columns);
+  ])('auto-advances, gates consent, and shows the pairing result before Finish at $columns x $rows', ({ rows, columns }) => {
+    // One auto-advances; Enter: Localhost, Start, Create pairing; Enter finishes.
+    const result = runPty([ENTER, ENTER, ENTER, ENTER], rows, columns);
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(SETUP_CURSOR_HIDE);
     expect(result.stdout).toContain(SETUP_CURSOR_SHOW);
-    expect(result.stdout).toContain('Codor is ready.');
+    // The pairing result card is shown in-frame, before Finish, replacing the question.
+    expect(result.stdout).toContain('QRCARD-VISIBLE code ABCD-2345');
     expect(result.stdout).toContain('Finish');
+    expect(result.stdout).toContain('RUN:pair');
     expect(result.stdout).toContain('SELECTED=localhost');
     expect(result.stdout).toContain('START=started');
-    // The automatic step ran exactly once with no Next key between it and Access.
+    // Only the active step renders — the word art is gone.
+    expect(result.stdout).not.toContain('█');
     expect(result.stdout.split('RUN:one').length - 1).toBe(1);
     expect(result.stdout).not.toContain('[?1049h');
   });
@@ -107,8 +130,8 @@ posixDescribe('setup wizard in a real pseudo-terminal', () => {
   });
 
   it('re-runs only the failed Start step on Retry, and completes', () => {
-    // Localhost -> accept Start (fails) -> Retry -> accept Start (succeeds) -> finish.
-    const result = runPty([ENTER, ENTER, 'r', ENTER, ENTER], 24, 80, 'retry');
+    // Localhost -> accept Start (fails) -> Retry -> accept Start -> Create pairing -> finish.
+    const result = runPty([ENTER, ENTER, 'r', ENTER, ENTER, ENTER], 24, 80, 'retry');
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('RUN:start:1');
     expect(result.stdout).toContain('RUN:start:2');
@@ -118,8 +141,8 @@ posixDescribe('setup wizard in a real pseudo-terminal', () => {
   });
 
   it('does not re-run the access step when navigating Back then Forward', () => {
-    // Localhost -> Back off Start menu -> Forward to Start -> accept -> finish.
-    const result = runPty([ENTER, LEFT, RIGHT, ENTER, ENTER], 24, 80);
+    // Localhost -> Back off Start menu -> Forward to Start -> accept -> Create pairing -> finish.
+    const result = runPty([ENTER, LEFT, RIGHT, ENTER, ENTER, ENTER], 24, 80);
     expect(result.status).toBe(0);
     // Access selection resolved once even though we returned to it and forward.
     expect(result.stdout).toContain('SELECTED=localhost');
