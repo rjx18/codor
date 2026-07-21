@@ -1665,8 +1665,5 @@ anchors:
       action: remove
       reason: Delete the deprecated packages/web anchor placement after equivalent
         behavior is proven in the surviving web-next application.
-lock:
-  locked_at: 2026-07-21T00:27:16.625Z
-  base_commit: 8cc00b812077db093db463e72aead725fcb147b9
-  hash: 7d01ab99008ec30ad0c41b0e36353d837bfdf6245de756e1256fbaa46018bf5c
-  dirty_at_lock: false
+applied:
+  applied_at: 2026-07-21T00:29:09.162Z

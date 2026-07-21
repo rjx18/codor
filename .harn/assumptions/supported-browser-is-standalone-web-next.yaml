@@ -1,0 +1,17 @@
+id: supported-browser-is-standalone-web-next
+hash: a-0a8c8f4ac05d
+title: The supported browser application has no legacy workspace dependency
+state: active
+statement: The release must contain one supported browser workspace,
+  packages/web-next, whose production build, service worker, runtime imports,
+  tests, and CLI static-root defaults resolve entirely within that workspace and
+  shared published packages; packages/web must not exist, @legacy aliases must
+  not exist, and a release audit must fail if either boundary returns, because
+  an apparently unused legacy workspace previously remained a hidden
+  compile-time dependency of every shipped browser.
+depends_on:
+  - client-syncs-by-seq
+  - single-crypto-suite-libsodium
+  - sw-injectmanifest-owned-worker
+  - release-audits-enforce-codor-clean-break
+created_by: codor-standalone-web-next
