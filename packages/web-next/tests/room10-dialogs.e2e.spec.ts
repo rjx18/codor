@@ -30,9 +30,10 @@ test.describe('Tier-1: spawn payload', () => {
   test('always carries a policy, and the inherited cwd, without the operator touching either', async ({ page }) => {
     await openRoom(page);
     const dialog = await openSpawn(page);
-    // cwd arrives prefilled by inheritance; the operator retyped it before.
-    const cwd = await dialog.getByTestId('spawn-folder-typed').inputValue();
-    expect(cwd).not.toBe('');
+    // The switch is on by default, so cwd is inherited without the operator
+    // touching a picker; the inherited path is shown rather than an empty field.
+    await expect(dialog.getByTestId('spawn-use-current-dir')).toBeChecked();
+    await expect(dialog.getByTestId('spawn-inherited-cwd')).toContainText('/');
 
     await dialog.getByTestId('spawn-handle').fill('policyprobe');
     await dialog.getByTestId('spawn-go').click();
@@ -47,7 +48,7 @@ test.describe('Tier-1: spawn payload', () => {
     await openRoom(page);
     const dialog = await openSpawn(page);
     await dialog.getByTestId('spawn-handle').fill('enterling');
-    await dialog.getByTestId('spawn-folder-typed').press('Enter');
+    await dialog.getByTestId('spawn-handle').press('Enter');
     await expect(page.getByTestId('member-enterling')).toBeVisible({ timeout: 15_000 });
   });
 
@@ -76,13 +77,51 @@ test.describe('Tier-1: spawn payload', () => {
   test('reopening recomputes the inherited cwd rather than keeping stale state', async ({ page }) => {
     await openRoom(page);
     let dialog = await openSpawn(page);
-    const first = await dialog.getByTestId('spawn-folder-typed').inputValue();
+    const first = await dialog.getByTestId('spawn-inherited-cwd').textContent();
+    // Diverge from the inherited default: switch off and type a different path.
+    await dialog.getByTestId('spawn-use-current-dir').click();
     await dialog.getByTestId('spawn-folder-typed').fill('/tmp/typed-over');
     await dialog.getByTestId('spawn-close').click();
     await expect(page.getByTestId('spawn-dialog')).toBeHidden();
 
     dialog = await openSpawn(page);
-    await expect(dialog.getByTestId('spawn-folder-typed')).toHaveValue(first);
+    // Reopened fresh: the switch is back on and the inherited path recomputed.
+    await expect(dialog.getByTestId('spawn-use-current-dir')).toBeChecked();
+    expect(await dialog.getByTestId('spawn-inherited-cwd').textContent()).toBe(first);
+  });
+
+  test('the working directory collapses behind a use-current-directory switch', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    // On by default: no picker, and the inherited directory is shown instead.
+    await expect(dialog.getByTestId('spawn-use-current-dir')).toBeChecked();
+    await expect(dialog.getByTestId('spawn-folder-picker')).toHaveCount(0);
+    await expect(dialog.getByTestId('spawn-inherited-cwd')).toBeVisible();
+
+    // The switch renders as a compact ~38x22 control — not the 38px-tall,
+    // padded, bordered field input the generic .nx-field rule would otherwise
+    // cascade onto it — and it is keyboard-focusable.
+    const control = dialog.getByTestId('spawn-use-current-dir');
+    const box = await control.boundingBox();
+    expect(box?.width).toBeGreaterThan(30);
+    expect(box?.height).toBeLessThan(28);
+    await control.focus();
+    await expect(control).toBeFocused();
+
+    // Switched off: the picker appears, seeded with the inherited path to edit.
+    await control.click();
+    await expect(dialog.getByTestId('spawn-folder-picker')).toBeVisible();
+    expect(await dialog.getByTestId('spawn-folder-typed').inputValue()).not.toBe('');
+  });
+
+  test('with no directory to inherit, the switch defaults off and shows the picker', async ({ page }) => {
+    // The trash room is agent-free with no cwd, so there is nothing to inherit;
+    // the switch must not hide the picker while spawn stays blocked.
+    await page.goto('/?room=trash&token=next-e2e-token');
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    const dialog = await openSpawn(page);
+    await expect(dialog.getByTestId('spawn-use-current-dir')).not.toBeChecked();
+    await expect(dialog.getByTestId('spawn-folder-picker')).toBeVisible();
   });
 });
 
@@ -96,13 +135,13 @@ test.describe('Tier-1 #5: a failed spawn stays visible and recoverable', () => {
     // failure that does not depend on client validation working.
     await dialog.getByTestId('spawn-handle').fill('all');
     await expect(dialog.getByTestId('spawn-handle')).toHaveJSProperty('validity.valid', true);
-    const cwd = await dialog.getByTestId('spawn-folder-typed').inputValue();
     await dialog.getByTestId('spawn-go').click();
 
     await expect(page.getByTestId('spawn-dialog')).toBeVisible();
     await expect(dialog.getByTestId('spawn-error')).toBeVisible({ timeout: 15_000 });
     await expect(dialog.getByTestId('spawn-go')).toBeEnabled();
-    await expect(dialog.getByTestId('spawn-folder-typed')).toHaveValue(cwd);
+    // The typed handle survives the failure so the operator can fix and retry.
+    await expect(dialog.getByTestId('spawn-handle')).toHaveValue('all');
   });
 
   test('a successful spawn closes the dialog only when the submitted handle arrives', async ({ page }) => {
@@ -152,6 +191,8 @@ test.describe('Tier-1: the create dialog seeds a fully configured agent', () => 
     // It defaults to codor rather than starting empty.
     await expect(dialog.getByTestId('create-agent-name')).toHaveValue('codor');
 
+    // The working folder is required, so pick one before creating.
+    await dialog.getByTestId('create-folder-alpha-project').click();
     await dialog.getByTestId('create-go').click();
     await expect(page.locator('.nx-chat-title h1')).toHaveText('seeded', { timeout: 15_000 });
     await expect(page.getByTestId('member-codor')).toBeVisible({ timeout: 15_000 });
@@ -240,6 +281,7 @@ test.describe('Tier-1: create channel keyboard and fallbacks', () => {
     // Clearing the name must not block submit — it falls back to "Agent".
     await dialog.getByTestId('create-agent-name').fill('');
     await dialog.getByTestId('create-name').fill('fallbackchan');
+    await dialog.getByTestId('create-folder-alpha-project').click();
     await expect(dialog.getByTestId('create-go')).toBeEnabled();
 
     await dialog.getByTestId('create-name').press('Enter');
@@ -258,6 +300,7 @@ test.describe('the "None" state means none', () => {
     const dialog = page.getByTestId('create-channel-dialog');
     await expect(dialog).toBeVisible();
     await dialog.getByTestId('create-name').fill('agentless');
+    await dialog.getByTestId('create-folder-alpha-project').click();
 
     await dialog.getByTestId('create-harness-fake').click();
     await dialog.getByTestId('create-agent-name').fill('richard');
@@ -343,6 +386,9 @@ test.describe('v2 controls', () => {
   test('the inline folder picker selects without committing while browsing', async ({ page }) => {
     await openRoom(page);
     const dialog = await openSpawn(page);
+    // The picker is collapsed behind the "use current directory" switch by
+    // default; turn it off to browse for a specific folder.
+    await dialog.getByTestId('spawn-use-current-dir').click();
     const picker = dialog.getByTestId('spawn-folder-picker');
     await expect(picker).toBeVisible();
 
@@ -370,6 +416,7 @@ test.describe('v2 controls', () => {
   test('hidden folders can be revealed', async ({ page }) => {
     await openRoom(page);
     const dialog = await openSpawn(page);
+    await dialog.getByTestId('spawn-use-current-dir').click();
     const toggle = dialog.getByTestId('spawn-folder-hidden');
     await expect(toggle).not.toBeChecked();
     await expect(dialog.getByTestId('spawn-folder-.hidden-project')).toHaveCount(0);
@@ -489,6 +536,7 @@ test.describe('accessibility', () => {
 
     // And it still works: name it and create from the phone.
     await dialog.getByTestId('create-name').fill('phonemade');
+    await dialog.getByTestId('create-folder-alpha-project').click();
     await dialog.getByTestId('create-go').click();
     // On a phone, creating lands you inside the new channel (two-surface stack).
     // Asserted on the URL and the visible name rather than the desktop header

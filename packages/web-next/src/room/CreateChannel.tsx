@@ -57,8 +57,8 @@ export function CreateChannelDialog(props: {
   // channel creation entirely — for an agent that was never going to be created.
   const ownerClash = agentHarness !== '' && derivedHandle !== undefined
     && collidesWithOwner(derivedHandle, owner);
-  const canCreate = name.trim() !== '' && owner !== undefined && !busy && !ownerClash
-    && (agentHarness === '' || derivedHandle !== undefined);
+  const canCreate = name.trim() !== '' && cwd.trim() !== '' && owner !== undefined && !busy
+    && !ownerClash && (agentHarness === '' || derivedHandle !== undefined);
 
   const submit = (): void => {
     if (!canCreate || owner === undefined) return;
@@ -68,7 +68,7 @@ export function CreateChannelDialog(props: {
     void createRoom({
       name: name.trim(),
       owner: { handle: owner.handle, display_name: owner.display_name },
-      ...(cwd !== '' && { cwd }),
+      cwd: cwd.trim(),
       ...(agentHarness !== '' && derivedHandle !== undefined && {
         starting_agent: {
           harness: agentHarness,
@@ -132,7 +132,7 @@ export function CreateChannelDialog(props: {
         )}
       </label>
       <div className="nx-field">
-        <span className="nx-label">Working folder <span className="nx-opt">· optional</span></span>
+        <span className="nx-label">Working folder <span className="nx-req">· required</span></span>
         <FolderPicker token={props.token} value={cwd} onChange={setCwd} idPrefix="create" />
       </div>
       </Section>
