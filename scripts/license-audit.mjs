@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -37,7 +38,8 @@ const tracked = execFileSync('git', ['ls-files', '-z'], {
   cwd: new URL('../', import.meta.url),
   encoding: 'utf8',
 }).split('\0').filter(Boolean);
-const source = tracked.filter((path) => /\.(?:cjs|css|html|js|jsx|mjs|scss|sh|ts|tsx|vue)$/.test(path));
+const source = tracked.filter((path) =>
+  existsSync(new URL(path, root)) && /\.(?:cjs|css|html|js|jsx|mjs|scss|sh|ts|tsx|vue)$/.test(path));
 const spdxPattern = new RegExp(`${['SPDX', 'License-Identifier'].join('-')}:\\s*([^\\s*]+)`, 'g');
 const incompatibleHeaderPattern = new RegExp(
   [

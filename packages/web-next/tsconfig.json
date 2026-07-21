@@ -15,7 +15,7 @@
     "allowImportingTsExtensions": false,
     "types": ["vite/client"],
     "paths": {
-      "@legacy/*": ["../web/src/*"]
+      "@runtime/*": ["./src/runtime/*"]
     }
   },
   "include": ["src"]

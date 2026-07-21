@@ -13,7 +13,7 @@ import {
   openPushFromStoredRooms,
   type BrowserPushPreview,
   type NotificationAction,
-} from './push.js';
+} from './runtime/push.js';
 
 declare const self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: (PrecacheEntry | string)[];

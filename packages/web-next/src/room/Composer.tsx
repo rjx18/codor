@@ -2,7 +2,7 @@ import type { Member } from '@codor/protocol';
 import { ArrowUp, AtSign, Paperclip, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import type { Connection } from '@legacy/ws.js';
+import type { Connection } from '@runtime/ws.js';
 
 import { useIsMobile } from '../app/session.js';
 import { effectiveDefaultRecipient, roomSlice, useClientStore } from '../app/store.js';

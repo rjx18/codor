@@ -179,8 +179,8 @@ For upgrades, run `git pull --ff-only`, reinstall with the same frozen pnpm comm
 restart `codor.service` on Linux or
 `app.codor.switchboard` with `launchctl kickstart -k` on macOS.
 
-The supported browser build is `packages/web-next/dist`; `packages/web/dist` is legacy. Foreground
-development, backup, restore, and detailed operations are in
+The supported browser build is `packages/web-next/dist`; it contains the complete browser runtime
+and service worker. Foreground development, backup, restore, and detailed operations are in
 [docs/SELF-HOST.md](docs/SELF-HOST.md).
 
 </details>

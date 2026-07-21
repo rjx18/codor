@@ -16,8 +16,8 @@ import {
   type LedgerGraph,
   type LedgerGraphNode,
   type LedgerNote,
-} from '@legacy/api.js';
-import { currentBrowserAccessToken } from '@legacy/crypto.js';
+} from '@runtime/api.js';
+import { currentBrowserAccessToken } from '@runtime/crypto.js';
 
 import { Code, IconButton } from '../primitives/primitives.js';
 
@@ -121,7 +121,7 @@ export function LedgerPage(props: { room: string; token: string }) {
       <div className="nx-ledger">
         <header className="nx-settings-head">
           <a className="nx-btn is-quiet nx-settings-back" href={`/?room=${encodeURIComponent(page.room)}`}>
-            <ArrowLeft size={15} aria-hidden="true" /> Back to the room
+            <ArrowLeft size={15} aria-hidden="true" /> Back to the channel
           </a>
           <h1>Ledger</h1>
           <p className="nx-settings-sub">

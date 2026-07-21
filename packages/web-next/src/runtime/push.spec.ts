@@ -90,7 +90,7 @@ describe('service-worker push envelope opener', () => {
     first.roomKeys.ensureRoom('eng');
     second.roomKeys.ensureRoom('eng');
     const sealed = sealPushPreview({ room: 'eng', msg_id: 1, kind: 'inbox', preview: 'hello' }, first.roomKeys.roomKey('eng'));
-    sealed[sealed.length - 1] ^= 1;
+    sealed[sealed.length - 1] = (sealed[sealed.length - 1] ?? 0) ^ 1;
     await expect(openPushEnvelope(sealed, first.roomKeys.roomKey('eng').toString('base64url')))
       .rejects.toThrow();
     await expect(openPushEnvelope(Uint8Array.of(1, 2, 3), second.roomKeys.roomKey('eng').toString('base64url')))

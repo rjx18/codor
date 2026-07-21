@@ -1,4 +1,4 @@
-// Session wiring — thin composition over the UNCHANGED legacy client machinery.
+// Session wiring — thin composition over the standalone client machinery.
 // Everything protocol-shaped (auth restore, socket sync, store) is imported as-is.
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
@@ -8,14 +8,14 @@ import {
   fetchRooms,
   type AdapterRegistration,
   type MemberDetail,
-} from '@legacy/api.js';
+} from '@runtime/api.js';
 import {
   currentBrowserAccessToken,
   restoreBrowserAccess,
   setActiveBrowserAccessToken,
   storeBrowserAccess,
-} from '@legacy/crypto.js';
-import { connect, type Connection } from '@legacy/ws.js';
+} from '@runtime/crypto.js';
+import { connect, type Connection } from '@runtime/ws.js';
 import type { Room } from '@codor/protocol';
 
 import { useClientStore } from './store.js';
@@ -73,7 +73,7 @@ export function useConnected(): boolean {
   return useClientStore((state) => state.connected);
 }
 
-/** Adapter catalog with the legacy retry contract: discovery is asynchronous, so keep
+/** Adapter catalog with the adapter retry contract: discovery is asynchronous, so keep
  *  asking (bounded) until the catalog stops reporting `discovering`. */
 export function useAdapters(token: () => string): AdapterRegistration[] {
   const connected = useConnected();

@@ -1,7 +1,7 @@
 import { ChevronLeft, MoreVertical, Plus, Search, Settings, Share2, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { Connection } from '@legacy/ws.js';
+import type { Connection } from '@runtime/ws.js';
 
 import { createConnector, type RoomConnector } from '../app/connector.js';
 import { rememberRoom } from '../app/startup.js';

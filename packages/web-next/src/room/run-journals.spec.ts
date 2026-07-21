@@ -2,7 +2,7 @@ import type { WireEvent } from '@codor/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ fetchRunEvents: vi.fn() }));
-vi.mock('@legacy/api.js', () => api);
+vi.mock('@runtime/api.js', () => api);
 
 import {
   activateRunJournalRoom,

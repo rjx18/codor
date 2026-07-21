@@ -1,6 +1,6 @@
 // Client half of message attachments (richard #425): upload a file to the room's
 // authenticated endpoint before it rides the post frame, and build served URLs for
-// rendering. Kept in web-next (not @legacy/api) so the whole feature is one batch.
+// rendering. Kept in web-next (not @runtime/api) so the whole feature is one batch.
 
 export interface UploadedAttachment {
   id: string;

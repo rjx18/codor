@@ -4,7 +4,7 @@ import {
   presentRunEvents,
   type IndexedRunEvent,
   type RunRow,
-} from '@legacy/run-presenter.js';
+} from '@runtime/run-presenter.js';
 
 export interface CompactionRunTimelineItem extends CompactionTimelineItem {
   kind: 'compaction';

@@ -2,8 +2,8 @@ import type { Message, RoomInboxItem } from '@codor/protocol';
 import { Inbox as InboxIcon, PauseCircle, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { fetchMessageHistory, searchMessages } from '@legacy/api.js';
-import type { Connection } from '@legacy/ws.js';
+import { fetchMessageHistory, searchMessages } from '@runtime/api.js';
+import type { Connection } from '@runtime/ws.js';
 
 import { HISTORY_PAGE_SIZE, heldDeliveries, roomSlice, useClientStore } from '../app/store.js';
 import { clockTime } from '../primitives/identity.js';

@@ -1,7 +1,7 @@
 import type { RoomSummary } from '@codor/protocol';
 import { useEffect, useMemo, useState } from 'react';
 
-import { fetchRooms } from '@legacy/api.js';
+import { fetchRooms } from '@runtime/api.js';
 
 import { useClientStore } from './store.js';
 

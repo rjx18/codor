@@ -1,6 +1,6 @@
 import type { RoomSummary } from '@codor/protocol';
 
-import { fetchRooms } from '@legacy/api.js';
+import { fetchRooms } from '@runtime/api.js';
 
 import { fetchSummaries, primeRoomSummaries } from './summary.js';
 

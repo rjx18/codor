@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import {
   createRoom,
-} from '@legacy/api.js';
+} from '@runtime/api.js';
 
 import { AgentControls, AgentIdentityControls, Section } from './AgentControls.js';
 import { FolderPicker } from './FolderPicker.js';

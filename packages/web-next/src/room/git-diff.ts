@@ -1,4 +1,4 @@
-// The diff explorer's client read. Kept in web-next (not @legacy/api) so the
+// The diff explorer's client read. Kept in web-next (not @runtime/api) so the
 // whole feature stays in one batch; mirrors the fetchJson auth shape.
 
 export type GitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked';

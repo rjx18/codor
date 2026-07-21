@@ -68,9 +68,11 @@ describe('@codor/protocol barrel', () => {
 // harn:assume workspace-packages-use-codor-scope ref=codor-package-scope-regression
 it('uses the codor scope for every scoped workspace package', () => {
   const manifests = [
+    'packages/adapters/antigravity/package.json',
     'packages/adapters/claude-code/package.json',
     'packages/adapters/codex/package.json',
     'packages/adapters/copilot/package.json',
+    'packages/adapters/cursor/package.json',
     'packages/adapters/gemini/package.json',
     'packages/adapters/opencode/package.json',
     'packages/bridges/core/package.json',
@@ -79,7 +81,7 @@ it('uses the codor scope for every scoped workspace package', () => {
     'packages/cli/package.json',
     'packages/protocol/package.json',
     'packages/switchboard/package.json',
-    'packages/web/package.json',
+    'packages/web-next/package.json',
     'relay/package.json',
     'website/package.json',
   ];
@@ -99,7 +101,7 @@ it('keeps the fast test loop separate from the full browser release gate', () =>
   ) as { scripts: Record<string, string> };
   expect(rootPackage.scripts.test).toBe('pnpm -r test');
   expect(rootPackage.scripts['test:all']).toBe(
-    'pnpm -r build && pnpm -r test && pnpm --filter @codor/web e2e',
+    'pnpm -r build && pnpm -r test && pnpm --filter @codor/web-next e2e',
   );
 });
 // harn:end release-gate-runs-unit-and-browser

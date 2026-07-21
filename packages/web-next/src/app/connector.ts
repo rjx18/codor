@@ -8,8 +8,8 @@
 // described behaviour this connector has not had since in-place switching.
 import { BROWSER_PROTOCOL_EPOCH, type Act, type ServerFrame } from '@codor/protocol';
 
-import { setActiveBrowserAccessToken } from '@legacy/crypto.js';
-import type { Connection } from '@legacy/ws.js';
+import { setActiveBrowserAccessToken } from '@runtime/crypto.js';
+import type { Connection } from '@runtime/ws.js';
 
 import { HISTORY_PAGE_SIZE, roomSlice, useClientStore } from './store.js';
 import { requireBrowserUpgrade } from './compatibility.js';

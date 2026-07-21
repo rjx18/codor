@@ -4,19 +4,15 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// The next UI is a fresh presentation layer over the UNCHANGED client machinery: the
-// legacy package's nonvisual modules (state, api, ws, crypto, theme, push, room-color,
-// run-presenter, notifications, sw) are imported straight from its source tree via this
-// alias, so protocol behavior, encryption and synchronization stay byte-identical while
-// every component, layout and stylesheet here is new.
+// The supported browser is self-contained: presentation, synchronization, crypto,
+// notifications, and its owned service worker all build from this workspace.
 export default defineConfig({
   plugins: [
     react(),
-    // Same offline/push worker as the old client — presentation changed, the
-    // worker contract didn't.
+    // The browser owns its offline and push worker alongside the app runtime.
     VitePWA({
       strategies: 'injectManifest',
-      srcDir: resolve(__dirname, '../web/src'),
+      srcDir: resolve(__dirname, 'src'),
       filename: 'sw.ts',
       injectRegister: false,
       includeAssets: [
@@ -57,7 +53,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@legacy': resolve(__dirname, '../web/src'),
+      '@runtime': resolve(__dirname, 'src/runtime'),
     },
   },
   server: {

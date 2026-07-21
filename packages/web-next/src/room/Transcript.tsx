@@ -4,16 +4,16 @@ import type { LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import type { Connection } from '@legacy/ws.js';
+import type { Connection } from '@runtime/ws.js';
 
-import { fetchMessageHistory } from '@legacy/api.js';
+import { fetchMessageHistory } from '@runtime/api.js';
 import {
   compactRunRow,
   diffStat,
   formatRunDuration,
   mergeRunEvents,
   type RunRow,
-} from '@legacy/run-presenter.js';
+} from '@runtime/run-presenter.js';
 
 import { useIsMobile } from '../app/session.js';
 import { HISTORY_PAGE_SIZE, roomSlice, useClientStore } from '../app/store.js';

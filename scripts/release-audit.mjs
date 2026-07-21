@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
 const root = new URL('../', import.meta.url);
@@ -31,13 +32,28 @@ const tracked = execFileSync('git', ['ls-files', '-z'], {
   cwd: root,
   encoding: 'utf8',
 }).split('\0').filter(Boolean);
+const existingTracked = tracked.filter((path) => existsSync(new URL(`../${path}`, import.meta.url)));
+
+// harn:assume supported-browser-is-standalone-web-next ref=standalone-browser-release-audit
+assert.ok(
+  !existsSync(new URL('../packages/web', import.meta.url)),
+  'the deprecated packages/web workspace must not ship',
+);
+for (const path of existingTracked.filter((candidate) =>
+  candidate.startsWith('packages/web-next/') &&
+  /\.(?:html|js|json|mjs|ts|tsx)$/.test(candidate))) {
+  const body = await readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+  assert.doesNotMatch(body, /@legacy|\.\.\/web\/src|packages\/web\/src/, `${path} depends on the legacy web source tree`);
+}
+// harn:end supported-browser-is-standalone-web-next
+
 const legacyName = ['wire', 'room'].join('');
 const immutableRecordedFixtures = new Set([
   'packages/adapters/claude-code/fixtures/permission-deny.jsonl',
   'packages/adapters/claude-code/fixtures/permission-deny.stdin.jsonl',
 ]);
 
-for (const path of tracked) {
+for (const path of existingTracked) {
   if (
     path === 'CHANGELOG.md' ||
     path.startsWith('.harn/') ||
@@ -62,8 +78,8 @@ const visibleRoomPatterns = [
   /\b(?:throw new Error|setNotice)\(\s*["'`][^"'`]*\brooms?\b/i,
   /\breturn\s+["'`](?![^"'`]*(?:\?|room:|\/api\/))[^"'`]*\brooms?\b/i,
 ];
-for (const path of tracked.filter((candidate) =>
-  candidate.startsWith('packages/web/src/') &&
+for (const path of existingTracked.filter((candidate) =>
+  candidate.startsWith('packages/web-next/src/') &&
   /\.(?:ts|tsx)$/.test(candidate) &&
   !/\.spec\.(?:ts|tsx)$/.test(candidate))) {
   const body = await readFile(new URL(`../${path}`, import.meta.url), 'utf8');

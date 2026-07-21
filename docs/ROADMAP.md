@@ -19,7 +19,7 @@ milestone starts — this file stays the map, not the turf.
 - `packages/adapters/claude-code`: CLI driver — `claude -p --resume` with stream-json in/out
   (events, ask-user, and permission prompts over the control protocol → ask/approval cards).
   No SDK dependency, by design.
-- `packages/web`: channel timeline, collapsible runs, composer with @/# autocomplete + implied
+- `packages/web-next`: channel timeline, collapsible runs, composer with @/# autocomplete + implied
   recipient, member rail, ask/approval cards.
 - **License + reuse audit** (the M0 gate for the build map): verify walkie's license
   (claude-watch verified MIT → fork cleared; paseo verified AGPL-3.0 → pattern-only, no code

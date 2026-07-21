@@ -16,7 +16,7 @@
     "lint": "pnpm -r --if-present lint",
     "release:check": "pnpm test:all && pnpm audit:license && pnpm audit:release",
     "test": "pnpm -r test",
-    "test:all": "pnpm -r build && pnpm -r test && pnpm --filter @codor/web e2e"
+    "test:all": "pnpm -r build && pnpm -r test && pnpm --filter @codor/web-next e2e"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",

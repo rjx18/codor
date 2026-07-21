@@ -2,7 +2,7 @@ import type { AgentLimit, Member, Policy, Room, RunItemDiff, ThinkingLevel, Wire
 import { Bot, LoaderCircle, Minimize2, MoreVertical, Plus, Square, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@legacy/api.js';
+import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@runtime/api.js';
 import { AgentControls, AgentIdentityControls, RolePresetControls, Section } from './AgentControls.js';
 import { FolderPicker } from './FolderPicker.js';
 import {
@@ -20,8 +20,8 @@ import {
   resolveSpawn,
   supportedThinking,
 } from './agent-spec.js';
-import { presentRunEvents, type RunRow } from '@legacy/run-presenter.js';
-import type { Connection } from '@legacy/ws.js';
+import { presentRunEvents, type RunRow } from '@runtime/run-presenter.js';
+import type { Connection } from '@runtime/ws.js';
 
 import { roomSlice, sortedMessages, useClientStore } from '../app/store.js';
 import { clockTime, compactCount, memberAccent } from '../primitives/identity.js';

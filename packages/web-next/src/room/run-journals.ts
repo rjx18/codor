@@ -1,7 +1,7 @@
 import type { WireEvent } from '@codor/protocol';
 import { useSyncExternalStore } from 'react';
 
-import { fetchRunEvents } from '@legacy/api.js';
+import { fetchRunEvents } from '@runtime/api.js';
 
 // ── One room-scoped journal cache for the whole transcript (codex #516) ──────
 // Both journal readers — the finalized-segment batch and every RunContent — go

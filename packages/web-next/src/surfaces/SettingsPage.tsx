@@ -10,15 +10,15 @@ import {
   type DeviceSummary,
   type PairingOffer,
   type PushConfig,
-} from '@legacy/api.js';
-import { currentBrowserAccessToken, ensureBrowserIdentity, unpairBrowser } from '@legacy/crypto.js';
-import { enablePushNotifications, notificationPermission } from '@legacy/notifications.js';
+} from '@runtime/api.js';
+import { currentBrowserAccessToken, ensureBrowserIdentity, unpairBrowser } from '@runtime/crypto.js';
+import { enablePushNotifications, notificationPermission } from '@runtime/notifications.js';
 import {
   applyThemeChoice,
   readThemeChoice,
   storeThemeChoice,
   type ThemeChoice,
-} from '@legacy/theme.js';
+} from '@runtime/theme.js';
 
 import { createConnector, type RoomConnector } from '../app/connector.js';
 import { roomSlice, useClientStore } from '../app/store.js';
@@ -51,7 +51,7 @@ export function SettingsPage(props: {
       <div className="nx-settings">
         <header className="nx-settings-head">
           <a className="nx-btn is-quiet nx-settings-back" href={`/?room=${encodeURIComponent(page.room)}`}>
-            <ArrowLeft size={15} aria-hidden="true" /> Back to the room
+            <ArrowLeft size={15} aria-hidden="true" /> Back to the channel
           </a>
           <h1>Settings</h1>
         </header>

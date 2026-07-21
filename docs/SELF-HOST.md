@@ -31,8 +31,8 @@ scripts/install-cli.sh
 
 <!-- harn:assume operator-launches-serve-web-next ref=selfhost-current-web-client -->
 The supported browser build is `packages/web-next/dist`. The CLI default, the checked-in systemd
-service, and the generated macOS LaunchAgent point there directly. Do not serve or copy
-`packages/web/dist`; that workspace is legacy and is not the installed application.
+service, and the generated macOS LaunchAgent point there directly. It contains the complete client
+runtime and owned service worker; there is no second browser workspace to build or deploy.
 <!-- harn:end operator-launches-serve-web-next -->
 
 The fresh-install test clones the selected repository ref over a local file URL so it cannot

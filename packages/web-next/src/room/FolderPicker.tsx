@@ -12,7 +12,7 @@
 import { ArrowUp, ChevronRight, CornerLeftUp, Folder, Monitor, RotateCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { fetchLocalDirectories, type LocalDirectoryListing } from '@legacy/api.js';
+import { fetchLocalDirectories, type LocalDirectoryListing } from '@runtime/api.js';
 
 export function FolderPicker(props: {
   token: () => string;

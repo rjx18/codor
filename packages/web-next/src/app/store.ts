@@ -16,7 +16,7 @@ import {
   appendRunEvent,
   type MemberStateObservation,
   type RunEventBuffer,
-} from '@legacy/state.js';
+} from '@runtime/state.js';
 
 export const HISTORY_PAGE_SIZE = 20;
 

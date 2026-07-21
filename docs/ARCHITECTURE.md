@@ -136,7 +136,8 @@ Same member, same context, custody moving freely between channel and terminal �
   routing the app domain across the tailnet). The browser holds only a cache: history pages in
   over REST, live updates over the WS, reconnect delta-syncs from the channel change-log cursor
   (`since_seq` — message ids can't express in-place run finalizations).
-  `@codor/web` is the legacy workspace and is not a deployment target.
+  The browser runtime and owned service worker live in this same workspace; there is no legacy
+  source-tree alias or second deployment target.
 <!-- harn:end operator-launches-serve-web-next -->
 - **iPhone** (SwiftUI): same WS API. Pairing via QR (device keypair, PRIVACY §pairing). Channels,
   notifications, ask/approval actions, dictation composer.
@@ -252,7 +253,7 @@ codor/
   packages/switchboard/   # daemon: store, router, adapter host, WS/REST
   packages/adapters/      # claude-code/, codex/, acp/ (spike)
   packages/cli/           # codor join/spawn/post/tail
-  packages/web/           # React SPA / installable PWA (the free client, incl. phones)
+  packages/web-next/      # React SPA / installable PWA (the free client, incl. phones)
   relay/                  # push relay (self-hostable, tiny)
   skills/                 # /codor Claude Code skill; AGENTS.md snippet for Codex
   docs/

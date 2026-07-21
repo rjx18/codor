@@ -6,7 +6,7 @@ import {
   completeBrowserPairing,
   exchangeBrowserPairingCode,
   tryTrustedBrowserPairing,
-} from '@legacy/crypto.js';
+} from '@runtime/crypto.js';
 
 import { Button, Code } from '../primitives/primitives.js';
 

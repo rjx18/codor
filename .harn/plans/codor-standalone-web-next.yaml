@@ -1,23 +1,21 @@
 id: codor-standalone-web-next
 title: Make web-next the sole browser application and remove the legacy web workspace
-notes: >-
-  Phase 3. Move the nonvisual browser runtime, owned service worker, and their
-  regression tests into packages/web-next; remove every @legacy source alias;
-  prove the surviving PWA builds, pairs, reconnects, encrypts push payloads, and
-  passes its browser suite; then delete packages/web. The older web assumptions
-  remain true product contracts and are reviewed against the equivalent
-  web-next runtime and browser coverage while their legacy anchor placements
-  are removed. A new release audit prevents the deleted workspace or a source
-  dependency on it from returning. packages/web-next remains Harn-ignored for
-  this pre-release migration because it already contains duplicate historical
-  anchor refs; the tracked release audit is the durable boundary until those
-  presentation assumptions are consolidated separately.
+notes: Phase 3. Move the nonvisual browser runtime, owned service worker, and
+  their regression tests into packages/web-next; remove every @legacy source
+  alias; prove the surviving PWA builds, pairs, reconnects, encrypts push
+  payloads, and passes its browser suite; then delete packages/web. The older
+  web assumptions remain true product contracts and are reviewed against the
+  equivalent web-next runtime and browser coverage while their legacy anchor
+  placements are removed. A new release audit prevents the deleted workspace or
+  a source dependency on it from returning. packages/web-next remains
+  Harn-ignored for this pre-release migration because it already contains
+  duplicate historical anchor refs; the tracked release audit is the durable
+  boundary until those presentation assumptions are consolidated separately.
 assumptions:
   create:
     - id: supported-browser-is-standalone-web-next
       title: The supported browser application has no legacy workspace dependency
-      statement: >-
-        The release must contain one supported browser workspace,
+      statement: The release must contain one supported browser workspace,
         packages/web-next, whose production build, service worker, runtime
         imports, tests, and CLI static-root defaults resolve entirely within
         that workspace and shared published packages; packages/web must not
@@ -36,250 +34,412 @@ assumptions:
   reviewed:
     - id: a-permission-change-is-never-silent
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: acknowledgement-marker-protocol
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: addressed-cold-hydration-is-strict-and-legacy-safe
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: agent-controls-shared-by-both-dialogs
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: approval-cards-follow-durable-resolution
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: bridge-enable-admin-or-owner
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: bridged-room-wears-banner-v5
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: channel-accent-projects-accessibly-across-themes
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: client-syncs-by-seq
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: codor-runtime-identity-is-a-clean-break
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: compact-one-line-tool-rows
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: composer-caret-updates-are-synchronous
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: concurrent-browser-suites-do-not-collide
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: controls-fit-the-surface-they-sit-on
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: custody-uncertain-never-double-writes
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: default-recipient-fallback-chain
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: e2e-gate-covers-every-spec-file
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: empty-and-offline-are-shown-not-blank
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: every-channel-has-a-visible-accent
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: extensions-not-addressable-v1
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: fake-adapter-drives-live-collaboration
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: graph-derived-from-vault-links-readonly-v5
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: harness-declares-supported-thinking-levels
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: history-cursor-tracks-only-the-contiguous-tail
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: human-facing-surfaces-call-rooms-channels
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: interaction-cards-stay-readable-on-phone
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: interim-posts-stay-flat-beside-their-live-run
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: literal-draft-effective-recipient-visible
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: live-run-event-cache-bounded
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: member-config-is-changed-not-respawned
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: modal-dialogs-layer-above-room-chrome
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: model-catalogs-reach-a-browser-that-arrives-early
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: no-human-surface-says-switchboard
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: normalized-run-evidence-inspector
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: normalized-run-items-presented-live
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: one-control-chooses-an-agent-everywhere
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: paired-browser-challenge-session
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: pairing-code-enrollment-surfaces
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: pairing-discloses-browser-and-relay-boundaries
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: pairing-offer-token-remains-qr-only
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: permalink-ids-stable
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: playwright-spec-files-use-isolated-daemons
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: posted-message-mentions-alone-look-effective
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: prose-blocks-carry-first-delta-timestamps
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: push-decrypts-on-device-only
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: pwa-cold-launch-restores-local-auth
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: removing-an-agent-is-one-deliberate-step
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: roles-gate-human-acts-not-agents
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: room-action-errors-are-visible
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: run-context-selects-and-follows-live-evidence
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: run-events-merge-by-journal-index
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: run-failure-evidence-is-surfaced
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: single-crypto-suite-libsodium
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: spawn-default-cwd-is-absolute-or-empty
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: spend-meter-always-on
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: starting-agent-name-derives-one-valid-identity-v6
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: sw-caches-shell-only-no-message-data
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: sw-injectmanifest-owned-worker
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: the-composer-is-one-row
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: the-inbox-badge-and-panel-are-one-truth
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: the-inbox-opens-what-needs-you
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: timeline-rows-are-never-crushed-v5
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: unpair-purges-all-browser-state
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: unpaired-browser-always-has-enrollment-path
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-first-run-color-mode-is-light
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-motion-is-purposeful-and-reduced-motion-safe-v5
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-presentation-model-defaults-to-v4-until-adopted
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-room-rail-creates-owner-room
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-room-targets-meet-minimum-hit-size
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-room-visual-hierarchy-matches-soft-editorial-reference
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-settings-controls-preserve-product-truth
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-settings-pairing-match-soft-editorial-reference
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-shell-responsive-three-pane
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-spawn-dialog-exposes-canonical-agent-controls
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-theme-accessible-modes
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-theme-choice-stays-local-v5
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-v5-primitives-consume-only-tokens
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: web-waits-are-visible-across-live-surfaces-v5
       outcome: unchanged
-      reason: The equivalent supported behavior is preserved by the migrated runtime or existing web-next unit and browser coverage while only the deprecated legacy anchor placement is removed.
+      reason: The equivalent supported behavior is preserved by the migrated runtime
+        or existing web-next unit and browser coverage while only the deprecated
+        legacy anchor placement is removed.
     - id: release-audits-enforce-codor-clean-break
       outcome: unchanged
-      reason: The existing release audit remains the tracked release boundary and is extended to reject a returned legacy browser workspace or source alias.
+      reason: The existing release audit remains the tracked release boundary and is
+        extended to reject a returned legacy browser workspace or source alias.
     - id: operator-launches-serve-web-next
       outcome: unchanged
-      reason: The CLI and platform services already serve web-next; documentation is tightened to describe it as the only complete browser application.
+      reason: The CLI and platform services already serve web-next; documentation is
+        tightened to describe it as the only complete browser application.
     - id: workspace-packages-use-codor-scope
       outcome: unchanged
-      reason: The workspace identity regression drops the deleted browser package and includes the two newer adapter packages while every remaining scoped package stays under @codor.
+      reason: The workspace identity regression drops the deleted browser package and
+        includes the two newer adapter packages while every remaining scoped
+        package stays under @codor.
     - id: release-gate-runs-unit-and-browser
       outcome: unchanged
-      reason: The full release gate continues to build and unit-test every workspace before running the sole supported browser suite, now under @codor/web-next.
+      reason: The full release gate continues to build and unit-test every workspace
+        before running the sole supported browser suite, now under
+        @codor/web-next.
 files:
   - README.md
   - docs/ARCHITECTURE.md
@@ -473,25 +633,32 @@ anchors:
   supported-browser-is-standalone-web-next:
     standalone-browser-release-audit:
       action: change
-      reason: Add a tracked release assertion that packages/web, @legacy aliases, and cross-workspace service-worker source paths cannot return.
+      reason: Add a tracked release assertion that packages/web, @legacy aliases, and
+        cross-workspace service-worker source paths cannot return.
   release-audits-enforce-codor-clean-break:
     rename-release-audit:
       action: change
-      reason: Extend the clean-break release audit from product naming to the supported browser workspace boundary.
+      reason: Extend the clean-break release audit from product naming to the
+        supported browser workspace boundary.
   operator-launches-serve-web-next:
     readme-current-web-client:
       action: change
-      reason: State that web-next contains the complete browser runtime rather than contrasting it with a legacy build.
+      reason: State that web-next contains the complete browser runtime rather than
+        contrasting it with a legacy build.
     selfhost-current-web-client:
       action: change
-      reason: Remove the obsolete instruction about packages/web and document the one-workspace deployment.
+      reason: Remove the obsolete instruction about packages/web and document the
+        one-workspace deployment.
     architecture-current-web-client:
       action: change
-      reason: Record the standalone runtime and remove the legacy workspace from the architecture map.
+      reason: Record the standalone runtime and remove the legacy workspace from the
+        architecture map.
   workspace-packages-use-codor-scope:
     codor-package-scope-regression:
       action: change
-      reason: Remove packages/web from the exact manifest inventory and add the Cursor and Antigravity adapter manifests introduced since the original scope test.
+      reason: Remove packages/web from the exact manifest inventory and add the Cursor
+        and Antigravity adapter manifests introduced since the original scope
+        test.
   release-gate-runs-unit-and-browser:
     root-release-test-script:
       action: change
@@ -499,771 +666,1007 @@ anchors:
   a-permission-change-is-never-silent:
     configure-audit-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   acknowledgement-marker-protocol:
     ack-web-marker:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     ack-web-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   addressed-cold-hydration-is-strict-and-legacy-safe:
     addressed-hydration-contract:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   agent-controls-shared-by-both-dialogs:
     agent-controls-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     agent-controls-component:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     agent-controls-unit-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   approval-cards-follow-durable-resolution:
     actionable-approval-app:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     actionable-approval-selector:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     actionable-approval-state-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     approval-answer-component-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     approval-answer-inflight:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     approval-browser-harness:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     approval-two-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   bridge-enable-admin-or-owner:
     bridge-origin-attribution:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   bridged-room-wears-banner-v5:
     bridged-room-banner:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     bridged-room-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   channel-accent-projects-accessibly-across-themes:
     authoritative-channel-client:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     channel-color-identity:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     channel-create-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     channel-create-dialog:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     channel-create-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     room-color-projection-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     room-color-projection:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   client-syncs-by-seq:
     store-upsert-in-place:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     ws-resubscribe-cursor:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   codor-runtime-identity-is-a-clean-break:
     browser-runtime-identity:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   compact-one-line-tool-rows:
     compact-run-row-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     compact-run-row-model:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     compact-run-row-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     compact-run-row-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   composer-caret-updates-are-synchronous:
     composer-caret-sync-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     composer-caret-sync:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   concurrent-browser-suites-do-not-collide:
     e2e-runner-port-selection:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   controls-fit-the-surface-they-sit-on:
     control-fit-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     control-fits-narrow-surface:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   custody-uncertain-never-double-writes:
     attach-custody-web-hint:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   default-recipient-fallback-chain:
     web-effective-default-cache:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     web-effective-default-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   e2e-gate-covers-every-spec-file:
     isolated-e2e-spec-runner:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   empty-and-offline-are-shown-not-blank:
     timeline-empty-and-offline-states:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     timeline-state-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   every-channel-has-a-visible-accent:
     channel-accent-rail:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   extensions-not-addressable-v1:
     extension-run-rendering:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   fake-adapter-drives-live-collaboration:
     harness-live-step-bridge:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   graph-derived-from-vault-links-readonly-v5:
     ledger-graph-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     ledger-graph-semantics:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     ledger-graph-web:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-ledger-axe:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-ledger-capture-proof:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-ledger-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-ledger-token-discipline:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   harness-declares-supported-thinking-levels:
     agent-thinking-level-options:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     agent-thinking-level-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   history-cursor-tracks-only-the-contiguous-tail:
     contiguous-history-app:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     contiguous-history-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     contiguous-history-harness:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     contiguous-history-state-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     contiguous-history-state:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   human-facing-surfaces-call-rooms-channels:
     web-channel-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     web-channel-terminology:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   interaction-cards-stay-readable-on-phone:
     phone-ask-card-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     phone-ask-card-harness:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     phone-ask-card-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     phone-ask-card-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     phone-ask-card:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   interim-posts-stay-flat-beside-their-live-run:
     interim-flat-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   literal-draft-effective-recipient-visible:
     composer-autocomplete-semantics:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     composer-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     composer-literal-recipient:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     composer-popup-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     composer-recipient-unit-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   live-run-event-cache-bounded:
     bounded-live-event-buffer:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     bounded-run-stream-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     full-journal-recovery:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   member-config-is-changed-not-respawned:
     member-card-settings:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   modal-dialogs-layer-above-room-chrome:
     modal-layering-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     shared-modal-portal:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   model-catalogs-reach-a-browser-that-arrives-early:
     adapter-catalog-client-refresh:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     adapter-discovery-pending-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   no-human-surface-says-switchboard:
     switchboard-phrase-gate:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   normalized-run-evidence-inspector:
     inspector-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     inspector-contained-scroll:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     inspector-selection-state:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     normalized-row-selection:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     typed-evidence-renderers:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   normalized-run-items-presented-live:
     collapsed-run-tools-390:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     live-run-message-surface:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     live-run-prose-390:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     live-run-stream-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     normalized-run-presenter:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     run-stream-responsive-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     seeded-running-run-harness:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   one-control-chooses-an-agent-everywhere:
     shared-policy-control-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     shared-policy-control:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   paired-browser-challenge-session:
     browser-session-signin:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   pairing-code-enrollment-surfaces:
     browser-pairing-code-client:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     browser-pairing-code-workspace:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     pairing-code-browser-harness:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     pairing-code-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     pairing-code-client-api:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     pairing-code-surface-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     settings-pair-another-device:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   pairing-discloses-browser-and-relay-boundaries:
     pairing-boundary-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     pairing-boundary-workspace:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   pairing-offer-token-remains-qr-only:
     glass-pairing-surface:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     pairing-token-visibility-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   permalink-ids-stable:
     message-history-surface:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     message-permalink-rendering:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     paged-message-cache:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   playwright-spec-files-use-isolated-daemons:
     isolated-e2e-harness-ports:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     isolated-e2e-playwright-config:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     isolated-e2e-spec-ports:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   posted-message-mentions-alone-look-effective:
     effective-mention-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     effective-mention-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     effective-mention-segmentation:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     effective-mention-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   prose-blocks-carry-first-delta-timestamps:
     prose-block-first-ts:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   push-decrypts-on-device-only:
     browser-push-envelope-open:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     notification-permission-registration:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     sw-push-notification-handler:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   pwa-cold-launch-restores-local-auth:
     paired-access-bootstrap:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   removing-an-agent-is-one-deliberate-step:
     remove-member-control:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     remove-member-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   roles-gate-human-acts-not-agents:
     role-aware-web-controls:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   room-action-errors-are-visible:
     approval-answer-error-reset:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     approval-error-browser-harness:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     approval-error-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     room-action-error-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     room-action-error-surface:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   run-context-selects-and-follows-live-evidence:
     selected-live-run-context-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     selected-live-run-context:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   run-events-merge-by-journal-index:
     client-indexed-buffer-merge:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   run-failure-evidence-is-surfaced:
     web-run-error-evidence:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     web-run-error-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   single-crypto-suite-libsodium:
     browser-libsodium-suite:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   spawn-default-cwd-is-absolute-or-empty:
     spawn-cwd-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     spawn-cwd-inheritance-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     spawn-cwd-inheritance:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   spend-meter-always-on:
     meter-settings-surface:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   starting-agent-name-derives-one-valid-identity-v6:
     actionable-rest-error-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     actionable-rest-errors:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     starting-agent-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     starting-agent-name-control:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   sw-caches-shell-only-no-message-data:
     app-shell-precache-only:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     page-memory-message-cache:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   sw-injectmanifest-owned-worker:
     offline-font-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     owned-worker-lifecycle:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     vite-pwa-owned-worker:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   the-composer-is-one-row:
     composer-single-row:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   the-inbox-badge-and-panel-are-one-truth:
     pending-interactions-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     pending-interactions-selector:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     pending-survives-history-trim:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   the-inbox-opens-what-needs-you:
     inbox-panel-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     inbox-panel:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   timeline-rows-are-never-crushed-v5:
     timeline-crush-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     timeline-crush-unit-gate:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     timeline-row-crush-resistance:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   unpair-purges-all-browser-state:
     browser-unpair-purge:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     settings-unpair-action:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   unpaired-browser-always-has-enrollment-path:
     pairing-gate-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     trusted-browser-pairing-client:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     unpaired-auth-gate:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     unpaired-pairing-workspace:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-first-run-color-mode-is-light:
     light-first-prepaint:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     light-first-theme-choice:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     light-first-theme-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-motion-is-purposeful-and-reduced-motion-safe-v5:
     motion-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     motion-runtime-classes:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     motion-token-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-presentation-model-defaults-to-v4-until-adopted:
     v5-presentation-default-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     v5-presentation-model:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-room-rail-creates-owner-room:
     authenticated-room-create-client:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     create-channel-semantics:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     room-rail-create-action:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     room-rail-create-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-room-targets-meet-minimum-hit-size:
     room-target-size-sweep:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-room-visual-hierarchy-matches-soft-editorial-reference:
     soft-editorial-message-presentation-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-responsive-adoption:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-room-capture-proof:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-room-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-room-token-discipline:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-room-visual-hierarchy:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-room-visual-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-speaker-grouping-390:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-settings-controls-preserve-product-truth:
     glass-settings-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     glass-settings-surface:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-settings-pairing-match-soft-editorial-reference:
     soft-editorial-pairing-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-pairing-surface:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-settings-pairing-axe:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-settings-pairing-capture-proof:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-settings-pairing-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-settings-pairing-token-discipline:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-settings-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-settings-surface:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-shell-responsive-three-pane:
     mobile-drawer-semantics:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     responsive-room-shell:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     responsive-shell-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     unique-landmark-names:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-spawn-dialog-exposes-canonical-agent-controls:
     dead-member-replacement-controls:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     spawn-dialog-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     spawn-dialog-controls:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     spawn-dialog-semantics:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     spawn-dialog-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     spawn-dialog-unit-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-theme-accessible-modes:
     axe-bridged-state:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     axe-hold-state:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     axe-ledger-matrix:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     axe-room-matrix-dark:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     axe-room-matrix-light:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     axe-room-matrix-shared:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     axe-settings-pairing-matrix:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     soft-editorial-token-layer:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     theme-contrast-matrix:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     theme-contrast-values:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     token-resolution-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-theme-choice-stays-local-v5:
     local-theme-preference:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     prepaint-reads-local:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     settings-theme-control:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     theme-choice-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-v5-primitives-consume-only-tokens:
     v5-primitive-components:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     v5-primitive-render-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     v5-primitive-styles:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     v5-primitive-token-discipline:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
   web-waits-are-visible-across-live-surfaces-v5:
     live-collaboration-browser-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     live-collaboration-line:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     live-collaboration-placement:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     live-collaboration-style:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     wait-elapsed-and-member-summary:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     wait-presentation-regression:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
     waiting-run-header:
       action: remove
-      reason: Delete the deprecated packages/web anchor placement after equivalent behavior is proven in the surviving web-next application.
+      reason: Delete the deprecated packages/web anchor placement after equivalent
+        behavior is proven in the surviving web-next application.
+lock:
+  locked_at: 2026-07-21T00:27:16.625Z
+  base_commit: 8cc00b812077db093db463e72aead725fcb147b9
+  hash: 7d01ab99008ec30ad0c41b0e36353d837bfdf6245de756e1256fbaa46018bf5c
+  dirty_at_lock: false

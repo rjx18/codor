@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { applyThemeChoice } from '@legacy/theme.js';
+import { applyThemeChoice } from '@runtime/theme.js';
 
 import { pageParams, resolveAccessToken } from './app/session.js';
 import {
