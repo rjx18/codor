@@ -1,0 +1,16 @@
+id: agent-selection-catalog-is-refreshable
+hash: a-e07a9a6d1462
+title: Unlocked agent selectors share one refreshable installed catalog
+state: active
+statement: Create Channel, first-channel onboarding, and Add Agent select only
+  installed adapters from one shared refreshable catalog, expose accessible
+  busy, failure, and empty states, and reconcile a disappeared selection without
+  clearing unrelated typed fields; Configure Agent keeps the full registered
+  metadata and no refresh action because its harness is locked.
+depends_on:
+  - built-in-adapters-require-daemon-path
+  - adapter-refresh-is-authorized-and-incremental
+  - agent-controls-shared-by-both-dialogs
+  - paired-empty-state-creates-first-channel
+  - web-spawn-dialog-exposes-canonical-agent-controls
+created_by: codor-agent-onboarding-phase3

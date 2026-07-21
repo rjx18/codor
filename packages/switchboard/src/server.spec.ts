@@ -35,6 +35,7 @@ let base: string;
 let admin: Member;
 let member: Member;
 let observer: Member;
+let fakeInstalled: boolean;
 
 const testCwd = (name = 'work') => {
   const path = join(dir, 'cwd', name);
@@ -60,13 +61,16 @@ const spawnAgentWithToken = (handle: string, room = 'eng') => {
 
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'codor-server-'));
+  fakeInstalled = true;
   fake = new FakeAdapter('fake', { interactiveAttach: true });
+  Object.assign(fake, { executable: 'fake' });
   daemon = new Daemon({
     dbPath: join(dir, 'db.sqlite'),
     blobRoot: join(dir, 'blobs'),
     adapters: [fake],
     ledger: new LedgerManager({ dataDir: dir }),
     homeDir: dir,
+    executableOnPath: () => fakeInstalled,
   });
   daemon.createRoom({ id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' } });
   admin = daemon.store.addMember('eng', {
@@ -1142,7 +1146,7 @@ describe('REST', () => {
     // The listing says whether discovery is still running, so a browser that arrives
     // early can tell an empty catalog from an unfinished one and ask again.
     expect(await adaptersRes.json()).toMatchObject({
-      adapters: [{ id: 'fake', capabilities: { resume: true } }],
+      adapters: [{ id: 'fake', installed: true, capabilities: { resume: true } }],
       discovering: false,
     });
     // harn:end model-catalogs-reach-a-browser-that-arrives-early
@@ -1179,6 +1183,43 @@ describe('REST', () => {
     }
     expect(fake.wasAttached(daemon.store.getMember('eng', alpha.id)!.session_ref!)).toBe(true);
   });
+
+  // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-rest
+  // harn:assume new-agent-requests-require-installed-harness ref=new-agent-availability-regression
+  it('authorizes refresh and rejects stale spawn and starting-agent requests', async () => {
+    const postRefresh = (token: string) => fetch(`${base}/api/adapters/refresh`, {
+      method: 'POST', headers: { authorization: `Bearer ${token}` },
+    });
+    expect((await postRefresh(MEMBER_TOKEN)).status).toBe(403);
+    expect((await postRefresh(OBSERVER_TOKEN)).status).toBe(403);
+    expect((await postRefresh(ADMIN_TOKEN)).status).toBe(200);
+
+    fakeInstalled = false;
+    const refreshed = await postRefresh(TOKEN);
+    expect(refreshed.status).toBe(200);
+    expect(await refreshed.json()).toMatchObject({ adapters: [{ id: 'fake', installed: false }] });
+
+    const spawn = await fetch(`${base}/api/rooms/eng/members`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ harness: 'fake', handle: 'stale', cwd: testCwd('stale-spawn') }),
+    });
+    expect(spawn.status).toBe(400);
+
+    const create = await fetch(`${base}/api/rooms`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: 'stale-create', name: 'Stale Create',
+        owner: { handle: 'stale-owner', display_name: 'Stale Owner' }, cwd: testCwd('stale-create'),
+        starting_agent: { harness: 'fake', handle: 'stale' },
+      }),
+    });
+    expect(create.status).toBe(400);
+    expect(daemon.store.getRoom('stale-create')).toBeUndefined();
+  });
+  // harn:end new-agent-requests-require-installed-harness
+  // harn:end adapter-refresh-is-authorized-and-incremental
 
   it('serves run blobs through the redacted endpoint', async () => {
     daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: testCwd() });

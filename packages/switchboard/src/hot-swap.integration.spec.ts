@@ -48,8 +48,15 @@ describe('configured adapter hot-swap', () => {
       dbPath: join(directory, 'switchboard.sqlite'),
       blobRoot: join(directory, 'blobs'),
       adapters,
+      executableOnPath: () => false,
     });
     try {
+      // harn:assume built-in-adapters-require-daemon-path ref=custom-adapter-installation-regression
+      expect(daemon.registeredAdapters()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'codex', installed: false }),
+        expect.objectContaining({ id: 'fixture-harness', installed: true }),
+      ]));
+      // harn:end built-in-adapters-require-daemon-path
       const created = daemon.createRoom({
         id: 'sdk',
         name: 'Adapter SDK',

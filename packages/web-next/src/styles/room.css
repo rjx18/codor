@@ -2071,6 +2071,13 @@
   grid-template-columns: repeat(3, 1fr);
   gap: var(--sp-2);
 }
+.nx-harness-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); }
+.nx-harness-refresh {
+  display: inline-flex; align-items: center; gap: 0.35rem; border: 0; background: transparent;
+  color: var(--c-ink); font: var(--t-caption-strong); cursor: pointer;
+}
+.nx-harness-refresh:hover:not(:disabled) { color: var(--c-ink); }
+.nx-harness-refresh:disabled { opacity: 0.6; cursor: wait; }
 .nx-harness {
   position: relative;
   display: flex;

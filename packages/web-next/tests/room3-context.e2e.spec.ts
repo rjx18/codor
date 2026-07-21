@@ -115,6 +115,62 @@ test.describe('spawn before adapter discovery', () => {
   });
 });
 
+// harn:assume agent-selection-catalog-is-refreshable ref=harness-refresh-browser-regression
+test.describe('installed harness refresh', () => {
+  test('Add Agent filters, shows busy and failure states, and reconciles without losing fields', async ({ page }) => {
+    let listing: { adapters: { id: string; installed?: boolean }[]; discovering?: boolean } | undefined;
+    let refreshed = false;
+    let failRefresh = false;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const body = () => ({
+      ...listing,
+      adapters: listing!.adapters.map((adapter) => ({
+        ...adapter,
+        installed: refreshed ? adapter.id === 'thinky' : adapter.id === 'fake',
+      })),
+      discovering: false,
+    });
+    await page.route('**/api/adapters**', async (route) => {
+      if (route.request().method() === 'POST') {
+        if (failRefresh) {
+          await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'refresh unavailable' }) });
+          return;
+        }
+        await held;
+        refreshed = true;
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body()) });
+        return;
+      }
+      const response = await route.fetch();
+      listing = await response.json() as typeof listing;
+      await route.fulfill({ response, body: JSON.stringify(body()) });
+    });
+
+    await openRoom(page);
+    await page.getByTestId('spawn-agent').click();
+    const dialog = page.getByTestId('spawn-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId('spawn-harness-fake')).toBeVisible();
+    await expect(dialog.getByTestId('spawn-harness-thinky')).toHaveCount(0);
+    await dialog.getByTestId('spawn-handle').fill('kept-handle');
+
+    const refresh = dialog.getByTestId('spawn-refresh-adapters');
+    await refresh.click();
+    await expect(refresh).toBeDisabled();
+    await expect(refresh).toContainText('Refreshing');
+    release();
+    await expect(dialog.getByTestId('spawn-harness-thinky')).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByTestId('spawn-harness-fake')).toHaveCount(0);
+    await expect(dialog.getByTestId('spawn-handle')).toHaveValue('kept-handle');
+
+    failRefresh = true;
+    await refresh.click();
+    await expect(dialog.getByRole('alert')).toContainText('Refresh failed: refresh unavailable');
+  });
+});
+// harn:end agent-selection-catalog-is-refreshable
+
 test.describe('usage limits', () => {
   test('member cards show the harness-reported windows; agents without reports show none', async ({ page }) => {
     await openRoom(page);

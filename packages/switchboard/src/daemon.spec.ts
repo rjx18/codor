@@ -2637,18 +2637,19 @@ describe('Phase 3 usability core', () => {
       name: 'Demo Site', owner: { handle: 'owner-b', display_name: 'Owner B' },
     }).room.id).toBe('demo-site-2');
 
+    vi.spyOn(fake, 'spawn').mockImplementationOnce(() => { throw new Error('fixture spawn failed'); });
     const failed = daemon.createRoom({
       name: 'Still Useful',
       owner: { handle: 'owner-c', display_name: 'Owner C' },
       cwd: project,
-      starting_agent: { harness: 'missing', handle: 'codor' },
+      starting_agent: { harness: 'fake', handle: 'codor' },
     });
     expect(failed.room.id).toBe('still-useful');
     expect(failed.room.config.starting_agent_handle).toBe('codor');
     expect(daemon.store.listMembers('still-useful').map((member) => member.kind).sort())
       .toEqual(['human', 'system']);
     expect(daemon.store.listMessages('still-useful', { limit: 10 }).at(-1)?.body)
-      .toContain("no adapter registered for harness 'missing'");
+      .toContain('fixture spawn failed');
   });
 
   // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-create-regression
@@ -2907,6 +2908,52 @@ describe('adapter model discovery', () => {
     await settle();
     expect(daemon.registeredAdapters()[0]!.models).toBeUndefined();
   });
+
+  // harn:assume built-in-adapters-require-daemon-path ref=daemon-adapter-availability-regression
+  // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-runtime
+  // harn:assume new-agent-requests-require-installed-harness ref=new-agent-availability-regression
+  it('filters built-ins, refreshes newly available models once, and rejects stale creation', async () => {
+    const available = new Set<string>();
+    const listModels = vi.fn(() => Promise.resolve({ models: ['new/model'], source: 'discovered' as const }));
+    const builtin = Object.assign(adapterWith('codex', listModels), { executable: 'codex' });
+    const custom = adapterWith('custom');
+    const dir = mkdtempSync(join(tmpdir(), 'codor-availability-'));
+    const daemon = new Daemon({
+      dbPath: join(dir, 'switchboard.sqlite'), blobRoot: join(dir, 'blobs'),
+      adapters: [builtin, custom], homeDir: dir,
+      executableOnPath: (executable) => available.has(executable),
+    });
+    daemon.createRoom({ id: 'eng', name: 'Eng', owner: { handle: 'owner', display_name: 'Owner' } });
+
+    expect(daemon.registeredAdapters()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'codex', installed: false }),
+      expect.objectContaining({ id: 'custom', installed: true }),
+    ]));
+    expect(listModels).not.toHaveBeenCalled();
+    expect(() => daemon.spawnMember('eng', {
+      harness: 'codex', handle: 'stale', cwd: dir,
+    })).toThrow("harness 'codex' is not installed");
+    expect(() => daemon.createRoom({
+      id: 'stale-room', name: 'Stale', owner: { handle: 'owner2', display_name: 'Owner 2' },
+      cwd: dir, starting_agent: { harness: 'codex', handle: 'stale' },
+    })).toThrow("harness 'codex' is not installed");
+    expect(daemon.store.getRoom('stale-room')).toBeUndefined();
+
+    available.add('codex');
+    daemon.refreshAdapterAvailability();
+    await settle();
+    expect(listModels).toHaveBeenCalledTimes(1);
+    expect(daemon.registeredAdapters().find((adapter) => adapter.id === 'codex')).toMatchObject({
+      installed: true, models: ['new/model'],
+    });
+    daemon.refreshAdapterAvailability();
+    await settle();
+    expect(listModels).toHaveBeenCalledTimes(1);
+    await daemon.close();
+  });
+  // harn:end new-agent-requests-require-installed-harness
+  // harn:end adapter-refresh-is-authorized-and-incremental
+  // harn:end built-in-adapters-require-daemon-path
 });
 // harn:end adapters-own-their-model-catalog
 

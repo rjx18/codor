@@ -39,7 +39,11 @@ import {
 } from '@codor/protocol';
 
 import { BlobStore } from './blobs.js';
-import { validateSpawnOptions } from './adapter-registry.js';
+import {
+  executableOnPath,
+  type RegisteredHarnessAdapter,
+  validateSpawnOptions,
+} from './adapter-registry.js';
 import { roleAllows } from './authorization.js';
 import {
   composeGroupRoundPayload,
@@ -182,6 +186,8 @@ export interface DaemonOptions {
    * suite: discovery shells out to real CLIs, which would make it non-hermetic.
    */
   discoverModels?: boolean;
+  /** Injectable daemon-host PATH resolver for deterministic availability tests. */
+  executableOnPath?: (executable: string) => boolean;
   /** Account usage refresh cadence; production defaults to 15 minutes. */
   limitsProbeMs?: number;
   attachLeaseTimeoutMs?: number;
@@ -317,6 +323,11 @@ export class Daemon {
   readonly blobs: BlobStore;
   readonly pushLog: { room: string; body: string; ts: string }[] = [];
   private readonly adapters = new Map<string, HarnessAdapter>();
+  // harn:assume built-in-adapters-require-daemon-path ref=daemon-adapter-availability
+  private readonly adapterAvailability = new Map<string, boolean>();
+  private readonly executableOnPath: (executable: string) => boolean;
+  private readonly discoverAdapterModels: boolean;
+  // harn:end built-in-adapters-require-daemon-path
   private readonly modelCatalogs = new Map<string, ModelCatalog>();
   private pendingDiscoveries = 0;
   private readonly sessions = new Map<string, Session>();
@@ -389,8 +400,13 @@ export class Daemon {
     this.ledger?.setChangeHandler(({ room, name, author }) => {
       if (this.store.getRoom(room)) this.postSystemMessage(room, `@${author} updated [[${name}]]`);
     });
-    for (const adapter of options.adapters) this.adapters.set(adapter.id, adapter);
-    if (options.discoverModels ?? true) this.discoverModels();
+    this.executableOnPath = options.executableOnPath ?? executableOnPath;
+    this.discoverAdapterModels = options.discoverModels ?? true;
+    for (const adapter of options.adapters) {
+      this.adapters.set(adapter.id, adapter);
+      this.adapterAvailability.set(adapter.id, this.detectAdapterAvailability(adapter));
+    }
+    if (this.discoverAdapterModels) this.discoverModels();
     this.attachLeaseTimeoutMs = options.attachLeaseTimeoutMs ?? 5_000;
     this.processProbe = options.processProbe ?? ((target) => {
       try {
@@ -740,6 +756,9 @@ export class Daemon {
         `starting agent handle @${opts.starting_agent.handle} is already in use by the channel owner`,
       );
     }
+    // harn:assume new-agent-requests-require-installed-harness ref=new-agent-availability-preflight
+    if (opts.starting_agent !== undefined) this.requireInstalledAdapter(opts.starting_agent.harness);
+    // harn:end new-agent-requests-require-installed-harness
     // harn:end starting-agent-name-derives-one-valid-identity-v6
     const baseId = opts.id ?? deriveRoomId(opts.name);
     let id = baseId;
@@ -905,21 +924,42 @@ export class Daemon {
    */
   private discoverModels(): void {
     for (const adapter of this.adapters.values()) {
-      if (!adapter.listModels) continue;
-      this.pendingDiscoveries += 1;
-      void adapter.listModels().finally(() => {
-        this.pendingDiscoveries -= 1;
-      }).then(
-        (catalog) => {
-          const models = catalog.models.filter((model) => MODEL_ID.test(model)).slice(0, MAX_MODELS);
-          if (models.length > 0) this.modelCatalogs.set(adapter.id, { ...catalog, models });
-        },
-        (error: unknown) => this.onBackgroundError(
-          error instanceof Error ? error : new Error(`${adapter.id} model discovery failed`),
-        ),
-      );
+      if (this.adapterAvailability.get(adapter.id) === true) this.discoverModelsFor(adapter);
     }
   }
+
+  private discoverModelsFor(adapter: HarnessAdapter): void {
+    if (!adapter.listModels) return;
+    this.pendingDiscoveries += 1;
+    void adapter.listModels().finally(() => {
+      this.pendingDiscoveries -= 1;
+    }).then(
+      (catalog) => {
+        const models = catalog.models.filter((model) => MODEL_ID.test(model)).slice(0, MAX_MODELS);
+        if (models.length > 0) this.modelCatalogs.set(adapter.id, { ...catalog, models });
+      },
+      (error: unknown) => this.onBackgroundError(
+        error instanceof Error ? error : new Error(`${adapter.id} model discovery failed`),
+      ),
+    );
+  }
+
+  private detectAdapterAvailability(adapter: HarnessAdapter): boolean {
+    const executable = (adapter as RegisteredHarnessAdapter).executable;
+    return executable === undefined || this.executableOnPath(executable);
+  }
+
+  // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-runtime
+  refreshAdapterAvailability(): ReturnType<Daemon['registeredAdapters']> {
+    for (const adapter of this.adapters.values()) {
+      const wasInstalled = this.adapterAvailability.get(adapter.id) === true;
+      const installed = this.detectAdapterAvailability(adapter);
+      this.adapterAvailability.set(adapter.id, installed);
+      if (this.discoverAdapterModels && installed && !wasInstalled) this.discoverModelsFor(adapter);
+    }
+    return this.registeredAdapters();
+  }
+  // harn:end adapter-refresh-is-authorized-and-incremental
 
   // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-signal
   /**
@@ -934,6 +974,7 @@ export class Daemon {
 
   registeredAdapters(): {
     id: string;
+    installed: boolean;
     capabilities: HarnessAdapter['capabilities'];
     models?: string[];
     models_source?: ModelCatalog['source'];
@@ -943,6 +984,7 @@ export class Daemon {
         const catalog = this.modelCatalogs.get(adapter.id);
         return {
           id: adapter.id,
+          installed: this.adapterAvailability.get(adapter.id) === true,
           capabilities: adapter.capabilities,
           ...(catalog && { models: catalog.models, models_source: catalog.source }),
         };
@@ -1141,7 +1183,7 @@ export class Daemon {
     },
   ): Member {
     const cwd = normalizeWorkingDirectory(opts.cwd, this.homeDir);
-    const adapter = this.requireAdapter(opts.harness);
+    const adapter = this.requireInstalledAdapter(opts.harness);
     const spawnOpts = {
       cwd,
       policy: opts.policy,
@@ -1814,6 +1856,14 @@ export class Daemon {
   private requireAdapter(id: string): HarnessAdapter {
     const adapter = this.adapters.get(id);
     if (!adapter) throw new Error(`no adapter registered for harness '${id}'`);
+    return adapter;
+  }
+
+  private requireInstalledAdapter(id: string): HarnessAdapter {
+    const adapter = this.requireAdapter(id);
+    if (this.adapterAvailability.get(id) !== true) {
+      throw new Error(`harness '${id}' is not installed on the daemon host`);
+    }
     return adapter;
   }
 

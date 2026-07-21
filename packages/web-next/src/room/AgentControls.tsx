@@ -10,7 +10,7 @@
  * or thinking levels is written down in this file; a source guard fails the build
  * if a literal list reappears.
  */
-import { Ban, Lock, PencilLine, Zap } from 'lucide-react';
+import { Ban, LoaderCircle, Lock, PencilLine, RefreshCw, Zap } from 'lucide-react';
 import { useState } from 'react';
 
 import { ThinkingSlider } from './ThinkingSlider.js';
@@ -70,17 +70,36 @@ export function AgentIdentityControls(props: {
   allowNone?: boolean;
   optional?: boolean;
   idPrefix?: string;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  refreshError?: string;
 }) {
   const id = props.idPrefix ?? 'agent';
   return (
     <>
       <div className="nx-field">
-        <span className="nx-label">
-          Harness {props.optional === true && <span className="nx-opt">· optional</span>}
-        </span>
-        {props.adapters.length === 0 && props.allowNone !== true ? (
-          <p className="nx-note" role="status">Discovering harnesses…</p>
-        ) : (
+        <div className="nx-harness-head">
+          <span className="nx-label">
+            Harness {props.optional === true && <span className="nx-opt">· optional</span>}
+          </span>
+          {props.onRefresh !== undefined && (
+            <button type="button" className="nx-harness-refresh"
+              disabled={props.refreshing === true}
+              data-testid={`${id}-refresh-adapters`}
+              onClick={props.onRefresh}>
+              {props.refreshing === true
+                ? <LoaderCircle size={14} className="nx-spin" aria-hidden="true" />
+                : <RefreshCw size={14} aria-hidden="true" />}
+              {props.refreshing === true ? 'Refreshing…' : 'Refresh'}
+            </button>
+          )}
+        </div>
+        {props.adapters.length === 0 && (
+          <p className="nx-note" role="status">No supported harnesses found</p>
+        )}
+        {props.refreshError !== undefined && (
+          <p className="nx-field-note is-error" role="alert">Refresh failed: {props.refreshError}</p>
+        )}
           <div className="nx-harness-grid" role="group" aria-label="Harness">
             {props.allowNone === true && (
               <button
@@ -116,7 +135,6 @@ export function AgentIdentityControls(props: {
               </button>
             ))}
           </div>
-        )}
       </div>
 
     </>

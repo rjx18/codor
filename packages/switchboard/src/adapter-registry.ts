@@ -1,4 +1,5 @@
-import { isAbsolute, resolve } from 'node:path';
+import { accessSync, constants } from 'node:fs';
+import { delimiter, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { AntigravityAdapter } from '@codor/adapter-antigravity';
@@ -30,18 +31,49 @@ export interface AdapterRegistryOptions {
 
 type AdapterFactory = () => HarnessAdapter;
 
-// harn:assume adapter-registry-sole-harness-source ref=configured-adapter-registry
-const builtinFactories = {
-  antigravity: () => new AntigravityAdapter(),
-  'claude-code': () => new ClaudeCodeAdapter(),
-  codex: () => new CodexAdapter(),
-  copilot: () => new CopilotAdapter(),
-  cursor: () => new CursorAdapter(),
-  gemini: () => new GeminiAdapter(),
-  opencode: () => new OpenCodeAdapter(),
-} satisfies Record<string, AdapterFactory>;
+export interface RegisteredHarnessAdapter extends HarnessAdapter {
+  /** Canonical daemon-host executable for built-ins. Configured modules omit it. */
+  executable?: string;
+}
 
-export const BUILTIN_ADAPTER_IDS = Object.freeze(Object.keys(builtinFactories));
+// harn:assume adapter-registry-sole-harness-source ref=configured-adapter-registry
+// harn:assume built-in-adapters-require-daemon-path ref=builtin-executable-registry
+const builtinDefinitions = {
+  antigravity: { executable: 'agy', create: () => new AntigravityAdapter() },
+  'claude-code': { executable: 'claude', create: () => new ClaudeCodeAdapter() },
+  codex: { executable: 'codex', create: () => new CodexAdapter() },
+  copilot: { executable: 'copilot', create: () => new CopilotAdapter() },
+  cursor: { executable: 'cursor-agent', create: () => new CursorAdapter() },
+  gemini: { executable: 'gemini', create: () => new GeminiAdapter() },
+  opencode: { executable: 'opencode', create: () => new OpenCodeAdapter() },
+} satisfies Record<string, { executable: string; create: AdapterFactory }>;
+
+export const BUILTIN_ADAPTER_EXECUTABLES = Object.freeze(
+  Object.fromEntries(Object.entries(builtinDefinitions).map(([id, definition]) => [id, definition.executable])),
+) as Readonly<Record<keyof typeof builtinDefinitions, string>>;
+
+export function executableOnPath(
+  executable: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const extensions = process.platform === 'win32'
+    ? (env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';')
+    : [''];
+  for (const directory of (env.PATH ?? '').split(delimiter).filter(Boolean)) {
+    for (const extension of extensions) {
+      try {
+        accessSync(resolve(directory, `${executable}${extension}`), constants.X_OK);
+        return true;
+      } catch {
+        // Presence checks continue through PATH; the executable is never invoked.
+      }
+    }
+  }
+  return false;
+}
+// harn:end built-in-adapters-require-daemon-path
+
+export const BUILTIN_ADAPTER_IDS = Object.freeze(Object.keys(builtinDefinitions));
 
 const requiredMethods = [
   'spawn',
@@ -122,10 +154,11 @@ export function validateSpawnOptions(adapter: HarnessAdapter, opts: SpawnOpts): 
 // harn:end harness-declares-supported-thinking-levels
 
 // harn:assume canonical-spawn-controls-enforced ref=registry-spawn-control-validation
-function withSpawnValidation(adapter: HarnessAdapter): HarnessAdapter {
+function withSpawnValidation(adapter: RegisteredHarnessAdapter): RegisteredHarnessAdapter {
   return {
     id: adapter.id,
     capabilities: adapter.capabilities,
+    ...(adapter.executable !== undefined && { executable: adapter.executable }),
     spawn: (opts) => {
       validateSpawnOptions(adapter, opts);
       return adapter.spawn(opts);
@@ -176,9 +209,12 @@ function validateAdapter(value: unknown, configuredId: string, specifier: string
 
 export async function loadAdapterRegistry(
   options: AdapterRegistryOptions = {},
-): Promise<HarnessAdapter[]> {
-  const registry = new Map<string, HarnessAdapter>(
-    Object.entries(builtinFactories).map(([id, factory]) => [id, withSpawnValidation(factory())]),
+): Promise<RegisteredHarnessAdapter[]> {
+  const registry = new Map<string, RegisteredHarnessAdapter>(
+    Object.entries(builtinDefinitions).map(([id, definition]) => [
+      id,
+      withSpawnValidation(Object.assign(definition.create(), { executable: definition.executable })),
+    ]),
   );
   const baseDir = resolve(options.baseDir ?? process.cwd());
 

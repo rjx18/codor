@@ -1,13 +1,39 @@
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import {
   BUILTIN_ADAPTER_IDS,
+  BUILTIN_ADAPTER_EXECUTABLES,
+  executableOnPath,
   loadAdapterRegistry,
   validateSpawnOptions,
 } from './adapter-registry.js';
 import { FakeAdapter } from './fake-adapter.js';
+
+// harn:assume built-in-adapters-require-daemon-path ref=builtin-executable-regression
+describe('built-in executable registry', () => {
+  it('keeps the approved canonical executable mapping beside built-in composition', () => {
+    expect(BUILTIN_ADAPTER_EXECUTABLES).toEqual({
+      antigravity: 'agy', 'claude-code': 'claude', codex: 'codex', copilot: 'copilot',
+      cursor: 'cursor-agent', gemini: 'gemini', opencode: 'opencode',
+    });
+  });
+
+  it('resolves executable presence without invoking the file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codor-path-'));
+    const executable = join(dir, 'codex');
+    const marker = join(dir, 'invoked');
+    writeFileSync(executable, `#!/bin/sh\ntouch ${marker}\n`);
+    chmodSync(executable, 0o755);
+    expect(executableOnPath('codex', { PATH: dir })).toBe(true);
+    expect(() => readFileSync(marker)).toThrow();
+    rmSync(dir, { recursive: true });
+  });
+});
+// harn:end built-in-adapters-require-daemon-path
 
 // harn:assume harness-declares-supported-thinking-levels ref=registry-thinking-level-regression
 describe('adapter registry spawn controls', () => {

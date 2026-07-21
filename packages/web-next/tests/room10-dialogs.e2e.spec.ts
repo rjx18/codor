@@ -283,6 +283,48 @@ test.describe('Tier-1: rendered reconciliation and validation', () => {
   });
 });
 
+// harn:assume agent-selection-catalog-is-refreshable ref=harness-refresh-browser-regression
+test.describe('Create Channel installed harness catalog', () => {
+  test('refresh resets a disappeared optional harness to None and preserves typed identity', async ({ page }) => {
+    let listing: { adapters: { id: string; installed?: boolean }[] } | undefined;
+    let empty = false;
+    const body = () => ({
+      ...listing,
+      adapters: listing!.adapters.map((adapter) => ({
+        ...adapter,
+        installed: !empty && adapter.id === 'thinky',
+      })),
+      discovering: false,
+    });
+    await page.route('**/api/adapters**', async (route) => {
+      if (route.request().method() === 'POST') {
+        empty = true;
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body()) });
+        return;
+      }
+      const response = await route.fetch();
+      listing = await response.json() as typeof listing;
+      await route.fulfill({ response, body: JSON.stringify(body()) });
+    });
+
+    await openRoom(page);
+    await page.getByTestId('create-room').click();
+    const dialog = page.getByTestId('create-channel-dialog');
+    await expect(dialog.getByTestId('create-harness-thinky')).toBeVisible();
+    await expect(dialog.getByTestId('create-harness-fake')).toHaveCount(0);
+    await dialog.getByTestId('create-harness-thinky').click();
+    await dialog.getByTestId('create-agent-name').fill('kept-name');
+    await dialog.getByTestId('create-name').fill('Kept Channel');
+    await dialog.getByTestId('create-refresh-adapters').click();
+
+    await expect(dialog.getByTestId('create-harness-none')).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByText('No supported harnesses found')).toBeVisible();
+    await expect(dialog.getByTestId('create-agent-name')).toHaveCount(0);
+    await expect(dialog.getByTestId('create-name')).toHaveValue('Kept Channel');
+  });
+});
+// harn:end agent-selection-catalog-is-refreshable
+
 test.describe('Tier-1: create channel keyboard and fallbacks', () => {
   test('Enter creates, and a blank agent name falls back to Agent', async ({ page }) => {
     await openRoom(page);
@@ -465,6 +507,7 @@ test.describe('all three dialogs share one control', () => {
     await expect(configure).toBeVisible();
     await expect(configure.getByTestId('configure-harness-fake')).toBeVisible();
     await expect(configure.getByTestId('configure-policy-read-only')).toBeVisible();
+    await expect(configure.getByTestId('configure-refresh-adapters')).toHaveCount(0);
     await configure.getByTestId('configure-close').click();
 
     await page.getByTestId('create-room').click();

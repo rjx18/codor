@@ -1,8 +1,8 @@
 import { deriveAssignableHandle, deriveRoomId } from '@codor/protocol';
 import { ArrowRight, FolderPlus, Sparkles } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { createRoom, fetchAdapters, type AdapterRegistration } from '@runtime/api.js';
+import { createRoom } from '@runtime/api.js';
 
 import { Button, Code } from '../primitives/primitives.js';
 import { AgentControls, AgentIdentityControls, Section } from '../room/AgentControls.js';
@@ -12,6 +12,7 @@ import {
   type AgentConfig,
   supportedThinking,
 } from '../room/agent-spec.js';
+import { useAdapterCatalog } from '../app/session.js';
 
 export function suggestedChannelName(path: string): string {
   const normalized = path.trim().replace(/[\\/]+$/, '');
@@ -19,33 +20,11 @@ export function suggestedChannelName(path: string): string {
   return name.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function useAvailableAdapters(token: string): AdapterRegistration[] {
-  const [adapters, setAdapters] = useState<AdapterRegistration[]>([]);
-  useEffect(() => {
-    let current = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let attemptsLeft = 10;
-    const load = (): void => {
-      void fetchAdapters({ token }).then((listing) => {
-        if (!current) return;
-        setAdapters(listing.adapters);
-        if (!listing.discovering || attemptsLeft <= 0) return;
-        attemptsLeft -= 1;
-        timer = setTimeout(load, 500);
-      }).catch(() => undefined);
-    };
-    load();
-    return () => {
-      current = false;
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, [token]);
-  return adapters;
-}
-
 /** A confirmed empty room list is an onboarding state, not a dead end. */
 export function NoChannels(props: { token: string }) {
-  const adapters = useAvailableAdapters(props.token);
+  const token = useCallback(() => props.token, [props.token]);
+  const adapterCatalog = useAdapterCatalog(token);
+  const adapters = adapterCatalog.installed;
   const [name, setName] = useState('');
   const [nameEdited, setNameEdited] = useState(false);
   const [cwd, setCwd] = useState('');
@@ -67,6 +46,12 @@ export function NoChannels(props: { token: string }) {
     [effectiveAgentName],
   );
   const hasAgent = agentConfig.harness !== '';
+  // harn:assume agent-selection-catalog-is-refreshable ref=first-channel-harness-refresh
+  useEffect(() => {
+    if (!hasAgent || adapters.some((adapter) => adapter.id === agentConfig.harness)) return;
+    setAgentConfig({ ...agentConfig, harness: '', model: '', thinking: '' });
+  }, [adapters, agentConfig, hasAgent]);
+  // harn:end agent-selection-catalog-is-refreshable
   const identityClash = hasAgent && ownerHandle !== undefined && agentHandle === ownerHandle;
   const canCreate = name.trim() !== '' && cwd.trim() !== '' && ownerHandle !== undefined && !busy
     && (!hasAgent || (agentHandle !== undefined && !identityClash));
@@ -171,6 +156,9 @@ export function NoChannels(props: { token: string }) {
               allowNone
               optional
               idPrefix="first"
+              onRefresh={adapterCatalog.refresh}
+              refreshing={adapterCatalog.refreshing}
+              refreshError={adapterCatalog.refreshError}
             />
             {hasAgent ? (
               <>

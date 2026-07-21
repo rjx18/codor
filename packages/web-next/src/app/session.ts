@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 
 import {
   fetchAdapters,
+  refreshAdapters,
   fetchMemberDetails,
   fetchRooms,
   type AdapterRegistration,
@@ -75,33 +76,66 @@ export function useConnected(): boolean {
 
 /** Adapter catalog with the adapter retry contract: discovery is asynchronous, so keep
  *  asking (bounded) until the catalog stops reporting `discovering`. */
-export function useAdapters(token: () => string): AdapterRegistration[] {
-  const connected = useConnected();
-  const [adapters, setAdapters] = useState<AdapterRegistration[]>([]);
-  useEffect(() => {
-    if (!connected) return;
-    let current = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let attemptsLeft = 10;
-    const load = (): void => {
-      void fetchAdapters({ token: token() })
-        .then((listing) => {
-          if (!current) return;
-          setAdapters(listing.adapters);
-          if (!listing.discovering || attemptsLeft <= 0) return;
-          attemptsLeft -= 1;
-          timer = setTimeout(load, 500);
-        })
-        .catch(() => undefined);
-    };
-    load();
-    return () => {
-      current = false;
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, [connected, token]);
-  return adapters;
+export interface AdapterCatalog {
+  registered: AdapterRegistration[];
+  installed: AdapterRegistration[];
+  refreshing: boolean;
+  refreshError?: string;
+  refresh: () => void;
 }
+
+// harn:assume agent-selection-catalog-is-refreshable ref=refreshable-adapter-catalog
+export function useAdapterCatalog(token: () => string): AdapterCatalog {
+  const [adapters, setAdapters] = useState<AdapterRegistration[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string>();
+  const active = useRef(true);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const attemptsLeft = useRef(10);
+
+  const poll = useCallback((listing: { adapters: AdapterRegistration[]; discovering: boolean }): void => {
+    if (!active.current) return;
+    setAdapters(listing.adapters);
+    if (!listing.discovering || attemptsLeft.current <= 0) return;
+    attemptsLeft.current -= 1;
+    if (timer.current !== undefined) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      void fetchAdapters({ token: token() }).then(poll).catch(() => undefined);
+    }, 500);
+  }, [token]);
+
+  useEffect(() => {
+    active.current = true;
+    attemptsLeft.current = 10;
+    void fetchAdapters({ token: token() }).then(poll).catch(() => undefined);
+    return () => {
+      active.current = false;
+      if (timer.current !== undefined) clearTimeout(timer.current);
+    };
+  }, [poll, token]);
+
+  const refresh = useCallback((): void => {
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshError(undefined);
+    attemptsLeft.current = 10;
+    void refreshAdapters({ token: token() }).then(
+      (listing) => poll(listing),
+      (error: unknown) => {
+        if (active.current) setRefreshError(error instanceof Error ? error.message : String(error));
+      },
+    ).finally(() => { if (active.current) setRefreshing(false); });
+  }, [poll, refreshing, token]);
+
+  return {
+    registered: adapters,
+    installed: adapters.filter((adapter) => adapter.installed !== false),
+    refreshing,
+    ...(refreshError !== undefined && { refreshError }),
+    refresh,
+  };
+}
+// harn:end agent-selection-catalog-is-refreshable
 
 export function useRooms(token: () => string): Room[] {
   const connected = useConnected();

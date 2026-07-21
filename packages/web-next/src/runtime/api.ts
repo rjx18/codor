@@ -16,6 +16,8 @@ export interface ApiOptions {
 
 export interface AdapterRegistration {
   id: string;
+  /** Daemon-host installation state. Omitted only by older compatible servers. */
+  installed?: boolean;
   capabilities: AdapterCapabilities;
   /** Models the harness itself reported. The web never hardcodes a model id. */
   models?: string[];
@@ -146,6 +148,12 @@ export async function fetchAdapters(options: ApiOptions): Promise<AdapterListing
   }>('/api/adapters', options);
   return { adapters: body.adapters, discovering: body.discovering === true };
 }
+
+// harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-client
+export async function refreshAdapters(options: ApiOptions): Promise<AdapterListing> {
+  return sendJson<AdapterListing>('/api/adapters/refresh', 'POST', undefined, options);
+}
+// harn:end adapter-refresh-is-authorized-and-incremental
 // harn:end model-catalogs-reach-a-browser-that-arrives-early
 
 export async function fetchRooms(options: ApiOptions): Promise<Room[]> {

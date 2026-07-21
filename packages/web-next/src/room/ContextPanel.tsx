@@ -17,6 +17,7 @@ import {
   HANDLE_PATTERN,
   defaultSpawnCwd,
   effectiveHarness,
+  reconcileConfig,
   resolveSpawn,
   supportedThinking,
 } from './agent-spec.js';
@@ -26,7 +27,7 @@ import type { Connection } from '@runtime/ws.js';
 import { roomSlice, sortedMessages, useClientStore } from '../app/store.js';
 import { clockTime, compactCount, memberAccent } from '../primitives/identity.js';
 import { Button, Chip, Eyebrow, IconButton, Modal, Segmented, StatusPill } from '../primitives/primitives.js';
-import { useAdapters, useMemberDetails } from '../app/session.js';
+import { useAdapterCatalog, useMemberDetails } from '../app/session.js';
 import { ContextWindowMeter } from './ContextWindowMeter.js';
 import { cachedGitWorkingState, fetchGitWorkingState, rememberGitWorkingState, shortenCwd, statusLetter, type GitWorkingState } from './git-diff.js';
 import { costProvenanceLabel } from './spend-label.js';
@@ -83,7 +84,7 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
   const members = useClientStore((state) => roomSlice(state, props.room).members);
   const selfId = useClientStore((state) => roomSlice(state, props.room).selfMemberId);
   const details = useMemberDetails(props.room, props.token);
-  const adapters = useAdapters(props.token);
+  const adapterCatalog = useAdapterCatalog(props.token);
   const [spawning, setSpawning] = useState(false);
   // A spawn is only done when the member actually appears. Watching for it — and
   // for a room error naming it — is what keeps a failure visible instead of
@@ -164,7 +165,7 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
             key={member.id}
             member={member}
             detail={details[member.id]}
-            adapters={adapters}
+            adapters={adapterCatalog.registered}
             canStop={canStop}
             canManage={canManage}
             connection={props.connection}
@@ -174,7 +175,10 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
       </ul>
       {spawning && (
         <SpawnDialog
-          adapters={adapters}
+          adapters={adapterCatalog.installed}
+          onRefresh={adapterCatalog.refresh}
+          refreshing={adapterCatalog.refreshing}
+          refreshError={adapterCatalog.refreshError}
           token={props.token}
           roomId={props.room}
           room={room}
@@ -576,6 +580,9 @@ function ConfigureDialog(props: {
 
 function SpawnDialog(props: {
   adapters: AdapterRegistration[];
+  onRefresh: () => void;
+  refreshing: boolean;
+  refreshError?: string;
   token: () => string;
   roomId: string;
   room: Room | undefined;
@@ -607,6 +614,12 @@ function SpawnDialog(props: {
   // Adapter discovery is asynchronous; a selection made before the list arrives
   // heals rather than sticking at a dead value.
   const harness = effectiveHarness(config.harness, props.adapters);
+  // harn:assume agent-selection-catalog-is-refreshable ref=spawn-harness-refresh
+  useEffect(() => {
+    if (config.harness === harness) return;
+    setConfig(reconcileConfig(config, harness, props.adapters));
+  }, [config, harness, props.adapters]);
+  // harn:end agent-selection-catalog-is-refreshable
   const owner = channelOwner(props.members);
   const derived = handle.trim();
   const ownerClash = collidesWithOwner(derived, owner);
@@ -650,6 +663,9 @@ function SpawnDialog(props: {
           config={{ ...config, harness }}
           onChange={setConfig}
           idPrefix="spawn"
+          onRefresh={props.onRefresh}
+          refreshing={props.refreshing}
+          refreshError={props.refreshError}
         />
         <label className="nx-field">
           <span className="nx-label">Handle</span>

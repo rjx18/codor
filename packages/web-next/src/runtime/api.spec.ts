@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createRoom, fetchAdapters } from './api.js';
+import { createRoom, fetchAdapters, refreshAdapters } from './api.js';
 
 // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-regression
 describe('adapter listing', () => {
@@ -37,6 +37,19 @@ describe('adapter listing', () => {
     vi.stubGlobal('fetch', () => Promise.resolve(respond({ adapters: [] })));
 
     expect((await fetchAdapters({ token: 't' })).discovering).toBe(false);
+  });
+
+  it('posts an authenticated daemon refresh and preserves installed state', async () => {
+    const fetch = vi.fn(() => Promise.resolve(respond({
+      adapters: [{ id: 'codex', installed: false, capabilities: { thinking: true } }],
+      discovering: false,
+    })));
+    vi.stubGlobal('fetch', fetch);
+    const listing = await refreshAdapters({ token: 'secret' });
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/adapters/refresh'), expect.objectContaining({
+      method: 'POST', headers: expect.objectContaining({ authorization: 'Bearer secret' }),
+    }));
+    expect(listing.adapters[0]!.installed).toBe(false);
   });
 });
 

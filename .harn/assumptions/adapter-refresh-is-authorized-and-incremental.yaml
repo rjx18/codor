@@ -1,0 +1,13 @@
+id: adapter-refresh-is-authorized-and-incremental
+hash: a-231999056d72
+title: Harness refresh rescans safely and discovers only newly available models
+state: active
+statement: An authenticated global manage_agents operation may rescan canonical
+  executable presence without restarting the daemon or mutating PATH, and model
+  discovery starts only for adapters that transition from unavailable to
+  available.
+depends_on:
+  - built-in-adapters-require-daemon-path
+  - model-catalogs-reach-a-browser-that-arrives-early
+  - roles-gate-human-acts-not-agents
+created_by: codor-agent-onboarding-phase3

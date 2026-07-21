@@ -612,6 +612,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // harn:end model-catalogs-reach-a-browser-that-arrives-early
   });
 
+  // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-rest
+  app.post('/api/adapters/refresh', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_agents', reply)) return;
+    void reply.send({
+      adapters: daemon.refreshAdapterAvailability(),
+      discovering: daemon.modelDiscoveryPending(),
+    });
+  });
+  // harn:end adapter-refresh-is-authorized-and-incremental
+
   // harn:assume local-directory-listing-home-contained ref=local-dirs-rest-boundary
   app.get('/api/local/dirs', (req, reply) => {
     const principal = authed(req, reply);

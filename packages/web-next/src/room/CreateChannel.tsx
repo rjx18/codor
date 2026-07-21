@@ -17,7 +17,7 @@ import {
   supportedThinking,
 } from './agent-spec.js';
 import { Button, Code, Modal } from '../primitives/primitives.js';
-import { useAdapters } from '../app/session.js';
+import { useAdapterCatalog } from '../app/session.js';
 import { me, roomSlice, useClientStore } from '../app/store.js';
 
 export function CreateChannelDialog(props: {
@@ -28,7 +28,8 @@ export function CreateChannelDialog(props: {
   const activeRoom = useClientStore((state) => state.activeRoom);
   const members = useClientStore((state) => roomSlice(state, activeRoom).members);
   const selfId = useClientStore((state) => roomSlice(state, activeRoom).selfMemberId);
-  const adapters = useAdapters(props.token);
+  const adapterCatalog = useAdapterCatalog(props.token);
+  const adapters = adapterCatalog.installed;
   const [name, setName] = useState('');
   const [cwd, setCwd] = useState('');
   const [agentConfig, setAgentConfig] = useState<AgentConfig>({
@@ -61,6 +62,13 @@ export function CreateChannelDialog(props: {
     }
     setAgentConfig(next);
   };
+  // harn:assume agent-selection-catalog-is-refreshable ref=create-harness-refresh
+  useEffect(() => {
+    if (agentConfig.harness === '' || adapters.some((adapter) => adapter.id === agentConfig.harness)) return;
+    hiddenAgentConfig.current = agentConfig;
+    setAgentConfig({ ...agentConfig, harness: '', model: '', thinking: '' });
+  }, [adapters, agentConfig]);
+  // harn:end agent-selection-catalog-is-refreshable
   const effectiveAgentName = agentName.trim() === '' ? 'Agent' : agentName.trim();
   const derivedHandle = useMemo(
     () => deriveAssignableHandle(effectiveAgentName),
@@ -159,6 +167,9 @@ export function CreateChannelDialog(props: {
             allowNone
             optional
             idPrefix="create"
+            onRefresh={adapterCatalog.refresh}
+            refreshing={adapterCatalog.refreshing}
+            refreshError={adapterCatalog.refreshError}
           />
           {agentHarness === '' && (
             <p className="nx-field-note" data-testid="create-agent-none-note">

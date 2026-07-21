@@ -39,6 +39,27 @@ async function storedRoomKey(page: Page, room: string): Promise<unknown> {
 }
 
 test.describe('first-channel onboarding', () => {
+  // harn:assume agent-selection-catalog-is-refreshable ref=harness-refresh-browser-regression
+  test('shows the shared Refresh action and honest empty installed-harness state', async ({ page }) => {
+    await page.route('**/api/adapters**', async (route) => {
+      const response = await route.fetch();
+      const listing = await response.json() as { adapters: { id: string }[] };
+      await route.fulfill({ response, body: JSON.stringify({
+        ...listing,
+        adapters: listing.adapters.map((adapter) => ({ ...adapter, installed: false })),
+        discovering: false,
+      }) });
+    });
+    await showEmptyStateOnce(page);
+    await page.goto(`/?token=${OWNER_TOKEN}`);
+    const onboarding = page.getByTestId('first-channel-onboarding');
+    await expect(onboarding.getByTestId('first-refresh-adapters')).toBeVisible();
+    await expect(onboarding.getByText('No supported harnesses found')).toBeVisible();
+    await expect(onboarding.getByTestId('first-harness-none')).toHaveAttribute('aria-pressed', 'true');
+    await expect(onboarding.locator('[data-testid^="first-harness-"]:not([data-testid="first-harness-none"])')).toHaveCount(0);
+  });
+  // harn:end agent-selection-catalog-is-refreshable
+
   test('a paired browser creates its first channel, keeps its chosen name, and stores the new key', async ({ page }) => {
     await showEmptyStateOnce(page);
     await page.goto(await mintPairingUrl());

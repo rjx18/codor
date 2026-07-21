@@ -1,11 +1,12 @@
 id: codor-agent-onboarding-phase3
 title: Detect, refresh, and enforce installed harness availability
-notes: Keep every adapter registration available to daemon internals while deriving
-  built-in installation from canonical executables on the daemon PATH. Treat a
-  successfully loaded configured adapter as installed, expose availability to
-  clients, reject unavailable harnesses before new agent creation, and add one
-  authorized incremental refresh path shared by the three unlocked selection
-  surfaces. Detection resolves presence only and never invokes provider CLIs.
+notes: Keep every adapter registration available to daemon internals while
+  deriving built-in installation from canonical executables on the daemon PATH.
+  Treat a successfully loaded configured adapter as installed, expose
+  availability to clients, reject unavailable harnesses before new agent
+  creation, and add one authorized incremental refresh path shared by the three
+  unlocked selection surfaces. Detection resolves presence only and never
+  invokes provider CLIs.
 assumptions:
   create:
     - id: built-in-adapters-require-daemon-path
@@ -13,8 +14,9 @@ assumptions:
       statement: A built-in adapter is available for new agents only when its
         registry-owned canonical executable resolves on the daemon host PATH,
         while a successfully loaded configured adapter is available by virtue of
-        module loading; full registered metadata remains available internally and
-        the public catalog reports installation state without executing a harness.
+        module loading; full registered metadata remains available internally
+        and the public catalog reports installation state without executing a
+        harness.
       reason: Browser-side guesses and provider version commands cannot reliably or
         safely describe what the long-running daemon can spawn.
       depends_on:
@@ -24,8 +26,8 @@ assumptions:
       title: Harness refresh rescans safely and discovers only newly available models
       statement: An authenticated global manage_agents operation may rescan canonical
         executable presence without restarting the daemon or mutating PATH, and
-        model discovery starts only for adapters that transition from unavailable
-        to available.
+        model discovery starts only for adapters that transition from
+        unavailable to available.
       reason: Operators need to recognize newly installed harnesses without paying
         repeated provider-discovery costs or changing daemon process state.
       depends_on:
@@ -35,9 +37,9 @@ assumptions:
     - id: new-agent-requests-require-installed-harness
       title: Stale clients cannot create agents with unavailable harnesses
       statement: New member spawn requests and room creation requests with a starting
-        agent must reject an unavailable adapter before spawning or persisting the
-        room, while failures after a valid installed-harness preflight retain the
-        established room-creation behavior.
+        agent must reject an unavailable adapter before spawning or persisting
+        the room, while failures after a valid installed-harness preflight
+        retain the established room-creation behavior.
       reason: Catalog filtering is advisory unless daemon-side creation contracts
         enforce the same host availability state.
       depends_on:
@@ -47,10 +49,11 @@ assumptions:
     - id: agent-selection-catalog-is-refreshable
       title: Unlocked agent selectors share one refreshable installed catalog
       statement: Create Channel, first-channel onboarding, and Add Agent select only
-        installed adapters from one shared refreshable catalog, expose accessible
-        busy, failure, and empty states, and reconcile a disappeared selection
-        without clearing unrelated typed fields; Configure Agent keeps the full
-        registered metadata and no refresh action because its harness is locked.
+        installed adapters from one shared refreshable catalog, expose
+        accessible busy, failure, and empty states, and reconcile a disappeared
+        selection without clearing unrelated typed fields; Configure Agent keeps
+        the full registered metadata and no refresh action because its harness
+        is locked.
       reason: Every place that can choose a new harness must present the same honest
         daemon-owned state and recover safely when refresh changes it.
       depends_on:
@@ -88,8 +91,8 @@ assumptions:
     - id: channel-starting-agent-handle-persisted
       outcome: unchanged
       reason: A starting identity is still retained when an installed adapter reaches
-        spawn and then fails; only unavailable or unregistered harnesses now fail
-        request preflight before a room exists.
+        spawn and then fails; only unavailable or unregistered harnesses now
+        fail request preflight before a room exists.
     - id: human-room-read-cursors-are-durable-and-monotonic
       outcome: unchanged
       reason: Availability fields share the daemon and server implementation files but
@@ -214,7 +217,8 @@ anchors:
   channel-creation-derived-and-seeded:
     derived-channel-creation:
       action: change
-      reason: Validate starting-agent availability before entering the room transaction.
+      reason: Validate starting-agent availability before entering the room
+        transaction.
   working-directories-validated-before-spawn:
     daemon-cwd-enforcement:
       action: change
@@ -238,7 +242,10 @@ files:
   - packages/web-next/tests/room3-context.e2e.spec.ts
   - packages/web-next/tests/room10-dialogs.e2e.spec.ts
   - packages/web-next/tests/room29-onboarding.e2e.spec.ts
-verification: Run focused adapter-registry, daemon availability/discovery, server
-  authorization/stale request, configured-adapter, client runtime, and harness
-  selection browser tests; run switchboard and web-next typecheck/build plus Harn
-  gates, then apply and commit Phase 3 as one implementation transaction.
+verification: Run focused adapter-registry, daemon availability/discovery,
+  server authorization/stale request, configured-adapter, client runtime, and
+  harness selection browser tests; run switchboard and web-next typecheck/build
+  plus Harn gates, then apply and commit Phase 3 as one implementation
+  transaction.
+applied:
+  applied_at: 2026-07-21T19:07:56.775Z
