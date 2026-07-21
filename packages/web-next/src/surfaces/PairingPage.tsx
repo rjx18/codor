@@ -9,6 +9,7 @@ import {
 } from '@runtime/crypto.js';
 
 import { Button, Code } from '../primitives/primitives.js';
+import { PairingCodeInput } from './PairingCodeInput.js';
 
 type PairingState = 'checking' | 'ready' | 'pairing' | 'paired' | 'failed';
 
@@ -24,7 +25,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string }) {
   );
   const [failure, setFailure] = useState<string>();
   const [pairingLink, setPairingLink] = useState('');
-  const [pairingCode, setPairingCode] = useState('');
+  const initialCode = currentUrl.searchParams.get('code') ?? '';
 
   useEffect(() => {
     if (!hasOffer) return;
@@ -129,18 +130,15 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string }) {
           <section className="nx-settings-card" data-testid="manual-pairing">
             <h2>Enter a pairing code</h2>
             <p className="nx-settings-sub">Mint one from Settings → Devices on a paired device.</p>
-            <form
-              data-testid="pairing-code-form"
-              className="nx-pair-form"
-              onSubmit={(event) => {
-                event.preventDefault();
+            <PairingCodeInput
+              initialCode={initialCode}
+              busy={state === 'pairing'}
+              error={failure}
+              submitLabel="Continue"
+              onSubmit={(pairingCode) => {
                 setFailure(undefined);
-                if (pairingCode.trim().length !== 8) {
-                  setFailure('Enter the complete 8-character pairing code.');
-                  return;
-                }
                 setState('pairing');
-                void exchangeBrowserPairingCode(pairingCode.trim()).then(
+                void exchangeBrowserPairingCode(pairingCode).then(
                   (url) => window.location.assign(url.toString()),
                   () => {
                     setState('failed');
@@ -148,23 +146,7 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string }) {
                   },
                 );
               }}
-            >
-              <input
-                className="nx-pair-code-input"
-                value={pairingCode}
-                maxLength={8}
-                autoComplete="off"
-                autoCapitalize="characters"
-                aria-label="Pairing code"
-                placeholder="8-char code"
-                data-testid="pairing-code-input"
-                disabled={state === 'pairing'}
-                onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
-              />
-              <Button type="submit" variant="primary" data-testid="pairing-code-submit" disabled={state === 'pairing'}>
-                {state === 'pairing' ? 'Checking…' : 'Continue'}
-              </Button>
-            </form>
+            />
             <p className="nx-field-note">or paste a pairing link</p>
             <form
               className="nx-pair-form"
@@ -188,7 +170,6 @@ export function PairingPage(props: { autoPair?: boolean; returnTo?: string }) {
               />
               <Button type="submit" variant="secondary" data-testid="pairing-link-submit">Open link</Button>
             </form>
-            {failure !== undefined && <p role="alert" className="nx-field-note is-error">{failure}</p>}
           </section>
         )}
         <p className="nx-settings-note">

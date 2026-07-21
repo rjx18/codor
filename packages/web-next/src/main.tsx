@@ -17,6 +17,7 @@ import './styles/tokens.css';
 import './styles/base.css';
 import './styles/primitives.css';
 import './styles/room.css';
+import './styles/landing.css';
 
 applyThemeChoice();
 
@@ -58,6 +59,10 @@ async function render(): Promise<void> {
       return <PairingPage />;
     }
     if (token === '') {
+      if (path === '/') {
+        const { LandingPage } = await import('./surfaces/LandingPage.js');
+        return <LandingPage />;
+      }
       const { PairingPage } = await import('./surfaces/PairingPage.js');
       return <PairingPage autoPair returnTo={returnTo} />;
     }

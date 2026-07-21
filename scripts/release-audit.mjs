@@ -89,4 +89,20 @@ for (const path of existingTracked.filter((candidate) =>
 }
 // harn:end release-audits-enforce-codor-clean-break
 
+const landingSource = await readFile(new URL('../packages/web-next/src/surfaces/LandingPage.tsx', import.meta.url), 'utf8');
+
+// harn:assume unpaired-root-offers-two-step-local-setup ref=landing-setup-truth-audit
+assert.equal((landingSource.match(/className="nx-setup-step"/g) ?? []).length, 2, 'landing setup must have exactly two steps');
+assert.match(landingSource, /npx @richhardry\/codor setup/);
+assert.match(landingSource, /localhost/);
+assert.match(landingSource, /Tailscale/);
+assert.doesNotMatch(landingSource, /relay|cloudflare|hosted[ -]cloud/i);
+// harn:end unpaired-root-offers-two-step-local-setup
+
+// harn:assume landing-demo-plays-once-and-settles ref=landing-motion-release-audit
+assert.match(landingSource, /prefers-reduced-motion: reduce/);
+assert.match(landingSource, /Pause demo/);
+assert.match(landingSource, /phase >= FINAL_PHASE/);
+// harn:end landing-demo-plays-once-and-settles
+
 process.stdout.write('release audit passed: pre-tag gates, rename, relay disclosure, and acceptance provenance\n');

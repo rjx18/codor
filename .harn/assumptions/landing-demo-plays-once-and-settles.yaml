@@ -1,0 +1,13 @@
+id: landing-demo-plays-once-and-settles
+hash: a-b5741fe9b03f
+title: The landing collaboration demo plays once, can pause, and settles
+state: active
+statement: The landing demo must present the approved two-lap changing
+  conversation at most once per page load, expose a pause/resume control while
+  moving, settle permanently on the clean final state, and show that final state
+  without animation when reduced motion is requested; because a repeating
+  decorative loop distracts from setup and a long information-bearing animation
+  without a stop mechanism creates an avoidable accessibility failure.
+depends_on:
+  - web-motion-is-purposeful-and-reduced-motion-safe-v5
+created_by: codor-local-landing

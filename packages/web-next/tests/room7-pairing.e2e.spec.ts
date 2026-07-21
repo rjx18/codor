@@ -8,7 +8,9 @@ test.describe('unpaired gate', () => {
     const manual = page.getByTestId('manual-pairing');
     await expect(manual).toBeVisible();
 
-    await manual.getByTestId('pairing-code-input').fill('ABC');
+    await manual.getByTestId('pairing-code-0').fill('A');
+    await manual.getByTestId('pairing-code-1').fill('B');
+    await manual.getByTestId('pairing-code-2').fill('C');
     await manual.getByTestId('pairing-code-submit').click();
     await expect(page.getByRole('alert')).toContainText('complete 8-character');
 
