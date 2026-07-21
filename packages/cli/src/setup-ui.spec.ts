@@ -11,6 +11,7 @@ import {
   type SetupFrameState,
   type SetupStage,
 } from './setup-ui.js';
+import { renderTerminalQr } from './terminal-qr.js';
 
 const ansi = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 const plain = (value: string): string => value.replace(ansi, '');
@@ -308,6 +309,40 @@ describe('pairing result card', () => {
     expect(frame).not.toContain('█'); // a 45-wide QR does not fit 40 columns
     expect(frame).toContain('ABCD-2345');
     expect(compact(frame)).toContain(LONG_URL);
+  });
+
+  // The card as it actually appears inside the wizard frame (the #570 bug: the
+  // multiline card was truncated to one line's width).
+  const inFrameCard = { ...card, url: LONG_URL, qr: renderTerminalQr(LONG_URL), instruction: 'Scan the QR or enter the code in your browser.' };
+  const inFrame = (columns: number, rows: number): string => {
+    const rendered = renderPairingCard(inFrameCard, columns, rows - 8);
+    const steps = createSetupStages().map((step) => ({ ...step, state: 'done' as const }));
+    return renderSetupFrame(state({
+      steps, cursor: 4, card: rendered, controls: controls({ back: true, finish: true }),
+      progress: { current: 5, total: 5 }, context: ['macOS with Node 25.5.0'],
+      viewport: { rows, columns },
+    }));
+  };
+
+  it.each([{ columns: 80, rows: 24 }, { columns: 40, rows: 24 }])(
+    'shows the code, complete URL, expiry, instruction, and Finish in-frame at $columns x $rows',
+    ({ columns, rows }) => {
+      const frame = plain(inFrame(columns, rows));
+      expect(frame.split('\n').every((line) => [...line].length <= columns)).toBe(true);
+      expect(frame).toContain('ABCD-2345'); // code
+      expect(frame).toContain('in 10 minutes'); // expiry
+      expect(compact(frame)).toContain(LONG_URL); // complete URL, not truncated
+      expect(compact(frame)).toContain(compact('Scan the QR or enter the code in your browser.')); // instruction, possibly wrapped
+      expect(frame).toContain('Enter Finish'); // reserved
+      expect(frame).not.toContain('█'); // the tall QR is omitted at 24 rows
+    },
+  );
+
+  it('shows the QR in-frame when the terminal has the rows for it', () => {
+    const raw = inFrame(80, 60);
+    expect(raw).toContain('█'); // the QR fits a tall terminal
+    expect(plain(raw)).toContain('ABCD-2345');
+    expect(plain(raw)).toContain('Enter Finish');
   });
 });
 // harn:end setup-verifies-codor-before-creating-pairing-code

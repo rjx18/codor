@@ -216,37 +216,39 @@ function summaryLines(summary: SetupSummary | undefined): string[] {
 // harn:assume setup-renders-single-active-step-installer ref=setup-frame-renderer
 export function renderSetupFrame(state: SetupFrameState): string {
   const budget = Math.max(1, state.viewport.rows - 1);
+  const emit = (lines: string[]): string =>
+    `${SETUP_CLEAR_SCREEN}${lines.slice(0, budget).map((line) => truncateAnsi(line, state.viewport.columns)).join('\n')}\n`;
 
-  // A compact header: version/byline, a muted "Step N of M" label, and the
-  // carried read-only Check results as muted context. No word art.
-  const header: string[] = [style.dim(`v${state.version} - ${state.byline}`)];
+  // A compact header: version/byline and a muted "Step N of M" label. No word art.
+  const top: string[] = [style.dim(`v${state.version} - ${state.byline}`)];
   if (state.progress !== undefined) {
-    header.push(style.dim(`Step ${String(state.progress.current)} of ${String(state.progress.total)}`));
+    top.push(style.dim(`Step ${String(state.progress.current)} of ${String(state.progress.total)}`));
   }
-  if ((state.context ?? []).length > 0) {
-    header.push('', ...state.context!.map((line) => `  ${style.dim(line)}`));
-  }
-  header.push('');
-
-  // Only the active step renders. When it supplies a result block (the pairing
-  // card) its question is replaced in-frame by that block.
+  const contextLines = (state.context ?? []).length > 0
+    ? ['', ...state.context!.map((line) => `  ${style.dim(line)}`)]
+    : [];
   const active = state.steps[state.cursor];
-  let stepLines: string[] = [];
+
+  // When the active step supplies a result block (the pairing card), its question
+  // is replaced in-frame by that block, split into real lines so each is
+  // truncated independently. The Finish control is always reserved; the Check
+  // context is dropped before any card content.
   if (active !== undefined && state.card !== undefined) {
-    stepLines = [
-      `${style.cyan(`(${String(state.cursor + 1)})`)} ${style.bold(active.title)}`,
-      ...(active.description !== undefined ? [`    ${style.dim(active.description)}`] : []),
-      state.card,
-      ...controlHints(state.controls),
-    ];
-  } else if (active !== undefined) {
-    stepLines = activeBlock(state.cursor, active, state, Math.max(1, budget - header.length));
+    // Only the title — the card carries its own instruction, so the step
+    // description is dropped to reserve rows for the code, URL, and expiry.
+    const heading = [`${style.cyan(`(${String(state.cursor + 1)})`)} ${style.bold(active.title)}`];
+    const controls = controlHints(state.controls);
+    const cardLines = state.card.split('\n');
+    const overhead = top.length + 1 + heading.length + controls.length; // + a blank before the heading
+    const shownCard = cardLines.slice(0, Math.max(0, budget - overhead));
+    const leftover = budget - overhead - shownCard.length;
+    const context = leftover > 1 ? contextLines.slice(0, leftover) : [];
+    return emit([...top, ...context, '', ...heading, ...shownCard, ...controls]);
   }
 
-  const lines = [...header, ...stepLines, ...summaryLines(state.summary)]
-    .slice(0, budget)
-    .map((line) => truncateAnsi(line, state.viewport.columns));
-  return `${SETUP_CLEAR_SCREEN}${lines.join('\n')}\n`;
+  const header = [...top, ...contextLines, ''];
+  const stepLines = active === undefined ? [] : activeBlock(state.cursor, active, state, Math.max(1, budget - header.length));
+  return emit([...header, ...stepLines, ...summaryLines(state.summary)]);
 }
 // harn:end setup-renders-single-active-step-installer
 
@@ -288,17 +290,20 @@ function wrapText(text: string, width: number): string[] {
 }
 
 // harn:assume setup-verifies-codor-before-creating-pairing-code ref=setup-pairing-card
-/** The final pairing result: a width-aware bordered card. The URL and
- *  instruction wrap inside the border, every rendered line stays within the
- *  terminal width, and the QR is shown with padding only when it fits — when the
- *  terminal is too narrow it is omitted while the code and wrapped URL remain.
- *  Built only from the offer, so the raw authority token can never be shown. */
-export function renderPairingCard(card: PairingCardData, columns = 80): string {
+/** The final pairing result: a width- and height-aware bordered card. The URL
+ *  and instruction wrap inside the border, every rendered line stays within the
+ *  terminal width, and the QR is shown with padding only when it fits the width
+ *  AND the available rows — otherwise it is omitted while the code, wrapped URL,
+ *  expiry, and instruction remain. Built only from the offer, so the raw
+ *  authority token can never be shown. */
+export function renderPairingCard(card: PairingCardData, columns = 80, maxRows = Number.POSITIVE_INFINITY): string {
   const margin = '    ';
   const box = Math.max(16, columns - margin.length); // outer box width
   const inner = box - 4; // content width inside "│ … │"
   const label = (name: string): string => `${name}${' '.repeat(Math.max(1, 9 - name.length))}`;
 
+  // A compact bordered card: code, wrapped URL, and expiry, no inner padding so a
+  // long URL still fits a short terminal. The instruction sits below the border.
   const content: Array<{ plain: string; rendered: string }> = [];
   content.push({ plain: `${label('Code')}${card.code}`, rendered: `${style.gray(label('Code'))}${style.cyan(style.bold(card.code))}` });
   wrapText(card.url, Math.max(1, inner - 9)).forEach((chunk, index) => {
@@ -306,29 +311,24 @@ export function renderPairingCard(card: PairingCardData, columns = 80): string {
     content.push({ plain: `${prefix}${chunk}`, rendered: `${style.gray(prefix)}${style.cyan(chunk)}` });
   });
   content.push({ plain: `${label('Expires')}${card.expires}`, rendered: `${style.gray(label('Expires'))}${style.yellow(card.expires)}` });
-  content.push({ plain: '', rendered: '' });
-  for (const chunk of wrapText(card.instruction, inner)) content.push({ plain: chunk, rendered: style.dim(chunk) });
 
   const border = (left: string, right: string): string => style.dim(`${left}${'─'.repeat(inner + 2)}${right}`);
-  const blank = `${style.dim('│')} ${' '.repeat(inner)} ${style.dim('│')}`;
   const line = (entry: { plain: string; rendered: string }): string =>
     `${style.dim('│')} ${entry.rendered}${' '.repeat(Math.max(0, inner - [...entry.plain].length))} ${style.dim('│')}`;
-  const boxLines = [border('╭', '╮'), blank, ...content.map(line), blank, border('╰', '╯')];
+  const boxLines = [border('╭', '╮'), ...content.map(line), border('╰', '╯')];
+  const instructionLines = wrapText(card.instruction, box).map((chunk) => `${margin}${style.dim(chunk)}`);
 
-  // The QR is shown only when it fits within the terminal width; otherwise it is
-  // omitted and the code plus wrapped URL still carry the pairing.
+  // The body (code, URL, expiry, instruction) is always kept.
+  const body = [...boxLines.map((boxLine) => `${margin}${boxLine}`), ...instructionLines];
+
+  // The QR is shown below the body only when it fits the terminal width AND the
+  // available rows; otherwise it is omitted and the body still carries the pairing.
   const qrLines = card.qr.split('\n');
   const qrWidth = Math.max(0, ...qrLines.map((qrLine) => [...qrLine].length));
   const qrBlock = qrWidth > 0 && qrWidth + margin.length <= columns
     ? ['', ...qrLines.map((qrLine) => `${margin}${qrLine}`)]
     : [];
-
-  return [
-    ...qrBlock,
-    '',
-    `${margin}${style.bold('Pair a browser')}`,
-    ...boxLines.map((boxLine) => `${margin}${boxLine}`),
-    '',
-  ].join('\n');
+  const withQr = [...body, ...qrBlock];
+  return (qrBlock.length > 0 && withQr.length <= maxRows ? withQr : body).join('\n');
 }
 // harn:end setup-verifies-codor-before-creating-pairing-code

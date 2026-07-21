@@ -6,7 +6,17 @@ import { describe, expect, it } from 'vitest';
 import { SETUP_CURSOR_HIDE, SETUP_CURSOR_SHOW } from './setup-ui.js';
 
 const shellQuote = (value: string): string => `'${value.replaceAll("'", `'"'"'`)}'`;
-const sessionUrl = pathToFileURL(fileURLToPath(new URL('../dist/setup-session.js', import.meta.url))).href;
+const distUrl = (name: string): string => pathToFileURL(fileURLToPath(new URL(`../dist/${name}`, import.meta.url))).href;
+const sessionUrl = distUrl('setup-session.js');
+const uiUrl = distUrl('setup-ui.js');
+const qrUrl = distUrl('terminal-qr.js');
+
+// A realistic long Tailscale pairing URL — it wraps across several card lines, so
+// the test proves the whole multiline card renders (not truncated to one line).
+const LONG_URL = 'https://setup-host.example.ts.net/pair?endpoint=https%3A%2F%2Fsetup-host.example.ts.net&pairing_token=YrBG41M28KVjYaR05P7Zb7HcykxA-3pPGa18bPCXvoo&switchboard_sign_pub=XV5Tvp6uechAVjeX_Okb-SKSR8UunmvFTOzTxL_rLNw';
+// Rejoin the wrapped URL: strip ANSI, box chrome, and the whitespace it wraps around.
+const compact = (value: string): string =>
+  value.replace(/\[[0-9;?]*[A-Za-z]/g, '').replace(/[\s│╭╮╰╯─]/g, '');
 
 // A three-step wizard: an automatic step that auto-advances, a Localhost/Tailscale
 // access choice, and a consent-gated Start step that mutates only on the
@@ -14,6 +24,9 @@ const sessionUrl = pathToFileURL(fileURLToPath(new URL('../dist/setup-session.js
 // once. Markers on stdout let the tests observe what actually ran.
 const SOURCE = `
   import { SetupCancelled, SetupSession } from ${JSON.stringify(sessionUrl)};
+  import { renderPairingCard } from ${JSON.stringify(uiUrl)};
+  import { renderTerminalQr } from ${JSON.stringify(qrUrl)};
+  const LONG_URL = ${JSON.stringify(LONG_URL)};
   const scenario = process.env.SCENARIO ?? 'advance';
   const session = new SetupSession({ version: '0.10.0' });
   let attempts = 0;
@@ -54,8 +67,15 @@ const SOURCE = `
       run: async ({ choice, presentResult }) => {
         if (choice !== 'create') return { skip: true, summary: '(run codor pair later)' };
         process.stdout.write('RUN:pair\\n');
-        // Present a result block standing in for the QR/code card.
-        presentResult('QRCARD-VISIBLE code ABCD-2345');
+        // Present the real multiline pairing card, sized to the live terminal just
+        // like setup.ts does — the whole card must survive into the frame.
+        const columns = process.stdout.columns ?? 80;
+        const rows = process.stdout.rows ?? 24;
+        presentResult(renderPairingCard(
+          { code: 'ABCD-2345', url: LONG_URL, expires: 'in 10 minutes', qr: renderTerminalQr(LONG_URL), instruction: 'Scan the QR or enter the code in your browser.' },
+          columns,
+          Math.max(8, rows - 8),
+        ));
         paired = true;
         return 'paired';
       },
@@ -97,22 +117,26 @@ const posixDescribe = describe.skipIf(process.platform === 'win32');
 
 posixDescribe('setup wizard in a real pseudo-terminal', () => {
   it.each([
-    { rows: 10, columns: 80 },
+    { rows: 24, columns: 80 },
     { rows: 24, columns: 40 },
-  ])('auto-advances, gates consent, and shows the pairing result before Finish at $columns x $rows', ({ rows, columns }) => {
+  ])('auto-advances, gates consent, and shows the full pairing card before Finish at $columns x $rows', ({ rows, columns }) => {
     // One auto-advances; Enter: Localhost, Start, Create pairing; Enter finishes.
     const result = runPty([ENTER, ENTER, ENTER, ENTER], rows, columns);
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(SETUP_CURSOR_HIDE);
     expect(result.stdout).toContain(SETUP_CURSOR_SHOW);
-    // The pairing result card is shown in-frame, before Finish, replacing the question.
-    expect(result.stdout).toContain('QRCARD-VISIBLE code ABCD-2345');
-    expect(result.stdout).toContain('Finish');
+    // The real multiline pairing card is shown in-frame, before Finish, in full:
+    // code, the complete (wrapped) URL, expiry, and instruction all survive.
+    expect(result.stdout).toContain('ABCD-2345'); // code
+    expect(compact(result.stdout)).toContain(LONG_URL); // complete URL, reconstructed from wrapped lines
+    expect(result.stdout).toContain('in 10 minutes'); // expiry
+    expect(result.stdout).toContain('Scan the QR'); // instruction (may wrap at 40 cols)
+    expect(result.stdout).toContain('Finish'); // reserved control
     expect(result.stdout).toContain('RUN:pair');
     expect(result.stdout).toContain('SELECTED=localhost');
     expect(result.stdout).toContain('START=started');
-    // Only the active step renders — the word art is gone.
+    // No word art; the QR is omitted at 24 rows, so no block glyphs appear.
     expect(result.stdout).not.toContain('█');
     expect(result.stdout.split('RUN:one').length - 1).toBe(1);
     expect(result.stdout).not.toContain('[?1049h');

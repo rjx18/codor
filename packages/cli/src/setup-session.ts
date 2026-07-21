@@ -95,6 +95,7 @@ export class SetupSession {
   private summary: SetupSummary | undefined;
   private context: string[] | undefined;
   private card: string | undefined;
+  private cardStep: number | undefined;
   private menu: Parameters<typeof renderSetupFrame>[0]['menu'];
   private awaitingNav = false;
   private priorRawMode = false;
@@ -185,7 +186,9 @@ export class SetupSession {
       summary: this.summary,
       progress: { current: flow.cursor + 1, total: flow.steps.length },
       context: this.context,
-      card: this.card,
+      // Scope the result card to the step that presented it, so Back never shows
+      // it on another step.
+      card: flow.cursor === this.cardStep ? this.card : undefined,
     }));
   }
 
@@ -234,7 +237,7 @@ export class SetupSession {
           if (decision.type !== 'select') { this.stop(); throw new SetupCancelled(); }
           return decision.id;
         };
-        const presentResult = (block: string): void => { this.card = block; this.render(); };
+        const presentResult = (block: string): void => { this.card = block; this.cardStep = index; this.render(); };
         try {
           const outcome = await definition.run({ log: (message) => { flow.log(index, message); this.render(); }, choice, choose, presentResult });
           if (typeof outcome === 'object') {

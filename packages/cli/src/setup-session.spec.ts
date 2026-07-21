@@ -147,6 +147,26 @@ describe('setup terminal ownership', () => {
     session.stop();
   });
 
+  it('scopes the pairing result card to the step that presented it, hiding it on Back', async () => {
+    const { input, output, session } = harness();
+    const steps: SetupStepDefinition[] = [
+      { title: 'Check computer', run: async ({ log }) => { log('macOS with Node 25'); return 'ok'; } },
+      { title: 'Pair a browser', run: async ({ presentResult }) => { presentResult('PAIRCARD-LINE-1\nPAIRCARD-LINE-2'); return 'paired'; } },
+    ];
+    const done = session.run(steps);
+    await settle();
+    expect(output.chunks.at(-1)!).toContain('PAIRCARD-LINE-1'); // shown on the step that presented it
+    input.emit('data', Buffer.from(LEFT)); // Back to the Check step
+    await settle();
+    expect(output.chunks.at(-1)!).not.toContain('PAIRCARD-LINE-1'); // scoped away, not shown on another step
+    expect(output.chunks.at(-1)!).toContain('Check computer'); // the earlier step renders normally
+    input.emit('data', Buffer.from(RIGHT)); // forward to the pairing step again
+    await settle();
+    input.emit('data', Buffer.from(ENTER)); // Finish
+    await done;
+    session.stop();
+  });
+
   it.each(['SIGINT', 'SIGTERM'] as const)('cleans up before re-raising %s', (signal) => {
     const { input, output, signals, raised, session } = harness();
     session.start();

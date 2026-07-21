@@ -872,6 +872,10 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   };
 
   const cardColumns = overrides.streams?.output?.columns ?? process.stdout.columns ?? 80;
+  // Rows available to the pairing card once the frame's header, heading, and the
+  // reserved Finish control are set aside; the card omits its QR to fit.
+  const cardRows = overrides.streams?.output?.rows ?? process.stdout.rows ?? 24;
+  const cardMaxRows = Math.max(8, cardRows - 8);
   const emitPairing = (): void => {
     options.out(renderPairingCard({
       code: pairing!.code,
@@ -971,7 +975,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
             expires: pairing!.expires,
             qr: pairing!.qr,
             instruction: 'Scan the QR or enter the code in your browser to finish pairing.',
-          }, cardColumns));
+          }, cardColumns, cardMaxRows));
           return summary;
         },
       },
