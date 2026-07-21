@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, release } from 'node:os';
-import { dirname, join, resolve, isAbsolute } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { CryptoVault, pairingUrl } from '@codor/switchboard';
 
@@ -27,6 +27,7 @@ const LAUNCH_AGENT_LABEL = 'app.codor.switchboard';
 
 export interface SetupOverrides {
   exec?(command: string, args: string[]): string;
+  exists?(path: string): boolean;
   home?: string;
   kernelRelease?: string;
   nodePath?: string;
@@ -240,40 +241,61 @@ export interface LaunchAgentBootstrap {
   exec(command: string, args: string[]): string;
   probe(endpoint: string): Promise<boolean>;
   sleep(milliseconds: number): Promise<void>;
+  exists?(path: string): boolean;
   domain: string;
   target: string;
   plistPath: string;
   nodePath: string;
+  cliEntrypoint: string;
   endpoint: string;
   log(message: string): void;
 }
 
-// harn:assume setup-macos-launchd-recovers-from-transient-bootstrap ref=launchd-bootstrap-recovery
+/** The full launchctl error text and whether it is the transient exit-5. */
+function classifyBootstrapError(error: unknown): { text: string; retryable: boolean } {
+  const err = error as { message?: string; stderr?: string | Buffer; status?: number };
+  const text = [err.message, err.stderr?.toString()].filter(Boolean).join('\n').trim();
+  const retryable = err.status === 5 || /input\/output error|bootstrap failed:\s*5\b/i.test(text);
+  return { text, retryable };
+}
+
+// harn:assume setup-macos-launchd-confirms-loaded-and-healthy ref=launchd-bootstrap-recovery
 /**
  * Bootstrap the per-user LaunchAgent, recovering from a transient
- * `Bootstrap failed: 5: Input/output error`. Codor's HTTP health is
- * authoritative: a bootstrap error against an already-answering daemon is not a
- * failure and the daemon is not restarted. Never suggests root.
+ * `Bootstrap failed: 5: Input/output error` (which arrives with the retryable
+ * text on a later line and exit status 5). Continues past a bootstrap error
+ * only when `launchctl print` confirms the target is loaded AND the HTTP probe
+ * answers — a briefly-answering booted-out orphan is not success. Never
+ * suggests root.
  */
 export async function bootstrapLaunchAgent(deps: LaunchAgentBootstrap): Promise<void> {
-  const { exec, probe, sleep, domain, target, plistPath, nodePath, endpoint, log } = deps;
+  const { exec, probe, sleep, domain, target, plistPath, nodePath, cliEntrypoint, endpoint, log } = deps;
+  const exists = deps.exists ?? existsSync;
   const MAX_ATTEMPTS = 3;
   const RETRY_DELAY_MS = 500;
 
   // Validate before unloading anything, so a broken install never tears down a
-  // working prior instance. The plist must exist; the executable it points at
-  // must be an absolute path (its existence is the operator's macOS, not this
-  // host's, so it is not stat-ed here).
+  // working prior instance: the plist parses, and the executables it references
+  // exist.
   if (!existsSync(plistPath)) throw new Error(`the LaunchAgent plist is missing at ${plistPath}`);
-  if (!isAbsolute(nodePath)) throw new Error(`the LaunchAgent Node path must be absolute, got ${nodePath}`);
+  try {
+    exec('plutil', ['-lint', plistPath]);
+  } catch (error) {
+    throw new Error(`the LaunchAgent plist did not pass plutil -lint: ${classifyBootstrapError(error).text.split('\n')[0]}`);
+  }
+  if (!exists(nodePath)) throw new Error(`the LaunchAgent Node executable does not exist at ${nodePath}`);
+  if (!exists(cliEntrypoint)) throw new Error(`the Codor CLI entrypoint does not exist at ${cliEntrypoint}`);
 
   const bootout = (): void => { try { exec('launchctl', ['bootout', target]); } catch { /* not loaded */ } };
-  const printSummary = (): string => {
+  // `launchctl print <target>` exits non-zero when the target is not loaded.
+  const printState = (): { loaded: boolean; summary: string } => {
     try {
       const printed = exec('launchctl', ['print', target]).trim();
       const line = printed.split('\n').map((entry) => entry.trim()).find((entry) => entry.length > 0);
-      return line === undefined ? '' : ` (launchctl print: ${line})`;
-    } catch { return ''; }
+      return { loaded: true, summary: line === undefined ? '' : ` (launchctl print: ${line})` };
+    } catch {
+      return { loaded: false, summary: ' (launchctl print: target not loaded)' };
+    }
   };
 
   bootout();
@@ -284,15 +306,17 @@ export async function bootstrapLaunchAgent(deps: LaunchAgentBootstrap): Promise<
       bootstrapped = true;
       break;
     } catch (error) {
-      const message = (error instanceof Error ? error.message : String(error)).split('\n')[0]!.trim();
-      // API health decides whether this error matters, not launchctl's exit code.
-      if (await probe(endpoint)) {
-        log('Codor was already loaded and healthy; keeping it running');
+      const { text, retryable } = classifyBootstrapError(error);
+      const state = printState();
+      const healthy = await probe(endpoint);
+      // Loaded AND healthy is the only success on a bootstrap error; a
+      // briefly-answering orphan whose target print is absent is not loaded.
+      if (state.loaded && healthy) {
+        log('Codor is already loaded and healthy; keeping it running');
         return;
       }
-      const retryable = /input\/output error|bootstrap failed: 5\b/i.test(message);
       if (attempt >= MAX_ATTEMPTS || !retryable) {
-        throw new Error(`launchctl could not start the Codor LaunchAgent: ${message}${printSummary()}`);
+        throw new Error(`launchctl could not start the Codor LaunchAgent: ${text.split('\n').find((line) => line.trim().length > 0) ?? text}${state.summary}`);
       }
       log(`launchctl bootstrap did not take (attempt ${String(attempt)}); unloading and retrying`);
       bootout();
@@ -304,7 +328,7 @@ export async function bootstrapLaunchAgent(deps: LaunchAgentBootstrap): Promise<
     exec('launchctl', ['kickstart', '-k', target]);
   }
 }
-// harn:end setup-macos-launchd-recovers-from-transient-bootstrap
+// harn:end setup-macos-launchd-confirms-loaded-and-healthy
 
 const TAILSCALE_MACOS_LOCATIONS = [
   '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
@@ -317,8 +341,9 @@ export function resolveTailscale(
   platform: NodeJS.Platform,
   exists: (path: string) => boolean = existsSync,
 ): string | undefined {
+  // Normalize the PATH hit to the absolute executable path actually invoked.
   const onPath = which('tailscale');
-  if (onPath !== undefined) return onPath;
+  if (onPath !== undefined && onPath.trim() !== '') return resolve(onPath.trim());
   if (platform === 'darwin') {
     for (const location of TAILSCALE_MACOS_LOCATIONS) if (exists(location)) return location;
   }
@@ -345,13 +370,14 @@ export function configureTailscaleServe(
   localEndpoint: string,
   exec: (command: string, args: string[]) => string,
 ): string {
+  const firstLine = (error: unknown): string => (error instanceof Error ? error.message : String(error)).split('\n')[0]!.trim();
+  let status: string;
   try {
     exec(tailscalePath, ['serve', '--bg', localEndpoint]);
+    status = exec(tailscalePath, ['serve', 'status']);
   } catch (error) {
-    const message = (error instanceof Error ? error.message : String(error)).split('\n')[0]!.trim();
-    throw new Error(`Tailscale Serve command failed: ${message}`);
+    throw new Error(`Tailscale Serve command failed: ${firstLine(error)}`);
   }
-  const status = exec(tailscalePath, ['serve', 'status']);
   const origin = status.match(/https:\/\/[^\s/]+/)?.[0];
   if (origin === undefined) throw new Error('Tailscale Serve did not report a private HTTPS origin');
   return origin;
@@ -519,8 +545,10 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   // harn:assume setup-dry-run-reports-without-mutation-or-secret ref=setup-dry-run-runtime
   if (options.dryRun) {
     const access = options.access ?? 'localhost';
-    if (access === 'tailscale' && tailscalePath === undefined) {
-      throw new Error('--access tailscale requires the tailscale CLI on PATH');
+    if (access === 'tailscale' && !tailscaleServe) {
+      throw new Error(tailscalePath === undefined
+        ? '--access tailscale requires the Tailscale CLI (not found on PATH or in /Applications)'
+        : '--access tailscale requires a Tailscale CLI that supports Serve');
     }
     options.out(`[dry-run] create ${configDir} and ${dataDir} mode 700; create ${tokenPath} mode 600 if absent`);
     if (platform === 'linux') {
@@ -662,10 +690,12 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       chmodSync(launchAgentPath, 0o600);
       await bootstrapLaunchAgent({
         exec, probe, sleep,
+        exists: overrides.exists,
         domain: launchDomain!,
         target: launchTarget!,
         plistPath: launchAgentPath,
         nodePath,
+        cliEntrypoint: runtime.cliEntrypoint,
         endpoint: localEndpoint,
         log,
       });

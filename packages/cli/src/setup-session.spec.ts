@@ -110,6 +110,23 @@ describe('setup wizard navigation', () => {
     session.stop();
   });
 
+  it('offers a visible Finish action on the completed final step', async () => {
+    const { input, output, session } = harness();
+    const steps: SetupStepDefinition[] = [
+      { title: 'One', run: async () => 'a' },
+      { title: 'Two', run: async () => 'b' },
+    ];
+    const done = session.run(steps);
+    await settle();
+    input.emit('data', Buffer.from('\r')); // Next -> the last, completed step
+    await settle();
+    // While parked on the completed last step the frame advertises Finish, not Next.
+    expect(output.chunks.join('')).toContain('Enter/→ Finish');
+    input.emit('data', Buffer.from('\r')); // Finish
+    await done;
+    session.stop();
+  });
+
   it('does not re-run a completed step when navigating Back then Next', async () => {
     const { input, session } = harness();
     const runs: string[] = [];

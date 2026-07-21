@@ -59,6 +59,13 @@ describe('configureTailscaleServe', () => {
     })).toThrow(/Serve command failed: serve: not logged in/);
   });
 
+  it('wraps a serve status command failure as the Serve-command-failed category', () => {
+    expect(() => configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
+      if (args.join(' ') === 'serve status') throw new Error('serve status: connection refused');
+      return '';
+    })).toThrow(/Serve command failed: serve status: connection refused/);
+  });
+
   it('throws when serve status reports no HTTPS origin', () => {
     expect(() => configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', () => 'no serve config'))
       .toThrow(/did not report a private HTTPS origin/);

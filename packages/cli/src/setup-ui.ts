@@ -98,6 +98,8 @@ export interface SetupControls {
   back: boolean;
   next: boolean;
   retry: boolean;
+  /** The completed final step offers Finish rather than Next. */
+  finish: boolean;
 }
 
 export interface SetupFrameState {
@@ -179,7 +181,8 @@ function controlHints(controls: SetupControls | undefined): string | undefined {
   const parts: string[] = [];
   if (controls.back) parts.push('← Back');
   if (controls.retry) parts.push('r Retry');
-  if (controls.next) parts.push('Enter/→ Next');
+  if (controls.finish) parts.push('Enter/→ Finish');
+  else if (controls.next) parts.push('Enter/→ Next');
   parts.push('q Cancel');
   return `    ${style.dim(parts.join('   '))}`;
 }

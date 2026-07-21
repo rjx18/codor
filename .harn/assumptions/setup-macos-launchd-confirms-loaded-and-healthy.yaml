@@ -1,0 +1,22 @@
+id: setup-macos-launchd-confirms-loaded-and-healthy
+hash: a-29f74cd94baa
+title: macOS Start confirms the LaunchAgent is loaded and healthy, and validates first
+state: active
+statement: On macOS the Start step must validate the generated plist's syntax
+  and that the resolved Node executable and CLI entrypoint exist before
+  unloading any prior instance, must classify a launchctl bootstrap error as the
+  transient Input/output (exit 5) condition using the full error output and its
+  structured exit status rather than only the first line, must continue past a
+  bootstrap error only when launchctl print confirms the target is loaded and
+  the Codor HTTP probe answers - treating a briefly-answering process whose
+  target print reports absent as not loaded - must otherwise perform a bounded
+  unload, wait, and re-bootstrap retry for that transient condition, must enable
+  and kickstart only after a bootstrap it performed, must fail with a single
+  concise diagnostic drawn from the launchctl output and print only after the
+  bounded recovery is exhausted, and must never suggest root, because a service
+  manager's exit code and a momentarily-answering orphan are each insufficient
+  evidence that the per-user LaunchAgent is actually installed and running.
+depends_on:
+  - setup-preserves-private-platform-service
+  - setup-verifies-codor-before-creating-pairing-code
+created_by: codor-setup-installer-hardening

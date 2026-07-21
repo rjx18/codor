@@ -48,7 +48,7 @@ describe('accordion layout', () => {
     const steps = midway();
     steps[2] = { ...steps[2]!, state: 'running', logs: ['probing the daemon'] };
     const frame = plain(renderSetupFrame(state({
-      steps, cursor: 2, controls: { back: true, next: false, retry: false },
+      steps, cursor: 2, controls: { back: true, next: false, retry: false, finish: false },
     })));
     expect(frame).toContain('> probing the daemon');
     expect(frame).toContain('working');
@@ -59,11 +59,20 @@ describe('accordion layout', () => {
     const steps = midway();
     steps[3] = { ...steps[3]!, state: 'failed', error: 'launchctl bootstrap failed' };
     const frame = plain(renderSetupFrame(state({
-      steps, cursor: 3, controls: { back: true, next: false, retry: true },
+      steps, cursor: 3, controls: { back: true, next: false, retry: true, finish: false },
     })));
     const occurrences = frame.split('launchctl bootstrap failed').length - 1;
     expect(occurrences).toBe(1);
     expect(frame).toContain('Retry');
+  });
+
+  it('offers an explicit Finish action on the completed final step', () => {
+    const steps = createSetupStages().map((step) => ({ ...step, state: 'done' as const }));
+    const frame = plain(renderSetupFrame(state({
+      steps, cursor: 4, controls: { back: true, next: false, retry: false, finish: true },
+    })));
+    expect(frame).toContain('Enter/→ Finish');
+    expect(frame).not.toContain('Enter/→ Next');
   });
 
   it('renders the choice menu inside the active step', () => {
@@ -137,7 +146,7 @@ describe('constrained viewports keep the active step usable', () => {
       const steps = midway();
       steps[2] = { ...steps[2]!, logs: Array.from({ length: 20 }, (_, index) => `line ${String(index)}`) };
       const frame = plain(renderSetupFrame(state({
-        steps, cursor: 2, menu, controls: { back: true, next: false, retry: false }, viewport,
+        steps, cursor: 2, menu, controls: { back: true, next: false, retry: false, finish: false }, viewport,
       })));
       const lines = frame.split('\n').filter(Boolean);
       expect(lines.length).toBeLessThanOrEqual(viewport.rows);

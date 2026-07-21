@@ -72,6 +72,8 @@ posixDescribe('setup wizard in a real pseudo-terminal', () => {
     expect(result.stdout).toContain(SETUP_CURSOR_SHOW);
     expect(result.stdout).toContain('Codor is ready.');
     expect(result.stdout).toContain('SELECTED=localhost');
+    // The completed final step advertised an explicit Finish action before exit.
+    expect(result.stdout).toContain('Finish');
     expect(result.stdout).not.toContain('[?1049h');
   });
 

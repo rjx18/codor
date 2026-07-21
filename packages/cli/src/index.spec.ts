@@ -341,6 +341,26 @@ describe('@codor/cli', () => {
     expect(existsSync(join(home, '.config', 'codor'))).toBe(false);
   });
 
+  posixHostIt('refuses to promise Tailscale Serve in a dry-run when the CLI cannot Serve', async () => {
+    const home = '/home/setup-test';
+    await expect(runCli(['node', 'codor', 'setup', '--dry-run', '--access', 'tailscale'], {
+      env: { HOME: home, USER: 'setup-test', PATH: '/usr/bin' },
+      stdout: (line) => output.push(line),
+      setup: {
+        home,
+        nodePath: `${home}/.nvm/versions/node/v22.8.0/bin/node`,
+        platform: 'linux',
+        which: (command) => (command === 'tailscale' ? '/usr/bin/tailscale' : undefined),
+        // The CLI is present but its `serve --help` probe fails: no Serve support.
+        exec: (command, args) => {
+          if (command === '/usr/bin/tailscale' && args[0] === 'serve') throw new Error("flag provided but not defined: 'serve'");
+          return '';
+        },
+      },
+    })).rejects.toThrow(/requires a Tailscale CLI that supports Serve/);
+    expect(output.join('\n')).not.toContain('serve --bg');
+  });
+
   // harn:end setup-dry-run-reports-without-mutation-or-secret
 
   // harn:assume setup-unattended-mutation-requires-explicit-intent ref=setup-unattended-regression
@@ -662,6 +682,7 @@ describe('@codor/cli', () => {
           if (command === 'launchctl' && args[0] === 'bootout') throw new Error('not loaded');
           return '';
         },
+        exists: () => true,
         randomToken: () => token,
         probe: async () => true,
         renderQr: (payload) => {
@@ -688,6 +709,7 @@ describe('@codor/cli', () => {
       `<string>${join(home, '.local', 'bin').replace('&', '&amp;')}:/opt/homebrew/bin:/Applications/Claude Code/bin:/opt/codor tools/bin:/usr/bin</string>`,
     );
     expect(commands).toEqual([
+      `plutil -lint ${launchAgentPath}`,
       'launchctl bootout gui/501/app.codor.switchboard',
       `launchctl bootstrap gui/501 ${launchAgentPath}`,
       'launchctl enable gui/501/app.codor.switchboard',

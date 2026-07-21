@@ -146,7 +146,7 @@ export class SetupSession {
       error: step.error,
     }));
     const controls: SetupControls | undefined = this.awaitingNav
-      ? { back: flow.canBack, next: flow.canNext, retry: flow.canRetry }
+      ? { back: flow.canBack, next: flow.canNext, retry: flow.canRetry, finish: flow.complete }
       : undefined;
     this.output.write(renderSetupFrame({
       version: this.version,
