@@ -128,6 +128,54 @@ describe('room seeding', () => {
     expect(members).toHaveLength(2);
   });
 
+  // harn:assume empty-database-desk-seeds-tutorial-atomically ref=bootstrap-welcome-transaction-regression
+  it('optionally persists one authored Tutorial chat without changing ordinary room seeding', () => {
+    const body = 'Welcome to the Desk';
+    store.createRoom({
+      id: 'desk',
+      name: 'Desk',
+      owner: { handle: 'richard', display_name: 'Richard' },
+      bootstrapWelcome: {
+        author: { handle: 'tutorial', display_name: 'Tutorial' },
+        body,
+      },
+    });
+
+    const tutorial = store.listMembers('desk').find((member) => member.handle === 'tutorial');
+    expect(tutorial).toMatchObject({ kind: 'system', display_name: 'Tutorial' });
+    expect(store.listMessages('desk')).toEqual([
+      expect.objectContaining({ author: tutorial!.id, kind: 'chat', body }),
+    ]);
+
+    openRoom(store);
+    expect(store.listMembers('eng').map((member) => member.handle).sort())
+      .toEqual(['richard', 'switchboard']);
+    expect(store.listMessages('eng')).toEqual([]);
+  });
+
+  it('rolls back the room and every seeded member when welcome insertion fails', () => {
+    const blocker = new Database(join(dir, 'test.sqlite'));
+    blocker.exec(`CREATE TRIGGER reject_bootstrap_welcome
+      BEFORE INSERT ON messages
+      WHEN NEW.room = 'broken'
+      BEGIN SELECT RAISE(ABORT, 'injected welcome failure'); END`);
+    blocker.close();
+
+    expect(() => store.createRoom({
+      id: 'broken',
+      name: 'Broken',
+      owner: { handle: 'richard', display_name: 'Richard' },
+      bootstrapWelcome: {
+        author: { handle: 'tutorial', display_name: 'Tutorial' },
+        body: 'Welcome',
+      },
+    })).toThrow('injected welcome failure');
+    expect(store.getRoom('broken')).toBeUndefined();
+    expect(store.listMembers('broken')).toEqual([]);
+    expect(store.listMessages('broken')).toEqual([]);
+  });
+  // harn:end empty-database-desk-seeds-tutorial-atomically
+
   it('the system handle stays reserved: no second member can take it', () => {
     openRoom(store);
     expect(() =>

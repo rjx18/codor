@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { BROWSER_PROTOCOL_EPOCH, type ServerFrame } from '@codor/protocol';
@@ -1312,22 +1312,43 @@ describe('@codor/cli', () => {
     });
   });
 
-  it('boots a default room plus the data-directory socket', async () => {
+  // harn:assume empty-database-desk-uses-service-home ref=bootstrap-service-home-regression
+  // harn:assume empty-database-desk-seeds-tutorial-atomically ref=bootstrap-tutorial-regression
+  it('bootstraps one home-rooted Desk and one durable Tutorial message', async () => {
+    const homeDir = join(dir, 'service-home');
+    mkdirSync(homeDir);
+    const dataDir = join(dir, 'up-data');
     const running = await startCodor({
-      dataDir: join(dir, 'up-data'),
+      dataDir,
+      homeDir,
       token: 'up-token',
       port: 0,
       owner: 'operator',
+      room: 'desk',
+      roomName: 'Desk',
       relayUrl: 'https://relay.example.test',
       pushVapidPublicKey: 'm3-vapid-public-key',
       line: { name: 'home-launcher', secret: 'local-test-secret' },
       bootstrap: [],
     });
-    expect(running.daemon.store.listRooms().map((room) => room.id)).toEqual(['default']);
+    const desk = running.daemon.store.getRoom('desk');
+    expect(desk?.config.cwd).toBe(homeDir);
+    expect(isAbsolute(desk!.config.cwd!)).toBe(true);
+    expect(desk?.config.cwd).not.toBe(process.cwd());
+    const tutorial = running.daemon.store.listMembers('desk')
+      .find((member) => member.handle === 'tutorial');
+    expect(tutorial).toMatchObject({ kind: 'system', display_name: 'Tutorial' });
+    expect(running.daemon.store.listMessages('desk')).toEqual([
+      expect.objectContaining({
+        author: tutorial!.id,
+        kind: 'chat',
+        body: 'Welcome to Codor 👋 This is your Desk. Add an agent from the Members panel, then send a message here to start working. Use @mentions when you want a specific helper, and create another channel when you want a separate project.',
+      }),
+    ]);
     expect(running.daemon.registeredAdapters().map((adapter) => adapter.id)).toEqual(
       [...BUILTIN_ADAPTER_IDS].sort(),
     );
-    expect(running.server.socketPath).toBe(localSocketPath(join(dir, 'up-data')));
+    expect(running.server.socketPath).toBe(localSocketPath(dataDir));
     expect(running.transport).toBeDefined();
     expect(running.residency?.registeredAdapters().map((adapter) => adapter.id)).toEqual(
       [...BUILTIN_ADAPTER_IDS].sort(),
@@ -1350,9 +1371,43 @@ describe('@codor/cli', () => {
       closeOrder.push('daemon');
       await closeDaemon(options);
     };
+    running.daemon.createRoom({
+      id: 'ordinary',
+      name: 'Ordinary',
+      owner: { handle: 'operator', display_name: 'operator' },
+    });
+    expect(running.daemon.store.listMembers('ordinary').some(
+      (member) => member.handle === 'tutorial',
+    )).toBe(false);
+    expect(running.daemon.store.listMessages('ordinary')).toEqual([]);
     await running.close();
     expect(closeOrder).toEqual(['residency', 'daemon']);
+
+    const restarted = await startCodor({
+      dataDir,
+      homeDir,
+      token: 'up-token',
+      port: 0,
+      owner: 'operator',
+      room: 'desk',
+      roomName: 'Desk',
+      bootstrap: [],
+    });
+    try {
+      expect(restarted.daemon.store.listRooms().map((room) => room.id)).toEqual(['desk', 'ordinary']);
+      expect(restarted.daemon.store.listMembers('desk')
+        .filter((member) => member.handle === 'tutorial')).toHaveLength(1);
+      expect(restarted.daemon.store.listMessages('desk')).toHaveLength(1);
+      expect(restarted.daemon.store.listMembers('ordinary').some(
+        (member) => member.handle === 'tutorial',
+      )).toBe(false);
+      expect(restarted.daemon.store.listMessages('ordinary')).toEqual([]);
+    } finally {
+      await restarted.close();
+    }
   });
+  // harn:end empty-database-desk-seeds-tutorial-atomically
+  // harn:end empty-database-desk-uses-service-home
 
   // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=production-browser-protocol-regression
   it('enforces epoch 2 in the real up composition while an epoch-less agent still hydrates', async () => {

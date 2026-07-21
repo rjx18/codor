@@ -25,6 +25,10 @@ import { tryResolveRuntimePaths } from './runtime-paths.js';
 // harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition
 export interface UpOptions {
   dataDir?: string;
+  // harn:assume empty-database-desk-uses-service-home ref=bootstrap-service-home
+  /** Injectable only so bootstrap tests can prove which service home is used. */
+  homeDir?: string;
+  // harn:end empty-database-desk-uses-service-home
   token: string;
   host?: string;
   port?: number;
@@ -87,13 +91,20 @@ function ownerHandle(value: string | undefined): string {
   return 'user';
 }
 
+// harn:assume empty-database-desk-seeds-tutorial-atomically ref=bootstrap-tutorial-seed
+const DESK_TUTORIAL_MESSAGE = 'Welcome to Codor 👋 This is your Desk. Add an agent from the Members panel, then send a message here to start working. Use @mentions when you want a specific helper, and create another channel when you want a separate project.';
+// harn:end empty-database-desk-seeds-tutorial-atomically
+
 export async function startCodor(options: UpOptions): Promise<RunningCodor> {
   if (!options.token.trim()) throw new Error('--token or CODOR_TOKEN is required');
   const adapters = await loadAdapterRegistry({
     adapters: options.adapters,
     baseDir: options.adapterBaseDir,
   });
-  const dataDir = resolve(options.dataDir ?? join(homedir(), '.codor'));
+  // harn:assume empty-database-desk-uses-service-home ref=bootstrap-service-home
+  const homeDir = resolve(options.homeDir ?? homedir());
+  const dataDir = resolve(options.dataDir ?? join(homeDir, '.codor'));
+  // harn:end empty-database-desk-uses-service-home
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const crypto = new CryptoVault(dataDir);
   const transport = options.line ? new HyperswarmTransport({
@@ -128,11 +139,20 @@ export async function startCodor(options: UpOptions): Promise<RunningCodor> {
   if (daemon.store.listRooms().length === 0) {
     const room = options.room ?? 'default';
     const owner = ownerHandle(options.owner);
-    daemon.createRoom({
+    // harn:assume empty-database-desk-uses-service-home ref=bootstrap-service-home
+    // harn:assume empty-database-desk-seeds-tutorial-atomically ref=bootstrap-tutorial-seed
+    daemon.store.createRoom({
       id: room,
       name: options.roomName ?? 'Default',
       owner: { handle: owner, display_name: owner },
+      config: { cwd: homeDir },
+      bootstrapWelcome: {
+        author: { handle: 'tutorial', display_name: 'Tutorial' },
+        body: DESK_TUTORIAL_MESSAGE,
+      },
     });
+    // harn:end empty-database-desk-seeds-tutorial-atomically
+    // harn:end empty-database-desk-uses-service-home
   }
   for (const room of daemon.store.listRooms()) crypto.roomKeys.ensureRoom(room.id);
   // harn:assume operator-launches-serve-web-next ref=cli-default-static-root

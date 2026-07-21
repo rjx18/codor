@@ -1,0 +1,10 @@
+id: empty-database-desk-uses-service-home
+hash: a-05098154ea4b
+title: A freshly bootstrapped Desk starts in the service user's home
+state: active
+statement: startCodor must persist the service user's resolved absolute home
+  directory as the initial Desk cwd only when the database contains no rooms,
+  because a newly installed service must open in a real usable directory rather
+  than its runtime, npm cache, or process working directory.
+depends_on: []
+created_by: codor-agent-onboarding-phase2

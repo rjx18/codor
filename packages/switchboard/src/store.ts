@@ -1015,12 +1015,19 @@ export class Store {
    * Creates a room and atomically seeds its two structural members: the
    * owner human (the authenticated principal's author identity) and the
    * non-addressable system member holding the reserved 'switchboard' handle.
+   * The internal bootstrap option may add one attributed welcome in the same
+   * transaction; ordinary room creation does not use it.
    */
+  // harn:assume empty-database-desk-seeds-tutorial-atomically ref=bootstrap-welcome-transaction
   createRoom(opts: {
     id: string;
     name: string;
     owner: { handle: string; display_name: string };
     config?: Partial<RoomConfig>;
+    bootstrapWelcome?: {
+      author: { handle: string; display_name: string };
+      body: string;
+    };
   }): { room: Room; owner: Member; system: Member } {
     const config = RoomConfigSchema.parse({
       ...opts.config,
@@ -1043,10 +1050,23 @@ export class Store {
         handle: 'switchboard',
         display_name: 'Switchboard',
       });
+      if (opts.bootstrapWelcome !== undefined) {
+        const tutorial = this.insertMember(opts.id, {
+          kind: 'system',
+          handle: opts.bootstrapWelcome.author.handle,
+          display_name: opts.bootstrapWelcome.author.display_name,
+        });
+        this.postMessage(opts.id, {
+          author: tutorial.id,
+          kind: 'chat',
+          body: opts.bootstrapWelcome.body,
+        });
+      }
       return { owner, system };
     })();
     return { room: this.getRoom(opts.id)!, ...result };
   }
+  // harn:end empty-database-desk-seeds-tutorial-atomically
   // harn:end owner-and-system-members-seeded
 
   getRoom(id: string): Room | undefined {

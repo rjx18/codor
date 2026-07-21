@@ -1,0 +1,15 @@
+id: empty-database-desk-seeds-tutorial-atomically
+hash: a-3a8b3c106322
+title: A fresh Desk contains one durable Tutorial welcome and nothing is half-seeded
+state: active
+statement: startCodor must seed exactly one persisted chat message authored by
+  the system member @tutorial only while creating the first room in an empty
+  database, and the room, owner, switchboard member, tutorial member, and
+  message must commit or roll back together; restarts, existing rooms, and
+  ordinary room creation must not add or duplicate that guidance, because
+  onboarding must be durable and idempotent without polluting normal channel
+  creation or presenting Tutorial as a running agent.
+depends_on:
+  - owner-and-system-members-seeded
+  - message-id-txn-allocation
+created_by: codor-agent-onboarding-phase2
