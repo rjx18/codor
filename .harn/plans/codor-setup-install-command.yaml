@@ -1,0 +1,72 @@
+id: codor-setup-install-command
+title: Make install the primary public command with setup as a backward-compatible alias
+notes: >-
+  Plan D of the installer overhaul (Codex #460.5, #462.5). Richard's published
+  install command from #434 is `npx --package=<tgz> codor install`, but the CLI
+  only registers `setup`, so `codor install` errors with "unknown command
+  'install'". This makes `install` the primary command and keeps `setup` as a
+  backward-compatible alias: both run the identical configure-and-pair flow,
+  both appear in help, and both enforce the same non-TTY unattended guard. The
+  packed artifact runs `codor install` because install is an ordinary
+  subcommand dispatched by runCli.
+assumptions:
+  create:
+    - id: public-install-is-the-primary-command-with-setup-alias
+      title: The public installer command is install, with setup as a compatible alias
+      statement: The CLI must register the installer as the primary command `install`
+        with `setup` retained as a backward-compatible alias, so that both
+        `codor install` and `codor setup` run the identical configuration and
+        first-pairing flow with the same --dry-run, --yes, and --access options
+        and the same non-interactive guard, and so that the packed public
+        artifact resolves `npx --package=<tgz> codor install`, because the
+        published landing command is `codor install` and existing `codor setup`
+        usage and documentation must keep working.
+      reason: Richard's release command is `codor install`; the CLI must answer to it
+        while not breaking existing `codor setup` usage.
+      depends_on:
+        - setup-unattended-mutation-requires-explicit-intent
+  reviewed:
+    - id: setup-unattended-mutation-requires-explicit-intent
+      outcome: unchanged
+      reason: The --dry-run, --yes, and --access options and the non-TTY unattended
+        guard are unchanged; only the command's primary name and its alias
+        change, and the action body is identical.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The rooms-are-channels contract is unchanged. The command-list regression
+        is updated only to name the installer command install where it named
+        setup.
+anchors:
+  public-install-is-the-primary-command-with-setup-alias:
+    install-command-alias:
+      action: change
+      reason: The command registration gains this assumption's anchor around the
+        install/setup-alias definition.
+  setup-unattended-mutation-requires-explicit-intent:
+    setup-command-surface:
+      action: change
+      reason: The command name becomes install with a setup alias; the options and
+        action inside this anchored region are otherwise unchanged.
+    setup-unattended-runtime:
+      action: keep
+      reason: The runSetup unattended guard in setup.ts is untouched.
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-regression:
+      action: change
+      reason: The asserted command list names install instead of setup.
+files:
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+verification: >
+  - The command list names `install`, and `codor install --help` and
+    `codor setup --help` both describe the same options.
+
+  - `codor install` and `codor setup` both run the flow: a non-interactive run
+    of each without --yes exits non-zero naming the missing flag, and a dry-run
+    of each previews the same actions.
+
+  - The packed artifact, rebuilt from a clean checkout, runs
+    `npx --package=<tgz> codor install --dry-run` offline and prints the rendered
+    service content — the exact public command Richard reported.
+
+  - Existing setup regressions that invoke `codor setup` still pass via the alias.
