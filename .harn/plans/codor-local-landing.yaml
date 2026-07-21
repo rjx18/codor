@@ -1,0 +1,71 @@
+id: codor-local-landing
+title: Ship the truthful two-step local install and pairing landing surface
+notes: >-
+  Phase 4. An unpaired visit to / becomes the product landing and setup surface,
+  while /pair remains the dedicated offer/manual enrollment route. The hero has
+  exactly two steps: run npx @richhardry/codor setup, then enter the
+  eight-character code. Copy and diagrams describe only the implemented
+  localhost and private-Tailscale paths; relay, Cloudflare, hosted-cloud, and
+  npm-publication claims are forbidden. The collaborative demo tells the
+  approved two-lap story once, settles, offers a pause control, and renders its
+  final state immediately under reduced motion. Vendor compatibility is plain
+  text. Browser tests cover segmented-code paste/keyboard/prefill/error states,
+  mobile layout, motion controls, truthful copy, and axe.
+assumptions:
+  create:
+    - id: unpaired-root-offers-two-step-local-setup
+      title: The unpaired root explains the complete local setup in two truthful steps
+      statement: >-
+        An unpaired visit to / must present exactly two primary setup steps—run
+        npx @richhardry/codor setup, then enter the single-use eight-character
+        pairing code—while naming localhost and private Tailscale as the only
+        access paths, keeping compatibility labels text-only, and refusing
+        relay, Cloudflare, or hosted-cloud claims; the code control must support
+        paste, arrows, backspace, ?code= prefill, busy/error feedback, and phone
+        widths, because this page is the first product contact and cannot ask a
+        new operator to infer setup order or trust an unimplemented boundary.
+      reason: The previous unpaired root opened a plain pairing form with no install context, while the approved landing structure depends on a two-step install-and-pair journey.
+      depends_on:
+        - pairing-code-enrollment-surfaces
+        - pairing-codes-are-short-single-use-grants
+        - brand-wordmark-uses-self-hosted-bitcount
+    - id: landing-demo-plays-once-and-settles
+      title: The landing collaboration demo plays once, can pause, and settles
+      statement: >-
+        The landing demo must present the approved two-lap changing conversation
+        at most once per page load, expose a pause/resume control while moving,
+        settle permanently on the clean final state, and show that final state
+        without animation when reduced motion is requested; because a repeating
+        decorative loop distracts from setup and a long information-bearing
+        animation without a stop mechanism creates an avoidable accessibility
+        failure.
+      reason: The approved motion tells a second lap that responds to the first; its value comes from changing information, not indefinite decoration.
+      depends_on:
+        - web-motion-is-purposeful-and-reduced-motion-safe-v5
+  reviewed:
+    - id: pairing-code-enrollment-surfaces
+      outcome: unchanged
+      reason: The landing reuses the existing exchange endpoint and keeps the authoritative long offer token inside the dedicated QR flow.
+    - id: unpaired-browser-always-has-enrollment-path
+      outcome: unchanged
+      reason: Both / and /pair retain a complete manual enrollment path when trusted enrollment is unavailable.
+    - id: pairing-offer-token-remains-qr-only
+      outcome: unchanged
+      reason: The landing accepts only the short code and never renders or exposes a long offer token.
+files:
+  - packages/web-next/src/main.tsx
+  - packages/web-next/src/surfaces/LandingPage.tsx
+  - packages/web-next/src/surfaces/PairingCodeInput.tsx
+  - packages/web-next/src/surfaces/PairingPage.tsx
+  - packages/web-next/src/styles/landing.css
+  - packages/web-next/tests/room28-landing.e2e.spec.ts
+  - scripts/release-audit.mjs
+anchors:
+  unpaired-root-offers-two-step-local-setup:
+    landing-setup-truth-audit:
+      action: change
+      reason: Add a tracked release assertion for the two commands, implemented access paths, and forbidden hosted/relay claims.
+  landing-demo-plays-once-and-settles:
+    landing-motion-release-audit:
+      action: change
+      reason: Require the source and browser contract to include the once-only settled state, reduced-motion handling, and a pause control.
