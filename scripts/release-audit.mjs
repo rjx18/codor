@@ -91,6 +91,7 @@ for (const path of existingTracked.filter((candidate) =>
 
 const landingSource = await readFile(new URL('../packages/web-next/src/surfaces/LandingPage.tsx', import.meta.url), 'utf8');
 const firstChannelSource = await readFile(new URL('../packages/web-next/src/surfaces/NoChannels.tsx', import.meta.url), 'utf8');
+const agentControlsSource = await readFile(new URL('../packages/web-next/src/room/AgentControls.tsx', import.meta.url), 'utf8');
 
 // harn:assume unpaired-root-offers-two-step-local-setup ref=landing-setup-truth-audit
 assert.equal((landingSource.match(/className="nx-setup-step"/g) ?? []).length, 2, 'landing setup must have exactly two steps');
@@ -113,5 +114,10 @@ assert.match(firstChannelSource, /nameEdited/);
 assert.match(firstChannelSource, /AgentControls/);
 assert.doesNotMatch(firstChannelSource, /Create one from another surface/);
 // harn:end paired-empty-state-creates-first-channel
+
+// harn:assume shared-form-sections-follow-their-host-outline ref=shared-section-heading-audit
+assert.match(agentControlsSource, /headingLevel\?: 2 \| 3/);
+assert.equal((firstChannelSource.match(/headingLevel=\{2\}/g) ?? []).length, 2);
+// harn:end shared-form-sections-follow-their-host-outline
 
 process.stdout.write('release audit passed: pre-tag gates, rename, relay disclosure, and acceptance provenance\n');

@@ -1,23 +1,20 @@
 id: codor-first-channel-heading-order
 title: Let shared form sections follow their host document outline
-notes: >-
-  Follow-up discovered by the Phase 5 phone axe gate. Dialogs have an h2 title
-  and correctly use h3 section headings, while the standalone first-channel
-  document has an h1 and must use h2 sections. The shared Section component
-  gains an explicit level limited to 2 or 3; existing dialog callers keep h3 by
-  default, onboarding requests h2, and the browser accessibility gate proves
-  the resulting outline.
+notes: Follow-up discovered by the Phase 5 phone axe gate. Dialogs have an h2
+  title and correctly use h3 section headings, while the standalone
+  first-channel document has an h1 and must use h2 sections. The shared Section
+  component gains an explicit level limited to 2 or 3; existing dialog callers
+  keep h3 by default, onboarding requests h2, and the browser accessibility gate
+  proves the resulting outline.
 assumptions:
   create:
     - id: shared-form-sections-follow-their-host-outline
       title: Shared form section headings follow the surface that contains them
-      statement: >-
-        The shared agent-form Section component must render heading level 3 in
-        titled dialogs by default and permit a standalone h1 document to request
-        level 2, with no visual divergence, because component reuse must not
-        create a skipped heading level on the first-channel onboarding page.
-      reason: >-
-        The 320px axe gate found that reusing the dialog section verbatim made
+      statement: The shared agent-form Section component must render heading level 3
+        in titled dialogs by default and permit a standalone h1 document to
+        request level 2, with no visual divergence, because component reuse must
+        not create a skipped heading level on the first-channel onboarding page.
+      reason: The 320px axe gate found that reusing the dialog section verbatim made
         onboarding jump from h1 to h3.
   reviewed:
     - id: release-gate-runs-unit-and-browser
@@ -32,4 +29,7 @@ anchors:
   shared-form-sections-follow-their-host-outline:
     shared-section-heading-audit:
       action: change
-      reason: Require the explicit level contract in the shared component and onboarding caller.
+      reason: Require the explicit level contract in the shared component and
+        onboarding caller.
+applied:
+  applied_at: 2026-07-21T00:55:51.290Z

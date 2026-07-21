@@ -1,0 +1,10 @@
+id: shared-form-sections-follow-their-host-outline
+hash: a-09f3f7811ac4
+title: Shared form section headings follow the surface that contains them
+state: active
+statement: The shared agent-form Section component must render heading level 3
+  in titled dialogs by default and permit a standalone h1 document to request
+  level 2, with no visual divergence, because component reuse must not create a
+  skipped heading level on the first-channel onboarding page.
+depends_on: []
+created_by: codor-first-channel-heading-order

@@ -37,12 +37,18 @@ const POLICY_COPY: Record<string, { title: string; icon: typeof Lock }> = {
 const SEARCH_THRESHOLD = 8;
 
 /** A numbered section header with its hairline rule. */
-export function Section(props: { n: number; title: string; children: React.ReactNode }) {
+export function Section(props: {
+  n: number;
+  title: string;
+  children: React.ReactNode;
+  headingLevel?: 2 | 3;
+}) {
+  const Heading = props.headingLevel === 2 ? 'h2' : 'h3';
   return (
     <section className="nx-sec">
       <div className="nx-sec-head">
         <span className="nx-sec-n" aria-hidden="true">{props.n}</span>
-        <h3 className="nx-sec-title">{props.title}</h3>
+        <Heading className="nx-sec-title">{props.title}</Heading>
         <span className="nx-sec-rule" aria-hidden="true" />
       </div>
       {props.children}

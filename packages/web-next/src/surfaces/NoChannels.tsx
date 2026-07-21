@@ -121,7 +121,7 @@ export function NoChannels(props: { token: string }) {
       </header>
 
       <form className="nx-onboarding-card" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-        <Section n={1} title="Channel">
+        <Section n={1} title="Channel" headingLevel={2}>
           <label className="nx-field">
             <span className="nx-label">Channel name</span>
             <input
@@ -162,7 +162,7 @@ export function NoChannels(props: { token: string }) {
           </div>
         </Section>
 
-        <Section n={2} title="Starting agent">
+        <Section n={2} title="Starting agent" headingLevel={2}>
           <div className="nx-first-agent">
             <AgentIdentityControls
               adapters={adapters}
