@@ -1,0 +1,49 @@
+id: codor-agent-onboarding-phase3-correction
+title: Reject executable-named directories and repair Refresh spacing
+notes: Correct only the two Phase 3 review findings. PATH presence must resolve
+  to a non-directory executable target without invoking it, and the existing
+  Refresh header must use the defined spacing token. Preserve symlinked files,
+  availability composition, refresh behavior, and dialog layout.
+assumptions:
+  reviewed:
+    - id: built-in-adapters-require-daemon-path
+      outcome: unchanged
+      reason: Tighten the existing presence-only resolver so searchable directories
+        cannot satisfy the canonical executable contract, while executable files
+        and symlinks still do.
+    - id: agent-selection-catalog-is-refreshable
+      outcome: unchanged
+      reason: Correct the existing Refresh header's token typo without changing its
+        placement, state behavior, reconciliation, or dialog composition.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The canonical executable mapping and sole built-in composition source
+        remain unchanged; only target classification is corrected.
+    - id: adapter-refresh-is-authorized-and-incremental
+      outcome: unchanged
+      reason: Refresh authorization, transition detection, and model discovery remain
+        unchanged because all consumers continue using the same resolver result.
+    - id: new-agent-requests-require-installed-harness
+      outcome: unchanged
+      reason: Spawn and create preflight remain unchanged and inherit the corrected
+        installed result.
+anchors:
+  built-in-adapters-require-daemon-path:
+    builtin-executable-registry:
+      action: change
+      reason: Require the accessible PATH target not to be a directory.
+    builtin-executable-regression:
+      action: change
+      reason: Prove an executable-named directory is unavailable while the file case
+        remains presence-only.
+  adapter-registry-sole-harness-source:
+    configured-adapter-registry:
+      action: change
+      reason: Account for the nested resolver change inside the sole registry region.
+files:
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+  - packages/web-next/src/styles/room.css
+verification: Run the focused adapter-registry executable tests, build/typecheck
+  web-next, pass Harn unstaged and staged checks, apply the plan, and commit the
+  correction as one implementation transaction.
