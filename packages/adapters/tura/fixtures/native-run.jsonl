@@ -1,0 +1,5 @@
+{"type":"cli.started","sessionID":"ses_tura"}
+{"type":"message.part.delta","sessionID":"ses_tura","text":"PONG"}
+{"type":"command.updated","sessionID":"ses_tura","raw":{"payload":{"properties":{"commandID":"cmd_1","status":"running","command":"command_run","input":{"command_line":"pwd"}}}}}
+{"type":"command.updated","sessionID":"ses_tura","raw":{"payload":{"properties":{"commandID":"cmd_1","status":"completed","command":"command_run","output":"/work"}}}}
+{"type":"cli.completed","sessionID":"ses_tura","status":"completed","finalText":"PONG"}

@@ -8,6 +8,7 @@ import { CopilotAdapter } from '@codor/adapter-copilot';
 import { CursorAdapter } from '@codor/adapter-cursor';
 import { GeminiAdapter } from '@codor/adapter-gemini';
 import { OpenCodeAdapter } from '@codor/adapter-opencode';
+import { TuraAdapter } from '@codor/adapter-tura';
 import {
   type AdapterCapabilities,
   DEFAULT_THINKING_LEVELS,
@@ -39,6 +40,7 @@ const builtinFactories = {
   cursor: () => new CursorAdapter(),
   gemini: () => new GeminiAdapter(),
   opencode: () => new OpenCodeAdapter(),
+  tura: () => new TuraAdapter(),
 } satisfies Record<string, AdapterFactory>;
 
 export const BUILTIN_ADAPTER_IDS = Object.freeze(Object.keys(builtinFactories));

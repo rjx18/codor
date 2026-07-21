@@ -26,6 +26,7 @@ describe('adapter registry spawn controls', () => {
       ['cursor', false, undefined],
       ['gemini', false, undefined],
       ['opencode', true, ['low', 'medium', 'high']],
+      ['tura', false, undefined],
     ]);
   });
 

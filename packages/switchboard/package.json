@@ -25,6 +25,7 @@
     "@codor/adapter-cursor": "workspace:*",
     "@codor/adapter-gemini": "workspace:*",
     "@codor/adapter-opencode": "workspace:*",
+    "@codor/adapter-tura": "workspace:*",
     "@codor/protocol": "workspace:*",
     "better-sqlite3": "^12.11.1",
     "chokidar": "^5.0.0",
