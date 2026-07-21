@@ -188,22 +188,28 @@ test.describe('Tier-1: the create dialog seeds a fully configured agent', () => 
     // remain, with every agent-only field absent.
     await expect(dialog.getByTestId('create-agent-name')).toHaveCount(0);
     await expect(dialog.getByTestId('create-agent-none-note')).toBeVisible();
-    await dialog.getByTestId('create-harness-fake').click();
+    await dialog.getByTestId('create-harness-thinky').click();
     await expect(dialog.getByTestId('create-agent-name')).toBeVisible();
     // It defaults to codor rather than starting empty.
     await expect(dialog.getByTestId('create-agent-name')).toHaveValue('codor');
     await dialog.getByTestId('create-agent-name').fill('restored');
+    await dialog.getByTestId('create-model-custom').fill('thinky/custom');
+    await dialog.getByTestId('create-thinking-range').fill('3');
+    await dialog.getByTestId('create-policy-full-access').click();
     await dialog.getByTestId('create-harness-none').click();
     await expect(dialog.getByTestId('create-agent-name')).toHaveCount(0);
-    await dialog.getByTestId('create-harness-fake').click();
+    await dialog.getByTestId('create-harness-thinky').click();
     await expect(dialog.getByTestId('create-agent-name')).toHaveValue('restored');
+    await expect(dialog.getByTestId('create-model-custom')).toHaveValue('thinky/custom');
+    await expect(dialog.getByTestId('create-thinking-value')).toHaveText('high');
+    await expect(dialog.getByTestId('create-policy-full-access')).toHaveAttribute('aria-pressed', 'true');
 
     // The working folder is required, so pick one before creating.
     await dialog.getByTestId('create-folder-alpha-project').click();
     await dialog.getByTestId('create-go').click();
     await expect(page.locator('.nx-chat-title h1')).toHaveText('seeded', { timeout: 15_000 });
     await expect(page.getByTestId('member-restored')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('member-restored')).toContainText('read-only');
+    await expect(page.getByTestId('member-restored')).toContainText('full-access');
   });
 });
 

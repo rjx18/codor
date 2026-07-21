@@ -1,7 +1,7 @@
 import type { Room } from '@codor/protocol';
 import { deriveAssignableHandle, deriveRoomId } from '@codor/protocol';
 import { FolderPlus, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   createRoom,
@@ -34,6 +34,7 @@ export function CreateChannelDialog(props: {
   const [agentConfig, setAgentConfig] = useState<AgentConfig>({
     harness: '', model: '', thinking: '', policy: DEFAULT_POLICY,
   });
+  const hiddenAgentConfig = useRef<AgentConfig>();
   // Default name matches legacy: most channels want one agent called `codor`.
   const [agentName, setAgentName] = useState('codor');
   const [busy, setBusy] = useState(false);
@@ -47,6 +48,19 @@ export function CreateChannelDialog(props: {
   // derived from the effective name rather than from what was literally typed.
   // Requiring a non-empty name here is what made the fallback unreachable.
   const agentHarness = agentConfig.harness;
+  const changeAgentIdentityConfig = (next: AgentConfig): void => {
+    if (next.harness === '') {
+      if (agentConfig.harness !== '') hiddenAgentConfig.current = agentConfig;
+      setAgentConfig(next);
+      return;
+    }
+    const hidden = hiddenAgentConfig.current;
+    if (agentConfig.harness === '' && hidden?.harness === next.harness) {
+      setAgentConfig(hidden);
+      return;
+    }
+    setAgentConfig(next);
+  };
   const effectiveAgentName = agentName.trim() === '' ? 'Agent' : agentName.trim();
   const derivedHandle = useMemo(
     () => deriveAssignableHandle(effectiveAgentName),
@@ -141,7 +155,7 @@ export function CreateChannelDialog(props: {
           <AgentIdentityControls
             adapters={adapters}
             config={agentConfig}
-            onChange={setAgentConfig}
+            onChange={changeAgentIdentityConfig}
             allowNone
             optional
             idPrefix="create"
