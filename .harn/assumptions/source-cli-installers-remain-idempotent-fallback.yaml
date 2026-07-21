@@ -1,0 +1,13 @@
+id: source-cli-installers-remain-idempotent-fallback
+hash: a-74aa7801a068
+title: Checkout installers remain stable development fallbacks
+state: active
+statement: The checked-in POSIX installer must idempotently replace one
+  local-bin symlink with the built CLI, and the Windows installer must refuse a
+  missing build, write one argument-preserving local-bin shim, and add that
+  directory to user PATH at most once; documentation must label both as
+  source-checkout fallbacks, because contributors still need a predictable
+  unpublished path without confusing it for normal installation.
+depends_on:
+  - fresh-clone-install-proven-by-script
+created_by: codor-packed-release-proof

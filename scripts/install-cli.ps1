@@ -1,4 +1,4 @@
-# harn:assume windows-cli-installer-is-idempotent ref=windows-cli-install-script
+# harn:assume source-cli-installers-remain-idempotent-fallback ref=windows-cli-install-script
 $ErrorActionPreference = 'Stop'
 $Root = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $Entry = Join-Path $Root 'packages\cli\dist\index.js'
@@ -27,4 +27,4 @@ if (-not $Present) {
 }
 
 Write-Output "installed $ShimPath -> $Entry"
-# harn:end windows-cli-installer-is-idempotent
+# harn:end source-cli-installers-remain-idempotent-fallback

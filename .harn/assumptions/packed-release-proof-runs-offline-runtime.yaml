@@ -1,0 +1,17 @@
+id: packed-release-proof-runs-offline-runtime
+hash: a-d4952778b0a8
+title: The release gate proves the packed runtime from a clean source clone
+state: active
+statement: The release gate must use the pinned glibc Node 22 container to build
+  from a clean selected Git ref, pack and install @richhardry/codor with no
+  workspace resolution, repeat npm install, load its native switchboard, run the
+  installed CLI and setup dry-run under no network and no inherited CODOR
+  variables, boot the packaged daemon with isolated data, verify root,
+  referenced app bundle, service worker, CLI post-tail, authenticated room API,
+  and teardown; because a green workspace cannot prove the tarball operators
+  receive.
+depends_on:
+  - public-npx-setup-is-primary-install
+  - cli-tests-delete-inherited-codor-environment
+  - supported-browser-is-standalone-web-next
+created_by: codor-packed-release-proof

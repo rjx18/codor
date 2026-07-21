@@ -1,7 +1,7 @@
 id: release-candidate-requires-clean-codor-deployment
 hash: a-cab65f36caa3
 title: Release candidate requires a clean Codor deployment record
-state: active
+state: retired
 statement: The release checklist must record a clean local clone installed
   through the codor command and service, private HTTPS pairing, the bounded live
   channel smoke, deterministic full gates, and the final repository review
@@ -12,3 +12,4 @@ depends_on:
   - codor-runtime-identity-is-a-clean-break
   - human-facing-surfaces-call-rooms-channels
 created_by: codor-p7-release
+retired_by: codor-packed-release-proof

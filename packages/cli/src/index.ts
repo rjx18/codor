@@ -22,7 +22,7 @@ export function packageName(): string {
   return '@codor/cli';
 }
 
-// harn:assume global-cli-install-is-idempotent ref=per-user-cli-install-script
+// harn:assume source-cli-installers-remain-idempotent-fallback ref=per-user-cli-install-script
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const { runCli } = await import('./program.js');
   await runCli().catch((error: unknown) => {
@@ -30,4 +30,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     process.exitCode = 1;
   });
 }
-// harn:end global-cli-install-is-idempotent
+// harn:end source-cli-installers-remain-idempotent-fallback

@@ -7,8 +7,9 @@ machine. No hosted Codor component is required.
 <!-- harn:assume fresh-clone-install-proven-by-script ref=selfhost-guide -->
 ## Prerequisites
 
-- Linux, macOS, or native Windows with Node.js 22 or newer, Git, and pnpm 10.9.0.
-  Linux and macOS also need `curl` and OpenSSL for the manual paths below.
+- Linux, macOS, or native Windows with Node.js 22.12.0 or newer. Git and pnpm 10.9.0
+  are needed only for source development. Linux and macOS also need `curl` and OpenSSL for the
+  manual paths below.
 - The harness CLIs you intend to use, installed and authenticated for the service user.
 - pnpm 10.9.0, selected by the repository's `packageManager` field through Corepack.
 - Optional: Tailscale for private HTTPS access from phones and other machines.
@@ -17,9 +18,24 @@ Never expose port 8137 directly to the public internet. The browser token is a b
 use loopback plus Tailscale Serve, another authenticated private tunnel, or a hardened reverse
 proxy you operate.
 
+<!-- harn:assume public-npx-setup-is-primary-install ref=selfhost-primary-install -->
 ## Install
 
-Choose a stable directory and keep the Git checkout for upgrades:
+Install and start the complete local runtime:
+
+```sh
+npx @richhardry/codor setup
+```
+
+The five-stage session checks the computer, prepares private files, chooses localhost or Tailscale,
+installs the native per-user service, requires the Codor pairing-status response, and then prints a
+QR, URL, eight-character code, and expiry. Use `npx @richhardry/codor setup --dry-run` for a
+side-effect-free preview. Unattended mutation requires both `--yes` and
+`--access localhost|tailscale`; setup never guesses remote exposure from detection alone.
+<!-- harn:end public-npx-setup-is-primary-install -->
+
+<!-- harn:assume source-cli-installers-remain-idempotent-fallback ref=selfhost-windows-cli-installer -->
+For source development, clone a stable ref and use the checkout installer:
 
 ```sh
 git clone https://github.com/rjx18/codor.git ~/codor
@@ -29,17 +45,20 @@ pnpm -r build
 scripts/install-cli.sh
 ```
 
+On Windows, replace the last command with
+`powershell -ExecutionPolicy Bypass -File scripts/install-cli.ps1`. Both checkout installers are
+idempotent fallbacks; normal installation uses `npx @richhardry/codor setup`.
+<!-- harn:end source-cli-installers-remain-idempotent-fallback -->
+
 <!-- harn:assume operator-launches-serve-web-next ref=selfhost-current-web-client -->
-The supported browser build is `packages/web-next/dist`. The CLI default, the checked-in systemd
-service, and the generated macOS LaunchAgent point there directly. It contains the complete client
-runtime and owned service worker; there is no second browser workspace to build or deploy.
+The package carries the supported web-next build inside its private runtime; a source checkout uses
+`packages/web-next/dist`. The CLI default and every generated platform service resolve the matching
+location from the runtime that invoked setup. It contains the complete client and owned service
+worker; there is no second browser workspace to build or deploy.
 <!-- harn:end operator-launches-serve-web-next -->
 
 The fresh-install test clones the selected repository ref over a local file URL so it cannot
 borrow `node_modules`, build output, or untracked files from the working tree.
-
-As an alternative to the install script, run
-`corepack pnpm --filter @codor/cli link --global`.
 
 ## Linux and macOS setup wizard
 
@@ -49,8 +68,9 @@ Run the one-shot wizard under the service user:
 codor setup
 ```
 
-The wizard asks before each mutating step. It creates `~/.config/codor` and `~/.codor` with mode
-700, creates a mode-600 token if one is absent, and installs the current platform's user service:
+The interactive session shows the five stages and asks for one access choice before mutation. It
+creates `~/.config/codor` and `~/.codor` with mode 700, creates a mode-600 token if one is absent,
+and installs the current platform's user service:
 
 - On Linux, `~/.config/systemd/user/codor.service` plus a mode-600 environment file.
 - On macOS, `~/Library/LaunchAgents/app.codor.switchboard.plist` plus private logs in
@@ -59,9 +79,9 @@ The wizard asks before each mutating step. It creates `~/.config/codor` and `~/.
 Both services use the absolute current Node executable. Their explicit `PATH` includes
 `~/.local/bin`, the Node bin directory, and the directory of every detected `claude`, `codex`,
 `cursor-agent`, `agy`, `opencode`, `gemini`, or `copilot` executable, so nvm and shell-only harness
-installs remain visible outside an interactive shell. The wizard then offers to enable the service,
-publish loopback through Tailscale Serve, and generate a ten-minute pairing URL plus a compact
-terminal QR.
+installs remain visible outside an interactive shell. Setup enables the service, verifies Codor's
+pairing-status endpoint, optionally publishes loopback through Tailscale Serve, and generates a
+ten-minute pairing URL, compact terminal QR, short code, and expiry.
 
 Preview the complete action list and generated service content without writing files or invoking
 system commands:
@@ -154,30 +174,19 @@ launchctl kickstart -k "gui/$(id -u)/app.codor.switchboard"
 Do not install it as a root LaunchDaemon: that would change which home directory, project files,
 and authenticated harness state the agents can access.
 
-<!-- harn:assume windows-setup-installs-task-scheduler-service ref=selfhost-native-windows-service -->
+<!-- harn:assume windows-setup-installs-private-task-service ref=selfhost-native-windows-service -->
 ## Native Windows setup wizard
 
-From the repository folder in PowerShell, install the built CLI and run the same setup wizard:
-
-<!-- harn:assume windows-cli-installer-is-idempotent ref=selfhost-windows-cli-installer -->
-```powershell
-pnpm install --frozen-lockfile
-pnpm -r build
-powershell -ExecutionPolicy Bypass -File scripts/install-cli.ps1
-```
-
-The installer writes one stable `codor.cmd` shim under `%USERPROFILE%\.local\bin` and adds that
-directory to the user PATH once. Open a new PowerShell window after the first install, then run:
+Run the same public setup command from PowerShell:
 
 ```powershell
-codor setup
+npx @richhardry/codor setup
 ```
-<!-- harn:end windows-cli-installer-is-idempotent -->
 
-The wizard asks before it mutates the machine. It creates the private data and token paths, limits
-the token ACL to the current user, and registers a hidden per-user Task Scheduler logon task named
-`Codor Switchboard`. The task runs the built CLI and `packages/web-next/dist` from this checkout
-using absolute paths. Preview every action first with `codor setup --dry-run`.
+Setup creates the private data and token paths, limits the token ACL to the current user, and
+registers a hidden per-user Task Scheduler logon task named `Codor Switchboard`. The task runs the
+installed CLI and its packaged browser runtime using absolute paths. Preview every action first
+with `npx @richhardry/codor setup --dry-run`.
 
 ```powershell
 schtasks /Query /TN "Codor Switchboard"
@@ -192,7 +201,7 @@ Native Windows uses a local named pipe derived from the resolved data directory 
 `codor.sock`. This changes only the local CLI transport: the browser still opens
 <http://127.0.0.1:8137>, and the wire protocol is unchanged.
 <!-- harn:end windows-named-pipe-shares-local-websocket-protocol -->
-<!-- harn:end windows-setup-installs-task-scheduler-service -->
+<!-- harn:end windows-setup-installs-private-task-service -->
 
 For development diagnostics only, the single repository-relative fallback is
 `node packages/cli/dist/index.js --help`; installed operation should use `codor`.

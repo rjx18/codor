@@ -1169,7 +1169,7 @@ describe('@codor/cli', () => {
   });
   // harn:end cli-member-recovery-is-actionable
 
-  // harn:assume global-cli-install-is-idempotent ref=cli-install-regression
+  // harn:assume source-cli-installers-remain-idempotent-fallback ref=cli-install-regression
   posixHostIt('installs the built CLI as one stable per-user symlink on repeated runs', () => {
     const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
     const home = join(dir, 'install-home');
@@ -1184,7 +1184,7 @@ describe('@codor/cli', () => {
     expect(statSync(installed).mode & 0o111).not.toBe(0);
     expect(execFileSync(installed, ['--help'], { env, encoding: 'utf8' })).toContain('Usage: codor');
   });
-  // harn:end global-cli-install-is-idempotent
+  // harn:end source-cli-installers-remain-idempotent-fallback
 
   it('parses documented Claude hooks and Codex notify plus rollout tailing', () => {
     const fixtures = fileURLToPath(new URL('../fixtures/', import.meta.url));

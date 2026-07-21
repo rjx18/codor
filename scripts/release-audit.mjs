@@ -14,7 +14,7 @@ const checklist = manual.slice(checklistStart, checklistEnd);
 
 const codexGate = checklist.indexOf('full-repository Codex review');
 const liveGate = checklist.indexOf('M0 and M1 live acceptances');
-const tag = checklist.indexOf('signed `v0.1.0` tag');
+const tag = checklist.indexOf('signed release tag');
 assert.ok(codexGate >= 0 && liveGate >= 0 && tag >= 0, 'pre-tag gates or tag step are missing');
 assert.ok(codexGate < tag, 'full-repository Codex review must precede the release tag');
 assert.ok(liveGate < tag, 'M0/M1 live acceptance must precede the release tag');
@@ -119,5 +119,30 @@ assert.doesNotMatch(firstChannelSource, /Create one from another surface/);
 assert.match(agentControlsSource, /headingLevel\?: 2 \| 3/);
 assert.equal((firstChannelSource.match(/headingLevel=\{2\}/g) ?? []).length, 2);
 // harn:end shared-form-sections-follow-their-host-outline
+
+const selfHost = await readFile(new URL('../docs/SELF-HOST.md', import.meta.url), 'utf8');
+const setupGuide = await readFile(new URL('../docs/SETUP.md', import.meta.url), 'utf8');
+const rootManifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+
+// harn:assume public-npx-setup-is-primary-install ref=release-install-audit
+for (const [name, body] of [['README', readme], ['self-host guide', selfHost], ['setup guide', setupGuide]]) {
+  assert.match(body, /npx @richhardry\/codor setup/, `${name} must document the public setup command`);
+}
+assert.equal(rootManifest.engines?.node, '>=22.12.0');
+assert.doesNotMatch(readme.slice(0, readme.indexOf('## Everyday CLI')), /scripts\/install-cli\.sh\s*\n(?:codor setup)?/);
+// harn:end public-npx-setup-is-primary-install
+
+// harn:assume packed-release-proof-runs-offline-runtime ref=root-release-gate
+assert.match(rootManifest.scripts?.['release:check'] ?? '', /scripts\/packed-install-test\.sh/);
+assert.match(rootManifest.scripts?.['release:check'] ?? '', /scripts\/fresh-install-test\.sh/);
+// harn:end packed-release-proof-runs-offline-runtime
+
+// harn:assume packed-release-proof-runs-offline-runtime ref=release-proof-audit
+const packedProof = await readFile(new URL('../scripts/packed-install-test.sh', import.meta.url), 'utf8');
+assert.match(packedProof, /--network none/);
+assert.match(packedProof, /npx --offline @richhardry\/codor setup --dry-run/);
+assert.match(packedProof, /\/sw\.js/);
+assert.match(packedProof, /third-party-adapter\.mjs/);
+// harn:end packed-release-proof-runs-offline-runtime
 
 process.stdout.write('release audit passed: pre-tag gates, rename, relay disclosure, and acceptance provenance\n');

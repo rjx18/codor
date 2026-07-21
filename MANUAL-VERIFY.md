@@ -14,12 +14,13 @@ quota, or subscription failure.
 3. Inspect current first-party output, harden the acceptance fixtures without weakening their
    routing contracts, and run the M0 and M1 live acceptances once on the pinned cheap models. Both
    exact chains must pass before tagging 0.1.0; another extra or missing route blocks publication.
-4. After all folds, run `corepack pnpm -r build`, `pnpm test:all`, `pnpm audit:license`,
-   `pnpm audit:release`, `scripts/fresh-install-test.sh`, `harn check`, and the release rename greps
-   on the exact candidate commit. Every deterministic gate and the clean-clone proof must pass.
+4. After all folds, run `pnpm release:check` and `harn check` on the exact candidate commit. This
+   includes recursive builds and tests, browser e2e, license and release audits, the source-clone
+   fallback proof, and the pinned-container packed-install proof. Every gate must pass.
 5. Push the reviewed `main` commit, enable branch protection and secret scanning, make the repository
-   public, then create the signed `v0.1.0` tag and GitHub release from `CHANGELOG.md`. Do not publish
-   any workspace to npm; the distribution is the source checkout and every package remains `private`.
+   public, then have Richard publish the exact verified `@richhardry/codor` tarball with public
+   access. Create the signed release tag matching that package version and the GitHub release from
+   `CHANGELOG.md`; never publish the private `@codor/*` workspace packages individually.
 6. Build the public documentation with the real remote URL:
    `CODOR_REPOSITORY_URL=https://github.com/<owner>/<repo> pnpm --filter @codor/website build`.
    Deploy only `website/.vitepress/dist/`, then verify Source, GitHub, and edit links point to the
@@ -41,8 +42,17 @@ quota, or subscription failure.
    `docs/BUSINESS.md`; 0.1.0 must not collect payment or imply that hosted mailbox, directory,
    presence, or native iPhone/Watch products already exist.
 
-<!-- harn:assume release-candidate-requires-clean-codor-deployment ref=final-release-verification-record -->
-## Codor release-candidate verification
+<!-- harn:assume release-candidate-requires-publishable-tarball ref=final-release-verification-record -->
+## Codor packed release-candidate verification
+
+For the public-package candidate, retain the final `pnpm release:check` result, Harn result, tarball
+filename, npm integrity, unpacked package identity, and exact reviewed commit. The packed proof must
+start from a clean clone, install only the tarball, execute setup without network or inherited
+`CODOR_*` variables, and boot the packaged daemon and browser runtime. Richard performs the final
+`npm publish <verified-tarball> --access public` handoff. Do not record tokens, pairing URLs, device
+identities, session references, private keys, or temporary data paths.
+
+### Historical source-linked candidate
 
 Status on 2026-07-12: **the clean deployment, bounded live smoke, deterministic gates, and
 mandatory `1a442f2..HEAD` repository review passed**. A clean local clone at the Phase 6 candidate was
@@ -87,7 +97,7 @@ mandatory full repository review of `1a442f2..e71b584`, accounted for every comm
 confirmed that every earlier finding was fixed or formally resolved, and reported no open finding.
 This records-only disposition commit was explicitly authorized after approval; any later code change
 must reopen the full review before release.
-<!-- harn:end release-candidate-requires-clean-codor-deployment -->
+<!-- harn:end release-candidate-requires-publishable-tarball -->
 
 ## Launch-sweep live acceptance record
 

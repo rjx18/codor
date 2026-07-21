@@ -1,0 +1,15 @@
+id: public-npx-setup-is-primary-install
+hash: a-4740a30e11f1
+title: The public npx command is the primary Codor installation
+state: active
+statement: Operator documentation must present npx @richhardry/codor setup as
+  the primary Linux, macOS, and Windows installation, require Node.js 22.12.0 or
+  newer, explain the five-stage interactive flow and explicit unattended flags,
+  and retain the Git checkout build only as a development fallback; because the
+  product promise is one install command rather than a repository toolchain
+  walkthrough.
+depends_on:
+  - public-package-bundles-complete-codor-runtime
+  - setup-unattended-mutation-requires-explicit-intent
+  - setup-preserves-private-platform-service
+created_by: codor-packed-release-proof

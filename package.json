@@ -6,7 +6,7 @@
   "type": "module",
   "packageManager": "pnpm@10.9.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "audit:license": "node scripts/license-audit.mjs",
@@ -15,7 +15,7 @@
     "build:artifact": "pnpm --filter '@codor/cli...' build && pnpm --filter @codor/web-next build && pnpm --filter @codor/cli build:artifact",
     "build:icons": "node scripts/build-icons.mjs",
     "lint": "pnpm -r --if-present lint",
-    "release:check": "pnpm test:all && pnpm audit:license && pnpm audit:release",
+    "release:check": "pnpm test:all && pnpm audit:license && pnpm audit:release && scripts/fresh-install-test.sh && scripts/packed-install-test.sh",
     "test": "pnpm -r test",
     "test:all": "pnpm -r build && pnpm -r test && pnpm --filter @codor/web-next e2e"
   },

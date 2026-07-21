@@ -1,0 +1,14 @@
+id: release-candidate-requires-publishable-tarball
+hash: a-cfc8efeb53f2
+title: Release candidate requires the exact publishable tarball proof
+state: active
+statement: The final release checklist must require deterministic repository
+  gates, the clean packed-install proof, review of the exact candidate commit,
+  and publication of the verified @richhardry/codor tarball with a signed tag
+  matching its version, while keeping secret values out of the record; because
+  the release handoff must identify exactly what Richard can publish rather than
+  prohibit npm distribution.
+depends_on:
+  - packed-release-proof-runs-offline-runtime
+  - release-audits-enforce-codor-clean-break
+created_by: codor-packed-release-proof

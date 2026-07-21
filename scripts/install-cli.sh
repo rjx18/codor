@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# harn:assume global-cli-install-is-idempotent ref=per-user-cli-install-script
+# harn:assume source-cli-installers-remain-idempotent-fallback ref=per-user-cli-install-script
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 ENTRYPOINT="$ROOT/packages/cli/dist/index.js"
 BIN_DIR="${HOME:?HOME is required}/.local/bin"
@@ -16,4 +16,4 @@ install -d "$BIN_DIR"
 chmod 755 "$ENTRYPOINT"
 ln -sfn "$ENTRYPOINT" "$TARGET"
 printf 'installed %s -> %s\n' "$TARGET" "$ENTRYPOINT"
-# harn:end global-cli-install-is-idempotent
+# harn:end source-cli-installers-remain-idempotent-fallback

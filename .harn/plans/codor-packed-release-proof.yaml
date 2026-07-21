@@ -1,36 +1,38 @@
 id: codor-packed-release-proof
 title: Make the packed npm runtime the primary install and prove the release artifact
-notes: "Phase 6, contract 3 of 3. Document npx @richhardry/codor setup as the
+notes: Phase 6, contract 3 of 3. Document npx @richhardry/codor setup as the
   primary cross-platform install while retaining the checkout installers as an
   explicit development fallback. Add one clean, pinned Node 22 container proof
-  that builds the public artifact from a clean clone, installs the packed tarball,
-  repeats npm install, loads native modules, runs the installed CLI and dry-run
-  offline, boots the packaged daemon, verifies its browser bundle and service
-  worker, exercises CLI and API state, and tears down. Put that proof in the root
-  release gate and update the operator checklist from the obsolete source-only
-  no-npm release policy to the exact tarball handoff Richard will publish. Raise
-  the documented and root Node floor to the actual Commander 15 requirement,
-  22.12.0."
+  that builds the public artifact from a clean clone, installs the packed
+  tarball, repeats npm install, loads native modules, runs the installed CLI and
+  dry-run offline, boots the packaged daemon, verifies its browser bundle and
+  service worker, exercises CLI and API state, and tears down. Put that proof in
+  the root release gate and update the operator checklist from the obsolete
+  source-only no-npm release policy to the exact tarball handoff Richard will
+  publish. Raise the documented and root Node floor to the actual Commander 15
+  requirement, 22.12.0.
 assumptions:
   retire:
     - id: global-cli-install-is-idempotent
       reason: Its implementation stays as a source fallback, but its statement makes
-        the checkout symlink the primary distribution path, which the public package replaces.
+        the checkout symlink the primary distribution path, which the public
+        package replaces.
     - id: windows-cli-installer-is-idempotent
-      reason: The Windows shim stays as the source-checkout fallback and is folded into
-        one cross-platform fallback obligation rather than remaining a primary installer.
+      reason: The Windows shim stays as the source-checkout fallback and is folded
+        into one cross-platform fallback obligation rather than remaining a
+        primary installer.
     - id: release-candidate-requires-clean-codor-deployment
-      reason: The historical source-linked Phase 7 record and npm prohibition no longer
-        describe the 0.10.0 public-package release candidate.
+      reason: The historical source-linked Phase 7 record and npm prohibition no
+        longer describe the 0.10.0 public-package release candidate.
   create:
     - id: public-npx-setup-is-primary-install
       title: The public npx command is the primary Codor installation
       statement: Operator documentation must present npx @richhardry/codor setup as
-        the primary Linux, macOS, and Windows installation, require Node.js 22.12.0
-        or newer, explain the five-stage interactive flow and explicit unattended
-        flags, and retain the Git checkout build only as a development fallback;
-        because the product promise is one install command rather than a repository
-        toolchain walkthrough.
+        the primary Linux, macOS, and Windows installation, require Node.js
+        22.12.0 or newer, explain the five-stage interactive flow and explicit
+        unattended flags, and retain the Git checkout build only as a
+        development fallback; because the product promise is one install command
+        rather than a repository toolchain walkthrough.
       reason: Richard chose the public @richhardry scope and will perform publication.
       depends_on:
         - public-package-bundles-complete-codor-runtime
@@ -38,26 +40,29 @@ assumptions:
         - setup-preserves-private-platform-service
     - id: source-cli-installers-remain-idempotent-fallback
       title: Checkout installers remain stable development fallbacks
-      statement: The checked-in POSIX installer must idempotently replace one local-bin
-        symlink with the built CLI, and the Windows installer must refuse a missing
-        build, write one argument-preserving local-bin shim, and add that directory
-        to user PATH at most once; documentation must label both as source-checkout
-        fallbacks, because contributors still need a predictable unpublished path
-        without confusing it for normal installation.
+      statement: The checked-in POSIX installer must idempotently replace one
+        local-bin symlink with the built CLI, and the Windows installer must
+        refuse a missing build, write one argument-preserving local-bin shim,
+        and add that directory to user PATH at most once; documentation must
+        label both as source-checkout fallbacks, because contributors still need
+        a predictable unpublished path without confusing it for normal
+        installation.
       reason: Preserve the tested scripts while correcting their product role.
       depends_on:
         - fresh-clone-install-proven-by-script
     - id: packed-release-proof-runs-offline-runtime
       title: The release gate proves the packed runtime from a clean source clone
       statement: The release gate must use the pinned glibc Node 22 container to build
-        from a clean selected Git ref, pack and install @richhardry/codor with no
-        workspace resolution, repeat npm install, load its native switchboard,
-        run the installed CLI and setup dry-run under no network and no inherited
-        CODOR variables, boot the packaged daemon with isolated data, verify root,
-        referenced app bundle, service worker, CLI post-tail, authenticated room API,
-        and teardown; because a green workspace cannot prove the tarball operators receive.
-      reason: Contract 1 proved package shape and contract 2 proved setup behavior; the
-        release gate must now prove their packed integration from the state a user gets.
+        from a clean selected Git ref, pack and install @richhardry/codor with
+        no workspace resolution, repeat npm install, load its native
+        switchboard, run the installed CLI and setup dry-run under no network
+        and no inherited CODOR variables, boot the packaged daemon with isolated
+        data, verify root, referenced app bundle, service worker, CLI post-tail,
+        authenticated room API, and teardown; because a green workspace cannot
+        prove the tarball operators receive.
+      reason: Contract 1 proved package shape and contract 2 proved setup behavior;
+        the release gate must now prove their packed integration from the state
+        a user gets.
       depends_on:
         - public-npx-setup-is-primary-install
         - cli-tests-delete-inherited-codor-environment
@@ -65,11 +70,11 @@ assumptions:
     - id: release-candidate-requires-publishable-tarball
       title: Release candidate requires the exact publishable tarball proof
       statement: The final release checklist must require deterministic repository
-        gates, the clean packed-install proof, review of the exact candidate commit,
-        and publication of the verified @richhardry/codor tarball with a signed tag
-        matching its version, while keeping secret values out of the record; because
-        the release handoff must identify exactly what Richard can publish rather
-        than prohibit npm distribution.
+        gates, the clean packed-install proof, review of the exact candidate
+        commit, and publication of the verified @richhardry/codor tarball with a
+        signed tag matching its version, while keeping secret values out of the
+        record; because the release handoff must identify exactly what Richard
+        can publish rather than prohibit npm distribution.
       reason: Replace the obsolete source-only historical candidate policy.
       depends_on:
         - packed-release-proof-runs-offline-runtime
@@ -77,19 +82,23 @@ assumptions:
   reviewed:
     - id: fresh-clone-install-proven-by-script
       outcome: unchanged
-      reason: The source-clone proof remains useful and unchanged as the development fallback.
+      reason: The source-clone proof remains useful and unchanged as the development
+        fallback.
     - id: operator-launches-serve-web-next
       outcome: unchanged
-      reason: Updated docs and the packed proof still serve only the current web-next build.
+      reason: Updated docs and the packed proof still serve only the current web-next
+        build.
     - id: release-audits-enforce-codor-clean-break
       outcome: unchanged
-      reason: The release audit gains package-install assertions without relaxing rename checks.
+      reason: The release audit gains package-install assertions without relaxing
+        rename checks.
     - id: windows-setup-installs-private-task-service
       outcome: unchanged
       reason: Windows documentation is re-anchored to the active staged-setup contract.
     - id: wsl-setup-keeps-private-windows-loopback
       outcome: unchanged
-      reason: WSL documentation is re-anchored without changing its private bind behavior.
+      reason: WSL documentation is re-anchored without changing its private bind
+        behavior.
 files:
   - package.json
   - README.md
@@ -117,10 +126,12 @@ anchors:
   windows-cli-installer-is-idempotent:
     readme-native-windows-installer:
       action: remove
-      reason: Replace Windows source-first instructions with npx plus fallback guidance.
+      reason: Replace Windows source-first instructions with npx plus fallback
+        guidance.
     selfhost-windows-cli-installer:
       action: remove
-      reason: Replace Windows source-first instructions with npx plus fallback guidance.
+      reason: Replace Windows source-first instructions with npx plus fallback
+        guidance.
     windows-cli-install-regression:
       action: remove
       reason: Re-anchor the unchanged Windows fallback test.
@@ -130,7 +141,8 @@ anchors:
   release-candidate-requires-clean-codor-deployment:
     final-release-verification-record:
       action: remove
-      reason: Replace the source-only npm prohibition with the packed-candidate checklist.
+      reason: Replace the source-only npm prohibition with the packed-candidate
+        checklist.
   fresh-clone-install-proven-by-script:
     selfhost-guide:
       action: change
@@ -162,7 +174,8 @@ anchors:
       reason: Put public-package installation before the source development fallback.
     setup-quickstart:
       action: change
-      reason: Make the concise setup page use npx and describe interactive or unattended use.
+      reason: Make the concise setup page use npx and describe interactive or
+        unattended use.
     release-install-audit:
       action: change
       reason: Assert normal docs and release scripts retain the public install command.
@@ -191,7 +204,8 @@ anchors:
   packed-release-proof-runs-offline-runtime:
     packed-install-script:
       action: change
-      reason: Add the clean build, packed install, offline runtime, browser, CLI, API, and teardown proof.
+      reason: Add the clean build, packed install, offline runtime, browser, CLI, API,
+        and teardown proof.
     root-release-gate:
       action: change
       reason: Require the packed proof after deterministic tests and audits.
@@ -216,9 +230,12 @@ anchors:
 verification: Build and test the artifact from a clean selected Git ref in
   node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3.
   Inspect the tar listing, install it with npm, run npm ls and a second install,
-  then run the installed native import, CLI, setup dry-run, daemon/browser/service
-  worker, CLI post-tail, and authenticated API checks with --network none and all
-  inherited CODOR variables deleted. Prove teardown and deliberate CLI failure
-  formatting. Run the legacy source-clone proof, full repository release gate,
-  audits, Harn, and documentation build. Confirm the generated tarball name,
-  integrity, size, and publish command without publishing it.
+  then run the installed native import, CLI, setup dry-run,
+  daemon/browser/service worker, CLI post-tail, and authenticated API checks
+  with --network none and all inherited CODOR variables deleted. Prove teardown
+  and deliberate CLI failure formatting. Run the legacy source-clone proof, full
+  repository release gate, audits, Harn, and documentation build. Confirm the
+  generated tarball name, integrity, size, and publish command without
+  publishing it.
+applied:
+  applied_at: 2026-07-21T01:53:32.102Z

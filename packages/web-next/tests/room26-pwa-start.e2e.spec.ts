@@ -187,7 +187,7 @@ test.describe('pwa startup room', () => {
     await expect(page.getByTestId('startup-unavailable')).toHaveCount(0);
   });
 
-  test('an account with no channels sees a truthful empty state and opens nothing', async ({ page }) => {
+  test('an account with no channels sees first-channel onboarding and opens nothing', async ({ page }) => {
     const subscribed = trackSubscriptions(page);
     // Both authorized-room sources report nothing, which is the only honest
     // way to reach this state without inventing a room.
@@ -203,7 +203,9 @@ test.describe('pwa startup room', () => {
     });
 
     await launch(page, `/?token=${TOKEN}`);
-    await expect(page.getByTestId('no-channels')).toBeVisible();
+    await expect(page.getByTestId('first-channel-onboarding')).toBeVisible();
+    await expect(page.getByTestId('first-channel-name')).toBeFocused();
+    await expect(page.getByTestId('first-channel-create')).toBeDisabled();
     await expect(page.getByTestId('timeline')).toHaveCount(0);
     expect(subscribed).toEqual([]);
   });
