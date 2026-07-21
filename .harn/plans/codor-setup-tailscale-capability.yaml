@@ -1,0 +1,118 @@
+id: codor-setup-tailscale-capability
+title: Resolve Tailscale by path and app location, capability-probe Serve, and
+  route a Serve failure back to Choose access
+notes: >-
+  Plan C of the installer overhaul (Codex #460, corrections #462.4). Today
+  Tailscale detection is bare which('tailscale'): a Mac App Store install puts
+  the CLI at /Applications/Tailscale.app/Contents/MacOS/Tailscale, off PATH, so
+  it reads as unavailable; and Serve is invoked as the literal 'tailscale' with
+  no capability check, and a Serve failure aborts setup.
+
+  RESOLUTION AND EXECUTION. resolveTailscale checks PATH first, then the standard
+  macOS application locations, and returns an absolute path. Serve is executed
+  through that resolved absolute path, never the bare command name.
+
+  CAPABILITY PROBE, NOT AN OS ALLOWLIST. tailscaleServeSupported runs the
+  resolved CLI's `serve --help` and treats a clean exit as support. The access
+  menu marks Tailscale available only when it is both resolved and Serve-capable,
+  and explains an unavailable choice: not installed, or Serve unsupported by this
+  CLI.
+
+  SERVE MOVES INTO CHOOSE ACCESS so a failure keeps the operator there. Selecting
+  Tailscale runs Serve as part of the Choose-access step and derives the private
+  HTTPS endpoint; a Serve command failure fails that step, and the accordion's
+  Retry re-opens the menu and Back returns to it, so the operator can pick
+  Localhost. Because the daemon is not started until the later Start step,
+  choosing Localhost after a Serve failure never restarts an already-healthy
+  Codor. The readiness probe always targets the local loopback endpoint, while
+  the pairing endpoint becomes the tailnet HTTPS origin only when Serve
+  succeeded. The three failure modes are distinguished: not installed, Serve
+  unsupported, and Serve command failed.
+
+  SCOPE. Tailscale resolution, capability, execution, and the Serve-into-choose
+  move, plus the local-vs-pairing endpoint split. The launchctl resilience is
+  Plan B; the accordion navigation this leans on is Plan A.
+assumptions:
+  create:
+    - id: setup-resolves-and-capability-probes-tailscale-serve
+      title: Setup resolves Tailscale by path and app location and probes Serve support
+      statement: Setup must resolve the Tailscale CLI through PATH and then the standard
+        macOS application locations to an absolute path, must invoke Serve
+        through that resolved absolute path rather than the bare command name,
+        must decide availability by capability-probing the resolved CLI's Serve
+        support rather than by an operating-system allowlist, must present
+        Tailscale as unavailable with an explanation distinguishing not-installed
+        from Serve-unsupported, and must attempt Serve as part of choosing access
+        so that a Serve command failure keeps the interactive operator in Choose
+        access with Retry and Back and lets them select Localhost without
+        restarting an already-started daemon, because a Mac App Store install
+        keeps the CLI off PATH and an operating system is not a reliable proxy
+        for whether this CLI supports Serve.
+      reason: Richard's macOS Tailscale CLI is off PATH; detection must resolve it and
+        prove Serve support rather than assume it.
+      depends_on:
+        - setup-preserves-private-platform-service
+  reviewed:
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: The per-user service install, paths, modes, and no-root invariant are
+        unchanged; only where Tailscale Serve runs in the flow and how the CLI is
+        resolved change.
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: The readiness probe and bounded retry are unchanged and now always target
+        the local loopback endpoint; the pairing offer is still issued against
+        the chosen endpoint after readiness. The regression's command sequence is
+        updated for the resolved path and the earlier Serve position.
+anchors:
+  setup-resolves-and-capability-probes-tailscale-serve:
+    tailscale-resolution:
+      action: change
+      reason: The new resolveTailscale and tailscaleServeSupported helpers carry this
+        assumption's anchor.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: runSetup's detection, Choose-access step, and Start step change to resolve
+        Tailscale, run Serve during Choose access, and split the local readiness
+        endpoint from the pairing endpoint.
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-readiness-and-pairing-regression:
+      action: change
+      reason: The Serve regression's command sequence is updated to the resolved
+        absolute path and the earlier Serve position; readiness now targets the
+        loopback endpoint.
+  windows-setup-installs-private-task-service:
+    windows-setup-runtime:
+      action: keep
+      reason: The change is inside the nested platform-service region; the outer Windows
+        runtime anchor is unchanged.
+files:
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-tailscale.spec.ts
+  - packages/cli/src/index.spec.ts
+verification: >
+  Unit gates (setup-tailscale.spec):
+
+  - resolveTailscale returns the PATH hit when present, and falls back to
+    /Applications/Tailscale.app/Contents/MacOS/Tailscale on darwin when PATH
+    misses but the app exists; returns undefined when neither is found.
+
+  - tailscaleServeSupported is true when `serve --help` exits cleanly and false
+    when it throws (Serve unsupported).
+
+  - configureTailscaleServe runs the resolved absolute path, derives the HTTPS
+    origin from serve status, and throws a distinct "Serve command failed" error
+    when the serve command itself fails.
+
+  Regression gate (index.spec): the Serve setup test asserts the updated command
+  sequence — the capability probe and Serve run through /usr/bin/tailscale before
+  the systemctl commands — and still pairs against the tailnet HTTPS origin.
+
+  Preserved: the macOS and localhost setup regressions are unaffected (no
+  Tailscale resolved), and the accordion PTY/session gates from Plan A still
+  route a failed step into Retry/Back.
+
+  Real Tailscale Serve on a Mac is out of reach here; the resolution, capability,
+  and failure paths are proven through the injected which/exec, and Richard
+  confirms the Mac App Store path resolves on his machine.
