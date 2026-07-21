@@ -1,0 +1,75 @@
+id: codor-install-durable-runtime
+title: >-
+  Phase 0 - install a durable per-user Codor runtime so the service never
+  references an ephemeral npx cache
+notes: >-
+  First phase of the installer redesign (Richard #545/#547, Codex #543). Plumbing
+  only: a new runtime-install module that makes the invoking runtime durable
+  before any platform service points at it. No wizard or CLI wiring yet.
+
+  The background service's ExecStart today references
+  resolveRuntimePaths()'s cliEntrypoint/staticRoot, which for a packed
+  `npx --package=<tgz> codor install` run live under an ephemeral
+  ~/.npm/_npx/<hash> cache that npm garbage-collects - breaking the service.
+  This module copies the complete self-contained module tree (including prebuilt
+  better-sqlite3 / sodium-native binaries) into a stable ~/.codor/runtime and
+  resolves the service runtime there. A source checkout or an already-stable
+  install is durable in place (no copy). An existing install of the same version
+  is reused; a different version is updated by re-copying.
+
+  runtime-paths.ts gains one small exported helper (packageRuntimePaths) reused
+  to build installed RuntimePaths from a CLI package root; the runtime-resolution
+  anchor itself is not touched.
+assumptions:
+  create:
+    - id: setup-installs-durable-per-user-runtime
+      title: Install copies the invoking runtime into a durable per-user location
+        when it is ephemeral
+      statement: codor install must give the background service a durable runtime -
+        when the invoking runtime resolves under an ephemeral npx cache or OS
+        temp directory it must copy the complete self-contained module tree,
+        preserving prebuilt native binaries, into a stable per-user location
+        (~/.codor/runtime) and resolve the service's CLI entrypoint, static root,
+        and service template from that copy rather than the ephemeral path, while
+        a source checkout or an already-stable install is used in place; an
+        existing install of the same version is reused and a different version is
+        updated by re-copying; because a per-user service whose ExecStart points
+        into an npx cache breaks when npm garbage-collects that cache.
+      reason: The redesigned Install step must produce a service runtime that
+        survives npx cache cleanup; this is the backend that guarantees it.
+      depends_on:
+        - setup-resolves-complete-invoking-runtime
+        - setup-preserves-private-platform-service
+anchors:
+  setup-installs-durable-per-user-runtime:
+    durable-runtime-install:
+      action: change
+      reason: New runtime-install module that locates the source runtime, detects
+        ephemeral vs durable, and copies a self-contained tree to the stable
+        per-user location with reuse/update semantics.
+    durable-runtime-install-regression:
+      action: change
+      reason: New spec proving copy-when-ephemeral, in-place-when-durable, native
+        preservation, and reuse/update by version.
+  setup-resolves-complete-invoking-runtime:
+    setup-runtime-resolution:
+      action: keep
+      reason: Only an adjacent exported helper (packageRuntimePaths) is added outside
+        the resolution region; the resolution logic is unchanged.
+files:
+  - packages/cli/src/runtime-install.ts
+  - packages/cli/src/runtime-install.spec.ts
+  - packages/cli/src/runtime-paths.ts
+verification: >
+  - Ephemeral: a cliEntrypoint under ~/.npm/_npx/<hash> copies the whole install
+    root node_modules to ~/.codor/runtime and returns installed RuntimePaths
+    there; native .node files are copied.
+
+  - Durable-in-place: a source checkout and an already-stable install return
+    their runtime unchanged with no copy.
+
+  - Reuse/update: an existing install of the same version is reused (no re-copy);
+    a different version triggers a re-copy.
+
+  - runtime-install.spec passes with an injected fs surface; tsc build and harn
+    check pass.
