@@ -14,7 +14,12 @@ import {
 import { renderTerminalQr } from './terminal-qr.js';
 
 const ansi = /\u001B\[[0-?]*[ -/]*[@-~]/g;
-const plain = (value: string): string => value.replace(ansi, '');
+// OSC 8 hyperlink open/close markers (ESC ]8;; … BEL); stripping them leaves the
+// visible link text so tests measure what the operator actually sees.
+const OSC_ESC = String.fromCharCode(27);
+const OSC_BEL = String.fromCharCode(7);
+const osc8Link = new RegExp(`${OSC_ESC}\\]8;;[^${OSC_BEL}]*${OSC_BEL}`, 'g');
+const plain = (value: string): string => value.replace(ansi, '').replace(osc8Link, '');
 
 const controls = (overrides: Partial<SetupControls> = {}): SetupControls => ({
   back: false, forward: false, retry: false, finish: false, ...overrides,
@@ -153,6 +158,31 @@ describe('vertical choice menus', () => {
     })));
     expect(frame).toContain('❯ Tailscale Serve');
     expect(frame).not.toContain('❯ Localhost');
+  });
+
+  it('renders a multiline menu message line by line so recovery detail stays onscreen', () => {
+    // A Serve-failure prompt carries the real error and copyable commands; each
+    // line must survive rather than collapse into a single truncated line.
+    const message = [
+      'Tailscale Serve failed to configure.',
+      'Run this, then choose Retry:',
+      'sudo tailscale set --operator=$USER',
+    ].join('\n');
+    const frame = plain(renderSetupFrame(state({
+      steps: midway(), cursor: 2, viewport: { rows: 24, columns: 40 },
+      menu: {
+        message, focused: 0, canBack: true,
+        options: [
+          { id: 'retry', label: 'Retry Tailscale Serve', description: '', available: true },
+          { id: 'here', label: 'Continue on this computer', description: '', available: true },
+        ],
+      },
+      controls: controls({ back: true }),
+    })));
+    // The last message line proves lines after the first are not dropped.
+    expect(frame).toContain('sudo tailscale set --operator=$USER');
+    expect(frame).toContain('Tailscale Serve failed to configure.');
+    expect(frame.split('\n').every((line) => [...line].length <= 40)).toBe(true);
   });
 
   it('pads the choice block with blank lines above the prompt and around the hint', () => {
@@ -311,6 +341,30 @@ describe('pairing result card', () => {
     expect(compact(frame)).toContain(LONG_URL);
   });
 
+  // Every non-empty OSC 8 link target in the card.
+  const oscTargets = (raw: string): string[] =>
+    [...raw.matchAll(new RegExp(`${OSC_ESC}\\]8;;([^${OSC_BEL}]*)${OSC_BEL}`, 'g'))].map((match) => match[1]!).filter(Boolean);
+
+  it.each([80, 40])('links every wrapped URL segment to the complete URL, inside the box, at %i columns', (columns) => {
+    const raw = renderPairingCard({ ...card, url: LONG_URL, qr: '' }, columns);
+    const targets = oscTargets(raw);
+    expect(targets.length).toBeGreaterThan(1); // the long URL wraps into several linked segments
+    expect(targets.every((target) => target === LONG_URL)).toBe(true); // each segment links to the whole URL
+    // The visible link text reconstructs the complete URL and it lives in the box.
+    expect(compact(plain(raw))).toContain(LONG_URL);
+    const urlLine = raw.split('\n').find((line) => plain(line).includes('Open'))!;
+    expect(urlLine).toContain('│');
+    // OSC 8 markers carry zero visible width: the lines are still column-bounded.
+    expect(plain(raw).split('\n').every((line) => [...line].length <= columns)).toBe(true);
+  });
+
+  it('states the link was copied only when it was, otherwise says to copy it', () => {
+    expect(plain(renderPairingCard({ ...card, copied: true }))).toContain('Pairing link copied to clipboard.');
+    expect(plain(renderPairingCard({ ...card, copied: true }))).not.toContain('Copy the pairing link below.');
+    expect(plain(renderPairingCard({ ...card, copied: false }))).toContain('Copy the pairing link below.');
+    expect(plain(renderPairingCard({ ...card }))).toContain('Copy the pairing link below.'); // undefined → fallback
+  });
+
   // The card as it actually appears inside the wizard frame (the #570 bug: the
   // multiline card was truncated to one line's width).
   const inFrameCard = { ...card, url: LONG_URL, qr: renderTerminalQr(LONG_URL), instruction: 'Scan the QR or enter the code in your browser.' };
@@ -333,6 +387,7 @@ describe('pairing result card', () => {
       expect(frame).toContain('in 10 minutes'); // expiry
       expect(compact(frame)).toContain(LONG_URL); // complete URL, not truncated
       expect(compact(frame)).toContain(compact('Scan the QR or enter the code in your browser.')); // instruction, possibly wrapped
+      expect(frame).toContain('Copy the pairing link below.'); // clipboard status survives in-frame
       expect(frame).toContain('Enter Finish'); // reserved
       expect(frame).not.toContain('█'); // the tall QR is omitted at 24 rows
     },

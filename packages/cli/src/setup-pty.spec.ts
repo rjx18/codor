@@ -10,22 +10,35 @@ const distUrl = (name: string): string => pathToFileURL(fileURLToPath(new URL(`.
 const sessionUrl = distUrl('setup-session.js');
 const uiUrl = distUrl('setup-ui.js');
 const qrUrl = distUrl('terminal-qr.js');
+const clipboardUrl = distUrl('clipboard.js');
 
 // A realistic long Tailscale pairing URL — it wraps across several card lines, so
 // the test proves the whole multiline card renders (not truncated to one line).
 const LONG_URL = 'https://setup-host.example.ts.net/pair?endpoint=https%3A%2F%2Fsetup-host.example.ts.net&pairing_token=YrBG41M28KVjYaR05P7Zb7HcykxA-3pPGa18bPCXvoo&switchboard_sign_pub=XV5Tvp6uechAVjeX_Okb-SKSR8UunmvFTOzTxL_rLNw';
-// Rejoin the wrapped URL: strip ANSI, box chrome, and the whitespace it wraps around.
-const compact = (value: string): string =>
-  value.replace(/\[[0-9;?]*[A-Za-z]/g, '').replace(/[\s│╭╮╰╯─]/g, '');
 
-// A three-step wizard: an automatic step that auto-advances, a Localhost/Tailscale
-// access choice, and a consent-gated Start step that mutates only on the
-// affirmative, skips honestly on decline, and (under the "retry" scenario) fails
-// once. Markers on stdout let the tests observe what actually ran.
+const ESC = String.fromCharCode(27);
+const BEL = String.fromCharCode(7);
+const oscPattern = (): RegExp => new RegExp(`${ESC}\\]8;;([^${BEL}]*)${BEL}`, 'g');
+// Strip OSC 8 links, CSI colours, and stray control bytes, leaving only visible text.
+const stripEscapes = (value: string): string =>
+  value.replace(oscPattern(), '').replace(new RegExp(`${ESC}\\[[0-9;?]*[ -/]*[@-~]`, 'g'), '')
+    .replace(new RegExp(ESC, 'g'), '').replace(new RegExp(BEL, 'g'), '');
+// Rejoin the wrapped visible URL by also removing box chrome and wrap whitespace.
+const compact = (value: string): string => stripEscapes(value).replace(/[\s│╭╮╰╯─]/g, '');
+// Every non-empty OSC 8 hyperlink target found in the raw stream.
+const oscTargets = (value: string): string[] =>
+  [...value.matchAll(oscPattern())].map((match) => match[1]!).filter(Boolean);
+
+// A four-step wizard: an automatic step that auto-advances, a Localhost/Tailscale
+// access choice, a consent-gated Start step that mutates only on the affirmative
+// (and, under "retry", fails once), and a pairing step that renders the real card
+// and copies the link through an injected recording clipboard. Markers on stdout
+// let the tests observe what actually ran.
 const SOURCE = `
   import { SetupCancelled, SetupSession } from ${JSON.stringify(sessionUrl)};
   import { renderPairingCard } from ${JSON.stringify(uiUrl)};
   import { renderTerminalQr } from ${JSON.stringify(qrUrl)};
+  import { copyToClipboard } from ${JSON.stringify(clipboardUrl)};
   const LONG_URL = ${JSON.stringify(LONG_URL)};
   const scenario = process.env.SCENARIO ?? 'advance';
   const session = new SetupSession({ version: '0.10.0' });
@@ -67,12 +80,23 @@ const SOURCE = `
       run: async ({ choice, presentResult }) => {
         if (choice !== 'create') return { skip: true, summary: '(run codor pair later)' };
         process.stdout.write('RUN:pair\\n');
-        // Present the real multiline pairing card, sized to the live terminal just
-        // like setup.ts does — the whole card must survive into the frame.
+        // Copy the link like setup.ts does, through an injected spawn that records
+        // the argv and only "succeeds" when the URL arrives on stdin — proving the
+        // token travels over stdin, never in process arguments.
+        const clipArgv = [];
+        const copied = copyToClipboard(LONG_URL, {
+          platform: process.platform,
+          env: process.env,
+          which: () => '/usr/bin/clip',
+          spawn: (command, args, input) => { clipArgv.push([command, ...args]); return { status: input === LONG_URL ? 0 : 1 }; },
+        });
+        process.stdout.write('CLIP-ARGV=' + JSON.stringify(clipArgv) + '\\n');
+        process.stdout.write('CLIP-COPIED=' + copied + '\\n');
+        // Present the real pairing card, sized to the live terminal like setup.ts.
         const columns = process.stdout.columns ?? 80;
         const rows = process.stdout.rows ?? 24;
         presentResult(renderPairingCard(
-          { code: 'ABCD-2345', url: LONG_URL, expires: 'in 10 minutes', qr: renderTerminalQr(LONG_URL), instruction: 'Scan the QR or enter the code in your browser.' },
+          { code: 'ABCD-2345', url: LONG_URL, expires: 'in 10 minutes', qr: renderTerminalQr(LONG_URL), instruction: 'Scan the QR or enter the code in your browser.', copied },
           columns,
           Math.max(8, rows - 8),
         ));
@@ -119,7 +143,7 @@ posixDescribe('setup wizard in a real pseudo-terminal', () => {
   it.each([
     { rows: 24, columns: 80 },
     { rows: 24, columns: 40 },
-  ])('auto-advances, gates consent, and shows the full pairing card before Finish at $columns x $rows', ({ rows, columns }) => {
+  ])('shows the full pairing card with a clickable, copied link before Finish at $columns x $rows', ({ rows, columns }) => {
     // One auto-advances; Enter: Localhost, Start, Create pairing; Enter finishes.
     const result = runPty([ENTER, ENTER, ENTER, ENTER], rows, columns);
     expect(result.error).toBeUndefined();
@@ -129,10 +153,19 @@ posixDescribe('setup wizard in a real pseudo-terminal', () => {
     // The real multiline pairing card is shown in-frame, before Finish, in full:
     // code, the complete (wrapped) URL, expiry, and instruction all survive.
     expect(result.stdout).toContain('ABCD-2345'); // code
-    expect(compact(result.stdout)).toContain(LONG_URL); // complete URL, reconstructed from wrapped lines
+    expect(compact(result.stdout)).toContain(LONG_URL); // complete visible URL, reconstructed
     expect(result.stdout).toContain('in 10 minutes'); // expiry
     expect(result.stdout).toContain('Scan the QR'); // instruction (may wrap at 40 cols)
     expect(result.stdout).toContain('Finish'); // reserved control
+    // The URL is a clickable OSC 8 hyperlink; every wrapped segment links to the whole URL.
+    const targets = oscTargets(result.stdout);
+    expect(targets.length).toBeGreaterThan(1);
+    expect(targets.every((target) => target === LONG_URL)).toBe(true);
+    // The link was copied over stdin — its token never entered process arguments.
+    expect(result.stdout).toContain('CLIP-COPIED=true');
+    const clipArgvLine = result.stdout.split('\n').find((line) => line.includes('CLIP-ARGV='))!;
+    expect(clipArgvLine).not.toContain('pairing_token');
+    expect(result.stdout).toContain('Pairing link copied to clipboard.'); // truthful status
     expect(result.stdout).toContain('RUN:pair');
     expect(result.stdout).toContain('SELECTED=localhost');
     expect(result.stdout).toContain('START=started');

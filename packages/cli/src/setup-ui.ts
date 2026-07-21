@@ -159,7 +159,12 @@ function resultLines(logs: string[]): string[] {
  *  line. */
 function menuLines(menu: SetupMenu): string[] {
   // The question uses the one accent color, matching the focused option below.
-  const lines: string[] = ['', `    ${style.cyan(style.bold(menu.message))}`, ''];
+  // A multiline message (a failure explanation with recovery commands) keeps its
+  // first line as the accented prompt and renders the rest as muted detail, so
+  // the error and copyable commands stay onscreen above the choices.
+  const [prompt, ...detail] = menu.message.split('\n');
+  const lines: string[] = ['', `    ${style.cyan(style.bold(prompt ?? ''))}`,
+    ...detail.map((text) => `    ${style.dim(text)}`), ''];
   menu.options.forEach((option, index) => {
     const focused = index === menu.focused;
     const pointer = focused ? style.cyan('❯') : ' ';
@@ -256,7 +261,7 @@ function truncateAnsi(line: string, columns: number): string {
   if (columns <= 0) return '';
   let visible = 0;
   let result = '';
-  for (let index = 0; index < line.length && visible < columns;) {
+  for (let index = 0; index < line.length;) {
     if (line[index] === '\u001B' && line[index + 1] === '[') {
       const match = line.slice(index).match(/^\u001B\[[0-?]*[ -/]*[@-~]/);
       if (match !== null) {
@@ -265,6 +270,16 @@ function truncateAnsi(line: string, columns: number): string {
         continue;
       }
     }
+    if (line[index] === '' && line[index + 1] === ']') {
+      // OSC ... terminated by BEL or ST (ESC \); a hyperlink counts as zero columns.
+      const match = line.slice(index).match(/^\][\s\S]*?(?:|\\)/);
+      if (match !== null) {
+        result += match[0];
+        index += match[0].length;
+        continue;
+      }
+    }
+    if (visible >= columns) break;
     const point = String.fromCodePoint(line.codePointAt(index)!);
     result += point;
     index += point.length;
@@ -279,6 +294,9 @@ export interface PairingCardData {
   expires: string;
   qr: string;
   instruction: string;
+  /** Whether the URL was copied to the clipboard, so the card can tell the truth
+   *  about it. Undefined/false renders the "copy the link below" fallback. */
+  copied?: boolean;
 }
 
 function wrapText(text: string, width: number): string[] {
@@ -287,6 +305,13 @@ function wrapText(text: string, width: number): string[] {
   const out: string[] = [];
   for (let index = 0; index < chars.length; index += width) out.push(chars.slice(index, index + width).join(''));
   return out;
+}
+
+/** Wrap visible text in an OSC 8 terminal hyperlink to `url`. The link markers
+ *  carry zero visible width (see truncateAnsi), so a wrapped URL segment can be
+ *  made clickable without changing its column count. */
+function osc8(url: string, text: string): string {
+  return `]8;;${url}${text}]8;;`;
 }
 
 // harn:assume setup-verifies-codor-before-creating-pairing-code ref=setup-pairing-card
@@ -303,12 +328,14 @@ export function renderPairingCard(card: PairingCardData, columns = 80, maxRows =
   const label = (name: string): string => `${name}${' '.repeat(Math.max(1, 9 - name.length))}`;
 
   // A compact bordered card: code, wrapped URL, and expiry, no inner padding so a
-  // long URL still fits a short terminal. The instruction sits below the border.
+  // long URL still fits a short terminal. Each wrapped URL segment is an OSC 8
+  // hyperlink to the complete URL, so the whole link is clickable in the box while
+  // its visible text stays the URL (copyable and width-measured on the plain text).
   const content: Array<{ plain: string; rendered: string }> = [];
   content.push({ plain: `${label('Code')}${card.code}`, rendered: `${style.gray(label('Code'))}${style.cyan(style.bold(card.code))}` });
   wrapText(card.url, Math.max(1, inner - 9)).forEach((chunk, index) => {
     const prefix = index === 0 ? label('Open') : ' '.repeat(9);
-    content.push({ plain: `${prefix}${chunk}`, rendered: `${style.gray(prefix)}${style.cyan(chunk)}` });
+    content.push({ plain: `${prefix}${chunk}`, rendered: `${style.gray(prefix)}${osc8(card.url, style.cyan(chunk))}` });
   });
   content.push({ plain: `${label('Expires')}${card.expires}`, rendered: `${style.gray(label('Expires'))}${style.yellow(card.expires)}` });
 
@@ -318,8 +345,13 @@ export function renderPairingCard(card: PairingCardData, columns = 80, maxRows =
   const boxLines = [border('╭', '╮'), ...content.map(line), border('╰', '╯')];
   const instructionLines = wrapText(card.instruction, box).map((chunk) => `${margin}${style.dim(chunk)}`);
 
-  // The body (code, URL, expiry, instruction) is always kept.
-  const body = [...boxLines.map((boxLine) => `${margin}${boxLine}`), ...instructionLines];
+  // A muted status line above the box tells the operator the truth: the link was
+  // copied to the clipboard, or they should copy the link (in the box) below it.
+  const status = card.copied === true ? 'Pairing link copied to clipboard.' : 'Copy the pairing link below.';
+  const statusLines = wrapText(status, box).map((chunk) => `${margin}${style.dim(chunk)}`);
+
+  // The body (status, code, URL, expiry, instruction) is always kept.
+  const body = [...statusLines, ...boxLines.map((boxLine) => `${margin}${boxLine}`), ...instructionLines];
 
   // The QR is shown below the body only when it fits the terminal width AND the
   // available rows; otherwise it is omitted and the body still carries the pairing.

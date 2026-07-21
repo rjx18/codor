@@ -1,0 +1,16 @@
+id: setup-copies-pairing-link-once-via-clipboard
+hash: a-9205580fc732
+title: The pairing link is auto-copied once via a native clipboard tool, over
+  stdin, and the card tells the truth about it
+state: active
+statement: Creating the pairing offer copies the complete pairing URL to the
+  system clipboard exactly once, through a platform-native tool that reads the
+  URL from stdin so the URL and its token never appear in process arguments or
+  command output - pbcopy on macOS, clip.exe on WSL and Windows, and wl-copy
+  then xclip then xsel on Linux. The clipboard step is injectable, its failure
+  never fails pairing, and the pairing card states that the link was copied only
+  when the copy succeeded and otherwise tells the operator to copy the pairing
+  link below.
+depends_on:
+  - setup-verifies-codor-before-creating-pairing-code
+created_by: codor-serve-recovery-clipboard

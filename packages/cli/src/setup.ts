@@ -31,6 +31,7 @@ import {
 } from './setup-session.js';
 import { SETUP_STAGE_TITLES, renderPairingCard, type SetupAccessOption } from './setup-ui.js';
 import { renderTerminalQr } from './terminal-qr.js';
+import { copyToClipboard } from './clipboard.js';
 
 const HARNESSES = ['claude', 'codex', 'opencode', 'gemini', 'copilot', 'cursor-agent', 'agy'] as const;
 const LAUNCH_AGENT_LABEL = 'app.codor.switchboard';
@@ -406,6 +407,8 @@ export interface RemoteAccessDeps {
    *  else stays on this computer without inspecting Tailscale at all. */
   choice: string;
   localEndpoint: string;
+  /** The OS: the operator recovery below is shown only on Linux/WSL. */
+  platform: NodeJS.Platform;
   log: (message: string) => void;
   choose: (menu: { message: string; options: SetupAccessOption[] }) => Promise<string>;
   detect: () => { path: string | undefined; serve: boolean };
@@ -425,13 +428,49 @@ const RETRY_OR_LOCAL: SetupAccessOption[] = [
   { id: 'here', label: 'Continue on this computer', description: 'Skip remote access for now.', available: true },
 ];
 
+const RETRY_OR_CONTINUE: SetupAccessOption[] = [
+  { id: 'retry', label: 'Retry Tailscale Serve', description: 'Run Serve again after fixing the problem above.', available: true },
+  { id: 'here', label: 'Continue on this computer', description: 'Skip remote access for now.', available: true },
+];
+
+const CONFIRM_LOCAL: SetupAccessOption[] = [
+  { id: 'confirm', label: 'Yes, continue on this computer', description: 'Codor stays local; set up Tailscale Serve later.', available: true },
+  { id: 'retry', label: 'Retry Tailscale Serve instead', description: 'Go back and run Serve again.', available: true },
+];
+
 // harn:assume setup-defers-remote-access-behind-consent ref=setup-remote-access-subflow
+/** A Serve failure is an operator/permission problem only on Linux/WSL (platform
+ *  'linux'), where tailscaled runs as root and a non-root user must be granted
+ *  operator rights. Unrelated errors must never be treated as a sudo problem. */
+function isOperatorError(detail: string, platform: NodeJS.Platform): boolean {
+  if (platform !== 'linux') return false;
+  return /operator|permission|denied|not authorized|unauthorized|must be run as root|EACCES/i.test(detail);
+}
+
+/** The persistent Serve-failure screen text: the real error, the exact resolved
+ *  serve command, and — only for a Linux/WSL operator problem — the documented
+ *  `sudo tailscale set --operator=$USER` recovery. sudo is never run here; the
+ *  command is shown for the operator to run in another shell. */
+function serveFailureMessage(error: unknown, path: string, deps: RemoteAccessDeps): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  const serveCommand = `${path} serve --bg ${deps.localEndpoint}`;
+  const lines = ['Tailscale Serve could not be configured.', '', ...detail.split('\n'), ''];
+  if (isOperatorError(detail, deps.platform)) {
+    lines.push('Run this in another terminal, then choose Retry:', 'sudo tailscale set --operator=$USER', serveCommand);
+  } else {
+    lines.push('To finish remote access later, run:', serveCommand);
+  }
+  return lines.join('\n');
+}
+
 /**
  * Resolve interactive access. "This computer" never touches Tailscale. "Remote"
  * detects Tailscale only now, offers Retry/Continue-local when it is missing or
- * cannot Serve, asks a separate consent before configuring Serve, and degrades
- * to local — with the exact copyable recovery command — if configuring fails.
- * Purely a decision function: it mutates nothing but the injected log.
+ * cannot Serve, and asks a separate consent before configuring Serve. A Serve
+ * failure does not auto-degrade: it stays here, showing the real error and the
+ * exact resolved serve command (plus the Linux/WSL operator recovery when the
+ * error is a permission problem), and offers Retry or an explicitly confirmed
+ * local-only fallback. Purely a decision function: it mutates nothing but log.
  */
 export async function runRemoteAccess(deps: RemoteAccessDeps): Promise<RemoteAccessResult> {
   const local = (note: string): RemoteAccessResult => {
@@ -460,14 +499,26 @@ export async function runRemoteAccess(deps: RemoteAccessDeps): Promise<RemoteAcc
     });
     if (consent !== 'configure') return local('this computer only');
 
-    try {
-      const endpoint = deps.configureServe(path);
-      deps.log(`private browser origin ${endpoint}`);
-      return { access: 'tailscale', endpoint, summary: 'Tailscale Serve' };
-    } catch (error) {
-      // Keep local Codor working and hand over the exact command to finish later,
-      // derived from the real resolved path and error — never invented sudo.
-      deps.log(`could not configure Tailscale Serve: ${error instanceof Error ? error.message : String(error)}`);
+    // Configure Serve, and on failure stay here: show the real error and recovery
+    // and let the operator Retry or explicitly confirm the local-only fallback. A
+    // failure never auto-degrades, and sudo is never run automatically.
+    for (;;) {
+      let failure: unknown;
+      try {
+        const endpoint = deps.configureServe(path);
+        deps.log(`private browser origin ${endpoint}`);
+        return { access: 'tailscale', endpoint, summary: 'Tailscale Serve' };
+      } catch (error) {
+        failure = error;
+      }
+      const next = await deps.choose({ message: serveFailureMessage(failure, path, deps), options: RETRY_OR_CONTINUE });
+      if (next === 'retry') continue;
+      const confirm = await deps.choose({
+        message: 'Continue on this computer only? Codor stays local until you configure Tailscale Serve.',
+        options: CONFIRM_LOCAL,
+      });
+      if (confirm === 'retry') continue;
+      deps.log(`could not configure Tailscale Serve: ${failure instanceof Error ? failure.message : String(failure)}`);
       deps.log(`to finish remote access later, run: ${path} serve --bg ${deps.localEndpoint}`);
       deps.log('Codor still works on this computer.');
       return { access: 'localhost', endpoint: deps.localEndpoint, summary: 'This computer (remote access deferred)' };
@@ -720,6 +771,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   let endpoint = localEndpoint;
   let selectedAccess: SetupAccess | undefined = options.access;
   let pairing: { code: string; expires: string; qr: string; url: string } | undefined;
+  let pairingCopied = false;
   let serviceStarted = false;
 
   const checkStep = (log: (message: string) => void): string => {
@@ -789,7 +841,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     choose: (menu: { message: string; options: SetupAccessOption[] }) => Promise<string>,
   ): Promise<string> => {
     const result = await runRemoteAccess({
-      choice, localEndpoint, log, choose,
+      choice, localEndpoint, platform, log, choose,
       detect: detectTailscale,
       resetDetect: () => { tailscaleProbe = undefined; },
       configureServe: (path) => configureTailscaleServe(path, localEndpoint, exec),
@@ -866,6 +918,13 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       } finally {
         crypto.close();
       }
+      // harn:assume setup-copies-pairing-link-once-via-clipboard ref=pairing-clipboard-copy
+      // Copy the complete link once, when the offer is first minted (Retry reuses
+      // the memoized offer and does not re-copy). The URL travels on stdin, so the
+      // token never reaches argv; a clipboard failure returns false and never
+      // fails pairing — the card then tells the operator to copy the link itself.
+      pairingCopied = copyToClipboard(pairing.url, { platform, env: options.env, which });
+      // harn:end setup-copies-pairing-link-once-via-clipboard
     }
     log(`pairing code ${pairing.code}`);
     return `code ${pairing.code}`;
@@ -883,6 +942,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       expires: pairing!.expires,
       qr: pairing!.qr,
       instruction: 'Scan the QR or enter the code in your browser to finish pairing.',
+      copied: pairingCopied,
     }, cardColumns));
   };
 
@@ -975,6 +1035,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
             expires: pairing!.expires,
             qr: pairing!.qr,
             instruction: 'Scan the QR or enter the code in your browser to finish pairing.',
+            copied: pairingCopied,
           }, cardColumns, cardMaxRows));
           return summary;
         },
