@@ -12,7 +12,16 @@ import { dirname, join, resolve } from 'node:path';
 
 import { CryptoVault, pairingUrl } from '@codor/switchboard';
 
-import { resolveRuntimePaths, type RuntimePaths } from './runtime-paths.js';
+import { packageRuntimePaths, resolveRuntimePaths, type RuntimePaths } from './runtime-paths.js';
+import {
+  defaultInstallIo,
+  detectInstalledRuntime,
+  durableRuntimeLocation,
+  installDurableRuntime,
+  installedCliRoot,
+  resolveInstallSource,
+  type InstallIo,
+} from './runtime-install.js';
 import {
   SetupSession,
   isInteractiveSetup,
@@ -36,6 +45,8 @@ export interface SetupOverrides {
   renderQr?(payload: string): string;
   repoRoot?: string;
   probe?(endpoint: string): Promise<boolean>;
+  runtime?: RuntimePaths;
+  installIo?: InstallIo;
   sleep?(milliseconds: number): Promise<void>;
   streams?: SetupSessionStreams;
   uid?: number;
@@ -471,7 +482,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   if (platform !== 'linux' && platform !== 'darwin' && platform !== 'win32') {
     throw new Error(`codor setup supports Linux, macOS, and Windows; received ${platform}`);
   }
-  const runtime = resolveRuntimePaths({ repoRoot: overrides.repoRoot });
+  const runtime = overrides.runtime ?? resolveRuntimePaths({ repoRoot: overrides.repoRoot });
   const home = resolve(overrides.home ?? options.env.HOME ?? homedir());
   const nodePath = resolve(overrides.nodePath ?? process.execPath);
   const exec = overrides.exec ?? defaultExec;
@@ -488,6 +499,15 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const launchAgentDir = join(home, 'Library', 'LaunchAgents');
   const launchAgentPath = join(launchAgentDir, `${LAUNCH_AGENT_LABEL}.plist`);
   const logDir = join(dataDir, 'logs');
+  // The service must reference a durable runtime. An ephemeral (npx/temp)
+  // invoking runtime is copied to ~/.codor/runtime by the Install step; the
+  // service is rendered against that stable copy, while the service template is
+  // still read from the source runtime, which exists now.
+  const version = overrides.version ?? runtimeVersion(runtime);
+  const installIo = overrides.installIo ?? defaultInstallIo;
+  const installSource = resolveInstallSource(runtime);
+  const serviceLocation = installSource.durable ? installSource.installRoot : durableRuntimeLocation(dataDir);
+  const serviceRuntime = installSource.durable ? runtime : packageRuntimePaths(installedCliRoot(serviceLocation));
   const windowsScriptPath = join(configDir, 'codor-service.ps1');
   const windowsTaskPath = join(configDir, 'codor-task.xml');
   const windowsUser = options.env.USERNAME ?? options.env.USER;
@@ -512,7 +532,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     : '127.0.0.1';
   const unitContent = platform === 'linux'
     ? renderSystemdUnit(readFileSync(runtime.serviceTemplate, 'utf8'), {
-      dataDir, envPath, host: systemdBindHost, nodePath, runtime,
+      dataDir, envPath, host: systemdBindHost, nodePath, runtime: serviceRuntime,
     })
     : undefined;
   const launchUid = platform === 'darwin'
@@ -524,7 +544,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const launchDomain = launchUid === undefined ? undefined : `gui/${String(launchUid)}`;
   const launchTarget = launchDomain === undefined ? undefined : `${launchDomain}/${LAUNCH_AGENT_LABEL}`;
   const windowsScript = platform === 'win32'
-    ? renderWindowsServiceScript({ dataDir, logDir, nodePath, runtime, servicePath, tokenPath })
+    ? renderWindowsServiceScript({ dataDir, logDir, nodePath, runtime: serviceRuntime, servicePath, tokenPath })
     : undefined;
   const windowsTask = platform === 'win32'
     ? renderWindowsScheduledTask({ scriptPath: windowsScriptPath, user: windowsUser! })
@@ -550,6 +570,9 @@ export async function runSetup(options: SetupOptions): Promise<void> {
         ? '--access tailscale requires the Tailscale CLI (not found on PATH or in /Applications)'
         : '--access tailscale requires a Tailscale CLI that supports Serve');
     }
+    options.out(installSource.durable
+      ? `[dry-run] use the Codor runtime in place at ${serviceLocation}`
+      : `[dry-run] install a durable Codor runtime -> ${serviceLocation}`);
     options.out(`[dry-run] create ${configDir} and ${dataDir} mode 700; create ${tokenPath} mode 600 if absent`);
     if (platform === 'linux') {
       options.out(`[dry-run] install ${runtime.serviceTemplate} -> ${userUnitPath} mode 600`);
@@ -562,7 +585,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       options.out('[dry-run] systemctl --user enable --now codor.service');
     } else if (platform === 'darwin') {
       const launchAgent = renderLaunchAgent({
-        dataDir, logDir, nodePath, runtime, servicePath,
+        dataDir, logDir, nodePath, runtime: serviceRuntime, servicePath,
         token: '<redacted generated-or-existing token>',
       });
       options.out(`[dry-run] create ${logDir} mode 700`);
@@ -594,7 +617,6 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   }
   // harn:end setup-dry-run-reports-without-mutation-or-secret
 
-  const version = overrides.version ?? runtimeVersion(runtime);
   const stepTitles = SETUP_STAGE_TITLES;
 
   // Shared state the steps thread through. `pairing` and `serviceStarted` are
@@ -635,6 +657,19 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     log('private configuration and data are ready');
     return 'config and mode-600 token ready';
   };
+
+  // harn:assume setup-installs-durable-per-user-runtime ref=setup-install-runtime-wiring
+  // Install Codor: make the invoking runtime durable (so the service never
+  // references an npx cache), then create the private config, data, and token.
+  const installStep = (log: (message: string) => void, forceReinstall = false): string => {
+    const result = installDurableRuntime({ runtime, dataDir, version, forceReinstall, io: installIo });
+    log(result.action === 'in-place'
+      ? `using the Codor runtime in place at ${result.location}`
+      : `${result.action} a durable Codor runtime at ${result.location}`);
+    prepareStep(log);
+    return `Codor ${version} at ${result.location}`;
+  };
+  // harn:end setup-installs-durable-per-user-runtime
 
   const chooseStep = (log: (message: string) => void, choice: string | undefined): string => {
     if (choice !== 'localhost' && choice !== 'tailscale') throw new Error('setup requires an access choice');
@@ -685,7 +720,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       mkdirSync(logDir, { recursive: true, mode: 0o700 });
       chmodSync(logDir, 0o700);
       writeFileSync(launchAgentPath, renderLaunchAgent({
-        dataDir, logDir, nodePath, runtime, servicePath, token,
+        dataDir, logDir, nodePath, runtime: serviceRuntime, servicePath, token,
       }), { encoding: 'utf8', mode: 0o600 });
       chmodSync(launchAgentPath, 0o600);
       await bootstrapLaunchAgent({
@@ -695,7 +730,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
         target: launchTarget!,
         plistPath: launchAgentPath,
         nodePath,
-        cliEntrypoint: runtime.cliEntrypoint,
+        cliEntrypoint: serviceRuntime.cliEntrypoint,
         endpoint: localEndpoint,
         log,
       });
@@ -736,9 +771,43 @@ export async function runSetup(options: SetupOptions): Promise<void> {
 
   if (interactive) {
     const session = new SetupSession({ version, streams: overrides.streams });
+    const existingInstall = detectInstalledRuntime(dataDir, installIo);
+    const installMenu = existingInstall === undefined
+      ? {
+        message: 'Install Codor on this computer?',
+        options: [
+          { id: 'install', label: 'Install Codor', description: 'Copy a durable runtime, then create your private config, data, and token.', available: true },
+          { id: 'later', label: 'Not now', description: 'Do not change anything on this computer.', available: true },
+        ],
+      }
+      : existingInstall.version === version
+        ? {
+          message: `Codor ${version} is already installed. Continue?`,
+          options: [
+            { id: 'continue', label: 'Continue', description: 'Use the installed runtime and ensure your private files.', available: true },
+            { id: 'update', label: 'Reinstall', description: 'Re-copy the durable runtime.', available: true },
+            { id: 'later', label: 'Not now', description: 'Do not change anything.', available: true },
+          ],
+        }
+        : {
+          message: `Update Codor from ${existingInstall.version} to ${version}?`,
+          options: [
+            { id: 'update', label: 'Update Codor', description: 'Re-copy the durable runtime at the new version.', available: true },
+            { id: 'continue', label: 'Keep current', description: `Keep ${existingInstall.version} and ensure your private files.`, available: true },
+            { id: 'later', label: 'Not now', description: 'Do not change anything.', available: true },
+          ],
+        };
     const steps: SetupStepDefinition[] = [
       { title: stepTitles[0], run: async ({ log }) => checkStep(log) },
-      { title: stepTitles[1], run: async ({ log }) => prepareStep(log) },
+      {
+        title: stepTitles[1],
+        // Consent gate: no runtime is copied and no files are created until an
+        // affirmative choice; "Not now" leaves the computer unchanged.
+        menu: installMenu,
+        run: async ({ log, choice }) => (choice === 'later'
+          ? { skip: true, summary: '(run codor install when ready)', skipFollowing: true }
+          : installStep(log, choice === 'update')),
+      },
       {
         title: stepTitles[2],
         menu: {
@@ -803,7 +872,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   } else {
     const linear = (index: number) => (message: string): void => options.out(`[${String(index + 1)}/5] ${message}`);
     options.out(`[1/5] ${stepTitles[0]}`); checkStep(linear(0));
-    options.out(`[2/5] ${stepTitles[1]}`); prepareStep(linear(1));
+    options.out(`[2/5] ${stepTitles[1]}`); installStep(linear(1));
     options.out(`[3/5] ${stepTitles[2]}`); chooseStep(linear(2), options.access);
     options.out(`[4/5] ${stepTitles[3]}`); await startStep(linear(3));
     options.out(`[5/5] ${stepTitles[4]}`); pairStep(linear(4));

@@ -1,6 +1,5 @@
 id: codor-install-durable-wiring
-title: >-
-  Phase 1 - point the per-user service at the durable runtime and gate the
+title: Phase 1 - point the per-user service at the durable runtime and gate the
   Install step behind consent
 notes: >-
   Second phase of the installer redesign. Wire the Phase 0 durable-runtime
@@ -11,8 +10,8 @@ notes: >-
   runtime (which exists at install time). The Install step performs the durable
   copy plus private config/data/token, only on consent, and offers
   Continue/Update when an install already exists. A source checkout stays
-  in-place. Dry-run reports the durable target without mutating. `--yes` performs
-  the durable install unattended.
+  in-place. Dry-run reports the durable target without mutating. `--yes`
+  performs the durable install unattended.
 
   This phase keeps the current step order; the five-step reframe, visuals, and
   Tailscale/pairing changes follow in later phases.
@@ -26,27 +25,29 @@ assumptions:
       outcome: unchanged
       reason: Directory modes, the absent-only token, the service PATH, and the
         no-root, no-secret invariants are unchanged; the service now references
-        the durable installed runtime rather than the ephemeral invoking one, and
-        the Install step is consent-gated.
+        the durable installed runtime rather than the ephemeral invoking one,
+        and the Install step is consent-gated.
     - id: setup-dry-run-reports-without-mutation-or-secret
       outcome: unchanged
-      reason: Dry-run still previews without mutating or leaking the token; it now also
-        reports the durable install target and that the service references it.
+      reason: Dry-run still previews without mutating or leaking the token; it now
+        also reports the durable install target and that the service references
+        it.
 anchors:
   setup-installs-durable-per-user-runtime:
     setup-install-runtime-wiring:
       action: change
       reason: runSetup computes the service runtime from the durable install location
-        and the Install step performs the copy plus config/data/token on consent.
+        and the Install step performs the copy plus config/data/token on
+        consent.
   setup-preserves-private-platform-service:
     setup-platform-service-runtime:
       action: change
-      reason: The service rendering consumes the durable installed runtime; the Install
-        step gains the durable copy and Continue/Update.
+      reason: The service rendering consumes the durable installed runtime; the
+        Install step gains the durable copy and Continue/Update.
     setup-platform-service-regression:
       action: change
-      reason: A regression proves the service ExecStart references ~/.codor/runtime for
-        an ephemeral runtime and stays in-place for a checkout.
+      reason: A regression proves the service ExecStart references ~/.codor/runtime
+        for an ephemeral runtime and stays in-place for a checkout.
   setup-dry-run-reports-without-mutation-or-secret:
     setup-dry-run-runtime:
       action: change
@@ -76,3 +77,5 @@ verification: >
     durable target without mutating.
 
   - Focused index.spec setup suites, tsc build, and harn check pass.
+applied:
+  applied_at: 2026-07-21T12:00:08.591Z

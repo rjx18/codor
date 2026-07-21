@@ -306,7 +306,8 @@ describe('@codor/cli', () => {
       },
     });
     expect(output.join('\n').replaceAll(repoRoot, '<repo>')).toMatchInlineSnapshot(`
-      "[dry-run] create /home/setup-test/.config/codor and /home/setup-test/.codor mode 700; create /home/setup-test/.config/codor/token mode 600 if absent
+      "[dry-run] use the Codor runtime in place at <repo>
+      [dry-run] create /home/setup-test/.config/codor and /home/setup-test/.codor mode 700; create /home/setup-test/.config/codor/token mode 600 if absent
       [dry-run] install <repo>/packaging/systemd/codor.service -> /home/setup-test/.config/systemd/user/codor.service mode 600
       [dry-run] unit content:
       [Unit]
@@ -436,6 +437,51 @@ describe('@codor/cli', () => {
     }
   });
   // harn:end setup-resolves-complete-invoking-runtime
+
+  posixHostIt('installs a durable runtime and points the Linux service there when invoked from an npx cache', async () => {
+    const sourceRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const home = join(dir, 'npx home');
+    const npxCli = join(dir, 'npx cache', '.npm', '_npx', 'deadbeef', 'node_modules', '@richhardry', 'codor', 'node_modules', '@codor', 'cli');
+    const copies: Array<[string, string]> = [];
+    await runCli(['node', 'codor', 'setup', '--yes', '--access', 'localhost'], {
+      env: { HOME: home, USER: 'setup-test', PATH: '/usr/bin' },
+      stdout: (line) => output.push(line),
+      setup: {
+        exec: () => '',
+        home,
+        nodePath: process.execPath,
+        platform: 'linux',
+        probe: async () => true,
+        randomToken: () => 'a'.repeat(64),
+        sleep: async () => undefined,
+        which: () => undefined,
+        runtime: {
+          root: npxCli,
+          layout: 'installed-package',
+          cliEntrypoint: join(npxCli, 'dist', 'index.js'),
+          staticRoot: join(npxCli, 'runtime', 'web'),
+          serviceTemplate: join(sourceRoot, 'packaging', 'systemd', 'codor.service'),
+        },
+        installIo: {
+          exists: () => false,
+          copyTree: (from, to) => { copies.push([from, to]); },
+          remove: () => undefined,
+          readVersion: () => undefined,
+        },
+      },
+    });
+
+    const durableCli = join(home, '.codor', 'runtime', 'node_modules', '@richhardry', 'codor', 'node_modules', '@codor', 'cli', 'dist', 'index.js');
+    const unit = readFileSync(join(home, '.config', 'systemd', 'user', 'codor.service'), 'utf8');
+    // The service ExecStart references the durable ~/.codor/runtime copy, never the npx cache.
+    expect(unit).toContain(`\"${durableCli}\"`);
+    expect(unit).not.toContain('_npx');
+    // The durable install copied the whole npx module tree into ~/.codor/runtime.
+    expect(copies).toEqual([[
+      join(dir, 'npx cache', '.npm', '_npx', 'deadbeef', 'node_modules'),
+      join(home, '.codor', 'runtime', 'node_modules'),
+    ]]);
+  });
 
   // harn:assume wsl-setup-keeps-private-windows-loopback ref=wsl-bind-regression
   it.each([

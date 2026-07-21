@@ -2,7 +2,7 @@ export type SetupStageState = 'pending' | 'running' | 'done' | 'skipped' | 'fail
 
 export const SETUP_STAGE_TITLES = [
   'Check this computer',
-  'Prepare private files',
+  'Install Codor',
   'Choose access',
   'Start Codor',
   'Create pairing code',
