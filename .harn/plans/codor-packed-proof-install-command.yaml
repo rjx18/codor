@@ -1,0 +1,69 @@
+id: codor-packed-proof-install-command
+title: Prove the packed release through Richard's exact tarball-absolute-path
+  install invocation and the primary install command
+notes: >-
+  Gap 6 of Codex's final gate (#468). The packed proof invoked the runtime by
+  the resolved package name (npx --offline @richhardry/codor setup --dry-run),
+  which exercises the already-installed tree rather than the tarball an operator
+  actually runs, and it only drove the backward-compatible setup alias. Richard's
+  release requirement (#434) is `npx --package=<absolute tarball> codor install`,
+  and that exact form is what first failed for him with "unknown command
+  'install'".
+
+  The proof now adds, in the network build phase right after npm pack, a run of
+  the CLI straight from the local tarball's absolute path:
+  `npx --package="$TARBALL" codor install --dry-run` (must emit the dry-run
+  preview, proving install dispatches, with no terminal control sequences) and
+  `npx --package="$TARBALL" codor install --yes` with no --access (must exit
+  non-zero naming the missing flag, proving it dispatches into the non-TTY
+  unattended guard rather than merely parsing). This runs in the network phase
+  because the tarball bundles only the @codor/* closure; its third-party and
+  native dependencies (commander, better-sqlite3, sodium-native) resolve from
+  the registry on install, precisely as they do on Richard's Mac, so a fresh
+  --package install cannot be forced offline.
+
+  The offline runtime phase keeps proving no-network operation but now drives
+  the primary `install` command from the installed bin ("$BIN" install
+  --dry-run and "$BIN" install --yes), replacing the resolve-by-name npx call
+  and the setup alias.
+
+  The contract is unchanged: the release gate still proves the packed runtime
+  from a clean clone, offline, with no inherited CODOR variables; it now proves
+  the exact operator invocation and the primary command, which strengthens the
+  proof without relaxing it. The assumption is reviewed unchanged.
+assumptions:
+  reviewed:
+    - id: packed-release-proof-runs-offline-runtime
+      outcome: unchanged
+      reason: The gate still builds from a clean clone, packs and installs
+        @richhardry/codor with no workspace resolution, loads the native
+        switchboard, and proves the offline runtime, browser, CLI, API, and
+        teardown. It now also runs the CLI from the tarball's absolute path via
+        --package and drives the primary install command; the setup dry-run it
+        already required is unchanged in substance because install is setup's
+        alias. This is a stronger proof of the same contract, not a new one.
+anchors:
+  packed-release-proof-runs-offline-runtime:
+    packed-install-script:
+      action: change
+      reason: Add the tarball-absolute-path install proof (dry-run and non-TTY guard)
+        in the network build phase and drive the offline phase through the
+        primary install command.
+files:
+  - scripts/packed-install-test.sh
+verification: >
+  - The network build phase runs `npx --package=<absolute tarball> codor install
+    --dry-run` and asserts the dry-run preview lines with no terminal control
+    sequences, proving install dispatches from the exact operator invocation.
+
+  - The network build phase runs `npx --package=<absolute tarball> codor install
+    --yes` with no --access and asserts a single-line non-zero exit naming the
+    missing flag with no leaked stack, proving dispatch into the non-TTY
+    unattended guard rather than mere parsing.
+
+  - The offline runtime phase drives `"$BIN" install --dry-run` and `"$BIN"
+    install --yes` and keeps its existing no-network runtime, browser, CLI, API,
+    and teardown assertions.
+
+  - scripts/packed-install-test.sh is executed end to end (clean clone, build,
+    pack, install, packaged --package proofs, offline runtime) and passes.
