@@ -58,6 +58,7 @@ files:
   - packages/web-next/src/surfaces/PairingCodeInput.tsx
   - packages/web-next/src/surfaces/PairingPage.tsx
   - packages/web-next/src/styles/landing.css
+  - packages/web-next/tests/room7-pairing.e2e.spec.ts
   - packages/web-next/tests/room28-landing.e2e.spec.ts
   - scripts/release-audit.mjs
 anchors:
