@@ -1,7 +1,6 @@
 id: codor-install-remote-access
-title: >-
-  Phase 3 - Where will you use Codor, with a deferred Tailscale remote sub-flow
-  and graceful Serve degradation
+title: Phase 3 - Where will you use Codor, with a deferred Tailscale remote
+  sub-flow and graceful Serve degradation
 notes: >-
   Fourth phase. Reframe step 3 as "Where will you use Codor?" (On this computer
   only / On this computer and remotely). Tailscale is not inspected until the
@@ -9,14 +8,15 @@ notes: >-
   probe Serve, explain what Serve does, and ask a separate consent before
   configuring it. If Tailscale is missing or cannot Serve, the step offers Retry
   or Continue-on-this-computer. If configuring Serve fails, local Codor is kept
-  working and the exact copyable command (the resolved `tailscale serve --bg`
-  we attempted) plus the real error are shown for the operator to finish later -
-  no invented sudo, no fatal exit. Merely selecting remote never mutates.
+  working and the exact copyable command (the resolved `tailscale serve --bg` we
+  attempted) plus the real error are shown for the operator to finish later - no
+  invented sudo, no fatal exit. Merely selecting remote never mutates.
 
   A mid-step consent needs a new session capability: SetupStepContext.choose
   presents a vertical choice while a step is running and returns the selected id
-  (cancel aborts). Tailscale resolution/capability/Serve functions are unchanged;
-  only when they are called and the wizard sub-flow around them change.
+  (cancel aborts). Tailscale resolution/capability/Serve functions are
+  unchanged; only when they are called and the wizard sub-flow around them
+  change.
 assumptions:
   create:
     - id: setup-defers-remote-access-behind-consent
@@ -24,15 +24,15 @@ assumptions:
         chooses remote and consents, degrading to local on failure
       statement: Interactive setup must ask where Codor will be used (this computer
         only, or remotely) and must not detect, capability-probe, or configure
-        Tailscale until the operator chooses remote; only then may it resolve the
-        CLI, probe Serve, explain that Serve enables secure access from other
-        devices, and ask a separate consent before configuring Serve; a missing
-        or Serve-incapable Tailscale offers Retry or Continue-on-this-computer,
-        and a Serve configuration failure keeps local Codor working while showing
-        the exact resolved `tailscale serve` command and the real error to run
-        later rather than exiting fatally or inventing sudo; because choosing an
-        access mode must never silently mutate Tailscale and a remote-access
-        problem must never break local setup.
+        Tailscale until the operator chooses remote; only then may it resolve
+        the CLI, probe Serve, explain that Serve enables secure access from
+        other devices, and ask a separate consent before configuring Serve; a
+        missing or Serve-incapable Tailscale offers Retry or
+        Continue-on-this-computer, and a Serve configuration failure keeps local
+        Codor working while showing the exact resolved `tailscale serve` command
+        and the real error to run later rather than exiting fatally or inventing
+        sudo; because choosing an access mode must never silently mutate
+        Tailscale and a remote-access problem must never break local setup.
       reason: Captures the deferred, consented, gracefully-degrading remote-access
         sub-flow as one reviewable behavior.
       depends_on:
@@ -50,13 +50,13 @@ assumptions:
         ownership and teardown are unchanged.
     - id: setup-auto-advances-and-gates-mutation-on-consent
       outcome: unchanged
-      reason: The run loop supplies choose() to a step's context; auto-advance, consent,
-        and skip semantics are unchanged.
+      reason: The run loop supplies choose() to a step's context; auto-advance,
+        consent, and skip semantics are unchanged.
     - id: setup-preserves-private-platform-service
       outcome: unchanged
       reason: Tailscale detection becomes lazy and step 3 becomes the where/remote
-        sub-flow; directory modes, token, service PATH, and no-root invariants are
-        unchanged.
+        sub-flow; directory modes, token, service PATH, and no-root invariants
+        are unchanged.
     - id: setup-dry-run-reports-without-mutation-or-secret
       outcome: unchanged
       reason: The dry-run tailscale guard now resolves Tailscale lazily; it still
@@ -100,7 +100,7 @@ files:
   - packages/cli/src/setup-session.spec.ts
   - packages/cli/src/setup-ui.spec.ts
   - packages/cli/src/setup-remote-access.spec.ts
-verification: >
+verification: |
   - Step 3 asks where Codor will be used; choosing "this computer only" never
     touches Tailscale. Choosing remote detects Tailscale then, asks a separate
     Serve consent, and only configures on the affirmative.
@@ -113,3 +113,5 @@ verification: >
     (session regression); cancel aborts.
 
   - setup flow/UI/session/PTY + tailscale + index suites, tsc build, harn check.
+applied:
+  applied_at: 2026-07-21T12:24:46.477Z

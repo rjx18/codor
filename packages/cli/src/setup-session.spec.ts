@@ -107,6 +107,29 @@ describe('setup terminal ownership', () => {
     session.stop();
   });
 
+  it('lets a running step ask a mid-step vertical choice via choose()', async () => {
+    const { input, session } = harness();
+    let picked: string | undefined;
+    const steps: SetupStepDefinition[] = [
+      {
+        title: 'Access',
+        run: async ({ choose }) => {
+          picked = await choose(consentMenu('Configure remote access?', 'Configure', 'Just this computer'));
+          return String(picked);
+        },
+      },
+    ];
+    const done = session.run(steps);
+    await settle();
+    input.emit('data', Buffer.from(DOWN)); // focus "Just this computer" (decline)
+    input.emit('data', Buffer.from(ENTER)); // select it mid-step
+    await settle();
+    input.emit('data', Buffer.from(ENTER)); // Finish
+    await done;
+    expect(picked).toBe('decline');
+    session.stop();
+  });
+
   it.each(['SIGINT', 'SIGTERM'] as const)('cleans up before re-raising %s', (signal) => {
     const { input, output, signals, raised, session } = harness();
     session.start();

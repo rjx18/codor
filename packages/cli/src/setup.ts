@@ -28,7 +28,7 @@ import {
   type SetupSessionStreams,
   type SetupStepDefinition,
 } from './setup-session.js';
-import { SETUP_STAGE_TITLES } from './setup-ui.js';
+import { SETUP_STAGE_TITLES, type SetupAccessOption } from './setup-ui.js';
 import { renderTerminalQr } from './terminal-qr.js';
 
 const HARNESSES = ['claude', 'codex', 'opencode', 'gemini', 'copilot', 'cursor-agent', 'agy'] as const;
@@ -395,6 +395,81 @@ export function configureTailscaleServe(
 }
 // harn:end setup-resolves-and-capability-probes-tailscale-serve
 
+export interface RemoteAccessDeps {
+  /** The step-3 selection: 'remote' opts into the Tailscale sub-flow; anything
+   *  else stays on this computer without inspecting Tailscale at all. */
+  choice: string;
+  localEndpoint: string;
+  log: (message: string) => void;
+  choose: (menu: { message: string; options: SetupAccessOption[] }) => Promise<string>;
+  detect: () => { path: string | undefined; serve: boolean };
+  resetDetect: () => void;
+  /** Publish Serve and return the HTTPS origin; may throw. */
+  configureServe: (tailscalePath: string) => string;
+}
+
+export interface RemoteAccessResult {
+  access: SetupAccess;
+  endpoint: string;
+  summary: string;
+}
+
+const RETRY_OR_LOCAL: SetupAccessOption[] = [
+  { id: 'retry', label: 'Retry detection', description: 'Check again for Tailscale.', available: true },
+  { id: 'here', label: 'Continue on this computer', description: 'Skip remote access for now.', available: true },
+];
+
+// harn:assume setup-defers-remote-access-behind-consent ref=setup-remote-access-subflow
+/**
+ * Resolve interactive access. "This computer" never touches Tailscale. "Remote"
+ * detects Tailscale only now, offers Retry/Continue-local when it is missing or
+ * cannot Serve, asks a separate consent before configuring Serve, and degrades
+ * to local — with the exact copyable recovery command — if configuring fails.
+ * Purely a decision function: it mutates nothing but the injected log.
+ */
+export async function runRemoteAccess(deps: RemoteAccessDeps): Promise<RemoteAccessResult> {
+  const local = (note: string): RemoteAccessResult => {
+    deps.log(note);
+    return { access: 'localhost', endpoint: deps.localEndpoint, summary: 'This computer' };
+  };
+  if (deps.choice !== 'remote') return local('this computer only');
+
+  for (;;) {
+    const { path, serve } = deps.detect();
+    if (path === undefined || !serve) {
+      const message = path === undefined
+        ? 'Tailscale is not installed. Install it from https://tailscale.com/download, then retry.'
+        : 'This Tailscale CLI cannot Serve. Update Tailscale, then retry.';
+      const next = await deps.choose({ message, options: RETRY_OR_LOCAL });
+      if (next === 'retry') { deps.resetDetect(); continue; }
+      return local('continuing on this computer only');
+    }
+
+    const consent = await deps.choose({
+      message: 'Codor can configure Tailscale Serve so you can reach it securely from your other devices. Configure it now?',
+      options: [
+        { id: 'configure', label: 'Configure Tailscale Serve', description: 'Publish Codor privately to your tailnet.', available: true },
+        { id: 'here', label: 'Just this computer', description: 'Keep Codor local for now.', available: true },
+      ],
+    });
+    if (consent !== 'configure') return local('this computer only');
+
+    try {
+      const endpoint = deps.configureServe(path);
+      deps.log(`private browser origin ${endpoint}`);
+      return { access: 'tailscale', endpoint, summary: 'Tailscale Serve' };
+    } catch (error) {
+      // Keep local Codor working and hand over the exact command to finish later,
+      // derived from the real resolved path and error — never invented sudo.
+      deps.log(`could not configure Tailscale Serve: ${error instanceof Error ? error.message : String(error)}`);
+      deps.log(`to finish remote access later, run: ${path} serve --bg ${deps.localEndpoint}`);
+      deps.log('Codor still works on this computer.');
+      return { access: 'localhost', endpoint: deps.localEndpoint, summary: 'This computer (remote access deferred)' };
+    }
+  }
+}
+// harn:end setup-defers-remote-access-behind-consent
+
 // harn:assume windows-setup-installs-private-task-service ref=windows-service-rendering
 export function renderWindowsServiceScript(options: {
   dataDir: string;
@@ -519,8 +594,16 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     const path = which(harness);
     return path === undefined ? [] : [{ harness, path }];
   });
-  const tailscalePath = resolveTailscale(which, platform);
-  const tailscaleServe = tailscalePath !== undefined && tailscaleServeSupported(tailscalePath, exec);
+  // Tailscale is inspected lazily: step 1 never touches it, and the interactive
+  // remote sub-flow probes only after the operator chooses remote access.
+  let tailscaleProbe: { path: string | undefined; serve: boolean } | undefined;
+  const detectTailscale = (): { path: string | undefined; serve: boolean } => {
+    if (tailscaleProbe === undefined) {
+      const path = resolveTailscale(which, platform);
+      tailscaleProbe = { path, serve: path !== undefined && tailscaleServeSupported(path, exec) };
+    }
+    return tailscaleProbe;
+  };
   const servicePath = uniquePath([
     join(home, '.local', 'bin'),
     dirname(nodePath),
@@ -565,10 +648,13 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   // harn:assume setup-dry-run-reports-without-mutation-or-secret ref=setup-dry-run-runtime
   if (options.dryRun) {
     const access = options.access ?? 'localhost';
-    if (access === 'tailscale' && !tailscaleServe) {
-      throw new Error(tailscalePath === undefined
-        ? '--access tailscale requires the Tailscale CLI (not found on PATH or in /Applications)'
-        : '--access tailscale requires a Tailscale CLI that supports Serve');
+    if (access === 'tailscale') {
+      const { path, serve } = detectTailscale();
+      if (!serve) {
+        throw new Error(path === undefined
+          ? '--access tailscale requires the Tailscale CLI (not found on PATH or in /Applications)'
+          : '--access tailscale requires a Tailscale CLI that supports Serve');
+      }
     }
     options.out(installSource.durable
       ? `[dry-run] use the Codor runtime in place at ${serviceLocation}`
@@ -631,11 +717,11 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   let serviceStarted = false;
 
   const checkStep = (log: (message: string) => void): string => {
+    // Read-only detection; Tailscale is not inspected here.
     log(`${platform} with Node ${process.versions.node}`);
     log(detected.length > 0
       ? `found ${detected.map(({ harness }) => harness).join(', ')}`
       : 'no supported coding agents detected');
-    log(tailscalePath === undefined ? 'Tailscale not detected' : 'Tailscale detected');
     return detected.length > 0
       ? `${platform}; ${detected.map(({ harness }) => harness).join(', ')}`
       : `${platform}; no agents on PATH`;
@@ -671,6 +757,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   };
   // harn:end setup-installs-durable-per-user-runtime
 
+  // Non-interactive access selection (used by --yes and the linear fallback).
   const chooseStep = (log: (message: string) => void, choice: string | undefined): string => {
     if (choice !== 'localhost' && choice !== 'tailscale') throw new Error('setup requires an access choice');
     if (choice === 'localhost') {
@@ -679,15 +766,31 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       log('localhost only');
       return 'Localhost';
     }
-    // Tailscale: resolve, capability-check, and publish Serve here so a failure
-    // keeps the operator in this step with Retry/Back and the daemon is not yet
-    // running to be disturbed.
-    if (tailscalePath === undefined) throw new Error('Tailscale is not installed; pick localhost or install Tailscale');
-    if (!tailscaleServe) throw new Error('this Tailscale CLI does not support Serve; pick localhost');
-    endpoint = configureTailscaleServe(tailscalePath, localEndpoint, exec);
+    const { path, serve } = detectTailscale();
+    if (path === undefined) throw new Error('Tailscale is not installed; pick localhost or install Tailscale');
+    if (!serve) throw new Error('this Tailscale CLI does not support Serve; pick localhost');
+    endpoint = configureTailscaleServe(path, localEndpoint, exec);
     selectedAccess = 'tailscale';
     log(`private browser origin ${endpoint}`);
     return 'Tailscale Serve';
+  };
+
+  // Interactive access: delegates to the testable runRemoteAccess and applies
+  // its decision to the shared endpoint/access state.
+  const whereStep = async (
+    log: (message: string) => void,
+    choice: string,
+    choose: (menu: { message: string; options: SetupAccessOption[] }) => Promise<string>,
+  ): Promise<string> => {
+    const result = await runRemoteAccess({
+      choice, localEndpoint, log, choose,
+      detect: detectTailscale,
+      resetDetect: () => { tailscaleProbe = undefined; },
+      configureServe: (path) => configureTailscaleServe(path, localEndpoint, exec),
+    });
+    selectedAccess = result.access;
+    endpoint = result.endpoint;
+    return result.summary;
   };
 
   const startStep = async (log: (message: string) => void): Promise<string> => {
@@ -811,24 +914,15 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       },
       {
         title: stepTitles[2],
-        description: 'Decide how you will reach Codor.',
+        description: 'Choose where you will use Codor.',
         menu: {
-          message: 'How will you reach Codor?',
+          message: 'Where will you use Codor?',
           options: [
-            { id: 'localhost', label: 'Localhost', description: 'This computer only.', available: true },
-            {
-              id: 'tailscale',
-              label: 'Tailscale Serve',
-              description: tailscalePath === undefined
-                ? 'Tailscale is not installed on this computer.'
-                : tailscaleServe
-                  ? 'Private access from your tailnet.'
-                  : 'This Tailscale CLI does not support Serve.',
-              available: tailscaleServe,
-            },
+            { id: 'here', label: 'On this computer only', description: 'Reach Codor from this computer.', available: true },
+            { id: 'remote', label: 'On this computer and remotely', description: 'Also reach Codor from your other devices, over Tailscale.', available: true },
           ],
         },
-        run: async ({ log, choice }) => chooseStep(log, choice),
+        run: async ({ log, choice, choose }) => whereStep(log, choice!, choose),
       },
       {
         title: stepTitles[3],

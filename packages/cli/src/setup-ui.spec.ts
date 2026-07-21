@@ -56,7 +56,7 @@ describe('progressive layout keeps completed results visible', () => {
     // Step 2's single result line is also fully present.
     expect(frame).toContain('private configuration and data are ready');
     // Active step 3 (Choose access) is expanded with its number and title.
-    expect(frame).toContain('(3) Choose access');
+    expect(frame).toContain('(3) Where you will use Codor');
     // Future step 5 collapses to just its numbered title.
     expect(frame).toContain('(5) Create pairing code');
   });
@@ -248,6 +248,6 @@ describe('constrained viewports keep the active choice usable', () => {
     const short = plain(renderSetupFrame(state({ steps: midway(), cursor: 2, viewport: { rows: 14, columns: 80 } })));
     const artRow = CODOR_WORD_ART.split('\n').find((line) => line.includes('█'))!;
     expect(short).not.toContain(artRow);
-    expect(short).toContain('(3) Choose access');
+    expect(short).toContain('(3) Where you will use Codor');
   });
 });

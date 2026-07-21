@@ -62,6 +62,9 @@ export type SetupStepOutcome =
 export interface SetupStepContext {
   log(message: string): void;
   choice?: string;
+  /** Present a vertical choice while the step is running and resolve to the
+   *  selected option id. Cancel (q / Ctrl-C) aborts setup. */
+  choose(menu: { message: string; options: SetupAccessOption[] }): Promise<string>;
 }
 
 export interface SetupStepDefinition {
@@ -214,8 +217,15 @@ export class SetupSession {
 
         flow.markRunning(index);
         this.render();
+        // A running step may ask further vertical choices (e.g. remote access
+        // consent) through choose(); cancel aborts the whole session.
+        const choose = async (menu: { message: string; options: SetupAccessOption[] }): Promise<string> => {
+          const decision = await this.selectFromMenu(menu, false);
+          if (decision.type !== 'select') { this.stop(); throw new SetupCancelled(); }
+          return decision.id;
+        };
         try {
-          const outcome = await definition.run({ log: (message) => { flow.log(index, message); this.render(); }, choice });
+          const outcome = await definition.run({ log: (message) => { flow.log(index, message); this.render(); }, choice, choose });
           if (typeof outcome === 'object') {
             this.summaries[index] = outcome.summary;
             flow.markSkipped(index);
