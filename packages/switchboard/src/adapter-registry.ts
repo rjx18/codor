@@ -1,4 +1,4 @@
-import { accessSync, constants } from 'node:fs';
+import { accessSync, constants, statSync } from 'node:fs';
 import { delimiter, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -62,8 +62,9 @@ export function executableOnPath(
   for (const directory of (env.PATH ?? '').split(delimiter).filter(Boolean)) {
     for (const extension of extensions) {
       try {
-        accessSync(resolve(directory, `${executable}${extension}`), constants.X_OK);
-        return true;
+        const candidate = resolve(directory, `${executable}${extension}`);
+        accessSync(candidate, constants.X_OK);
+        if (!statSync(candidate).isDirectory()) return true;
       } catch {
         // Presence checks continue through PATH; the executable is never invoked.
       }

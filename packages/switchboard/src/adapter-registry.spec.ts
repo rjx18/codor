@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -30,6 +30,13 @@ describe('built-in executable registry', () => {
     chmodSync(executable, 0o755);
     expect(executableOnPath('codex', { PATH: dir })).toBe(true);
     expect(() => readFileSync(marker)).toThrow();
+    rmSync(dir, { recursive: true });
+  });
+
+  it('does not treat an executable-named directory as an installed command', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codor-path-directory-'));
+    mkdirSync(join(dir, 'codex'), { mode: 0o755 });
+    expect(executableOnPath('codex', { PATH: dir })).toBe(false);
     rmSync(dir, { recursive: true });
   });
 });

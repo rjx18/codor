@@ -47,3 +47,5 @@ files:
 verification: Run the focused adapter-registry executable tests, build/typecheck
   web-next, pass Harn unstaged and staged checks, apply the plan, and commit the
   correction as one implementation transaction.
+applied:
+  applied_at: 2026-07-21T19:12:01.130Z
