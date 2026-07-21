@@ -55,6 +55,28 @@ docker run --rm \
     npm install "$TARBALL"
     npm ls --all --omit=dev >/proof/npm-ls.txt
     npm install
+    # Prove Richard exact operator invocation (#434): run the CLI straight from
+    # the local tarball absolute path via --package, from a directory with no
+    # local codor, so the tarball an operator downloads is what dispatches. This
+    # runs with network on because the tarball bundles only the @codor/* closure;
+    # its third-party and native dependencies resolve from the registry here just
+    # as they do on the operator machine.
+    cd /proof
+    PACKAGED_DRY_RUN="$(npx --yes --package="$TARBALL" codor install --dry-run)"
+    grep -Fq "access localhost; skip Tailscale Serve" <<<"$PACKAGED_DRY_RUN"
+    grep -Fq "[dry-run] wait for Codor pairing status" <<<"$PACKAGED_DRY_RUN"
+    # Non-dry-run must dispatch into the non-TTY unattended guard, not merely
+    # parse: install --yes with no --access exits non-zero naming the flag.
+    set +e
+    PACKAGED_GUARD="$(npx --yes --package="$TARBALL" codor install --yes 2>&1 >/dev/null)"
+    PACKAGED_GUARD_STATUS=$?
+    set -e
+    [[ "$PACKAGED_GUARD_STATUS" -ne 0 ]]
+    grep -Fq "also requires --access" <<<"$PACKAGED_GUARD"
+    if grep -Eq "[[:space:]]at[[:space:]]|node:internal|Unhandled" <<<"$PACKAGED_GUARD"; then
+      printf "packed install guard leaked a stack\n" >&2
+      exit 1
+    fi
   '
 
 docker run --rm --network none \
@@ -85,7 +107,7 @@ docker run --rm --network none \
     "
     "$BIN" --help | grep -Fq "Usage: codor"
 
-    DRY_RUN="$(npx --offline @richhardry/codor setup --dry-run)"
+    DRY_RUN="$("$BIN" install --dry-run)"
     grep -Fq "node_modules/@richhardry/codor/node_modules/@codor/cli/runtime/web" <<<"$DRY_RUN"
     grep -Fq "access localhost; skip Tailscale Serve" <<<"$DRY_RUN"
     if grep -q $'\033' <<<"$DRY_RUN"; then
@@ -94,7 +116,7 @@ docker run --rm --network none \
     fi
 
     set +e
-    SETUP_ERROR="$("$BIN" setup --yes 2>&1 >/dev/null)"
+    SETUP_ERROR="$("$BIN" install --yes 2>&1 >/dev/null)"
     SETUP_STATUS=$?
     set -e
     [[ "$SETUP_STATUS" -eq 1 ]]

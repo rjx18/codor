@@ -5,27 +5,27 @@ notes: >-
   Gap 6 of Codex's final gate (#468). The packed proof invoked the runtime by
   the resolved package name (npx --offline @richhardry/codor setup --dry-run),
   which exercises the already-installed tree rather than the tarball an operator
-  actually runs, and it only drove the backward-compatible setup alias. Richard's
-  release requirement (#434) is `npx --package=<absolute tarball> codor install`,
-  and that exact form is what first failed for him with "unknown command
-  'install'".
+  actually runs, and it only drove the backward-compatible setup alias.
+  Richard's release requirement (#434) is `npx --package=<absolute tarball>
+  codor install`, and that exact form is what first failed for him with "unknown
+  command 'install'".
 
   The proof now adds, in the network build phase right after npm pack, a run of
-  the CLI straight from the local tarball's absolute path:
-  `npx --package="$TARBALL" codor install --dry-run` (must emit the dry-run
-  preview, proving install dispatches, with no terminal control sequences) and
-  `npx --package="$TARBALL" codor install --yes` with no --access (must exit
-  non-zero naming the missing flag, proving it dispatches into the non-TTY
-  unattended guard rather than merely parsing). This runs in the network phase
-  because the tarball bundles only the @codor/* closure; its third-party and
-  native dependencies (commander, better-sqlite3, sodium-native) resolve from
-  the registry on install, precisely as they do on Richard's Mac, so a fresh
+  the CLI straight from the local tarball's absolute path: `npx
+  --package="$TARBALL" codor install --dry-run` (must emit the dry-run preview,
+  proving install dispatches, with no terminal control sequences) and `npx
+  --package="$TARBALL" codor install --yes` with no --access (must exit non-zero
+  naming the missing flag, proving it dispatches into the non-TTY unattended
+  guard rather than merely parsing). This runs in the network phase because the
+  tarball bundles only the @codor/* closure; its third-party and native
+  dependencies (commander, better-sqlite3, sodium-native) resolve from the
+  registry on install, precisely as they do on Richard's Mac, so a fresh
   --package install cannot be forced offline.
 
   The offline runtime phase keeps proving no-network operation but now drives
-  the primary `install` command from the installed bin ("$BIN" install
-  --dry-run and "$BIN" install --yes), replacing the resolve-by-name npx call
-  and the setup alias.
+  the primary `install` command from the installed bin ("$BIN" install --dry-run
+  and "$BIN" install --yes), replacing the resolve-by-name npx call and the
+  setup alias.
 
   The contract is unchanged: the release gate still proves the packed runtime
   from a clean clone, offline, with no inherited CODOR variables; it now proves
@@ -51,7 +51,7 @@ anchors:
         primary install command.
 files:
   - scripts/packed-install-test.sh
-verification: >
+verification: |
   - The network build phase runs `npx --package=<absolute tarball> codor install
     --dry-run` and asserts the dry-run preview lines with no terminal control
     sequences, proving install dispatches from the exact operator invocation.
@@ -67,3 +67,5 @@ verification: >
 
   - scripts/packed-install-test.sh is executed end to end (clean clone, build,
     pack, install, packaged --package proofs, offline runtime) and passes.
+applied:
+  applied_at: 2026-07-21T09:45:15.328Z
