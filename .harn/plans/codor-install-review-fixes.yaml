@@ -1,0 +1,158 @@
+id: codor-install-review-fixes
+title: >-
+  Installer review fixes - keep-current, width-safe pairing card, atomic runtime
+  update, and full Tailscale diagnostics
+notes: >-
+  Codex final-review found four concrete release blockers (#557). One follow-up
+  plan fixes all four:
+
+  1. "Keep current" must keep the installed version. The menu called
+  installStep with forceReinstall=false, but installDurableRuntime re-copied on
+  any version mismatch. Replace forceReinstall with an explicit intent
+  (ensure | update | keep): keep reuses the existing install even at a different
+  version; update re-copies; ensure installs when missing and reuses a matching
+  version. Regression exercises the exact keep-vs-update menu decision.
+
+  2. The pairing card must be width-safe. A realistic URL produced 200+ column
+  box lines. renderPairingCard becomes width-aware: it wraps the URL and
+  instruction inside the border, keeps every line within the terminal width, and
+  omits the QR (retaining the code and wrapped URL) when the terminal is too
+  narrow for it. 80- and 40-column regressions use a realistic long URL.
+
+  3. Runtime updates must be atomic. The updater deleted ~/.codor/runtime before
+  copying, so an interrupted copy broke the install. Copy into a sibling staging
+  directory, validate the wrapper/CLI/static assets, then swap via move with a
+  backup and rollback. A failed-copy regression proves the previous runtime
+  survives.
+
+  4. Tailscale Serve failures must keep the actionable diagnostic.
+  configureTailscaleServe truncated to the first line; recovery guidance can be
+  on later stderr lines (the launchctl class of bug). Preserve a concise but
+  complete message+stderr diagnostic. A multiline permission-error regression
+  proves the later line survives.
+
+  ASSUMPTIONS. The durable-runtime assumption's update semantics change (intent
+  driven, atomic swap), so it is retired and replaced. The pairing, tailscale,
+  and platform-service assumptions are reviewed unchanged - width-safety, full
+  diagnostics, and the intent wiring are refinements within their contracts.
+assumptions:
+  retire:
+    - id: setup-installs-durable-per-user-runtime
+      reason: Its statement said a different version is always updated by re-copying
+        and implied a delete-then-copy update. The fix makes the operator's
+        intent decide reuse/update/keep (Keep current retains a different
+        version) and makes the update an atomic staged swap that never destroys a
+        working install. The meaning changes, so it is retired and replaced.
+  create:
+    - id: setup-installs-durable-per-user-runtime-atomically
+      title: Install produces a durable per-user runtime with intent-driven reuse and
+        an atomic, non-destructive update
+      statement: codor install must give the background service a durable runtime -
+        when the invoking runtime resolves under an ephemeral npx cache or OS
+        temp directory it copies the complete self-contained module tree,
+        preserving prebuilt native binaries, into a stable per-user location
+        (~/.codor/runtime) and resolves the service paths from that copy, while a
+        source checkout or already-stable install is used in place; the caller's
+        intent decides an existing install - keep retains the installed version
+        even when it differs, update re-copies, and ensure installs when missing
+        and reuses a matching version; and an install or update stages the copy
+        in a sibling directory, validates the CLI entrypoint and static assets,
+        then swaps it in with a backup and rollback so an interrupted copy never
+        destroys a working install; because a per-user service must reference a
+        stable runtime and an update must never break an existing one.
+      reason: Replaces the durable-runtime assumption with intent-driven reuse and an
+        atomic, non-destructive update.
+      depends_on:
+        - setup-resolves-complete-invoking-runtime
+        - setup-preserves-private-platform-service
+  reviewed:
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: The final stage still shows the QR, URL, code, and expiry after the
+        readiness probe and never the raw token; the card is now width-safe,
+        wrapping the URL/instruction and omitting the QR when too narrow. A
+        rendering refinement, not a contract change.
+    - id: setup-resolves-and-capability-probes-tailscale-serve
+      outcome: unchanged
+      reason: resolveTailscale, tailscaleServeSupported, and configureTailscaleServe
+        keep their contracts; a Serve failure now carries the full message+stderr
+        diagnostic instead of only the first line.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: The Install step passes an intent to the durable installer and emitPairing
+        renders a width-aware card; service, mode, token, and no-root invariants
+        are unchanged.
+anchors:
+  setup-installs-durable-per-user-runtime:
+    durable-runtime-install:
+      action: remove
+      reason: The retired assumption's module anchor is re-anchored to the replacement.
+    durable-runtime-install-regression:
+      action: remove
+      reason: The retired assumption's spec anchor is re-anchored to the replacement.
+    setup-install-runtime-wiring:
+      action: remove
+      reason: The retired assumption's install-step anchor is re-anchored to the
+        replacement.
+  setup-installs-durable-per-user-runtime-atomically:
+    durable-runtime-install:
+      action: change
+      reason: installDurableRuntime gains intent-driven reuse/update/keep and an atomic
+        staged swap with rollback.
+    durable-runtime-install-regression:
+      action: change
+      reason: Regressions for keep-vs-update and failed-copy survival.
+    setup-install-runtime-wiring:
+      action: change
+      reason: The Install step maps the menu choice to an install intent.
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-pairing-card:
+      action: change
+      reason: renderPairingCard becomes width-aware, wrapping and omitting the QR when
+        narrow.
+    setup-pairing-card-regression:
+      action: change
+      reason: 80- and 40-column regressions with a realistic long URL.
+    setup-readiness-and-pairing-regression:
+      action: change
+      reason: The pairing integration assertion tolerates the wrapped URL.
+  setup-resolves-and-capability-probes-tailscale-serve:
+    tailscale-resolution:
+      action: change
+      reason: configureTailscaleServe preserves the full message+stderr diagnostic.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: The Install step passes an intent and emitPairing passes the terminal
+        width to the card.
+    setup-platform-service-regression:
+      action: change
+      reason: The durable-install regression injects the staged-copy io surface.
+  windows-setup-installs-private-task-service:
+    windows-setup-runtime:
+      action: keep
+      reason: The change is inside the nested platform-service region.
+files:
+  - packages/cli/src/runtime-install.ts
+  - packages/cli/src/runtime-install.spec.ts
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-ui.ts
+  - packages/cli/src/setup-ui.spec.ts
+  - packages/cli/src/setup-tailscale.spec.ts
+  - packages/cli/src/index.spec.ts
+verification: >
+  - Keep current: an existing older install + intent 'keep' reuses it (no copy),
+    while 'update' re-copies; the menu maps Keep current -> keep.
+
+  - Atomic update: a failed copy leaves the previous runtime intact (staging is
+    removed, location untouched); a successful update swaps via backup.
+
+  - Pairing card: at 80 and 40 columns with a realistic long URL every rendered
+    line fits, the URL/instruction wrap inside the border, and the QR is omitted
+    when too narrow while the code and URL remain.
+
+  - Tailscale: a multiline permission error keeps its later actionable line in the
+    diagnostic, alongside the resolved serve command in the recovery output.
+
+  - Focused installer suites, tsc, harn, and the packed proof pass; the TGZ is
+    rebuilt.
