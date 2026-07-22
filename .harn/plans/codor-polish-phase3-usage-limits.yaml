@@ -35,32 +35,29 @@ assumptions:
     - id: account-usage-limits-are-probed-periodically-and-refreshably
       title: Account usage limits are probed on boot, every five minutes, coalesced,
         cooled-down, and manually refreshable under authorization
-      statement: >-
-        The daemon probes account-level usage limits once immediately on boot and
-        then every five minutes by default, running one probe per harness/account
-        and fanning the identical result to every active non-removed member of
-        that harness; an in-flight probe coalesces overlapping automatic and
-        manual requests so none is duplicated, and a provider failure or empty
-        result preserves the last-known-good limits. An authorized manual
-        usage-refresh - gated like the adapter refresh (manage_agents) and
-        subject to a short server-enforced cooldown so repeated clicks cannot
-        exceed provider rate limits - invokes the same probe. Provider OAuth
-        credentials are never exposed to clients.
-      reason: >-
-        Usage gauges were 15 minutes stale and had no manual refresh; five-minute
-        cadence plus an authorized, coalesced, cooled-down manual refresh keeps
-        them fresh without letting clicks exceed provider limits.
+      statement: The daemon probes account-level usage limits once immediately on boot
+        and then every five minutes by default, running one probe per
+        harness/account and fanning the identical result to every active
+        non-removed member of that harness; an in-flight probe coalesces
+        overlapping automatic and manual requests so none is duplicated, and a
+        provider failure or empty result preserves the last-known-good limits.
+        An authorized manual usage-refresh - gated like the adapter refresh
+        (manage_agents) and subject to a short server-enforced cooldown so
+        repeated clicks cannot exceed provider rate limits - invokes the same
+        probe. Provider OAuth credentials are never exposed to clients.
+      reason: Usage gauges were 15 minutes stale and had no manual refresh;
+        five-minute cadence plus an authorized, coalesced, cooled-down manual
+        refresh keeps them fresh without letting clicks exceed provider limits.
   reviewed:
     - id: agent-usage-limits-reported-not-guessed
       outcome: unchanged
-      reason: >-
-        Limits remain exactly the harness-reported windows, never invented or
+      reason: Limits remain exactly the harness-reported windows, never invented or
         aged. The Claude streamed utilization is normalized from a 0..1 fraction
         to the contract's 0..100 percent (a unit correction of the reported
         value), already-percent values above 1 are preserved, the OAuth endpoint
-        percent is not multiplied, and the OAuth reset timestamp is canonicalized
-        to the equivalent Z instant before validation - all faithful
-        representations of what the harness reported, not guesses.
+        percent is not multiplied, and the OAuth reset timestamp is
+        canonicalized to the equivalent Z instant before validation - all
+        faithful representations of what the harness reported, not guesses.
 anchors:
   account-usage-limits-are-probed-periodically-and-refreshably:
     usage-probe-scheduling:
@@ -68,15 +65,15 @@ anchors:
       reason: The boot probe stays; the periodic interval default becomes five minutes.
     usage-probe-runtime:
       action: change
-      reason: The fan-out probe gains a manual-refresh entry point and a cooldown while
-        keeping its coalescing and last-good preservation.
+      reason: The fan-out probe gains a manual-refresh entry point and a cooldown
+        while keeping its coalescing and last-good preservation.
     usage-refresh-rest:
       action: change
       reason: A new authorized REST usage-refresh route invokes the same daemon probe.
     usage-probe-regression:
       action: change
-      reason: Fake-clock daemon tests prove boot probe, five-minute cadence, coalescing,
-        cooldown, last-good preservation, and one probe per account.
+      reason: Fake-clock daemon tests prove boot probe, five-minute cadence,
+        coalescing, cooldown, last-good preservation, and one probe per account.
     usage-refresh-auth-regression:
       action: change
       reason: Server tests prove the refresh route rejects an unprivileged caller.
@@ -98,17 +95,22 @@ files:
   - packages/web-next/src/runtime/api.ts
   - packages/web-next/src/styles/room.css
   - packages/web-next/tests/room11-batch-b.e2e.spec.ts
-verification: |
+verification: >
   - Adapter unit fixtures: offset timestamp canonicalizes to the equivalent Z
     instant; OAuth endpoint percent is preserved (no multiply); a real 0..1 stream
     fraction becomes 0..100 percent; 0/1/boundary and malformed values are handled.
-  - Fake-clock daemon tests: immediate boot probe, five-minute cadence, coalescing
+  - Fake-clock daemon tests: immediate boot probe, five-minute cadence,
+  coalescing
     of overlapping requests, manual cooldown, last-good preservation on failure,
     one probe per account fanned to members.
-  - Server tests: the usage-refresh route rejects an unprivileged caller and never
+  - Server tests: the usage-refresh route rejects an unprivileged caller and
+  never
     returns credentials.
-  - web-next: the Refresh-usage button sits left of Plus, shows busy/error without
+  - web-next: the Refresh-usage button sits left of Plus, shows busy/error
+  without
     replacing the last good gauges, and a corrected fractional stream renders the
     right "% left".
   - Focused protocol/adapters/switchboard suites + web-next build + focused
     Playwright; Harn unstaged/staged gates pass.
+applied:
+  applied_at: 2026-07-22T08:41:32.756Z

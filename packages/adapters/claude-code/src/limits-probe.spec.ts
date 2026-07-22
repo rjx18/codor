@@ -58,6 +58,24 @@ describe('Claude usage limits probe', () => {
     ]]);
   });
 
+  it('canonicalizes an offset reset timestamp to the equivalent Z instant and keeps percent as-is', async () => {
+    const fetcher: LimitsProbeFetcher = async () => ({
+      ok: true,
+      // Anthropic reports a +00:00 offset; the OAuth utilization is already percent.
+      json: async () => ({
+        five_hour: { utilization: 42, resets_at: '2026-07-17T12:00:00+00:00' },
+        seven_day: { utilization: 7, resets_at: '2026-07-18T00:00:00-04:00' },
+      }),
+    });
+    await expect(probeClaudeLimits({
+      credentialsPath: credentials({ claudeAiOauth: { accessToken: 'token' } }),
+      fetcher,
+    })).resolves.toEqual([
+      { window: 'five_hour', used_percent: 42, resets_at: '2026-07-17T12:00:00.000Z' },
+      { window: 'seven_day', used_percent: 7, resets_at: '2026-07-18T04:00:00.000Z' },
+    ]);
+  });
+
   it('ignores null windows and silently skips missing credentials', async () => {
     const fetcher = vi.fn<LimitsProbeFetcher>(async () => ({
       ok: true,

@@ -1212,6 +1212,12 @@
   justify-content: space-between;
   padding: var(--sp-3) var(--sp-4) var(--sp-1);
 }
+/* Refresh-usage then Plus as one right-aligned action group. */
+.nx-members-actions { display: flex; align-items: center; gap: var(--sp-1); }
+/* The usage refresh spins while probing and tints on a concise error, without
+   touching the gauges (which update from member frames). */
+.nx-usage-refresh.is-busy svg { animation: nx-spin 0.8s linear infinite; }
+.nx-usage-refresh.is-error { color: var(--c-error-text); }
 .nx-member {
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-card);

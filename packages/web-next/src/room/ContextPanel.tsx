@@ -2,7 +2,7 @@ import type { AgentLimit, Member, Policy, Room, ThinkingLevel, WireEvent } from 
 import { Bot, ChevronRight, LoaderCircle, Minimize2, MoreVertical, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@runtime/api.js';
+import { fetchRunEvents, refreshUsage, type AdapterRegistration, type MemberDetail } from '@runtime/api.js';
 import { AgentControls, AgentIdentityControls, RolePresetControls, Section } from './AgentControls.js';
 import { FolderPicker } from './FolderPicker.js';
 import {
@@ -80,6 +80,19 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
   const details = useMemberDetails(props.room, props.token);
   const adapterCatalog = useAdapterCatalog(props.token);
   const [spawning, setSpawning] = useState(false);
+  // Manual usage refresh: coalesce repeat clicks while one is in flight, and
+  // surface a concise error without disturbing the last-good gauges (updated
+  // gauges arrive as member frames).
+  const [usageBusy, setUsageBusy] = useState(false);
+  const [usageError, setUsageError] = useState<string>();
+  const refreshUsageLimits = useCallback(() => {
+    if (usageBusy) return;
+    setUsageBusy(true);
+    setUsageError(undefined);
+    void refreshUsage({ token: props.token() })
+      .catch((error) => setUsageError(error instanceof Error ? error.message : 'Couldn’t refresh usage'))
+      .finally(() => setUsageBusy(false));
+  }, [usageBusy, props.token]);
   // A spawn is only done when the member actually appears. Watching for it — and
   // for a room error naming it — is what keeps a failure visible instead of
   // closing the dialog on a request that was merely *sent*.
@@ -144,14 +157,28 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
     <div className="nx-members">
       <div className="nx-members-head">
         <Eyebrow>People &amp; agents</Eyebrow>
-        <IconButton
-          icon={Plus}
-          label="Spawn agent"
-          size="sm"
-          variant="quiet"
-          data-testid="spawn-agent"
-          onClick={() => setSpawning(true)}
-        />
+        <div className="nx-members-actions">
+          {/* Refresh usage sits immediately left of Plus. */}
+          <IconButton
+            icon={RefreshCw}
+            label="Refresh usage limits"
+            title={usageError ?? 'Refresh usage limits'}
+            size="sm"
+            variant="quiet"
+            className={`nx-usage-refresh${usageBusy ? ' is-busy' : ''}${usageError !== undefined ? ' is-error' : ''}`}
+            data-testid="refresh-usage"
+            disabled={usageBusy}
+            onClick={refreshUsageLimits}
+          />
+          <IconButton
+            icon={Plus}
+            label="Spawn agent"
+            size="sm"
+            variant="quiet"
+            data-testid="spawn-agent"
+            onClick={() => setSpawning(true)}
+          />
+        </div>
       </div>
       <ul className="nx-roster">
         {roster.map((member) => (

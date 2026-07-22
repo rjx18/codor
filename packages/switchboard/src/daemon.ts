@@ -286,8 +286,10 @@ export interface DaemonOptions {
   discoverModels?: boolean;
   /** Injectable daemon-host PATH resolver for deterministic availability tests. */
   executableOnPath?: (executable: string) => boolean;
-  /** Account usage refresh cadence; production defaults to 15 minutes. */
+  /** Account usage refresh cadence; production defaults to 5 minutes. */
   limitsProbeMs?: number;
+  /** Minimum spacing between manual usage refreshes; defaults to 30 seconds. */
+  manualUsageRefreshCooldownMs?: number;
   attachLeaseTimeoutMs?: number;
   attachLeasePollMs?: number;
   processProbe?: (target: number) => boolean;
@@ -464,6 +466,8 @@ export class Daemon {
   private readonly stallTimer: NodeJS.Timeout;
   private readonly limitsProbeTimer: NodeJS.Timeout;
   private probingLimits = false;
+  private lastLimitsProbeAt = 0;
+  private readonly manualUsageRefreshCooldownMs: number;
   private readonly runActivity = new Map<string, number>();
   private readonly hostId?: string;
   private readonly residency?: ResidencyCoordinator;
@@ -529,12 +533,15 @@ export class Daemon {
     this.attachLeaseTimer.unref();
     this.stallTimer = setInterval(() => this.checkStalls(), options.stallPollMs ?? 60_000);
     this.stallTimer.unref();
-    this.track(this.probeAdapterLimits());
+    this.manualUsageRefreshCooldownMs = options.manualUsageRefreshCooldownMs ?? 30_000;
+    // harn:assume account-usage-limits-are-probed-periodically-and-refreshably ref=usage-probe-scheduling
+    this.track(this.probeAdapterLimits()); // one immediate probe on boot
     this.limitsProbeTimer = setInterval(
       () => this.track(this.probeAdapterLimits()),
-      options.limitsProbeMs ?? 15 * 60_000,
+      options.limitsProbeMs ?? 5 * 60_000,
     );
     this.limitsProbeTimer.unref();
+    // harn:end account-usage-limits-are-probed-periodically-and-refreshably
     this.stopResidencyReachability = this.residency?.onReachability((peerId, connected) =>
       this.handleResidentReachability(peerId, connected));
   }
@@ -1118,12 +1125,26 @@ export class Daemon {
   }
   // harn:end adapters-own-their-model-catalog
 
+  // harn:assume account-usage-limits-are-probed-periodically-and-refreshably ref=usage-probe-runtime
+  /** An authorized manual usage refresh: coalesced with the periodic probe and
+   * throttled by a short cooldown so repeated clicks cannot exceed provider rate
+   * limits. Provider failures are handled inside the probe (last-good preserved),
+   * so a within-cooldown click is the only "did nothing" outcome. */
+  async refreshUsageLimits(): Promise<{ refreshed: boolean }> {
+    if (Date.now() - this.lastLimitsProbeAt < this.manualUsageRefreshCooldownMs) {
+      return { refreshed: false };
+    }
+    await this.probeAdapterLimits();
+    return { refreshed: true };
+  }
+
   /** Provider limits are account-level: one probe fans out to every active
    * agent using that harness. Missing credentials and failures preserve the
    * last stream-reported value. */
   private async probeAdapterLimits(): Promise<void> {
     if (this.probingLimits || this.closing) return;
     this.probingLimits = true;
+    this.lastLimitsProbeAt = Date.now(); // only a real (non-coalesced) probe counts
     try {
       const membersByHarness = new Map<string, { room: string; member: Member }[]>();
       for (const room of this.store.listRooms()) {
@@ -1159,6 +1180,7 @@ export class Daemon {
       this.probingLimits = false;
     }
   }
+  // harn:end account-usage-limits-are-probed-periodically-and-refreshably
 
   setHumanRole(room: string, memberId: string, role: Role): Member {
     const member = this.store.getMember(room, memberId);

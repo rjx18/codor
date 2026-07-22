@@ -516,17 +516,37 @@ describe('rate limit events (agent-usage-limits-reported-not-guessed)', () => {
     ]);
   });
 
-  it('forwards utilization as used_percent when the CLI reports it', () => {
+  it.each([
+    { label: 'a 0..1 fraction becomes percent', utilization: 0.86, used_percent: 86 },
+    { label: 'the fraction ceiling maps to 100%', utilization: 1, used_percent: 100 },
+    { label: 'zero stays zero', utilization: 0, used_percent: 0 },
+    { label: 'an already-percent value above 1 is preserved', utilization: 87.5, used_percent: 87.5 },
+  ])('normalizes stream utilization ($label)', ({ utilization, used_percent }) => {
     const translator = createTurnTranslator();
     const events = translator.push(JSON.stringify({
       type: 'rate_limit_event',
-      rate_limit_info: { status: 'allowed_warning', rateLimitType: 'weekly', utilization: 87.5 },
+      rate_limit_info: { status: 'allowed_warning', rateLimitType: 'weekly', utilization },
     }));
     expect(events).toEqual([
       {
         type: 'run.limits',
-        limits: [{ window: 'weekly', status: 'allowed_warning', used_percent: 87.5 }],
+        limits: [{ window: 'weekly', status: 'allowed_warning', used_percent }],
       },
+    ]);
+  });
+
+  it.each([
+    { label: 'above 100 after normalization', utilization: 150 },
+    { label: 'negative', utilization: -0.1 },
+    { label: 'not a number', utilization: 'lots' },
+  ])('omits used_percent for unusable utilization ($label), never guessing', ({ utilization }) => {
+    const translator = createTurnTranslator();
+    const events = translator.push(JSON.stringify({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'allowed', rateLimitType: 'weekly', utilization },
+    }));
+    expect(events).toEqual([
+      { type: 'run.limits', limits: [{ window: 'weekly', status: 'allowed' }] },
     ]);
   });
 

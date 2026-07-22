@@ -1239,6 +1239,22 @@ describe('REST', () => {
   // harn:end new-agent-requests-require-available-harness
   // harn:end adapter-refresh-is-authorized-and-incremental
 
+  // harn:assume account-usage-limits-are-probed-periodically-and-refreshably ref=usage-refresh-auth-regression
+  it('authorizes the usage refresh, returns whether a probe ran, and leaks no credential', async () => {
+    const postUsageRefresh = (token: string) => fetch(`${base}/api/usage/refresh`, {
+      method: 'POST', headers: { authorization: `Bearer ${token}` },
+    });
+    expect((await postUsageRefresh(MEMBER_TOKEN)).status).toBe(403);
+    expect((await postUsageRefresh(OBSERVER_TOKEN)).status).toBe(403);
+
+    const ok = await postUsageRefresh(ADMIN_TOKEN);
+    expect(ok.status).toBe(200);
+    const body = await ok.json();
+    expect(body).toEqual({ refreshed: expect.any(Boolean) });
+    expect(JSON.stringify(body)).not.toMatch(/token|bearer|secret|oauth|authorization/i);
+  });
+  // harn:end account-usage-limits-are-probed-periodically-and-refreshably
+
   it('serves run blobs through the redacted endpoint', async () => {
     daemon.spawnMember('eng', { harness: 'fake', handle: 'alpha', cwd: testCwd() });
     fake.enqueue({

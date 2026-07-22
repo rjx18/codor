@@ -48,12 +48,22 @@ interface ClaudeEvent {
     status?: string;
     resetsAt?: number; // unix seconds
     rateLimitType?: string; // five_hour / weekly / ...
-    utilization?: number; // percent, present in newer CLIs
+    utilization?: number; // a 0..1 fraction on the stream (0.86 = 86% used)
   };
 }
 
 const MAX_OUTPUT_BYTES = 256 * 1024;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
+/** The stream's utilization is a 0..1 fraction; normalize it to the 0..100
+ *  percent contract (0.86 → 86). A value above 1 is already a percent and passes
+ *  through; non-finite, negative, or >100 results report nothing rather than a
+ *  guess. */
+function normalizeStreamUtilization(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
+  const percent = value <= 1 ? value * 100 : value;
+  return percent <= 100 ? percent : undefined;
+}
 
 // harn:assume normalized-agent-usage-telemetry-with-estimates ref=claude-usage-telemetry
 // Seeded from paseo's curated Claude catalog. A result's engine-reported
@@ -519,6 +529,10 @@ export function createTurnTranslator(
           if (!info || typeof info.rateLimitType !== 'string' || typeof info.status !== 'string') {
             return []; // shape we don't recognize — report nothing, never guess
           }
+          // The CLI streams utilization as a 0..1 fraction; normalize it to the
+          // 0..100 percent contract (0.86 → 86). Values above 1 are already a
+          // percent and are preserved; only 0..100 survives the schema.
+          const usedPercent = normalizeStreamUtilization(info.utilization);
           return [
             {
               type: 'run.limits',
@@ -529,10 +543,7 @@ export function createTurnTranslator(
                   ...(typeof info.resetsAt === 'number' && Number.isFinite(info.resetsAt) && {
                     resets_at: new Date(info.resetsAt * 1000).toISOString(),
                   }),
-                  ...(typeof info.utilization === 'number' &&
-                    info.utilization >= 0 && info.utilization <= 100 && {
-                    used_percent: info.utilization,
-                  }),
+                  ...(usedPercent !== undefined && { used_percent: usedPercent }),
                 },
               ],
             },

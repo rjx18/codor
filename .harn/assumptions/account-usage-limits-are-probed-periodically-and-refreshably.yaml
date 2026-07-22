@@ -1,0 +1,17 @@
+id: account-usage-limits-are-probed-periodically-and-refreshably
+hash: a-f5b8bb4b1a3f
+title: Account usage limits are probed on boot, every five minutes, coalesced,
+  cooled-down, and manually refreshable under authorization
+state: active
+statement: The daemon probes account-level usage limits once immediately on boot
+  and then every five minutes by default, running one probe per harness/account
+  and fanning the identical result to every active non-removed member of that
+  harness; an in-flight probe coalesces overlapping automatic and manual
+  requests so none is duplicated, and a provider failure or empty result
+  preserves the last-known-good limits. An authorized manual usage-refresh -
+  gated like the adapter refresh (manage_agents) and subject to a short
+  server-enforced cooldown so repeated clicks cannot exceed provider rate limits
+  - invokes the same probe. Provider OAuth credentials are never exposed to
+  clients.
+depends_on: []
+created_by: codor-polish-phase3-usage-limits

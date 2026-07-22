@@ -39,9 +39,12 @@ async function accessToken(path: string): Promise<string | undefined> {
 }
 
 function resetTimestamp(value: unknown): string | undefined {
-  return typeof value === 'string' && value !== '' && Number.isFinite(Date.parse(value))
-    ? value
-    : undefined;
+  if (typeof value !== 'string' || value === '') return undefined;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return undefined;
+  // Canonicalize to a Z instant: Anthropic reports a `+00:00` offset that the
+  // Z-only protocol TimestampSchema rejects, discarding the otherwise-valid probe.
+  return new Date(ms).toISOString();
 }
 
 function mapWindow(window: 'five_hour' | 'seven_day', value: unknown): AgentLimit | undefined {

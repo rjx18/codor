@@ -190,4 +190,33 @@ test.describe('usage gauges', () => {
     await expect(limits.locator('.nx-gauge.is-error')).toHaveCount(0);
     await expect(limits.locator('.nx-gauge.is-ok')).toContainText('80% left');
   });
+
+  test('the usage refresh sits left of Plus, shows busy, and errors without clearing the gauges', async ({ page }) => {
+    await openRoom(page);
+    const refresh = page.getByTestId('refresh-usage');
+    const limits = page.getByTestId('member-fable-limits');
+    await expect(limits.locator('.nx-gauge.is-warn')).toContainText('18% left'); // seeded gauges present
+
+    // Refresh is immediately left of Plus in People & agents.
+    const refreshBox = (await refresh.boundingBox())!;
+    const plusBox = (await page.getByTestId('spawn-agent').boundingBox())!;
+    expect(refreshBox.x + refreshBox.width).toBeLessThanOrEqual(plusBox.x + 1);
+
+    // A failing refresh tints the button and leaves the last-good gauges untouched.
+    await page.route('**/api/usage/refresh', (route) => route.fulfill({ status: 500, body: 'boom' }));
+    await refresh.click();
+    await expect(refresh).toHaveClass(/is-error/);
+    await expect(limits.locator('.nx-gauge.is-warn')).toContainText('18% left');
+
+    // A slow success clears the error and disables the button while it is busy.
+    await page.unroute('**/api/usage/refresh');
+    await page.route('**/api/usage/refresh', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{"refreshed":true}' });
+    });
+    await refresh.click();
+    await expect(refresh).toBeDisabled();
+    await expect(refresh).not.toHaveClass(/is-error/);
+    await expect(refresh).toBeEnabled();
+  });
 });

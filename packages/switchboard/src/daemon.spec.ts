@@ -4533,6 +4533,136 @@ describe('usage limits (agent-usage-limits-reported-not-guessed)', () => {
   });
 });
 
+// harn:assume account-usage-limits-are-probed-periodically-and-refreshably ref=usage-probe-regression
+describe('account usage probing (account-usage-limits-are-probed-periodically-and-refreshably)', () => {
+  const reported: AgentLimit[] = [{ window: 'five_hour', used_percent: 21 }];
+
+  function buildProbeDaemon(
+    probeImpl: () => Promise<AgentLimit[] | undefined>,
+    opts: Record<string, unknown>,
+    tag: string,
+  ) {
+    const probeLimits = vi.fn(probeImpl);
+    const adapter: HarnessAdapter = Object.assign(new FakeAdapter('claude-code'), { probeLimits });
+    const probeDaemon = new Daemon({
+      dbPath: join(dir, `${tag}.sqlite`),
+      blobRoot: join(dir, `${tag}-blobs`),
+      adapters: [adapter, new FakeAdapter('codex')],
+      discoverModels: false,
+      homeDir: dir,
+      ...opts,
+    });
+    return { probeDaemon, probeLimits };
+  }
+
+  it('probes immediately on boot for members already present, before any interval tick', async () => {
+    // Seed a persisted member, then reconstruct with a long interval: the only
+    // way probeLimits can be called in the window is the immediate boot probe.
+    const seed = buildProbeDaemon(async () => reported, { limitsProbeMs: 25 }, 'usage-boot');
+    let memberId: string;
+    try {
+      seed.probeDaemon.createRoom({ id: 'usage', name: 'Usage', owner: { handle: 'owner', display_name: 'Owner' } });
+      memberId = seed.probeDaemon.spawnMember('usage', { harness: 'claude-code', handle: 'agent', cwd: testCwd('usage-boot') }).id;
+      await until(() => seed.probeDaemon.store.getMember('usage', memberId)?.limits !== undefined ? true : undefined);
+    } finally {
+      await seed.probeDaemon.close();
+    }
+
+    const boot = buildProbeDaemon(async () => reported, { limitsProbeMs: 5 * 60_000 }, 'usage-boot');
+    try {
+      await until(() => boot.probeDaemon.store.getMember('usage', memberId)?.limits !== undefined ? true : undefined);
+      expect(boot.probeLimits).toHaveBeenCalledTimes(1); // boot only — the 5-minute interval has not ticked
+    } finally {
+      await boot.probeDaemon.close();
+    }
+  });
+
+  it('re-probes on the default five-minute cadence', async () => {
+    // Pre-seed a member so the boot probe has a target, then drive the interval
+    // with a fake clock to prove the default cadence is five minutes.
+    const seed = buildProbeDaemon(async () => reported, { limitsProbeMs: 25 }, 'usage-cadence');
+    try {
+      seed.probeDaemon.createRoom({ id: 'usage', name: 'Usage', owner: { handle: 'owner', display_name: 'Owner' } });
+      seed.probeDaemon.spawnMember('usage', { harness: 'claude-code', handle: 'agent', cwd: testCwd('usage-cadence') });
+      await until(() => seed.probeLimits.mock.calls.length >= 1 ? true : undefined);
+    } finally {
+      await seed.probeDaemon.close();
+    }
+
+    vi.useFakeTimers();
+    try {
+      // No limitsProbeMs → the production default (5 minutes).
+      const cadence = buildProbeDaemon(async () => reported, {}, 'usage-cadence');
+      try {
+        await vi.advanceTimersByTimeAsync(0); // flush the async boot probe
+        expect(cadence.probeLimits).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(5 * 60_000); // one cadence tick
+        expect(cadence.probeLimits).toHaveBeenCalledTimes(2);
+      } finally {
+        await cadence.probeDaemon.close();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('coalesces overlapping automatic and manual probes behind an in-flight one', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let calls = 0;
+    const { probeDaemon, probeLimits } = buildProbeDaemon(
+      async () => { calls += 1; await gate; return reported; },
+      { limitsProbeMs: 10 },
+      'usage-coalesce',
+    );
+    try {
+      probeDaemon.createRoom({ id: 'usage', name: 'Usage', owner: { handle: 'owner', display_name: 'Owner' } });
+      probeDaemon.spawnMember('usage', { harness: 'claude-code', handle: 'agent', cwd: testCwd('usage-coalesce') });
+      await until(() => calls >= 1 ? true : undefined); // one probe is in flight, awaiting the gate
+      // A manual refresh plus several 10ms interval ticks all coalesce behind it.
+      await probeDaemon.refreshUsageLimits();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(calls).toBe(1);
+    } finally {
+      release();
+      await probeDaemon.close();
+    }
+    expect(probeLimits.mock.calls.length).toBe(1);
+  });
+
+  it('throttles manual refreshes with a cooldown and preserves last-good on failure', async () => {
+    let mode: 'ok' | 'fail' = 'ok';
+    const { probeDaemon, probeLimits } = buildProbeDaemon(
+      async () => { if (mode === 'fail') throw new Error('provider down'); return reported; },
+      { limitsProbeMs: 5 * 60_000, manualUsageRefreshCooldownMs: 80 },
+      'usage-cooldown',
+    );
+    try {
+      probeDaemon.createRoom({ id: 'usage', name: 'Usage', owner: { handle: 'owner', display_name: 'Owner' } });
+      const memberId = probeDaemon.spawnMember('usage', { harness: 'claude-code', handle: 'agent', cwd: testCwd('usage-cooldown') }).id;
+      // The boot probe (no members yet) already stamped the cooldown; let it lapse
+      // so the first real manual refresh runs.
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      // First manual refresh probes and lands the limits.
+      expect(await probeDaemon.refreshUsageLimits()).toEqual({ refreshed: true });
+      await until(() => probeDaemon.store.getMember('usage', memberId)?.limits !== undefined ? true : undefined);
+      const afterFirst = probeLimits.mock.calls.length;
+      // A second click within the cooldown is a no-op.
+      expect(await probeDaemon.refreshUsageLimits()).toEqual({ refreshed: false });
+      expect(probeLimits.mock.calls.length).toBe(afterFirst);
+      // After the cooldown, a failing provider still runs but preserves last-good.
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      mode = 'fail';
+      expect(await probeDaemon.refreshUsageLimits()).toEqual({ refreshed: true });
+      expect(probeLimits.mock.calls.length).toBe(afterFirst + 1);
+      expect(probeDaemon.store.getMember('usage', memberId)?.limits).toEqual(reported);
+    } finally {
+      await probeDaemon.close();
+    }
+  });
+});
+// harn:end account-usage-limits-are-probed-periodically-and-refreshably
+
 // harn:assume run-events-merge-by-journal-index ref=daemon-journal-index-stamp
 describe('run_event journal indices (run-events-merge-by-journal-index)', () => {
   it('stamps consecutive indices matching the journal across a scripted turn', async () => {

@@ -156,6 +156,13 @@ export async function refreshAdapters(options: ApiOptions): Promise<AdapterListi
   return sendJson<AdapterListing>('/api/adapters/refresh', 'POST', undefined, options);
 }
 // harn:end adapter-refresh-is-authorized-and-incremental
+
+/** Trigger the daemon's account-usage probe. Updated gauges arrive as member
+ *  frames; the response only reports whether a probe ran (false while cooling
+ *  down). Never returns credentials. */
+export async function refreshUsage(options: ApiOptions): Promise<{ refreshed: boolean }> {
+  return sendJson<{ refreshed: boolean }>('/api/usage/refresh', 'POST', undefined, options);
+}
 // harn:end model-catalogs-reach-a-browser-that-arrives-early
 
 export async function fetchRooms(options: ApiOptions): Promise<Room[]> {

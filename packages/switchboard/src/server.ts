@@ -624,6 +624,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end adapter-refresh-is-authorized-and-incremental
 
+  // harn:assume account-usage-limits-are-probed-periodically-and-refreshably ref=usage-refresh-rest
+  // A manual usage refresh runs the same account probe, gated like the adapter
+  // refresh and throttled by the daemon's cooldown; it returns whether a probe
+  // actually ran (false while cooling down) and never any provider credential.
+  app.post('/api/usage/refresh', async (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_agents', reply)) return;
+    void reply.send(await daemon.refreshUsageLimits());
+  });
+  // harn:end account-usage-limits-are-probed-periodically-and-refreshably
+
   // harn:assume local-directory-listing-home-contained ref=local-dirs-rest-boundary
   app.get('/api/local/dirs', (req, reply) => {
     const principal = authed(req, reply);
