@@ -1,0 +1,84 @@
+id: codor-runtime-fidelity-phase6-correction
+title: Correct ACP cumulative usage, terminal truth, diffs, restoration, and launch guidance
+notes: >
+  Correct five in-scope ACP v1 fidelity defects. Convert provider session-total
+  usage to per-turn deltas using a private persisted cursor that is never part of
+  member or API projections, and reset that cursor safely when provider totals
+  move backwards. Treat token/request limits as interrupted terminal outcomes,
+  never infer deletion from empty post-edit content, restore through any
+  lifecycle mechanism common to persisted and newly negotiated support, and
+  show executable and argv examples as separate literal fields.
+assumptions:
+  reviewed:
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      outcome: unchanged
+      reason: These corrections make usage, stop reasons, diffs, and restoration
+        match the already-declared ACP v1 evidence contract.
+    - id: durable-agent-runtime-configuration
+      outcome: unchanged
+      reason: A private ACP usage cursor extends the existing server-only runtime
+        record without changing projections, launch secrecy, or session identity.
+    - id: normalized-agent-usage-telemetry-with-estimates
+      outcome: unchanged
+      reason: Persisted run usage remains provider-reported token truth, now
+        converted from ACP session totals into non-overlapping turn deltas.
+    - id: acp-launch-is-structured-authorized-and-bounded
+      outcome: unchanged
+      reason: The UI example is corrected to reflect the existing executable plus
+        literal argv contract; validation and authority do not change.
+anchors:
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-adapter-runtime:
+      action: change
+      reason: Carry and update the private cumulative-usage cursor and choose any
+        restoration mechanism retained across negotiations.
+    acp-event-normalization:
+      action: change
+      reason: Derive safe turn deltas, classify limit stops honestly, and avoid
+        inferring file deletion from empty content.
+    acp-adapter-regression:
+      action: change
+      reason: Prove two-turn deltas, reset/restoration behavior, lifecycle fallback,
+        and one terminal outcome per turn.
+    acp-fake-agent:
+      action: change
+      reason: Provide deterministic cumulative usage, stop-reason, empty-edit, and
+        lifecycle-negotiation fixtures.
+    acp-browser-regression:
+      action: change
+      reason: Prove the executable and first literal argv examples are separated.
+  durable-agent-runtime-configuration:
+    durable-agent-runtime-schema:
+      action: change
+      reason: Define the private ACP cumulative-usage cursor carried by a daemon session.
+    durable-agent-runtime-storage:
+      action: change
+      reason: Persist the private cursor outside member projections.
+    durable-agent-runtime-rebuild:
+      action: change
+      reason: Restore the cursor with the existing ACP session runtime configuration.
+    durable-agent-runtime-regression:
+      action: change
+      reason: Prove cursor durability, reset updates, and projection secrecy.
+  acp-launch-is-structured-authorized-and-bounded:
+    acp-launch-ui:
+      action: change
+      reason: Show one executable name and place the subcommand in argv guidance.
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/adapters/acp/src/adapter.ts
+  - packages/adapters/acp/src/adapter.spec.ts
+  - packages/adapters/acp/src/translate.ts
+  - packages/adapters/acp/src/translate.spec.ts
+  - packages/adapters/acp/test-fixtures/fake-agent.mjs
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web-next/src/room/AgentControls.tsx
+  - packages/web-next/tests/room3-context.e2e.spec.ts
+verification: >
+  Run focused ACP translator/adapter tests, protocol schema tests, private runtime
+  store and ACP restart daemon tests, the focused ACP Add Agent browser case,
+  protocol/ACP/switchboard/web builds, and Harn unstaged and staged gates.
