@@ -1,37 +1,33 @@
 id: npm-readme-rendering
 title: Keep the npm package README current and renderable
-notes: >-
-  The npm registry receives the root README copied into the public artifact, but
-  repository-relative logo paths cannot resolve on the npm package page and the
-  previously published tarball carried the older setup command. Make the logo
-  sources absolute and add an artifact regression proving the staged README has
-  the primary install command and registry-resolvable logo URLs.
+notes: The npm registry receives the root README copied into the public
+  artifact, but repository-relative logo paths cannot resolve on the npm package
+  page and the previously published tarball carried the older setup command.
+  Make the logo sources absolute and add an artifact regression proving the
+  staged README has the primary install command and registry-resolvable logo
+  URLs.
 assumptions:
   create:
     - id: public-package-readme-renders-on-npm
       title: The public package README renders its brand and current install command
-      statement: >-
-        The README staged into @richhardry/codor must use absolute public URLs for
-        its light and dark Codor marks and must present `npx @richhardry/codor
-        install` as the primary command, because npm renders the packed README
-        outside the repository and relative website asset paths otherwise degrade
-        to alt text.
-      reason: >-
-        The npm package page is an installation surface, so both its identity and
-        command must survive artifact staging and registry rendering.
+      statement: The README staged into @richhardry/codor must use absolute public
+        URLs for its light and dark Codor marks and must present `npx
+        @richhardry/codor install` as the primary command, because npm renders
+        the packed README outside the repository and relative website asset
+        paths otherwise degrade to alt text.
+      reason: The npm package page is an installation surface, so both its identity
+        and command must survive artifact staging and registry rendering.
       depends_on:
         - public-package-bundles-complete-codor-runtime
         - public-npx-install-is-primary-install
   reviewed:
     - id: public-package-bundles-complete-codor-runtime
       outcome: unchanged
-      reason: >-
-        Artifact staging still copies the root README unchanged; the regression
+      reason: Artifact staging still copies the root README unchanged; the regression
         now verifies that copied document is suitable for the npm renderer.
     - id: public-npx-install-is-primary-install
       outcome: unchanged
-      reason: >-
-        The repository README already uses install as primary and setup as an
+      reason: The repository README already uses install as primary and setup as an
         alias; the packed artifact will now prove it carries that same command.
 anchors:
   public-package-readme-renders-on-npm:
@@ -48,6 +44,7 @@ anchors:
 files:
   - README.md
   - packages/cli/src/artifact.spec.ts
-verification: >-
-  Run the focused artifact test, build the public artifact, inspect its staged
-  README, and pass Harn checks before committing. Do not publish.
+verification: Run the focused artifact test, build the public artifact, inspect
+  its staged README, and pass Harn checks before committing. Do not publish.
+applied:
+  applied_at: 2026-07-22T01:55:34.995Z

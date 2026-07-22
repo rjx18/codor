@@ -124,6 +124,21 @@ describe('built public artifact', () => {
       .toMatchObject({ name: ENTRY_PACKAGE, version: '0.10.0' });
   });
 
+  // harn:assume public-package-readme-renders-on-npm ref=artifact-readme-regression
+  it('stages an npm-renderable README with the current install command', () => {
+    buildArtifact({ repoRoot, outDir });
+    const readme = readFileSync(join(outDir, 'README.md'), 'utf8');
+    expect(readme).toContain('npx @richhardry/codor install');
+    expect(readme).toContain(
+      'https://raw.githubusercontent.com/rjx18/codor/main/website/public/codor-mark-light.svg',
+    );
+    expect(readme).toContain(
+      'https://raw.githubusercontent.com/rjx18/codor/main/website/public/codor-mark-dark.svg',
+    );
+    expect(readme).not.toMatch(/(?:src|srcset)="website\/public\/codor-mark-/);
+  });
+  // harn:end public-package-readme-renders-on-npm
+
   it('stages exact manifests, the complete web build, and service resources', () => {
     const { manifest } = buildArtifact({ repoRoot, outDir });
     for (const name of EXPECTED_CLOSURE) {

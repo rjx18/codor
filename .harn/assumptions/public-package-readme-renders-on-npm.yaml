@@ -1,0 +1,13 @@
+id: public-package-readme-renders-on-npm
+hash: a-718424326deb
+title: The public package README renders its brand and current install command
+state: active
+statement: The README staged into @richhardry/codor must use absolute public
+  URLs for its light and dark Codor marks and must present `npx
+  @richhardry/codor install` as the primary command, because npm renders the
+  packed README outside the repository and relative website asset paths
+  otherwise degrade to alt text.
+depends_on:
+  - public-package-bundles-complete-codor-runtime
+  - public-npx-install-is-primary-install
+created_by: npm-readme-rendering

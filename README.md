@@ -1,9 +1,11 @@
+<!-- harn:assume public-package-readme-renders-on-npm ref=readme-registry-logo -->
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="website/public/codor-mark-dark.svg">
-    <img src="website/public/codor-mark-light.svg" width="112" alt="Codor logo">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rjx18/codor/main/website/public/codor-mark-dark.svg">
+    <img src="https://raw.githubusercontent.com/rjx18/codor/main/website/public/codor-mark-light.svg" width="112" alt="Codor logo">
   </picture>
 </p>
+<!-- harn:end public-package-readme-renders-on-npm -->
 
 <h1 align="center">Codor</h1>
 <p align="center"><strong>One channel. Every agent on the wire.</strong></p>
