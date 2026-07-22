@@ -1,0 +1,114 @@
+id: codor-polish-phase3-usage-limits
+title: Phase 3 - correct, fresh, and manually refreshable account usage limits
+notes: >-
+  Product-polish Phase 3 (plan of record tmp/codor-product-polish/PLAN.md).
+  Correct the usage-limit system and make it fresh + manually refreshable.
+
+  Daemon (switchboard): the account-limit probe already runs once on boot, one
+  probe per harness fanned to active members, coalesced by an in-flight flag,
+  preserving last-good on failure. This plan changes the default cadence from 15
+  to 5 minutes, adds a short server-enforced manual cooldown so repeated manual
+  refreshes cannot exceed provider rate limits, and adds one authorized manual
+  usage-refresh (REST, gated like the adapter refresh via manage_agents) that
+  invokes the same probe. Credentials are never exposed to clients.
+
+  Adapters (claude-code): the streamed rate_limit_event utilization is a 0..1
+  fraction but was copied straight into used_percent (so 0.86 rendered as ~99%
+  left); normalize fraction (<=1) to percent (0..1 -> 0..100) while preserving
+  already-percent values above 1, and do NOT multiply the OAuth endpoint percent
+  response. The OAuth probe's reset timestamp is forwarded raw, so an Anthropic
+  `+00:00` offset fails the Z-only protocol TimestampSchema and the valid probe
+  is discarded; canonicalize it with new Date(x).toISOString() before it becomes
+  an AgentLimit. The protocol AgentLimit schema (used_percent 0..100, resets_at
+  Z) and the daemon landing are unchanged - these are translation-layer fixes.
+
+  web-next (.harnignore'd): a small circular Refresh-usage button immediately
+  left of Plus in People & agents, with busy/error state that never replaces the
+  last good gauges.
+
+  The limits-are-reported-not-guessed contract is preserved: normalizing a
+  reported fraction to the contract's percent unit and canonicalizing a reset
+  timestamp's format are faithful representations, not guesses - so that
+  assumption is reviewed unchanged with its translation anchor changed.
+assumptions:
+  create:
+    - id: account-usage-limits-are-probed-periodically-and-refreshably
+      title: Account usage limits are probed on boot, every five minutes, coalesced,
+        cooled-down, and manually refreshable under authorization
+      statement: >-
+        The daemon probes account-level usage limits once immediately on boot and
+        then every five minutes by default, running one probe per harness/account
+        and fanning the identical result to every active non-removed member of
+        that harness; an in-flight probe coalesces overlapping automatic and
+        manual requests so none is duplicated, and a provider failure or empty
+        result preserves the last-known-good limits. An authorized manual
+        usage-refresh - gated like the adapter refresh (manage_agents) and
+        subject to a short server-enforced cooldown so repeated clicks cannot
+        exceed provider rate limits - invokes the same probe. Provider OAuth
+        credentials are never exposed to clients.
+      reason: >-
+        Usage gauges were 15 minutes stale and had no manual refresh; five-minute
+        cadence plus an authorized, coalesced, cooled-down manual refresh keeps
+        them fresh without letting clicks exceed provider limits.
+  reviewed:
+    - id: agent-usage-limits-reported-not-guessed
+      outcome: unchanged
+      reason: >-
+        Limits remain exactly the harness-reported windows, never invented or
+        aged. The Claude streamed utilization is normalized from a 0..1 fraction
+        to the contract's 0..100 percent (a unit correction of the reported
+        value), already-percent values above 1 are preserved, the OAuth endpoint
+        percent is not multiplied, and the OAuth reset timestamp is canonicalized
+        to the equivalent Z instant before validation - all faithful
+        representations of what the harness reported, not guesses.
+anchors:
+  account-usage-limits-are-probed-periodically-and-refreshably:
+    usage-probe-scheduling:
+      action: change
+      reason: The boot probe stays; the periodic interval default becomes five minutes.
+    usage-probe-runtime:
+      action: change
+      reason: The fan-out probe gains a manual-refresh entry point and a cooldown while
+        keeping its coalescing and last-good preservation.
+    usage-refresh-rest:
+      action: change
+      reason: A new authorized REST usage-refresh route invokes the same daemon probe.
+    usage-probe-regression:
+      action: change
+      reason: Fake-clock daemon tests prove boot probe, five-minute cadence, coalescing,
+        cooldown, last-good preservation, and one probe per account.
+    usage-refresh-auth-regression:
+      action: change
+      reason: Server tests prove the refresh route rejects an unprivileged caller.
+  agent-usage-limits-reported-not-guessed:
+    claude-rate-limit-translation:
+      action: change
+      reason: Normalize the streamed 0..1 utilization fraction to the 0..100 percent
+        contract while preserving already-percent values above 1.
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/adapters/claude-code/src/translate.ts
+  - packages/adapters/claude-code/src/translate.spec.ts
+  - packages/adapters/claude-code/src/limits-probe.ts
+  - packages/adapters/claude-code/src/limits-probe.spec.ts
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room11-batch-b.e2e.spec.ts
+verification: |
+  - Adapter unit fixtures: offset timestamp canonicalizes to the equivalent Z
+    instant; OAuth endpoint percent is preserved (no multiply); a real 0..1 stream
+    fraction becomes 0..100 percent; 0/1/boundary and malformed values are handled.
+  - Fake-clock daemon tests: immediate boot probe, five-minute cadence, coalescing
+    of overlapping requests, manual cooldown, last-good preservation on failure,
+    one probe per account fanned to members.
+  - Server tests: the usage-refresh route rejects an unprivileged caller and never
+    returns credentials.
+  - web-next: the Refresh-usage button sits left of Plus, shows busy/error without
+    replacing the last good gauges, and a corrected fractional stream renders the
+    right "% left".
+  - Focused protocol/adapters/switchboard suites + web-next build + focused
+    Playwright; Harn unstaged/staged gates pass.
