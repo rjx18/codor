@@ -724,6 +724,8 @@ describe('Codex turn/plan/updated thread routing', () => {
     server.notify('turn/started', { threadId: 'thread-1', turn: { id: 'turn-1', status: 'inProgress', items: [], error: null } });
     // A foreign-thread plan notification is dropped before reaching the translator.
     server.notify('turn/plan/updated', { threadId: 'thread-OTHER', turnId: 'turn-1', plan: [{ step: 'Leaked', status: 'pending' }] });
+    // A threadless plan must not slip through on turnId alone.
+    server.notify('turn/plan/updated', { turnId: 'turn-1', plan: [{ step: 'Threadless', status: 'pending' }] });
     // The retained-thread active-turn plan is projected.
     server.notify('turn/plan/updated', { threadId: 'thread-1', turnId: 'turn-1', plan: [{ step: 'Design', status: 'inProgress' }] });
     server.notify('turn/completed', { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [], error: null } });

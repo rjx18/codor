@@ -155,7 +155,7 @@ export const AgentTaskUpdateSchema = z.discriminatedUnion('op', [
   }),
   z.object({
     op: z.literal('upsert'),
-    items: z.array(AgentTaskPatchSchema).min(1).max(100),
+    items: z.array(AgentTaskPatchSchema).min(1).max(100).refine(uniqueTaskIds, { message: 'task ids must be unique' }),
   }),
 ]);
 export type AgentTaskUpdate = z.infer<typeof AgentTaskUpdateSchema>;

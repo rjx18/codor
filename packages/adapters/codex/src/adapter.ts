@@ -489,6 +489,15 @@ export class CodexAdapter implements HarnessAdapter {
     if (threadId !== undefined && runtime.threadId !== undefined && threadId !== runtime.threadId) {
       return;
     }
+    // harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=codex-plan-task-routing
+    // The pinned task-checklist notification must carry a nonempty threadId that
+    // exactly matches the retained runtime thread — a threadless plan must not slip
+    // through on turnId alone, which the general check above would otherwise allow.
+    if (method === 'turn/plan/updated' &&
+        (runtime.threadId === undefined || threadId === undefined || threadId !== runtime.threadId)) {
+      return;
+    }
+    // harn:end normalized-agent-task-updates-are-bounded-and-authoritative
     // harn:assume codex-app-server-usage-preserves-cache-and-resolved-model ref=codex-resolved-model-runtime
     const notification = record(params);
     if (method === 'thread/settings/updated') {

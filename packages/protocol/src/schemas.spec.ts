@@ -1527,6 +1527,10 @@ describe('AgentTask schemas', () => {
     expect(AgentTaskUpdateSchema.parse({ op: 'upsert', items: [{ id: '1', status: 'completed' }] })).toMatchObject({ op: 'upsert' });
     expect(AgentTaskUpdateSchema.safeParse({ op: 'upsert', items: [{ id: '1' }] }).success).toBe(false); // no changed field
     expect(AgentTaskUpdateSchema.safeParse({ op: 'upsert', items: [] }).success).toBe(false); // must have >=1 patch
+    // Duplicate ids reject the whole upsert batch, matching replace.
+    expect(AgentTaskUpdateSchema.safeParse({ op: 'upsert', items: [
+      { id: 'x', status: 'completed' }, { id: 'x', status: 'pending' },
+    ] }).success).toBe(false);
   });
 
   it('rejects an unknown op', () => {

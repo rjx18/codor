@@ -411,7 +411,8 @@ const tasksCwd = join(dir, 'tasks-work');
 mkdirSync(tasksCwd, { recursive: true });
 const planner = daemon.spawnMember('tasks', { harness: 'fake', handle: 'planner', cwd: tasksCwd });
 daemon.spawnMember('tasks', { harness: 'fake', handle: 'idler', cwd: tasksCwd });
-daemon.store.applyMemberTaskUpdate('tasks', planner.id, {
+const PLANNER_SESSION = 'planner-session-1';
+const PLANNER_TASKS = {
   op: 'replace',
   explanation: 'Shipping the auth refactor',
   items: [
@@ -422,7 +423,14 @@ daemon.store.applyMemberTaskUpdate('tasks', planner.id, {
     { id: 't5', content: 'Update the docs', status: 'pending' },
     { id: 't6', content: 'Request review', status: 'pending' },
   ],
-});
+};
+const resetPlannerTasks = () => {
+  daemon.store.setAgentSessionRuntime('tasks', planner.id, PLANNER_SESSION, { load: true, resume: true });
+  const seeded = daemon.store.applyMemberTaskUpdate('tasks', planner.id, PLANNER_TASKS);
+  if (seeded) daemon.emitMember('tasks', seeded);
+};
+daemon.store.setAgentSessionRuntime('tasks', planner.id, PLANNER_SESSION, { load: true, resume: true });
+daemon.store.applyMemberTaskUpdate('tasks', planner.id, PLANNER_TASKS);
 
 // Fixtures: a STABLE room for specs whose subject is a seeded message or run.
 // The shared eng room accretes as other specs post into it, which pushes boot
@@ -1152,6 +1160,25 @@ createServer((req, res) => {
         else fake.holdCompactions();
         if (body.usage !== undefined) fake.compactUsage = body.usage;
         payload = { held: body.held !== false };
+      }
+      if (url.pathname === '/tasks-reset') {
+        // Restore the full seeded checklist + session so each browser test is isolated.
+        resetPlannerTasks();
+        payload = { ok: true };
+      }
+      if (url.pathname === '/tasks-duplicate') {
+        // Re-deliver the identical seeded update: the store no-ops and emits no frame.
+        const member = daemon.store.getMemberByHandle('tasks', 'planner');
+        const updated = daemon.store.applyMemberTaskUpdate('tasks', member.id, PLANNER_TASKS);
+        if (updated) daemon.emitMember('tasks', updated);
+        payload = { changed: updated !== undefined };
+      }
+      if (url.pathname === '/tasks-new-session') {
+        // A genuinely different native session id clears the projection.
+        const member = daemon.store.getMemberByHandle('tasks', 'planner');
+        const updated = daemon.store.setAgentSessionRuntime('tasks', member.id, 'planner-session-2', { load: true, resume: true });
+        daemon.emitMember('tasks', updated);
+        payload = { ok: true };
       }
       if (url.pathname === '/tasks-live') {
         // Live in-place upsert on the retained session — a member frame, no reload.
