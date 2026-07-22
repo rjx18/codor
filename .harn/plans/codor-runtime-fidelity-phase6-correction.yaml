@@ -26,6 +26,10 @@ assumptions:
       outcome: unchanged
       reason: The UI example is corrected to reflect the existing executable plus
         literal argv contract; validation and authority do not change.
+    - id: harness-declares-supported-thinking-levels
+      outcome: unchanged
+      reason: Adding a private ACP usage cursor beside the nested session runtime
+        schema does not change thinking enums, capabilities, or native behavior.
 anchors:
   acp-v1-events-and-capabilities-are-negotiated:
     acp-adapter-runtime:
@@ -64,6 +68,11 @@ anchors:
     acp-launch-ui:
       action: change
       reason: Show one executable name and place the subcommand in argv guidance.
+  harness-declares-supported-thinking-levels:
+    adapter-thinking-level-contract:
+      action: change
+      reason: Extend the enclosing Session shape with private ACP accounting state
+        while leaving thinking-level declarations unchanged.
 files:
   - packages/protocol/src/adapter.ts
   - packages/protocol/src/schemas.spec.ts
