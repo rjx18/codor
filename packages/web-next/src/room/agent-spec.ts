@@ -443,7 +443,9 @@ export function buildSpawnSpec(input: {
     handle: availableAgentHandle(input.handle.trim(), input.members),
     cwd: input.cwd.trim(),
     policy: input.config.policy === '' ? DEFAULT_POLICY : input.config.policy,
-    ...(input.config.model !== '' && { model: input.config.model }),
+    // The ACP transport negotiates its model per session and rejects a client-selected
+    // one, so a model is never serialized for a named or custom ACP agent.
+    ...(harness !== 'acp' && input.config.model !== '' && { model: input.config.model }),
     ...(thinking !== undefined && { thinking }),
     ...(purpose !== undefined && purpose !== '' && { purpose }),
     ...(acp_provider !== undefined && { acp_provider }),

@@ -30,6 +30,8 @@ export interface AdapterRegistration {
   configurable?: boolean;
   /** Present on ACP entries — named providers and the generic custom tile. */
   transport?: 'acp';
+  /** True only for the generic custom ACP tile — the sole Advanced-disclosure entry. */
+  advanced?: boolean;
   /** Safe curated provider id for named entries; the API never sends its executable or argv. */
   acp_provider?: string;
   /** Documentation link surfaced beside a named provider tile. */

@@ -90,7 +90,9 @@ export function NoChannels(props: { token: string }) {
           ...(resolveSelector(agentConfig.harness).acp_provider !== undefined
             && { acp_provider: resolveSelector(agentConfig.harness).acp_provider }),
           ...(acpLaunch !== undefined && { acp_launch: acpLaunch }),
-          ...(agentConfig.model !== '' && { model: agentConfig.model }),
+          // The ACP transport rejects a client-selected model, so never seed one for it.
+          ...(resolveSelector(agentConfig.harness).harness !== 'acp' && agentConfig.model !== ''
+            && { model: agentConfig.model }),
           ...(() => {
             const thinking = supportedThinking(
               all.find((adapter) => adapter.id === agentConfig.harness),

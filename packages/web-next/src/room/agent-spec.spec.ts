@@ -98,13 +98,16 @@ describe('named ACP provider selection maps to the safe wire shape', () => {
     expect(spec).not.toHaveProperty('acp_launch');
   });
 
-  it('resolves a named selector id to the acp harness plus a safe provider id, never a command', () => {
+  it('resolves a named selector id to the acp harness plus a safe provider id, never a command or model', () => {
     const spec = buildSpawnSpec({
-      config: config({ harness: 'acp:kimi' }), handle: 'a', cwd: '/p', adapters: [kimi], members: [],
+      // Even if a stale model lingers in config, the ACP transport must not receive one.
+      config: config({ harness: 'acp:kimi', model: 'gpt-whatever' }),
+      handle: 'a', cwd: '/p', adapters: [kimi], members: [],
     });
     expect(spec.harness).toBe('acp');
     expect(spec.acp_provider).toBe('kimi');
     expect(spec).not.toHaveProperty('acp_launch');
+    expect(spec).not.toHaveProperty('model');
   });
 
   it('builds a custom launch only for the generic acp tile, with no provider id', () => {

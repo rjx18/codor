@@ -94,6 +94,38 @@ test.describe('first-channel onboarding', () => {
     });
   });
 
+  // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=detected-acp-browser-regression
+  test('first-channel onboarding offers a detected named provider and seeds it as harness acp + provider id', async ({ page }) => {
+    const control = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
+    await fetch(`${control}/acp-reset`, { method: 'POST' }); // kimi detected (serial workers=1)
+    await showEmptyStateOnce(page);
+    await page.goto(await mintPairingUrl());
+    await page.getByTestId('confirm-pair-browser').click();
+    const paired = page.getByTestId('pairing-offer-state').getByRole('status');
+    await expect(paired).toContainText('Paired', { timeout: 15_000 });
+    await paired.getByRole('link', { name: 'open your channels' }).click();
+
+    const onboarding = page.getByTestId('first-channel-onboarding');
+    await expect(onboarding).toBeVisible();
+    // The detected named provider is offered here too, with its ACP pill.
+    await expect(onboarding.getByTestId('first-harness-acp:kimi')).toBeVisible();
+    await expect(onboarding.getByTestId('first-acp-pill-kimi')).toHaveText('ACP');
+
+    await page.getByTestId('first-folder-alpha-project').click();
+    await page.getByTestId('first-channel-name').fill('Kimi Onboard');
+    await onboarding.getByTestId('first-harness-acp:kimi').click();
+    const [request] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes('/api/rooms') && r.method() === 'POST'),
+      page.getByTestId('first-channel-create').click(),
+    ]);
+    const agent = (request.postDataJSON() as { starting_agent: Record<string, unknown> }).starting_agent;
+    expect(agent.harness).toBe('acp');
+    expect(agent.acp_provider).toBe('kimi');
+    expect(agent).not.toHaveProperty('acp_launch');
+    expect(agent).not.toHaveProperty('model');
+  });
+  // harn:end agent-selection-shows-detected-acp-and-advanced-custom
+
   test('the project folder is required: a valid name alone does not enable the first channel', async ({ page }) => {
     await showEmptyStateOnce(page);
     await page.goto(`/?token=${OWNER_TOKEN}`);

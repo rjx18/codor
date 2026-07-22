@@ -186,7 +186,30 @@ export const ActSchema = z.discriminatedUnion('act', [
     act: z.literal('retry_run'),
     message_id: MessageIdSchema,
   }),
-]);
+])
+  // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-act-schema
+  // A discriminated union cannot refine a single member, so the ACP spawn one-of is
+  // enforced on the whole union: an acp spawn carries exactly one of a named provider id
+  // or a custom launch, and a non-acp spawn carries neither.
+  .superRefine((act, ctx) => {
+    if (act.act !== 'spawn') return;
+    const hasProvider = act.acp_provider !== undefined;
+    const hasLaunch = act.acp_launch !== undefined;
+    if (act.harness === 'acp') {
+      if (hasProvider === hasLaunch) {
+        ctx.addIssue({
+          code: 'custom', path: ['acp_provider'],
+          message: 'an acp spawn requires exactly one of a named provider id or a custom launch',
+        });
+      }
+    } else if (hasProvider || hasLaunch) {
+      ctx.addIssue({
+        code: 'custom', path: ['acp_launch'],
+        message: 'only an acp spawn may carry a provider id or custom launch',
+      });
+    }
+  });
+// harn:end named-acp-provider-selection-resolves-to-private-structured-launch
 export type Act = z.infer<typeof ActSchema>;
 
 export const ActFrameSchema = z.object({

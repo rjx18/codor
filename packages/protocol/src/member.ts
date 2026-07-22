@@ -261,5 +261,15 @@ export const MemberSchema = z
         message: 'only human members may have a role',
       });
     }
+    // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-member-identity
+    // A named provider id is ACP identity; a non-acp member must never carry one.
+    if (member.acp_provider !== undefined && member.harness !== 'acp') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['acp_provider'],
+        message: 'only an acp member may carry a provider id',
+      });
+    }
+    // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
   });
 export type Member = z.infer<typeof MemberSchema>;

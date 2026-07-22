@@ -117,7 +117,8 @@ test.describe('named ACP providers', () => {
     await expect(dialog.getByTestId('create-advanced')).toBeVisible();
   });
 
-  test('Configure shows a named member locked to its provider identity, with the ACP pill', async ({ page }) => {
+  test('Configure stays locked to the provider identity even after the binary disappears', async ({ page }) => {
+    await control('/acp-hide-all'); // kimi is no longer on PATH
     await page.goto('/?room=acp-providers&token=next-e2e-token');
     await expect(page.getByTestId('timeline')).toBeVisible();
     await page.getByTestId('member-kimo-menu').click();
@@ -125,12 +126,51 @@ test.describe('named ACP providers', () => {
     const configure = page.getByTestId('configure-dialog');
     await expect(configure).toBeVisible();
     const tile = configure.getByTestId('configure-harness-acp:kimi');
-    await expect(tile).toBeVisible();
-    await expect(tile).toBeDisabled(); // locked to the persisted provider identity
+    await expect(tile).toBeVisible(); // derived from persisted identity, not live detection
+    await expect(tile).toBeDisabled(); // locked
     await expect(configure.getByTestId('configure-acp-pill-kimi')).toHaveText('ACP');
-    // A locked configure never exposes a custom-command field or the Advanced disclosure.
+    // A locked configure never exposes a custom-command field, the Advanced disclosure, or a model.
     await expect(configure.getByTestId('configure-acp-launch')).toHaveCount(0);
     await expect(configure.getByTestId('configure-advanced')).toHaveCount(0);
+    await expect(configure.getByTestId('configure-model-input')).toHaveCount(0);
+  });
+
+  test('a named ACP provider exposes no model control', async ({ page }) => {
+    const dialog = await openSpawn(page);
+    await dialog.getByTestId('spawn-harness-acp:kimi').click();
+    await expect(dialog.getByTestId('spawn-harness-acp:kimi')).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByTestId('spawn-model-input')).toHaveCount(0);
+    await expect(dialog.getByText('Model', { exact: true })).toHaveCount(0);
+  });
+
+  test('a provider that disappears on Refresh is dropped and the selection reconciles', async ({ page }) => {
+    const dialog = await openSpawn(page);
+    await dialog.getByTestId('spawn-harness-acp:kimi').click();
+    await expect(dialog.getByTestId('spawn-harness-acp:kimi')).toHaveAttribute('aria-pressed', 'true');
+    await control('/acp-hide-all');
+    await dialog.getByTestId('spawn-refresh-adapters').click();
+    await expect(dialog.getByTestId('spawn-harness-acp:kimi')).toHaveCount(0); // gone from primary
+    // The dead selection heals to an available harness rather than sticking.
+    await expect(dialog.getByTestId('spawn-harness-fake')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('Create Channel seeds a named provider as harness acp + provider id, no command or model', async ({ page }) => {
+    await page.goto(ENG);
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await page.getByTestId('create-room').click();
+    const dialog = page.getByTestId('create-channel-dialog');
+    await dialog.getByTestId('create-name').fill('Kimi Channel');
+    await dialog.getByTestId('create-folder-alpha-project').click(); // selecting a row commits the cwd
+    await dialog.getByTestId('create-harness-acp:kimi').click();
+    const [request] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes('/api/rooms') && r.method() === 'POST'),
+      dialog.getByTestId('create-go').click(),
+    ]);
+    const agent = (request.postDataJSON() as { starting_agent: Record<string, unknown> }).starting_agent;
+    expect(agent.harness).toBe('acp');
+    expect(agent.acp_provider).toBe('kimi');
+    expect(agent).not.toHaveProperty('acp_launch');
+    expect(agent).not.toHaveProperty('model');
   });
 
   test('the named provider tiles are keyboard operable', async ({ page }) => {

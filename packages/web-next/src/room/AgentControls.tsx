@@ -212,6 +212,9 @@ export function AgentControls(props: {
   const { adapters, config } = props;
   const id = props.idPrefix ?? 'agent';
   const adapter = adapters.find((candidate) => candidate.id === config.harness);
+  // Any ACP transport — the generic custom tile or a named provider — negotiates its model
+  // per session and rejects a client-selected one, so no model control is shown for it.
+  const isAcp = config.harness === 'acp' || config.harness.startsWith('acp:');
   const models = adapter?.models ?? [];
   const levels = thinkingLevelsFor(adapter);
   const [modelQuery, setModelQuery] = useState('');
@@ -255,7 +258,7 @@ export function AgentControls(props: {
           </label>
         </div>
       )}
-      {config.harness !== 'acp' && (
+      {!isAcp && (
       <div className="nx-field">
         <span className="nx-label">Model</span>
         {models.length === 0 ? (

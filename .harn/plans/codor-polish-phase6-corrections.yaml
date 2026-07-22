@@ -1,25 +1,28 @@
 id: codor-polish-phase6-corrections
-title: Phase 6 corrections — schema-enforced ACP invariants, exact catalog shape,
-  ACP-transport model suppression, and real rebuild/fail-closed evidence
+title: Phase 6 corrections — schema-enforced ACP invariants, exact catalog
+  shape, ACP-transport model suppression, and real rebuild/fail-closed evidence
 notes: >
-  Codex review of Phase 6 (#964) found the ACP one-of and non-ACP exclusion invariants
-  were enforced only in daemon dispatch, not in the protocol schemas; the daemon catalog
-  omitted the locked public identity fields (native harness id, generic acp
-  transport/advanced); named ACP providers still exposed a model control and could
-  serialize a model the ACP adapter rejects; and the restart proof reopened rows instead
-  of driving a real session rebuild. This correction enforces the invariants directly in
-  MemberSchema and ActSchema, emits the exact catalog shape, suppresses model for every
-  ACP transport across all creation surfaces, and replaces the restart proof with a real
-  rebuild plus a fail-closed case. No assumption meanings change; existing Phase 6
-  catalog/protocol/spawn anchors are updated in place. Web-next is .harnignore'd, so its
-  session/agent-controls/create/onboarding edits are covered by the browser suites.
+  Codex review of Phase 6 (#964) found the ACP one-of and non-ACP exclusion
+  invariants were enforced only in daemon dispatch, not in the protocol schemas;
+  the daemon catalog omitted the locked public identity fields (native harness
+  id, generic acp transport/advanced); named ACP providers still exposed a model
+  control and could serialize a model the ACP adapter rejects; and the restart
+  proof reopened rows instead of driving a real session rebuild. This correction
+  enforces the invariants directly in MemberSchema and ActSchema, emits the
+  exact catalog shape, suppresses model for every ACP transport across all
+  creation surfaces, and replaces the restart proof with a real rebuild plus a
+  fail-closed case. No assumption meanings change; existing Phase 6
+  catalog/protocol/spawn anchors are updated in place. Web-next is
+  .harnignore'd, so its session/agent-controls/create/onboarding edits are
+  covered by the browser suites.
 assumptions:
   reviewed:
     - id: named-acp-provider-selection-resolves-to-private-structured-launch
       outcome: unchanged
       reason: The one-of/native-exclusion truth is unchanged; it is now additionally
-        enforced in the wire schemas rather than only at daemon dispatch, and the
-        restart proof exercises the real private-launch rebuild it always described.
+        enforced in the wire schemas rather than only at daemon dispatch, and
+        the restart proof exercises the real private-launch rebuild it always
+        described.
     - id: named-acp-provider-catalog-is-path-detected-and-command-private
       outcome: unchanged
       reason: The command-private catalog truth is unchanged; the daemon now emits the
@@ -32,21 +35,22 @@ anchors:
       reason: Reject acp_provider on a non-acp member directly in MemberSchema.
     acp-provider-spawn-act-schema:
       action: change
-      reason: Enforce the exact ACP one-of and non-acp exclusion in ActSchema, not only
-        in daemon dispatch.
+      reason: Enforce the exact ACP one-of and non-acp exclusion in ActSchema, not
+        only in daemon dispatch.
     acp-provider-protocol-regression:
       action: change
-      reason: Cover schema-level rejection of non-acp provider ids and neither/both ACP
-        spawn payloads.
+      reason: Cover schema-level rejection of non-acp provider ids and neither/both
+        ACP spawn payloads.
     acp-provider-spawn-regression:
       action: change
-      reason: Drive a real session rebuild proving the exact private launch is re-passed,
-        and a fail-closed rebuild that leaves member/provider/launch state unchanged.
+      reason: Drive a real session rebuild proving the exact private launch is
+        re-passed, and a fail-closed rebuild that leaves member/provider/launch
+        state unchanged.
   named-acp-provider-catalog-is-path-detected-and-command-private:
     acp-provider-catalog-runtime:
       action: change
-      reason: Emit native harness id and the generic acp transport/advanced flags in the
-        registration response without leaking command material.
+      reason: Emit native harness id and the generic acp transport/advanced flags in
+        the registration response without leaking command material.
     acp-provider-catalog-regression:
       action: change
       reason: Prove the exact catalog shape for native, generic, and named entries.
@@ -57,14 +61,18 @@ files:
   - packages/switchboard/src/daemon.ts
   - packages/switchboard/src/daemon.spec.ts
 verification: >
-  Protocol probe rejects acp_provider on a non-acp member and rejects ACP spawn acts with
-  neither or both fields and native harness + provider. The registration response carries
-  native harness id and the generic acp transport/advanced flags and never an executable
-  or argv. A real session rebuild re-passes the exact persisted private launch; an
-  unavailable executable fails the rebuild closed without rewriting member, provider, or
-  private launch state. Web browser suites prove named ACP exposes no model control,
-  create/onboarding payloads carry harness acp plus provider id and no model or command,
-  provider disappearance reconciles selection on Refresh, Configure stays stable when the
-  binary disappears, and the named provider appears in first-channel onboarding. Full
-  protocol/switchboard unit suites and builds, web unit/build, room31 plus affected
-  onboarding/create cases, and Harn unstaged/staged/apply gates all pass.
+  Protocol probe rejects acp_provider on a non-acp member and rejects ACP spawn
+  acts with neither or both fields and native harness + provider. The
+  registration response carries native harness id and the generic acp
+  transport/advanced flags and never an executable or argv. A real session
+  rebuild re-passes the exact persisted private launch; an unavailable
+  executable fails the rebuild closed without rewriting member, provider, or
+  private launch state. Web browser suites prove named ACP exposes no model
+  control, create/onboarding payloads carry harness acp plus provider id and no
+  model or command, provider disappearance reconciles selection on Refresh,
+  Configure stays stable when the binary disappears, and the named provider
+  appears in first-channel onboarding. Full protocol/switchboard unit suites and
+  builds, web unit/build, room31 plus affected onboarding/create cases, and Harn
+  unstaged/staged/apply gates all pass.
+applied:
+  applied_at: 2026-07-22T15:44:44.144Z

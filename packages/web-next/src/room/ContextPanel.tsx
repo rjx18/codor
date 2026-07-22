@@ -655,9 +655,12 @@ function ConfigureDialog(props: {
   const submit = (event: { preventDefault: () => void }) => {
     event.preventDefault();
     const adapter = props.adapters.find((candidate) => candidate.id === config.harness);
+    // An ACP member (named or custom) has no model control and never carries a model, so
+    // Configure never serializes one for it.
+    const isAcp = props.member.harness === 'acp';
     props.onConfigure({
       // null clears an override; '' from the Default tile means exactly that.
-      model: config.model === '' ? null : config.model,
+      ...(!isAcp && { model: config.model === '' ? null : config.model }),
       thinking: supportedThinking(adapter, config.thinking) ?? null,
       ...(config.policy !== '' && { policy: config.policy }),
     });

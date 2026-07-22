@@ -114,7 +114,9 @@ export function CreateChannelDialog(props: {
           ...(resolveSelector(agentHarness).acp_provider !== undefined
             && { acp_provider: resolveSelector(agentHarness).acp_provider }),
           ...(acpLaunch !== undefined && { acp_launch: acpLaunch }),
-          ...(agentConfig.model !== '' && { model: agentConfig.model }),
+          // The ACP transport rejects a client-selected model, so never seed one for it.
+          ...(resolveSelector(agentHarness).harness !== 'acp' && agentConfig.model !== ''
+            && { model: agentConfig.model }),
           ...(() => {
             const level = supportedThinking(
               all.find((a) => a.id === agentHarness), agentConfig.thinking,

@@ -6596,14 +6596,26 @@ describe('member task projection landing (member-task-projection-is-durable-and-
 
 describe('named ACP providers (detection and command-private launch)', () => {
   // harn:assume named-acp-provider-catalog-is-path-detected-and-command-private ref=acp-provider-catalog-regression
-  it('detects named providers by PATH at startup and across refresh, command-private', async () => {
+  it('publishes the exact catalog shape and detects named providers by PATH, command-private', async () => {
     const present = new Set<string>();
     const dir = mkdtempSync(join(tmpdir(), 'codor-named-catalog-'));
     const acpDaemon = new Daemon({
       dbPath: join(dir, 'switchboard.sqlite'), blobRoot: join(dir, 'blobs'),
-      adapters: [Object.assign(new AcpAdapter(), { configurable: true })], homeDir: dir,
+      adapters: [
+        Object.assign(new FakeAdapter('codex') as unknown as AcpAdapter, { executable: 'codex' }),
+        Object.assign(new AcpAdapter(), { configurable: true }),
+      ], homeDir: dir,
       executableOnPath: (executable) => present.has(executable),
       discoverModels: false,
+    });
+    // A native adapter carries its own id as harness and no ACP transport/advanced flags.
+    const native = acpDaemon.registeredAdapters().find((entry) => entry.id === 'codex');
+    expect(native).toMatchObject({ id: 'codex', harness: 'codex' });
+    expect(native).not.toHaveProperty('transport');
+    expect(native).not.toHaveProperty('advanced');
+    // The generic ACP transport is the sole Advanced custom-command tile, on harness acp.
+    expect(acpDaemon.registeredAdapters().find((entry) => entry.id === 'acp')).toMatchObject({
+      id: 'acp', harness: 'acp', configurable: true, transport: 'acp', advanced: true, installed: false,
     });
     const named = () => acpDaemon.registeredAdapters().filter((entry) => entry.acp_provider !== undefined);
     // Startup: both curated providers appear, uninstalled, in stable DEFINITION order.
@@ -6615,6 +6627,7 @@ describe('named ACP providers (detection and command-private launch)', () => {
     for (const entry of named()) {
       expect(entry).not.toHaveProperty('executable'); // command-private
       expect(entry).not.toHaveProperty('argv');
+      expect(entry).not.toHaveProperty('advanced'); // named providers are primary, not Advanced
       expect(entry.capabilities.resume).toBe(false); // conservative generic-ACP capabilities
     }
     // false -> true -> false as the binary appears and disappears; refresh recomputes.
@@ -6660,17 +6673,63 @@ describe('named ACP providers (detection and command-private launch)', () => {
     expect(acpDaemon.store.getAgentRuntimeConfig('acp', member.id)?.acp_launch)
       .toEqual({ executable: 'kimi', argv: ['acp'] });
     await acpDaemon.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
 
-    // Restart/rebuild reuses the EXACT persisted private launch and revalidates it.
-    acpDaemon = new Daemon({
-      dbPath: join(dir, 'switchboard.sqlite'), blobRoot: join(dir, 'blobs'),
-      adapters: [Object.assign(new FakeAdapter('acp') as unknown as AcpAdapter, { configurable: true })], homeDir: dir,
-      executableOnPath: (executable) => present.has(executable),
-      discoverModels: false,
+  it('rebuilds a named session from its exact persisted private launch and fails closed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codor-named-rebuild-'));
+    const dbPath = join(dir, 'switchboard.sqlite');
+    const blobRoot = join(dir, 'blobs');
+    // A fake acp adapter that RECORDS the launch it is spawned with; `fail` simulates an
+    // unavailable executable so a rebuild can be shown to fail closed.
+    const launches: unknown[] = [];
+    const makeAdapter = (fail = false) => {
+      const adapter = Object.assign(new FakeAdapter('acp'), { configurable: true });
+      const original = adapter.spawn.bind(adapter);
+      adapter.spawn = (opts) => {
+        launches.push(opts.acp_launch);
+        if (fail) throw new Error('ACP agent executable is unavailable');
+        return original(opts);
+      };
+      return adapter as unknown as AcpAdapter;
+    };
+
+    let acpDaemon = new Daemon({
+      dbPath, blobRoot, adapters: [makeAdapter()], homeDir: dir,
+      executableOnPath: () => true, discoverModels: false,
     });
+    acpDaemon.createRoom({ id: 'acp', name: 'ACP', owner: { handle: 'owner', display_name: 'Owner' } });
+    const member = acpDaemon.spawnMember('acp', {
+      harness: 'acp', handle: 'kimo', cwd: dir, acp_provider: 'kimi',
+    });
+    expect(launches.at(-1)).toEqual({ executable: 'kimi', argv: ['acp'] }); // initial spawn
+    await acpDaemon.close();
+
+    // Restart: a real turn rebuilds the session and re-passes the EXACT persisted launch.
+    launches.length = 0;
+    const live = makeAdapter();
+    (live as unknown as FakeAdapter).enqueue({ kind: 'complete', final_text: '@richard ready' });
+    acpDaemon = new Daemon({
+      dbPath, blobRoot, adapters: [live], homeDir: dir,
+      executableOnPath: () => true, discoverModels: false,
+    });
+    acpDaemon.postHumanMessage('acp', '@kimo hello');
+    await acpDaemon.settle();
+    expect(launches).toContainEqual({ executable: 'kimi', argv: ['acp'] });
+    await acpDaemon.close();
+
+    // Fail-closed: the executable is unavailable at rebuild -> spawn throws -> member,
+    // provider, and private launch are all left unchanged.
+    acpDaemon = new Daemon({
+      dbPath, blobRoot, adapters: [makeAdapter(true)], homeDir: dir,
+      executableOnPath: () => true, discoverModels: false,
+    });
+    acpDaemon.postHumanMessage('acp', '@kimo again');
+    await acpDaemon.settle();
+    expect(acpDaemon.store.getMember('acp', member.id)?.harness).toBe('acp');
+    expect(acpDaemon.store.getMember('acp', member.id)?.acp_provider).toBe('kimi');
     expect(acpDaemon.store.getAgentRuntimeConfig('acp', member.id)?.acp_launch)
       .toEqual({ executable: 'kimi', argv: ['acp'] });
-    expect(acpDaemon.store.getMember('acp', member.id)?.acp_provider).toBe('kimi');
     await acpDaemon.close();
     rmSync(dir, { recursive: true, force: true });
   });

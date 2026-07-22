@@ -1218,12 +1218,20 @@ createServer((req, res) => {
       if (url.pathname === '/acp-detect-kilo') {
         // Make Kilo appear on PATH; the UI Refresh re-detects it into the catalog.
         acpPresent.add('kilo');
+        daemon.refreshAdapterAvailability(); // sync the detection cache so the next fetch sees it
         payload = { ok: true };
       }
       if (url.pathname === '/acp-reset') {
         // Back to the seeded state: only kimi detected.
         acpPresent.clear();
         acpPresent.add('kimi');
+        daemon.refreshAdapterAvailability();
+        payload = { ok: true };
+      }
+      if (url.pathname === '/acp-hide-all') {
+        // Every named provider binary vanishes from PATH; refresh drops them from primary.
+        acpPresent.clear();
+        daemon.refreshAdapterAvailability();
         payload = { ok: true };
       }
       if (url.pathname === '/complete-agent') {

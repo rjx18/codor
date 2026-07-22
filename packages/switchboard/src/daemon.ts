@@ -1173,17 +1173,19 @@ export class Daemon {
     models?: string[];
     models_source?: ModelCatalog['source'];
   }[] {
-    // Native/configurable adapter entries are unchanged; the detected named providers
-    // (acp:<id>) are a separate class published into the same catalog with only safe
-    // public metadata — never an executable or argv.
+    // Every entry carries its runtime harness id. The generic configurable ACP transport
+    // is the sole `advanced` custom-command tile; named providers (acp:<id>) follow as a
+    // separate detected class with only safe public metadata — never an executable/argv.
     return [
       ...[...this.adapters.values()]
         .map((adapter) => {
           const catalog = this.modelCatalogs.get(adapter.id);
+          const configurable = (adapter as RegisteredHarnessAdapter).configurable === true;
           return {
             id: adapter.id,
+            harness: adapter.id,
             installed: this.adapterAvailability.get(adapter.id) === true,
-            ...((adapter as RegisteredHarnessAdapter).configurable === true && { configurable: true }),
+            ...(configurable && { configurable: true, transport: 'acp' as const, advanced: true }),
             capabilities: adapter.capabilities,
             ...(catalog && { models: catalog.models, models_source: catalog.source }),
           };

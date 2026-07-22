@@ -781,6 +781,32 @@ describe('named ACP provider identity and one-of selection', () => {
     });
     expect(spawn).toMatchObject({ acp_provider: 'kilo' });
   });
+
+  it('rejects a provider id on a non-acp member directly in MemberSchema', () => {
+    expect(MemberSchema.safeParse({
+      id: ULID_A, kind: 'agent', handle: 'coder', display_name: 'Coder',
+      harness: 'codex', acp_provider: 'kimi',
+    }).success).toBe(false);
+    // A native member with no provider id is fine.
+    expect(MemberSchema.safeParse({
+      id: ULID_A, kind: 'agent', handle: 'coder', display_name: 'Coder', harness: 'codex',
+    }).success).toBe(true);
+  });
+
+  it('enforces the ACP spawn one-of directly in ActSchema, not only at dispatch', () => {
+    const spawn = (extra: Record<string, unknown>) =>
+      ActSchema.safeParse({ act: 'spawn', handle: 'coder', cwd: '/work', ...extra });
+    expect(spawn({ harness: 'acp', acp_provider: 'kimi' }).success).toBe(true);
+    expect(spawn({ harness: 'acp', acp_launch: { executable: 'kimi', argv: ['acp'] } }).success).toBe(true);
+    expect(spawn({ harness: 'acp' }).success).toBe(false); // neither
+    expect(spawn({
+      harness: 'acp', acp_provider: 'kimi', acp_launch: { executable: 'kimi', argv: ['acp'] },
+    }).success).toBe(false); // both
+    expect(spawn({ harness: 'codex', acp_provider: 'kimi' }).success).toBe(false); // native + provider
+    expect(spawn({
+      harness: 'codex', acp_launch: { executable: 'kimi', argv: ['acp'] },
+    }).success).toBe(false); // native + launch
+  });
 });
 // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
 

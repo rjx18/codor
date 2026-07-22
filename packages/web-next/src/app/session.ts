@@ -134,14 +134,15 @@ export function useAdapterCatalog(token: () => string): AdapterCatalog {
   return {
     registered: adapters,
     // harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=configurable-adapter-client
-    // Primary selection excludes the generic custom ACP tile (configurable) and any named
-    // provider shadowed by an installed native adapter; named providers appear only when
-    // actually detected on the daemon host.
+    // Primary selection excludes the Advanced custom ACP tile and any named provider
+    // shadowed by an installed native adapter; named providers appear only when actually
+    // detected on the daemon host. The partition follows the server `advanced` flag, not
+    // the incidental `configurable` flag.
     installed: adapters.filter((adapter) =>
       adapter.installed !== false
-      && adapter.configurable !== true
+      && adapter.advanced !== true
       && adapter.shadowed_by_native === undefined),
-    advanced: adapters.filter((adapter) => adapter.configurable === true),
+    advanced: adapters.filter((adapter) => adapter.advanced === true),
     // harn:end adapter-catalog-distinguishes-installed-and-configurable
     refreshing,
     ...(refreshError !== undefined && { refreshError }),
