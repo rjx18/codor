@@ -1,0 +1,300 @@
+id: codor-runtime-fidelity-phase6
+title: Add a configurable standards-based ACP compatibility adapter
+notes: >
+  Add one generic ACP v1 transport for additional harnesses while retaining
+  native Claude Code and Codex. ACP is selectable as a configurable catalog
+  entry rather than falsely installed: an admin supplies one executable and a
+  bounded argv array, the daemon resolves an executable non-directory target
+  without invoking a shell, and the secret launch record is persisted outside
+  ordinary member projections. Each retained ACP process negotiates protocol
+  and lifecycle support during initialize. A restored process must negotiate
+  the same required resume/load mechanism before the existing session id is
+  resumed; it never creates a replacement session. Catalog capabilities remain
+  conservative and never claim live steering or global resume.
+assumptions:
+  retire:
+    - id: built-in-adapters-require-daemon-path
+      reason: Native harnesses still require their canonical executable on daemon
+        PATH, but the generic ACP transport is intentionally configurable before
+        its per-agent provider executable is known and therefore cannot honestly
+        use the former all-built-ins rule.
+    - id: agent-model-and-thinking-are-durable
+      reason: Model and thinking remain durable, but ACP additionally requires a
+        private structured launch record and negotiated lifecycle evidence to
+        restore the same agent truthfully.
+    - id: new-agent-requests-require-installed-harness
+      reason: Native providers still require installed availability, while ACP
+        is a configurable transport whose concrete executable is validated from
+        the authorized request; the installed-only statement is no longer complete.
+  create:
+    - id: adapter-catalog-distinguishes-installed-and-configurable
+      title: Adapter selection distinguishes installed providers from configurable transports
+      statement: Native built-in adapters are installed only when their
+        registry-owned executable resolves on daemon PATH, loaded third-party
+        modules remain installed by their loading contract, and the generic ACP
+        transport is catalogued explicitly as configurable rather than installed;
+        unlocked selection surfaces may offer installed or configurable entries,
+        while every concrete provider executable is still validated by the daemon
+        before a member can be created or restored.
+      reason: Operators must be able to configure an ACP provider without the
+        catalog pretending that an unknown executable is already installed.
+      depends_on:
+        - adapter-registry-sole-harness-source
+    - id: durable-agent-runtime-configuration
+      title: Agent runtime configuration survives restart without leaking launch secrets
+      statement: Model and thinking overrides and, for ACP only, the structured
+        executable/argv launch record plus exact negotiated load/resume support
+        must persist server-side and rebuild the same session after restart;
+        ordinary room/member projections, prompts, logs, and errors never expose
+        raw ACP argv, and a restoration that cannot renegotiate its required
+        lifecycle mechanism fails rather than silently creating a new session.
+      reason: Restart must preserve agent identity and authority while private
+        provider launch arguments remain outside collaboration-visible state.
+      depends_on:
+        - canonical-spawn-controls-enforced
+    - id: acp-launch-is-structured-authorized-and-bounded
+      title: ACP launch configuration is structured, authorized, and shell-free
+      statement: Only manage_agents authority may submit an ACP executable and
+        argv array; the daemon rejects empty, control/NUL-bearing, oversized, or
+        over-count arguments, resolves the executable on each spawn and rebuild
+        to an executable non-directory file, and starts it with shell false and
+        no user-supplied environment override or interpolation.
+      reason: Generic compatibility must not become a shell or secret-exfiltration
+        primitive on the daemon host.
+      depends_on:
+        - durable-agent-runtime-configuration
+        - adapter-catalog-distinguishes-installed-and-configurable
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      title: ACP v1 sessions normalize only negotiated protocol truth
+      statement: The generic ACP adapter must negotiate protocol v1 on initialize,
+        retain the provider process for ordinary turns, normalize streamed text,
+        thought/plan, tool calls and results, file diffs, terminal references,
+        permissions, usage, stop reasons, failures, and cancellation into Codor
+        events, and advertise no live steering or global lifecycle support;
+        negotiated load or stable resume is persisted per session and used only
+        when that exact support is present again after rebuild.
+      reason: ACP compatibility is useful only when its behavior is faithful to
+        protocol evidence rather than inferred from a product name.
+      depends_on:
+        - normalized-run-item-payload-contract
+        - normalized-agent-usage-telemetry-with-estimates
+        - acp-launch-is-structured-authorized-and-bounded
+    - id: new-agent-requests-require-available-harness
+      title: New agents require truthful native or configurable availability
+      statement: New member and starting-agent requests must reject a native
+        adapter that is unavailable before persistence, while ACP requests must
+        carry authorized valid structured launch configuration whose executable
+        resolves on the daemon host; failures after either preflight retain the
+        established room-creation behavior.
+      reason: Stale clients cannot bypass native installation checks and generic
+        ACP cannot bypass its per-provider executable check.
+      depends_on:
+        - adapter-catalog-distinguishes-installed-and-configurable
+        - acp-launch-is-structured-authorized-and-bounded
+        - canonical-spawn-controls-enforced
+        - channel-creation-derived-and-seeded
+  reviewed:
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The registry remains the sole composition source and adds exactly
+        one built-in compatibility transport, not a provider plugin system.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: ACP declares unsupported thinking and honest null policy mappings;
+        existing policy/thinking validation remains authoritative.
+    - id: adapter-wrappers-preserve-the-whole-contract
+      outcome: unchanged
+      reason: The registry wrapper continues forwarding the complete adapter
+        interface including the new negotiation hook.
+    - id: normalized-run-item-payload-contract
+      outcome: unchanged
+      reason: ACP maps into the existing permissive canonical payload shapes.
+    - id: normalized-agent-usage-telemetry-with-estimates
+      outcome: unchanged
+      reason: ACP-reported usage maps only fields actually supplied by the agent.
+    - id: interaction-state-machine-persisted
+      outcome: unchanged
+      reason: ACP permission requests use the existing durable ask/approval flow
+        and settle the native request only through respondInteraction.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Existing role rules remain; the REST and WebSocket spawn boundaries
+        additionally require manage_agents when ACP launch configuration appears.
+    - id: agent-selection-catalog-is-refreshable
+      outcome: unchanged
+      reason: The shared catalog still refreshes native installation truth while
+        retaining the configurable ACP entry and existing selection reconciliation.
+      depends_on:
+        - adapter-refresh-is-authorized-and-incremental
+        - adapter-catalog-distinguishes-installed-and-configurable
+    - id: adapter-refresh-is-authorized-and-incremental
+      outcome: unchanged
+      reason: Refresh still rescans only canonical native executables and starts
+        discovery only for newly installed native providers; ACP remains configurable.
+      depends_on:
+        - adapter-catalog-distinguishes-installed-and-configurable
+        - model-catalogs-reach-a-browser-that-arrives-early
+        - roles-gate-human-acts-not-agents
+    - id: member-config-is-changed-not-respawned
+      outcome: unchanged
+      reason: Model, thinking, and policy configuration still replaces only the
+        next-turn session settings; ACP executable/argv is fixed at creation and
+        deliberately absent from Configure Agent.
+      depends_on:
+        - durable-agent-runtime-configuration
+        - canonical-spawn-controls-enforced
+anchors:
+  built-in-adapters-require-daemon-path:
+    builtin-executable-regression:
+      action: remove
+      reason: Re-anchor native executable truth and ACP configurable truth together.
+    builtin-executable-registry:
+      action: remove
+      reason: Replace the all-built-ins statement with separate native-installed
+        and configurable-transport catalog truth.
+    daemon-adapter-availability:
+      action: remove
+      reason: Generalize daemon catalog state to installed versus configurable.
+    daemon-adapter-availability-regression:
+      action: remove
+      reason: Re-anchor availability tests to the generalized catalog contract.
+    custom-adapter-installation-regression:
+      action: remove
+      reason: Re-anchor unchanged module-loading installation truth.
+  agent-model-and-thinking-are-durable:
+    durable-agent-config-schema:
+      action: remove
+      reason: Replace the narrower durability statement while keeping its fields.
+    durable-agent-config-storage:
+      action: remove
+      reason: Extend persistence with private ACP runtime configuration.
+    durable-agent-config-rebuild:
+      action: remove
+      reason: Extend rebuild with ACP launch and lifecycle evidence.
+    durable-agent-config-regression:
+      action: remove
+      reason: Re-anchor existing model/thinking tests with new ACP durability tests.
+    durable-agent-config-remote:
+      action: remove
+      reason: Re-anchor unchanged remote model/thinking propagation under the
+        broader runtime-configuration contract.
+  new-agent-requests-require-installed-harness:
+    new-agent-availability-regression:
+      action: remove
+      reason: Re-anchor preflight tests to native-or-configurable availability.
+    new-agent-availability-preflight:
+      action: remove
+      reason: Replace installed-only preflight with native installed or ACP config validation.
+  adapter-catalog-distinguishes-installed-and-configurable:
+    adapter-catalog-registry:
+      action: change
+      reason: Register ACP as configurable and retain canonical executables for natives.
+    adapter-catalog-daemon:
+      action: change
+      reason: Publish explicit configurable state without weakening native checks.
+    adapter-catalog-regression:
+      action: change
+      reason: Prove native installed truth, configured modules, and ACP selection truth.
+    configurable-adapter-client:
+      action: change
+      reason: Include configurable entries on unlocked selection surfaces.
+  durable-agent-runtime-configuration:
+    durable-agent-runtime-schema:
+      action: change
+      reason: Define private ACP launch and negotiated lifecycle records.
+    durable-agent-runtime-storage:
+      action: change
+      reason: Persist launch and lifecycle atomically with ACP members.
+    durable-agent-runtime-rebuild:
+      action: change
+      reason: Restore private configuration and require truthful negotiated resume/load.
+    durable-agent-runtime-regression:
+      action: change
+      reason: Prove persistence, projection secrecy, restart restoration, and refusal.
+    durable-agent-runtime-remote:
+      action: change
+      reason: Preserve existing model/thinking remote propagation under the wider contract.
+  acp-launch-is-structured-authorized-and-bounded:
+    acp-launch-schema:
+      action: change
+      reason: Bound the structured executable and argv contract.
+    acp-launch-validation:
+      action: change
+      reason: Resolve executable files and spawn without a shell.
+    acp-launch-rest-authorization:
+      action: change
+      reason: Require manage_agents and avoid leaking request secrets in errors.
+    acp-launch-ui:
+      action: change
+      reason: Expose clear executable and one-argument-per-line controls.
+    acp-launch-regression:
+      action: change
+      reason: Prove bounds, directories, shell text, authority, and secret projection.
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-adapter-runtime:
+      action: change
+      reason: Implement ACP v1 process, initialize, retained sessions, cancel, and restore.
+    acp-event-normalization:
+      action: change
+      reason: Map content, plans, tools, diffs, permissions, usage, and outcomes.
+    acp-fake-agent:
+      action: change
+      reason: Provide a hermetic protocol peer for runtime and daemon tests.
+    acp-adapter-regression:
+      action: change
+      reason: Prove handshake, negotiation, streaming, permissions, failure,
+        cancellation, and supported/unsupported restoration.
+    acp-browser-regression:
+      action: change
+      reason: Prove configurable catalog presentation and structured add-agent payload.
+  new-agent-requests-require-available-harness:
+    new-agent-availability-preflight:
+      action: change
+      reason: Enforce native installation or validated ACP provider configuration.
+    new-agent-availability-regression:
+      action: change
+      reason: Prove stale native rejection and configured ACP admission before persistence.
+files:
+  - package.json
+  - pnpm-lock.yaml
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/index.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/adapters/acp/package.json
+  - packages/adapters/acp/tsconfig.json
+  - packages/adapters/acp/src/index.ts
+  - packages/adapters/acp/src/adapter.ts
+  - packages/adapters/acp/src/translate.ts
+  - packages/adapters/acp/src/adapter.spec.ts
+  - packages/adapters/acp/src/translate.spec.ts
+  - packages/adapters/acp/test-fixtures/fake-agent.mjs
+  - packages/switchboard/package.json
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/residency.ts
+  - packages/switchboard/src/residency.spec.ts
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/runtime/api.spec.ts
+  - packages/web-next/src/app/session.ts
+  - packages/web-next/src/room/agent-spec.ts
+  - packages/web-next/src/room/agent-spec.spec.ts
+  - packages/web-next/src/room/AgentControls.tsx
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/room/CreateChannel.tsx
+  - packages/web-next/src/surfaces/NoChannels.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room10-agents.e2e.spec.ts
+verification: Run focused ACP adapter translation/runtime tests, protocol schema,
+  registry/store/daemon/server ACP tests, web catalog/agent-spec units, and the
+  focused add-agent browser cases. Run protocol, ACP, switchboard, and web-next
+  TypeScript/production builds plus Harn unstaged and staged gates, apply the
+  plan, and commit Phase 6 as one implementation transaction.
