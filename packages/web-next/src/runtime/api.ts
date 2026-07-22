@@ -157,11 +157,13 @@ export async function refreshAdapters(options: ApiOptions): Promise<AdapterListi
 }
 // harn:end adapter-refresh-is-authorized-and-incremental
 
+export type UsageRefreshOutcome = 'refreshed' | 'cooldown' | 'coalesced' | 'failed';
+
 /** Trigger the daemon's account-usage probe. Updated gauges arrive as member
- *  frames; the response only reports whether a probe ran (false while cooling
- *  down). Never returns credentials. */
-export async function refreshUsage(options: ApiOptions): Promise<{ refreshed: boolean }> {
-  return sendJson<{ refreshed: boolean }>('/api/usage/refresh', 'POST', undefined, options);
+ *  frames; the response reports a distinguishable outcome (a provider failure is
+ *  `failed`, not a silent success). Never returns credentials. */
+export async function refreshUsage(options: ApiOptions): Promise<{ outcome: UsageRefreshOutcome }> {
+  return sendJson<{ outcome: UsageRefreshOutcome }>('/api/usage/refresh', 'POST', undefined, options);
 }
 // harn:end model-catalogs-reach-a-browser-that-arrives-early
 

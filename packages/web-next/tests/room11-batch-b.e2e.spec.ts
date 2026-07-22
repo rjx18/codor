@@ -202,21 +202,25 @@ test.describe('usage gauges', () => {
     const plusBox = (await page.getByTestId('spawn-agent').boundingBox())!;
     expect(refreshBox.x + refreshBox.width).toBeLessThanOrEqual(plusBox.x + 1);
 
-    // A failing refresh tints the button and leaves the last-good gauges untouched.
-    await page.route('**/api/usage/refresh', (route) => route.fulfill({ status: 500, body: 'boom' }));
+    // A provider-failure OUTCOME (HTTP 200, not a request error) must still surface
+    // a concise, accessible message near the control, with last-good gauges intact.
+    await page.route('**/api/usage/refresh', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{"outcome":"failed"}' }));
     await refresh.click();
-    await expect(refresh).toHaveClass(/is-error/);
-    await expect(limits.locator('.nx-gauge.is-warn')).toContainText('18% left');
+    const error = page.getByTestId('usage-refresh-error');
+    await expect(error).toBeVisible();
+    await expect(error).toHaveAttribute('role', 'alert');
+    await expect(limits.locator('.nx-gauge.is-warn')).toContainText('18% left'); // gauges preserved
 
-    // A slow success clears the error and disables the button while it is busy.
+    // A successful refresh clears the message and disables the button while busy.
     await page.unroute('**/api/usage/refresh');
     await page.route('**/api/usage/refresh', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 200));
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '{"refreshed":true}' });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{"outcome":"refreshed"}' });
     });
     await refresh.click();
     await expect(refresh).toBeDisabled();
-    await expect(refresh).not.toHaveClass(/is-error/);
+    await expect(page.getByTestId('usage-refresh-error')).toHaveCount(0);
     await expect(refresh).toBeEnabled();
   });
 });

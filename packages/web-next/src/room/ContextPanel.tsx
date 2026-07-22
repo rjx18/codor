@@ -90,7 +90,12 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
     setUsageBusy(true);
     setUsageError(undefined);
     void refreshUsage({ token: props.token() })
-      .catch((error) => setUsageError(error instanceof Error ? error.message : 'Couldn’t refresh usage'))
+      // A provider failure is an honest `failed` outcome (200), distinct from a
+      // request/auth error (rejection); both surface the same visible message.
+      .then((result) => {
+        if (result.outcome === 'failed') setUsageError('Couldn’t reach the usage provider. Showing the last known numbers.');
+      })
+      .catch((error) => setUsageError(error instanceof Error ? error.message : 'Couldn’t refresh usage limits'))
       .finally(() => setUsageBusy(false));
   }, [usageBusy, props.token]);
   // A spawn is only done when the member actually appears. Watching for it — and
@@ -180,6 +185,9 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
           />
         </div>
       </div>
+      {usageError !== undefined && (
+        <p className="nx-usage-error" role="alert" data-testid="usage-refresh-error">{usageError}</p>
+      )}
       <ul className="nx-roster">
         {roster.map((member) => (
           <MemberCard

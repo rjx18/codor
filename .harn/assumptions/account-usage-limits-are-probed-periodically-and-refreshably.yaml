@@ -2,7 +2,7 @@ id: account-usage-limits-are-probed-periodically-and-refreshably
 hash: a-f5b8bb4b1a3f
 title: Account usage limits are probed on boot, every five minutes, coalesced,
   cooled-down, and manually refreshable under authorization
-state: active
+state: retired
 statement: The daemon probes account-level usage limits once immediately on boot
   and then every five minutes by default, running one probe per harness/account
   and fanning the identical result to every active non-removed member of that
@@ -15,3 +15,4 @@ statement: The daemon probes account-level usage limits once immediately on boot
   clients.
 depends_on: []
 created_by: codor-polish-phase3-usage-limits
+retired_by: codor-polish-phase3-honest-refresh-outcome

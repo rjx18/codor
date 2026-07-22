@@ -534,14 +534,15 @@ export class Daemon {
     this.stallTimer = setInterval(() => this.checkStalls(), options.stallPollMs ?? 60_000);
     this.stallTimer.unref();
     this.manualUsageRefreshCooldownMs = options.manualUsageRefreshCooldownMs ?? 30_000;
-    // harn:assume account-usage-limits-are-probed-periodically-and-refreshably ref=usage-probe-scheduling
-    this.track(this.probeAdapterLimits()); // one immediate probe on boot
+    // harn:assume account-usage-limits-are-probed-periodically-and-honestly-refreshable ref=usage-probe-scheduling
+    // Background probes ignore the outcome; only the manual refresh reports it.
+    this.track(this.probeAdapterLimits().then(() => {})); // one immediate probe on boot
     this.limitsProbeTimer = setInterval(
-      () => this.track(this.probeAdapterLimits()),
+      () => this.track(this.probeAdapterLimits().then(() => {})),
       options.limitsProbeMs ?? 5 * 60_000,
     );
     this.limitsProbeTimer.unref();
-    // harn:end account-usage-limits-are-probed-periodically-and-refreshably
+    // harn:end account-usage-limits-are-probed-periodically-and-honestly-refreshable
     this.stopResidencyReachability = this.residency?.onReachability((peerId, connected) =>
       this.handleResidentReachability(peerId, connected));
   }
@@ -1125,26 +1126,32 @@ export class Daemon {
   }
   // harn:end adapters-own-their-model-catalog
 
-  // harn:assume account-usage-limits-are-probed-periodically-and-refreshably ref=usage-probe-runtime
-  /** An authorized manual usage refresh: coalesced with the periodic probe and
-   * throttled by a short cooldown so repeated clicks cannot exceed provider rate
-   * limits. Provider failures are handled inside the probe (last-good preserved),
-   * so a within-cooldown click is the only "did nothing" outcome. */
-  async refreshUsageLimits(): Promise<{ refreshed: boolean }> {
+  // harn:assume account-usage-limits-are-probed-periodically-and-honestly-refreshable ref=usage-probe-runtime
+  /** An authorized manual usage refresh, coalesced with the periodic probe and
+   * throttled by a short cooldown. Reports an honest, credential-free outcome:
+   * `refreshed` on success, `cooldown` when a probe is too recent, `coalesced`
+   * when one is already in flight, and `failed` when a provider probe threw
+   * (last-good gauges are still preserved). */
+  async refreshUsageLimits(): Promise<{ outcome: 'refreshed' | 'cooldown' | 'coalesced' | 'failed' }> {
     if (Date.now() - this.lastLimitsProbeAt < this.manualUsageRefreshCooldownMs) {
-      return { refreshed: false };
+      return { outcome: 'cooldown' };
     }
-    await this.probeAdapterLimits();
-    return { refreshed: true };
+    if (this.probingLimits) {
+      return { outcome: 'coalesced' }; // a probe is already running; its results will land
+    }
+    const { failed } = await this.probeAdapterLimits();
+    return { outcome: failed ? 'failed' : 'refreshed' };
   }
 
   /** Provider limits are account-level: one probe fans out to every active
    * agent using that harness. Missing credentials and failures preserve the
    * last stream-reported value. */
-  private async probeAdapterLimits(): Promise<void> {
-    if (this.probingLimits || this.closing) return;
+  private async probeAdapterLimits(): Promise<{ probed: boolean; failed: boolean }> {
+    if (this.probingLimits || this.closing) return { probed: false, failed: false };
     this.probingLimits = true;
     this.lastLimitsProbeAt = Date.now(); // only a real (non-coalesced) probe counts
+    let probed = false;
+    let failed = false;
     try {
       const membersByHarness = new Map<string, { room: string; member: Member }[]>();
       for (const room of this.store.listRooms()) {
@@ -1159,10 +1166,12 @@ export class Daemon {
       for (const adapter of this.adapters.values()) {
         const targets = membersByHarness.get(adapter.id);
         if (!adapter.probeLimits || targets === undefined || targets.length === 0) continue;
+        probed = true;
         let limits: AgentLimit[] | undefined;
         try {
           limits = await adapter.probeLimits();
         } catch {
+          failed = true; // a provider threw: preserve last-good and report the failure
           continue;
         }
         if (this.closing || limits === undefined || limits.length === 0) continue;
@@ -1179,8 +1188,9 @@ export class Daemon {
     } finally {
       this.probingLimits = false;
     }
+    return { probed, failed };
   }
-  // harn:end account-usage-limits-are-probed-periodically-and-refreshably
+  // harn:end account-usage-limits-are-probed-periodically-and-honestly-refreshable
 
   setHumanRole(room: string, memberId: string, role: Role): Member {
     const member = this.store.getMember(room, memberId);

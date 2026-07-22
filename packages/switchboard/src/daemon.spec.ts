@@ -4533,8 +4533,8 @@ describe('usage limits (agent-usage-limits-reported-not-guessed)', () => {
   });
 });
 
-// harn:assume account-usage-limits-are-probed-periodically-and-refreshably ref=usage-probe-regression
-describe('account usage probing (account-usage-limits-are-probed-periodically-and-refreshably)', () => {
+// harn:assume account-usage-limits-are-probed-periodically-and-honestly-refreshable ref=usage-probe-regression
+describe('account usage probing (account-usage-limits-are-probed-periodically-and-honestly-refreshable)', () => {
   const reported: AgentLimit[] = [{ window: 'five_hour', used_percent: 21 }];
 
   function buildProbeDaemon(
@@ -4612,15 +4612,17 @@ describe('account usage probing (account-usage-limits-are-probed-periodically-an
     let calls = 0;
     const { probeDaemon, probeLimits } = buildProbeDaemon(
       async () => { calls += 1; await gate; return reported; },
-      { limitsProbeMs: 10 },
+      { limitsProbeMs: 10, manualUsageRefreshCooldownMs: 5 }, // short cooldown so we hit the coalesce path
       'usage-coalesce',
     );
     try {
       probeDaemon.createRoom({ id: 'usage', name: 'Usage', owner: { handle: 'owner', display_name: 'Owner' } });
       probeDaemon.spawnMember('usage', { harness: 'claude-code', handle: 'agent', cwd: testCwd('usage-coalesce') });
       await until(() => calls >= 1 ? true : undefined); // one probe is in flight, awaiting the gate
-      // A manual refresh plus several 10ms interval ticks all coalesce behind it.
-      await probeDaemon.refreshUsageLimits();
+      await new Promise((resolve) => setTimeout(resolve, 20)); // past the 5ms cooldown
+      // A manual refresh past the cooldown but with a probe already running reports
+      // coalesced, and several 10ms interval ticks also coalesce behind it.
+      expect(await probeDaemon.refreshUsageLimits()).toEqual({ outcome: 'coalesced' });
       await new Promise((resolve) => setTimeout(resolve, 60));
       expect(calls).toBe(1);
     } finally {
@@ -4643,17 +4645,18 @@ describe('account usage probing (account-usage-limits-are-probed-periodically-an
       // The boot probe (no members yet) already stamped the cooldown; let it lapse
       // so the first real manual refresh runs.
       await new Promise((resolve) => setTimeout(resolve, 120));
-      // First manual refresh probes and lands the limits.
-      expect(await probeDaemon.refreshUsageLimits()).toEqual({ refreshed: true });
+      // First manual refresh probes successfully and lands the limits.
+      expect(await probeDaemon.refreshUsageLimits()).toEqual({ outcome: 'refreshed' });
       await until(() => probeDaemon.store.getMember('usage', memberId)?.limits !== undefined ? true : undefined);
       const afterFirst = probeLimits.mock.calls.length;
-      // A second click within the cooldown is a no-op.
-      expect(await probeDaemon.refreshUsageLimits()).toEqual({ refreshed: false });
+      // A second click within the cooldown reports cooldown and does not probe.
+      expect(await probeDaemon.refreshUsageLimits()).toEqual({ outcome: 'cooldown' });
       expect(probeLimits.mock.calls.length).toBe(afterFirst);
-      // After the cooldown, a failing provider still runs but preserves last-good.
+      // After the cooldown, a failing provider is reported honestly while the
+      // last-good gauge is preserved.
       await new Promise((resolve) => setTimeout(resolve, 120));
       mode = 'fail';
-      expect(await probeDaemon.refreshUsageLimits()).toEqual({ refreshed: true });
+      expect(await probeDaemon.refreshUsageLimits()).toEqual({ outcome: 'failed' });
       expect(probeLimits.mock.calls.length).toBe(afterFirst + 1);
       expect(probeDaemon.store.getMember('usage', memberId)?.limits).toEqual(reported);
     } finally {
@@ -4661,7 +4664,7 @@ describe('account usage probing (account-usage-limits-are-probed-periodically-an
     }
   });
 });
-// harn:end account-usage-limits-are-probed-periodically-and-refreshably
+// harn:end account-usage-limits-are-probed-periodically-and-honestly-refreshable
 
 // harn:assume run-events-merge-by-journal-index ref=daemon-journal-index-stamp
 describe('run_event journal indices (run-events-merge-by-journal-index)', () => {

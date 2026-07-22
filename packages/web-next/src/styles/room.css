@@ -1218,6 +1218,16 @@
    touching the gauges (which update from member frames). */
 .nx-usage-refresh.is-busy svg { animation: nx-spin 0.8s linear infinite; }
 .nx-usage-refresh.is-error { color: var(--c-error-text); }
+/* A concise, visible failure message near the control — not tint/title alone —
+   announced to assistive tech via role="alert" on the element. */
+.nx-usage-error {
+  margin: 0 var(--sp-4) var(--sp-1);
+  padding: 4px var(--sp-2);
+  border-radius: var(--r-control);
+  background: var(--c-error-tint);
+  color: var(--c-error-text);
+  font: var(--t-caption);
+}
 .nx-member {
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-card);

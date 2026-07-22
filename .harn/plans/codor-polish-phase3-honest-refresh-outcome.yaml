@@ -1,24 +1,23 @@
 id: codor-polish-phase3-honest-refresh-outcome
 title: Phase 3 correction - the manual usage refresh reports provider failure
   honestly and visibly
-notes: >-
-  Codex #908. probeAdapterLimits() catches provider errors and returns normally,
-  so refreshUsageLimits() reported { refreshed: true } even when the provider
-  probe failed; the endpoint answered 200 and the browser could not enter its
-  error state, and the red icon + title alone is not a visible or accessible
-  failure (especially on touch). Fix: the daemon probe reports whether any
-  provider threw; the manual refresh returns a distinguishable outcome
-  (refreshed / cooldown / coalesced / failed) without exposing credentials; the
-  browser shows a concise, visible, accessible message near the refresh control
-  on failure while every last-known-good gauge is preserved. The five-minute
-  cadence, normalization, timestamp handling, coalescing, cooldown, and
-  authorization are unchanged. Because the manual-refresh contract now includes
-  an honest failure outcome, the Phase 3 probe assumption is retired and replaced.
+notes: "Codex #908. probeAdapterLimits() catches provider errors and returns
+  normally, so refreshUsageLimits() reported { refreshed: true } even when the
+  provider probe failed; the endpoint answered 200 and the browser could not
+  enter its error state, and the red icon + title alone is not a visible or
+  accessible failure (especially on touch). Fix: the daemon probe reports
+  whether any provider threw; the manual refresh returns a distinguishable
+  outcome (refreshed / cooldown / coalesced / failed) without exposing
+  credentials; the browser shows a concise, visible, accessible message near the
+  refresh control on failure while every last-known-good gauge is preserved. The
+  five-minute cadence, normalization, timestamp handling, coalescing, cooldown,
+  and authorization are unchanged. Because the manual-refresh contract now
+  includes an honest failure outcome, the Phase 3 probe assumption is retired
+  and replaced."
 assumptions:
   retire:
     - id: account-usage-limits-are-probed-periodically-and-refreshably
-      reason: >-
-        Its manual-refresh clause did not require the refresh to report provider
+      reason: Its manual-refresh clause did not require the refresh to report provider
         failure, so a failed probe was reported as success. The corrected
         contract makes the outcome honest and visibly surfaced; the meaning
         changes, so it is retired and replaced.
@@ -26,26 +25,24 @@ assumptions:
     - id: account-usage-limits-are-probed-periodically-and-honestly-refreshable
       title: Account usage limits are probed on boot, every five minutes, and manually
         refreshable with an honest, visible outcome
-      statement: >-
-        The daemon probes account-level usage limits once immediately on boot and
-        then every five minutes by default, running one probe per harness/account
-        and fanning the identical result to every active non-removed member of
-        that harness; an in-flight probe coalesces overlapping automatic and
-        manual requests so none is duplicated, and a provider failure or empty
-        result preserves the last-known-good limits. An authorized manual
-        usage-refresh - gated like the adapter refresh (manage_agents) and
-        subject to a short server-enforced cooldown so repeated clicks cannot
-        exceed provider rate limits - invokes the same probe and returns a
-        distinguishable outcome: refreshed on success, cooldown or coalesced when
-        a probe is too recent or already in flight, and failed when a provider
-        probe threw. A failed outcome is surfaced to the operator as a concise,
-        visible, accessible message near the refresh control - not by tint or
-        title alone - while every last-known-good gauge is preserved. Provider
-        OAuth credentials are never exposed to clients.
-      reason: >-
-        A manual refresh that silently reports provider failure as success is
-        dishonest; the outcome must distinguish success, in-progress, and failure
-        and surface failure accessibly without leaking credentials.
+      statement: "The daemon probes account-level usage limits once immediately on
+        boot and then every five minutes by default, running one probe per
+        harness/account and fanning the identical result to every active
+        non-removed member of that harness; an in-flight probe coalesces
+        overlapping automatic and manual requests so none is duplicated, and a
+        provider failure or empty result preserves the last-known-good limits.
+        An authorized manual usage-refresh - gated like the adapter refresh
+        (manage_agents) and subject to a short server-enforced cooldown so
+        repeated clicks cannot exceed provider rate limits - invokes the same
+        probe and returns a distinguishable outcome: refreshed on success,
+        cooldown or coalesced when a probe is too recent or already in flight,
+        and failed when a provider probe threw. A failed outcome is surfaced to
+        the operator as a concise, visible, accessible message near the refresh
+        control - not by tint or title alone - while every last-known-good gauge
+        is preserved. Provider OAuth credentials are never exposed to clients."
+      reason: A manual refresh that silently reports provider failure as success is
+        dishonest; the outcome must distinguish success, in-progress, and
+        failure and surface failure accessibly without leaking credentials.
 anchors:
   account-usage-limits-are-probed-periodically-and-refreshably:
     usage-probe-scheduling:
@@ -90,12 +87,18 @@ files:
   - packages/web-next/src/runtime/api.ts
   - packages/web-next/src/styles/room.css
   - packages/web-next/tests/room11-batch-b.e2e.spec.ts
-verification: |
-  - A provider throw makes probeAdapterLimits report failure and refreshUsageLimits
+verification: >
+  - A provider throw makes probeAdapterLimits report failure and
+  refreshUsageLimits
     return { outcome: 'failed' }; the endpoint conveys it; last-good gauges persist.
-  - Cooldown and coalescing return their own outcomes, distinct from success/failure.
-  - The browser shows a concise, visible, accessible (role=alert) failure message
+  - Cooldown and coalescing return their own outcomes, distinct from
+  success/failure.
+
+  - The browser shows a concise, visible, accessible (role=alert) failure
+  message
     near the refresh control on a failed outcome, with the existing gauges intact.
   - Cadence, normalization, timestamp handling, coalescing, cooldown, and
     authorization are unchanged.
   - Focused switchboard + web-next suites and full build pass; Harn gates pass.
+applied:
+  applied_at: 2026-07-22T08:54:39.570Z
