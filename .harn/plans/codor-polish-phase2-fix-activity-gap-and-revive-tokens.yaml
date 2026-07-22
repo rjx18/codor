@@ -1,0 +1,60 @@
+id: codor-polish-phase2-fix-activity-gap-and-revive-tokens
+title: Phase 2 correction - a real sticky gap above the composer, and Revive CSS on
+  defined theme tokens
+notes: >-
+  Codex #904 rejected two Phase 2 details. (1) The widened margin below the
+  sticky activity pill did NOT create a visible gap: under position:sticky;
+  bottom:0 the margin collapses, so the pill's bottom still sat exactly on the
+  composer top (measured 0px at 1440x900 scrolled up). Fix it with a real sticky
+  bottom inset so the measured bar-to-composer distance is nonzero, and restore
+  the bounding-box geometry regression (not just a computed-margin check).
+  (2) The new Revive control used undefined tokens --c-text and
+  --c-surface-active; swap them for the defined --c-ink and --c-muted so it
+  renders in light and dark. Only web-next CSS and the two affected e2e specs
+  change; no runtime behaviour or server contract changes.
+assumptions:
+  create:
+    - id: agent-activity-bar-keeps-a-visible-gap-above-the-composer
+      title: The sticky activity pill keeps a real visible gap above the composer
+      statement: >-
+        The sticky agent-activity pill keeps a real, nonzero visible gap between
+        its bottom and the composer's top when the transcript is scrolled up,
+        achieved with a sticky bottom inset - a collapsed margin under bottom:0
+        does not create the gap - so the pill never rests on the composer. The
+        gap is asserted by measured bounding-box geometry, and jump-to-latest and
+        the pin/follow behaviour are unaffected.
+      reason: >-
+        Codex #904 measured a 0px gap: the margin-only approach was defeated by
+        the sticky bottom:0 placement, so the pill still rested on the composer.
+  reviewed:
+    - id: dead-agent-surfaces-revive-in-its-action-area
+      outcome: unchanged
+      reason: >-
+        The Revive control's behaviour is unchanged; the correction only swaps its
+        undefined CSS tokens (--c-text, --c-surface-active) for the defined
+        --c-ink and --c-muted so it renders correctly in light and dark, and the
+        regression adds a dark-mode render check.
+anchors:
+  agent-activity-bar-keeps-a-visible-gap-above-the-composer:
+    activity-bar-gap-css:
+      action: change
+      reason: The sticky typing bar gets a real bottom inset so it clears the composer.
+    activity-bar-gap-regression:
+      action: change
+      reason: The regression measures the actual scrolled-up bar-to-composer distance.
+  dead-agent-surfaces-revive-in-its-action-area:
+    member-revive-regression:
+      action: change
+      reason: The regression adds a dark-mode render assertion for the Revive control.
+files:
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room2-interactions.e2e.spec.ts
+  - packages/web-next/tests/room3-context.e2e.spec.ts
+verification: |
+  - Scrolled up at 1440x900, the measured composer-top minus activity-bar-bottom
+    distance is nonzero (a real sticky inset, not a collapsed margin).
+  - jump-to-latest and pin/follow behaviour are unchanged.
+  - The Revive control uses only defined theme tokens and renders (resolved
+    background/colour) in both light and dark.
+  - web-next build; focused Playwright room2-interactions + room3-context (+ axe);
+    Harn unstaged/staged gates pass.
