@@ -46,6 +46,14 @@ export const SessionLifecycleSupportSchema = z.object({
   resume: z.boolean(),
 }).strict();
 export type SessionLifecycleSupport = z.infer<typeof SessionLifecycleSupportSchema>;
+export const AcpUsageBaselineSchema = z.object({
+  totalTokens: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  cachedReadTokens: z.number().int().nonnegative().optional(),
+  cachedWriteTokens: z.number().int().nonnegative().optional(),
+}).strict();
+export type AcpUsageBaseline = z.infer<typeof AcpUsageBaselineSchema>;
 // harn:end durable-agent-runtime-configuration
 // harn:end acp-launch-is-structured-authorized-and-bounded
 
@@ -66,6 +74,8 @@ export interface Session {
   acp_launch?: AcpLaunchConfig;
   /** Exact lifecycle support negotiated for this provider session. */
   lifecycle?: SessionLifecycleSupport;
+  /** Private last-observed ACP session totals used to derive per-turn usage. */
+  acp_usage_baseline?: AcpUsageBaseline;
   // harn:assume a-session-carries-the-environment-its-children-need ref=session-env-contract
   // Environment for the children spawned under this session. Adapters MUST merge it OVER
   // the inherited process env for every child they spawn for the session.

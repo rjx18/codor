@@ -198,6 +198,11 @@ export function AgentControls(props: {
   const query = modelQuery.trim().toLowerCase();
   const shown = query === '' ? models : models.filter((m) => m.toLowerCase().includes(query));
 
+  // harn:assume acp-launch-is-structured-authorized-and-bounded ref=acp-launch-ui
+  const acpExecutablePlaceholder = 'e.g. kimi';
+  const acpArgumentsPlaceholder = 'acp\n--profile=x';
+  // harn:end acp-launch-is-structured-authorized-and-bounded
+
   const behaviour = (
     <>
       {config.harness === 'acp' && props.lockHarness !== true && (
@@ -208,7 +213,7 @@ export function AgentControls(props: {
               className="nx-input nx-mono"
               value={config.acpExecutable ?? ''}
               onChange={(event) => { set({ acpExecutable: event.target.value }); }}
-              placeholder="e.g. kimi acp or /absolute/path/to/agent"
+              placeholder={acpExecutablePlaceholder}
               required
               data-testid={`${id}-acp-executable`}
             />
@@ -220,7 +225,7 @@ export function AgentControls(props: {
               className="nx-input nx-mono nx-acp-args"
               value={config.acpArgs ?? ''}
               onChange={(event) => { set({ acpArgs: event.target.value }); }}
-              placeholder={'One literal argument per line\n--acp'}
+              placeholder={acpArgumentsPlaceholder}
               data-testid={`${id}-acp-args`}
             />
             <p className="nx-note">Each non-empty line is one literal argument. Shell syntax is not evaluated.</p>

@@ -1,27 +1,29 @@
 id: codor-runtime-fidelity-phase6-correction
-title: Correct ACP cumulative usage, terminal truth, diffs, restoration, and launch guidance
+title: Correct ACP cumulative usage, terminal truth, diffs, restoration, and
+  launch guidance
 notes: >
   Correct five in-scope ACP v1 fidelity defects. Convert provider session-total
-  usage to per-turn deltas using a private persisted cursor that is never part of
-  member or API projections, and reset that cursor safely when provider totals
-  move backwards. Treat token/request limits as interrupted terminal outcomes,
-  never infer deletion from empty post-edit content, restore through any
-  lifecycle mechanism common to persisted and newly negotiated support, and
+  usage to per-turn deltas using a private persisted cursor that is never part
+  of member or API projections, and reset that cursor safely when provider
+  totals move backwards. Treat token/request limits as interrupted terminal
+  outcomes, never infer deletion from empty post-edit content, restore through
+  any lifecycle mechanism common to persisted and newly negotiated support, and
   show executable and argv examples as separate literal fields.
 assumptions:
   reviewed:
     - id: acp-v1-events-and-capabilities-are-negotiated
       outcome: unchanged
-      reason: These corrections make usage, stop reasons, diffs, and restoration
-        match the already-declared ACP v1 evidence contract.
+      reason: These corrections make usage, stop reasons, diffs, and restoration match
+        the already-declared ACP v1 evidence contract.
     - id: durable-agent-runtime-configuration
       outcome: unchanged
       reason: A private ACP usage cursor extends the existing server-only runtime
-        record without changing projections, launch secrecy, or session identity.
+        record without changing projections, launch secrecy, or session
+        identity.
     - id: normalized-agent-usage-telemetry-with-estimates
       outcome: unchanged
-      reason: Persisted run usage remains provider-reported token truth, now
-        converted from ACP session totals into non-overlapping turn deltas.
+      reason: Persisted run usage remains provider-reported token truth, now converted
+        from ACP session totals into non-overlapping turn deltas.
     - id: acp-launch-is-structured-authorized-and-bounded
       outcome: unchanged
       reason: The UI example is corrected to reflect the existing executable plus
@@ -54,7 +56,8 @@ anchors:
   durable-agent-runtime-configuration:
     durable-agent-runtime-schema:
       action: change
-      reason: Define the private ACP cumulative-usage cursor carried by a daemon session.
+      reason: Define the private ACP cumulative-usage cursor carried by a daemon
+        session.
     durable-agent-runtime-storage:
       action: change
       reason: Persist the private cursor outside member projections.
@@ -88,6 +91,8 @@ files:
   - packages/web-next/src/room/AgentControls.tsx
   - packages/web-next/tests/room3-context.e2e.spec.ts
 verification: >
-  Run focused ACP translator/adapter tests, protocol schema tests, private runtime
-  store and ACP restart daemon tests, the focused ACP Add Agent browser case,
-  protocol/ACP/switchboard/web builds, and Harn unstaged and staged gates.
+  Run focused ACP translator/adapter tests, protocol schema tests, private
+  runtime store and ACP restart daemon tests, the focused ACP Add Agent browser
+  case, protocol/ACP/switchboard/web builds, and Harn unstaged and staged gates.
+applied:
+  applied_at: 2026-07-22T05:38:58.780Z

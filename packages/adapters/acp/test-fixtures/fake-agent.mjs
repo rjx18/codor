@@ -8,11 +8,17 @@ const supportsLoad = !args.includes('--no-load');
 const waitForCancel = args.includes('--wait');
 const failPrompt = args.includes('--fail');
 const noPermission = args.includes('--no-permission');
+const limitStop = args.includes('--max-tokens')
+  ? 'max_tokens'
+  : args.includes('--max-turn-requests')
+    ? 'max_turn_requests'
+    : 'end_turn';
 const logIndex = args.indexOf('--log');
 const logPath = logIndex >= 0 ? args[logIndex + 1] : undefined;
 const sessionId = 'fake-acp-session';
 let promptRequest;
 let permissionRequestId = 900;
+let completedTurns = 0;
 
 const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 const result = (id, value) => send({ jsonrpc: '2.0', id, result: value });
@@ -31,9 +37,17 @@ function finishPrompt(permission) {
     sessionUpdate: 'agent_message_chunk',
     content: { type: 'text', text: permission?.outcome === 'selected' ? 'approved' : 'cancelled' },
   });
+  completedTurns += 1;
+  const laterTurns = completedTurns - 1;
   result(promptRequest, {
-    stopReason: 'end_turn',
-    usage: { totalTokens: 15, inputTokens: 10, outputTokens: 5, cachedReadTokens: 3 },
+    stopReason: limitStop,
+    usage: {
+      totalTokens: 20 + (13 * laterTurns),
+      inputTokens: 10 + (6 * laterTurns),
+      outputTokens: 5 + (4 * laterTurns),
+      cachedReadTokens: 3 + (2 * laterTurns),
+      cachedWriteTokens: 2 + laterTurns,
+    },
   });
   promptRequest = undefined;
 }

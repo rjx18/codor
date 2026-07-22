@@ -38,20 +38,70 @@ describe('ACP event normalization', () => {
     }]);
     expect(translator.complete({
       stopReason: 'end_turn',
-      usage: { totalTokens: 15, inputTokens: 10, outputTokens: 5, cachedReadTokens: 3 },
-    })).toEqual([expect.objectContaining({
-      type: 'run.completed',
-      status: 'completed',
-      usage: { input_tokens: 10, cached_input_tokens: 3, output_tokens: 5 },
-    })]);
+      usage: {
+        totalTokens: 20, inputTokens: 10, outputTokens: 5,
+        cachedReadTokens: 3, cachedWriteTokens: 2,
+      },
+    })).toMatchObject({
+      events: [expect.objectContaining({
+        type: 'run.completed',
+        status: 'completed',
+        usage: { input_tokens: 10, cached_input_tokens: 5, output_tokens: 5 },
+      })],
+      baseline: { totalTokens: 20, inputTokens: 10, outputTokens: 5 },
+    });
   });
 
-  it('maps refusal and cancellation to honest terminal outcomes', () => {
-    expect(createAcpTurnTranslator().complete({ stopReason: 'refusal' })[0]).toMatchObject({
+  it('derives non-overlapping turn usage and treats lower totals as a reset', () => {
+    const translator = createAcpTurnTranslator();
+    const previous = {
+      totalTokens: 20, inputTokens: 10, outputTokens: 5,
+      cachedReadTokens: 3, cachedWriteTokens: 2,
+    };
+    const second = translator.complete({
+      stopReason: 'end_turn',
+      usage: {
+        totalTokens: 33, inputTokens: 16, outputTokens: 9,
+        cachedReadTokens: 5, cachedWriteTokens: 3,
+      },
+    }, previous);
+    expect(second.events[0]).toMatchObject({
+      usage: { input_tokens: 6, cached_input_tokens: 3, output_tokens: 4 },
+    });
+    const reset = translator.complete({
+      stopReason: 'end_turn',
+      usage: { totalTokens: 8, inputTokens: 4, outputTokens: 2, cachedReadTokens: 2 },
+    }, second.baseline);
+    expect(reset.events[0]).toMatchObject({
+      usage: { input_tokens: 4, cached_input_tokens: 2, output_tokens: 2 },
+    });
+  });
+
+  it('does not infer file deletion from an edit whose resulting content is empty', () => {
+    const translator = createAcpTurnTranslator();
+    translator.push({
+      sessionUpdate: 'tool_call', toolCallId: 'empty', title: 'Empty', kind: 'edit', status: 'in_progress',
+    });
+    expect(translator.push({
+      sessionUpdate: 'tool_call_update', toolCallId: 'empty', status: 'completed',
+      content: [{ type: 'diff', path: 'empty.txt', oldText: 'old\n', newText: '' }],
+    })).toContainEqual(expect.objectContaining({
+      item_type: 'file_change', payload: expect.objectContaining({ change: 'modified' }),
+    }));
+  });
+
+  it('maps refusal, cancellation, and limit stops to honest terminal outcomes', () => {
+    expect(createAcpTurnTranslator().complete({ stopReason: 'refusal' }).events[0]).toMatchObject({
       status: 'failed', error: 'ACP agent refused the turn',
     });
-    expect(createAcpTurnTranslator().complete({ stopReason: 'cancelled' })[0]).toMatchObject({
+    expect(createAcpTurnTranslator().complete({ stopReason: 'cancelled' }).events[0]).toMatchObject({
       status: 'interrupted',
+    });
+    expect(createAcpTurnTranslator().complete({ stopReason: 'max_tokens' }).events[0]).toMatchObject({
+      status: 'interrupted', error: expect.stringContaining('token limit'),
+    });
+    expect(createAcpTurnTranslator().complete({ stopReason: 'max_turn_requests' }).events[0]).toMatchObject({
+      status: 'interrupted', error: expect.stringContaining('turn request limit'),
     });
   });
 });

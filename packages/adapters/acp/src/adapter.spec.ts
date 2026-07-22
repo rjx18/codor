@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,30 +61,42 @@ describe('ACP adapter', () => {
       session_ref: 'fake-acp-session', lifecycle: { load: true, resume: true },
     }]);
     expect(first.map((event) => event.type)).toContain('approval.raised');
-    expect(first).toContainEqual(expect.objectContaining({ type: 'run.completed', status: 'completed' }));
+    expect(first).toContainEqual(expect.objectContaining({
+      type: 'run.completed', status: 'completed',
+      usage: { input_tokens: 10, cached_input_tokens: 5, output_tokens: 5 },
+    }));
     expect(await collectTurn(adapter, session)).toContainEqual(expect.objectContaining({
       type: 'run.completed', status: 'completed',
+      usage: { input_tokens: 6, cached_input_tokens: 3, output_tokens: 4 },
     }));
+    expect(session.acp_usage_baseline).toMatchObject({ totalTokens: 33, inputTokens: 16 });
     adapter.interrupt(session);
   });
 
-  it('restores only through persisted support and fails if support disappears', async () => {
+  it('restores through any persisted common mechanism and fails only when all disappear', async () => {
     const log = join(mkdtempSync(join(tmpdir(), 'codor-acp-log-')), 'methods.txt');
     const restored: Session = {
       harness: 'acp', cwd: process.cwd(), session_ref: 'fake-acp-session',
-      lifecycle: { load: true, resume: true }, acp_launch: launch('--log', log),
+      lifecycle: { load: true, resume: true },
+      acp_usage_baseline: { totalTokens: 100, inputTokens: 60, outputTokens: 30 },
+      acp_launch: launch('--log', log, '--no-resume'),
     };
     const adapter = new AcpAdapter();
-    expect(await collectTurn(adapter, restored)).toContainEqual(expect.objectContaining({ status: 'completed' }));
+    expect(await collectTurn(adapter, restored)).toContainEqual(expect.objectContaining({
+      status: 'completed',
+      usage: { input_tokens: 10, cached_input_tokens: 5, output_tokens: 5 },
+    }));
+    expect(readFileSync(log, 'utf8')).toContain('session/load');
     adapter.interrupt(restored);
 
     const unavailable: Session = {
       ...restored,
-      acp_launch: launch('--no-resume'),
+      acp_launch: launch('--no-resume', '--no-load'),
     };
     const failed = await collectTurn(new AcpAdapter(), unavailable);
     expect(failed).toEqual([expect.objectContaining({
-      type: 'run.completed', status: 'failed', error: 'ACP agent no longer supports session resume',
+      type: 'run.completed', status: 'failed',
+      error: 'ACP agent no longer supports a persisted restoration mechanism',
     })]);
   });
 

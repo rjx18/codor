@@ -6,6 +6,7 @@ import { basename, join } from 'node:path';
 import Database from 'better-sqlite3';
 import {
   type AcpLaunchConfig,
+  type AcpUsageBaseline,
   type AttachLease,
   type Attachment,
   AttachLeaseSchema,
@@ -81,6 +82,7 @@ CREATE TABLE IF NOT EXISTS members (
   thinking TEXT,
   acp_launch TEXT,
   session_lifecycle TEXT,
+  acp_usage_baseline TEXT,
   credential_hash TEXT,
   host TEXT,
   state TEXT,
@@ -287,6 +289,9 @@ function migrateMemberAgentConfig(db: Database.Database): void {
   }
   if (!columns.some((column) => column.name === 'session_lifecycle')) {
     db.exec('ALTER TABLE members ADD COLUMN session_lifecycle TEXT');
+  }
+  if (!columns.some((column) => column.name === 'acp_usage_baseline')) {
+    db.exec('ALTER TABLE members ADD COLUMN acp_usage_baseline TEXT');
   }
 }
 // harn:end durable-agent-runtime-configuration
@@ -862,6 +867,7 @@ interface MemberRow {
   thinking: string | null;
   acp_launch: string | null;
   session_lifecycle: string | null;
+  acp_usage_baseline: string | null;
   host: string | null;
   state: string | null;
   custody: string | null;
@@ -1142,6 +1148,7 @@ export interface NewMember {
 export interface AgentRuntimeConfig {
   acp_launch?: AcpLaunchConfig;
   lifecycle?: SessionLifecycleSupport;
+  usage_baseline?: AcpUsageBaseline;
 }
 
 export interface NewMessage {
@@ -1447,12 +1454,19 @@ export class Store {
   addMember(room: string, member: NewMember, runtime: AgentRuntimeConfig = {}): Member {
     return this.db.transaction(() => {
       const inserted = this.insertMember(room, member);
-      if (runtime.acp_launch !== undefined || runtime.lifecycle !== undefined) {
+      if (
+        runtime.acp_launch !== undefined ||
+        runtime.lifecycle !== undefined ||
+        runtime.usage_baseline !== undefined
+      ) {
         this.db.prepare(
-          'UPDATE members SET acp_launch = ?, session_lifecycle = ? WHERE room = ? AND id = ?',
+          `UPDATE members
+           SET acp_launch = ?, session_lifecycle = ?, acp_usage_baseline = ?
+           WHERE room = ? AND id = ?`,
         ).run(
           runtime.acp_launch === undefined ? null : JSON.stringify(runtime.acp_launch),
           runtime.lifecycle === undefined ? null : JSON.stringify(runtime.lifecycle),
+          runtime.usage_baseline === undefined ? null : JSON.stringify(runtime.usage_baseline),
           room,
           inserted.id,
         );
@@ -1463,15 +1477,28 @@ export class Store {
 
   getAgentRuntimeConfig(room: string, memberId: string): AgentRuntimeConfig | undefined {
     const row = this.db.prepare(
-      'SELECT acp_launch, session_lifecycle FROM members WHERE room = ? AND id = ?',
-    ).get(room, memberId) as Pick<MemberRow, 'acp_launch' | 'session_lifecycle'> | undefined;
+      `SELECT acp_launch, session_lifecycle, acp_usage_baseline
+       FROM members WHERE room = ? AND id = ?`,
+    ).get(room, memberId) as Pick<
+      MemberRow,
+      'acp_launch' | 'session_lifecycle' | 'acp_usage_baseline'
+    > | undefined;
     if (row === undefined) return undefined;
     return {
       ...(row.acp_launch !== null && { acp_launch: JSON.parse(row.acp_launch) as AcpLaunchConfig }),
       ...(row.session_lifecycle !== null && {
         lifecycle: JSON.parse(row.session_lifecycle) as SessionLifecycleSupport,
       }),
+      ...(row.acp_usage_baseline !== null && {
+        usage_baseline: JSON.parse(row.acp_usage_baseline) as AcpUsageBaseline,
+      }),
     };
+  }
+
+  setAgentUsageBaseline(room: string, memberId: string, baseline: AcpUsageBaseline): void {
+    this.db.prepare(
+      'UPDATE members SET acp_usage_baseline = ? WHERE room = ? AND id = ?',
+    ).run(JSON.stringify(baseline), room, memberId);
   }
 
   setAgentSessionLifecycle(

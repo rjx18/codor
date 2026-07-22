@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AcpUsageBaselineSchema,
   ActSchema,
   AcpLaunchConfigSchema,
   AgentUsageSchema,
@@ -154,6 +155,19 @@ describe('members', () => {
 
   it('rejects a thinking level the protocol does not define', () => {
     expect(() => MemberSchema.parse({ ...agent, thinking: 'extreme' })).toThrow();
+  });
+
+  it('validates a private nonnegative ACP cumulative usage cursor', () => {
+    expect(AcpUsageBaselineSchema.parse({
+      totalTokens: 20,
+      inputTokens: 10,
+      outputTokens: 5,
+      cachedReadTokens: 3,
+      cachedWriteTokens: 2,
+    })).toMatchObject({ totalTokens: 20, cachedWriteTokens: 2 });
+    expect(AcpUsageBaselineSchema.safeParse({
+      totalTokens: -1, inputTokens: 0, outputTokens: 0,
+    }).success).toBe(false);
   });
   // harn:end durable-agent-runtime-configuration
 

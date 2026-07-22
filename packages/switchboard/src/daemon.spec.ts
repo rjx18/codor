@@ -3174,6 +3174,46 @@ describe('a rebuilt session is the same agent it was before', () => {
     expect(after.model).toBeUndefined();
     expect(after.thinking).toBeUndefined();
   });
+
+  it('persists the private ACP usage cursor and treats lower restored totals as a reset', async () => {
+    const acpRoot = mkdtempSync(join(tmpdir(), 'codor-acp-usage-restart-'));
+    const dbPath = join(acpRoot, 'switchboard.sqlite');
+    const fakeAgent = fileURLToPath(new URL(
+      '../../adapters/acp/test-fixtures/fake-agent.mjs', import.meta.url,
+    ));
+    const createAcpDaemon = () => new Daemon({
+      dbPath,
+      blobRoot: join(acpRoot, 'blobs'),
+      adapters: [Object.assign(new AcpAdapter(), { configurable: true })],
+      homeDir: acpRoot,
+    });
+    let acpDaemon = createAcpDaemon();
+    acpDaemon.createRoom({
+      id: 'acp-usage', name: 'ACP usage', owner: { handle: 'owner', display_name: 'Owner' },
+    });
+    const member = acpDaemon.spawnMember('acp-usage', {
+      harness: 'acp', handle: 'helper', cwd: acpRoot,
+      acp_launch: { executable: process.execPath, argv: [fakeAgent, '--no-permission'] },
+    });
+    acpDaemon.postHumanMessage('acp-usage', '@helper first');
+    await acpDaemon.settle();
+    expect(acpDaemon.store.getAgentRuntimeConfig('acp-usage', member.id)?.usage_baseline)
+      .toMatchObject({ totalTokens: 20, inputTokens: 10, outputTokens: 5 });
+    await acpDaemon.close();
+
+    acpDaemon = createAcpDaemon();
+    acpDaemon.postHumanMessage('acp-usage', '@helper second');
+    await acpDaemon.settle();
+    const runs = acpDaemon.store.listMessages('acp-usage', { limit: 20 })
+      .filter((message) => message.kind === 'run' && message.run?.status === 'completed');
+    expect(runs.map((message) => message.run?.usage)).toEqual([
+      { input_tokens: 10, cached_input_tokens: 5, output_tokens: 5 },
+      { input_tokens: 10, cached_input_tokens: 5, output_tokens: 5 },
+    ]);
+    expect(acpDaemon.store.getMember('acp-usage', member.id)).not.toHaveProperty('acp_usage_baseline');
+    await acpDaemon.close();
+    rmSync(acpRoot, { recursive: true, force: true });
+  });
 });
 // harn:end durable-agent-runtime-configuration
 

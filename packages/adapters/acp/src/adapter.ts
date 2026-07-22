@@ -237,16 +237,14 @@ export class AcpAdapter implements HarnessAdapter {
     } else {
       const required = expected ?? abortStart('has no persisted restoration capability');
       sessionId = session.session_ref;
-      if (required.resume) {
-        if (!negotiated.resume) abortStart('no longer supports session resume');
+      if (required.resume && negotiated.resume) {
         await connection.resumeSession({ sessionId, cwd: session.cwd })
           .catch(() => abortStart('could not resume the existing session'));
-      } else if (required.load) {
-        if (!negotiated.load) abortStart('no longer supports session load');
+      } else if (required.load && negotiated.load) {
         await connection.loadSession({ sessionId, cwd: session.cwd, mcpServers: [] })
           .catch(() => abortStart('could not load the existing session'));
       } else {
-        abortStart('does not support restoration');
+        abortStart('no longer supports a persisted restoration mechanism');
       }
       session.lifecycle = negotiated;
       hooks.onSessionLifecycle?.(negotiated);
@@ -298,7 +296,9 @@ export class AcpAdapter implements HarnessAdapter {
     }).then((response) => {
       if (!turn.terminal) {
         turn.terminal = true;
-        this.push(runtime!, turn.translator.complete(response));
+        const completed = turn.translator.complete(response, session.acp_usage_baseline);
+        if (completed.baseline !== undefined) session.acp_usage_baseline = completed.baseline;
+        this.push(runtime!, completed.events);
       }
     }).catch(() => {
       if (!turn.terminal) {

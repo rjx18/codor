@@ -1259,12 +1259,15 @@ describe('a member keeps the model and thinking level it was given', () => {
     }, {
       acp_launch: { executable: '/opt/acp-agent', argv: ['--profile', 'secret-name'] },
       lifecycle: { load: true, resume: false },
+      usage_baseline: { totalTokens: 20, inputTokens: 10, outputTokens: 5 },
     });
     expect(store.getMember('eng', alpha.id)).not.toHaveProperty('acp_launch');
     expect(store.listMembers('eng')[2]).not.toHaveProperty('session_lifecycle');
+    expect(store.listMembers('eng')[2]).not.toHaveProperty('acp_usage_baseline');
     expect(store.getAgentRuntimeConfig('eng', alpha.id)).toEqual({
       acp_launch: { executable: '/opt/acp-agent', argv: ['--profile', 'secret-name'] },
       lifecycle: { load: true, resume: false },
+      usage_baseline: { totalTokens: 20, inputTokens: 10, outputTokens: 5 },
     });
     const updated = store.setAgentSessionRuntime(
       'eng', alpha.id, 'native-session', { load: true, resume: true },
@@ -1272,6 +1275,13 @@ describe('a member keeps the model and thinking level it was given', () => {
     expect(updated.session_ref).toBe('native-session');
     expect(store.getAgentRuntimeConfig('eng', alpha.id)?.lifecycle).toEqual({
       load: true, resume: true,
+    });
+    store.setAgentUsageBaseline('eng', alpha.id, {
+      totalTokens: 33, inputTokens: 16, outputTokens: 9,
+      cachedReadTokens: 5, cachedWriteTokens: 3,
+    });
+    expect(store.getAgentRuntimeConfig('eng', alpha.id)?.usage_baseline).toMatchObject({
+      totalTokens: 33, cachedWriteTokens: 3,
     });
   });
 
@@ -1309,6 +1319,7 @@ describe('a member keeps the model and thinking level it was given', () => {
     expect(columns).toContain('thinking');
     expect(columns).toContain('acp_launch');
     expect(columns).toContain('session_lifecycle');
+    expect(columns).toContain('acp_usage_baseline');
 
     // And it still works: an insert against the rebuilt table must not fail.
     openRoom(migrated);

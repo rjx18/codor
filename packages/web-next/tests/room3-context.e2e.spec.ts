@@ -104,6 +104,10 @@ test.describe('spawn dialog', () => {
     await expect(dialog.getByTestId('spawn-harness-acp')).toHaveAttribute('aria-pressed', 'true');
     await expect(dialog.getByTestId('spawn-acp-launch')).toBeVisible();
     await expect(dialog.getByTestId('spawn-acp-executable')).toHaveValue('');
+    await expect(dialog.getByTestId('spawn-acp-executable')).toHaveAttribute('placeholder', 'e.g. kimi');
+    await expect(dialog.getByTestId('spawn-acp-args')).toHaveAttribute(
+      'placeholder', 'acp\n--profile=x',
+    );
     await expect(dialog.getByTestId('spawn-model-input')).toHaveCount(0);
     await dialog.getByTestId('spawn-handle').fill('acp-helper');
     await dialog.getByTestId('spawn-use-current-dir').click();

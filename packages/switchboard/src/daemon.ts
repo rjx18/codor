@@ -2034,6 +2034,7 @@ export class Daemon {
       if (member.session_ref !== undefined) session.session_ref = member.session_ref;
       session.acp_launch = runtimeConfig?.acp_launch;
       session.lifecycle = runtimeConfig?.lifecycle;
+      session.acp_usage_baseline = runtimeConfig?.usage_baseline;
       session.cwd = member.cwd ?? session.cwd; // revive MUST reuse the persisted cwd
       session.policy = member.policy;
       // harn:assume durable-agent-runtime-configuration ref=durable-agent-runtime-rebuild
@@ -3032,6 +3033,9 @@ export class Daemon {
             this.landContextWindow(room, member.id, journalEvent.agent_usage);
           }
           // harn:end last-agent-usage-is-transient-and-seeded
+          if (member.harness === 'acp' && session?.acp_usage_baseline !== undefined) {
+            this.store.setAgentUsageBaseline(room, member.id, session.acp_usage_baseline);
+          }
           // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
           completion = {
             status: journalEvent.status,

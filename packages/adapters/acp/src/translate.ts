@@ -8,7 +8,7 @@ import type {
   ToolCallUpdate,
   UsageUpdate,
 } from '@agentclientprotocol/sdk';
-import type { AgentUsage, WireEvent } from '@codor/protocol';
+import type { AcpUsageBaseline, AgentUsage, WireEvent } from '@codor/protocol';
 
 interface ToolState {
   title: string;
@@ -46,7 +46,7 @@ function unifiedDiff(path: string, oldText: string | null | undefined, newText: 
   ].join('\n');
 }
 
-function resultContent(content: readonly ToolCallContent[] | null | undefined): {
+function resultContent(content: readonly ToolCallContent[] | null | undefined, toolKind: string): {
   output?: string;
   diffs: { path: string; unified: string; change: 'created' | 'modified' | 'deleted' }[];
 } {
@@ -62,7 +62,7 @@ function resultContent(content: readonly ToolCallContent[] | null | undefined): 
       diffs.push({
         path: item.path,
         unified: unifiedDiff(item.path, item.oldText, item.newText),
-        change: item.oldText == null ? 'created' : item.newText === '' ? 'deleted' : 'modified',
+        change: item.oldText == null ? 'created' : toolKind === 'delete' ? 'deleted' : 'modified',
       });
     }
   }
@@ -75,13 +75,39 @@ function planText(plan: Plan): string {
     .join('\n');
 }
 
-function turnUsage(response: PromptResponse): AgentUsage | undefined {
+function usageDelta(current: number | null | undefined, previous: number | undefined, reset: boolean): number {
+  if (current == null) return 0;
+  if (reset || previous === undefined) return current;
+  return Math.max(0, current - previous);
+}
+
+function turnUsage(response: PromptResponse, previous: AcpUsageBaseline | undefined): {
+  usage?: AgentUsage;
+  baseline?: AcpUsageBaseline;
+} {
   const usage = response.usage;
-  if (usage == null) return undefined;
+  if (usage == null) return {};
+  const reset = previous !== undefined && usage.totalTokens <= previous.totalTokens;
+  const cachedInputTokens =
+    usageDelta(usage.cachedReadTokens, previous?.cachedReadTokens, reset) +
+    usageDelta(usage.cachedWriteTokens, previous?.cachedWriteTokens, reset);
   return {
-    inputTokens: usage.inputTokens,
-    ...(usage.cachedReadTokens != null && { cachedInputTokens: usage.cachedReadTokens }),
-    outputTokens: usage.outputTokens,
+    usage: {
+      inputTokens: usageDelta(usage.inputTokens, previous?.inputTokens, reset),
+      ...(cachedInputTokens > 0 && { cachedInputTokens }),
+      outputTokens: usageDelta(usage.outputTokens, previous?.outputTokens, reset),
+    },
+    baseline: {
+      totalTokens: usage.totalTokens,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      ...(usage.cachedReadTokens != null
+        ? { cachedReadTokens: usage.cachedReadTokens }
+        : previous?.cachedReadTokens !== undefined && { cachedReadTokens: previous.cachedReadTokens }),
+      ...(usage.cachedWriteTokens != null
+        ? { cachedWriteTokens: usage.cachedWriteTokens }
+        : previous?.cachedWriteTokens !== undefined && { cachedWriteTokens: previous.cachedWriteTokens }),
+    },
   };
 }
 
@@ -94,7 +120,10 @@ function contextUsage(update: UsageUpdate): AgentUsage {
 
 export interface AcpTurnTranslator {
   push(update: SessionUpdate): WireEvent[];
-  complete(response: PromptResponse): WireEvent[];
+  complete(response: PromptResponse, baseline?: AcpUsageBaseline): {
+    events: WireEvent[];
+    baseline?: AcpUsageBaseline;
+  };
 }
 
 // harn:assume acp-v1-events-and-capabilities-are-negotiated ref=acp-event-normalization
@@ -130,7 +159,7 @@ export function createAcpTurnTranslator(): AcpTurnTranslator {
     const terminal = call.status === 'completed' || call.status === 'failed';
     if (!terminal || state.terminal) return events;
     state.terminal = true;
-    const content = resultContent(call.content);
+    const content = resultContent(call.content, kind);
     for (const diff of content.diffs) {
       events.push({
         type: 'run.item',
@@ -182,25 +211,36 @@ export function createAcpTurnTranslator(): AcpTurnTranslator {
       }
       return [];
     },
-    complete(response) {
+    complete(response, baseline) {
       const interrupted = response.stopReason === 'cancelled';
       const failed = response.stopReason === 'refusal';
-      const usage = turnUsage(response);
-      return [{
-        type: 'run.completed',
-        status: interrupted ? 'interrupted' : failed ? 'failed' : 'completed',
-        ...(failed && { error: 'ACP agent refused the turn' }),
-        ...(usage !== undefined && {
-          agent_usage: usage,
+      const limited = response.stopReason === 'max_tokens' || response.stopReason === 'max_turn_requests';
+      const terminalError = response.stopReason === 'max_tokens'
+        ? 'ACP agent stopped after reaching the token limit'
+        : response.stopReason === 'max_turn_requests'
+          ? 'ACP agent stopped after reaching the turn request limit'
+          : failed
+            ? 'ACP agent refused the turn'
+            : undefined;
+      const measured = turnUsage(response, baseline);
+      return {
+        events: [{
+          type: 'run.completed',
+          status: interrupted || limited ? 'interrupted' : failed ? 'failed' : 'completed',
+          ...(terminalError !== undefined && { error: terminalError }),
+          ...(measured.usage !== undefined && {
+          agent_usage: measured.usage,
           usage: {
-            input_tokens: usage.inputTokens ?? 0,
-            ...(usage.cachedInputTokens !== undefined && {
-              cached_input_tokens: usage.cachedInputTokens,
+            input_tokens: measured.usage.inputTokens ?? 0,
+            ...(measured.usage.cachedInputTokens !== undefined && {
+              cached_input_tokens: measured.usage.cachedInputTokens,
             }),
-            output_tokens: usage.outputTokens ?? 0,
+            output_tokens: measured.usage.outputTokens ?? 0,
           },
         }),
-      }];
+        }],
+        ...(measured.baseline !== undefined && { baseline: measured.baseline }),
+      };
     },
   };
 }
