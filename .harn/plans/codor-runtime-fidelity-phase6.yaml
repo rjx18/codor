@@ -143,6 +143,42 @@ assumptions:
       depends_on:
         - durable-agent-runtime-configuration
         - canonical-spawn-controls-enforced
+    - id: harness-declares-supported-thinking-levels
+      outcome: unchanged
+      reason: ACP reports no standardized thinking controls while every native
+        adapter retains its existing declared thinking-level contract.
+    - id: channel-create-request-contract
+      outcome: unchanged
+      reason: Channel creation retains its existing validated request boundary;
+        the optional starting-agent shape only gains ACP's structured launch data.
+    - id: live-inbox-capability-is-evidence-backed-v2
+      outcome: unchanged
+      reason: ACP truthfully advertises no live inbox support and the evidence-backed
+        native capability matrix remains unchanged.
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: ACP preflight uses the existing derived room-creation path without
+        changing room seeding or post-preflight persistence behavior.
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: Native adapters retain their model discovery ownership; generic ACP
+        exposes no invented model catalog because ACP v1 does not standardize one.
+    - id: working-directories-validated-before-spawn
+      outcome: unchanged
+      reason: ACP launch configuration does not bypass the daemon's existing cwd
+        validation before a provider process starts.
+    - id: attempt-start-evidence-persisted
+      outcome: unchanged
+      reason: ACP turns enter the same persisted attempt-start lifecycle as existing
+        adapters.
+    - id: attachments-are-capped-files-served-inert
+      outcome: unchanged
+      reason: ACP prompt delivery uses the existing bounded attachment contract and
+        does not change attachment serving or storage.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: ACP spawn data uses the same validated WebSocket protocol over TCP and
+        Unix listeners.
 anchors:
   built-in-adapters-require-daemon-path:
     builtin-executable-regression:
@@ -254,10 +290,71 @@ anchors:
     new-agent-availability-regression:
       action: change
       reason: Prove stale native rejection and configured ACP admission before persistence.
+  harness-declares-supported-thinking-levels:
+    adapter-thinking-level-contract:
+      action: change
+      reason: Extend the adapter contract with ACP runtime hooks while keeping thinking
+        support declarations truthful and unchanged for native adapters.
+    registry-thinking-level-regression:
+      action: change
+      reason: Add ACP's unsupported-thinking evidence without altering native cases.
+    adapter-thinking-level-registry:
+      action: change
+      reason: Register ACP with no thinking levels while preserving native metadata.
+  channel-create-request-contract:
+    channel-create-request-schema:
+      action: change
+      reason: Validate ACP structured launch data only within the optional starting
+        agent request.
+  live-inbox-capability-is-evidence-backed-v2:
+    builtin-live-inbox-matrix:
+      action: change
+      reason: Add ACP's truthful false capability to the existing matrix.
+  canonical-spawn-controls-enforced:
+    registry-spawn-control-validation:
+      action: change
+      reason: Reject ACP launch data for native adapters while retaining existing
+        model, thinking, and policy validation.
+  adapter-registry-sole-harness-source:
+    configured-adapter-registry:
+      action: change
+      reason: Add the one generic ACP transport through the existing composition
+        source without changing third-party module behavior.
+  channel-creation-derived-and-seeded:
+    derived-channel-creation:
+      action: change
+      reason: Preflight ACP launch configuration through the existing derived channel
+        creation flow.
+    create-room-rest-contract:
+      action: change
+      reason: Carry validated ACP starting-agent configuration without changing room
+        seeding semantics.
+  adapters-own-their-model-catalog:
+    adapter-model-discovery:
+      action: change
+      reason: Keep model discovery native-only because generic ACP negotiates no model
+        catalog.
+  working-directories-validated-before-spawn:
+    daemon-cwd-enforcement:
+      action: change
+      reason: Include ACP provider launch under the existing validated cwd boundary.
+  attempt-start-evidence-persisted:
+    attempt-start-evidence:
+      action: change
+      reason: Route ACP turns through the unchanged persisted attempt-start lifecycle.
+  attachments-are-capped-files-served-inert:
+    attachment-contract:
+      action: change
+      reason: Deliver existing bounded attachment references through ACP prompts.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Carry the same validated ACP spawn act over the existing Unix listener.
 files:
   - package.json
   - pnpm-lock.yaml
   - packages/protocol/src/adapter.ts
+  - packages/protocol/src/member.ts
   - packages/protocol/src/room.ts
   - packages/protocol/src/ws.ts
   - packages/protocol/src/index.ts
@@ -277,6 +374,7 @@ files:
   - packages/switchboard/src/store.spec.ts
   - packages/switchboard/src/daemon.ts
   - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/hot-swap.integration.spec.ts
   - packages/switchboard/src/server.ts
   - packages/switchboard/src/server.spec.ts
   - packages/switchboard/src/residency.ts
@@ -289,10 +387,11 @@ files:
   - packages/web-next/src/room/AgentControls.tsx
   - packages/web-next/src/room/ContextPanel.tsx
   - packages/web-next/src/room/CreateChannel.tsx
+  - packages/web-next/src/room/harness-marks.tsx
   - packages/web-next/src/surfaces/NoChannels.tsx
   - packages/web-next/src/styles/room.css
   - packages/web-next/tests/harness.mjs
-  - packages/web-next/tests/room10-agents.e2e.spec.ts
+  - packages/web-next/tests/room3-context.e2e.spec.ts
 verification: Run focused ACP adapter translation/runtime tests, protocol schema,
   registry/store/daemon/server ACP tests, web catalog/agent-spec units, and the
   focused add-agent browser cases. Run protocol, ACP, switchboard, and web-next
