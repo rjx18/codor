@@ -1,0 +1,98 @@
+id: codor-polish-phase2-chrome-composer-revive
+title: Phase 2 - channel chrome, composer action group, activity spacing, and a
+  dead-agent Revive control
+notes: >-
+  Product-polish Phase 2 (plan of record tmp/codor-product-polish/PLAN.md), all
+  in packages/web-next (.harnignore'd, so Harn records the assumption contracts;
+  the Playwright e2e is the enforcing gate). Four UI changes:
+
+  1. Increase the external gap below the sticky agent-activity pill so it stays
+     visibly separated from the composer while the transcript is scrolled up
+     (a margin bump; jump-to-latest is a separately-positioned control and is
+     unchanged). Ordinary spacing - no assumption, tightened geometry test.
+  2. Remove the desktop room header's redundant "Channel settings" button, which
+     navigated to the same global Settings page as the rail's Settings entry
+     (kept). The shared Settings lucide icon stays imported (the rail still uses
+     it), so there is NO unused import to remove despite the plan's wording.
+     Trivial redundant-control removal - no assumption.
+  3. Group the desktop composer's Attach and Send into one bottom-right action
+     group sharing a vertical centre, instead of each floating to the bar's
+     optical centre. New behavioural contract (assumption).
+  4. For a dead agent, replace the disabled Compact with a Revive control in the
+     action area, hide Compact while dead, remove Revive from the overflow menu,
+     and guard against duplicate revive clicks with a pending state restored on
+     error or member-state change. New behavioural contract (assumption). The
+     server revive path (revive-via-session-ref, switchboard) is unchanged.
+assumptions:
+  create:
+    - id: desktop-composer-groups-attach-and-send-bottom-right
+      title: The desktop composer groups Attach and Send bottom-right on one centre line
+      statement: >-
+        On desktop the composer's Attach and Send controls form one action group
+        aligned to the bottom-right of the composer bar: the two controls share a
+        single vertical centre despite their different heights, and the group
+        hugs the bar's right content edge instead of each control floating
+        independently to the bar's optical centre when the textarea grows. The
+        mobile two-row composer (attach, mention, spacer, send) is preserved, and
+        Enter-to-send, Shift+Enter newline, the eight-row autogrow cap, and the
+        shared send primitive are unchanged.
+      reason: >-
+        A single bottom-right action group reads as one coherent control cluster
+        rather than two controls that drift to the vertical middle as the message
+        grows.
+    - id: dead-agent-surfaces-revive-in-its-action-area
+      title: A dead agent surfaces Revive in its action area, not the overflow menu
+      statement: >-
+        A dead agent (member.state === 'dead') surfaces a Revive control directly
+        in the member action area, and the Compact control is hidden while dead
+        rather than shown disabled; Revive is removed from the overflow menu.
+        Clicking Revive emits exactly one revive action and the control is
+        disabled while the revival is pending, restoring honestly on a daemon
+        error or a member-state update (a successful revive returns the agent to
+        idle, which removes Revive and restores Compact). The live-agent Compact
+        (idle-only), the running Stop, and the overflow Rename / Configure /
+        Kill (non-dead only) / Remove are unchanged.
+      reason: >-
+        Revive is the primary recovery for a dead agent; burying it in the
+        overflow while showing a permanently-disabled Compact hides the one
+        action the operator wants and wastes the prominent slot.
+      depends_on:
+        - revive-via-session-ref
+anchors:
+  desktop-composer-groups-attach-and-send-bottom-right:
+    composer-actions-group:
+      action: change
+      reason: The desktop Attach and Send become one bottom-right action group.
+    composer-alignment-regression:
+      action: change
+      reason: The regression proves equal attach/send centre lines and a bottom-right
+        group edge, with mobile and Enter-to-send unchanged.
+  dead-agent-surfaces-revive-in-its-action-area:
+    member-lifecycle-controls:
+      action: change
+      reason: Dead agents show Revive (guarded, in the action area) with Compact hidden;
+        Revive leaves the overflow menu.
+    member-revive-regression:
+      action: change
+      reason: The regression proves the dead-agent control swap, one-click revive back
+        to idle, and the restored controls afterwards.
+files:
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room2-interactions.e2e.spec.ts
+  - packages/web-next/tests/room3-context.e2e.spec.ts
+verification: |
+  - The sticky activity pill keeps a visibly larger external gap above the
+    composer while scrolled up; jump-to-latest is unchanged.
+  - The desktop header no longer shows the redundant Channel settings button; the
+    rail's global Settings still opens the settings page.
+  - Desktop Attach and Send are one bottom-right group sharing a centre line (≤1px)
+    with the group hugging the bar's right edge; the mobile two-row composer,
+    Enter-to-send and Shift+Enter are unchanged.
+  - A dead agent shows Revive (not a disabled Compact); one click revives back to
+    idle, then Compact returns and Revive is gone; the control is guarded while
+    pending. Idle/running controls and the overflow menu are otherwise unchanged.
+  - web-next build; focused Playwright room2-interactions + room3-context (+ axe);
+    Harn unstaged/staged gates pass.
