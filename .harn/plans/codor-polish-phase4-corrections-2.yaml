@@ -1,0 +1,168 @@
+id: codor-polish-phase4-corrections-2
+title: Phase 4 correction 2 - native Codex no-diff evidence, descriptor-safe reads,
+  bounded failure feed, and corrected own-cwd dependency
+notes: >-
+  Second correction of Phase 4 (Codex #928). Three residual blockers plus a Harn
+  dependency correction.
+
+  Codex (native adapter): the pinned Codex app-server reports completed fileChange
+  items with a path but no diff body; the translator emitted an ok tool_result with
+  no diff and no file_change, so the daemon had no path. It now emits a truthful
+  path-bearing file_change {path, change} for a genuinely completed, no-diff
+  fileChange (no invented patch text); failed/in-progress items emit none, and
+  diff-bearing completions keep their existing normalized shape with no duplicate
+  file row.
+
+  Daemon read authority (TOCTOU + cap race): a candidate is opened ONCE with
+  O_NOFOLLOW, its regular-file identity and canonical containment are verified
+  through the opened descriptor (realpath of /proc/self/fd/<fd> on the Linux
+  target), and bytes are read through that descriptor with a bounded loop of at
+  most MAX_ARTIFACT_BYTES + 1, rejecting if the extra byte exists or identity/type
+  changes. Verification that cannot be performed (no /proc) fails closed and
+  surfaces the generic path-free failure state. The descriptor is always closed.
+
+  Storage: ProducedArtifactSchema is validated before the sidecar is published; the
+  durable per-run failure feed is bounded/pruned; and both artifact and error
+  temporary/orphan state are reconciled on failure and on restart.
+
+  Harn: the own-cwd containment assumption depends on
+  working-directories-validated-before-spawn, not the Git known-cwd inspection
+  contract. Because the read authority, bounded failure feed, and dependency all
+  change meaning, the just-created assumption is retired and a corrected one is
+  created; every touched native Codex adapter anchor/file is declared.
+assumptions:
+  retire:
+    - id: durable-inert-snapshots-of-successfully-produced-files
+      reason: Meaning changes - read authority moves to a single verified descriptor
+        (open-once, /proc-descriptor containment, bounded read, fail-closed), the
+        failure feed becomes bounded with reconciled temp state, metadata is
+        schema-validated before commit, evidence additionally covers native Codex
+        no-diff completed file changes, and the dependency changes to
+        working-directories-validated-before-spawn.
+  create:
+    - id: descriptor-safe-durable-inert-snapshots-of-successful-output
+      title: Successful output is snapshotted through a single verified descriptor,
+        stored atomically with a bounded visible failure feed, and served inert
+      statement: At run finalization the daemon snapshots only files an agent
+        successfully produced, derived from success evidence only - created or
+        modified file_change events (harnesses emit file_change only for completed
+        tools; the ACP adapter and the native Codex adapter, including Codex
+        completed file changes that carry no diff body, are normalized to do so)
+        unioned with tool_result diff paths whose tool_result status is ok - never a
+        path merely read, a failed or in-progress tool's output, or a tool-output
+        string. Each candidate is opened exactly once without following a final
+        symlink; its regular-file identity and its canonical containment within the
+        producing member's own validated working directory are verified through the
+        opened descriptor, and its bytes are read through that same descriptor with
+        a bounded loop of at most the per-file byte cap plus one byte, refusing when
+        the extra byte exists or the descriptor's identity or type changes.
+        Verification that cannot be performed fails closed. Candidates outside the
+        allowlist, over the byte cap, or beyond the per-run and per-room count caps
+        are explicit non-artifacts. A retained snapshot writes its bytes and its
+        schema-validated metadata through temporary files and publishes the
+        validated JSON sidecar last as the commit and visibility marker, so only
+        fully committed artifacts are ever listed; temporary, partial, and orphan
+        state for both artifacts and failure records is removed on failure and on
+        daemon restart. Metadata carries a strict 32-hex opaque id, name, safe media
+        type, size, source message id, and timestamp, independent of the source
+        message, so the artifact survives commit, rename, deletion, working-tree
+        cleanup, and daemon restart. A storage failure (distinct from a policy
+        refusal) records one durable, path-free, operator-visible failure state per
+        affected run, and the per-run failure feed is bounded and pruned. Artifacts
+        and per-run failure states are listed and served only through authenticated,
+        room-read-authorized endpoints addressed by validated hex id; the serve
+        endpoint renders raster image media types inline and every other type as an
+        octet-stream download with x-content-type-options nosniff, exposing an
+        opaque artifact URL and never a local path.
+      reason: Preview must show durable evidence of what agents actually and
+        successfully produced - including native Codex no-diff completions - read
+        without a swap/growth race, stored atomically with schema-valid metadata,
+        and honestly and boundedly reporting storage failures.
+      depends_on:
+        - attachments-are-capped-files-served-inert
+        - working-directories-validated-before-spawn
+  reviewed:
+    - id: finalized-turn-routes-aggregate-from-terminal-output
+      outcome: unchanged
+      reason: Terminal-output aggregate routing is unchanged; finalization still calls
+        the artifact snapshotter with the same signature and mutates no routing.
+    - id: first-party-run-items-normalized
+      outcome: unchanged
+      reason: The cross-harness normalized WireEvent shape is unchanged; the Codex
+        translator only additionally maps a completed no-diff file change to a
+        truthful path-bearing file_change, within the existing file-change mapping.
+anchors:
+  durable-inert-snapshots-of-successfully-produced-files:
+    produced-artifact-schema:
+      action: remove
+      reason: Marker re-homed to the corrected assumption (retire+create rename).
+    produced-artifact-snapshot:
+      action: remove
+      reason: Marker re-homed to the corrected assumption (retire+create rename).
+    produced-artifact-serve:
+      action: remove
+      reason: Marker re-homed to the corrected assumption (retire+create rename).
+    produced-artifact-schema-regression:
+      action: remove
+      reason: Marker re-homed to the corrected assumption (retire+create rename).
+    produced-artifact-daemon-regression:
+      action: remove
+      reason: Marker re-homed to the corrected assumption (retire+create rename).
+    produced-artifact-server-regression:
+      action: remove
+      reason: Marker re-homed to the corrected assumption (retire+create rename).
+  descriptor-safe-durable-inert-snapshots-of-successful-output:
+    produced-artifact-schema:
+      action: change
+      reason: Re-homed schema marker (strict 32-hex id and path-free failure entry).
+    produced-artifact-snapshot:
+      action: change
+      reason: Single verified-descriptor read (open-once/O_NOFOLLOW, /proc-descriptor
+        containment, bounded read, fail-closed), schema-validated sidecar commit,
+        bounded failure feed, and artifact+error temp/orphan reconciliation.
+    produced-artifact-serve:
+      action: change
+      reason: Re-homed serve marker; the list endpoint returns the bounded failure feed.
+    produced-artifact-schema-regression:
+      action: change
+      reason: Re-homed strict-id schema tests.
+    produced-artifact-daemon-regression:
+      action: change
+      reason: Tests for native Codex no-diff translation to finalization, path-swap and
+        post-stat growth refusal, schema-invalid metadata rejection, bounded failure
+        feed, and artifact+error restart cleanup.
+    produced-artifact-server-regression:
+      action: change
+      reason: Re-homed server tests for per-run failure states and inert serving.
+  first-party-run-items-normalized:
+    codex-normalized-run-items:
+      action: change
+      reason: The native Codex translator emits a truthful path-bearing file_change for
+        a completed no-diff file change; failed/in-progress emit none and diff-bearing
+        completions are unchanged.
+files:
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/adapters/codex/src/translate.ts
+  - packages/adapters/codex/src/translate.spec.ts
+verification: >
+  - Codex translator: a completed no-diff fileChange replayed through the real
+  translator emits a path-bearing file_change; a failed/in-progress one does not; a
+  diff-bearing completion keeps its tool_result.diff with no duplicate file row.
+
+  - Daemon: the native Codex no-diff evidence, translated, is snapshotted at
+  finalization; a path swapped between validation and read is refused; a file grown
+  past the cap after stat is refused; schema-invalid metadata is not committed; the
+  per-run failure feed is bounded; and both artifact and error temp/orphan state are
+  cleaned on failure and on restart; verification that cannot be performed fails
+  closed with a path-free failure state.
+
+  - Server: the list endpoint returns the bounded per-run failure feed for room
+  readers only; serve remains inert with nosniff; anonymous and cross-room refused.
+
+  - Native Codex translator plus protocol/switchboard/Preview and Harn
+  unstaged/staged gates pass.
