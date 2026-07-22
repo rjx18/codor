@@ -1,7 +1,6 @@
 id: rebuild-public-package-0-10-3
 title: Rebuild the public package as version 0.10.3
-notes: >-
-  Advance the repository release set from 0.10.2 to 0.10.3 so Richard can
+notes: Advance the repository release set from 0.10.2 to 0.10.3 so Richard can
   publish a new immutable npm version containing the corrected README and the
   approved runtime. Rebuild the artifact only; do not publish, tag, push, or run
   the release verification suites.
@@ -9,13 +8,11 @@ assumptions:
   reviewed:
     - id: public-package-bundles-complete-codor-runtime
       outcome: unchanged
-      reason: >-
-        The artifact continues to bundle the exact workspace closure and resolve
+      reason: The artifact continues to bundle the exact workspace closure and resolve
         its workspace dependencies to the new common release version.
     - id: public-package-readme-renders-on-npm
       outcome: unchanged
-      reason: >-
-        The rebuilt tarball carries the already-corrected staged README; this
+      reason: The rebuilt tarball carries the already-corrected staged README; this
         phase changes only the publishable version identity.
 anchors: {}
 files:
@@ -36,6 +33,7 @@ files:
   - packages/web-next/package.json
   - relay/package.json
   - website/package.json
-verification: >-
-  Run the artifact build and report its generated 0.10.3 tarball. Do not run
-  tests, publish, tag, or push, per the operator's explicit instruction.
+verification: Run the artifact build and report its generated 0.10.3 tarball. Do
+  not run tests, publish, tag, or push, per the operator's explicit instruction.
+applied:
+  applied_at: 2026-07-22T01:59:25.193Z
