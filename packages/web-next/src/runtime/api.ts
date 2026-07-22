@@ -3,6 +3,7 @@ import type {
   CreateRoomRequest,
   Member,
   Message,
+  ProducedArtifact,
   Room,
   WireEvent,
 } from '@codor/protocol';
@@ -294,6 +295,26 @@ export async function fetchRunEvents(
   );
   return body.events;
 }
+
+/** Durable produced-artifact feed for a room. Bytes are fetched separately
+ *  through {@link artifactUrl}; this returns only opaque metadata (never a path). */
+export async function fetchArtifacts(
+  room: string,
+  options: ApiOptions,
+): Promise<ProducedArtifact[]> {
+  const body = await fetchJson<{ artifacts: ProducedArtifact[] }>(
+    `/api/rooms/${encodeURIComponent(room)}/artifacts`,
+    options,
+  );
+  return body.artifacts;
+}
+
+/** Served URL for a produced artifact. The token rides the query string because
+ *  an <img>/<a> cannot send an Authorization header (the server accepts either).
+ *  The server renders raster media inline and everything else as an inert
+ *  nosniff download, so this URL is safe to hand an <img> or download <a>. */
+export const artifactUrl = (room: string, id: string, token: string): string =>
+  `/api/rooms/${encodeURIComponent(room)}/artifacts/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`;
 
 export async function fetchLedgerNote(
   room: string,

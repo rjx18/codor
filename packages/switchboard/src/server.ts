@@ -905,6 +905,39 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end attachments-are-capped-files-served-inert
 
+  // harn:assume produced-run-artifacts-are-snapshotted-durably-and-served-inert ref=produced-artifact-serve
+  // Durable produced-artifact feed: list metadata for room readers, and serve the
+  // stored bytes inertly (raster inline with the sniffed media type, everything
+  // else an octet-stream download) with nosniff — an opaque URL, never a path.
+  app.get('/api/rooms/:room/artifacts', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeRoom(principal, room, 'read', reply)) return;
+    void reply.send({ artifacts: daemon.listArtifacts(room) });
+  });
+
+  app.get('/api/rooms/:room/artifacts/:id', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room, id } = req.params as { room: string; id: string };
+    if (!authorizeRoom(principal, room, 'read', reply)) return;
+    const meta = daemon.getArtifactMeta(room, id);
+    if (!meta) return reply.code(404).send({ error: 'no such artifact' });
+    const path = daemon.artifactPath(room, id);
+    if (!existsSync(path)) return reply.code(404).send({ error: 'no such artifact' });
+    const inline = /^image\/(png|jpe?g|gif|webp|avif)$/.test(meta.media_type);
+    void reply
+      .header('x-content-type-options', 'nosniff')
+      .header('content-type', inline ? meta.media_type : 'application/octet-stream')
+      .header(
+        'content-disposition',
+        `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(meta.name)}`,
+      )
+      .send(createReadStream(path));
+  });
+  // harn:end produced-run-artifacts-are-snapshotted-durably-and-served-inert
+
   // harn:assume graph-derived-from-vault-links-readonly-v5 ref=ledger-graph-rest
   app.get('/api/rooms/:room/ledger', (req, reply) => {
     const principal = authed(req, reply);

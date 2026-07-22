@@ -7,6 +7,7 @@ import {
   AgentUsageSchema,
   AssignableHandleSchema,
   AttachmentSchema,
+  ProducedArtifactSchema,
   BROWSER_PROTOCOL_EPOCH,
   ChangeLogEntrySchema,
   ClientFrameSchema,
@@ -1467,3 +1468,18 @@ describe('a session carries the environment its children need', () => {
   });
 });
 // harn:end a-session-carries-the-environment-its-children-need
+
+// harn:assume produced-run-artifacts-are-snapshotted-durably-and-served-inert ref=produced-artifact-schema-regression
+describe('ProducedArtifactSchema', () => {
+  it('round-trips produced-artifact metadata and rejects missing fields', () => {
+    const artifact = {
+      id: 'a'.repeat(32), name: 'chart.png', media_type: 'image/png',
+      size: 1024, source_message_id: 7, produced_at: '2026-07-10T07:00:00.000Z',
+    };
+    expect(ProducedArtifactSchema.parse(artifact)).toEqual(artifact);
+    expect(ProducedArtifactSchema.safeParse({ ...artifact, source_message_id: undefined }).success).toBe(false);
+    expect(ProducedArtifactSchema.safeParse({ ...artifact, media_type: '' }).success).toBe(false);
+    expect(ProducedArtifactSchema.safeParse({ ...artifact, produced_at: 'not-a-time' }).success).toBe(false);
+  });
+});
+// harn:end produced-run-artifacts-are-snapshotted-durably-and-served-inert

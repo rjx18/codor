@@ -2821,3 +2821,76 @@ describe('browser protocol epoch', () => {
   });
 });
 // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
+
+// harn:assume produced-run-artifacts-are-snapshotted-durably-and-served-inert ref=produced-artifact-server-regression
+describe('produced-artifact endpoints (produced-run-artifacts-are-snapshotted-durably-and-served-inert)', () => {
+  const stageArtifact = (room: string, name: string, mediaType: string, bytes: Buffer) => {
+    const id = daemon.newArtifactId();
+    daemon.ensureArtifactDir(room);
+    writeFileSync(daemon.artifactPath(room, id), bytes);
+    const meta = {
+      id, name, media_type: mediaType, size: bytes.length,
+      source_message_id: 1, produced_at: '2026-07-22T00:00:00.000Z',
+    };
+    daemon.recordArtifact(room, meta);
+    return meta;
+  };
+
+  it('lists and serves a produced raster artifact inline to a room reader', async () => {
+    const meta = stageArtifact('eng', 'chart.png', 'image/png', Buffer.from('png-bytes'));
+
+    const list = await fetch(`${base}/api/rooms/eng/artifacts`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(list.status).toBe(200);
+    const body = await list.json() as { artifacts: { id: string; name: string; media_type: string }[] };
+    expect(body.artifacts.map((a) => a.id)).toContain(meta.id);
+
+    const got = await fetch(`${base}/api/rooms/eng/artifacts/${meta.id}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(got.status).toBe(200);
+    expect(got.headers.get('content-type')).toContain('image/png');
+    expect(got.headers.get('content-disposition')).toContain('inline');
+    expect(got.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(await got.text()).toBe('png-bytes');
+  });
+
+  it('serves a document artifact as an inert nosniff download', async () => {
+    const meta = stageArtifact('eng', 'report.pdf', 'application/pdf', Buffer.from('%PDF-1.4'));
+    const got = await fetch(`${base}/api/rooms/eng/artifacts/${meta.id}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(got.status).toBe(200);
+    expect(got.headers.get('content-type')).toContain('application/octet-stream');
+    expect(got.headers.get('content-disposition')).toContain('attachment');
+    expect(got.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
+  it('refuses anonymous list and serve', async () => {
+    const meta = stageArtifact('eng', 'chart.png', 'image/png', Buffer.from('png'));
+    expect((await fetch(`${base}/api/rooms/eng/artifacts`)).status).toBe(401);
+    expect((await fetch(`${base}/api/rooms/eng/artifacts/${meta.id}`)).status).toBe(401);
+  });
+
+  it('does not serve one room\'s artifact id from another room', async () => {
+    daemon.createRoom({ id: 'other', name: 'Other', owner: { handle: 'elsewhere', display_name: 'Elsewhere' } });
+    const meta = stageArtifact('eng', 'secret.png', 'image/png', Buffer.from('png'));
+    const cross = await fetch(`${base}/api/rooms/other/artifacts/${meta.id}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(cross.status).toBe(404);
+  });
+
+  it('returns 404 for an unknown or malformed artifact id', async () => {
+    const unknown = await fetch(`${base}/api/rooms/eng/artifacts/${'a'.repeat(32)}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(unknown.status).toBe(404);
+    const malformed = await fetch(`${base}/api/rooms/eng/artifacts/not-a-valid-id`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(malformed.status).toBe(404);
+  });
+});
+// harn:end produced-run-artifacts-are-snapshotted-durably-and-served-inert

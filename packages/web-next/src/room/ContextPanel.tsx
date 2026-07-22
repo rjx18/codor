@@ -1,8 +1,9 @@
-import type { AgentLimit, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
-import { Bot, ChevronRight, LoaderCircle, Minimize2, MoreVertical, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
+import type { AgentLimit, Member, Policy, ProducedArtifact, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
+import { Bot, ChevronRight, FileText, LoaderCircle, Minimize2, MoreVertical, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { fetchRunEvents, refreshUsage, type AdapterRegistration, type MemberDetail } from '@runtime/api.js';
+import { artifactUrl, fetchArtifacts, fetchRunEvents, refreshUsage, type AdapterRegistration, type MemberDetail } from '@runtime/api.js';
+import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attachments.js';
 import { AgentControls, AgentIdentityControls, RolePresetControls, Section } from './AgentControls.js';
 import { FolderPicker } from './FolderPicker.js';
 import {
@@ -1231,22 +1232,163 @@ function DiffTab(props: { room: string; token: () => string }) {
 }
 // harn:end diff-panel-floats-refresh-and-overlays-history
 
-// ── Preview tab: image artifacts from run evidence; dot-grid empty state ───
+// ── Preview tab: a bounded gallery of durable produced artifacts, message
+//    attachments, and embedded run images, with an accessible image lightbox ──
+
+const MAX_PREVIEW_ITEMS = 24;
+
+type PreviewKind = 'raster' | 'document' | 'inert';
+
+interface PreviewItem {
+  key: string;
+  kind: PreviewKind;
+  name: string;
+  mediaType: string;
+  sourceMsgId: number;
+  /** Served, inert URL for attachments/artifacts; absent for embedded run images. */
+  href?: string;
+  /** data: URI for an embedded run image; absent otherwise. */
+  dataUri?: string;
+  size?: number;
+}
+
+/** Mirror the server's inert-serving classification: only raster images render;
+ *  pdf/text are document cards; everything else (svg, html, binaries) is an inert
+ *  download, never rendered inline. */
+function previewKind(mediaType: string): PreviewKind {
+  if (isImageAttachment(mediaType)) return 'raster';
+  if (mediaType === 'application/pdf' || (mediaType.startsWith('text/') && mediaType !== 'text/html')) return 'document';
+  return 'inert';
+}
+
+/** The room's durable produced-artifact feed, refetched whenever a run finalizes
+ *  (a finalize may have snapshotted new files). */
+function useArtifacts(room: string, token: () => string): ProducedArtifact[] {
+  const messages = useClientStore((state) => roomSlice(state, room).messages);
+  const [artifacts, setArtifacts] = useState<ProducedArtifact[]>([]);
+  const finalizedRuns = useMemo(
+    () => sortedMessages(messages).filter((m) => m.kind === 'run' && m.run !== undefined && m.run.status !== 'running').length,
+    [messages],
+  );
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await fetchArtifacts(room, { token: token() });
+        if (!cancelled) setArtifacts(list);
+      } catch {
+        // feed unavailable — keep the last good list
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [room, token, finalizedRuns]);
+  return artifacts;
+}
 
 function PreviewTab(props: { room: string; token: () => string }) {
   const { images } = useRunImages(props.room, props.token);
-  const latest = images.at(-1);
-  if (latest === undefined) {
-    return <EmptyState testid="preview-empty">Nothing to preview yet — artifacts agents produce appear here.</EmptyState>;
+  const artifacts = useArtifacts(props.room, props.token);
+  const messages = useClientStore((state) => roomSlice(state, props.room).messages);
+  const [active, setActive] = useState<PreviewItem | null>(null);
+  const { room, token } = props;
+
+  const items = useMemo(() => {
+    const out: PreviewItem[] = [];
+    // Durable artifacts are primary; embedded images from a covered turn are hidden.
+    const artifactMsgIds = new Set(artifacts.map((a) => a.source_message_id));
+    for (const a of artifacts) {
+      out.push({
+        key: `artifact:${a.id}`, kind: previewKind(a.media_type), name: a.name,
+        mediaType: a.media_type, sourceMsgId: a.source_message_id,
+        href: artifactUrl(room, a.id, token()), size: a.size,
+      });
+    }
+    for (const message of sortedMessages(messages)) {
+      for (const att of message.attachments ?? []) {
+        out.push({
+          key: `attachment:${att.id}`, kind: previewKind(att.mime), name: att.name,
+          mediaType: att.mime, sourceMsgId: message.id,
+          href: attachmentUrl(room, att.id, token()), size: att.size,
+        });
+      }
+    }
+    for (const image of images) {
+      if (artifactMsgIds.has(image.msgId)) continue;
+      out.push({
+        key: `run:${String(image.msgId)}:${image.data_b64.slice(0, 24)}`, kind: 'raster',
+        name: `Turn #${String(image.msgId)} image`, mediaType: image.media_type,
+        sourceMsgId: image.msgId, dataUri: `data:${image.media_type};base64,${image.data_b64}`,
+      });
+    }
+    out.sort((a, b) => b.sourceMsgId - a.sourceMsgId);
+    const seen = new Set<string>();
+    return out.filter((item) => (seen.has(item.key) ? false : (seen.add(item.key), true))).slice(0, MAX_PREVIEW_ITEMS);
+  }, [artifacts, images, messages, room, token]);
+
+  if (items.length === 0) {
+    return <EmptyState testid="preview-empty">Nothing to preview yet — files agents produce appear here.</EmptyState>;
   }
   return (
-    <div className="nx-preview">
-      <img
-        src={`data:${latest.media_type};base64,${latest.data_b64}`}
-        alt={`Artifact from turn #${latest.msgId}`}
-      />
-      <p className="nx-preview-meta">from <a href={`#${latest.msgId}`}>#{latest.msgId}</a></p>
+    <div className="nx-preview" data-testid="preview-gallery">
+      <ul className="nx-preview-grid">
+        {items.map((item) => (
+          <li key={item.key}>
+            {item.kind === 'raster'
+              ? <PreviewThumb item={item} onOpen={() => setActive(item)} />
+              : <PreviewCard item={item} />}
+          </li>
+        ))}
+      </ul>
+      {active !== null && <PreviewLightbox item={active} onClose={() => setActive(null)} />}
     </div>
+  );
+}
+
+function PreviewThumb(props: { item: PreviewItem; onOpen: () => void }) {
+  const src = props.item.href ?? props.item.dataUri ?? '';
+  return (
+    <button type="button" className="nx-preview-thumb" data-testid="preview-thumb" onClick={props.onOpen}>
+      <img src={src} alt={props.item.name} loading="lazy" />
+      <span className="nx-preview-thumb-source">#{props.item.sourceMsgId}</span>
+    </button>
+  );
+}
+
+function PreviewCard(props: { item: PreviewItem }) {
+  const inert = props.item.kind === 'inert';
+  const href = props.item.href ?? props.item.dataUri ?? '';
+  return (
+    <div className="nx-preview-card" data-testid={inert ? 'preview-inert' : 'preview-doc'}>
+      <FileText className="nx-preview-card-icon" aria-hidden="true" size={18} strokeWidth={1.75} />
+      <span className="nx-preview-card-name" title={props.item.name}>{props.item.name}</span>
+      <span className="nx-preview-card-meta">
+        {inert ? 'Download' : 'Document'} · #{props.item.sourceMsgId}
+        {props.item.size !== undefined ? ` · ${formatAttachmentSize(props.item.size)}` : ''}
+      </span>
+      <a className="nx-btn is-quiet nx-preview-card-action" href={href} download={props.item.name}>Download</a>
+    </div>
+  );
+}
+
+function PreviewLightbox(props: { item: PreviewItem; onClose: () => void }) {
+  const src = props.item.href ?? props.item.dataUri ?? '';
+  return (
+    <Modal label={`Preview: ${props.item.name}`} onClose={props.onClose} testid="preview-lightbox" wide>
+      <div className="nx-lightbox">
+        <div className="nx-lightbox-head">
+          <span className="nx-lightbox-name" title={props.item.name}>{props.item.name}</span>
+          <span className="nx-lightbox-source">from <a href={`#${String(props.item.sourceMsgId)}`}>#{props.item.sourceMsgId}</a></span>
+          <IconButton icon={X} label="Close preview" size="sm" variant="quiet" data-testid="preview-lightbox-close" onClick={props.onClose} />
+        </div>
+        <div className="nx-lightbox-stage">
+          <img src={src} alt={props.item.name} />
+        </div>
+        <div className="nx-lightbox-actions">
+          <a className="nx-btn is-secondary" href={src} target="_blank" rel="noreferrer">Open</a>
+          <a className="nx-btn is-primary" href={src} download={props.item.name}>Download</a>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

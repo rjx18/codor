@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
 
 import type {
@@ -22,6 +22,7 @@ import type {
   MemberStatusResponse,
   Message,
   PendingInteraction,
+  ProducedArtifact,
   Role,
   RoomSupport,
   RunSummary,
@@ -35,6 +36,7 @@ import type {
 import {
   AttachmentSchema,
   MemberStatusResponseSchema,
+  ProducedArtifactSchema,
   deriveRoomId,
   parseRunItemPayload,
 } from '@codor/protocol';
@@ -93,6 +95,32 @@ export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_ATTACHMENTS_PER_MESSAGE = 8;
 const ORPHAN_ATTACHMENT_MS = 24 * 60 * 60 * 1000;
 const ATTACHMENT_ID = /^[0-9a-f]{32}$/;
+
+// Produced-artifact snapshot bounds and id handle (mirrors the attachment id).
+const ARTIFACT_ID = /^[0-9a-f]{32}$/;
+const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024; // per produced-file snapshot
+const MAX_ARTIFACTS_PER_RUN = 8;
+const MAX_ARTIFACTS_PER_ROOM = 50;
+
+/** Content-type an eligible produced file by magic bytes, with a small text
+ *  extension fallback, against an explicit allowlist. Anything not recognized
+ *  here (svg, html, binaries, …) returns undefined and is never snapshotted, so
+ *  active content can never enter the artifact feed. */
+function sniffArtifactMediaType(bytes: Buffer, name: string): string | undefined {
+  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (bytes.length >= 6 && /^GIF8[79]a$/.test(bytes.toString('ascii', 0, 6))) return 'image/gif';
+  if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  if (bytes.length >= 5 && bytes.toString('ascii', 0, 5) === '%PDF-') return 'application/pdf';
+  // Text documents by extension, but only when the head has no NUL byte.
+  const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+  if (['.txt', '.md', '.markdown', '.log', '.csv'].includes(ext) && !bytes.subarray(0, 4096).includes(0)) {
+    if (ext === '.csv') return 'text/csv';
+    if (ext === '.md' || ext === '.markdown') return 'text/markdown';
+    return 'text/plain';
+  }
+  return undefined;
+}
 
 function formatBytes(size: number): string {
   if (size < 1024) return `${String(size)} B`;
@@ -477,6 +505,7 @@ export class Daemon {
   private readonly homeDir: string;
   private readonly socketPath: string;
   private readonly attachmentsRoot: string;
+  private readonly artifactsRoot: string;
   private readonly stopResidencyReachability?: () => void;
   private closing = false;
   private closed = false;
@@ -495,6 +524,7 @@ export class Daemon {
     this.homeDir = serviceHome;
     this.socketPath = options.socketPath ?? localSocketPath(dirname(options.dbPath));
     this.attachmentsRoot = join(dirname(options.dbPath), 'attachments');
+    this.artifactsRoot = join(dirname(options.dbPath), 'artifacts');
     this.sweepOrphanAttachments(); // boot-time: drop uploads no message ever claimed
     this.ledger?.setRoomValidator((room) => this.store.getRoom(room) !== undefined);
     this.ledger?.setRemoteWriteAuthorizer((peerId, room, author) => {
@@ -3446,6 +3476,9 @@ export class Daemon {
     toolCalls: number,
   ): void {
     const runMsg = this.store.getMessage(room, runMsgId)!;
+    // Durably snapshot the files this run produced for the Preview feed; a no-op
+    // when it produced no eligible file. Routing below is unaffected.
+    this.snapshotProducedArtifacts(room, memberId, runMsgId);
     // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
     // harn:assume run-failure-evidence-is-surfaced ref=interrupted-error-evidence
     const failed = completion.status === 'failed';
@@ -4893,4 +4926,136 @@ export class Daemon {
     return `\n\nAttachments:\n${lines.join('\n')}`;
   }
   // harn:end attachments-are-capped-files-served-inert
+
+  // harn:assume produced-run-artifacts-are-snapshotted-durably-and-served-inert ref=produced-artifact-snapshot
+  newArtifactId(): string {
+    return randomBytes(16).toString('hex');
+  }
+
+  /** Absolute path to an artifact's bytes; the hex id is validated so a stored id
+   *  can never escape the room's artifact directory. */
+  artifactPath(room: string, id: string): string {
+    if (!ARTIFACT_ID.test(id)) throw new Error('invalid artifact id');
+    return join(this.artifactsRoot, room, id);
+  }
+
+  private artifactMetaPath(room: string, id: string): string {
+    return `${this.artifactPath(room, id)}.json`;
+  }
+
+  ensureArtifactDir(room: string): string {
+    const dir = join(this.artifactsRoot, room);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  recordArtifact(room: string, meta: ProducedArtifact): void {
+    writeFileSync(this.artifactMetaPath(room, meta.id), JSON.stringify(meta));
+  }
+
+  /** An artifact's stored metadata, or undefined if never snapshotted here. */
+  getArtifactMeta(room: string, id: string): ProducedArtifact | undefined {
+    if (!ARTIFACT_ID.test(id)) return undefined;
+    try {
+      return ProducedArtifactSchema.parse(JSON.parse(readFileSync(this.artifactMetaPath(room, id), 'utf8')));
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** The room's durable produced artifacts, newest first. Reads the metadata
+   *  sidecars from disk, so it survives restart and message deletion. */
+  listArtifacts(room: string): ProducedArtifact[] {
+    let files: string[];
+    try {
+      files = readdirSync(join(this.artifactsRoot, room));
+    } catch {
+      return [];
+    }
+    const metas: ProducedArtifact[] = [];
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      const meta = this.getArtifactMeta(room, file.slice(0, -'.json'.length));
+      if (meta !== undefined) metas.push(meta);
+    }
+    return metas.sort((left, right) => right.produced_at.localeCompare(left.produced_at));
+  }
+
+  private pruneArtifacts(room: string): void {
+    for (const meta of this.listArtifacts(room).slice(MAX_ARTIFACTS_PER_ROOM)) {
+      try {
+        rmSync(this.artifactPath(room, meta.id), { force: true });
+        rmSync(this.artifactMetaPath(room, meta.id), { force: true });
+      } catch { /* best-effort prune */ }
+    }
+  }
+
+  /** At finalization, snapshot the files this run PRODUCED. A candidate is only a
+   *  path named by a successful created/modified file_change that resolves — via
+   *  realpath, never following a symlink — to a regular file inside the room's
+   *  known cwds; a read-only path, a symlink, a non-regular or outside-cwd path,
+   *  an over-allowlist type, an oversize file, or beyond the per-run cap are all
+   *  refused. A partial write leaves nothing behind. */
+  private snapshotProducedArtifacts(room: string, memberId: string, runMsgId: number): void {
+    const member = this.store.getMember(room, memberId);
+    if (member?.kind !== 'agent' || member.cwd === undefined) return;
+    // Compare real paths on both sides so a symlinked data root (e.g. /tmp) does
+    // not defeat the containment check.
+    const knownCwds = this.roomKnownCwds(room).map((cwd) => {
+      try { return realpathSync(cwd); } catch { return cwd; }
+    });
+    if (knownCwds.length === 0) return;
+
+    const produced: string[] = [];
+    for (const event of this.readRunBlob(room, runMsgId)) {
+      if (event.type !== 'run.item' || event.item_type !== 'file_change') continue;
+      const parsed = parseRunItemPayload('file_change', event.payload);
+      if (!parsed.success) continue;
+      if (parsed.data.change === 'created' || parsed.data.change === 'modified') produced.push(parsed.data.path);
+    }
+
+    const seen = new Set<string>();
+    let snapped = 0;
+    for (const rawPath of produced) {
+      if (snapped >= MAX_ARTIFACTS_PER_RUN) break;
+      const candidate = resolve(member.cwd, rawPath);
+      let real: string;
+      let stat: ReturnType<typeof statSync>;
+      try {
+        if (lstatSync(candidate).isSymbolicLink()) continue; // never follow a symlink to authority
+        real = realpathSync(candidate);
+        stat = statSync(real);
+      } catch {
+        continue; // missing/unreadable
+      }
+      if (!stat.isFile() || seen.has(real)) continue;
+      seen.add(real);
+      if (!knownCwds.some((cwd) => real === cwd || real.startsWith(cwd + sep))) continue; // outside every known cwd
+      if (stat.size > MAX_ARTIFACT_BYTES) continue;
+      let bytes: Buffer;
+      try {
+        bytes = readFileSync(real);
+      } catch {
+        continue;
+      }
+      const name = basename(real);
+      const mediaType = sniffArtifactMediaType(bytes, name);
+      if (mediaType === undefined) continue; // not in the image/document allowlist
+      const id = this.newArtifactId();
+      try {
+        this.ensureArtifactDir(room);
+        writeFileSync(this.artifactPath(room, id), bytes);
+        this.recordArtifact(room, {
+          id, name, media_type: mediaType, size: bytes.length,
+          source_message_id: runMsgId, produced_at: new Date().toISOString(),
+        });
+        snapped += 1;
+      } catch {
+        rmSync(this.artifactPath(room, id), { force: true });
+        rmSync(this.artifactMetaPath(room, id), { force: true });
+      }
+    }
+    if (snapped > 0) this.pruneArtifacts(room);
+  }
+  // harn:end produced-run-artifacts-are-snapshotted-durably-and-served-inert
 }

@@ -1,0 +1,27 @@
+id: produced-run-artifacts-are-snapshotted-durably-and-served-inert
+hash: a-fbb79eb3b2e0
+title: Produced files are snapshotted under bounded validated rules and served
+  as durable inert artifacts
+state: active
+statement: At run finalization the daemon snapshots only files an agent
+  successfully produced - paths named by a successful created or modified
+  file_change item that resolve through realpath to a regular, non-symlink file
+  inside the room's canonical known-directory set - never a path merely read or
+  a tool-output string. Each candidate is content-typed by magic bytes (with a
+  small extension fallback) against an explicit image/document allowlist and
+  refused when outside the allowlist, above the per-file byte cap, or beyond the
+  per-run and per-room count caps. A retained snapshot stores its bytes under
+  the daemon data tree keyed by a server-issued hex id with a journaled JSON
+  metadata sidecar (id, name, safe media type, size, source message id,
+  timestamp) that is independent of the source message, so the artifact survives
+  commit, rename, deletion, working-tree cleanup, and daemon restart, and states
+  an honest error when a bounded snapshot cannot be retained. Artifacts are
+  listed and served only through authenticated, room-read-authorized endpoints
+  addressed by validated hex id; the serve endpoint renders raster image media
+  types inline and every other type as an octet-stream download with
+  x-content-type-options nosniff, exposing an opaque artifact URL and never a
+  local path.
+depends_on:
+  - attachments-are-capped-files-served-inert
+  - room-git-inspection-read-only-from-known-cwds
+created_by: codor-polish-phase4-durable-preview

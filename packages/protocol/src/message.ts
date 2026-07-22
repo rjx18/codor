@@ -113,3 +113,19 @@ export const MessageSchema = z.object({
   seq: SeqSchema, // room change-sequence at last insert/update
 });
 export type Message = z.infer<typeof MessageSchema>;
+
+// harn:assume produced-run-artifacts-are-snapshotted-durably-and-served-inert ref=produced-artifact-schema
+/** Metadata for a durable snapshot of a file an agent produced. The bytes live
+ *  under the daemon data tree keyed by `id`; `name` and `source_message_id` are
+ *  provenance only — never a local path — and `media_type` is the sniffed,
+ *  allowlisted safe type used to serve the bytes inertly. */
+export const ProducedArtifactSchema = z.object({
+  id: z.string().min(1), // server-issued handle; also the on-disk file name
+  name: z.string().min(1), // display basename — metadata only, never a path
+  media_type: z.string().min(1),
+  size: z.number().int().nonnegative(),
+  source_message_id: MessageIdSchema, // the run message that produced it
+  produced_at: TimestampSchema,
+});
+export type ProducedArtifact = z.infer<typeof ProducedArtifactSchema>;
+// harn:end produced-run-artifacts-are-snapshotted-durably-and-served-inert

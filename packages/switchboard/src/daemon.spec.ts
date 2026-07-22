@@ -1,10 +1,10 @@
 import { execFileSync, spawn as spawnProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { AgentLimit, HarnessAdapter, Message, ServerFrame, Session, SpawnOpts } from '@codor/protocol';
+import type { AgentLimit, HarnessAdapter, Message, ServerFrame, Session, SpawnOpts, WireEvent } from '@codor/protocol';
 import { AcpAdapter } from '@codor/adapter-acp';
 import { createTurnTranslator, wireEventFromHook } from '@codor/adapter-claude-code';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -5437,6 +5437,92 @@ describe('git working state (diff explorer)', () => {
   });
   // harn:end git-history-pages-are-local-and-commit-addressed
 });
+
+// harn:assume produced-run-artifacts-are-snapshotted-durably-and-served-inert ref=produced-artifact-daemon-regression
+describe('produced-artifact snapshots (produced-run-artifacts-are-snapshotted-durably-and-served-inert)', () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+
+  // Drive one finalized fake turn that journals the given file_change items.
+  async function produce(handle: string, cwd: string, changes: { path: string; change: string }[]): Promise<void> {
+    daemon.spawnMember('eng', { harness: 'fake', handle, cwd });
+    fake.enqueue({
+      kind: 'complete',
+      final_text: 'done',
+      items: changes.map((c) => ({ type: 'run.item', item_type: 'file_change', payload: c })) as unknown as WireEvent[],
+    });
+    daemon.postHumanMessage('eng', `@${handle} produce`);
+    await daemon.settle();
+  }
+
+  it('snapshots a produced image inside the cwd, keeps it after the source is deleted, and carries no local path', async () => {
+    const cwd = testCwd('produce-ok');
+    writeFileSync(join(cwd, 'chart.png'), PNG);
+    await produce('maker', cwd, [{ path: 'chart.png', change: 'created' }]);
+
+    const artifacts = daemon.listArtifacts('eng');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({ name: 'chart.png', media_type: 'image/png', size: PNG.length });
+    expect(JSON.stringify(artifacts[0])).not.toContain(cwd); // provenance only, never a path
+
+    // Durable: deleting the source leaves the snapshot bytes intact.
+    rmSync(join(cwd, 'chart.png'));
+    expect(readFileSync(daemon.artifactPath('eng', artifacts[0]!.id)).equals(PNG)).toBe(true);
+  });
+
+  it('refuses a read-only path, a symlink, an outside-cwd path, an active type, and an oversize file', async () => {
+    const cwd = testCwd('produce-refuse');
+    writeFileSync(join(cwd, 'secret.png'), PNG); // exists but only READ — no file_change
+    writeFileSync(join(cwd, 'target.png'), PNG);
+    symlinkSync(join(cwd, 'target.png'), join(cwd, 'link.png'));
+    const outside = join(dir, 'outside.png');
+    writeFileSync(outside, PNG);
+    writeFileSync(join(cwd, 'page.html'), '<script>alert(1)</script>');
+    writeFileSync(join(cwd, 'big.png'), Buffer.concat([PNG, Buffer.alloc(6 * 1024 * 1024)]));
+
+    await produce('refuser', cwd, [
+      { path: 'link.png', change: 'created' },
+      { path: outside, change: 'created' },
+      { path: 'page.html', change: 'created' },
+      { path: 'big.png', change: 'created' },
+    ]);
+
+    expect(daemon.listArtifacts('eng')).toEqual([]);
+  });
+
+  it('caps the number of snapshots per run', async () => {
+    const cwd = testCwd('produce-cap');
+    const changes: { path: string; change: string }[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      writeFileSync(join(cwd, `img${String(i)}.png`), PNG);
+      changes.push({ path: `img${String(i)}.png`, change: 'created' });
+    }
+    await produce('capper', cwd, changes);
+    expect(daemon.listArtifacts('eng')).toHaveLength(8); // MAX_ARTIFACTS_PER_RUN
+  });
+
+  it('survives a daemon restart via its on-disk metadata sidecar', async () => {
+    const cwd = testCwd('produce-restart');
+    writeFileSync(join(cwd, 'kept.png'), PNG);
+    await produce('keeper', cwd, [{ path: 'kept.png', change: 'created' }]);
+    const before = daemon.listArtifacts('eng');
+    expect(before).toHaveLength(1);
+    await daemon.close();
+
+    const restarted = new Daemon({
+      dbPath: join(dir, 'switchboard.sqlite'),
+      blobRoot: join(dir, 'blobs'),
+      adapters: [new FakeAdapter('fake')],
+      discoverModels: false,
+      homeDir: dir,
+    });
+    try {
+      expect(restarted.listArtifacts('eng').map((artifact) => artifact.id)).toEqual(before.map((artifact) => artifact.id));
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+// harn:end produced-run-artifacts-are-snapshotted-durably-and-served-inert
 
 describe('message attachments', () => {
   const stage = (room: string, name: string, mime: string, bytes: string) => {

@@ -1769,15 +1769,92 @@
   min-height: 0;
   overflow: auto;
   padding: var(--sp-4);
-  text-align: center;
 }
-.nx-preview img {
-  max-width: 100%;
+.nx-preview-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--sp-3);
+}
+.nx-preview-grid > li { min-width: 0; }
+
+/* Raster thumbnail — opens the accessible lightbox. */
+.nx-preview-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  padding: 0;
   border: 1px solid var(--c-line);
   border-radius: var(--r-card);
+  overflow: hidden;
+  background: var(--c-surface-active);
+  cursor: pointer;
 }
-.nx-preview-meta { font: var(--t-caption); color: var(--c-faded); }
-.nx-preview-meta a { color: var(--c-link); }
+.nx-preview-thumb:hover { border-color: var(--c-line-strong); }
+.nx-preview-thumb:focus-visible { outline: 2px solid var(--c-link); outline-offset: 2px; }
+.nx-preview-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nx-preview-thumb-source {
+  position: absolute;
+  left: var(--sp-1);
+  bottom: var(--sp-1);
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  font: var(--t-caption);
+  color: var(--c-ink);
+  background: color-mix(in srgb, var(--c-surface) 82%, transparent);
+}
+
+/* Document / inert download card. */
+.nx-preview-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  height: 100%;
+  padding: var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-surface);
+}
+.nx-preview-card-icon { color: var(--c-muted); }
+.nx-preview-card-name {
+  font: var(--t-ui);
+  color: var(--c-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nx-preview-card-meta { font: var(--t-caption); color: var(--c-faded); }
+.nx-preview-card-action { margin-top: auto; align-self: flex-start; text-decoration: none; }
+
+/* Image lightbox (Modal body): fit image, provenance, open/download. */
+.nx-lightbox { display: flex; flex-direction: column; gap: var(--sp-3); max-width: min(90vw, 960px); }
+.nx-lightbox-head { display: flex; align-items: center; gap: var(--sp-2); }
+.nx-lightbox-name {
+  flex: 1;
+  min-width: 0;
+  font: var(--t-ui-strong);
+  color: var(--c-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nx-lightbox-source { font: var(--t-caption); color: var(--c-faded); }
+.nx-lightbox-source a { color: var(--c-link); }
+.nx-lightbox-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-surface-active);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  padding: var(--sp-3);
+}
+.nx-lightbox-stage img { max-width: 100%; max-height: 70vh; object-fit: contain; border-radius: var(--r-card); }
+.nx-lightbox-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); }
+.nx-lightbox-actions a { text-decoration: none; }
 
 .nx-context-empty {
   flex: 1;
