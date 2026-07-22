@@ -1,0 +1,386 @@
+id: codor-polish-phase6-acp-providers
+title: Named PATH-detected ACP providers with command-private launch and Advanced custom ACP
+notes: >-
+  Execution plan for product-polish Phase 6. A frozen switchboard-owned provider
+  registry defines only Kimi Code CLI (kimi, argv acp) and Kilo Code (kilo, argv
+  acp). Startup and authorized adapter refresh perform PATH-only executable-file
+  detection without invocation or download. Public catalog/spawn/member state
+  carries safe provider identity and never the definition's command; the daemon
+  resolves and privately persists the existing bounded AcpLaunchConfig and
+  revalidates it at spawn/rebuild. Shared unlocked selectors show installed
+  native adapters and detected unshadowed named providers with ACP pills; generic
+  ACP moves to Advanced Custom ACP command. Exact definitions, schemas, file
+  list, and tests are fixed by tmp/codor-product-polish/PLAN.md.
+assumptions:
+  retire:
+    - id: agent-selection-catalog-is-refreshable
+      reason: Primary unlocked selection changes from installed-or-configurable adapter entries to installed natives plus detected named ACP providers, while generic configurable ACP moves behind an Advanced disclosure.
+    - id: new-agent-requests-require-available-harness
+      reason: New ACP requests may now carry a safe curated provider id that the daemon resolves privately, rather than always carrying client-supplied structured launch.
+  create:
+    - id: named-acp-provider-catalog-is-path-detected-and-command-private
+      title: Named ACP providers are curated, PATH-detected without invocation, and command-private
+      statement: >-
+        A frozen reviewed switchboard provider registry owns stable public ids,
+        labels, help links, direct executable names, literal argv, and optional
+        native-adapter preference. Initial entries are exactly Kimi Code CLI id
+        kimi executable kimi argv [acp], and Kilo Code id kilo executable kilo
+        argv [acp]. Startup and authorized adapter refresh detect only an
+        executable non-directory file on the daemon service PATH through the
+        existing presence-only resolver; they never invoke a provider, npx,
+        uvx, an installer, a downloader, or a version probe and never mutate
+        PATH. Registered catalog metadata includes safe provider identity and
+        installation/shadow state but never executable or argv. An installed
+        richer native adapter shadows the named provider only from primary new
+        selection, not from metadata needed by existing members. Detection
+        never advertises lifecycle, steering, usage, model, or plan support;
+        those remain negotiated by the generic ACP session.
+      reason: Normal users need recognizable installed ACP choices without making a provider name a shell/download primitive or a capability promise.
+      depends_on:
+        - adapter-catalog-distinguishes-installed-and-configurable
+        - adapter-refresh-is-authorized-and-incremental
+        - built-in-adapters-require-daemon-path
+    - id: named-acp-provider-selection-resolves-to-private-structured-launch
+      title: A named ACP id resolves server-side to one private validated durable launch
+      statement: >-
+        Public starting-agent and spawn requests for harness acp carry exactly one
+        of a bounded curated acp_provider id or an authorized structured acp_launch;
+        non-ACP requests carry neither. Named selector ids such as acp:kimi never
+        become runtime harness ids. Before persistence the daemon resolves a named
+        id through its frozen registry, requires current PATH detection, rechecks
+        its executable, builds the definition's private executable and literal
+        argv, and passes that launch through the existing ACP validator. Unknown
+        or stale ids fail before member persistence. The safe provider id is a
+        public member field; exact launch remains private server-side state and
+        is not returned by catalog/member APIs, prompts, logs, or errors. Restart
+        and rebuild reuse that exact private launch and revalidate it, failing
+        closed rather than changing provider/session; definition changes never
+        rewrite an existing member. Native adapters and custom ACP authorization
+        and shell-free bounds remain unchanged.
+      reason: Friendly named selection must compile to the same secure ACP launch contract without trusting or exposing client commands.
+      depends_on:
+        - named-acp-provider-catalog-is-path-detected-and-command-private
+        - acp-launch-is-structured-authorized-and-bounded
+        - durable-agent-runtime-configuration
+        - channel-creation-derived-and-seeded
+    - id: agent-selection-shows-detected-acp-and-advanced-custom
+      title: Shared agent selectors show detected named ACP providers and keep custom ACP Advanced
+      statement: >-
+        Create Channel, first-channel onboarding, and Add Agent share one catalog
+        control whose primary grid contains installed native adapters and detected
+        unshadowed named ACP providers only. Named tiles use server labels, neutral
+        product monograms, and visible ACP pills, and serialize only harness acp
+        plus acp_provider. The generic ACP tile is absent from primary selection
+        and appears once inside an accessible Advanced disclosure as Custom ACP
+        command; only that choice renders the existing executable and literal
+        one-argument-per-line fields. Refresh busy, failure, empty, and disappeared
+        selection behavior remains shared. Configure derives a locked selector
+        from persisted provider identity and registered metadata so its name and
+        ACP pill remain stable if the binary disappears, and it never reveals
+        saved custom argv.
+      reason: Common setup should show recognizable installed products while retaining a deliberate safe expert escape hatch and one implementation across all selection surfaces.
+      depends_on:
+        - named-acp-provider-catalog-is-path-detected-and-command-private
+        - named-acp-provider-selection-resolves-to-private-structured-launch
+        - agent-controls-shared-by-both-dialogs
+        - paired-empty-state-creates-first-channel
+        - web-spawn-dialog-exposes-canonical-agent-controls
+    - id: new-agent-requests-require-available-native-or-detected-acp
+      title: New agents require an installed native adapter, detected named ACP id, or authorized custom ACP launch
+      statement: >-
+        New member and starting-agent requests reject an unavailable native
+        adapter, unknown or currently undetected named ACP provider, and missing,
+        unauthorized, malformed, or nonresolving custom ACP launch before member
+        persistence. Named ACP launch is resolved only by the daemon registry and
+        never from client command data. Once preflight passes, channel creation
+        retains the existing rule that a genuine starting-agent spawn failure
+        leaves the seeded channel and records the failure.
+      reason: A stale selector must not bypass daemon-host truth or persist an unlaunchable or client-forged provider.
+      depends_on:
+        - named-acp-provider-catalog-is-path-detected-and-command-private
+        - named-acp-provider-selection-resolves-to-private-structured-launch
+        - canonical-spawn-controls-enforced
+        - channel-creation-derived-and-seeded
+  reviewed:
+    - id: adapter-catalog-distinguishes-installed-and-configurable
+      outcome: unchanged
+      reason: Native installed and generic configurable transport truth remains; named providers are a separate selection class over generic ACP.
+    - id: adapter-refresh-is-authorized-and-incremental
+      outcome: unchanged
+      reason: The same authorized presence-only refresh additionally recomputes named provider state; native transition model discovery is unchanged.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Named provider definitions are selections over the one registered generic ACP adapter and are never added to builtinDefinitions.
+    - id: acp-launch-is-structured-authorized-and-bounded
+      outcome: unchanged
+      reason: Custom launch retains current authorization and bounds; named definitions create the same private validated shape without client commands.
+    - id: durable-agent-runtime-configuration
+      outcome: unchanged
+      reason: Exact launch/lifecycle state remains private and durable; safe provider id is additive public identity.
+    - id: channel-create-request-contract
+      outcome: unchanged
+      reason: Starting-agent metadata additively gains a safe provider id under the existing creation schema.
+    - id: one-control-chooses-an-agent-everywhere
+      outcome: unchanged
+      reason: The same shared identity/behavior/policy control maps selector identity to the runtime request in every creation surface.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Resolved ACP launches pass the same policy/thinking/launch validator; native adapter behavior is unchanged.
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: Named preflight is additive and the established retained-room behavior after a genuine spawn failure remains.
+    - id: agent-controls-shared-by-both-dialogs
+      outcome: unchanged
+      reason: AgentIdentityControls remains the sole shared selector and gains one shared Advanced section.
+    - id: harness-declares-supported-thinking-levels
+      outcome: unchanged
+      reason: Provider identity adds no thinking capability and all current declarations/rendering remain.
+    - id: member-config-is-changed-not-respawned
+      outcome: unchanged
+      reason: Public provider identity is persisted in the member update shape but remains locked in Configure with harness/cwd.
+    - id: run-journals-own-evidence-across-output-messages
+      outcome: unchanged
+      reason: acp_provider is a member identity column, never run evidence.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: The member-column edit mechanically crosses the enclosing SCHEMA; custody is unchanged.
+    - id: collaboration-groups-are-durable-state
+      outcome: unchanged
+      reason: The member-column edit mechanically crosses the enclosing SCHEMA; collaboration storage is unchanged.
+    - id: substantive-output-messages-drive-unread
+      outcome: unchanged
+      reason: The member-column edit mechanically crosses the enclosing SCHEMA; provider identity does not drive unread.
+anchors:
+  agent-selection-catalog-is-refreshable:
+    refreshable-adapter-catalog:
+      action: remove
+      reason: Re-home shared catalog semantics to native plus detected named ACP and Advanced custom.
+    spawn-harness-refresh:
+      action: remove
+      reason: Re-home Add Agent selection.
+    create-harness-refresh:
+      action: remove
+      reason: Re-home Create Channel selection.
+    first-channel-harness-refresh:
+      action: remove
+      reason: Re-home first-channel selection.
+    harness-refresh-browser-regression:
+      action: remove
+      reason: Re-home browser catalog regressions.
+  new-agent-requests-require-available-harness:
+    new-agent-availability-preflight:
+      action: remove
+      reason: Replace native-or-client-config preflight with native/detected-id/custom branches.
+    new-agent-availability-regression:
+      action: remove
+      reason: Re-home daemon/server stale-request proofs.
+  named-acp-provider-catalog-is-path-detected-and-command-private:
+    acp-provider-definition:
+      action: change
+      reason: Add exact frozen Kimi/Kilo private definitions and safe public projection.
+    acp-provider-detection-regression:
+      action: change
+      reason: Prove executable/nonexecutable/directory, no invocation/runner/download, order, and native shadowing.
+    acp-provider-catalog-runtime:
+      action: change
+      reason: Detect at startup/refresh and publish command-private provider metadata.
+    acp-provider-catalog-regression:
+      action: change
+      reason: Prove startup and false/true/false refresh catalog behavior and conservative capabilities.
+    acp-provider-catalog-rest-regression:
+      action: change
+      reason: Prove authorized catalog/refresh response never contains command material.
+    acp-provider-catalog-client:
+      action: change
+      reason: Add safe provider metadata parsing and client contract tests.
+  named-acp-provider-selection-resolves-to-private-structured-launch:
+    acp-provider-id-schema:
+      action: change
+      reason: Add stable bounded provider id.
+    acp-provider-member-identity:
+      action: change
+      reason: Add safe public member.acp_provider only for ACP.
+    acp-provider-starting-agent-schema:
+      action: change
+      reason: Enforce exactly one named id or custom launch for ACP starting agents.
+    acp-provider-spawn-act-schema:
+      action: change
+      reason: Enforce the same websocket spawn invariant.
+    acp-provider-protocol-regression:
+      action: change
+      reason: Cover ids, ACP one-of, and non-ACP exclusions.
+    acp-provider-storage:
+      action: change
+      reason: Persist public provider id while exact launch remains private.
+    acp-provider-store-regression:
+      action: change
+      reason: Cover migration, projection, private launch, reopen, and no command leak.
+    acp-provider-spawn-resolution:
+      action: change
+      reason: Resolve/recheck named definitions before persistence and preserve private launch on rebuild.
+    acp-provider-spawn-regression:
+      action: change
+      reason: Cover named success, unknown/stale failure, exact private launch, no partial member, and rebuild failure.
+    acp-provider-rest-boundary:
+      action: change
+      reason: Parse/authorize named versus custom spawn/create requests without accepting named commands.
+    acp-provider-rest-regression:
+      action: change
+      reason: Prove authorization, one-of validation, safe response, and command privacy.
+  agent-selection-shows-detected-acp-and-advanced-custom:
+    detected-acp-catalog-client:
+      action: change
+      reason: Expose registered, primary installed, and Advanced custom views with refresh reconciliation.
+    spawn-provider-selection:
+      action: change
+      reason: Add Agent maps named selector id to provider id and keeps custom Advanced.
+    create-provider-selection:
+      action: change
+      reason: Create Channel uses the same mapping and reconciliation.
+    first-provider-selection:
+      action: change
+      reason: First-channel onboarding uses the same mapping and reconciliation.
+    shared-provider-selection-control:
+      action: change
+      reason: Render named labels/marks/ACP pill and one Advanced custom disclosure.
+    provider-selection-wire-mapping:
+      action: change
+      reason: Pure helpers map native, named ACP, and custom ACP without leaking commands.
+    detected-acp-browser-regression:
+      action: change
+      reason: Prove all three surfaces, refresh, ACP pills, Advanced custom, configure stability, responsive themes, keyboard, overflow, and axe.
+  new-agent-requests-require-available-native-or-detected-acp:
+    new-agent-provider-availability-preflight:
+      action: change
+      reason: Branch native, named id, and authorized custom validation before persistence.
+    new-agent-provider-availability-regression:
+      action: change
+      reason: Prove unknown/stale/unavailable/custom-invalid requests cannot persist an agent.
+  adapter-catalog-distinguishes-installed-and-configurable:
+    adapter-catalog-daemon:
+      action: change
+      reason: Publish a separate named-provider class while retaining native/configurable truth.
+    adapter-catalog-regression:
+      action: change
+      reason: Update daemon/hot-swap catalog expectations for command-private named entries.
+  adapter-refresh-is-authorized-and-incremental:
+    adapter-refresh-runtime:
+      action: change
+      reason: Recompute named provider detection in the same authorized refresh; native model discovery remains transition-only.
+    adapter-refresh-rest:
+      action: change
+      reason: Return refreshed safe provider metadata under current authorization.
+    adapter-refresh-client:
+      action: change
+      reason: Preserve client refresh contract with expanded safe metadata.
+  acp-launch-is-structured-authorized-and-bounded:
+    acp-launch-schema:
+      action: change
+      reason: Add adjacent provider-id selection while retaining custom launch bounds.
+    acp-launch-regression:
+      action: change
+      reason: Extend protocol/server/web tests for named-versus-custom one-of and command privacy.
+    acp-launch-rest-authorization:
+      action: change
+      reason: Custom command still requires manage_agents; named server-owned launch never accepts client command.
+    acp-launch-ui:
+      action: change
+      reason: Existing custom fields move intact behind Advanced and are absent for named providers.
+  channel-create-request-contract:
+    channel-create-request-schema:
+      action: change
+      reason: Starting agent gains safe acp_provider under exact one-of validation.
+  one-control-chooses-an-agent-everywhere:
+    starting-agent-policy:
+      action: change
+      reason: Shared control maps selector id while preserving policy and all existing agent fields.
+  canonical-spawn-controls-enforced:
+    canonical-policy-thinking-enforcement:
+      action: change
+      reason: Provider schema sits in the enclosing protocol adapter contract; policy/thinking truth is unchanged.
+    daemon-initial-spawn-validation:
+      action: change
+      reason: Resolved named launch passes the existing canonical validator.
+    daemon-session-rebuild-validation:
+      action: change
+      reason: Private persisted launch is revalidated on rebuild.
+    daemon-spawn-control-regression:
+      action: change
+      reason: Extend daemon spawn tests without changing native controls.
+  channel-creation-derived-and-seeded:
+    derived-channel-creation:
+      action: change
+      reason: Preflight named provider before optional starting-agent persistence while retaining room-on-genuine-failure behavior.
+    create-room-rest-contract:
+      action: change
+      reason: Parse and authorize provider id/custom launch under existing room creation contract.
+  harness-declares-supported-thinking-levels:
+    adapter-thinking-level-contract:
+      action: change
+      reason: Adjacent provider schema mechanically crosses the nested adapter contract; thinking semantics are unchanged.
+    protocol-thinking-level-regression:
+      action: change
+      reason: Protocol regression file gains provider cases; thinking choices remain unchanged.
+  member-config-is-changed-not-respawned:
+    member-config-storage:
+      action: change
+      reason: Member SQL gains public locked provider identity; configuration behavior is unchanged.
+  run-journals-own-evidence-across-output-messages:
+    store-schema-no-blobs:
+      action: change
+      reason: Add safe member identity column, not run evidence.
+  attach-custody-lease-tracks-child-pid:
+    attach-lease-store:
+      action: change
+      reason: Mechanical enclosing SCHEMA edit only.
+  collaboration-groups-are-durable-state:
+    collaboration-store-schema:
+      action: change
+      reason: Mechanical enclosing SCHEMA edit only.
+  substantive-output-messages-drive-unread:
+    message-activity-storage:
+      action: change
+      reason: Mechanical enclosing SCHEMA edit only.
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/acp-providers.ts
+  - packages/switchboard/src/acp-providers.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/hot-swap.integration.spec.ts
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/runtime/api.spec.ts
+  - packages/web-next/src/app/session.ts
+  - packages/web-next/src/room/agent-spec.ts
+  - packages/web-next/src/room/agent-spec.spec.ts
+  - packages/web-next/src/room/AgentControls.tsx
+  - packages/web-next/src/room/harness-marks.tsx
+  - packages/web-next/src/room/CreateChannel.tsx
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/surfaces/NoChannels.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room3-context.e2e.spec.ts
+  - packages/web-next/tests/room10-dialogs.e2e.spec.ts
+  - packages/web-next/tests/room29-onboarding.e2e.spec.ts
+  - packages/web-next/tests/room31-acp-providers.e2e.spec.ts
+verification: >-
+  Full protocol, switchboard, and web-next unit suites/builds pass. Provider
+  tests prove PATH executable/nonexecutable/directory classification, no process
+  invocation/download/package runner, stable ordering, native shadowing, and
+  false/true/false refresh. Protocol/store/daemon/server tests prove one-of
+  validation, unknown/stale refusal before persistence, safe public id, no
+  catalog/member command leak, exact private launch, custom authorization, and
+  spawn/rebuild revalidation. Focused room31 plus ACP subsets of room3, room10,
+  and room29 prove detected-only primary tiles, ACP pills, generic absence,
+  Advanced custom, id-not-command requests, configure stability, refresh,
+  responsive light/dark keyboard/no-overflow behavior, and axe. Harn
+  unstaged/staged/apply gates pass; no ACP/native adapter runtime is edited.
