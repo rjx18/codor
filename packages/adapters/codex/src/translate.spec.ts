@@ -69,12 +69,22 @@ describe('Codex 0.144.5 app-server fixture translation', () => {
     });
     expect(events).toContainEqual({
       type: 'run.item',
-      item_type: 'file_change',
+      item_type: 'tool_call',
       payload: {
-        path: '/work/new.txt',
-        change: 'created',
-        diff: { path: '/work/new.txt', unified: '--- /dev/null\n+++ b/new.txt\n' },
+        call_id: 'change-1',
+        tool: 'Write',
+        title: '/work/new.txt',
+        input: { file_path: '/work/new.txt', change: 'created' },
       },
+    });
+    expect(events).toContainEqual({
+      type: 'run.item',
+      item_type: 'tool_result',
+      payload: expect.objectContaining({
+        call_id: 'change-1',
+        status: 'ok',
+        diff: { path: '/work/new.txt', unified: '--- /dev/null\n+++ b/new.txt\n' },
+      }),
     });
     expect(completed(events)).toMatchObject({
       status: 'completed',
@@ -141,6 +151,115 @@ describe('Codex 0.144.5 app-server fixture translation', () => {
   });
   // harn:end codex-app-server-usage-is-context-aware-and-uncosted
   // harn:end normalized-agent-usage-telemetry-with-estimates
+});
+
+describe('Codex command actions and durable file-change evidence', () => {
+  const events = replay(fixture('app-server-actions.jsonl'));
+
+  it('maps a native read action instead of flattening it to Bash', () => {
+    expect(events).toContainEqual({
+      type: 'run.item',
+      item_type: 'tool_call',
+      payload: {
+        call_id: 'read-1',
+        tool: 'Read',
+        title: '/work/src/app.ts',
+        input: {
+          type: 'read',
+          command: 'cat src/app.ts',
+          name: 'src/app.ts',
+          path: '/work/src/app.ts',
+        },
+      },
+    });
+  });
+
+  it('pairs each file change and retains a diff with real body counts', () => {
+    const calls = events.filter((event) => event.type === 'run.item' && event.item_type === 'tool_call');
+    const results = events.filter((event) => event.type === 'run.item' && event.item_type === 'tool_result');
+    expect(calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ payload: expect.objectContaining({ call_id: 'change-1:0', tool: 'Write' }) }),
+      expect.objectContaining({ payload: expect.objectContaining({ call_id: 'change-1:1', tool: 'Edit' }) }),
+    ]));
+    expect(results).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          call_id: 'change-1:0',
+          status: 'ok',
+          diff: expect.objectContaining({ unified: expect.stringContaining('+export const one = 1;') }),
+        }),
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          call_id: 'change-1:1',
+          status: 'ok',
+          diff: expect.objectContaining({ unified: expect.stringContaining('-export const value = 1;') }),
+        }),
+      }),
+    ]));
+
+    const update = results.find(
+      (event) => event.type === 'run.item' && event.item_type === 'tool_result' &&
+        (event.payload as { call_id?: string }).call_id === 'change-1:1',
+    );
+    const unified = (update?.payload as { diff?: { unified?: string } }).diff?.unified ?? '';
+    const body = unified.split('\n').filter((line) => !line.startsWith('+++') && !line.startsWith('---'));
+    expect(body.filter((line) => line.startsWith('+'))).toHaveLength(1);
+    expect(body.filter((line) => line.startsWith('-'))).toHaveLength(1);
+  });
+
+  it.each([
+    ['listFiles', { type: 'listFiles', command: 'find src', path: '/work/src' }, 'Glob', '/work/src'],
+    ['search', { type: 'search', command: 'rg needle src', query: 'needle', path: '/work/src' }, 'Grep', 'needle in /work/src'],
+    ['unknown', { type: 'unknown', command: 'git status' }, 'Bash', 'git status'],
+  ])('maps the %s command action', (_type, action, tool, title) => {
+    const translator = createTurnTranslator();
+    expect(translator.push('item/started', {
+      item: { type: 'commandExecution', id: `action-${_type}`, command: action.command, commandActions: [action] },
+    })).toEqual([{
+      type: 'run.item',
+      item_type: 'tool_call',
+      payload: { call_id: `action-${_type}`, tool, title, input: action },
+    }]);
+  });
+
+  it('keeps multiple native actions as one honest composite shell call', () => {
+    const actions = [
+      { type: 'read', command: 'cat a', name: 'a', path: '/work/a' },
+      { type: 'search', command: 'rg needle', query: 'needle', path: '/work' },
+    ];
+    const translator = createTurnTranslator();
+    expect(translator.push('item/started', {
+      item: { type: 'commandExecution', id: 'composite-1', command: 'cat a && rg needle', commandActions: actions },
+    })).toEqual([{
+      type: 'run.item',
+      item_type: 'tool_call',
+      payload: {
+        call_id: 'composite-1',
+        tool: 'Bash',
+        title: 'cat a && rg needle',
+        input: { command: 'cat a && rg needle', actions },
+      },
+    }]);
+  });
+
+  it('surfaces native file-change failure and pairs completion-only evidence', () => {
+    const translator = createTurnTranslator();
+    const events = translator.push('item/completed', {
+      item: {
+        type: 'fileChange',
+        id: 'failed-change',
+        status: 'failed',
+        changes: [{ path: '/work/bad.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new\n' }],
+      },
+    });
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ item_type: 'tool_call', payload: { call_id: 'failed-change', tool: 'Edit' } });
+    expect(events[1]).toMatchObject({
+      item_type: 'tool_result',
+      payload: { call_id: 'failed-change', status: 'error', output_text: 'File change failed' },
+    });
+  });
 });
 
 describe('terminal app-server semantics', () => {

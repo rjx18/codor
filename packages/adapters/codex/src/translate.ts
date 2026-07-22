@@ -55,6 +55,71 @@ function fileChangeKind(kind: unknown): 'created' | 'modified' | 'deleted' {
   return 'modified';
 }
 
+interface ToolPresentation {
+  tool: string;
+  title: string;
+  input: unknown;
+}
+
+function commandPresentation(item: JsonRecord): ToolPresentation {
+  const command = stringValue(item.command);
+  const actions = Array.isArray(item.commandActions)
+    ? item.commandActions.filter(isRecord)
+    : [];
+  if (actions.length !== 1) {
+    return {
+      tool: 'Bash',
+      title: command ?? 'Shell command',
+      input: actions.length === 0 ? { command } : { command, actions },
+    };
+  }
+
+  const action = actions[0];
+  const actionCommand = stringValue(action.command) ?? command;
+  const path = stringValue(action.path);
+  switch (action.type) {
+    case 'read':
+      return {
+        tool: 'Read',
+        title: path ?? stringValue(action.name) ?? actionCommand ?? 'Read file',
+        input: action,
+      };
+    case 'listFiles':
+      return {
+        tool: 'Glob',
+        title: path ?? actionCommand ?? 'List files',
+        input: action,
+      };
+    case 'search': {
+      const query = stringValue(action.query);
+      return {
+        tool: 'Grep',
+        title: query !== undefined && path !== undefined
+          ? `${query} in ${path}`
+          : query ?? path ?? actionCommand ?? 'Search files',
+        input: action,
+      };
+    }
+    default:
+      return {
+        tool: 'Bash',
+        title: actionCommand ?? 'Shell command',
+        input: action,
+      };
+  }
+}
+
+function fileChangeTool(kind: unknown): string {
+  const change = fileChangeKind(kind);
+  if (change === 'created') return 'Write';
+  if (change === 'deleted') return 'Delete';
+  return 'Edit';
+}
+
+function fileChangeCallId(itemId: string, index: number, total: number): string {
+  return total === 1 ? itemId : `${itemId}:${index}`;
+}
+
 function resultText(item: JsonRecord): string | undefined {
   if (typeof item.aggregatedOutput === 'string') return item.aggregatedOutput;
   if (typeof item.error === 'string') return item.error;
@@ -104,6 +169,7 @@ export function createTurnTranslator(
   let terminal = false;
   let unpairedNotificationCompletions = 0;
   let unpairedItemCompletions = 0;
+  const startedFileChanges = new Set<string>();
 
   const completed = (
     status: 'completed' | 'failed' | 'interrupted',
@@ -204,15 +270,13 @@ export function createTurnTranslator(
 
         if (itemType === 'commandExecution') {
           if (method === 'item/started') {
-            const command = stringValue(item.command);
+            const presentation = commandPresentation(item);
             return [{
               type: 'run.item',
               item_type: 'tool_call',
               payload: {
                 call_id: itemId,
-                tool: 'Bash',
-                title: command ?? 'Shell command',
-                input: { command },
+                ...presentation,
               },
             }];
           }
@@ -233,20 +297,49 @@ export function createTurnTranslator(
         }
 
         if (itemType === 'fileChange') {
-          if (method !== 'item/completed' || !Array.isArray(item.changes)) return [];
-          return item.changes.flatMap((value): WireEvent[] => {
-            if (!isRecord(value) || typeof value.path !== 'string') return [];
-            return [{
+          if (!Array.isArray(item.changes)) return [];
+          const changes = item.changes.filter(
+            (value): value is JsonRecord => isRecord(value) && typeof value.path === 'string',
+          );
+          return changes.flatMap((change, index): WireEvent[] => {
+            const path = change.path as string;
+            const callId = fileChangeCallId(itemId, index, changes.length);
+            const call: WireEvent = {
               type: 'run.item',
-              item_type: 'file_change',
+              item_type: 'tool_call',
               payload: {
-                path: value.path,
-                change: fileChangeKind(value.kind),
-                ...(typeof value.diff === 'string' && {
-                  diff: { path: value.path, unified: value.diff },
-                }),
+                call_id: callId,
+                tool: fileChangeTool(change.kind),
+                title: path,
+                input: {
+                  file_path: path,
+                  change: fileChangeKind(change.kind),
+                },
               },
-            }];
+            };
+            if (method === 'item/started') {
+              startedFileChanges.add(callId);
+              return [call];
+            }
+
+            const status = item.status === 'completed' ? 'ok' : 'error';
+            const result: WireEvent = {
+              type: 'run.item',
+              item_type: 'tool_result',
+              payload: {
+                call_id: callId,
+                status,
+                ...(status === 'error' && {
+                  output_text: boundedOutput(resultText(item) ?? `File change ${String(item.status)}`),
+                }),
+                ...(typeof change.diff === 'string' && {
+                  diff: { path, unified: change.diff },
+                }),
+                raw: { status: item.status, change },
+              },
+            };
+            if (startedFileChanges.delete(callId)) return [result];
+            return [call, result];
           });
         }
 

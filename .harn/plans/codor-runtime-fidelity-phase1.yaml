@@ -1,15 +1,14 @@
 id: codor-runtime-fidelity-phase1
 title: Preserve first-party adapter event fidelity
-notes: >-
-  Use Claude Code's existing normalized call/result behavior as the reference
-  matrix. Recover only concrete native evidence currently lost by the Codex
-  app-server translator: classify single read, list, and search command actions
-  instead of flattening them to Bash, and represent file changes as paired
-  calls/results with native completion status and verbatim durable diffs.
+notes: "Use Claude Code's existing normalized call/result behavior as the
+  reference matrix. Recover only concrete native evidence currently lost by the
+  Codex app-server translator: classify single read, list, and search command
+  actions instead of flattening them to Bash, and represent file changes as
+  paired calls/results with native completion status and verbatim durable diffs.
   Multiple command actions remain one honest composite shell operation. The
   Gemini, OpenCode, Copilot, Cursor, and Antigravity audits found no additional
   structured patch evidence in their captured protocols, so their production
-  mappings remain unchanged and no evidence is fabricated.
+  mappings remain unchanged and no evidence is fabricated."
 assumptions:
   reviewed:
     - id: first-party-run-items-normalized
@@ -20,8 +19,9 @@ assumptions:
     - id: codex-app-server-contract-is-pinned-to-0-144-5
       outcome: unchanged
       reason: The implementation consumes commandActions and file-change diff/status
-        fields already present in the pinned app-server item contract and verifies
-        them with immutable fixtures without starting a live model request.
+        fields already present in the pinned app-server item contract and
+        verifies them with immutable fixtures without starting a live model
+        request.
     - id: normalized-run-item-payload-contract
       outcome: unchanged
       reason: Tool calls and results remain accepted by the existing standalone
@@ -29,8 +29,8 @@ assumptions:
     - id: normalized-run-items-presented-live
       outcome: unchanged
       reason: Stable file-change call/result pairing lets the existing live presenter
-        show native success or failure and durable diff evidence without a renderer
-        change.
+        show native success or failure and durable diff evidence without a
+        renderer change.
     - id: compact-one-line-tool-rows
       outcome: unchanged
       reason: Verbatim non-empty Codex diffs give the existing diff-stat parser actual
@@ -43,13 +43,13 @@ assumptions:
     - id: claude-sdk-message-contract-preserves-normalized-runs
       outcome: unchanged
       reason: Claude already provides the behavioral reference for typed tool calls,
-        paired results, native status, and durable patches; its translator is not
-        changed.
+        paired results, native status, and durable patches; its translator is
+        not changed.
     - id: gemini-capability-truth
       outcome: unchanged
       reason: The audit found its captured stream already preserves exposed tool
-        names, ids, parameters, results, and errors, with no native patch field to
-        recover.
+        names, ids, parameters, results, and errors, with no native patch field
+        to recover.
     - id: opencode-capability-truth
       outcome: unchanged
       reason: The audit found its captured parts already preserve exposed tool state,
@@ -57,8 +57,8 @@ assumptions:
     - id: copilot-capability-truth
       outcome: unchanged
       reason: The audit found its captured events already preserve exposed tool ids,
-        names, arguments, results, errors, reasoning, and text, with no native patch
-        field to recover.
+        names, arguments, results, errors, reasoning, and text, with no native
+        patch field to recover.
 anchors:
   first-party-run-items-normalized:
     codex-normalized-run-items:
@@ -91,3 +91,5 @@ files:
 verification: Run the focused Codex translator and cross-adapter event-contract
   tests, the Codex package build/typecheck, and Harn unstaged and staged gates;
   apply the locked plan and commit Phase 1 as one implementation transaction.
+applied:
+  applied_at: 2026-07-22T02:58:02.255Z
