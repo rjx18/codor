@@ -1,0 +1,12 @@
+id: agent-activity-bar-keeps-a-visible-gap-above-the-composer
+hash: a-bc9f9a517626
+title: The sticky activity pill keeps a real visible gap above the composer
+state: active
+statement: The sticky agent-activity pill keeps a real, nonzero visible gap
+  between its bottom and the composer's top when the transcript is scrolled up,
+  achieved with a sticky bottom inset - a collapsed margin under bottom:0 does
+  not create the gap - so the pill never rests on the composer. The gap is
+  asserted by measured bounding-box geometry, and jump-to-latest and the
+  pin/follow behaviour are unaffected.
+depends_on: []
+created_by: codor-polish-phase2-fix-activity-gap-and-revive-tokens

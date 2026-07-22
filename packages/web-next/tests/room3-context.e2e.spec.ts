@@ -366,6 +366,15 @@ test.describe('member lifecycle', () => {
     await expect(page.getByTestId('member-fable-compact')).toHaveCount(0);
     const revive = page.getByTestId('member-fable-revive');
     await expect(revive).toBeVisible();
+    // The control renders on defined theme tokens: its background resolves to a
+    // real colour (not transparent) in both light and dark.
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+      const background = await revive.evaluate((element) => getComputedStyle(element).backgroundColor);
+      expect(background).not.toBe('rgba(0, 0, 0, 0)');
+      expect(background).not.toBe('transparent');
+    }
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
     await revive.click();
     await expect(fable).toContainText('Idle', { timeout: 10_000 });
 

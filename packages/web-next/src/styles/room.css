@@ -697,31 +697,34 @@
   border: 1px solid var(--c-line);
   border-radius: var(--r-full);
   background: var(--c-raised);
-  color: var(--c-text);
+  color: var(--c-ink);
   font: var(--t-caption-strong);
   transition: background-color var(--m-fast) var(--m-ease), color var(--m-fast) var(--m-ease);
 }
-.nx-member-revive:hover:not(:disabled) { background: var(--c-surface-active); }
+.nx-member-revive:hover:not(:disabled) { background: var(--c-muted); }
 .nx-member-revive:disabled { opacity: 0.6; cursor: default; }
 
 /* The typing indicators stick to the scroller's floor, reading as sitting just
    above the composer at any scroll — one pill per working agent, wrapping. */
+/* harn:assume agent-activity-bar-keeps-a-visible-gap-above-the-composer ref=activity-bar-gap-css */
 .nx-typing-bar {
   position: sticky;
-  bottom: 0;
+  /* A real sticky inset — NOT a bottom margin. Under bottom:0 the margin
+     collapses against the scroll floor and the pill rests on the composer; the
+     inset lifts the stuck pill so a genuine gap to the composer remains when the
+     transcript is scrolled up. margin-bottom keeps the in-flow (at-bottom)
+     spacing. Jump-to-latest and pin/follow are unaffected. */
+  bottom: var(--sp-4);
   z-index: 5;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
-  /* Breathing room so the chips read as sitting ABOVE the composer instead of
-     resting on it — enough that they stay visibly separated when the transcript
-     is scrolled up. Sticky, wrapping, stop controls and the jump button are all
-     unaffected — this is margin below the bar, not a change of position. */
-  margin-bottom: var(--sp-5);
+  margin-bottom: var(--sp-3);
   align-self: flex-start;
   max-width: 100%;
 }
+/* harn:end agent-activity-bar-keeps-a-visible-gap-above-the-composer */
 /* A running turn that has produced nothing yet paints no bubble: the sticky
    typing pill already says the agent is working, and an empty numbered row is
    noise the operator has to look past. The article reappears by itself the

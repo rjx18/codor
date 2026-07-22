@@ -276,8 +276,9 @@ test.describe('floating composer surfaces', () => {
   });
 });
 
+// harn:assume agent-activity-bar-keeps-a-visible-gap-above-the-composer ref=activity-bar-gap-regression
 test.describe('typing chip spacing', () => {
-  test('working chips keep a measured gap above the composer and stay sticky', async ({ page }) => {
+  test('working chips keep a real visible gap above the composer and stay sticky', async ({ page }) => {
     // Read-only against the fixture's permanently running @scout turn: this
     // test enqueues nothing, posts nothing and stops nothing, so it cannot
     // consume a fake turn another spec is waiting on. An earlier version of it
@@ -289,22 +290,25 @@ test.describe('typing chip spacing', () => {
     // chip is present rather than matching display text.
     await expect(bar.locator('.nx-typing-agent')).toHaveCount(1);
 
-    // The external gap that keeps the pill clear of the composer is the margin
-    // below the sticky bar. Assert it directly and deterministically — a
-    // bounding-box delta is timing-sensitive across the sticky/scroll interaction
-    // (it reads 0 mid-relayout), which the widened margin does not change.
-    const margin = await page.evaluate(() => {
-      const chips = document.querySelector('.nx-typing-bar');
-      return chips ? parseFloat(getComputedStyle(chips).marginBottom) : -1;
-    });
-    // Phase 2 widened it from --sp-3 (12px) to --sp-5 (22px).
-    expect(margin).toBeGreaterThanOrEqual(20);
-
-    // Sticky survives scrolling the transcript.
+    // Scroll up so the pill is stuck above the composer — the case the gap is
+    // for — and stays visible (sticky survives the scroll).
     await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = 0; });
     await expect(bar).toBeVisible();
+
+    // A REAL visible gap measured by bounding-box geometry: the sticky bottom
+    // inset lifts the pill off the composer, where a collapsed margin under
+    // bottom:0 left them touching (Codex #904 measured 0px).
+    await expect
+      .poll(async () => page.evaluate(() => {
+        const chips = document.querySelector('.nx-typing-bar');
+        const composer = document.querySelector('.nx-composer-bar');
+        if (!chips || !composer) return -1;
+        return Math.round(composer.getBoundingClientRect().top - chips.getBoundingClientRect().bottom);
+      }))
+      .toBeGreaterThanOrEqual(12);
   });
 });
+// harn:end agent-activity-bar-keeps-a-visible-gap-above-the-composer
 
 test.describe('holds', () => {
   test('the banner names the held delivery and Release runs it', async ({ page }) => {
