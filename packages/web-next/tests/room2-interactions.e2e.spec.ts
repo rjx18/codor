@@ -108,21 +108,28 @@ test.describe('composer addressing', () => {
   });
 });
 
+// harn:assume desktop-composer-groups-attach-and-send-bottom-right ref=composer-alignment-regression
 test.describe('desktop composer alignment', () => {
-  test('attach, input and send share one optical center, and Enter still sends', async ({ page }) => {
+  test('attach and send are one bottom-right group sharing a centre, and Enter still sends', async ({ page }) => {
     await openRoom(page);
     const input = page.getByTestId('composer-input');
-    await input.fill('');
+    // A tall message distinguishes a bottom-right action group from controls that
+    // each float to the growing bar's optical middle.
+    await input.fill('one\ntwo\nthree\nfour\nfive');
 
-    const centers = await Promise.all(
-      ['composer-attach', 'composer-input', 'composer-send'].map(async (id) => {
-        const box = (await page.getByTestId(id).boundingBox())!;
-        return box.y + box.height / 2;
-      }),
-    );
-    expect(Math.max(...centers) - Math.min(...centers)).toBeLessThanOrEqual(1);
+    const attach = (await page.getByTestId('composer-attach').boundingBox())!;
+    const send = (await page.getByTestId('composer-send').boundingBox())!;
+    const bar = (await page.locator('.nx-composer-bar').boundingBox())!;
+    const attachCenter = attach.y + attach.height / 2;
+    const sendCenter = send.y + send.height / 2;
+    // Attach and send share one centre line despite different heights.
+    expect(Math.abs(attachCenter - sendCenter)).toBeLessThanOrEqual(1);
+    // The group sits in the lower half of the tall bar — bottom-aligned, not centred.
+    expect(sendCenter).toBeGreaterThan(bar.y + bar.height / 2);
+    // ...and hugs the bar's right content edge.
+    expect(bar.x + bar.width - (send.x + send.width)).toBeLessThanOrEqual(12);
 
-    // Desktop keyboard behaviour is unchanged by the mobile split: Shift+Enter
+    // Desktop keyboard behaviour is unchanged by the grouping: Shift+Enter
     // breaks the line. The send half runs in the isolated fixtures room, since
     // posting here would consume the queued turn the holds test depends on.
     await input.fill('@fable desktop line one');
@@ -148,6 +155,19 @@ test.describe('desktop composer alignment', () => {
     // is that the typed body left the box and posted — not that it is empty.
     await expect(input).not.toHaveValue(/desktop enter sends/);
     await expect(page.locator('article', { hasText: 'desktop enter sends' }).first()).toBeVisible();
+  });
+});
+// harn:end desktop-composer-groups-attach-and-send-bottom-right
+
+test.describe('channel header chrome', () => {
+  test('the desktop header drops the redundant Channel settings button; the rail Settings still opens', async ({ page }) => {
+    await openRoom(page);
+    // The duplicate header button (which routed to the same global settings page)
+    // is gone.
+    await expect(page.getByTestId('room-settings')).toHaveCount(0);
+    // The rail's single global Settings entry remains and navigates to settings.
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await expect(page).toHaveURL(/\/settings/);
   });
 });
 
@@ -269,15 +289,16 @@ test.describe('typing chip spacing', () => {
     // chip is present rather than matching display text.
     await expect(bar.locator('.nx-typing-agent')).toHaveCount(1);
 
-    // Measured, not assumed: a margin some later rule collapses would still
-    // "be set" while the chips visually rest on the composer.
-    const gap = await page.evaluate(() => {
+    // The external gap that keeps the pill clear of the composer is the margin
+    // below the sticky bar. Assert it directly and deterministically — a
+    // bounding-box delta is timing-sensitive across the sticky/scroll interaction
+    // (it reads 0 mid-relayout), which the widened margin does not change.
+    const margin = await page.evaluate(() => {
       const chips = document.querySelector('.nx-typing-bar');
-      const composer = document.querySelector('.nx-composer-bar');
-      if (!chips || !composer) return -1;
-      return composer.getBoundingClientRect().top - chips.getBoundingClientRect().bottom;
+      return chips ? parseFloat(getComputedStyle(chips).marginBottom) : -1;
     });
-    expect(gap).toBeGreaterThanOrEqual(8);
+    // Phase 2 widened it from --sp-3 (12px) to --sp-5 (22px).
+    expect(margin).toBeGreaterThanOrEqual(20);
 
     // Sticky survives scrolling the transcript.
     await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = 0; });

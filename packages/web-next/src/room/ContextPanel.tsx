@@ -1,5 +1,5 @@
 import type { AgentLimit, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
-import { Bot, ChevronRight, LoaderCircle, Minimize2, MoreVertical, Plus, RefreshCw, Square, X } from 'lucide-react';
+import { Bot, ChevronRight, LoaderCircle, Minimize2, MoreVertical, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@runtime/api.js';
@@ -228,8 +228,10 @@ function MemberCard(props: {
   // successful compaction — or on a new action error, which is the other way
   // the request can end. Both are edges, so a stale spinner cannot survive.
   const [compacting, setCompacting] = useState(false);
+  const [reviving, setReviving] = useState(false);
   const errorCount = useClientStore((state) => roomSlice(state, props.room).errors.length);
   const startedAt = useRef<{ errors: number; member: Member } | null>(null);
+  const revivedAt = useRef<{ errors: number; member: Member } | null>(null);
   useEffect(() => {
     const started = startedAt.current;
     if (!compacting || started === null) return;
@@ -243,6 +245,17 @@ function MemberCard(props: {
       setCompacting(false);
     }
   }, [compacting, errorCount, member]);
+  // Revive is guarded the same way: the button disables while the request is in
+  // flight and re-enables on the next member update (a success flips the state
+  // out of 'dead', removing the button) or on an action error.
+  useEffect(() => {
+    const started = revivedAt.current;
+    if (!reviving || started === null) return;
+    if (errorCount > started.errors || member !== started.member) {
+      revivedAt.current = null;
+      setReviving(false);
+    }
+  }, [reviving, errorCount, member]);
 
   return (
     <li className="nx-member" data-testid={`member-${member.handle}`}>
@@ -270,10 +283,12 @@ function MemberCard(props: {
           />
         )}
         {/* harn:end member-context-window-meter-derived-from-last-usage */}
-        {member.kind === 'agent' && props.canManage && (
+        {/* harn:assume dead-agent-surfaces-revive-in-its-action-area ref=member-lifecycle-controls */}
+        {member.kind === 'agent' && props.canManage && member.state !== 'dead' && (
           // Beside the ring, because the ring is what makes an operator want it.
           // Never hidden while running — hiding it would read as "not available
-          // here"; disabled with the reason keeps the lever discoverable.
+          // here"; disabled with the reason keeps the lever discoverable. A dead
+          // agent is the one exception: Compact gives way to Revive below.
           <button
             type="button"
             className="nx-member-compact"
@@ -297,6 +312,29 @@ function MemberCard(props: {
             {compacting
               ? <LoaderCircle size={13} className="nx-spin" aria-hidden="true" />
               : <Minimize2 size={13} aria-hidden="true" />}
+          </button>
+        )}
+        {member.kind === 'agent' && props.canManage && member.state === 'dead' && (
+          // A dead agent's prominent slot is Revive, not a permanently-disabled
+          // Compact. Guarded against a double-dispatch while the revival is pending.
+          <button
+            type="button"
+            className="nx-member-revive"
+            data-testid={`member-${member.handle}-revive`}
+            disabled={reviving}
+            title={reviving ? 'Reviving…' : `Revive @${member.handle} from its saved session`}
+            aria-label={`Revive @${member.handle}`}
+            onClick={() => {
+              if (reviving) return;
+              revivedAt.current = { errors: errorCount, member };
+              setReviving(true);
+              props.connection.act({ act: 'revive', member_id: member.id });
+            }}
+          >
+            {reviving
+              ? <LoaderCircle size={13} className="nx-spin" aria-hidden="true" />
+              : <RotateCcw size={13} aria-hidden="true" />}
+            <span>Revive</span>
           </button>
         )}
         {member.kind === 'agent' && running && props.canStop && (
@@ -325,18 +363,7 @@ function MemberCard(props: {
               <div className="nx-menu" role="menu" aria-label={`@${member.handle} actions`}>
                 <button role="menuitem" onClick={() => { setMenu(false); setRenaming(true); }}>Rename…</button>
                 <button role="menuitem" onClick={() => { setMenu(false); setConfiguring(true); }}>Configure…</button>
-                {member.state === 'dead' ? (
-                  <button
-                    role="menuitem"
-                    data-testid={`member-${member.handle}-revive`}
-                    onClick={() => {
-                      setMenu(false);
-                      props.connection.act({ act: 'revive', member_id: member.id });
-                    }}
-                  >
-                    Revive
-                  </button>
-                ) : (
+                {member.state !== 'dead' && (
                   <button role="menuitem" className="is-danger" onClick={() => { setMenu(false); setConfirming('kill'); }}>
                     Kill…
                   </button>
@@ -348,6 +375,7 @@ function MemberCard(props: {
             )}
           </div>
         )}
+        {/* harn:end dead-agent-surfaces-revive-in-its-action-area */}
       </div>
       {member.kind === 'agent' && (spend !== undefined || (detail?.queued_count ?? 0) > 0) && (
         <p className="nx-member-meter">

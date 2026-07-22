@@ -685,6 +685,25 @@
 }
 .nx-member-compact:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* Revive takes the dead agent's prominent slot: a small labelled pill (not an
+   icon-only glyph) so the one recovery action reads clearly. */
+.nx-member-revive {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-full);
+  background: var(--c-raised);
+  color: var(--c-text);
+  font: var(--t-caption-strong);
+  transition: background-color var(--m-fast) var(--m-ease), color var(--m-fast) var(--m-ease);
+}
+.nx-member-revive:hover:not(:disabled) { background: var(--c-surface-active); }
+.nx-member-revive:disabled { opacity: 0.6; cursor: default; }
+
 /* The typing indicators stick to the scroller's floor, reading as sitting just
    above the composer at any scroll — one pill per working agent, wrapping. */
 .nx-typing-bar {
@@ -696,9 +715,10 @@
   align-items: center;
   gap: var(--sp-2);
   /* Breathing room so the chips read as sitting ABOVE the composer instead of
-     resting on it. Sticky, wrapping, stop controls and the jump button are all
+     resting on it — enough that they stay visibly separated when the transcript
+     is scrolled up. Sticky, wrapping, stop controls and the jump button are all
      unaffected — this is margin below the bar, not a change of position. */
-  margin-bottom: var(--sp-3);
+  margin-bottom: var(--sp-5);
   align-self: flex-start;
   max-width: 100%;
 }
@@ -2121,8 +2141,17 @@
   }
 }
 
-/* Desktop attach/input/send share one optical center line. */
-.nx-composer-attach { align-self: center; }
+/* Desktop attach + send are one action group at the bottom-right of the bar,
+   sharing a single centre line; the group hugs the right edge while the input
+   grows, instead of each control floating to the bar's optical middle. */
+.nx-composer-actions {
+  flex: none;
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+/* Mobile keeps the send centred within its row. */
 .nx-composer-send { align-self: center; }
 
 /* harn:assume member-context-window-meter-derived-from-last-usage ref=context-window-meter-component */

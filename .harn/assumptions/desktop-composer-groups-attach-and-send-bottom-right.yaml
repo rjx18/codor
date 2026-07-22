@@ -1,0 +1,14 @@
+id: desktop-composer-groups-attach-and-send-bottom-right
+hash: a-4e4b331d6998
+title: The desktop composer groups Attach and Send bottom-right on one centre line
+state: active
+statement: "On desktop the composer's Attach and Send controls form one action
+  group aligned to the bottom-right of the composer bar: the two controls share
+  a single vertical centre despite their different heights, and the group hugs
+  the bar's right content edge instead of each control floating independently to
+  the bar's optical centre when the textarea grows. The mobile two-row composer
+  (attach, mention, spacer, send) is preserved, and Enter-to-send, Shift+Enter
+  newline, the eight-row autogrow cap, and the shared send primitive are
+  unchanged."
+depends_on: []
+created_by: codor-polish-phase2-chrome-composer-revive

@@ -397,7 +397,6 @@ function ChatPanel(props: {
           <IconButton icon={Search} label="Search messages" data-testid="toggle-message-search" onClick={() => setSearching(true)} />
           <InboxControl room={props.room} connection={props.connection} token={props.token} />
           <IconButton icon={Share2} label="Open ledger graph" onClick={() => { window.location.href = `/ledger?room=${props.room}`; }} />
-          <IconButton icon={Settings} label="Channel settings" data-testid="room-settings" onClick={() => { window.location.href = `/settings?room=${props.room}`; }} />
         </div>
       </header>
       <HoldBanner room={props.room} connection={props.connection} />

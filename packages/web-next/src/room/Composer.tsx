@@ -395,7 +395,10 @@ export function Composer(props: { room: string; token: () => string; connection:
             />
           </div>
         ) : (
-          <>
+          // harn:assume desktop-composer-groups-attach-and-send-bottom-right ref=composer-actions-group
+          // Attach and Send are one bottom-right action group sharing a centre
+          // line, not two controls floating to the growing bar's optical middle.
+          <div className="nx-composer-actions" data-testid="composer-actions">
             <IconButton
               icon={Paperclip}
               label="Attach files"
@@ -413,7 +416,8 @@ export function Composer(props: { room: string; token: () => string; connection:
               disabled={!canSend}
               onClick={send}
             />
-          </>
+          </div>
+          // harn:end desktop-composer-groups-attach-and-send-bottom-right
         )}
       </div>
     </footer>

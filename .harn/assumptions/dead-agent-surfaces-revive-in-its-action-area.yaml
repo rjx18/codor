@@ -1,0 +1,16 @@
+id: dead-agent-surfaces-revive-in-its-action-area
+hash: a-b6d78488a731
+title: A dead agent surfaces Revive in its action area, not the overflow menu
+state: active
+statement: A dead agent (member.state === 'dead') surfaces a Revive control
+  directly in the member action area, and the Compact control is hidden while
+  dead rather than shown disabled; Revive is removed from the overflow menu.
+  Clicking Revive emits exactly one revive action and the control is disabled
+  while the revival is pending, restoring honestly on a daemon error or a
+  member-state update (a successful revive returns the agent to idle, which
+  removes Revive and restores Compact). The live-agent Compact (idle-only), the
+  running Stop, and the overflow Rename / Configure / Kill (non-dead only) /
+  Remove are unchanged.
+depends_on:
+  - revive-via-session-ref
+created_by: codor-polish-phase2-chrome-composer-revive

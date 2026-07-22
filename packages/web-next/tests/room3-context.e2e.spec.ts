@@ -345,22 +345,36 @@ test.describe('manual compaction', () => {
   });
 });
 
+// harn:assume dead-agent-surfaces-revive-in-its-action-area ref=member-revive-regression
 test.describe('member lifecycle', () => {
-  test('kill confirms into Dead; revive brings the agent back', async ({ page }) => {
+  test('a dead agent swaps the disabled Compact for a direct Revive that brings it back', async ({ page }) => {
     await openRoom(page);
     const fable = page.getByTestId('member-fable');
     await expect(fable).toContainText('Idle');
+    // Alive: Compact is present in the action area; Revive is not.
+    await expect(page.getByTestId('member-fable-compact')).toBeVisible();
+    await expect(page.getByTestId('member-fable-revive')).toHaveCount(0);
 
+    // Kill via the overflow menu (still available for a live agent).
     await page.getByTestId('member-fable-menu').click();
     await page.locator('.nx-menu button', { hasText: 'Kill…' }).click();
     await page.getByTestId('member-confirm-go').click();
     await expect(fable).toContainText('Dead');
 
-    await page.getByTestId('member-fable-menu').click();
-    await page.getByTestId('member-fable-revive').click();
+    // Dead: the disabled Compact is gone, replaced by a direct Revive in the
+    // action area — no overflow menu needed.
+    await expect(page.getByTestId('member-fable-compact')).toHaveCount(0);
+    const revive = page.getByTestId('member-fable-revive');
+    await expect(revive).toBeVisible();
+    await revive.click();
     await expect(fable).toContainText('Idle', { timeout: 10_000 });
+
+    // Back alive: Compact returns and Revive is gone again.
+    await expect(page.getByTestId('member-fable-compact')).toBeVisible();
+    await expect(page.getByTestId('member-fable-revive')).toHaveCount(0);
   });
 });
+// harn:end dead-agent-surfaces-revive-in-its-action-area
 
 test.describe('accessibility', () => {
   test('the context panel and open spawn dialog are axe-clean', async ({ page }) => {
