@@ -86,6 +86,38 @@ assumptions:
       outcome: unchanged
       reason: The production registry wrapper must forward the new optional steering
         method just as it forwards every other optional adapter member.
+    - id: harness-declares-what-a-policy-becomes
+      outcome: unchanged
+      reason: The built-in capability audit crosses Gemini's existing adapter
+        declaration block without changing policy translation.
+    - id: context-peek-reads-session-artifacts
+      outcome: unchanged
+      reason: The optional steering member is added beside the existing adapter
+        contract without changing session artifact inspection.
+    - id: harness-declares-supported-thinking-levels
+      outcome: unchanged
+      reason: The registry capability matrix shares a regression block with thinking
+        metadata, whose declarations and validation remain unchanged.
+    - id: agent-model-and-thinking-are-durable
+      outcome: unchanged
+      reason: The daemon steering regression is adjacent to durable agent config
+        coverage and does not change model or thinking persistence.
+    - id: agent-chains-uninterrupted-by-default
+      outcome: unchanged
+      reason: Steering is inserted into delivery dispatch without changing hop-brake
+        policy or agent-chain continuation.
+    - id: brakes-rechecked-at-turn-start
+      outcome: unchanged
+      reason: Steering-row exclusion shares turn-admission code with the existing
+        brake recheck, whose behavior remains unchanged.
+    - id: only-an-admissible-delivery-becomes-delivering
+      outcome: unchanged
+      reason: Steering-row exclusion shares the admissible-delivery guard without
+        changing which ordinary queued rows may enter a turn.
+    - id: live-delivery-consumption-is-idempotent
+      outcome: unchanged
+      reason: Steering persistence coverage is adjacent to the existing atomic
+        queued-consumption regression and does not change that contract.
     - id: delivery-payload-snapshotted
       outcome: unchanged
       reason: Active steering submits the same immutable routed payload snapshot
@@ -112,8 +144,8 @@ assumptions:
         changing attach lease storage or process ownership.
     - id: collaboration-groups-are-durable-state
       outcome: unchanged
-      reason: The shared deliveries table gains scalar steering metadata without
-        changing group, round, participant, or barrier persistence.
+      reason: The shared deliveries table and its row projection gain scalar steering
+        metadata without changing group, round, participant, or barrier persistence.
     - id: substantive-output-messages-drive-unread
       outcome: unchanged
       reason: Delivery steering metadata does not change message activity sequence or
@@ -182,6 +214,22 @@ anchors:
     fake-active-turn-steering: { action: change, reason: Provide an observable hermetic steering adapter. }
   adapter-wrappers-preserve-the-whole-contract:
     registry-wrapper-completeness: { action: change, reason: Forward optional steer through the production wrapper. }
+  harness-declares-what-a-policy-becomes:
+    adapter-policy-declarations: { action: change, reason: Account for the enclosing Gemini declaration region while preserving policy translation unchanged. }
+  context-peek-reads-session-artifacts:
+    adapter-peek-contract: { action: change, reason: Account for the enclosing adapter contract while preserving context peek unchanged. }
+  harness-declares-supported-thinking-levels:
+    registry-thinking-level-regression: { action: change, reason: Account for the shared registry regression region while preserving all thinking declarations unchanged. }
+  agent-model-and-thinking-are-durable:
+    durable-agent-config-regression: { action: change, reason: Account for the enclosing daemon regression region while preserving durable model and thinking behavior unchanged. }
+  agent-chains-uninterrupted-by-default:
+    delivery-hop-brake-dispatch: { action: change, reason: Account for steering dispatch inserted within the existing hop-brake region without changing chain policy. }
+  brakes-rechecked-at-turn-start:
+    turn-start-brake-recheck: { action: change, reason: Account for steering-row exclusion within turn admission while preserving the existing brake recheck. }
+  only-an-admissible-delivery-becomes-delivering:
+    turn-start-with-nothing-admissible: { action: change, reason: Account for steering-row exclusion within the existing admissibility region without changing ordinary turn admission. }
+  live-delivery-consumption-is-idempotent:
+    consumption-store-regression: { action: change, reason: Account for adjacent steering persistence coverage while preserving atomic consumption unchanged. }
   codex-app-server-is-the-member-runtime:
     codex-app-server-session-lifecycle: { action: change, reason: Reuse the retained active runtime for steering. }
     codex-app-server-session-regression: { action: change, reason: Exercise steering through the retained fake server. }
@@ -198,6 +246,7 @@ anchors:
     attach-lease-store: { action: change, reason: Account for the shared schema edit without changing leases. }
   collaboration-groups-are-durable-state:
     collaboration-store-schema: { action: change, reason: Account for the shared deliveries-table edit without changing groups. }
+    collaboration-store-projection: { action: change, reason: Account for scalar steering projection in the shared delivery row while preserving collaboration state unchanged. }
   substantive-output-messages-drive-unread:
     message-activity-storage: { action: change, reason: Account for the shared schema edit without changing unread behavior. }
 files:
