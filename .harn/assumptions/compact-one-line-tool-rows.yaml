@@ -1,7 +1,7 @@
 id: compact-one-line-tool-rows
 hash: a-34a0782dce34
 title: A tool row is one line that says what the tool actually did
-state: active
+state: retired
 statement: Every tool row must render as a single line carrying the icon for its
   class, the evidence itself, and a right-aligned status and duration - a shell
   row showing the verbatim command, a read-like row showing the file it
@@ -15,3 +15,4 @@ depends_on:
   - normalized-run-items-presented-live
   - normalized-run-evidence-inspector
 created_by: u4-phone-density
+retired_by: codor-runtime-fidelity-phase4

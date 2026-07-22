@@ -1,0 +1,13 @@
+id: compact-one-line-tool-rows-v2
+hash: a-395c94fd72c5
+title: A compact tool row says what happened and opens its durable evidence
+state: active
+statement: Every tool row must remain one line with its class icon, truthful
+  compact evidence, and right-aligned status; a diff row shows added and removed
+  counts against the file base name and opens its stored evidence, other rows
+  open their bounded inspector, long commands stay ellipsized, and prose rows
+  remain ordinary transcript content.
+depends_on:
+  - normalized-run-items-presented-live
+  - normalized-run-evidence-dialogs
+created_by: codor-runtime-fidelity-phase4

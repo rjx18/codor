@@ -50,19 +50,43 @@ test.describe('git diff explorer', () => {
     await control('/git-dirty'); // restore for any later run
   });
 
-  test('a chat diff chip opens the Diff tab focused on that file\'s current diff', async ({ page }) => {
-    await control('/git-dirty');
+  // harn:assume transcript-diffs-use-immutable-run-evidence ref=historical-diff-browser-regression
+  test('a transcript diff opens its stored patch after the working tree is reset', async ({ page }) => {
+    await control('/git-reset');
     await openRoom(page);
 
-    // The builder run's Edit chip points at src/app.ts, which the tree changed.
-    await page.locator('.nx-tool', { hasText: 'app.ts' }).first().click();
+    // The builder run permanently stored this patch. The real fixture tree is
+    // clean, so rendering it proves the dialog did not query current Git state.
+    const chip = page.locator('.nx-tool', { hasText: 'app.ts' }).first();
+    await chip.click();
 
-    const view = page.getByTestId('diff-view');
+    const dialog = page.getByTestId('historical-diff-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('Saved with this run');
+    const view = dialog.getByTestId('diff-view');
     await expect(view).toBeVisible();
     await expect(view.locator('.nx-diff-line.is-add').first()).toContainText('version = 2');
-    await expect(page.getByTestId('diff-files').locator('.nx-diff-file.is-active', { hasText: 'app.ts' }))
-      .toBeVisible();
+    await expect(dialog.getByRole('navigation', { name: 'Stored diff files' })).toContainText('app.ts');
+    await expect(page.getByTestId('diff-files')).toHaveCount(0);
+    const { default: AxeBuilder } = await import('@axe-core/playwright');
+    const { violations } = await new AxeBuilder({ page }).analyze();
+    expect(violations.map((v) => `${v.id}: ${v.nodes[0]?.target[0]}`)).toEqual([]);
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(chip).toBeFocused();
+
+    await chip.click();
+    await page.getByRole('button', { name: 'Close stored diff' }).click();
+    await expect(chip).toBeFocused();
+
+    // The distinct live panel remains available and truthfully reports clean.
+    await page.getByTestId('context-tab-diff').click();
+    await expect(page.getByTestId('diff-clean')).toContainText('Working tree clean');
+
+    await control('/git-dirty'); // restore for any later run
   });
+  // harn:end transcript-diffs-use-immutable-run-evidence
 
   test('a revisit serves the cached working state instantly, never an empty pane', async ({ page }) => {
     await control('/git-dirty');

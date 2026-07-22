@@ -1,4 +1,4 @@
-import type { AgentLimit, Member, Policy, Room, RunItemDiff, ThinkingLevel, WireEvent } from '@codor/protocol';
+import type { AgentLimit, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
 import { Bot, LoaderCircle, Minimize2, MoreVertical, Plus, Square, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -31,30 +31,12 @@ import { useAdapterCatalog, useMemberDetails } from '../app/session.js';
 import { ContextWindowMeter } from './ContextWindowMeter.js';
 import { cachedGitWorkingState, fetchGitWorkingState, rememberGitWorkingState, shortenCwd, statusLetter, type GitWorkingState } from './git-diff.js';
 import { costProvenanceLabel } from './spend-label.js';
+import { DiffViewer } from './DiffViewer.js';
 
 type Tab = 'members' | 'diff' | 'preview';
 
-/** A chat diff chip asks the Diff tab to focus a file's CURRENT working-tree
- *  diff. Carried as a window CustomEvent, like nx-quote. */
-export const OPEN_DIFF_EVENT = 'nx-open-diff';
-
 export function ContextPanel(props: { room: string; token: () => string; connection: Connection }) {
   const [tab, setTab] = useState<Tab>('members');
-  const [focus, setFocus] = useState<{ path: string; nonce: number }>();
-  const focusCount = useRef(0);
-
-  // A diff chip anywhere in the transcript opens this tab focused on its file.
-  useEffect(() => {
-    const onOpenDiff = (event: Event): void => {
-      const path = (event as CustomEvent<{ path: string }>).detail?.path;
-      if (path === undefined) return;
-      focusCount.current += 1;
-      setTab('diff');
-      setFocus({ path, nonce: focusCount.current });
-    };
-    window.addEventListener(OPEN_DIFF_EVENT, onOpenDiff);
-    return () => window.removeEventListener(OPEN_DIFF_EVENT, onOpenDiff);
-  }, []);
 
   return (
     <aside className="nx-context" aria-label="Channel context">
@@ -71,7 +53,7 @@ export function ContextPanel(props: { room: string; token: () => string; connect
         />
       </div>
       {tab === 'members' && <MembersTab room={props.room} token={props.token} connection={props.connection} />}
-      {tab === 'diff' && <DiffTab room={props.room} token={props.token} focus={focus} />}
+      {tab === 'diff' && <DiffTab room={props.room} token={props.token} />}
       {tab === 'preview' && <PreviewTab room={props.room} token={props.token} />}
     </aside>
   );
@@ -855,16 +837,11 @@ function useGitWorkingState(
   return { state, failed, refreshing };
 }
 
-function DiffTab(props: { room: string; token: () => string; focus?: { path: string; nonce: number } }) {
+function DiffTab(props: { room: string; token: () => string }) {
   const [selectedCwd, setSelectedCwd] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [pickedPath, setPickedPath] = useState<string>();
   const { state, failed, refreshing } = useGitWorkingState(props.room, props.token, selectedCwd, refreshKey);
-
-  // Each chat diff-chip click focuses its file (nonce re-fires on repeats).
-  useEffect(() => {
-    if (props.focus !== undefined) setPickedPath(props.focus.path);
-  }, [props.focus]);
 
   if (failed) {
     return <EmptyState testid="diff-error">Couldn’t read the repository.</EmptyState>;
@@ -937,26 +914,6 @@ function DiffTab(props: { room: string; token: () => string; focus?: { path: str
         active !== undefined && <DiffViewer diff={{ path: active.path, unified: active.diff }} />
       )}
     </div>
-  );
-}
-
-export function DiffViewer(props: { diff: RunItemDiff }) {
-  const lines = useMemo(() => props.diff.unified.split('\n'), [props.diff.unified]);
-  return (
-    <pre className="nx-diff-view" data-testid="diff-view">
-      {lines.map((line, index) => {
-        const kind = line.startsWith('@@')
-          ? 'hunk'
-          : line.startsWith('+++') || line.startsWith('---')
-            ? 'meta' // file headers of a real `git diff`, not add/del content
-            : line.startsWith('+')
-              ? 'add'
-              : line.startsWith('-')
-                ? 'del'
-                : 'ctx';
-        return <span key={index} className={`nx-diff-line is-${kind}`}>{line || ' '}</span>;
-      })}
-    </pre>
   );
 }
 

@@ -1,0 +1,15 @@
+id: transcript-diffs-use-immutable-run-evidence
+hash: a-ed86ccc7cb8a
+title: Transcript diff dialogs render only immutable run evidence
+state: active
+statement: Opening a transcript diff chip must render the unified patches
+  already stored in that run journal, grouped into navigable files with per-file
+  additions/deletions and syntax-aware add, delete, hunk, header, and context
+  lines; it must remain readable after the current working tree becomes clean or
+  files disappear, expose an honest empty-patch state, and never fetch or select
+  the live Git Diff panel.
+depends_on:
+  - normalized-run-evidence-dialogs
+  - run-journals-own-evidence-across-output-messages
+  - normalized-run-item-payload-contract
+created_by: codor-runtime-fidelity-phase4

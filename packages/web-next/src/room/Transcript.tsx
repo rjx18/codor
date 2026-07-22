@@ -1,4 +1,4 @@
-import type { Attachment, Delivery, Member, Message, WireEvent } from '@codor/protocol';
+import type { Attachment, Delivery, Member, Message, RunItemDiff, WireEvent } from '@codor/protocol';
 import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Paperclip, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -19,8 +19,8 @@ import { useIsMobile } from '../app/session.js';
 import { HISTORY_PAGE_SIZE, roomSlice, useClientStore } from '../app/store.js';
 import { Button, Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
-import { OPEN_DIFF_EVENT } from './ContextPanel.js';
 import { CompactionMarker } from './CompactionMarker.js';
+import { RunDiffDialog } from './RunDiffDialog.js';
 import { JUMP_ANCHOR_EVENT, jumpToMessage } from './panels.js';
 import { renderMarkdown } from './markdown.js';
 import {
@@ -1029,6 +1029,12 @@ function segmentTimeline(timeline: ReturnType<typeof presentRunTimeline>): RunSe
   return segments;
 }
 
+function segmentDiffs(segments: readonly RunSegment[]): RunItemDiff[] {
+  return segments.flatMap((segment) => segment.kind === 'tools'
+    ? segment.rows.flatMap((row) => row.diff === undefined ? [] : [row.diff])
+    : []);
+}
+
 /** A segment's ordering time — the first row's journal stamp; undefined for a
  *  compaction marker or rows from pre-upgrade ts-less journals. */
 function segmentTs(segment: RunSegment): string | undefined {
@@ -1222,6 +1228,7 @@ function RunContent(props: { message: Message; room: string; token: () => string
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [journalEvents, live?.events.length, live?.dropped_count, outputMessages, props.message.id, rootId, version]);
   const segments = useMemo(() => segmentTimeline(timeline), [timeline]);
+  const storedDiffs = useMemo(() => segmentDiffs(segments), [segments]);
 
   // The prose already streams through text rows; only a run that produced no
   // prose at all (e.g. a failure) falls back to the settled final text.
@@ -1301,7 +1308,7 @@ function RunContent(props: { message: Message; room: string; token: () => string
                 text={segment.row.text ?? ''}
               />
             )
-          : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} />,
+          : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} diffs={storedDiffs} />,
       )}
       {!running && !hasProse && finalText.length > 0 && (
         <RunTextBlock messageId={props.message.id} blockId="final" text={finalText} />
@@ -1404,6 +1411,10 @@ function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[]
     const entry = entries[index]!;
     if (entry.kind === 'runseg') {
       const runId = entry.message.id;
+      const storedDiffs = entries.flatMap((candidate) =>
+        candidate.kind === 'runseg' && candidate.message.id === runId
+          ? segmentDiffs([candidate.segment])
+          : []);
       const segments: RunSegment[] = [];
       let isLastStretch = false;
       while (index < entries.length) {
@@ -1428,6 +1439,7 @@ function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[]
           canPin={ctx.canPin}
           canRetry={ctx.canRetry}
           connection={ctx.connection}
+          diffs={storedDiffs}
         />,
       );
       prevAuthor = entry.message.author;
@@ -1486,6 +1498,7 @@ function RunStretch(props: {
   canPin: boolean;
   canRetry: boolean;
   connection: Connection;
+  diffs: RunItemDiff[];
 }) {
   const { message, author } = props;
   const isMobile = useIsMobile();
@@ -1573,7 +1586,7 @@ function RunStretch(props: {
                       text={segment.row.text ?? ''}
                     />
                   )
-                : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} />,
+                : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} diffs={props.diffs} />,
           )}
           {/* Legacy one-row families split into stretches: the marker belongs on
               the FINAL stretch, after everything that survived, so preserved
@@ -1636,10 +1649,10 @@ function ElapsedSince(props: { ts: string }) {
 
 /** One aggregate line per tool batch — "Ran 4 tools · wrote 3 files +34 −76 ›" —
  *  expanding to the one-line rows. Counts update live while the batch runs. */
-function ToolBatch(props: { rows: RunRow[] }) {
+function ToolBatch(props: { rows: RunRow[]; diffs: RunItemDiff[] }) {
   const [expanded, setExpanded] = useState(false);
   // A lone tool is its own line on every form factor — no "Ran 1 tool" wrapper.
-  if (props.rows.length === 1) return <ToolRow row={props.rows[0]!} />;
+  if (props.rows.length === 1) return <ToolRow row={props.rows[0]!} diffs={props.diffs} />;
 
   const active = props.rows.some((row) => row.status === 'running');
   const diffs = props.rows.filter((row) => row.diff?.unified !== undefined);
@@ -1670,7 +1683,7 @@ function ToolBatch(props: { rows: RunRow[] }) {
       </button>
       {expanded && (
         <div className="nx-batch-cards">
-          {props.rows.map((row) => <ToolRow key={row.eventIndex} row={row} />)}
+          {props.rows.map((row) => <ToolRow key={row.eventIndex} row={row} diffs={props.diffs} />)}
         </div>
       )}
     </div>
@@ -1694,18 +1707,18 @@ const ROW_ICONS: Record<RunRow['icon'], LucideIcon> = {
 const DIFF_LABEL = /^\+(\d+)\s−(\d+)\s(.*)$/;
 
 /** One line per tool: icon · what it did (± tinted) · a right-aligned ✓/✕ or
- *  spinner. The whole row opens the inspector — no bordered card anywhere. */
-function ToolRow(props: { row: RunRow }) {
+ *  spinner. The whole row opens its typed evidence — no bordered card anywhere. */
+// harn:assume normalized-run-evidence-dialogs ref=transcript-evidence-dialog-routing
+// harn:assume compact-one-line-tool-rows-v2 ref=compact-transcript-tool-row
+function ToolRow(props: { row: RunRow; diffs: RunItemDiff[] }) {
   const [inspecting, setInspecting] = useState(false);
+  const [showingDiff, setShowingDiff] = useState(false);
   const compact = compactRunRow(props.row);
   const Icon = ROW_ICONS[compact.icon];
   const diff = DIFF_LABEL.exec(compact.label);
-  // A file-edit chip routes to the Diff tab focused on that file's CURRENT diff
-  // (not this historical one); every other tool opens the input/output inspector.
+  // A file-edit chip opens only this run's persisted evidence. Every other tool
+  // keeps the bounded input/output inspector.
   const diffPath = props.row.diff?.path;
-  const openDiff = (): void => {
-    window.dispatchEvent(new CustomEvent(OPEN_DIFF_EVENT, { detail: { path: diffPath } }));
-  };
   // Modal keeps its textual status; the row itself only wears the mark.
   const status = props.row.status === 'running'
     ? 'Running…'
@@ -1719,7 +1732,7 @@ function ToolRow(props: { row: RunRow }) {
         className={`nx-tool is-${props.row.status}`}
         data-row-kind="tool"
         aria-label={diffPath !== undefined ? `Open diff for ${diffPath}` : `Inspect ${props.row.title}`}
-        onClick={diffPath !== undefined ? openDiff : () => setInspecting(true)}
+        onClick={diffPath !== undefined ? () => setShowingDiff(true) : () => setInspecting(true)}
       >
         <Icon className="nx-tool-icon" size={14} aria-hidden="true" />
         <span className={`nx-tool-label ${compact.mono ? 'is-mono' : ''}`}>
@@ -1756,9 +1769,16 @@ function ToolRow(props: { row: RunRow }) {
           )}
         </Modal>
       )}
+      {showingDiff && (
+        // harn:assume transcript-diffs-use-immutable-run-evidence ref=historical-diff-dialog
+        <RunDiffDialog diffs={props.diffs} initialPath={diffPath} onClose={() => setShowingDiff(false)} />
+        // harn:end transcript-diffs-use-immutable-run-evidence
+      )}
     </>
   );
 }
+// harn:end compact-one-line-tool-rows-v2
+// harn:end normalized-run-evidence-dialogs
 
 // ── Interaction cards: options answer durably; the resolved card leaves the
 // timeline once the server marks its delivery resolved. ─────────────────────

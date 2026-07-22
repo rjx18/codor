@@ -1,15 +1,14 @@
 id: codor-runtime-fidelity-phase4
 title: Open immutable transcript diffs in an accessible dialog
-notes: >-
-  Replace only the transcript diff chip's current-working-tree detour. A diff
-  row opens a body-portaled dialog backed entirely by the RunItemDiff objects
-  already reconstructed from the durable run journal. The dialog groups stored
-  patches by path, starts on the clicked file, exposes file navigation and
-  aggregate additions/deletions, reuses the syntax-aware unified-diff viewer,
-  and inherits close, Escape, focus trap, and opener restoration from Modal.
-  Empty stored patches say so without querying the filesystem. Non-diff tool
-  rows keep their existing inspector, and the separate live Diff panel remains
-  unchanged for working-tree use.
+notes: Replace only the transcript diff chip's current-working-tree detour. A
+  diff row opens a body-portaled dialog backed entirely by the RunItemDiff
+  objects already reconstructed from the durable run journal. The dialog groups
+  stored patches by path, starts on the clicked file, exposes file navigation
+  and aggregate additions/deletions, reuses the syntax-aware unified-diff
+  viewer, and inherits close, Escape, focus trap, and opener restoration from
+  Modal. Empty stored patches say so without querying the filesystem. Non-diff
+  tool rows keep their existing inspector, and the separate live Diff panel
+  remains unchanged for working-tree use.
 assumptions:
   retire:
     - id: normalized-run-evidence-inspector
@@ -51,9 +50,9 @@ assumptions:
       statement: Opening a transcript diff chip must render the unified patches
         already stored in that run journal, grouped into navigable files with
         per-file additions/deletions and syntax-aware add, delete, hunk, header,
-        and context lines; it must remain readable after the current working tree
-        becomes clean or files disappear, expose an honest empty-patch state,
-        and never fetch or select the live Git Diff panel.
+        and context lines; it must remain readable after the current working
+        tree becomes clean or files disappear, expose an honest empty-patch
+        state, and never fetch or select the live Git Diff panel.
       reason: Historical claims must remain inspectable from the evidence captured
         when the run happened rather than whatever happens to be on disk now.
       depends_on:
@@ -64,19 +63,22 @@ assumptions:
     - id: normalized-run-items-presented-live
       outcome: unchanged
       reason: Journal and live events still merge into the same ordered prose/tool
-        timeline; only the click destination for rows carrying stored diffs changes.
+        timeline; only the click destination for rows carrying stored diffs
+        changes.
     - id: run-journals-own-evidence-across-output-messages
       outcome: unchanged
       reason: The dialog consumes reconstructed RunItemDiff evidence through the
-        existing events_ref/run_parent_id path and adds no database blob or fetch.
+        existing events_ref/run_parent_id path and adds no database blob or
+        fetch.
     - id: normalized-run-item-payload-contract
       outcome: unchanged
-      reason: RunItemDiff path and unified fields already contain the complete
-        durable payload needed by the dialog; no protocol shape changes.
+      reason: RunItemDiff path and unified fields already contain the complete durable
+        payload needed by the dialog; no protocol shape changes.
     - id: room-git-state-read-only-from-known-cwds
       outcome: unchanged
       reason: The separate Diff panel keeps its existing authenticated live
-        working-tree endpoint, refresh, clean state, and cwd validation untouched.
+        working-tree endpoint, refresh, clean state, and cwd validation
+        untouched.
     - id: modal-dialogs-layer-above-room-chrome
       outcome: unchanged
       reason: The stored-diff surface reuses the shared Modal portal and its existing
@@ -110,8 +112,10 @@ files:
   - packages/web-next/src/room/RunDiffDialog.spec.tsx
   - packages/web-next/src/styles/room.css
   - packages/web-next/tests/room19-gitdiff.e2e.spec.ts
-verification: >-
-  Run the focused RunDiffDialog component test, existing run presenter and
-  Transcript units, and the room19 stored/live diff Playwright cases, plus the
-  web-next TypeScript/production build. Run Harn unstaged and staged gates,
-  apply the locked plan, and commit Phase 4 as one implementation transaction.
+verification: Run the focused RunDiffDialog component test, existing run
+  presenter and Transcript units, and the room19 stored/live diff Playwright
+  cases, plus the web-next TypeScript/production build. Run Harn unstaged and
+  staged gates, apply the locked plan, and commit Phase 4 as one implementation
+  transaction.
+applied:
+  applied_at: 2026-07-22T04:16:46.896Z

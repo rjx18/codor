@@ -1570,6 +1570,39 @@
 .nx-diff-line.is-hunk { color: var(--c-faded); background: var(--c-raised); }
 .nx-diff-line.is-meta { color: var(--c-faded); }
 
+/* Historical run evidence is self-contained: file navigation and the stored
+   patch share one bounded dialog without borrowing the live Diff panel. */
+.nx-modal.is-structured .nx-run-diff-body {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.4fr) minmax(0, 1fr);
+  height: min(62dvh, 560px);
+  overflow: hidden;
+  padding: 0;
+}
+.nx-run-diff-files {
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--sp-2);
+  border-right: 1px solid var(--c-line);
+  background: var(--c-raised);
+}
+.nx-run-diff-file {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 7px var(--sp-2);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--c-secondary);
+  text-align: left;
+}
+.nx-run-diff-file:hover,
+.nx-run-diff-file[aria-current='true'] { background: var(--c-muted); color: var(--c-ink); }
+.nx-run-diff-content { display: flex; min-width: 0; min-height: 0; overflow: hidden; }
+.nx-run-diff-content .nx-diff-note { margin: auto; }
+
 .nx-preview {
   flex: 1;
   min-height: 0;
@@ -2397,6 +2430,15 @@
 
 @media (max-width: 720px) {
   .nx-harness-grid { grid-template-columns: repeat(2, 1fr); }
+  .nx-modal.is-structured .nx-run-diff-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .nx-run-diff-files {
+    max-height: 132px;
+    border-right: 0;
+    border-bottom: 1px solid var(--c-line);
+  }
   /* Permissions stay THREE ACROSS at every width — stacking them was my own
      drift from the v2 requirement. They compress instead. */
   .nx-perm { padding: var(--sp-2); min-height: 56px; }

@@ -1,0 +1,14 @@
+id: normalized-run-evidence-dialogs
+hash: a-e35dc9388305
+title: Normalized run evidence opens the dialog suited to its durable type
+state: active
+statement: Selecting a non-diff normalized tool row must open the existing
+  bounded input/output inspector, while selecting a row with a durable unified
+  diff must open the stored-diff dialog for that permanent run; both use the
+  shared body portal, trap focus, close on Escape or an explicit Close action,
+  restore focus to the opener, and never replace the transcript with an
+  inspection surface.
+depends_on:
+  - normalized-run-items-presented-live
+  - modal-dialogs-layer-above-room-chrome
+created_by: codor-runtime-fidelity-phase4
