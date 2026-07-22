@@ -1,0 +1,132 @@
+id: codor-polish-phase4-durable-preview
+title: Phase 4 - durable produced-artifact snapshots served inert, a Preview
+  gallery, and an image lightbox
+notes: >-
+  Product-polish Phase 4 (plan of record tmp/codor-product-polish/PLAN.md).
+  Replace the "latest embedded run image" Preview with a durable, bounded
+  recent-artifact feed and an accessible image lightbox.
+
+  Server (protocol + switchboard): at run finalization the daemon snapshots
+  eligible files an agent successfully produced - only paths named by a
+  successful created/modified file_change item that resolve, via realpath, to a
+  regular non-symlink file inside the room's canonical known-directory set
+  (roomKnownCwds); it content-types each by magic bytes (falling back to a small
+  extension map) against an image/document allowlist and refuses anything outside
+  it, over a byte cap, or beyond a per-run/per-room count. Snapshot bytes are
+  written under the daemon data tree keyed by a server-issued hex id with a
+  journaled JSON metadata sidecar (id, name, media type, size, source message,
+  timestamp), independent of the source message so the artifact survives commit,
+  rename, deletion, working-tree cleanup, and restart. An arbitrary Read path or
+  tool-output string never becomes artifact authority. A new authenticated,
+  room-scoped list endpoint returns the metadata feed and a serve endpoint
+  returns bytes inertly - mirroring attachments-are-capped-files-served-inert:
+  raster images inline with their media type, every other type as an
+  octet-stream download with nosniff, via an opaque artifact URL, never a path.
+
+  web-next (.harnignore'd): the Preview tab becomes a bounded gallery combining
+  message attachments, existing bounded embedded run images, and durable produced
+  artifacts; raster images get thumbnails that open a body-portaled accessible
+  lightbox (reusing the Modal primitive: fit-to-screen image, name/source,
+  open/download, Close, backdrop/Escape, focus trap, opener-focus restore);
+  PDFs/text get document cards with open/download; svg/html and other active
+  content are never snapshotted and any such attachment renders as an inert
+  download, never inline.
+
+  There is no existing byte-content MIME sniffer to reuse, so a small allowlist
+  sniffer is added. The finalize routing contract is unchanged - only a snapshot
+  call is added at finalization.
+assumptions:
+  create:
+    - id: produced-run-artifacts-are-snapshotted-durably-and-served-inert
+      title: Produced files are snapshotted under bounded validated rules and served as
+        durable inert artifacts
+      statement: >-
+        At run finalization the daemon snapshots only files an agent successfully
+        produced - paths named by a successful created or modified file_change
+        item that resolve through realpath to a regular, non-symlink file inside
+        the room's canonical known-directory set - never a path merely read or a
+        tool-output string. Each candidate is content-typed by magic bytes (with
+        a small extension fallback) against an explicit image/document allowlist
+        and refused when outside the allowlist, above the per-file byte cap, or
+        beyond the per-run and per-room count caps. A retained snapshot stores its
+        bytes under the daemon data tree keyed by a server-issued hex id with a
+        journaled JSON metadata sidecar (id, name, safe media type, size, source
+        message id, timestamp) that is independent of the source message, so the
+        artifact survives commit, rename, deletion, working-tree cleanup, and
+        daemon restart, and states an honest error when a bounded snapshot cannot
+        be retained. Artifacts are listed and served only through authenticated,
+        room-read-authorized endpoints addressed by validated hex id; the serve
+        endpoint renders raster image media types inline and every other type as
+        an octet-stream download with x-content-type-options nosniff, exposing an
+        opaque artifact URL and never a local path.
+      reason: >-
+        Preview must show real durable evidence of what agents produced without
+        turning arbitrary agent-named paths into browser file authority or
+        letting produced content execute same-origin, and without depending on
+        the current working tree.
+      depends_on:
+        - attachments-are-capped-files-served-inert
+        - room-git-inspection-read-only-from-known-cwds
+  reviewed:
+    - id: finalized-turn-routes-aggregate-from-terminal-output
+      outcome: unchanged
+      reason: >-
+        Terminal-output aggregate routing is unchanged; finalization additionally
+        calls the artifact snapshotter, which reads the same journal and mutates
+        no run/message routing.
+anchors:
+  produced-run-artifacts-are-snapshotted-durably-and-served-inert:
+    produced-artifact-schema:
+      action: change
+      reason: A protocol ProducedArtifact metadata schema.
+    produced-artifact-snapshot:
+      action: change
+      reason: The daemon snapshot method + durable storage helpers with the validated,
+        bounded, allowlisted rules.
+    produced-artifact-serve:
+      action: change
+      reason: Authenticated room-scoped list + inert serve routes for artifacts.
+    produced-artifact-schema-regression:
+      action: change
+      reason: Protocol tests for the artifact metadata schema.
+    produced-artifact-daemon-regression:
+      action: change
+      reason: Daemon tests for snapshot allowlist, symlink/traversal/outside-cwd refusal,
+        bounds, durability across deletion and restart, and read-not-authority.
+    produced-artifact-server-regression:
+      action: change
+      reason: Server tests for authorized inert serving, the raster-inline allowlist,
+        and traversal/404 handling.
+  finalized-turn-routes-aggregate-from-terminal-output:
+    finalize-and-route:
+      action: change
+      reason: Finalization additionally invokes the artifact snapshotter (routing
+        unchanged).
+files:
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room28-preview.e2e.spec.ts
+verification: |
+  - Protocol: the ProducedArtifact schema round-trips and rejects missing fields.
+  - Daemon: a created/modified file inside a known cwd is snapshotted; a symlink,
+    a non-regular file, a path outside every known cwd, a read-only (not written)
+    path, an over-allowlist type, an oversize file, and beyond the count cap are
+    all refused; the snapshot survives deleting the source file and a daemon
+    restart; metadata never carries a local path.
+  - Server: the list endpoint returns metadata for room readers only; the serve
+    endpoint renders raster inline with nosniff and every other type as an
+    octet-stream download with nosniff; anonymous and cross-room ids are refused.
+  - web-next: the Preview gallery shows message images, embedded run images, and
+    produced artifacts (deduped, with source labels and an empty state); a raster
+    thumbnail opens an accessible lightbox (fit image, name/source, open/download,
+    Close, Escape/backdrop, focus trap + restore); documents render as cards;
+    svg/html is an inert download, never inline; axe-clean.
+  - Focused protocol/switchboard suites + web-next build + focused Playwright;
+    Harn unstaged/staged gates pass.
