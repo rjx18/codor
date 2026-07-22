@@ -122,11 +122,13 @@ assumptions:
     - id: codex-app-server-is-the-member-runtime
       outcome: unchanged
       reason: Resolved-model capture reads metadata from the already retained client,
-        thread, and active turn without changing member process or session lifecycle.
+        thread, and active turn without changing member process or session
+        lifecycle.
     - id: substantive-routing-excludes-acknowledgements
       outcome: unchanged
       reason: Adding resolved model to the finalized run object crosses the shared
-        acknowledgement block without changing classification, content, or routing.
+        acknowledgement block without changing classification, content, or
+        routing.
     - id: turn-output-finalization-is-atomic
       outcome: unchanged
       reason: Resolved model, usage, estimate, meter settlement, output, and routing
@@ -135,6 +137,11 @@ assumptions:
       outcome: unchanged
       reason: Repair uses the same resolved-model/cached-aware pricing boundary and
         retains the existing idempotent finalization recovery behavior.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Boot recovery threads the terminal journal's resolved model into the
+        existing finalization or repair path without changing attempt binding,
+        retry, custody, or no-rerun decisions.
     - id: spend-meter-always-on
       outcome: unchanged
       reason: New turns remain metered on finalization; the historical migration
@@ -265,7 +272,8 @@ anchors:
       reason: Exercise model capture on the existing retained session lifecycle.
     codex-app-server-session-lifecycle:
       action: change
-      reason: Retain app-server model metadata without changing process/thread ownership.
+      reason: Retain app-server model metadata without changing process/thread
+        ownership.
   substantive-routing-excludes-acknowledgements:
     exact-ack-finalization:
       action: change
@@ -288,6 +296,11 @@ anchors:
     delivery-reconciliation-regression:
       action: change
       reason: Prove repair remains idempotent with cached-aware estimates.
+  delivery-attempt-wal-reconcile:
+    boot-reconcile:
+      action: change
+      reason: Preserve the already-durable terminal model through existing boot
+        finalization and repair.
   spend-meter-always-on:
     meter-cost-and-token-accounting:
       action: change
