@@ -1,0 +1,93 @@
+id: codor-runtime-fidelity-phase6-usage-cursor
+title: Make ACP cumulative usage cursor exact and crash-consistent
+notes: >
+  Correct the remaining ACP accounting edges without changing native adapters.
+  Equal cumulative totals produce zero usage, only cache-read deltas map to
+  cached_input_tokens, and cache-write totals remain private cursor evidence.
+  Stage the private cursor against the active run before its terminal journal
+  record, then promote it only inside normal completion, lifecycle settlement,
+  or failed-finalization/boot repair so a crash cannot finalize usage while
+  retaining the previous committed cursor.
+assumptions:
+  reviewed:
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      outcome: unchanged
+      reason: The fixes enforce the existing ACP usage-normalization contract for
+        repeated snapshots, cache reads, and cumulative session totals.
+    - id: durable-agent-runtime-configuration
+      outcome: unchanged
+      reason: Staged and committed usage cursors remain private server-side runtime
+        state and never enter member or API projections.
+    - id: normalized-agent-usage-telemetry-with-estimates
+      outcome: unchanged
+      reason: Codor run usage continues to contain only provider-reported per-turn
+        token categories, with cache reads kept distinct from writes.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Boot still finalizes a terminal journal without rerunning; cursor
+        promotion now joins the same recovery outcome.
+    - id: turn-output-finalization-is-atomic
+      outcome: unchanged
+      reason: Private cursor promotion joins the existing all-or-nothing turn
+        transaction without changing visible lifecycle, accounting, or fanout.
+    - id: failed-finalization-reconciles-at-runtime
+      outcome: unchanged
+      reason: Runtime and boot repair remain idempotent and now promote the cursor
+        staged for the same terminal run.
+    - id: lifecycle-retries-only-live-collaboration-work
+      outcome: unchanged
+      reason: Lifecycle retry eligibility and terminality remain unchanged while
+        any reported ACP usage cursor settles with that attempt.
+anchors:
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-adapter-runtime:
+      action: change
+      reason: Stage the latest provider cursor before exposing the terminal event.
+    acp-event-normalization:
+      action: change
+      reason: Treat equal totals as zero deltas and map only cache reads.
+    acp-adapter-regression:
+      action: change
+      reason: Prove repeated cumulative snapshots do not recharge a session.
+    acp-fake-agent:
+      action: change
+      reason: Simulate a resumed provider continuing from a known cumulative total.
+  durable-agent-runtime-configuration:
+    durable-agent-runtime-storage:
+      action: change
+      reason: Store a private run-bound staged cursor separately from the committed cursor.
+    durable-agent-runtime-regression:
+      action: change
+      reason: Prove staging secrecy and promotion during boot recovery.
+  turn-output-finalization-is-atomic:
+    atomic-turn-finalization:
+      action: change
+      reason: Promote the cursor for the exact run within normal completion.
+    output-finalization-regression:
+      action: change
+      reason: Prove rollback cannot partially promote a staged cursor.
+  failed-finalization-reconciles-at-runtime:
+    finalization-repair-transaction:
+      action: change
+      reason: Promote the cursor for the exact run within explicit repair.
+    delivery-reconciliation-regression:
+      action: change
+      reason: Prove boot repair advances the cursor before the next cumulative turn.
+  lifecycle-retries-only-live-collaboration-work:
+    lifecycle-interruption-settlement:
+      action: change
+      reason: Settle any staged cursor with the same lifecycle-interrupted attempt.
+files:
+  - packages/adapters/acp/src/adapter.ts
+  - packages/adapters/acp/src/adapter.spec.ts
+  - packages/adapters/acp/src/translate.ts
+  - packages/adapters/acp/src/translate.spec.ts
+  - packages/adapters/acp/test-fixtures/fake-agent.mjs
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+verification: >
+  Run ACP translator/runtime tests, focused private runtime/finalization Store
+  tests, focused ACP boot-recovery daemon tests, protocol/ACP/switchboard builds,
+  and Harn unstaged and staged gates.
