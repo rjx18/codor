@@ -1,0 +1,76 @@
+id: codor-polish-phase5-corrections
+title: Phase 5 correction - upsert id uniqueness, Codex plan thread gate, and missing regressions
+notes: >-
+  Correction of Phase 5 (Codex #958). Two correctness bugs and missing required
+  regressions, no architecture change. Upsert batches now reject duplicate ids like
+  replace does. The Codex turn/plan/updated notification is gated in the adapter to
+  require a nonempty threadId exactly matching the retained runtime thread, so a
+  threadless notification cannot slip through on turnId alone. Add the promised
+  daemon revive-preservation and different-session-clear regressions, and the
+  room30 duplicate-no-op, different-session-clear, mobile-width, and light/dark
+  browser checks with their fixture control endpoints. Harn semantics are unchanged:
+  the three Phase 5 assumptions are reviewed unchanged; a narrow codex-plan-task-routing
+  implementation anchor is added in adapter.ts.
+assumptions:
+  reviewed:
+    - id: normalized-agent-task-updates-are-bounded-and-authoritative
+      outcome: unchanged
+      reason: The bounded contract is unchanged - upsert only enforces the already-stated
+        duplicate-id rejection, and Codex plan routing enforces the already-stated
+        mismatched/missing-thread rejection.
+    - id: member-task-projection-is-durable-and-session-scoped
+      outcome: unchanged
+      reason: Storage and materialization are unchanged; this adds the promised daemon
+        revive-preservation and different-session-clear regressions.
+    - id: people-and-agents-shows-only-nonempty-task-lists
+      outcome: unchanged
+      reason: The UI is unchanged; this adds the promised duplicate/different-session/
+        mobile/theme browser checks and their fixture control endpoints.
+    - id: codex-app-server-usage-preserves-cache-and-resolved-model
+      outcome: unchanged
+      reason: Mechanical adjacency only - the turn/plan/updated thread gate sits beside
+        codex-resolved-model-runtime in routeNotification; resolved-model behavior is
+        unchanged.
+anchors:
+  normalized-agent-task-updates-are-bounded-and-authoritative:
+    agent-task-schema:
+      action: change
+      reason: Reject duplicate ids within an upsert batch, matching replace.
+    agent-task-protocol-regression:
+      action: change
+      reason: Cover rejection of a duplicate-id upsert batch.
+    codex-plan-task-routing:
+      action: change
+      reason: New adapter gate requiring turn/plan/updated to carry a nonempty threadId
+        that exactly matches the retained runtime thread.
+    codex-plan-task-routing-regression:
+      action: change
+      reason: Cover a missing threadId and a foreign threadId.
+  member-task-projection-is-durable-and-session-scoped:
+    member-task-daemon-regression:
+      action: change
+      reason: Add revive/same-session preservation and different-session clearing.
+  people-and-agents-shows-only-nonempty-task-lists:
+    member-task-browser-fixture:
+      action: change
+      reason: Control endpoints for duplicate delivery and different-session clearing.
+    member-task-browser-regression:
+      action: change
+      reason: Duplicate no-op, different-session clear, mobile width, and light/dark.
+  codex-app-server-usage-preserves-cache-and-resolved-model:
+    codex-resolved-model-runtime:
+      action: change
+      reason: Mechanical adjacency in routeNotification; resolved-model behavior unchanged.
+files:
+  - packages/protocol/src/member.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/adapter.spec.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room30-tasks.e2e.spec.ts
+verification: >-
+  Focused protocol upsert-uniqueness, Codex adapter missing/foreign threadId routing,
+  switchboard daemon revive-preservation and different-session clear, and room30
+  duplicate/different-session/mobile/theme browser checks pass. Affected protocol,
+  Codex, switchboard, and web-next builds pass. Harn unstaged/staged/apply gates pass.
