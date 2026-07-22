@@ -1,0 +1,27 @@
+id: codor-polish-phase5-corrections-3
+title: Phase 5 correction - daemon task regression exercises the real kill/revive attach path
+notes: >-
+  Test-only correction of Phase 5 (Codex #960). The "revive/re-bind" daemon
+  regression called setAgentSessionRuntime directly and never executed
+  killMember/reviveMember, so the actual attach path was untested. Replace the
+  shortcut with a real kill -> revive flow that asserts the adapter re-attached the
+  exact persisted native session and the task projection survived, then change to a
+  different native session and assert the projection clears. No product code changes.
+assumptions:
+  reviewed:
+    - id: member-task-projection-is-durable-and-session-scoped
+      outcome: unchanged
+      reason: Storage and materialization are unchanged; the daemon regression now drives
+        the real kill/revive attach path instead of a setAgentSessionRuntime shortcut.
+anchors:
+  member-task-projection-is-durable-and-session-scoped:
+    member-task-daemon-regression:
+      action: change
+      reason: Replace the same-session shortcut with a real kill -> revive flow asserting
+        exact-session attach and task preservation, then a different-session clear.
+files:
+  - packages/switchboard/src/daemon.spec.ts
+verification: >-
+  The focused daemon member-task-projection-landing suite passes, including the real
+  kill/revive attach preservation and the different-session clear. Harn
+  unstaged/staged/apply gates pass.
