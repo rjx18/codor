@@ -1264,6 +1264,65 @@
   gap: var(--sp-2);
   margin: var(--sp-1) 0 0 calc(32px + var(--sp-3));
 }
+
+/* harn:assume people-and-agents-shows-only-nonempty-task-lists ref=member-task-list-style */
+.nx-member-tasks {
+  margin: var(--sp-2) 0 0 calc(32px + var(--sp-3));
+}
+.nx-tasklist-note {
+  margin: 0 0 var(--sp-1);
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+.nx-tasklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.nx-tasklist.is-expanded {
+  max-height: 240px; /* bounded expansion — the panel never grows without limit */
+  overflow-y: auto;
+}
+.nx-task {
+  display: grid;
+  grid-template-columns: 1em auto 1fr;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font: var(--t-caption);
+  color: var(--c-ink);
+}
+.nx-task-mark { color: var(--c-secondary); text-align: center; }
+.nx-task.is-in_progress .nx-task-mark { color: var(--c-link); }
+.nx-task-mark.is-active { animation: nx-task-pulse 1.3s var(--m-ease, ease-in-out) infinite; }
+.nx-task-state {
+  font: var(--t-caption-strong);
+  color: var(--c-secondary);
+  white-space: nowrap;
+}
+.nx-task.is-in_progress .nx-task-state { color: var(--c-link); }
+.nx-task-text { min-width: 0; overflow-wrap: anywhere; }
+.nx-task.is-completed .nx-task-text {
+  color: var(--c-secondary);
+  text-decoration: line-through;
+}
+.nx-tasklist-toggle {
+  margin-top: var(--sp-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-link);
+  font: var(--t-caption);
+  cursor: pointer;
+}
+.nx-tasklist-toggle:hover { text-decoration: underline; }
+@keyframes nx-task-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+/* harn:end people-and-agents-shows-only-nonempty-task-lists */
 .nx-limit {
   font: var(--t-caption);
   color: var(--c-secondary);
@@ -1910,6 +1969,9 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .nx-dotgrid::after { animation: none; opacity: 0; }
+  /* harn:assume people-and-agents-shows-only-nonempty-task-lists ref=member-task-list-style */
+  .nx-task-mark.is-active { animation: none; }
+  /* harn:end people-and-agents-shows-only-nonempty-task-lists */
 }
 
 

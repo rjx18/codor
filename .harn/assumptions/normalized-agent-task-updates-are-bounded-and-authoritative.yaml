@@ -1,0 +1,26 @@
+id: normalized-agent-task-updates-are-bounded-and-authoritative
+hash: a-d588c0509bfa
+title: Native structured task evidence becomes one bounded replace/upsert contract
+state: active
+statement: Adapters may emit run.tasks only from authoritative bounded native
+  structures. Agent task ids are 1..128 characters, content and active forms are
+  trimmed 1..500 character strings, status is pending, in_progress, or
+  completed, optional priority is low, medium, or high, each complete list has
+  at most 100 unique ids, and optional explanation is at most 1000 characters
+  and never authoritative task content. Replace is a complete ordered snapshot
+  whose empty list clears; upsert updates a known id in place and appends a new
+  id only from a complete patch. Claude correlates successful TaskCreate results
+  to the strict native Task id prefix, successful TaskUpdate input to that id,
+  and successful TodoWrite input to a replacement; OpenCode completed todowrite,
+  ACP stable plan, and Codex 0.144.5 turn/plan/updated are complete
+  replacements. Failed, partial, malformed, duplicate-id, over-bound,
+  mismatched-thread/turn, or unknown evidence emits no task update, and final
+  prose, reasoning, shell output, TaskList text, and item/plan/delta are never
+  parsed as tasks.
+depends_on:
+  - first-party-run-items-normalized
+  - claude-sdk-message-contract-preserves-normalized-runs
+  - opencode-capability-truth
+  - acp-v1-events-and-capabilities-are-negotiated
+  - codex-app-server-contract-is-pinned-to-0-144-5
+created_by: codor-polish-phase5-tasks

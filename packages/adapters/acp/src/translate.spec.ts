@@ -142,3 +142,36 @@ describe('ACP event normalization', () => {
     });
   });
 });
+
+// harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=acp-plan-task-regression
+describe('ACP stable plan maps to a run.tasks replacement', () => {
+  const run = (entries: unknown[]) =>
+    createAcpTurnTranslator().push({ sessionUpdate: 'plan', entries } as never);
+  const taskUpdate = (events: ReturnType<typeof run>): unknown =>
+    (events.find((event) => event.type === 'run.tasks') as { update?: unknown } | undefined)?.update;
+  const hasReasoning = (events: ReturnType<typeof run>): boolean =>
+    events.some((event) => event.type === 'run.item' && event.item_type === 'reasoning_summary');
+
+  it('emits both a reasoning row and an ordered plan replacement', () => {
+    const events = run([
+      { content: 'Design', status: 'completed', priority: 'high' },
+      { content: 'Build', status: 'in_progress' },
+    ]);
+    expect(hasReasoning(events)).toBe(true);
+    expect(taskUpdate(events)).toEqual({ op: 'replace', items: [
+      { id: 'plan-0', content: 'Design', status: 'completed', priority: 'high' },
+      { id: 'plan-1', content: 'Build', status: 'in_progress' },
+    ] });
+  });
+
+  it('clears on an empty plan', () => {
+    expect(taskUpdate(run([]))).toEqual({ op: 'replace', items: [] });
+  });
+
+  it('emits reasoning but no task update for a malformed plan status', () => {
+    const events = run([{ content: 'X', status: 'blocked' }]);
+    expect(hasReasoning(events)).toBe(true);
+    expect(taskUpdate(events)).toBeUndefined();
+  });
+});
+// harn:end normalized-agent-task-updates-are-bounded-and-authoritative

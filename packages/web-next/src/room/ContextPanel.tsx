@@ -1,4 +1,4 @@
-import type { AgentLimit, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
+import type { AgentLimit, AgentTaskList, AgentTaskStatus, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
 import { Bot, ChevronRight, FileText, LoaderCircle, Minimize2, MoreVertical, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -230,6 +230,53 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
   );
 }
 
+// harn:assume people-and-agents-shows-only-nonempty-task-lists ref=member-task-list-ui
+const TASK_SYMBOL: Record<AgentTaskStatus, string> = { pending: '○', in_progress: '◐', completed: '✓' };
+const TASK_LABEL: Record<AgentTaskStatus, string> = { pending: 'Pending', in_progress: 'In progress', completed: 'Completed' };
+const TASK_COLLAPSED = 5;
+
+/** A bounded, accessible checklist beneath an agent card. Rendered only for a
+ *  nonempty projection; state carries text + symbol redundancy (never color alone),
+ *  and the expanded list scrolls inside a fixed bound so the panel stays finite. */
+function MemberTaskList(props: { handle: string; tasks: AgentTaskList }) {
+  const [expanded, setExpanded] = useState(false);
+  const items = props.tasks.items;
+  const visible = expanded ? items : items.slice(0, TASK_COLLAPSED);
+  const extra = items.length - TASK_COLLAPSED;
+  return (
+    <div className="nx-member-tasks" data-testid={`member-${props.handle}-tasks`}>
+      {props.tasks.explanation !== undefined && (
+        <p className="nx-tasklist-note">{props.tasks.explanation}</p>
+      )}
+      <ul className={`nx-tasklist${expanded ? ' is-expanded' : ''}`} aria-label={`@${props.handle} tasks`}>
+        {visible.map((task) => (
+          <li key={task.id} className={`nx-task is-${task.status}`}>
+            <span className={`nx-task-mark${task.status === 'in_progress' ? ' is-active' : ''}`} aria-hidden="true">
+              {TASK_SYMBOL[task.status]}
+            </span>
+            <span className="nx-task-state">{TASK_LABEL[task.status]}</span>
+            <span className="nx-task-text">
+              {task.status === 'in_progress' && task.active_form !== undefined ? task.active_form : task.content}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {extra > 0 && (
+        <button
+          type="button"
+          className="nx-tasklist-toggle"
+          data-testid={`member-${props.handle}-tasks-toggle`}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? 'Show fewer' : `Show all ${String(items.length)}`}
+        </button>
+      )}
+    </div>
+  );
+}
+// harn:end people-and-agents-shows-only-nonempty-task-lists
+
 function MemberCard(props: {
   member: Member;
   detail: MemberDetail | undefined;
@@ -435,6 +482,9 @@ function MemberCard(props: {
               ),
           )}
         </p>
+      )}
+      {member.kind === 'agent' && (member.tasks?.items.length ?? 0) > 0 && (
+        <MemberTaskList handle={member.handle} tasks={member.tasks!} />
       )}
 
       {confirming !== undefined && (

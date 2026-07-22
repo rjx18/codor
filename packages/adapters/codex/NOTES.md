@@ -77,6 +77,22 @@ The adapter consumes these v2 notifications for the member's root `threadId`:
 - `turn/completed.turn.status` is authoritative for completed, failed, or
   interrupted. Failure detail comes from `turn.error.message` and is emitted as
   `run.completed.error`, never as reply text.
+- `turn/plan/updated` is the authoritative agent task-checklist notification (below).
+
+<!-- harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=codex-plan-task-contract -->
+### Task checklist: `turn/plan/updated`
+
+The pinned 0.144.5 app-server emits `turn/plan/updated` as the ONLY task-checklist
+source. Its params are `{ threadId, turnId, explanation?, plan: [{ step, status }] }`
+where `status` is `pending`, `inProgress`, or `completed`. The adapter accepts it only
+for the retained `threadId` (enforced by `routeNotification`) and only when `turnId`
+equals the `currentTurnId` established by `turn/started`; it maps `step` to task
+content, `inProgress` to `in_progress`, `plan-<index>` ids, and the optional
+`explanation` to non-authoritative display context. An empty plan clears. A missing
+active turn, mismatched turn/thread, unknown status, or malformed/over-bound plan emits
+no task update. `item/plan/delta` (streamed plan-mode content), final answer text,
+reasoning, and shell commands are explicitly NOT task-list sources.
+<!-- harn:end normalized-agent-task-updates-are-bounded-and-authoritative -->
 
 Token usage is the exact 0.144.5 camelCase shape:
 

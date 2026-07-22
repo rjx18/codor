@@ -7,6 +7,9 @@ import Database from 'better-sqlite3';
 import {
   type AcpLaunchConfig,
   type AcpUsageBaseline,
+  type AgentTaskList,
+  type AgentTaskUpdate,
+  AgentTaskListSchema,
   type AttachLease,
   type Attachment,
   AttachLeaseSchema,
@@ -93,7 +96,8 @@ CREATE TABLE IF NOT EXISTS members (
   conventions_sent INTEGER NOT NULL DEFAULT 0,
   misaddressed INTEGER NOT NULL DEFAULT 0,
   roster_stale INTEGER NOT NULL DEFAULT 1,
-  removed_ts TEXT
+  removed_ts TEXT,
+  tasks TEXT                    -- AgentTaskList JSON projection; NULL when empty
 );
 CREATE TABLE IF NOT EXISTS messages (
   room TEXT NOT NULL REFERENCES rooms(id),
@@ -306,6 +310,15 @@ function migrateMemberLimits(db: Database.Database): void {
     db.exec('ALTER TABLE members ADD COLUMN limits TEXT');
   }
 }
+
+// harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-storage
+function migrateMemberTasks(db: Database.Database): void {
+  const columns = db.pragma('table_info(members)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'tasks')) {
+    db.exec('ALTER TABLE members ADD COLUMN tasks TEXT');
+  }
+}
+// harn:end member-task-projection-is-durable-and-session-scoped
 
 function migrateMemberContextWindow(db: Database.Database): void {
   const columns = db.pragma('table_info(members)') as { name: string }[];
@@ -883,6 +896,7 @@ interface MemberRow {
   roster_stale: number;
   removed_ts: string | null;
   limits: string | null;
+  tasks: string | null;
 }
 
 interface MessageRow {
@@ -1024,8 +1038,55 @@ function memberFromRow(row: MemberRow): Member {
     roster_stale: toBool(row.roster_stale),
     removed_ts: row.removed_ts ?? undefined,
     limits: row.limits ? JSON.parse(row.limits) as unknown : undefined,
+    // harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-storage
+    tasks: row.tasks ? JSON.parse(row.tasks) as unknown : undefined,
+    // harn:end member-task-projection-is-durable-and-session-scoped
   });
 }
+
+// harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-storage
+/** Materialize a validated replace/upsert update onto the prior list. Replace is a
+ *  complete snapshot (empty clears); upsert updates known ids in place and appends a
+ *  new id only from a complete (content+status) patch, never inventing content. An
+ *  over-bound or malformed result rejects the whole update (prior list unchanged). */
+function materializeTasks(prev: AgentTaskList | undefined, update: AgentTaskUpdate): AgentTaskList | undefined {
+  if (update.op === 'replace') {
+    if (update.items.length === 0) return undefined; // authoritative empty clears
+    const parsed = AgentTaskListSchema.safeParse({
+      items: update.items,
+      ...(update.explanation !== undefined && { explanation: update.explanation }),
+    });
+    return parsed.success ? parsed.data : prev;
+  }
+  const items = (prev?.items ?? []).map((task) => ({ ...task }));
+  const indexById = new Map(items.map((task, index) => [task.id, index]));
+  for (const patch of update.items) {
+    const at = indexById.get(patch.id);
+    if (at !== undefined) {
+      const changed: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(patch)) if (key !== 'id') changed[key] = value;
+      items[at] = { ...items[at]!, ...changed } as (typeof items)[number];
+    } else if (patch.content !== undefined && patch.status !== undefined) {
+      items.push({
+        id: patch.id, content: patch.content, status: patch.status,
+        ...(patch.active_form !== undefined && { active_form: patch.active_form }),
+        ...(patch.priority !== undefined && { priority: patch.priority }),
+      });
+      indexById.set(patch.id, items.length - 1);
+    }
+    // else: unknown partial patch is ignored — it never invents a task
+  }
+  if (items.length === 0) return prev; // upsert never clears
+  const parsed = AgentTaskListSchema.safeParse({
+    items,
+    ...(prev?.explanation !== undefined && { explanation: prev.explanation }),
+  });
+  return parsed.success ? parsed.data : prev;
+}
+
+const tasksEqual = (left: AgentTaskList | undefined, right: AgentTaskList | undefined): boolean =>
+  JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+// harn:end member-task-projection-is-durable-and-session-scoped
 
 function messageFromRow(row: MessageRow): Message {
   return MessageSchema.parse({
@@ -1278,6 +1339,7 @@ export class Store {
       // again — and then every insert would fail on a column that no longer exists.
       migrateMemberAgentConfig(this.db);
       migrateMemberLimits(this.db);
+      migrateMemberTasks(this.db);
       migrateMemberContextWindow(this.db);
       migrateMemberCredential(this.db);
       migrateMessageAck(this.db);
@@ -1551,13 +1613,38 @@ export class Store {
     lifecycle: SessionLifecycleSupport,
   ): Member {
     return this.db.transaction(() => {
+      // harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-storage
+      // Same-id reconnect/rebuild/revive preserves the task projection; moving to a
+      // genuinely different native session id clears it atomically here too.
+      const existing = this.getMember(room, memberId);
+      const clearTasks = existing?.session_ref !== undefined && existing.session_ref !== sessionRef;
       this.db.prepare(
-        'UPDATE members SET session_ref = ?, session_lifecycle = ? WHERE room = ? AND id = ?',
+        `UPDATE members SET session_ref = ?, session_lifecycle = ?${clearTasks ? ', tasks = NULL' : ''} WHERE room = ? AND id = ?`,
       ).run(sessionRef, JSON.stringify(lifecycle), room, memberId);
+      // harn:end member-task-projection-is-durable-and-session-scoped
       this.appendChange(room, 'member', memberId);
       return this.getMember(room, memberId)!;
     })();
   }
+
+  // harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-storage
+  /** Materialize a run.tasks update onto the member's durable task projection in one
+   *  transaction. Appends exactly one member change row only when the list actually
+   *  changes; an identical (duplicate) delivery is a no-op returning undefined so the
+   *  daemon emits no duplicate frame. */
+  applyMemberTaskUpdate(room: string, memberId: string, update: AgentTaskUpdate): Member | undefined {
+    return this.db.transaction(() => {
+      const existing = this.getMember(room, memberId);
+      if (existing === undefined) return undefined;
+      const next = materializeTasks(existing.tasks, update);
+      if (tasksEqual(existing.tasks, next)) return undefined; // idempotent no-op
+      this.db.prepare('UPDATE members SET tasks = ? WHERE room = ? AND id = ?')
+        .run(next === undefined ? null : JSON.stringify(next), room, memberId);
+      this.appendChange(room, 'member', memberId);
+      return this.getMember(room, memberId)!;
+    })();
+  }
+  // harn:end member-task-projection-is-durable-and-session-scoped
 
   updateMember(
     room: string,
@@ -1568,6 +1655,13 @@ export class Store {
       const existing = this.getMember(room, memberId);
       if (!existing) throw new Error(`no such member: ${memberId}`);
       const merged = MemberSchema.parse({ ...existing, ...patch });
+      // harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-storage
+      // Preserve the task projection across ordinary config edits; clear it only when
+      // this update moves the member to a genuinely different native session.
+      const changesSession = existing.session_ref !== undefined &&
+        merged.session_ref !== undefined && merged.session_ref !== existing.session_ref;
+      const nextTasks = changesSession ? undefined : merged.tasks;
+      // harn:end member-task-projection-is-durable-and-session-scoped
       this.db
         .prepare(
           // harn:assume member-config-is-changed-not-respawned ref=member-config-storage
@@ -1578,7 +1672,7 @@ export class Store {
           `UPDATE members SET handle = ?, display_name = ?, purpose = ?, harness = ?, session_ref = ?,
              cwd = ?, policy = ?, model = ?, thinking = ?, host = ?, state = ?, custody = ?,
              parent = ?, role = ?, conventions_sent = ?, misaddressed = ?, roster_stale = ?,
-             removed_ts = ?, limits = ?
+             removed_ts = ?, limits = ?, tasks = ?
            WHERE room = ? AND id = ?`,
         )
         .run(
@@ -1601,12 +1695,13 @@ export class Store {
           fromBool(merged.roster_stale),
           orNull(merged.removed_ts),
           merged.limits === undefined ? null : JSON.stringify(merged.limits),
+          nextTasks === undefined ? null : JSON.stringify(nextTasks),
           room,
           memberId,
         );
       // harn:end member-config-is-changed-not-respawned
       this.appendChange(room, 'member', memberId);
-      return merged;
+      return { ...merged, tasks: nextTasks };
     })();
   }
 

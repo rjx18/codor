@@ -101,6 +101,66 @@ export const AgentLimitSchema = z.object({
 export type AgentLimit = z.infer<typeof AgentLimitSchema>;
 // harn:end agent-usage-limits-reported-not-guessed
 
+// harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=agent-task-schema
+/** Bounded normalized agent task-list truth. Adapters map only authoritative
+ *  native structured checklists into these; content/active forms are trimmed. */
+export const AgentTaskStatusSchema = z.enum(['pending', 'in_progress', 'completed']);
+export type AgentTaskStatus = z.infer<typeof AgentTaskStatusSchema>;
+
+export const AgentTaskPrioritySchema = z.enum(['low', 'medium', 'high']);
+export type AgentTaskPriority = z.infer<typeof AgentTaskPrioritySchema>;
+
+const trimmedText = (max: number): z.ZodString => z.string().trim().min(1).max(max);
+const uniqueTaskIds = <T extends { id: string }>(items: T[]): boolean =>
+  new Set(items.map((task) => task.id)).size === items.length;
+
+export const AgentTaskSchema = z.object({
+  id: z.string().min(1).max(128),
+  content: trimmedText(500),
+  status: AgentTaskStatusSchema,
+  active_form: trimmedText(500).optional(),
+  priority: AgentTaskPrioritySchema.optional(),
+});
+export type AgentTask = z.infer<typeof AgentTaskSchema>;
+
+export const AgentTaskListSchema = z.object({
+  items: z.array(AgentTaskSchema).max(100).refine(uniqueTaskIds, { message: 'task ids must be unique' }),
+  explanation: trimmedText(1000).optional(), // display context only — never authoritative task content
+});
+export type AgentTaskList = z.infer<typeof AgentTaskListSchema>;
+
+export const AgentTaskPatchSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    content: trimmedText(500).optional(),
+    status: AgentTaskStatusSchema.optional(),
+    active_form: trimmedText(500).optional(),
+    priority: AgentTaskPrioritySchema.optional(),
+  })
+  .refine(
+    (patch) => patch.content !== undefined || patch.status !== undefined ||
+      patch.active_form !== undefined || patch.priority !== undefined,
+    { message: 'patch must change at least one field besides id' },
+  );
+export type AgentTaskPatch = z.infer<typeof AgentTaskPatchSchema>;
+
+/** A complete authoritative snapshot (`replace`, empty clears) or an id-based
+ *  `upsert` batch. Duplicate ids or any over-bound/malformed member rejects the
+ *  whole update rather than partially landing it. */
+export const AgentTaskUpdateSchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('replace'),
+    items: z.array(AgentTaskSchema).max(100).refine(uniqueTaskIds, { message: 'task ids must be unique' }),
+    explanation: trimmedText(1000).optional(),
+  }),
+  z.object({
+    op: z.literal('upsert'),
+    items: z.array(AgentTaskPatchSchema).min(1).max(100),
+  }),
+]);
+export type AgentTaskUpdate = z.infer<typeof AgentTaskUpdateSchema>;
+// harn:end normalized-agent-task-updates-are-bounded-and-authoritative
+
 export const MemberSchema = z
   .object({
     id: MemberIdSchema,
@@ -129,6 +189,11 @@ export const MemberSchema = z
     // reports none. Provider status, not configuration — refreshed by reports.
     limits: z.array(AgentLimitSchema).optional(),
     // harn:end agent-usage-limits-reported-not-guessed
+    // harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-projection-schema
+    // Current bounded task checklist, materialized from run.tasks updates and
+    // scoped to the native session. A durable projection — never journal evidence.
+    tasks: AgentTaskListSchema.optional(),
+    // harn:end member-task-projection-is-durable-and-session-scoped
     // harn:assume normalized-agent-usage-telemetry-with-estimates ref=agent-usage-telemetry-schema
     // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-member-projection
     lastUsage: AgentUsageSchema.optional(),

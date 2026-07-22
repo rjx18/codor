@@ -1,4 +1,4 @@
-import type { AgentUsage, WireEvent } from '@codor/protocol';
+import { AgentTaskUpdateSchema, type AgentUsage, type WireEvent } from '@codor/protocol';
 
 const MAX_OUTPUT = 256 * 1024;
 
@@ -161,6 +161,32 @@ export function agentUsageFromTokenUsage(tokenUsage: unknown): AgentUsage | unde
 // harn:end normalized-agent-usage-telemetry-with-estimates
 // harn:end codex-app-server-usage-preserves-cache-and-resolved-model
 
+// harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=codex-plan-task-translation
+// The pinned 0.144.5 app-server checklist notification uses camelCase inProgress.
+const CODEX_PLAN_STATUS: Record<string, string> = { pending: 'pending', inProgress: 'in_progress', completed: 'completed' };
+
+/** Map the pinned `turn/plan/updated` notification to one bounded run.tasks
+ *  replacement, only for the active turn. A missing active turn, a mismatched
+ *  turnId, an unknown status, or a malformed/over-bound plan maps to nothing.
+ *  `item/plan/delta`, prose, reasoning, and commands are never task sources. */
+function codexPlanTaskUpdate(params: unknown, currentTurnId: string | undefined): WireEvent | undefined {
+  if (currentTurnId === undefined || !isRecord(params)) return undefined; // no active turn established
+  if (stringValue(params.turnId) !== currentTurnId) return undefined; // missing/mismatched turn
+  if (!Array.isArray(params.plan)) return undefined;
+  const items: Record<string, unknown>[] = [];
+  for (let index = 0; index < params.plan.length; index += 1) {
+    const step = isRecord(params.plan[index]) ? (params.plan[index] as Record<string, unknown>) : undefined;
+    const content = step !== undefined && typeof step.step === 'string' && step.step.trim() !== '' ? step.step : undefined;
+    const status = step !== undefined && typeof step.status === 'string' ? CODEX_PLAN_STATUS[step.status] : undefined;
+    if (content === undefined || status === undefined) return undefined; // unknown status / malformed step
+    items.push({ id: `plan-${String(index)}`, content, status });
+  }
+  const explanation = typeof params.explanation === 'string' && params.explanation.trim() !== '' ? params.explanation : undefined;
+  const parsed = AgentTaskUpdateSchema.safeParse({ op: 'replace', items, ...(explanation !== undefined && { explanation }) });
+  return parsed.success ? { type: 'run.tasks', update: parsed.data } : undefined;
+}
+// harn:end normalized-agent-task-updates-are-bounded-and-authoritative
+
 /** One app-server turn translator. Shared context carries only latest usage. */
 export function createTurnTranslator(
   context: CodexTranslatorContext = {},
@@ -210,6 +236,13 @@ export function createTurnTranslator(
         }
         return [];
       }
+
+      // harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=codex-plan-task-translation
+      if (method === 'turn/plan/updated') {
+        const taskEvent = codexPlanTaskUpdate(params, currentTurnId);
+        return taskEvent === undefined ? [] : [taskEvent];
+      }
+      // harn:end normalized-agent-task-updates-are-bounded-and-authoritative
 
       if (method === 'thread/tokenUsage/updated') {
         if (!isRecord(params)) return [];

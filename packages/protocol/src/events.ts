@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { MemberIdSchema, MessageIdSchema, TimestampSchema } from './ids.js';
-import { AgentLimitSchema, AgentUsageSchema, MemberStateSchema } from './member.js';
+import { AgentLimitSchema, AgentTaskUpdateSchema, AgentUsageSchema, MemberStateSchema } from './member.js';
 import { AskCardSchema, RunStatusSchema, UsageSchema } from './message.js';
 
 /**
@@ -162,6 +162,14 @@ export const WireEventSchema = z.discriminatedUnion('type', [
     type: z.literal('run.limits'),
     limits: z.array(AgentLimitSchema).min(1),
   }),
+  // harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=agent-task-event-schema
+  // Transient adapter input materialized onto the member row, NOT a run.item and
+  // never written to the JSONL run journal or a run_event frame.
+  z.object({
+    type: z.literal('run.tasks'),
+    update: AgentTaskUpdateSchema,
+  }),
+  // harn:end normalized-agent-task-updates-are-bounded-and-authoritative
   z.object({
     type: z.literal('member.state'),
     member: MemberIdSchema,

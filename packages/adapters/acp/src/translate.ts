@@ -8,7 +8,7 @@ import type {
   ToolCallUpdate,
   UsageUpdate,
 } from '@agentclientprotocol/sdk';
-import type { AcpUsageBaseline, AgentUsage, WireEvent } from '@codor/protocol';
+import { AgentTaskUpdateSchema, type AcpUsageBaseline, type AgentUsage, type WireEvent } from '@codor/protocol';
 
 interface ToolState {
   title: string;
@@ -74,6 +74,31 @@ function planText(plan: Plan): string {
     .map((entry) => `[${entry.status}] ${entry.content}`)
     .join('\n');
 }
+
+// harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=acp-plan-task-translation
+const ACP_TASK_STATUS = new Set(['pending', 'in_progress', 'completed']);
+const ACP_TASK_PRIORITY = new Set(['low', 'medium', 'high']);
+const nonEmptyPlan = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() !== '' ? value : undefined;
+
+/** A stable ACP plan is a complete checklist replacement (empty clears). Map its
+ *  entries in order; a malformed or over-bound plan maps to nothing (the reasoning
+ *  row still renders). */
+function acpPlanTaskUpdate(plan: Plan): WireEvent | undefined {
+  const entries = plan.entries ?? [];
+  const items: Record<string, unknown>[] = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    const content = nonEmptyPlan(entry?.content);
+    const status = typeof entry?.status === 'string' && ACP_TASK_STATUS.has(entry.status) ? entry.status : undefined;
+    if (content === undefined || status === undefined) return undefined;
+    const priority = typeof entry?.priority === 'string' && ACP_TASK_PRIORITY.has(entry.priority) ? entry.priority : undefined;
+    items.push({ id: `plan-${String(index)}`, content, status, ...(priority !== undefined && { priority }) });
+  }
+  const parsed = AgentTaskUpdateSchema.safeParse({ op: 'replace', items });
+  return parsed.success ? { type: 'run.tasks', update: parsed.data } : undefined;
+}
+// harn:end normalized-agent-task-updates-are-bounded-and-authoritative
 
 function usageDelta(current: number | null | undefined, previous: number | undefined, reset: boolean): number {
   if (current == null) return 0;
@@ -208,7 +233,11 @@ export function createAcpTurnTranslator(): AcpTurnTranslator {
       if (update.sessionUpdate === 'tool_call') return toolEvents(update, true);
       if (update.sessionUpdate === 'tool_call_update') return toolEvents(update, false);
       if (update.sessionUpdate === 'plan') {
-        return [{ type: 'run.item', item_type: 'reasoning_summary', payload: { text: planText(update) } }];
+        // harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=acp-plan-task-translation
+        const reasoning: WireEvent = { type: 'run.item', item_type: 'reasoning_summary', payload: { text: planText(update) } };
+        const taskEvent = acpPlanTaskUpdate(update);
+        return taskEvent === undefined ? [reasoning] : [reasoning, taskEvent];
+        // harn:end normalized-agent-task-updates-are-bounded-and-authoritative
       }
       if (update.sessionUpdate === 'usage_update') {
         return [{ type: 'usage_updated', usage: contextUsage(update) }];

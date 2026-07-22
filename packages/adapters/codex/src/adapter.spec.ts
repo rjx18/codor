@@ -712,3 +712,25 @@ describe('manual compaction', () => {
     await assertion;
   });
 });
+
+// harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=codex-plan-task-routing-regression
+describe('Codex turn/plan/updated thread routing', () => {
+  it('routes an active-turn plan only for the retained thread', async () => {
+    const server = createFakeCodexAppServer();
+    const { adapter } = fixtureAdapter(server);
+    const session = adapter.spawn({ cwd: '/work' });
+    const run = collect(adapter, session, 'start');
+    await server.waitForRequest('turn/start');
+    server.notify('turn/started', { threadId: 'thread-1', turn: { id: 'turn-1', status: 'inProgress', items: [], error: null } });
+    // A foreign-thread plan notification is dropped before reaching the translator.
+    server.notify('turn/plan/updated', { threadId: 'thread-OTHER', turnId: 'turn-1', plan: [{ step: 'Leaked', status: 'pending' }] });
+    // The retained-thread active-turn plan is projected.
+    server.notify('turn/plan/updated', { threadId: 'thread-1', turnId: 'turn-1', plan: [{ step: 'Design', status: 'inProgress' }] });
+    server.notify('turn/completed', { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [], error: null } });
+    const events = await run;
+    const tasks = events.filter((event) => event.type === 'run.tasks');
+    expect(tasks).toHaveLength(1);
+    expect((tasks[0] as { update: unknown }).update).toEqual({ op: 'replace', items: [{ id: 'plan-0', content: 'Design', status: 'in_progress' }] });
+  });
+});
+// harn:end normalized-agent-task-updates-are-bounded-and-authoritative

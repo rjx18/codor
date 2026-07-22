@@ -6519,3 +6519,45 @@ describe('manual engine compaction', () => {
   });
 });
 // harn:end manual-compaction-is-an-operator-act
+
+// harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-daemon-regression
+describe('member task projection landing (member-task-projection-is-durable-and-session-scoped)', () => {
+  const replace = (id: string, status: string): WireEvent =>
+    ({ type: 'run.tasks', update: { op: 'replace', items: [{ id, content: 'Do', status }] } }) as unknown as WireEvent;
+
+  async function emit(handle: string, cwd: string, ...items: WireEvent[]): Promise<string> {
+    const member = daemon.spawnMember('eng', { harness: 'fake', handle, cwd });
+    fake.enqueue({ kind: 'complete', final_text: 'done', items });
+    daemon.postHumanMessage('eng', `@${handle} go`);
+    await daemon.settle();
+    return member.id;
+  }
+
+  it('lands run.tasks on the member and streams a member frame, never a run event', async () => {
+    frames = [];
+    const id = await emit('planner', testCwd('planner'), replace('a', 'in_progress'));
+    expect(daemon.store.getMember('eng', id)?.tasks?.items.map((task) => task.id)).toEqual(['a']);
+    expect(frames.some(({ frame }) => frame.type === 'member' && frame.member.id === id && frame.member.tasks?.items.length === 1)).toBe(true);
+    expect(frames.some(({ frame }) => frame.type === 'run_event' && (frame.event as { type?: string }).type === 'run.tasks')).toBe(false);
+  });
+
+  it('treats an identical duplicate delivery as a no-op', async () => {
+    const id = await emit('dup', testCwd('dup'), replace('a', 'pending'), replace('a', 'pending'));
+    expect(daemon.store.getMember('eng', id)?.tasks?.items).toEqual([{ id: 'a', content: 'Do', status: 'pending' }]);
+  });
+
+  it('preserves the projection across a daemon restart', async () => {
+    const id = await emit('keeper', testCwd('keeper'), replace('a', 'completed'));
+    await daemon.close();
+    const restarted = new Daemon({
+      dbPath: join(dir, 'switchboard.sqlite'), blobRoot: join(dir, 'blobs'),
+      adapters: [new FakeAdapter('fake')], discoverModels: false, homeDir: dir,
+    });
+    try {
+      expect(restarted.store.getMember('eng', id)?.tasks?.items).toHaveLength(1);
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+// harn:end member-task-projection-is-durable-and-session-scoped

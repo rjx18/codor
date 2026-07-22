@@ -1,0 +1,19 @@
+id: member-task-projection-is-durable-and-session-scoped
+hash: a-4bc61614a337
+title: The current task list is an idempotent durable member projection scoped
+  to one native session
+state: active
+statement: A member's current bounded task list is materialized transactionally
+  in SQLite from validated run.tasks replace/upsert status events, with exactly
+  one ordinary member changelog row and frame only when the materialized value
+  changes; duplicate delivery is a no-op. Task status events and task payloads
+  never enter run journals or run_event frames. Authoritative empty replacement
+  clears the projection. Restart, reconnect, process rebuild, ordinary turns,
+  and revive/attach to the same persisted session id preserve it; changing an
+  existing session_ref to a different native session id clears it atomically in
+  both member-update and direct session-runtime paths.
+depends_on:
+  - normalized-agent-task-updates-are-bounded-and-authoritative
+  - changelog-covers-every-visible-entity
+  - revive-via-session-ref
+created_by: codor-polish-phase5-tasks

@@ -325,3 +325,41 @@ describe('Codex completed no-diff file change carries path-bearing evidence', ()
     }));
   });
 });
+
+// harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=codex-plan-task-regression
+describe('Codex turn/plan/updated maps to a run.tasks replacement', () => {
+  const run = (params: unknown): WireEvent[] => {
+    const translator = createTurnTranslator();
+    translator.push('turn/started', { turn: { id: 'turn-1' } });
+    return translator.push('turn/plan/updated', params);
+  };
+  const taskUpdate = (events: WireEvent[]): unknown =>
+    (events.find((event) => event.type === 'run.tasks') as { update?: unknown } | undefined)?.update;
+
+  it('maps an active-turn plan with status mapping and explanation', () => {
+    expect(taskUpdate(run({ threadId: 'th', turnId: 'turn-1', explanation: 'why', plan: [
+      { step: 'Design', status: 'completed' },
+      { step: 'Build', status: 'inProgress' },
+      { step: 'Ship', status: 'pending' },
+    ] }))).toEqual({ op: 'replace', explanation: 'why', items: [
+      { id: 'plan-0', content: 'Design', status: 'completed' },
+      { id: 'plan-1', content: 'Build', status: 'in_progress' },
+      { id: 'plan-2', content: 'Ship', status: 'pending' },
+    ] });
+  });
+
+  it('clears on an empty plan', () => {
+    expect(taskUpdate(run({ turnId: 'turn-1', plan: [] }))).toEqual({ op: 'replace', items: [] });
+  });
+
+  it('ignores a plan with no active turn or a mismatched turn', () => {
+    expect(taskUpdate(createTurnTranslator().push('turn/plan/updated', { turnId: 'turn-1', plan: [{ step: 'X', status: 'pending' }] }))).toBeUndefined();
+    expect(taskUpdate(run({ turnId: 'turn-OTHER', plan: [{ step: 'X', status: 'pending' }] }))).toBeUndefined();
+  });
+
+  it('ignores an unknown status or malformed step', () => {
+    expect(taskUpdate(run({ turnId: 'turn-1', plan: [{ step: 'X', status: 'blocked' }] }))).toBeUndefined();
+    expect(taskUpdate(run({ turnId: 'turn-1', plan: [{ status: 'pending' }] }))).toBeUndefined();
+  });
+});
+// harn:end normalized-agent-task-updates-are-bounded-and-authoritative

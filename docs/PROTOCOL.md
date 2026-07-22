@@ -467,6 +467,19 @@ path. File-editing adapters emit unified diffs when native evidence permits. Inl
 capped at 2 MiB and output text at 256 KiB by adapters; oversized content is replaced or
 truncated with an explicit marker. A tool result's untruncated `raw` value is journal-only and
 must be stripped from live `run_event` frames.
+
+<!-- harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=agent-task-protocol-doc -->
+`run.tasks { update }` is a sibling **status event**, not a `run.item`. Its `update` is a bounded
+`AgentTaskUpdate` — either `{ op: 'replace', items, explanation? }` (a complete authoritative
+snapshot whose empty list clears) or `{ op: 'upsert', items }` (id-based patches). Adapters emit
+it only from authoritative native structured checklists (Claude `TaskCreate`/`TaskUpdate`/
+`TodoWrite`, OpenCode `todowrite`, ACP stable `plan`, Codex 0.144.5 `turn/plan/updated`); failed,
+partial, malformed, over-bound, or mismatched evidence emits nothing, and final prose, reasoning,
+shell output, `TaskList` text, and `item/plan/delta` are never task sources. The switchboard
+materializes it onto the member row's optional `tasks` projection. It is transient adapter input —
+never a `run.item`, never transcript evidence, and never written to the JSONL run journal or a
+`run_event` frame.
+<!-- harn:end normalized-agent-task-updates-are-bounded-and-authoritative -->
 <!-- harn:end normalized-run-item-payload-contract -->
 
 ## 5. Harness feature matrix

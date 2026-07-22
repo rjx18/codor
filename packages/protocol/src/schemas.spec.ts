@@ -4,6 +4,8 @@ import {
   AcpUsageBaselineSchema,
   ActSchema,
   AcpLaunchConfigSchema,
+  AgentTaskListSchema,
+  AgentTaskUpdateSchema,
   AgentUsageSchema,
   AssignableHandleSchema,
   AttachmentSchema,
@@ -1493,3 +1495,42 @@ describe('ProducedArtifactSchema', () => {
   });
 });
 // harn:end descriptor-safe-durable-inert-snapshots-of-successful-output
+
+// harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=agent-task-protocol-regression
+describe('AgentTask schemas', () => {
+  const task = { id: '1', content: 'Do the thing', status: 'pending' as const };
+
+  it('bounds task fields and trims content', () => {
+    expect(AgentTaskListSchema.parse({ items: [{ ...task, content: '  spaced  ' }] }).items[0]!.content).toBe('spaced');
+    expect(AgentTaskListSchema.safeParse({ items: [{ ...task, content: '' }] }).success).toBe(false);
+    expect(AgentTaskListSchema.safeParse({ items: [{ ...task, content: 'x'.repeat(501) }] }).success).toBe(false);
+    expect(AgentTaskListSchema.safeParse({ items: [{ ...task, id: '' }] }).success).toBe(false);
+    expect(AgentTaskListSchema.safeParse({ items: [{ ...task, id: 'x'.repeat(129) }] }).success).toBe(false);
+    expect(AgentTaskListSchema.safeParse({ items: [{ ...task, status: 'blocked' }] }).success).toBe(false);
+    expect(AgentTaskListSchema.safeParse({ items: [{ ...task, priority: 'urgent' }] }).success).toBe(false);
+    expect(AgentTaskListSchema.safeParse({ items: [task], explanation: 'x'.repeat(1001) }).success).toBe(false);
+  });
+
+  it('rejects a list over 100 items or with duplicate ids', () => {
+    const many = Array.from({ length: 101 }, (_, i) => ({ ...task, id: String(i) }));
+    expect(AgentTaskListSchema.safeParse({ items: many }).success).toBe(false);
+    expect(AgentTaskListSchema.safeParse({ items: [task, { ...task, content: 'again' }] }).success).toBe(false);
+  });
+
+  it('accepts a complete replace update including an empty clearing list', () => {
+    expect(AgentTaskUpdateSchema.parse({ op: 'replace', items: [task] })).toMatchObject({ op: 'replace' });
+    expect(AgentTaskUpdateSchema.safeParse({ op: 'replace', items: [] }).success).toBe(true); // empty clears
+    expect(AgentTaskUpdateSchema.safeParse({ op: 'replace', items: [task, task] }).success).toBe(false); // dup ids
+  });
+
+  it('accepts an upsert of partial patches but rejects an id-only patch', () => {
+    expect(AgentTaskUpdateSchema.parse({ op: 'upsert', items: [{ id: '1', status: 'completed' }] })).toMatchObject({ op: 'upsert' });
+    expect(AgentTaskUpdateSchema.safeParse({ op: 'upsert', items: [{ id: '1' }] }).success).toBe(false); // no changed field
+    expect(AgentTaskUpdateSchema.safeParse({ op: 'upsert', items: [] }).success).toBe(false); // must have >=1 patch
+  });
+
+  it('rejects an unknown op', () => {
+    expect(AgentTaskUpdateSchema.safeParse({ op: 'append', items: [task] }).success).toBe(false);
+  });
+});
+// harn:end normalized-agent-task-updates-are-bounded-and-authoritative

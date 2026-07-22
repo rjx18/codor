@@ -1,4 +1,4 @@
-import type { WireEvent } from '@codor/protocol';
+import { AgentTaskUpdateSchema, type WireEvent } from '@codor/protocol';
 
 /**
  * Pure translator: Claude Agent SDK message objects → WireEvents. String input
@@ -229,6 +229,64 @@ export function diffFromToolUse(
     unified: `--- ${change === 'created' ? '/dev/null' : `a/${path}`}\n+++ b/${path}\n${body}\n`,
   };
 }
+
+// harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=claude-task-translation
+const CLAUDE_TASK_STATUS = new Set(['pending', 'in_progress', 'completed']);
+// A successful TaskCreate result announces the durable id in an anchored native prefix.
+const CLAUDE_CREATE_ID = /^Task #([1-9][0-9]*) created successfully(?:[:.]|$)/;
+
+const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+  value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+const nonEmpty = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() !== '' ? value : undefined;
+const nativeStatus = (value: unknown): string | undefined =>
+  typeof value === 'string' && CLAUDE_TASK_STATUS.has(value) ? value : undefined;
+
+/** Map only authoritative successful structured Claude task evidence to one bounded
+ *  run.tasks update. Failed, malformed, or ambiguous evidence maps to nothing. */
+function claudeTaskUpdate(toolName: string, input: unknown, resultText: string): WireEvent | undefined {
+  const record = asRecord(input);
+  if (record === undefined) return undefined;
+  let candidate: unknown;
+  if (toolName === 'TaskCreate') {
+    const created = CLAUDE_CREATE_ID.exec(resultText);
+    const content = nonEmpty(record.subject);
+    if (created === null || content === undefined) return undefined; // ambiguous create text -> ignore
+    const activeForm = nonEmpty(record.activeForm);
+    candidate = { op: 'upsert', items: [{ id: created[1], content, status: 'pending', ...(activeForm !== undefined && { active_form: activeForm }) }] };
+  } else if (toolName === 'TaskUpdate') {
+    const id = nonEmpty(record.taskId);
+    if (id === undefined) return undefined;
+    const content = nonEmpty(record.subject);
+    const activeForm = nonEmpty(record.activeForm);
+    const status = nativeStatus(record.status);
+    if (content === undefined && activeForm === undefined && status === undefined) return undefined; // no changed field
+    candidate = { op: 'upsert', items: [{
+      id,
+      ...(content !== undefined && { content }),
+      ...(activeForm !== undefined && { active_form: activeForm }),
+      ...(status !== undefined && { status }),
+    }] };
+  } else if (toolName === 'TodoWrite') {
+    if (!Array.isArray(record.todos)) return undefined;
+    const items: Record<string, unknown>[] = [];
+    for (let index = 0; index < record.todos.length; index += 1) {
+      const todo = asRecord(record.todos[index]);
+      if (todo === undefined) return undefined; // malformed entry rejects the replacement
+      const content = nonEmpty(todo.content);
+      const status = nativeStatus(todo.status);
+      if (content === undefined || status === undefined) return undefined;
+      const activeForm = nonEmpty(todo.activeForm);
+      items.push({ id: `todo-${String(index)}`, content, status, ...(activeForm !== undefined && { active_form: activeForm }) });
+    }
+    candidate = { op: 'replace', items }; // empty todos clears
+  } else {
+    return undefined;
+  }
+  const parsed = AgentTaskUpdateSchema.safeParse(candidate);
+  return parsed.success ? { type: 'run.tasks', update: parsed.data } : undefined;
+}
+// harn:end normalized-agent-task-updates-are-bounded-and-authoritative
 
 const TITLE_MAX = 200;
 
@@ -469,6 +527,12 @@ export function createTurnTranslator(
             // file operation; a second file_change event here rendered every edit
             // twice. file_change stays reserved for harnesses whose edits are not
             // tool-paired.
+            // harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=claude-task-translation
+            if (block.is_error !== true && tool !== undefined) {
+              const taskEvent = claudeTaskUpdate(tool.name, tool.input, text);
+              if (taskEvent !== undefined) events.push(taskEvent);
+            }
+            // harn:end normalized-agent-task-updates-are-bounded-and-authoritative
           }
           return events;
         }

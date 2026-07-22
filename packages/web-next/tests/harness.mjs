@@ -113,6 +113,7 @@ for (const [id, name] of [
   ['chronology', 'Chronology'],
   ['continuations', 'Continuation Fixtures'],
   ['preview', 'Preview'],
+  ['tasks', 'Tasks'],
 ]) {
   daemon.createRoom({ id, name, owner });
   crypto.roomKeys.ensureRoom(id);
@@ -401,6 +402,27 @@ fake.enqueue({
 daemon.postHumanMessage('preview', '@painter show a vector');
 await daemon.settle();
 daemon.recordArtifactError('preview', 999); // durable path-free per-run storage-failure state
+
+// harn:assume people-and-agents-shows-only-nonempty-task-lists ref=member-task-browser-fixture
+// Tasks: a durable nonempty checklist (three states + explanation, >5 rows for the
+// expansion control) on one agent and no tasks on another, plus control endpoints
+// for live update and clearing — all without any provider call.
+const tasksCwd = join(dir, 'tasks-work');
+mkdirSync(tasksCwd, { recursive: true });
+const planner = daemon.spawnMember('tasks', { harness: 'fake', handle: 'planner', cwd: tasksCwd });
+daemon.spawnMember('tasks', { harness: 'fake', handle: 'idler', cwd: tasksCwd });
+daemon.store.applyMemberTaskUpdate('tasks', planner.id, {
+  op: 'replace',
+  explanation: 'Shipping the auth refactor',
+  items: [
+    { id: 't1', content: 'Design the token rotation', status: 'completed' },
+    { id: 't2', content: 'Wire the refresh TTL config', status: 'in_progress', active_form: 'Wiring the refresh TTL config' },
+    { id: 't3', content: 'Delete the legacy cookie path', status: 'pending' },
+    { id: 't4', content: 'Add regression tests', status: 'pending' },
+    { id: 't5', content: 'Update the docs', status: 'pending' },
+    { id: 't6', content: 'Request review', status: 'pending' },
+  ],
+});
 
 // Fixtures: a STABLE room for specs whose subject is a seeded message or run.
 // The shared eng room accretes as other specs post into it, which pushes boot
@@ -1130,6 +1152,23 @@ createServer((req, res) => {
         else fake.holdCompactions();
         if (body.usage !== undefined) fake.compactUsage = body.usage;
         payload = { held: body.held !== false };
+      }
+      if (url.pathname === '/tasks-live') {
+        // Live in-place upsert on the retained session — a member frame, no reload.
+        const member = daemon.store.getMemberByHandle('tasks', 'planner');
+        const updated = daemon.store.applyMemberTaskUpdate('tasks', member.id, {
+          op: 'upsert',
+          items: [{ id: 't3', status: 'in_progress', active_form: 'Deleting the legacy cookie path' }],
+        });
+        if (updated) daemon.emitMember('tasks', updated);
+        payload = { ok: updated !== undefined };
+      }
+      if (url.pathname === '/tasks-clear') {
+        // Authoritative empty replacement clears the projection.
+        const member = daemon.store.getMemberByHandle('tasks', 'planner');
+        const updated = daemon.store.applyMemberTaskUpdate('tasks', member.id, { op: 'replace', items: [] });
+        if (updated) daemon.emitMember('tasks', updated);
+        payload = { ok: updated !== undefined };
       }
       if (url.pathname === '/complete-agent') {
         const body = raw === '' ? {} : JSON.parse(raw);

@@ -1,4 +1,4 @@
-import type { WireEvent } from '@codor/protocol';
+import { AgentTaskUpdateSchema, type WireEvent } from '@codor/protocol';
 
 interface OpenCodeToolState {
   status?: string;
@@ -55,6 +55,37 @@ export interface TurnTranslator {
   }): WireEvent[];
   sessionId(): string | undefined;
 }
+
+// harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=opencode-task-translation
+const OPENCODE_TASK_STATUS = new Set(['pending', 'in_progress', 'completed']);
+const OPENCODE_TASK_PRIORITY = new Set(['low', 'medium', 'high']);
+const asTaskRecord = (value: unknown): Record<string, unknown> | undefined =>
+  value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+const nonEmptyTask = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() !== '' ? value : undefined;
+
+/** A completed `todowrite` tool part carries an authoritative structured checklist in
+ *  its input; map it to one bounded run.tasks replacement (empty clears). Failed,
+ *  in-progress, malformed, or over-bound input maps to nothing. */
+function opencodeTaskUpdate(part: { tool?: string; state?: { status?: string; input?: unknown } }): WireEvent | undefined {
+  if (part.tool?.toLowerCase() !== 'todowrite' || part.state?.status !== 'completed') return undefined;
+  const input = asTaskRecord(part.state?.input);
+  const todos = input?.todos;
+  if (!Array.isArray(todos)) return undefined;
+  const items: Record<string, unknown>[] = [];
+  for (let index = 0; index < todos.length; index += 1) {
+    const todo = asTaskRecord(todos[index]);
+    if (todo === undefined) return undefined;
+    const content = nonEmptyTask(todo.content);
+    const status = typeof todo.status === 'string' && OPENCODE_TASK_STATUS.has(todo.status) ? todo.status : undefined;
+    if (content === undefined || status === undefined) return undefined; // malformed entry rejects the replacement
+    const priority = typeof todo.priority === 'string' && OPENCODE_TASK_PRIORITY.has(todo.priority) ? todo.priority : undefined;
+    items.push({ id: `todo-${String(index)}`, content, status, ...(priority !== undefined && { priority }) });
+  }
+  const parsed = AgentTaskUpdateSchema.safeParse({ op: 'replace', items });
+  return parsed.success ? { type: 'run.tasks', update: parsed.data } : undefined;
+}
+// harn:end normalized-agent-task-updates-are-bounded-and-authoritative
 
 // harn:assume opencode-capability-truth ref=opencode-event-translation
 /** Translate OpenCode 1.17 `run --format json` records into WireEvents. */
@@ -119,7 +150,10 @@ export function createTurnTranslator(): TurnTranslator {
               raw: part.state,
             },
           };
-          return [call, result];
+          // harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=opencode-task-translation
+          const taskEvent = opencodeTaskUpdate(part);
+          return taskEvent === undefined ? [call, result] : [call, result, taskEvent];
+          // harn:end normalized-agent-task-updates-are-bounded-and-authoritative
         }
         case 'step_finish':
           if (part?.type !== 'step-finish') return [];

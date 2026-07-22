@@ -3055,6 +3055,16 @@ export class Daemon {
           continue;
         }
         // harn:end agent-usage-limits-reported-not-guessed
+        // harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-daemon-landing
+        // Task updates are member status, not run content: materialize onto the
+        // member row and stream the member frame only when it changed. Intercept
+        // before journal assignment — never write a run event or run_event frame.
+        if (event.type === 'run.tasks') {
+          const updated = this.store.applyMemberTaskUpdate(room, member.id, event.update);
+          if (updated !== undefined) this.emitMember(room, updated);
+          continue;
+        }
+        // harn:end member-task-projection-is-durable-and-session-scoped
         if (journalEvent.type === 'run.completed' && member.harness === 'acp') {
           const baseline = session?.acp_usage_baseline;
           if (baseline !== undefined) {

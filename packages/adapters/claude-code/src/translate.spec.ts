@@ -556,3 +556,47 @@ describe('rate limit events (agent-usage-limits-reported-not-guessed)', () => {
     expect(translator.push('{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}')).toEqual([]);
   });
 });
+
+// harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=claude-task-regression
+describe('Claude task-list evidence maps to run.tasks', () => {
+  const run = (name: string, input: unknown, result: string, isError = false): WireEvent[] => {
+    const translator = createTurnTranslator();
+    translator.push({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'c1', name, input }] } });
+    return translator.push({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'c1', content: result, is_error: isError }] } });
+  };
+  const taskUpdate = (events: WireEvent[]): unknown =>
+    (events.find((event) => event.type === 'run.tasks') as { update?: unknown } | undefined)?.update;
+
+  it('correlates a successful TaskCreate to its native id as a pending upsert', () => {
+    expect(taskUpdate(run('TaskCreate', { subject: 'Wire the API', activeForm: 'Wiring the API' }, 'Task #7 created successfully.')))
+      .toEqual({ op: 'upsert', items: [{ id: '7', content: 'Wire the API', status: 'pending', active_form: 'Wiring the API' }] });
+  });
+
+  it('ignores a TaskCreate whose result lacks the anchored native id prefix', () => {
+    expect(taskUpdate(run('TaskCreate', { subject: 'x' }, 'Created a task for you'))).toBeUndefined();
+  });
+
+  it('applies a TaskUpdate by id and ignores an id-only update', () => {
+    expect(taskUpdate(run('TaskUpdate', { taskId: '7', status: 'in_progress', activeForm: 'Doing it' }, 'ok')))
+      .toEqual({ op: 'upsert', items: [{ id: '7', active_form: 'Doing it', status: 'in_progress' }] });
+    expect(taskUpdate(run('TaskUpdate', { taskId: '7' }, 'ok'))).toBeUndefined();
+  });
+
+  it('replaces from TodoWrite with deterministic ids and clears on empty', () => {
+    expect(taskUpdate(run('TodoWrite', { todos: [
+      { content: 'A', status: 'completed', activeForm: 'Doing A' },
+      { content: 'B', status: 'pending' },
+    ] }, 'ok'))).toEqual({ op: 'replace', items: [
+      { id: 'todo-0', content: 'A', status: 'completed', active_form: 'Doing A' },
+      { id: 'todo-1', content: 'B', status: 'pending' },
+    ] });
+    expect(taskUpdate(run('TodoWrite', { todos: [] }, 'ok'))).toEqual({ op: 'replace', items: [] });
+  });
+
+  it('emits no task update for failed or malformed evidence', () => {
+    expect(taskUpdate(run('TaskCreate', { subject: 'x' }, 'Task #7 created successfully', true))).toBeUndefined();
+    expect(taskUpdate(run('TodoWrite', { todos: [{ content: 'A' }] }, 'ok'))).toBeUndefined();
+    expect(taskUpdate(run('TaskUpdate', {}, 'ok'))).toBeUndefined();
+  });
+});
+// harn:end normalized-agent-task-updates-are-bounded-and-authoritative

@@ -2471,3 +2471,64 @@ describe('recipient-scoped room support and strict addressed hydration', () => {
 // harn:end addressed-cold-hydration-is-strict-and-legacy-safe
 // harn:end actionable-inbox-clears-on-read-or-reply
 // harn:end room-support-is-bounded-recipient-scoped-state
+
+// harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-store-regression
+describe('member task projection', () => {
+  const agentWith = (sessionRef?: string) => {
+    openRoom(store);
+    return store.addMember('eng', {
+      kind: 'agent', handle: 'tasker', display_name: 'Tasker', state: 'idle',
+      ...(sessionRef !== undefined && { session_ref: sessionRef, harness: 'codex' }),
+    });
+  };
+
+  it('materializes an ordered replace and is idempotent on duplicate delivery', () => {
+    const agent = agentWith();
+    const update = { op: 'replace' as const, items: [
+      { id: 'a', content: 'First', status: 'in_progress' as const },
+      { id: 'b', content: 'Second', status: 'pending' as const },
+    ] };
+    expect(store.applyMemberTaskUpdate('eng', agent.id, update)?.tasks?.items.map((task) => task.id)).toEqual(['a', 'b']);
+    expect(store.applyMemberTaskUpdate('eng', agent.id, update)).toBeUndefined();
+  });
+
+  it('upserts a known id in place and appends only complete new patches', () => {
+    const agent = agentWith();
+    store.applyMemberTaskUpdate('eng', agent.id, { op: 'replace', items: [{ id: 'a', content: 'A', status: 'pending' }] });
+    const updated = store.applyMemberTaskUpdate('eng', agent.id, { op: 'upsert', items: [
+      { id: 'a', status: 'completed' },
+      { id: 'c', content: 'C', status: 'pending' },
+      { id: 'ghost', status: 'completed' },
+    ] });
+    expect(updated?.tasks?.items).toEqual([
+      { id: 'a', content: 'A', status: 'completed' },
+      { id: 'c', content: 'C', status: 'pending' },
+    ]);
+  });
+
+  it('clears on an authoritative empty replacement and persists across reopen', () => {
+    const agent = agentWith();
+    store.applyMemberTaskUpdate('eng', agent.id, { op: 'replace', items: [{ id: 'a', content: 'A', status: 'pending' }] });
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getMember('eng', agent.id)?.tasks?.items).toHaveLength(1);
+    expect(store.applyMemberTaskUpdate('eng', agent.id, { op: 'replace', items: [] })?.tasks).toBeUndefined();
+    expect(store.getMember('eng', agent.id)?.tasks).toBeUndefined();
+  });
+
+  it('preserves tasks on a same-session update but clears on a different native session', () => {
+    const agent = agentWith('sess-1');
+    store.applyMemberTaskUpdate('eng', agent.id, { op: 'replace', items: [{ id: 'a', content: 'A', status: 'pending' }] });
+    expect(store.setAgentSessionRuntime('eng', agent.id, 'sess-1', { load: true, resume: true }).tasks?.items).toHaveLength(1);
+    expect(store.setAgentSessionRuntime('eng', agent.id, 'sess-2', { load: true, resume: true }).tasks).toBeUndefined();
+  });
+
+  it('rejects an over-bound materialized list rather than partially landing it', () => {
+    const agent = agentWith();
+    store.applyMemberTaskUpdate('eng', agent.id, { op: 'replace', items: [{ id: 'a', content: 'A', status: 'pending' }] });
+    const many = Array.from({ length: 100 }, (_, index) => ({ id: `n${String(index)}`, content: 'x', status: 'pending' as const }));
+    expect(store.applyMemberTaskUpdate('eng', agent.id, { op: 'upsert', items: many })).toBeUndefined();
+    expect(store.getMember('eng', agent.id)?.tasks?.items).toHaveLength(1);
+  });
+});
+// harn:end member-task-projection-is-durable-and-session-scoped

@@ -1,37 +1,37 @@
 id: codor-polish-phase5-tasks
 title: Durable bounded native task lists in People and agents
-notes: >-
-  Execution plan for product-polish Phase 5. Add one bounded normalized run.tasks
-  replace/upsert contract, map only authoritative structured native evidence from
-  Claude TaskCreate/TaskUpdate/TodoWrite, OpenCode todowrite, ACP stable plan,
-  and Codex 0.144.5 turn/plan/updated, materialize the current list as an
-  idempotent durable session-scoped member projection outside run journals, and
-  show only nonempty bounded checklists in People and agents. Exact schemas,
-  evidence mappings, reset semantics, file list, and verification are fixed by
-  tmp/codor-product-polish/PLAN.md; implementation may not substitute prose
-  parsing, another endpoint, or adapter-specific public state.
+notes: Execution plan for product-polish Phase 5. Add one bounded normalized
+  run.tasks replace/upsert contract, map only authoritative structured native
+  evidence from Claude TaskCreate/TaskUpdate/TodoWrite, OpenCode todowrite, ACP
+  stable plan, and Codex 0.144.5 turn/plan/updated, materialize the current list
+  as an idempotent durable session-scoped member projection outside run
+  journals, and show only nonempty bounded checklists in People and agents.
+  Exact schemas, evidence mappings, reset semantics, file list, and verification
+  are fixed by tmp/codor-product-polish/PLAN.md; implementation may not
+  substitute prose parsing, another endpoint, or adapter-specific public state.
 assumptions:
   create:
     - id: normalized-agent-task-updates-are-bounded-and-authoritative
-      title: Native structured task evidence becomes one bounded replace/upsert contract
-      statement: >-
-        Adapters may emit run.tasks only from authoritative bounded native
+      title: Native structured task evidence becomes one bounded replace/upsert
+        contract
+      statement: Adapters may emit run.tasks only from authoritative bounded native
         structures. Agent task ids are 1..128 characters, content and active
         forms are trimmed 1..500 character strings, status is pending,
         in_progress, or completed, optional priority is low, medium, or high,
         each complete list has at most 100 unique ids, and optional explanation
         is at most 1000 characters and never authoritative task content. Replace
         is a complete ordered snapshot whose empty list clears; upsert updates a
-        known id in place and appends a new id only from a complete patch. Claude
-        correlates successful TaskCreate results to the strict native Task id
-        prefix, successful TaskUpdate input to that id, and successful TodoWrite
-        input to a replacement; OpenCode completed todowrite, ACP stable plan,
-        and Codex 0.144.5 turn/plan/updated are complete replacements. Failed,
-        partial, malformed, duplicate-id, over-bound, mismatched-thread/turn, or
-        unknown evidence emits no task update, and final prose, reasoning, shell
-        output, TaskList text, and item/plan/delta are never parsed as tasks.
-      reason: Every supported harness already exposes structured checklist truth;
-        one bounded contract can surface it without guessing from prose.
+        known id in place and appends a new id only from a complete patch.
+        Claude correlates successful TaskCreate results to the strict native
+        Task id prefix, successful TaskUpdate input to that id, and successful
+        TodoWrite input to a replacement; OpenCode completed todowrite, ACP
+        stable plan, and Codex 0.144.5 turn/plan/updated are complete
+        replacements. Failed, partial, malformed, duplicate-id, over-bound,
+        mismatched-thread/turn, or unknown evidence emits no task update, and
+        final prose, reasoning, shell output, TaskList text, and item/plan/delta
+        are never parsed as tasks.
+      reason: Every supported harness already exposes structured checklist truth; one
+        bounded contract can surface it without guessing from prose.
       depends_on:
         - first-party-run-items-normalized
         - claude-sdk-message-contract-preserves-normalized-runs
@@ -39,34 +39,36 @@ assumptions:
         - acp-v1-events-and-capabilities-are-negotiated
         - codex-app-server-contract-is-pinned-to-0-144-5
     - id: member-task-projection-is-durable-and-session-scoped
-      title: The current task list is an idempotent durable member projection scoped to one native session
-      statement: >-
-        A member's current bounded task list is materialized transactionally in
-        SQLite from validated run.tasks replace/upsert status events, with exactly
-        one ordinary member changelog row and frame only when the materialized
-        value changes; duplicate delivery is a no-op. Task status events and task
-        payloads never enter run journals or run_event frames. Authoritative empty
-        replacement clears the projection. Restart, reconnect, process rebuild,
-        ordinary turns, and revive/attach to the same persisted session id preserve
-        it; changing an existing session_ref to a different native session id
-        clears it atomically in both member-update and direct session-runtime paths.
+      title: The current task list is an idempotent durable member projection scoped
+        to one native session
+      statement: A member's current bounded task list is materialized transactionally
+        in SQLite from validated run.tasks replace/upsert status events, with
+        exactly one ordinary member changelog row and frame only when the
+        materialized value changes; duplicate delivery is a no-op. Task status
+        events and task payloads never enter run journals or run_event frames.
+        Authoritative empty replacement clears the projection. Restart,
+        reconnect, process rebuild, ordinary turns, and revive/attach to the
+        same persisted session id preserve it; changing an existing session_ref
+        to a different native session id clears it atomically in both
+        member-update and direct session-runtime paths.
       reason: The roster needs current engine checklist state after restart without
-        turning status into transcript evidence or leaking a prior session's work.
+        turning status into transcript evidence or leaking a prior session's
+        work.
       depends_on:
         - normalized-agent-task-updates-are-bounded-and-authoritative
         - changelog-covers-every-visible-entity
         - revive-via-session-ref
     - id: people-and-agents-shows-only-nonempty-task-lists
       title: People and agents renders only nonempty bounded accessible task lists
-      statement: >-
-        An agent card renders a task section only when its durable member task
-        projection is nonempty. Pending, in-progress, and completed rows carry
-        visible text and symbol redundancy; in-progress may show the native active
-        form and completed content is muted and struck. At most five rows are
-        initially visible, Show all and Show fewer control the remainder, and the
-        expanded list scrolls inside a 240px bound so the context panel cannot grow
-        without limit. Optional explanation is subdued context only. Member frames
-        update the existing client store live; there is no polling or task cache.
+      statement: An agent card renders a task section only when its durable member
+        task projection is nonempty. Pending, in-progress, and completed rows
+        carry visible text and symbol redundancy; in-progress may show the
+        native active form and completed content is muted and struck. At most
+        five rows are initially visible, Show all and Show fewer control the
+        remainder, and the expanded list scrolls inside a 240px bound so the
+        context panel cannot grow without limit. Optional explanation is subdued
+        context only. Member frames update the existing client store live; there
+        is no polling or task cache.
       reason: Operators should see genuine harness checklists without empty chrome,
         color-only state, or an unbounded member card.
       depends_on:
@@ -74,63 +76,83 @@ assumptions:
   reviewed:
     - id: normalized-run-item-payload-contract
       outcome: unchanged
-      reason: run.tasks is a sibling status event; first-party run.item payload schemas and permissive malformed-third-party behavior do not change.
+      reason: run.tasks is a sibling status event; first-party run.item payload
+        schemas and permissive malformed-third-party behavior do not change.
     - id: first-party-run-items-normalized
       outcome: unchanged
-      reason: Existing normalized text, reasoning, tool, file, image, error, and usage rows remain identical; task status is additive.
+      reason: Existing normalized text, reasoning, tool, file, image, error, and usage
+        rows remain identical; task status is additive.
     - id: claude-sdk-message-contract-preserves-normalized-runs
       outcome: unchanged
-      reason: The same turn-scoped SDK tool correlation gains structured task projection without changing session or terminal semantics.
+      reason: The same turn-scoped SDK tool correlation gains structured task
+        projection without changing session or terminal semantics.
     - id: opencode-capability-truth
       outcome: unchanged
-      reason: The same direct JSON run contract adds projection from a completed structured todowrite input.
+      reason: The same direct JSON run contract adds projection from a completed
+        structured todowrite input.
     - id: acp-v1-events-and-capabilities-are-negotiated
       outcome: unchanged
-      reason: ACP stable plan was already negotiated and rendered; it additionally produces a bounded replacement.
+      reason: ACP stable plan was already negotiated and rendered; it additionally
+        produces a bounded replacement.
     - id: codex-app-server-contract-is-pinned-to-0-144-5
       outcome: unchanged
-      reason: The official pinned turn/plan/updated notification is documented and consumed without changing transport or lifecycle.
+      reason: The official pinned turn/plan/updated notification is documented and
+        consumed without changing transport or lifecycle.
     - id: member-config-is-changed-not-respawned
       outcome: unchanged
-      reason: Member update SQL gains task persistence/session-id clearing while model, thinking, policy, harness, and cwd behavior remain unchanged.
+      reason: Member update SQL gains task persistence/session-id clearing while
+        model, thinking, policy, harness, and cwd behavior remain unchanged.
     - id: run-journals-own-evidence-across-output-messages
       outcome: unchanged
       reason: tasks is a member projection column, never a run event payload column.
     - id: attach-custody-lease-tracks-child-pid
       outcome: unchanged
-      reason: The member-column edit mechanically crosses the enclosing SCHEMA; custody lease truth is unchanged.
+      reason: The member-column edit mechanically crosses the enclosing SCHEMA;
+        custody lease truth is unchanged.
     - id: collaboration-groups-are-durable-state
       outcome: unchanged
-      reason: The member-column edit mechanically crosses the enclosing SCHEMA; collaboration storage is unchanged.
+      reason: The member-column edit mechanically crosses the enclosing SCHEMA;
+        collaboration storage is unchanged.
     - id: substantive-output-messages-drive-unread
       outcome: unchanged
-      reason: The member-column edit mechanically crosses the enclosing SCHEMA; task member changes do not drive unread.
+      reason: The member-column edit mechanically crosses the enclosing SCHEMA; task
+        member changes do not drive unread.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: Mechanical import attribution only - adding the AgentTask schema import
+        to schemas.spec.ts registers as touching this file's first top-level
+        anchored region; no continuation behavior or regression body changes.
 anchors:
   normalized-agent-task-updates-are-bounded-and-authoritative:
     agent-task-schema:
       action: change
-      reason: Add bounded task/list/patch/update schemas and unique-id/refinement rules.
+      reason: Add bounded task/list/patch/update schemas and unique-id/refinement
+        rules.
     agent-task-event-schema:
       action: change
       reason: Add non-journal run.tasks status event.
     agent-task-protocol-regression:
       action: change
-      reason: Cover bounds, uniqueness, complete replace, partial upsert, empty clear, and malformed rejection.
+      reason: Cover bounds, uniqueness, complete replace, partial upsert, empty clear,
+        and malformed rejection.
     agent-task-protocol-doc:
       action: change
       reason: Document normalized status event and its non-journal role.
     claude-task-translation:
       action: change
-      reason: Map only successful structured TaskCreate, TaskUpdate, and TodoWrite evidence.
+      reason: Map only successful structured TaskCreate, TaskUpdate, and TodoWrite
+        evidence.
     claude-task-regression:
       action: change
-      reason: Cover strict id correlation, updates, replacement/clear, failure, ambiguity, and bounds.
+      reason: Cover strict id correlation, updates, replacement/clear, failure,
+        ambiguity, and bounds.
     opencode-task-translation:
       action: change
       reason: Map completed structured todowrite input as an authoritative replacement.
     opencode-task-regression:
       action: change
-      reason: Cover replacement, empty clear, status/priority, failure, malformed, and bounds.
+      reason: Cover replacement, empty clear, status/priority, failure, malformed, and
+        bounds.
     acp-plan-task-translation:
       action: change
       reason: Preserve reasoning row and add stable-plan complete replacement.
@@ -145,7 +167,8 @@ anchors:
       reason: Map active-turn matching complete plans and explanation.
     codex-plan-task-regression:
       action: change
-      reason: Cover statuses, empty clear, missing/mismatched turn, malformed, bounds, and excluded deltas/prose.
+      reason: Cover statuses, empty clear, missing/mismatched turn, malformed, bounds,
+        and excluded deltas/prose.
     codex-plan-task-routing-regression:
       action: change
       reason: Prove mismatched thread notifications never reach the translator.
@@ -155,16 +178,19 @@ anchors:
       reason: Add optional public Member.tasks.
     member-task-storage:
       action: change
-      reason: Add column/migration/read/write/materialization/idempotence and different-session clearing.
+      reason: Add column/migration/read/write/materialization/idempotence and
+        different-session clearing.
     member-task-store-regression:
       action: change
-      reason: Cover ordered replace/upsert, duplicates, bounds, persistence, empty and session reset.
+      reason: Cover ordered replace/upsert, duplicates, bounds, persistence, empty and
+        session reset.
     member-task-daemon-landing:
       action: change
       reason: Intercept run.tasks as member status before journal assignment.
     member-task-daemon-regression:
       action: change
-      reason: Cover member frames, no journal event, duplicate no-op, restart/revive preservation, and new-session clear.
+      reason: Cover member frames, no journal event, duplicate no-op, restart/revive
+        preservation, and new-session clear.
   people-and-agents-shows-only-nonempty-task-lists:
     member-task-list-ui:
       action: change
@@ -174,17 +200,21 @@ anchors:
       reason: Add status redundancy, completed treatment, and bounded expanded scroll.
     member-task-browser-fixture:
       action: change
-      reason: Seed/live-update/clear/reconnect/new-session states without provider calls.
+      reason: Seed/live-update/clear/reconnect/new-session states without provider
+        calls.
     member-task-browser-regression:
       action: change
-      reason: Prove status rendering, live/persistent/reset behavior, expansion, responsive layout, themes, keyboard, and axe.
+      reason: Prove status rendering, live/persistent/reset behavior, expansion,
+        responsive layout, themes, keyboard, and axe.
   normalized-run-item-payload-contract:
     standalone-run-item-payload-schemas:
       action: change
-      reason: Task schema import and sibling WireEvent addition cross the enclosing protocol file; run-item parsing remains unchanged.
+      reason: Task schema import and sibling WireEvent addition cross the enclosing
+        protocol file; run-item parsing remains unchanged.
     normalized-run-item-documentation:
       action: change
-      reason: Add the sibling task-status event while preserving normalized run-item documentation.
+      reason: Add the sibling task-status event while preserving normalized run-item
+        documentation.
   first-party-run-items-normalized:
     claude-normalized-run-items:
       action: change
@@ -205,11 +235,13 @@ anchors:
   opencode-capability-truth:
     opencode-event-translation:
       action: change
-      reason: Extend the direct-run event translator with completed todowrite projection.
+      reason: Extend the direct-run event translator with completed todowrite
+        projection.
   acp-v1-events-and-capabilities-are-negotiated:
     acp-event-normalization:
       action: change
-      reason: Stable plan remains reasoning evidence and also becomes a task replacement.
+      reason: Stable plan remains reasoning evidence and also becomes a task
+        replacement.
   codex-app-server-contract-is-pinned-to-0-144-5:
     codex-app-server-contract-notes:
       action: change
@@ -233,7 +265,14 @@ anchors:
   substantive-output-messages-drive-unread:
     message-activity-storage:
       action: change
-      reason: Mechanical enclosing SCHEMA edit; member task changes do not drive unread.
+      reason: Mechanical enclosing SCHEMA edit; member task changes do not drive
+        unread.
+  continuation-writer-follows-journaled-output-ownership:
+    continuation-segmentation-regression:
+      action: change
+      reason: Mechanical import-hunk attribution only - the required AgentTask schema
+        import in schemas.spec.ts registers as touching this file's first
+        top-level anchored region; no continuation behavior or test change.
 files:
   - docs/PROTOCOL.md
   - packages/protocol/src/member.ts
@@ -257,10 +296,12 @@ files:
   - packages/web-next/src/styles/room.css
   - packages/web-next/tests/harness.mjs
   - packages/web-next/tests/room30-tasks.e2e.spec.ts
-verification: >-
-  Run full protocol, Claude, OpenCode, ACP, Codex, switchboard, and web-next unit
-  suites and builds. Focused browser room30 proves nonempty-only task rendering,
-  three status states, five-row expansion/scroll, live upsert, duplicate no-op,
-  empty clear, reload/reconnect persistence, different-session clear, responsive
-  light/dark keyboard behavior, and axe. Harn unstaged/staged/apply gates pass;
-  no run.tasks event is journaled and no prose parser or provider call exists.
+verification: Run full protocol, Claude, OpenCode, ACP, Codex, switchboard, and
+  web-next unit suites and builds. Focused browser room30 proves nonempty-only
+  task rendering, three status states, five-row expansion/scroll, live upsert,
+  duplicate no-op, empty clear, reload/reconnect persistence, different-session
+  clear, responsive light/dark keyboard behavior, and axe. Harn
+  unstaged/staged/apply gates pass; no run.tasks event is journaled and no prose
+  parser or provider call exists.
+applied:
+  applied_at: 2026-07-22T13:01:49.508Z

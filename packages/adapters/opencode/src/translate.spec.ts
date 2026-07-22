@@ -110,3 +110,35 @@ describe('OpenCode raw run translation', () => {
     expect(translator.push('{"type":"future"}')).toEqual([]);
   });
 });
+
+// harn:assume normalized-agent-task-updates-are-bounded-and-authoritative ref=opencode-task-regression
+describe('OpenCode todowrite maps to a run.tasks replacement', () => {
+  const run = (input: unknown, status = 'completed'): WireEvent[] =>
+    createTurnTranslator().push(JSON.stringify({
+      type: 'tool_use', sessionID: 'ses', part: { type: 'tool', tool: 'todowrite', callID: 'c1', state: { status, input } },
+    }));
+  const taskUpdate = (events: WireEvent[]): unknown =>
+    (events.find((event) => event.type === 'run.tasks') as { update?: unknown } | undefined)?.update;
+
+  it('replaces from a completed todowrite with deterministic ids, status, and priority', () => {
+    expect(taskUpdate(run({ todos: [
+      { content: 'A', status: 'in_progress', priority: 'high' },
+      { content: 'B', status: 'pending' },
+    ] }))).toEqual({ op: 'replace', items: [
+      { id: 'todo-0', content: 'A', status: 'in_progress', priority: 'high' },
+      { id: 'todo-1', content: 'B', status: 'pending' },
+    ] });
+  });
+
+  it('clears on an empty todo list', () => {
+    expect(taskUpdate(run({ todos: [] }))).toEqual({ op: 'replace', items: [] });
+  });
+
+  it('emits nothing for an in-progress, failed, or malformed todowrite', () => {
+    expect(taskUpdate(run({ todos: [{ content: 'A', status: 'pending' }] }, 'running'))).toBeUndefined();
+    expect(taskUpdate(run({ todos: [{ content: 'A', status: 'pending' }] }, 'error'))).toBeUndefined();
+    expect(taskUpdate(run({ todos: [{ content: 'A' }] }))).toBeUndefined();
+    expect(taskUpdate(run({ todos: [{ content: 'A', status: 'blocked' }] }))).toBeUndefined();
+  });
+});
+// harn:end normalized-agent-task-updates-are-bounded-and-authoritative

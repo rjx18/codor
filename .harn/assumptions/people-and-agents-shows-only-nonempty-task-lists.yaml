@@ -1,0 +1,15 @@
+id: people-and-agents-shows-only-nonempty-task-lists
+hash: a-7f6225f8fd3b
+title: People and agents renders only nonempty bounded accessible task lists
+state: active
+statement: An agent card renders a task section only when its durable member
+  task projection is nonempty. Pending, in-progress, and completed rows carry
+  visible text and symbol redundancy; in-progress may show the native active
+  form and completed content is muted and struck. At most five rows are
+  initially visible, Show all and Show fewer control the remainder, and the
+  expanded list scrolls inside a 240px bound so the context panel cannot grow
+  without limit. Optional explanation is subdued context only. Member frames
+  update the existing client store live; there is no polling or task cache.
+depends_on:
+  - member-task-projection-is-durable-and-session-scoped
+created_by: codor-polish-phase5-tasks
