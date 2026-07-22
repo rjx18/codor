@@ -81,8 +81,11 @@ export function createFakeCodexAppServer(
   }>();
   const responseHandlers: Record<string, Handler> = {
     initialize: () => ({}),
-    'thread/start': () => ({ thread: { id: 'thread-1' } }),
-    'thread/resume': (params) => ({ thread: { id: record(params).threadId } }),
+    'thread/start': () => ({ thread: { id: 'thread-1' }, model: 'gpt-5.6-sol' }),
+    'thread/resume': (params) => ({
+      thread: { id: record(params).threadId },
+      model: 'gpt-5.6-sol',
+    }),
     'turn/start': () => ({ turn: { id: 'turn-1', status: 'inProgress' } }),
     'turn/interrupt': () => ({}),
     ...handlers,

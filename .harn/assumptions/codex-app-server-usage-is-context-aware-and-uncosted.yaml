@@ -1,7 +1,7 @@
 id: codex-app-server-usage-is-context-aware-and-uncosted
 hash: a-80b02140a8c0
 title: Codex app-server usage reports context without invented cost
-state: active
+state: retired
 statement: Codex thread/tokenUsage/updated must normalize last input, cached
   input, and output tokens plus last.totalTokens as contextWindowUsedTokens
   paired with tokenUsage.modelContextWindow, emit the snapshot live and on
@@ -10,3 +10,4 @@ depends_on:
   - codex-app-server-contract-is-pinned-to-0-144-5
   - normalized-agent-usage-and-context-telemetry
 created_by: ctx-guardrails-p5c-codex-app-server
+retired_by: codor-runtime-fidelity-phase3

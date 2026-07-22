@@ -1,0 +1,14 @@
+id: codex-app-server-usage-preserves-cache-and-resolved-model
+hash: a-34df5f1463ba
+title: Codex completion preserves cached usage and resolved runtime model
+state: active
+statement: Codex thread token usage must normalize last input, cached input, and
+  output tokens, emit the cached split durably on terminal completion, and
+  snapshot the latest truthful model from thread start or resume, thread
+  settings updates, or an active-turn model reroute correlated to the retained
+  runtime; it must never invent an exact provider cost or a turn/start model
+  field absent from the pinned protocol.
+depends_on:
+  - codex-app-server-contract-is-pinned-to-0-144-5
+  - normalized-agent-usage-telemetry-with-estimates
+created_by: codor-runtime-fidelity-phase3

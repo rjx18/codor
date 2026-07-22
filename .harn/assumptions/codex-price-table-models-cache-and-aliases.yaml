@@ -1,0 +1,13 @@
+id: codex-price-table-models-cache-and-aliases
+hash: a-ef080cd960f9
+title: Codex advisory prices distinguish cache and documented aliases
+state: active
+statement: The advisory price table must key every current curated Codex model,
+  retain only documented compatibility aliases for stored history, and calculate
+  uncached input, cached input, and output separately at cited public standard
+  API rates including the documented long-context tier; unknown models return no
+  estimate and exact provider cost is never replaced by this advisory
+  calculation.
+depends_on:
+  - adapters-own-their-model-catalog
+created_by: codor-runtime-fidelity-phase3

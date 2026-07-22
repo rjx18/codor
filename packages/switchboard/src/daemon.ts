@@ -220,9 +220,10 @@ export type FrameListener = (room: string, frame: ServerFrame) => void;
 
 interface TurnCompletion {
   status: 'completed' | 'failed' | 'interrupted';
+  model?: string;
   final_text?: string;
   error?: string;
-  usage?: { input_tokens: number; output_tokens: number; cost_usd?: number };
+  usage?: RunSummary['usage'];
 }
 
 interface RunUsageAccounting {
@@ -231,7 +232,7 @@ interface RunUsageAccounting {
   uncostedTokens: number;
 }
 
-// harn:assume run-cost-estimates-are-finalization-snapshots ref=run-estimate-finalization
+// harn:assume resolved-run-cost-estimates-are-finalization-snapshots ref=resolved-run-estimate-finalization
 function accountRunUsage(
   run: Pick<RunSummary, 'model' | 'estimated_cost_usd'>,
   usage: TurnCompletion['usage'],
@@ -249,7 +250,7 @@ function accountRunUsage(
       : 0,
   };
 }
-// harn:end run-cost-estimates-are-finalization-snapshots
+// harn:end resolved-run-cost-estimates-are-finalization-snapshots
 
 interface RetryTurnRefusal {
   reason: string;
@@ -379,14 +380,17 @@ export class Daemon {
   private closed = false;
 
   constructor(options: DaemonOptions) {
-    this.store = new Store(options.dbPath);
+    const serviceHome = options.homeDir ?? homedir();
+    this.store = new Store(options.dbPath, {
+      codexHome: process.env.CODEX_HOME ?? join(serviceHome, '.codex'),
+    });
     this.blobs = new BlobStore(options.blobRoot);
     this.hostId = options.hostId;
     this.residency = options.residency;
     this.ledger = options.ledger;
     this.pushProducer = options.pushProducer;
     this.onBackgroundError = options.onBackgroundError ?? (() => undefined);
-    this.homeDir = options.homeDir ?? homedir();
+    this.homeDir = serviceHome;
     this.socketPath = options.socketPath ?? localSocketPath(dirname(options.dbPath));
     this.attachmentsRoot = join(dirname(options.dbPath), 'attachments');
     this.sweepOrphanAttachments(); // boot-time: drop uploads no message ever claimed
@@ -2887,6 +2891,7 @@ export class Daemon {
           // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
           completion = {
             status: journalEvent.status,
+            model: journalEvent.model,
             final_text: journalEvent.final_text,
             error: journalEvent.error,
             usage: journalEvent.usage,
@@ -2980,7 +2985,9 @@ export class Daemon {
       runMsgId,
       this.blobs.read(room, runMsg.run.events_ref),
     );
-    const accounting = accountRunUsage(runMsg.run, completion?.usage);
+    // harn:assume resolved-run-cost-estimates-are-finalization-snapshots ref=resolved-run-estimate-repair
+    const repairModel = completion?.model ?? runMsg.run.model;
+    const accounting = accountRunUsage({ ...runMsg.run, model: repairModel }, completion?.usage);
     const repaired = this.store.repairFailedFinalization(room, {
       runMsgId,
       memberId,
@@ -2988,6 +2995,7 @@ export class Daemon {
       outputs: this.outputPatches(room, runMsg, projection, false, false),
       error: `finalization could not commit: ${detail}`,
       endedTs: new Date().toISOString(),
+      model: repairModel,
       usage: completion?.usage,
       estimatedCostUsd: accounting.estimatedCostUsd,
       meterDay: new Date().toISOString().slice(0, 10),
@@ -3000,6 +3008,7 @@ export class Daemon {
         uncosted_tokens: accounting.uncostedTokens,
       },
     });
+    // harn:end resolved-run-cost-estimates-are-finalization-snapshots
     if (!repaired.repaired) {
       // The run is already terminal, so the Store transaction DID commit and
       // something after it threw — an emit or barrier step. That is a real
@@ -3288,7 +3297,8 @@ export class Daemon {
       ? { mentions: [], refs: [], ledger_refs: [], unresolved: [] }
       : parseBody(body, this.store.listMembers(room));
     const endedTs = new Date().toISOString();
-    const accounting = accountRunUsage(runMsg.run!, completion.usage);
+    const resolvedModel = completion.model ?? runMsg.run!.model;
+    const accounting = accountRunUsage({ ...runMsg.run!, model: resolvedModel }, completion.usage);
     const outputPatches = this.outputPatches(room, runMsg, projection, ack, !failed);
     const resultMessageId = projection.resultMessageId;
     const messagePatch = {
@@ -3303,6 +3313,7 @@ export class Daemon {
         ended_ts: endedTs,
         stalled_since: undefined,
         tool_calls: toolCalls,
+        model: resolvedModel,
         usage: completion.usage,
         estimated_cost_usd: accounting.estimatedCostUsd,
         // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
@@ -3796,7 +3807,7 @@ export class Daemon {
               member.id,
               runMsgId,
               group,
-              { status: completed.status, usage: completed.usage },
+              { status: completed.status, model: completed.model, usage: completed.usage },
               new Error('its collaboration work was already settled'),
             );
             this.orphanLeftoverInteractions(room.id, member.id);
@@ -3804,6 +3815,7 @@ export class Daemon {
           }
           const completion = {
             status: completed.status,
+            model: completed.model,
             final_text: completed.final_text,
             error: completed.error,
             usage: completed.usage,

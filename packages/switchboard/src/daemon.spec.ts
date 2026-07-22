@@ -1550,9 +1550,9 @@ describe('meters, opt-in brakes, and stall flags', () => {
       .toMatchObject({ cost_usd: 0, uncosted_tokens: 15 });
   });
 
-  // harn:assume run-cost-estimates-are-finalization-snapshots ref=run-estimate-regression
-  // harn:assume estimated-cost-is-advisory-not-spend-brake-input ref=advisory-accounting-regression
-  it('stores a tokens-only estimate once without repricing history or tripping the spend brake', async () => {
+  // harn:assume resolved-run-cost-estimates-are-finalization-snapshots ref=resolved-run-estimate-regression
+  // harn:assume estimated-cost-is-advisory-not-spend-brake-input-v2 ref=advisory-accounting-regression
+  it('stores one resolved-model cached-aware estimate without repricing or braking', async () => {
     const priced = daemon.spawnMember('eng', {
       harness: 'fake',
       handle: 'priced',
@@ -1563,25 +1563,26 @@ describe('meters, opt-in brakes, and stall flags', () => {
     fake.enqueue({
       kind: 'complete',
       final_text: '@richard priced tokens-only completion',
-      usage: { input_tokens: 200_000, output_tokens: 100_000 },
+      model: 'gpt-5.6-sol',
+      usage: { input_tokens: 200_000, cached_input_tokens: 100_000, output_tokens: 100_000 },
     });
     daemon.postHumanMessage('eng', '@priced spend once');
     await daemon.settle();
 
     const root = runMessages().find((message) => message.author === priced.id)!;
     expect(root.run).toMatchObject({
-      model: 'gpt-5.5',
-      usage: { input_tokens: 200_000, output_tokens: 100_000 },
-      estimated_cost_usd: 4,
+      model: 'gpt-5.6-sol',
+      usage: { input_tokens: 200_000, cached_input_tokens: 100_000, output_tokens: 100_000 },
+      estimated_cost_usd: 3.55,
     });
     expect(daemon.memberDetails('eng').find((detail) => detail.member.id === priced.id)!.spend)
-      .toMatchObject({ cost_usd: 0, estimated_cost_usd: 4, uncosted_tokens: 0 });
+      .toMatchObject({ cost_usd: 0, estimated_cost_usd: 3.55, uncosted_tokens: 0 });
     expect(daemon.store.getMeter('eng', new Date().toISOString().slice(0, 10)))
-      .toMatchObject({ cost_usd: 0, estimated_cost_usd: 4, uncosted_tokens: 0 });
+      .toMatchObject({ cost_usd: 0, estimated_cost_usd: 3.55, uncosted_tokens: 0 });
 
     daemon.configureMember('eng', priced.id, { model: 'gpt-5.6-luna' });
     expect(daemon.memberDetails('eng').find((detail) => detail.member.id === priced.id)!.spend)
-      .toMatchObject({ cost_usd: 0, estimated_cost_usd: 4, uncosted_tokens: 0 });
+      .toMatchObject({ cost_usd: 0, estimated_cost_usd: 3.55, uncosted_tokens: 0 });
     expect(daemon.store.listDeliveries('eng', { state: 'held' })).toHaveLength(0);
 
     fake.enqueue({
@@ -1591,11 +1592,17 @@ describe('meters, opt-in brakes, and stall flags', () => {
     });
     daemon.postHumanMessage('eng', '@priced exact turn');
     await daemon.settle();
+    const exactRoot = runMessages().filter((message) => message.author === priced.id).at(-1)!;
+    expect(exactRoot.run).toMatchObject({
+      model: 'gpt-5.6-luna',
+      usage: { cost_usd: 0.25 },
+    });
+    expect(exactRoot.run?.estimated_cost_usd).toBeUndefined();
     expect(daemon.memberDetails('eng').find((detail) => detail.member.id === priced.id)!.spend)
-      .toMatchObject({ cost_usd: 0.25, estimated_cost_usd: 4, uncosted_tokens: 0 });
+      .toMatchObject({ cost_usd: 0.25, estimated_cost_usd: 3.55, uncosted_tokens: 0 });
   });
-  // harn:end estimated-cost-is-advisory-not-spend-brake-input
-  // harn:end run-cost-estimates-are-finalization-snapshots
+  // harn:end estimated-cost-is-advisory-not-spend-brake-input-v2
+  // harn:end resolved-run-cost-estimates-are-finalization-snapshots
 
   it('rechecks spend before a queued agent hop starts and releases it exactly once', async () => {
     const gamma = spawnAgent('gamma');
@@ -1895,8 +1902,9 @@ describe('kill-point matrix (boot reconcile)', () => {
     daemon.blobs.append('eng', runMsg.run!.events_ref, {
       type: 'run.completed',
       status: 'completed',
+      model: 'gpt-5.6-sol',
       final_text: 'survived the crash @richard',
-      usage: { input_tokens: 5, output_tokens: 5 },
+      usage: { input_tokens: 5, cached_input_tokens: 3, output_tokens: 5 },
     });
     await daemon.close();
 
@@ -1906,6 +1914,11 @@ describe('kill-point matrix (boot reconcile)', () => {
 
     const finalized = daemon.store.getMessage('eng', runMsg.id)!;
     expect(finalized.run!.status).toBe('completed');
+    expect(finalized.run).toMatchObject({
+      model: 'gpt-5.6-sol',
+      usage: { input_tokens: 5, cached_input_tokens: 3, output_tokens: 5 },
+      estimated_cost_usd: 0.0001615,
+    });
     expect(finalized.body).toBe('survived the crash @richard');
     expect(daemon.store.getDelivery('eng', delivery.id)!.state).toBe('consumed');
     expect(fake.deliveries).toHaveLength(0); // never re-ran the turn

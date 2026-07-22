@@ -328,3 +328,5 @@ verification: Run focused protocol schema, Codex adapter model/usage,
   plus affected package typecheck/build. Run Harn unstaged and staged gates,
   apply the locked plan, and commit Phase 3 as one implementation transaction.
   Never open the live database except read-only during verification.
+applied:
+  applied_at: 2026-07-22T03:57:39.529Z

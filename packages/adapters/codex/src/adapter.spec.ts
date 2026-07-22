@@ -296,9 +296,41 @@ describe('persistent Codex app-server lifecycle', () => {
     expect(events.at(-1)).toMatchObject({
       type: 'run.completed',
       status: 'completed',
+      model: 'gpt-5.6-sol',
+      usage: { input_tokens: 6000, cached_input_tokens: 3000, output_tokens: 1000 },
       agent_usage: usage,
     });
   });
+
+  // harn:assume codex-app-server-usage-preserves-cache-and-resolved-model ref=codex-resolved-model-regression
+  it('snapshots start/settings/reroute model truth only for the retained active turn', async () => {
+    const server = createFakeCodexAppServer({
+      'thread/start': () => ({ thread: { id: 'thread-1' }, model: 'gpt-5.6-terra' }),
+    });
+    const { adapter } = fixtureAdapter(server);
+    const session = adapter.spawn({ cwd: '/work', model: 'gpt-5.6-luna' });
+    const run = collect(adapter, session, 'models');
+    await server.waitForRequest('turn/start');
+    server.notify('thread/settings/updated', {
+      threadId: 'thread-1',
+      threadSettings: { model: 'gpt-5.6-sol' },
+    });
+    server.notify('turn/started', {
+      threadId: 'thread-1',
+      turn: { id: 'turn-1', status: 'inProgress', items: [], error: null },
+    });
+    server.notify('model/rerouted', {
+      threadId: 'thread-1', turnId: 'other-turn', toModel: 'ignored-model',
+    });
+    server.notify('model/rerouted', {
+      threadId: 'thread-1', turnId: 'turn-1', toModel: 'gpt-5.5',
+    });
+    completeTurn(server, 'turn-1');
+    expect((await run).at(-1)).toMatchObject({
+      type: 'run.completed', status: 'completed', model: 'gpt-5.5',
+    });
+  });
+  // harn:end codex-app-server-usage-preserves-cache-and-resolved-model
 
   it('resumes the persisted rollout id when attaching on a fresh process', async () => {
     const server = createFakeCodexAppServer();
@@ -318,7 +350,9 @@ describe('persistent Codex app-server lifecycle', () => {
       threadId: 'rollout-existing',
       turn: { id: 'turn-1', status: 'completed', items: [], error: null },
     });
-    expect((await run).at(-1)).toMatchObject({ status: 'completed' });
+    expect((await run).at(-1)).toMatchObject({
+      status: 'completed', model: 'gpt-5.6-sol',
+    });
     expect(session.session_ref).toBe('rollout-existing');
   });
 

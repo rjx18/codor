@@ -144,6 +144,8 @@ export const WireEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('run.completed'),
     status: RunStatusSchema.exclude(['running']),
+    /** Harness-reported effective model for this completed turn. */
+    model: z.string().min(1).optional(),
     final_text: z.string().optional(),
     // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-event-target-schema
     output_message_id: MessageIdSchema.optional(),

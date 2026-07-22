@@ -1,5 +1,5 @@
 import { CHANNEL_ACCENTS, deriveRoomColor } from '@codor/protocol';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { Store } from './store.js';
+import { estimateCostUsd } from './pricing.js';
 
 let dir: string;
 let store: Store;
@@ -762,6 +763,174 @@ describe('usage meters', () => {
   });
 });
 // harn:end estimated-cost-is-advisory-not-spend-brake-input
+
+// harn:assume legacy-codex-repricing-is-atomic-and-idempotent ref=legacy-codex-repricing-regression
+describe('legacy Codex pricing migration', () => {
+  const postRun = (
+    author: string,
+    id: string,
+    usage: { input_tokens: number; output_tokens: number; cost_usd?: number },
+    model?: string,
+  ) => store.postMessage('eng', {
+    author,
+    kind: 'run',
+    body: id,
+    run: {
+      status: 'completed',
+      started_ts: '2026-07-22T10:00:00.000Z',
+      ended_ts: '2026-07-22T10:01:00.000Z',
+      tool_calls: 0,
+      usage,
+      events_ref: `runs/${id}.jsonl`,
+      final_text: id,
+      ...(model !== undefined && { model }),
+    },
+  });
+
+  it('resolves legacy evidence in order, rebuilds mixed meters, and is restart-idempotent', () => {
+    openRoom(store);
+    const runModel = store.addMember('eng', {
+      kind: 'agent', handle: 'run-model', display_name: 'Run Model', harness: 'codex',
+      model: 'gpt-5.6-terra', cwd: '/work', state: 'idle',
+    });
+    const journalModel = store.addMember('eng', {
+      kind: 'agent', handle: 'journal-model', display_name: 'Journal Model', harness: 'codex',
+      session_ref: 'session-journal', model: 'gpt-5.6-terra', cwd: '/work', state: 'idle',
+    });
+    const memberModel = store.addMember('eng', {
+      kind: 'agent', handle: 'member-model', display_name: 'Member Model', harness: 'codex',
+      model: 'gpt-5.6-terra', cwd: '/work', state: 'idle',
+    });
+    const fallback = store.addMember('eng', {
+      kind: 'agent', handle: 'fallback', display_name: 'Fallback', harness: 'codex',
+      cwd: '/work', state: 'idle',
+    });
+    const first = postRun(
+      runModel.id, 'run-model', { input_tokens: 1_000_000, output_tokens: 0 }, 'gpt-5.6-luna',
+    );
+    const second = postRun(
+      journalModel.id, 'journal-model', { input_tokens: 1_000_000, output_tokens: 0 },
+    );
+    const third = postRun(
+      memberModel.id, 'member-model', { input_tokens: 1_000_000, output_tokens: 0 },
+    );
+    const fourth = postRun(
+      fallback.id, 'fallback', { input_tokens: 1_000_000, output_tokens: 0 },
+    );
+    const exact = postRun(runModel.id, 'exact', {
+      input_tokens: 1, output_tokens: 1, cost_usd: 7.25,
+    });
+    store.bumpMeter('eng', '2026-07-22', {
+      turns: 99, cost_usd: 99, estimated_cost_usd: 99,
+      input_tokens: 99, output_tokens: 99, uncosted_tokens: 99,
+    });
+
+    const codexHome = join(dir, 'codex-home');
+    const journalDir = join(codexHome, 'sessions', '2026', '07', '22');
+    mkdirSync(journalDir, { recursive: true });
+    writeFileSync(join(journalDir, 'rollout-2026-07-22-session-journal.jsonl'), `${JSON.stringify({
+      timestamp: '2026-07-22T09:59:00.000Z',
+      type: 'turn_context',
+      payload: { model: 'gpt-5.5' },
+    })}\n`);
+
+    const path = join(dir, 'test.sqlite');
+    store.close();
+    const legacy = new Database(path);
+    legacy.prepare("DELETE FROM codor_migrations WHERE id = 'codex-usage-pricing-v1'").run();
+    legacy.close();
+
+    store = new Store(path, { codexHome });
+    expect(store.getMessage('eng', first.id)?.run).toMatchObject({
+      model: 'gpt-5.6-luna', estimated_cost_usd: 2,
+    });
+    expect(store.getMessage('eng', second.id)?.run).toMatchObject({
+      model: 'gpt-5.5', estimated_cost_usd: 10,
+    });
+    expect(store.getMessage('eng', third.id)?.run).toMatchObject({
+      model: 'gpt-5.6-terra', estimated_cost_usd: 5,
+    });
+    expect(store.getMessage('eng', fourth.id)?.run).toMatchObject({
+      model: 'gpt-5.6-sol', estimated_cost_usd: 10,
+    });
+    expect(store.getMessage('eng', exact.id)?.run).toMatchObject({
+      usage: { cost_usd: 7.25 },
+    });
+    expect(store.getMessage('eng', exact.id)?.run?.estimated_cost_usd).toBeUndefined();
+    expect(store.getMeter('eng', '2026-07-22')).toMatchObject({
+      turns: 5,
+      cost_usd: 7.25,
+      estimated_cost_usd: 27,
+      input_tokens: 4_000_001,
+      output_tokens: 1,
+      uncosted_tokens: 0,
+    });
+
+    const snapshot = store.getMeter('eng', '2026-07-22');
+    store.close();
+    store = new Store(path, { codexHome });
+    expect(store.getMeter('eng', '2026-07-22')).toEqual(snapshot);
+    const readonly = new Database(path, { readonly: true });
+    expect(readonly.prepare(
+      "SELECT COUNT(*) AS count FROM codor_migrations WHERE id = 'codex-usage-pricing-v1'",
+    ).get()).toEqual({ count: 1 });
+    readonly.close();
+    expect(estimateCostUsd('gpt-5.6-sol', {
+      input_tokens: 1_000_000, output_tokens: 0,
+    })).toBe(10);
+  });
+
+  it('rolls back run updates, meter reconstruction, and marker on any failure', () => {
+    const path = join(dir, 'rollback.sqlite');
+    const rollbackStore = new Store(path, { codexHome: join(dir, 'empty-codex-home') });
+    rollbackStore.createRoom({
+      id: 'rollback', name: 'Rollback', owner: { handle: 'richard', display_name: 'Richard' },
+    });
+    const agent = rollbackStore.addMember('rollback', {
+      kind: 'agent', handle: 'codex', display_name: 'Codex', harness: 'codex',
+      model: 'gpt-5.6-sol', cwd: '/work', state: 'idle',
+    });
+    const makeRun = (body: string) => rollbackStore.postMessage('rollback', {
+      author: agent.id, kind: 'run', body,
+      run: {
+        status: 'completed', started_ts: '2026-07-22T10:00:00.000Z',
+        ended_ts: '2026-07-22T10:01:00.000Z', tool_calls: 0,
+        usage: { input_tokens: 100, output_tokens: 10 },
+        events_ref: `runs/${body}.jsonl`, final_text: body,
+      },
+    });
+    const first = makeRun('first');
+    const second = makeRun('second');
+    rollbackStore.bumpMeter('rollback', '2026-07-22', { uncosted_tokens: 220 });
+    rollbackStore.close();
+
+    const blocker = new Database(path);
+    blocker.prepare("DELETE FROM codor_migrations WHERE id = 'codex-usage-pricing-v1'").run();
+    blocker.exec(`CREATE TRIGGER reject_second_reprice
+      BEFORE UPDATE OF run ON messages
+      WHEN NEW.room = 'rollback' AND NEW.id = ${second.id}
+      BEGIN SELECT RAISE(ABORT, 'injected repricing failure'); END`);
+    blocker.close();
+
+    expect(() => new Store(path, { codexHome: join(dir, 'empty-codex-home') }))
+      .toThrow('injected repricing failure');
+    const readonly = new Database(path, { readonly: true });
+    const persisted = readonly.prepare(
+      'SELECT id, run FROM messages WHERE room = ? AND id IN (?, ?) ORDER BY id',
+    ).all('rollback', first.id, second.id) as Array<{ id: number; run: string }>;
+    expect(persisted.map((row) => JSON.parse(row.run).estimated_cost_usd)).toEqual([
+      undefined, undefined,
+    ]);
+    expect(readonly.prepare(
+      "SELECT COUNT(*) AS count FROM codor_migrations WHERE id = 'codex-usage-pricing-v1'",
+    ).get()).toEqual({ count: 0 });
+    expect(readonly.prepare(
+      "SELECT uncosted_tokens FROM meters WHERE room = 'rollback' AND day = '2026-07-22'",
+    ).get()).toEqual({ uncosted_tokens: 220 });
+    readonly.close();
+  });
+});
+// harn:end legacy-codex-repricing-is-atomic-and-idempotent
 
 describe('atomic turn lifecycle', () => {
   it('rolls back the run placeholder and every binding when one batch delivery is invalid', () => {

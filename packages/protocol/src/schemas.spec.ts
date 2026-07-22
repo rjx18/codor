@@ -262,7 +262,7 @@ describe('messages', () => {
         started_ts: TS,
         ended_ts: TS,
         tool_calls: 3,
-        usage: { input_tokens: 26387, output_tokens: 110 },
+        usage: { input_tokens: 26387, cached_input_tokens: 12000, output_tokens: 110 },
         events_ref: 'runs/2.jsonl',
         final_text: 'done, tests green',
         model: 'gpt-5.6-sol',
@@ -703,8 +703,9 @@ describe('wire events', () => {
       {
         type: 'run.completed',
         status: 'completed',
+        model: 'gpt-5.6-sol',
         final_text: 'PONG',
-        usage: { input_tokens: 1, output_tokens: 1, cost_usd: 0.19 },
+        usage: { input_tokens: 2, cached_input_tokens: 1, output_tokens: 1, cost_usd: 0.19 },
         agent_usage: {
           inputTokens: 1,
           cachedInputTokens: 2,

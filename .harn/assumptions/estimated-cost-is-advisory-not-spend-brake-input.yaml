@@ -1,7 +1,7 @@
 id: estimated-cost-is-advisory-not-spend-brake-input
 hash: a-161898727c69
 title: Estimated dollars stay separate from exact spend and holds
-state: active
+state: retired
 statement: Room meters, member details, and current browser surfaces must
   project provider-reported cost, stored estimated cost, and unknown uncosted
   tokens as separate non-overlapping buckets, label every estimate and any
@@ -13,3 +13,4 @@ depends_on:
   - spend-meter-always-on
   - brakes-opt-in-hold
 created_by: immutable-advisory-run-costs-v2
+retired_by: codor-runtime-fidelity-phase3

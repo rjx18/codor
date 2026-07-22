@@ -1,0 +1,16 @@
+id: resolved-run-cost-estimates-are-finalization-snapshots
+hash: a-714bc4b4143e
+title: Future run estimates snapshot resolved model and cached usage
+state: active
+statement: A newly terminal tokens-only run must atomically persist its latest
+  truthful resolved model, cached-input-aware advisory estimate, usage, and
+  meter update; retries and repairs preserve that snapshot, exact provider cost
+  remains authoritative, and later member configuration or price-table changes
+  cannot reprice finalized new history.
+depends_on:
+  - turn-start-transactional
+  - turns-reuse-one-root-and-append-output-messages
+  - turn-output-finalization-is-atomic
+  - codex-price-table-models-cache-and-aliases
+  - codex-app-server-usage-preserves-cache-and-resolved-model
+created_by: codor-runtime-fidelity-phase3

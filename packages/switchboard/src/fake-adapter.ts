@@ -22,7 +22,13 @@ export type FakeTurn =
       // harn:assume failed-run-details-never-route-as-replies ref=fake-failed-turn-detail
       error?: string;
       // harn:end failed-run-details-never-route-as-replies
-      usage?: { input_tokens: number; output_tokens: number; cost_usd?: number };
+      model?: string;
+      usage?: {
+        input_tokens: number;
+        cached_input_tokens?: number;
+        output_tokens: number;
+        cost_usd?: number;
+      };
       agent_usage?: AgentUsage;
       items?: WireEvent[];
       item_delay_ms?: number;
@@ -253,6 +259,7 @@ export class FakeAdapter implements HarnessAdapter {
       yield {
         type: 'run.completed',
         status: turn.status ?? 'completed',
+        ...(turn.model !== undefined && { model: turn.model }),
         final_text: turn.final_text,
         // harn:assume failed-run-details-never-route-as-replies ref=fake-failed-turn-detail
         ...(turn.error !== undefined && { error: turn.error }),

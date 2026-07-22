@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { type Dirent, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, join } from 'node:path';
 
 import Database from 'better-sqlite3';
 import {
@@ -28,9 +31,11 @@ import {
   type RoomSupport,
   RoomSupportSchema,
   type RunSummary,
+  RunSummarySchema,
   deriveRoomColor,
 } from '@codor/protocol';
 
+import { estimateCostUsd, priceForModel } from './pricing.js';
 import { redactText } from './redact.js';
 import {
   type CollaborationGroup,
@@ -530,6 +535,267 @@ function migrateMeterEstimatedCost(db: Database.Database): void {
   }
 }
 
+const CODEX_REPRICING_MIGRATION = 'codex-usage-pricing-v1';
+const LEGACY_CODEX_MODEL = 'gpt-5.6-sol';
+
+interface LegacyCodexRunRow {
+  room: string;
+  id: number;
+  author: string;
+  run: string;
+  ts: string;
+  session_ref: string | null;
+  member_model: string | null;
+}
+
+interface JournalModelEvidence {
+  ts: string;
+  model: string;
+}
+
+function walkFiles(root: string): string[] {
+  if (!existsSync(root)) return [];
+  const files: string[] = [];
+  const pending = [root];
+  while (pending.length > 0) {
+    const directory = pending.pop()!;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(directory, { withFileTypes: true, encoding: 'utf8' });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) pending.push(path);
+      else if (entry.isFile() && entry.name.endsWith('.jsonl')) files.push(path);
+    }
+  }
+  return files;
+}
+
+function nativeCodexJournalModels(
+  codexHome: string,
+  sessionRefs: ReadonlySet<string>,
+): Map<string, JournalModelEvidence[]> {
+  if (sessionRefs.size === 0) return new Map();
+  const paths = new Map<string, string>();
+  for (const path of walkFiles(join(codexHome, 'sessions'))) {
+    const name = basename(path, '.jsonl');
+    for (const sessionRef of sessionRefs) {
+      if (name === sessionRef || name.endsWith(`-${sessionRef}`)) paths.set(sessionRef, path);
+    }
+  }
+
+  const evidence = new Map<string, JournalModelEvidence[]>();
+  for (const [sessionRef, path] of paths) {
+    const rows: JournalModelEvidence[] = [];
+    let contents: string;
+    try {
+      contents = readFileSync(path, 'utf8');
+    } catch {
+      continue;
+    }
+    for (const line of contents.split('\n')) {
+      if (line.trim() === '') continue;
+      try {
+        const entry = JSON.parse(line) as {
+          timestamp?: unknown;
+          type?: unknown;
+          payload?: { model?: unknown };
+        };
+        if (
+          entry.type === 'turn_context' &&
+          typeof entry.timestamp === 'string' &&
+          typeof entry.payload?.model === 'string' &&
+          entry.payload.model !== ''
+        ) {
+          rows.push({ ts: entry.timestamp, model: entry.payload.model });
+        }
+      } catch {
+        // A malformed native line is not model evidence; later durable fallbacks remain.
+      }
+    }
+    rows.sort((left, right) => left.ts.localeCompare(right.ts));
+    if (rows.length > 0) evidence.set(sessionRef, rows);
+  }
+  return evidence;
+}
+
+function journalModelAt(
+  evidence: readonly JournalModelEvidence[] | undefined,
+  startedTs: string,
+): string | undefined {
+  if (evidence === undefined) return undefined;
+  let resolved: string | undefined;
+  for (const row of evidence) {
+    if (row.ts > startedTs) break;
+    resolved = row.model;
+  }
+  return resolved;
+}
+
+function priceableModel(...models: Array<string | null | undefined>): string | undefined {
+  return models.find((model): model is string => model !== null && priceForModel(model) !== undefined);
+}
+
+function runMeterDay(run: RunSummary, messageTs: string): string {
+  return (run.ended_ts ?? messageTs).slice(0, 10);
+}
+
+// harn:assume legacy-codex-repricing-is-atomic-and-idempotent ref=legacy-codex-repricing-migration
+function migrateLegacyCodexPricing(db: Database.Database, codexHome: string): void {
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS codor_migrations (
+        id TEXT PRIMARY KEY,
+        applied_ts TEXT NOT NULL
+      )
+    `);
+    const applied = db.prepare('SELECT 1 FROM codor_migrations WHERE id = ?')
+      .get(CODEX_REPRICING_MIGRATION);
+    if (applied !== undefined) return;
+
+    const rows = db.prepare(`
+      SELECT message.room, message.id, message.author, message.run, message.ts,
+             member.session_ref, member.model AS member_model
+      FROM messages AS message
+      JOIN members AS member
+        ON member.room = message.room AND member.id = message.author
+      WHERE message.kind = 'run'
+        AND message.run IS NOT NULL
+        AND member.harness = 'codex'
+        AND json_extract(message.run, '$.status') <> 'running'
+        AND json_extract(message.run, '$.usage') IS NOT NULL
+        AND COALESCE(json_extract(message.run, '$.usage.input_tokens'), 0)
+          + COALESCE(json_extract(message.run, '$.usage.output_tokens'), 0) > 0
+        AND json_extract(message.run, '$.usage.cost_usd') IS NULL
+        AND json_extract(message.run, '$.estimated_cost_usd') IS NULL
+    `).all() as LegacyCodexRunRow[];
+
+    const sessionRefs = new Set(rows.flatMap((row) => row.session_ref === null ? [] : [row.session_ref]));
+    const journalModels = nativeCodexJournalModels(codexHome, sessionRefs);
+    const affected = new Set<string>();
+    const updateRun = db.prepare('UPDATE messages SET run = ? WHERE room = ? AND id = ?');
+    for (const row of rows) {
+      const run = RunSummarySchema.parse(JSON.parse(row.run));
+      const model = priceableModel(
+        run.model,
+        row.session_ref === null
+          ? undefined
+          : journalModelAt(journalModels.get(row.session_ref), run.started_ts),
+        row.member_model,
+        LEGACY_CODEX_MODEL,
+      );
+      if (model === undefined || run.usage === undefined) {
+        throw new Error(`legacy Codex run ${row.room}#${row.id} has no priceable model`);
+      }
+      // Legacy Usage predates cached_input_tokens, so all recorded input is
+      // deliberately ordinary input under the approved migration contract.
+      const estimatedCostUsd = estimateCostUsd(model, {
+        input_tokens: run.usage.input_tokens,
+        output_tokens: run.usage.output_tokens,
+      });
+      if (estimatedCostUsd === undefined) {
+        throw new Error(`legacy Codex run ${row.room}#${row.id} cannot be priced`);
+      }
+      updateRun.run(JSON.stringify({
+        ...run,
+        model,
+        estimated_cost_usd: estimatedCostUsd,
+      }), row.room, row.id);
+      affected.add(`${row.room}\u0000${runMeterDay(run, row.ts)}`);
+    }
+
+    const allRuns = db.prepare(`
+      SELECT room, run, ts FROM messages
+      WHERE kind = 'run' AND run IS NOT NULL
+    `).all() as Array<{ room: string; run: string; ts: string }>;
+    const totals = new Map<string, {
+      turns: number;
+      costUsd: number;
+      estimatedCostUsd: number;
+      inputTokens: number;
+      outputTokens: number;
+      uncostedTokens: number;
+    }>();
+    for (const row of allRuns) {
+      const run = RunSummarySchema.parse(JSON.parse(row.run));
+      if (run.status === 'running') continue;
+      const key = `${row.room}\u0000${runMeterDay(run, row.ts)}`;
+      if (!affected.has(key)) continue;
+      const total = totals.get(key) ?? {
+        turns: 0,
+        costUsd: 0,
+        estimatedCostUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        uncostedTokens: 0,
+      };
+      total.turns += 1;
+      if (run.usage !== undefined) {
+        total.inputTokens += run.usage.input_tokens;
+        total.outputTokens += run.usage.output_tokens;
+        if (run.usage.cost_usd !== undefined) total.costUsd += run.usage.cost_usd;
+        else if (run.estimated_cost_usd !== undefined) {
+          total.estimatedCostUsd += run.estimated_cost_usd;
+        } else {
+          total.uncostedTokens += run.usage.input_tokens + run.usage.output_tokens;
+        }
+      }
+      totals.set(key, total);
+    }
+
+    const replaceMeter = db.prepare(`
+      INSERT INTO meters
+        (room, day, turns, cost_usd, estimated_cost_usd, input_tokens, output_tokens, uncosted_tokens)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (room, day) DO UPDATE SET
+        turns = excluded.turns,
+        cost_usd = excluded.cost_usd,
+        estimated_cost_usd = excluded.estimated_cost_usd,
+        input_tokens = excluded.input_tokens,
+        output_tokens = excluded.output_tokens,
+        uncosted_tokens = excluded.uncosted_tokens
+    `);
+    for (const [key, total] of totals) {
+      const separator = key.indexOf('\u0000');
+      replaceMeter.run(
+        key.slice(0, separator),
+        key.slice(separator + 1),
+        total.turns,
+        total.costUsd,
+        total.estimatedCostUsd,
+        total.inputTokens,
+        total.outputTokens,
+        total.uncostedTokens,
+      );
+    }
+
+    const remaining = db.prepare(`
+      SELECT COALESCE(SUM(
+        COALESCE(json_extract(message.run, '$.usage.input_tokens'), 0)
+        + COALESCE(json_extract(message.run, '$.usage.output_tokens'), 0)
+      ), 0) AS tokens
+      FROM messages AS message
+      JOIN members AS member
+        ON member.room = message.room AND member.id = message.author
+      WHERE message.kind = 'run'
+        AND message.run IS NOT NULL
+        AND member.harness = 'codex'
+        AND json_extract(message.run, '$.status') <> 'running'
+        AND json_extract(message.run, '$.usage.cost_usd') IS NULL
+        AND json_extract(message.run, '$.estimated_cost_usd') IS NULL
+    `).get() as { tokens: number };
+    if (remaining.tokens !== 0) {
+      throw new Error(`legacy Codex pricing left ${remaining.tokens} unpriced tokens`);
+    }
+    db.prepare('INSERT INTO codor_migrations (id, applied_ts) VALUES (?, ?)')
+      .run(CODEX_REPRICING_MIGRATION, new Date().toISOString());
+  })();
+}
+// harn:end legacy-codex-repricing-is-atomic-and-idempotent
+
 // harn:assume bridge-enable-admin-or-owner ref=bridge-origin-uniqueness
 function migrateBridgeOriginUniqueness(db: Database.Database): void {
   db.exec(`
@@ -969,34 +1235,43 @@ export type LifecycleRetryRefusalReason =
 export class Store {
   private readonly db: Database.Database;
 
-  constructor(path: string) {
+  constructor(path: string, options: { codexHome?: string } = {}) {
     this.db = new Database(path);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
-    this.db.exec(SCHEMA);
-    migrateDeliveryPayloadSnapshot(this.db);
-    migrateMemberCustody(this.db);
-    migrateMemberLifecycle(this.db);
-    // MUST run after migrateMemberLifecycle: on a legacy database that one REBUILDS the
-    // members table from an explicit column list, which would silently drop these two
-    // again — and then every insert would fail on a column that no longer exists.
-    migrateMemberAgentConfig(this.db);
-    migrateMemberLimits(this.db);
-    migrateMemberContextWindow(this.db);
-    migrateMemberCredential(this.db);
-    migrateMessageAck(this.db);
-    migrateMessagePinned(this.db);
-    migrateMessageDeleted(this.db);
-    migrateMessageAttachments(this.db);
-    migrateMessageContinuations(this.db);
-    migrateMessageActivity(this.db);
-    migrateRoomReadCursors(this.db);
-    migrateApprovalDeliveryResolution(this.db);
-    migrateDeliveryHopCount(this.db);
-    migrateDeliverySteering(this.db);
-    migrateMeterUncostedTokens(this.db);
-    migrateMeterEstimatedCost(this.db);
-    migrateBridgeOriginUniqueness(this.db);
+    try {
+      this.db.pragma('journal_mode = WAL');
+      this.db.pragma('foreign_keys = ON');
+      this.db.exec(SCHEMA);
+      migrateDeliveryPayloadSnapshot(this.db);
+      migrateMemberCustody(this.db);
+      migrateMemberLifecycle(this.db);
+      // MUST run after migrateMemberLifecycle: on a legacy database that one REBUILDS the
+      // members table from an explicit column list, which would silently drop these two
+      // again — and then every insert would fail on a column that no longer exists.
+      migrateMemberAgentConfig(this.db);
+      migrateMemberLimits(this.db);
+      migrateMemberContextWindow(this.db);
+      migrateMemberCredential(this.db);
+      migrateMessageAck(this.db);
+      migrateMessagePinned(this.db);
+      migrateMessageDeleted(this.db);
+      migrateMessageAttachments(this.db);
+      migrateMessageContinuations(this.db);
+      migrateMessageActivity(this.db);
+      migrateRoomReadCursors(this.db);
+      migrateApprovalDeliveryResolution(this.db);
+      migrateDeliveryHopCount(this.db);
+      migrateDeliverySteering(this.db);
+      migrateMeterUncostedTokens(this.db);
+      migrateMeterEstimatedCost(this.db);
+      migrateBridgeOriginUniqueness(this.db);
+      migrateLegacyCodexPricing(
+        this.db,
+        options.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), '.codex'),
+      );
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
   }
 
   close(): void {
@@ -2399,7 +2674,7 @@ export class Store {
             }, { activity: 'defer' });
       } else {
         const posted = this.postMessage(room, { author: opts.memberId, kind: 'run', body: '' });
-        // harn:assume run-cost-estimates-are-finalization-snapshots ref=run-model-snapshot
+        // harn:assume resolved-run-cost-estimates-are-finalization-snapshots ref=resolved-run-estimate-schema
         runMessage = this.updateMessage(room, posted.id, {
           run: {
             status: 'running',
@@ -2410,7 +2685,7 @@ export class Store {
             output_mode: 'messages',
           },
         });
-        // harn:end run-cost-estimates-are-finalization-snapshots
+        // harn:end resolved-run-cost-estimates-are-finalization-snapshots
       }
 
       const deliveries = admissible.map((delivery) => {
@@ -3064,6 +3339,7 @@ export class Store {
       outputs?: TurnOutputPatch[];
       error: string;
       endedTs: string;
+      model?: string;
       usage?: RunSummary['usage'];
       estimatedCostUsd?: number;
       meterDay: string;
@@ -3111,6 +3387,7 @@ export class Store {
           ended_ts: opts.endedTs,
           stalled_since: undefined,
           final_text: undefined,
+          model: opts.model ?? runMsg.run.model,
           usage: opts.usage,
           estimated_cost_usd: opts.estimatedCostUsd,
           error: opts.error,

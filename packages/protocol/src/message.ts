@@ -41,6 +41,8 @@ export type AskCard = z.infer<typeof AskCardSchema>;
 
 export const UsageSchema = z.object({
   input_tokens: z.number().int().nonnegative(),
+  /** Subset of input_tokens served from the provider cache. */
+  cached_input_tokens: z.number().int().nonnegative().optional(),
   output_tokens: z.number().int().nonnegative(),
   cost_usd: z.number().nonnegative().optional(), // absent for tokens-only harnesses (codex)
 });
@@ -58,12 +60,12 @@ export const RunSummarySchema = z.object({
   usage: UsageSchema.optional(),
   events_ref: z.string().min(1), // pointer to the JSONL event blob
   final_text: z.string().optional(), // authoritative aggregate across all output rows
-  // harn:assume run-cost-estimates-are-finalization-snapshots ref=run-estimate-schema
-  /** Explicit model selected when this lifecycle root was first admitted. */
+  // harn:assume resolved-run-cost-estimates-are-finalization-snapshots ref=resolved-run-estimate-schema
+  /** Runtime-resolved model when available, otherwise the admitted model snapshot. */
   model: z.string().min(1).optional(),
   /** Immutable advisory list-price estimate, stored only when exact cost is absent. */
   estimated_cost_usd: z.number().nonnegative().optional(),
-  // harn:end run-cost-estimates-are-finalization-snapshots
+  // harn:end resolved-run-cost-estimates-are-finalization-snapshots
   // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-message-schema
   /** New turns opt into permanent per-stretch output rows; absent is stored legacy history. */
   output_mode: z.literal('messages').optional(),

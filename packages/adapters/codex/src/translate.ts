@@ -6,6 +6,7 @@ type JsonRecord = Record<string, unknown>;
 
 export interface CodexTranslatorContext {
   latestUsage?: AgentUsage;
+  latestResolvedModel?: string;
 }
 
 export interface TurnTranslator {
@@ -135,7 +136,7 @@ function usageEvent(usage: AgentUsage | undefined): WireEvent[] {
     : [{ type: 'usage_updated', usage }];
 }
 
-// harn:assume codex-app-server-usage-is-context-aware-and-uncosted ref=codex-app-server-usage-mapping
+// harn:assume codex-app-server-usage-preserves-cache-and-resolved-model ref=codex-terminal-usage-mapping
 // harn:assume normalized-agent-usage-telemetry-with-estimates ref=codex-usage-telemetry
 /** Exact Codex 0.144.5 camelCase tokenUsage mapping; no historical aliases. */
 export function agentUsageFromTokenUsage(tokenUsage: unknown): AgentUsage | undefined {
@@ -158,7 +159,7 @@ export function agentUsageFromTokenUsage(tokenUsage: unknown): AgentUsage | unde
   return Object.keys(usage).length === 0 ? undefined : usage;
 }
 // harn:end normalized-agent-usage-telemetry-with-estimates
-// harn:end codex-app-server-usage-is-context-aware-and-uncosted
+// harn:end codex-app-server-usage-preserves-cache-and-resolved-model
 
 /** One app-server turn translator. Shared context carries only latest usage. */
 export function createTurnTranslator(
@@ -181,11 +182,15 @@ export function createTurnTranslator(
     return [{
       type: 'run.completed',
       status,
+      ...(context.latestResolvedModel !== undefined && { model: context.latestResolvedModel }),
       ...(status === 'completed' && lastAgentText !== undefined && { final_text: lastAgentText }),
       ...(status === 'failed' && error !== undefined && error !== '' && { error }),
       ...(usage !== undefined && {
         usage: {
           input_tokens: usage.inputTokens ?? 0,
+          ...(usage.cachedInputTokens !== undefined && {
+            cached_input_tokens: usage.cachedInputTokens,
+          }),
           output_tokens: usage.outputTokens ?? 0,
         },
         agent_usage: usage,

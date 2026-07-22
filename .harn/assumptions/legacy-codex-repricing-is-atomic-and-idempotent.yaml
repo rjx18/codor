@@ -1,0 +1,17 @@
+id: legacy-codex-repricing-is-atomic-and-idempotent
+hash: a-b1295c5bc13f
+title: Legacy Codex usage is repriced once from durable run truth
+state: active
+statement: On Store startup, one versioned transaction must resolve every
+  terminal Codex run with tokens but neither exact nor estimated cost from
+  persisted run model, native session journal evidence, member model, then
+  gpt-5.6-sol only as the legacy Codex fallback; price all recorded legacy input
+  at the ordinary current input rate, preserve exact costs, rebuild each
+  affected room/day meter from all run truth rather than adding deltas, require
+  zero historical Codex uncosted tokens, and record the marker only after
+  success so rollback is intact and every restart is a no-op.
+depends_on:
+  - codex-price-table-models-cache-and-aliases
+  - resolved-run-cost-estimates-are-finalization-snapshots
+  - spend-meter-always-on
+created_by: codor-runtime-fidelity-phase3

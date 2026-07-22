@@ -121,7 +121,7 @@ describe('Codex 0.144.5 app-server fixture translation', () => {
   // harn:end codex-turn-and-manual-compaction-follow-native-events
 
   // harn:assume normalized-agent-usage-telemetry-with-estimates ref=codex-usage-telemetry-regression
-  // harn:assume codex-app-server-usage-is-context-aware-and-uncosted ref=codex-app-server-usage-regression
+  // harn:assume codex-app-server-usage-preserves-cache-and-resolved-model ref=codex-terminal-usage-regression
   it('emits live and terminal native context telemetry with no invented cost', () => {
     const expected = {
       inputTokens: 6000,
@@ -132,7 +132,7 @@ describe('Codex 0.144.5 app-server fixture translation', () => {
     };
     expect(events).toContainEqual({ type: 'usage_updated', usage: expected });
     expect(completed(events)).toMatchObject({
-      usage: { input_tokens: 6000, output_tokens: 1000 },
+      usage: { input_tokens: 6000, cached_input_tokens: 3000, output_tokens: 1000 },
       agent_usage: expected,
     });
     expect(completed(events).usage).not.toHaveProperty('cost_usd');
@@ -149,7 +149,7 @@ describe('Codex 0.144.5 app-server fixture translation', () => {
       modelContextWindow: 200000,
     })).toEqual({ inputTokens: 10, cachedInputTokens: 2, outputTokens: 2 });
   });
-  // harn:end codex-app-server-usage-is-context-aware-and-uncosted
+  // harn:end codex-app-server-usage-preserves-cache-and-resolved-model
   // harn:end normalized-agent-usage-telemetry-with-estimates
 });
 

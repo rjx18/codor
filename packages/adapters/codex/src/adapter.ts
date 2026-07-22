@@ -126,6 +126,8 @@ interface CodexRuntime {
   connecting: Promise<void> | null;
   active: TurnState | null;
   threadId?: string;
+  /** Effective thread baseline reported by app-server start/resume/settings. */
+  threadModel?: string;
   context: CodexTranslatorContext;
   /** An operator-requested compaction awaiting its native compact turn. */
   pendingCompaction: PendingCompaction | null;
@@ -196,6 +198,11 @@ function responseId(response: unknown, key: 'thread' | 'turn'): string | undefin
   const container = record(response)?.[key];
   const id = record(container)?.id;
   return typeof id === 'string' && id !== '' ? id : undefined;
+}
+
+function responseModel(response: unknown): string | undefined {
+  const model = record(response)?.model;
+  return typeof model === 'string' && model !== '' ? model : undefined;
 }
 
 function notificationThreadId(params: unknown): string | undefined {
@@ -287,6 +294,8 @@ export class CodexAdapter implements HarnessAdapter {
     const runtime = this.runtimeFor(session);
     if (runtime.active !== null) throw new Error('a Codex turn is already in flight for this member');
     await this.prepareRuntime(runtime, session);
+
+    runtime.context.latestResolvedModel = runtime.threadModel;
 
     const turn: TurnState = {
       translator: createTurnTranslator(runtime.context),
@@ -420,10 +429,12 @@ export class CodexAdapter implements HarnessAdapter {
       });
       client.notify('initialized');
       if (runtime.threadId !== undefined) {
-        await client.request('thread/resume', {
+        const response = await client.request('thread/resume', {
           threadId: runtime.threadId,
           ...this.threadOptions(session),
         });
+        runtime.threadModel = responseModel(response);
+        runtime.context.latestResolvedModel = runtime.threadModel;
       }
     } catch (error) {
       if (runtime.client === client) {
@@ -441,6 +452,8 @@ export class CodexAdapter implements HarnessAdapter {
     const threadId = responseId(response, 'thread');
     if (threadId === undefined) throw new Error('Codex app-server did not return a thread id');
     runtime.threadId = threadId;
+    runtime.threadModel = responseModel(response);
+    runtime.context.latestResolvedModel = runtime.threadModel;
     runtime.session.session_ref = threadId;
     turn.hooks.onSessionRef?.(threadId);
   }
@@ -476,6 +489,30 @@ export class CodexAdapter implements HarnessAdapter {
     if (threadId !== undefined && runtime.threadId !== undefined && threadId !== runtime.threadId) {
       return;
     }
+    // harn:assume codex-app-server-usage-preserves-cache-and-resolved-model ref=codex-resolved-model-runtime
+    const notification = record(params);
+    if (method === 'thread/settings/updated') {
+      const model = record(notification?.threadSettings)?.model;
+      if (typeof model === 'string' && model !== '') {
+        runtime.threadModel = model;
+        runtime.context.latestResolvedModel = model;
+      }
+    } else if (method === 'model/rerouted') {
+      const turn = runtime.active;
+      const notificationTurnId = notification?.turnId;
+      const toModel = notification?.toModel;
+      if (
+        turn !== null &&
+        !turn.done &&
+        typeof notificationTurnId === 'string' &&
+        turn.turnId === notificationTurnId &&
+        typeof toModel === 'string' &&
+        toModel !== ''
+      ) {
+        runtime.context.latestResolvedModel = toModel;
+      }
+    }
+    // harn:end codex-app-server-usage-preserves-cache-and-resolved-model
     // A manual compaction runs with no turn open, and the branch below drops
     // every notification in that state — so observe its turn before that.
     this.observeCompaction(runtime, method, params);
@@ -528,6 +565,8 @@ export class CodexAdapter implements HarnessAdapter {
     runtime.client = null;
     runtime.child = null;
     runtime.identity = undefined;
+    runtime.threadModel = undefined;
+    runtime.context.latestResolvedModel = undefined;
     client?.dispose();
     if (removeRuntime) {
       this.runtimes.delete(runtime.session);

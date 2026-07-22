@@ -1,7 +1,7 @@
 id: estimate-price-table-matches-curated-models
 hash: a-2dc8ea9ce58f
 title: Advisory token prices use cited provider rates and explicit tiers
-state: active
+state: retired
 statement: The advisory price table must key current curated Codex and Gemini
   model ids, retain only documented compatibility aliases for stored history,
   use the published standard uncached token rates and applicable input-context
@@ -12,3 +12,4 @@ statement: The advisory price table must key current curated Codex and Gemini
 depends_on:
   - adapters-own-their-model-catalog
 created_by: immutable-advisory-run-costs-v2
+retired_by: codor-runtime-fidelity-phase3

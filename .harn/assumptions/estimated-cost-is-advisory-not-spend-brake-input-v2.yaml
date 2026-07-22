@@ -1,0 +1,16 @@
+id: estimated-cost-is-advisory-not-spend-brake-input-v2
+hash: a-3fba0169d4da
+title: Estimated dollars stay separate from exact spend and holds
+state: active
+statement: Room meters, member details, and browser surfaces must project
+  provider-reported cost and stored estimated cost as separate non-overlapping
+  buckets, label every estimate and mixture explicitly, evaluate spend_brake_usd
+  from provider-reported cost alone, and retain no uncosted Codex tokens after
+  the approved historical migration; advisory prices remain observability and
+  never billing truth or enforcement input.
+depends_on:
+  - resolved-run-cost-estimates-are-finalization-snapshots
+  - legacy-codex-repricing-is-atomic-and-idempotent
+  - spend-meter-always-on
+  - brakes-opt-in-hold
+created_by: codor-runtime-fidelity-phase3
