@@ -112,6 +112,7 @@ for (const [id, name] of [
   ['inbox', 'Inbox Fixtures'],
   ['chronology', 'Chronology'],
   ['continuations', 'Continuation Fixtures'],
+  ['preview', 'Preview'],
 ]) {
   daemon.createRoom({ id, name, owner });
   crypto.roomKeys.ensureRoom(id);
@@ -369,6 +370,37 @@ daemon.store.postMessage('files', {
   body: 'here are the files',
   attachments: [seededImage, seededDoc],
 });
+
+// Preview: an agent REALLY produces a file through the finalization snapshot path
+// (fake turn journaling a created file_change), then the source is deleted — so the
+// durable browser test proves the artifact opens from the stored bytes, not the
+// working tree. A separate durable per-run failure state exercises the path-free
+// storage-failure notice end to end.
+const previewCwd = join(dir, 'preview-work');
+mkdirSync(previewCwd, { recursive: true });
+daemon.spawnMember('preview', { harness: 'fake', handle: 'painter', cwd: previewCwd });
+writeFileSync(join(previewCwd, 'chart.png'), onePixelPng);
+fake.enqueue({
+  kind: 'complete',
+  final_text: 'rendered the chart',
+  items: [{ type: 'run.item', item_type: 'file_change', payload: { path: 'chart.png', change: 'created' } }],
+});
+daemon.postHumanMessage('preview', '@painter render the chart');
+await daemon.settle();
+rmSync(join(previewCwd, 'chart.png')); // source gone — the durable snapshot must still serve
+// A run whose only image evidence is a NON-raster embedded image (svg): it produces
+// no artifact and must render as an inert card, never an <img>.
+fake.enqueue({
+  kind: 'complete',
+  final_text: 'here is a vector',
+  items: [{
+    type: 'run.item', item_type: 'tool_result',
+    payload: { call_id: 'v1', status: 'ok', image: { media_type: 'image/svg+xml', data_b64: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64') } },
+  }],
+});
+daemon.postHumanMessage('preview', '@painter show a vector');
+await daemon.settle();
+daemon.recordArtifactError('preview', 999); // durable path-free per-run storage-failure state
 
 // Fixtures: a STABLE room for specs whose subject is a seeded message or run.
 // The shared eng room accretes as other specs post into it, which pushes boot

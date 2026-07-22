@@ -1,0 +1,36 @@
+id: durable-inert-snapshots-of-successfully-produced-files
+hash: a-d68be3ead7c3
+title: Successfully produced files are snapshotted under own-cwd, atomic,
+  allowlisted rules with a visible failure state, and served inert
+state: active
+statement: At run finalization the daemon snapshots only files an agent
+  successfully produced, derived from success evidence only - created or
+  modified file_change events (harnesses emit file_change only for completed
+  tools; the ACP adapter is normalized to do so) unioned with tool_result diff
+  paths whose tool_result status is ok (Claude, which emits an ok
+  tool_result.diff and never file_change) - never a path merely read, a failed
+  tool's output, or a tool-output string. Each candidate must resolve through
+  realpath to a regular, non-symlink file inside the producing member's own
+  validated working directory, never another member's directory. Each candidate
+  is content-typed by magic bytes (with a small extension fallback) against an
+  explicit image/document allowlist and refused as an explicit non-artifact when
+  outside the allowlist, above the per-file byte cap, or beyond the per-run and
+  per-room count caps. A retained snapshot writes its bytes and its metadata
+  through temporary files and publishes the validated JSON metadata sidecar last
+  as the commit and visibility marker, so only fully committed artifacts are
+  ever listed; temporary, partial, and orphan (sidecar-less) state is removed on
+  failure and on daemon restart. Metadata carries a strict 32-hex opaque id,
+  name, safe media type, size, source message id, and timestamp, independent of
+  the source message, so the artifact survives commit, rename, deletion,
+  working-tree cleanup, and daemon restart. A storage failure (distinct from a
+  policy refusal) records exactly one durable, path-free, operator-visible
+  failure state per affected run. Artifacts and per-run failure states are
+  listed and served only through authenticated, room-read-authorized endpoints
+  addressed by validated hex id; the serve endpoint renders raster image media
+  types inline and every other type as an octet-stream download with
+  x-content-type-options nosniff, exposing an opaque artifact URL and never a
+  local path.
+depends_on:
+  - attachments-are-capped-files-served-inert
+  - room-git-inspection-read-only-from-known-cwds
+created_by: codor-polish-phase4-corrections

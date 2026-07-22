@@ -2,7 +2,7 @@ id: produced-run-artifacts-are-snapshotted-durably-and-served-inert
 hash: a-fbb79eb3b2e0
 title: Produced files are snapshotted under bounded validated rules and served
   as durable inert artifacts
-state: active
+state: retired
 statement: At run finalization the daemon snapshots only files an agent
   successfully produced - paths named by a successful created or modified
   file_change item that resolve through realpath to a regular, non-symlink file
@@ -25,3 +25,4 @@ depends_on:
   - attachments-are-capped-files-served-inert
   - room-git-inspection-read-only-from-known-cwds
 created_by: codor-polish-phase4-durable-preview
+retired_by: codor-polish-phase4-corrections

@@ -108,6 +108,25 @@ describe('ACP event normalization', () => {
     }));
   });
 
+  it('emits file_change only for completed tools; a failed tool keeps only its error tool_result', () => {
+    const translator = createAcpTurnTranslator();
+    translator.push({
+      sessionUpdate: 'tool_call', toolCallId: 'f', title: 'Edit', kind: 'edit', status: 'in_progress',
+    });
+    const failed = translator.push({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'f',
+      status: 'failed',
+      content: [{ type: 'diff', path: '/work/f.txt', oldText: 'old\n', newText: 'new\n' }],
+    });
+    // A failed tool yields no produced-file evidence downstream — only its error result.
+    expect(failed.some((event) => event.type === 'run.item' && event.item_type === 'file_change')).toBe(false);
+    expect(failed).toContainEqual(expect.objectContaining({
+      item_type: 'tool_result',
+      payload: expect.objectContaining({ call_id: 'f', status: 'error' }),
+    }));
+  });
+
   it('maps refusal, cancellation, and limit stops to honest terminal outcomes', () => {
     expect(createAcpTurnTranslator().complete({ stopReason: 'refusal' }).events[0]).toMatchObject({
       status: 'failed', error: 'ACP agent refused the turn',

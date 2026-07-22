@@ -122,3 +122,48 @@ test.describe('preview gallery', () => {
     expect(audit.violations.map((v) => `${v.id}: ${v.nodes[0]?.target[0]}`)).toEqual([]);
   });
 });
+
+// The `preview` room is seeded through the REAL finalization snapshot path: an agent
+// produces chart.png, the daemon snapshots it, and the source file is deleted — so
+// these run without stubbing and prove durability end to end.
+const PREVIEW = '/?room=preview&token=next-e2e-token';
+
+test.describe('preview real backend (durable snapshots + inert classification)', () => {
+  test('opens a durably snapshotted artifact after its source file was removed', async ({ page }) => {
+    await openPreview(page, PREVIEW);
+    const thumb = page.getByTestId('preview-gallery').getByTestId('preview-thumb').first();
+    await expect(thumb.locator('img')).toHaveAttribute('src', /\/api\/rooms\/preview\/artifacts\//);
+    await thumb.click();
+
+    const img = page.getByTestId('preview-lightbox').locator('.nx-lightbox-stage img');
+    await expect(img).toHaveAttribute('src', /\/api\/rooms\/preview\/artifacts\//);
+    // The bytes served from the durable store actually decode — the source file is gone.
+    await expect.poll(() => img.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  });
+
+  test('renders a non-raster embedded run image as an inert card, never an <img>', async ({ page }) => {
+    await openPreview(page, PREVIEW);
+    const inert = page.getByTestId('preview-gallery').getByTestId('preview-inert').first();
+    await expect(inert).toBeVisible();
+    await expect(inert.locator('img')).toHaveCount(0); // svg is downloaded, never inlined
+  });
+
+  test('surfaces a path-free per-run storage-failure notice', async ({ page }) => {
+    await openPreview(page, PREVIEW);
+    const notice = page.getByTestId('preview-error');
+    await expect(notice).toBeVisible();
+    await expect(notice).not.toContainText('/'); // no path leaks into the notice
+  });
+
+  test('remounts Preview on room switch, dropping the previous room state', async ({ page }) => {
+    await openPreview(page, PREVIEW);
+    await expect(page.getByTestId('preview-error')).toBeVisible();
+
+    // SPA-switch to a room with no artifacts/errors — the previous room's state must
+    // not linger (the room-keyed remount clears it with no stale frame).
+    await page.getByTestId('room-link-eng').click();
+    await page.getByTestId('context-tab-preview').click();
+    await expect(page.getByTestId('preview-error')).toHaveCount(0);
+    await expect(page.locator('img[src*="/rooms/preview/artifacts/"]')).toHaveCount(0);
+  });
+});

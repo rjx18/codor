@@ -114,13 +114,13 @@ export const MessageSchema = z.object({
 });
 export type Message = z.infer<typeof MessageSchema>;
 
-// harn:assume produced-run-artifacts-are-snapshotted-durably-and-served-inert ref=produced-artifact-schema
+// harn:assume durable-inert-snapshots-of-successfully-produced-files ref=produced-artifact-schema
 /** Metadata for a durable snapshot of a file an agent produced. The bytes live
  *  under the daemon data tree keyed by `id`; `name` and `source_message_id` are
  *  provenance only — never a local path — and `media_type` is the sniffed,
  *  allowlisted safe type used to serve the bytes inertly. */
 export const ProducedArtifactSchema = z.object({
-  id: z.string().min(1), // server-issued handle; also the on-disk file name
+  id: z.string().regex(/^[0-9a-f]{32}$/), // opaque server-issued handle; the on-disk file name
   name: z.string().min(1), // display basename — metadata only, never a path
   media_type: z.string().min(1),
   size: z.number().int().nonnegative(),
@@ -128,4 +128,13 @@ export const ProducedArtifactSchema = z.object({
   produced_at: TimestampSchema,
 });
 export type ProducedArtifact = z.infer<typeof ProducedArtifactSchema>;
-// harn:end produced-run-artifacts-are-snapshotted-durably-and-served-inert
+
+/** One durable, path-free failure state per run whose produced-artifact snapshot
+ *  could not be stored (a storage failure, not a policy refusal). Carries no path
+ *  or detail — the UI shows a generic notice; provenance is the run id only. */
+export const ProducedArtifactErrorSchema = z.object({
+  source_message_id: MessageIdSchema, // the run whose snapshot could not be retained
+  produced_at: TimestampSchema,
+});
+export type ProducedArtifactError = z.infer<typeof ProducedArtifactErrorSchema>;
+// harn:end durable-inert-snapshots-of-successfully-produced-files

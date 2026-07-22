@@ -159,12 +159,17 @@ export function createAcpTurnTranslator(): AcpTurnTranslator {
     if (!terminal || state.terminal) return events;
     state.terminal = true;
     const content = resultContent(call.content, kind);
-    for (const diff of content.diffs) {
-      events.push({
-        type: 'run.item',
-        item_type: 'file_change',
-        payload: { path: diff.path, change: diff.change, diff: { path: diff.path, unified: diff.unified } },
-      });
+    // Emit normalized file_change ONLY for completed tools. A failed tool retains
+    // only its error tool_result evidence, so a failed edit never reads as a
+    // produced file downstream (the daemon snapshots created/modified file_change).
+    if (call.status === 'completed') {
+      for (const diff of content.diffs) {
+        events.push({
+          type: 'run.item',
+          item_type: 'file_change',
+          payload: { path: diff.path, change: diff.change, diff: { path: diff.path, unified: diff.unified } },
+        });
+      }
     }
     const firstDiff = content.diffs[0];
     const raw = call.rawOutput;

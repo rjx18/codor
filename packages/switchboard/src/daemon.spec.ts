@@ -1,5 +1,5 @@
 import { execFileSync, spawn as spawnProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -5438,20 +5438,28 @@ describe('git working state (diff explorer)', () => {
   // harn:end git-history-pages-are-local-and-commit-addressed
 });
 
-// harn:assume produced-run-artifacts-are-snapshotted-durably-and-served-inert ref=produced-artifact-daemon-regression
-describe('produced-artifact snapshots (produced-run-artifacts-are-snapshotted-durably-and-served-inert)', () => {
+// harn:assume durable-inert-snapshots-of-successfully-produced-files ref=produced-artifact-daemon-regression
+describe('produced-artifact snapshots (durable-inert-snapshots-of-successfully-produced-files)', () => {
   const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
 
-  // Drive one finalized fake turn that journals the given file_change items.
-  async function produce(handle: string, cwd: string, changes: { path: string; change: string }[]): Promise<void> {
+  // Drive one finalized fake turn journaling the given run items.
+  async function produceEvents(handle: string, cwd: string, items: WireEvent[]): Promise<void> {
     daemon.spawnMember('eng', { harness: 'fake', handle, cwd });
-    fake.enqueue({
-      kind: 'complete',
-      final_text: 'done',
-      items: changes.map((c) => ({ type: 'run.item', item_type: 'file_change', payload: c })) as unknown as WireEvent[],
-    });
+    fake.enqueue({ kind: 'complete', final_text: 'done', items });
     daemon.postHumanMessage('eng', `@${handle} produce`);
     await daemon.settle();
+  }
+
+  const fileChanges = (changes: { path: string; change: string }[]): WireEvent[] =>
+    changes.map((c) => ({ type: 'run.item', item_type: 'file_change', payload: c })) as unknown as WireEvent[];
+
+  const toolResult = (path: string, status: 'ok' | 'error'): WireEvent =>
+    ({ type: 'run.item', item_type: 'tool_result',
+       payload: { call_id: 't1', status, diff: { path, unified: '--- a\n+++ b\n' } } }) as unknown as WireEvent;
+
+  // Journal file_change items (Codex/ACP-completed style).
+  async function produce(handle: string, cwd: string, changes: { path: string; change: string }[]): Promise<void> {
+    await produceEvents(handle, cwd, fileChanges(changes));
   }
 
   it('snapshots a produced image inside the cwd, keeps it after the source is deleted, and carries no local path', async () => {
@@ -5521,8 +5529,85 @@ describe('produced-artifact snapshots (produced-run-artifacts-are-snapshotted-du
       await restarted.close();
     }
   });
+
+  it('snapshots a file from a successful tool_result diff (Claude-style, no file_change)', async () => {
+    const cwd = testCwd('produce-claude');
+    writeFileSync(join(cwd, 'out.png'), PNG);
+    await produceEvents('claude', cwd, [toolResult('out.png', 'ok')]);
+    const artifacts = daemon.listArtifacts('eng');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({ name: 'out.png', media_type: 'image/png' });
+  });
+
+  it('refuses a failed tool_result diff even when the named file exists', async () => {
+    const cwd = testCwd('produce-failed');
+    writeFileSync(join(cwd, 'partial.png'), PNG);
+    await produceEvents('failer', cwd, [toolResult('partial.png', 'error')]);
+    expect(daemon.listArtifacts('eng')).toEqual([]);
+  });
+
+  it('refuses an absolute path into another member\'s cwd', async () => {
+    const cwdA = testCwd('produce-alpha');
+    const cwdB = testCwd('produce-beta');
+    // beta makes cwdB a real room-known cwd; alpha must still be refused reaching into it.
+    daemon.spawnMember('eng', { harness: 'fake', handle: 'beta', cwd: cwdB });
+    writeFileSync(join(cwdB, 'secret.png'), PNG);
+    await produce('alpha', cwdA, [{ path: join(cwdB, 'secret.png'), change: 'created' }]);
+    expect(daemon.listArtifacts('eng')).toEqual([]);
+  });
+
+  it('records a durable path-free per-run failure and no orphan when the blob write fails', async () => {
+    const cwd = testCwd('produce-blobfail');
+    writeFileSync(join(cwd, 'x.png'), PNG);
+    vi.spyOn(daemon as unknown as { persistArtifactBlob: () => void }, 'persistArtifactBlob')
+      .mockImplementationOnce(() => { throw new Error('disk full'); });
+    await produce('blobfail', cwd, [{ path: 'x.png', change: 'created' }]);
+    expect(daemon.listArtifacts('eng')).toEqual([]); // nothing committed
+    const errors = daemon.listArtifactErrors('eng');
+    expect(errors).toHaveLength(1);
+    expect(JSON.stringify(errors[0])).not.toContain(cwd); // path-free failure state
+    expect(readdirSync(join(dir, 'artifacts', 'eng')).filter((f) => !f.endsWith('.json'))).toEqual([]); // no orphan/temp
+  });
+
+  it('rolls back the published blob and records a failure when the sidecar write fails', async () => {
+    const cwd = testCwd('produce-metafail');
+    writeFileSync(join(cwd, 'y.png'), PNG);
+    vi.spyOn(daemon as unknown as { persistArtifactMeta: () => void }, 'persistArtifactMeta')
+      .mockImplementationOnce(() => { throw new Error('sidecar failed'); });
+    await produce('metafail', cwd, [{ path: 'y.png', change: 'created' }]);
+    expect(daemon.listArtifacts('eng')).toEqual([]); // no committed sidecar
+    expect(daemon.listArtifactErrors('eng')).toHaveLength(1);
+    expect(readdirSync(join(dir, 'artifacts', 'eng'))).toEqual([]); // published blob rolled back — no orphan bytes
+  });
+
+  it('drops temp and orphan (sidecar-less) blobs on restart, keeping committed artifacts', async () => {
+    const cwd = testCwd('produce-cleanup');
+    writeFileSync(join(cwd, 'keep.png'), PNG);
+    await produce('cleaner', cwd, [{ path: 'keep.png', change: 'created' }]);
+    const kept = daemon.listArtifacts('eng');
+    expect(kept).toHaveLength(1);
+    const engDir = join(dir, 'artifacts', 'eng');
+    writeFileSync(join(engDir, 'b'.repeat(32)), PNG); // orphan blob (no sidecar)
+    writeFileSync(join(engDir, `${'c'.repeat(32)}.tmp`), PNG); // leftover temp
+    await daemon.close();
+
+    const restarted = new Daemon({
+      dbPath: join(dir, 'switchboard.sqlite'),
+      blobRoot: join(dir, 'blobs'),
+      adapters: [new FakeAdapter('fake')],
+      discoverModels: false,
+      homeDir: dir,
+    });
+    try {
+      expect(restarted.listArtifacts('eng').map((artifact) => artifact.id)).toEqual(kept.map((artifact) => artifact.id));
+      const remaining = readdirSync(engDir).filter((f) => !f.endsWith('.json'));
+      expect(remaining).toEqual([kept[0]!.id]); // only the committed blob survives
+    } finally {
+      await restarted.close();
+    }
+  });
 });
-// harn:end produced-run-artifacts-are-snapshotted-durably-and-served-inert
+// harn:end durable-inert-snapshots-of-successfully-produced-files
 
 describe('message attachments', () => {
   const stage = (room: string, name: string, mime: string, bytes: string) => {

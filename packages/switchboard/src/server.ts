@@ -905,7 +905,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end attachments-are-capped-files-served-inert
 
-  // harn:assume produced-run-artifacts-are-snapshotted-durably-and-served-inert ref=produced-artifact-serve
+  // harn:assume durable-inert-snapshots-of-successfully-produced-files ref=produced-artifact-serve
   // Durable produced-artifact feed: list metadata for room readers, and serve the
   // stored bytes inertly (raster inline with the sniffed media type, everything
   // else an octet-stream download) with nosniff — an opaque URL, never a path.
@@ -914,7 +914,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (!principal) return;
     const { room } = req.params as { room: string };
     if (!authorizeRoom(principal, room, 'read', reply)) return;
-    void reply.send({ artifacts: daemon.listArtifacts(room) });
+    // Per-run storage-failure states ride alongside the artifacts so the Preview can
+    // show one durable, path-free failure notice for an affected run.
+    void reply.send({ artifacts: daemon.listArtifacts(room), errors: daemon.listArtifactErrors(room) });
   });
 
   app.get('/api/rooms/:room/artifacts/:id', (req, reply) => {
@@ -936,7 +938,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       )
       .send(createReadStream(path));
   });
-  // harn:end produced-run-artifacts-are-snapshotted-durably-and-served-inert
+  // harn:end durable-inert-snapshots-of-successfully-produced-files
 
   // harn:assume graph-derived-from-vault-links-readonly-v5 ref=ledger-graph-rest
   app.get('/api/rooms/:room/ledger', (req, reply) => {

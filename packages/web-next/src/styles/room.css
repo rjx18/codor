@@ -1770,6 +1770,16 @@
   overflow: auto;
   padding: var(--sp-4);
 }
+/* Durable, path-free per-run snapshot-failure notice. */
+.nx-preview-error {
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid color-mix(in srgb, var(--c-error) 40%, transparent);
+  border-radius: var(--r-card);
+  background: var(--c-error-tint);
+  color: var(--c-error-text);
+  font: var(--t-caption);
+}
 .nx-preview-grid {
   list-style: none;
   margin: 0;

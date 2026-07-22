@@ -1,8 +1,8 @@
-import type { AgentLimit, Member, Policy, ProducedArtifact, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
+import type { AgentLimit, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
 import { Bot, ChevronRight, FileText, LoaderCircle, Minimize2, MoreVertical, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { artifactUrl, fetchArtifacts, fetchRunEvents, refreshUsage, type AdapterRegistration, type MemberDetail } from '@runtime/api.js';
+import { artifactUrl, fetchArtifacts, fetchRunEvents, refreshUsage, type AdapterRegistration, type ArtifactFeed, type MemberDetail } from '@runtime/api.js';
 import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attachments.js';
 import { AgentControls, AgentIdentityControls, RolePresetControls, Section } from './AgentControls.js';
 import { FolderPicker } from './FolderPicker.js';
@@ -67,7 +67,9 @@ export function ContextPanel(props: { room: string; token: () => string; connect
       </div>
       {tab === 'members' && <MembersTab room={props.room} token={props.token} connection={props.connection} />}
       {tab === 'diff' && <DiffTab room={props.room} token={props.token} />}
-      {tab === 'preview' && <PreviewTab room={props.room} token={props.token} />}
+      {/* Key by room so a room switch remounts Preview with fresh state — no stale
+          artifact/image frame from the previous room during the next fetch. */}
+      {tab === 'preview' && <PreviewTab key={props.room} room={props.room} token={props.token} />}
     </aside>
   );
 }
@@ -1263,9 +1265,9 @@ function previewKind(mediaType: string): PreviewKind {
 
 /** The room's durable produced-artifact feed, refetched whenever a run finalizes
  *  (a finalize may have snapshotted new files). */
-function useArtifacts(room: string, token: () => string): ProducedArtifact[] {
+function useArtifacts(room: string, token: () => string): ArtifactFeed {
   const messages = useClientStore((state) => roomSlice(state, room).messages);
-  const [artifacts, setArtifacts] = useState<ProducedArtifact[]>([]);
+  const [feed, setFeed] = useState<ArtifactFeed>({ artifacts: [], errors: [] });
   const finalizedRuns = useMemo(
     () => sortedMessages(messages).filter((m) => m.kind === 'run' && m.run !== undefined && m.run.status !== 'running').length,
     [messages],
@@ -1274,20 +1276,20 @@ function useArtifacts(room: string, token: () => string): ProducedArtifact[] {
     let cancelled = false;
     void (async () => {
       try {
-        const list = await fetchArtifacts(room, { token: token() });
-        if (!cancelled) setArtifacts(list);
+        const next = await fetchArtifacts(room, { token: token() });
+        if (!cancelled) setFeed(next);
       } catch {
-        // feed unavailable — keep the last good list
+        // feed unavailable — keep the last good feed
       }
     })();
     return () => { cancelled = true; };
   }, [room, token, finalizedRuns]);
-  return artifacts;
+  return feed;
 }
 
 function PreviewTab(props: { room: string; token: () => string }) {
   const { images } = useRunImages(props.room, props.token);
-  const artifacts = useArtifacts(props.room, props.token);
+  const { artifacts, errors } = useArtifacts(props.room, props.token);
   const messages = useClientStore((state) => roomSlice(state, props.room).messages);
   const [active, setActive] = useState<PreviewItem | null>(null);
   const { room, token } = props;
@@ -1315,7 +1317,9 @@ function PreviewTab(props: { room: string; token: () => string }) {
     for (const image of images) {
       if (artifactMsgIds.has(image.msgId)) continue;
       out.push({
-        key: `run:${String(image.msgId)}:${image.data_b64.slice(0, 24)}`, kind: 'raster',
+        // Classify embedded run images by media_type like everything else, so a
+        // non-raster embedded image is an inert card and never reaches an <img>.
+        key: `run:${String(image.msgId)}:${image.data_b64.slice(0, 24)}`, kind: previewKind(image.media_type),
         name: `Turn #${String(image.msgId)} image`, mediaType: image.media_type,
         sourceMsgId: image.msgId, dataUri: `data:${image.media_type};base64,${image.data_b64}`,
       });
@@ -1325,20 +1329,28 @@ function PreviewTab(props: { room: string; token: () => string }) {
     return out.filter((item) => (seen.has(item.key) ? false : (seen.add(item.key), true))).slice(0, MAX_PREVIEW_ITEMS);
   }, [artifacts, images, messages, room, token]);
 
-  if (items.length === 0) {
+  const hasErrors = errors.length > 0;
+  if (items.length === 0 && !hasErrors) {
     return <EmptyState testid="preview-empty">Nothing to preview yet — files agents produce appear here.</EmptyState>;
   }
   return (
     <div className="nx-preview" data-testid="preview-gallery">
-      <ul className="nx-preview-grid">
-        {items.map((item) => (
-          <li key={item.key}>
-            {item.kind === 'raster'
-              ? <PreviewThumb item={item} onOpen={() => setActive(item)} />
-              : <PreviewCard item={item} />}
-          </li>
-        ))}
-      </ul>
+      {hasErrors && (
+        <p className="nx-preview-error" role="status" data-testid="preview-error">
+          Some files an agent produced couldn’t be stored.
+        </p>
+      )}
+      {items.length > 0 && (
+        <ul className="nx-preview-grid">
+          {items.map((item) => (
+            <li key={item.key}>
+              {item.kind === 'raster'
+                ? <PreviewThumb item={item} onOpen={() => setActive(item)} />
+                : <PreviewCard item={item} />}
+            </li>
+          ))}
+        </ul>
+      )}
       {active !== null && <PreviewLightbox item={active} onClose={() => setActive(null)} />}
     </div>
   );

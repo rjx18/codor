@@ -4,6 +4,7 @@ import type {
   Member,
   Message,
   ProducedArtifact,
+  ProducedArtifactError,
   Room,
   WireEvent,
 } from '@codor/protocol';
@@ -296,17 +297,24 @@ export async function fetchRunEvents(
   return body.events;
 }
 
+export interface ArtifactFeed {
+  artifacts: ProducedArtifact[];
+  /** One path-free failure state per run whose snapshot could not be stored. */
+  errors: ProducedArtifactError[];
+}
+
 /** Durable produced-artifact feed for a room. Bytes are fetched separately
- *  through {@link artifactUrl}; this returns only opaque metadata (never a path). */
+ *  through {@link artifactUrl}; this returns only opaque metadata (never a path)
+ *  plus any per-run storage-failure states. */
 export async function fetchArtifacts(
   room: string,
   options: ApiOptions,
-): Promise<ProducedArtifact[]> {
-  const body = await fetchJson<{ artifacts: ProducedArtifact[] }>(
+): Promise<ArtifactFeed> {
+  const body = await fetchJson<{ artifacts: ProducedArtifact[]; errors?: ProducedArtifactError[] }>(
     `/api/rooms/${encodeURIComponent(room)}/artifacts`,
     options,
   );
-  return body.artifacts;
+  return { artifacts: body.artifacts, errors: body.errors ?? [] };
 }
 
 /** Served URL for a produced artifact. The token rides the query string because

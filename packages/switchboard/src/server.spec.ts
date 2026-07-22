@@ -2822,8 +2822,8 @@ describe('browser protocol epoch', () => {
 });
 // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
 
-// harn:assume produced-run-artifacts-are-snapshotted-durably-and-served-inert ref=produced-artifact-server-regression
-describe('produced-artifact endpoints (produced-run-artifacts-are-snapshotted-durably-and-served-inert)', () => {
+// harn:assume durable-inert-snapshots-of-successfully-produced-files ref=produced-artifact-server-regression
+describe('produced-artifact endpoints (durable-inert-snapshots-of-successfully-produced-files)', () => {
   const stageArtifact = (room: string, name: string, mediaType: string, bytes: Buffer) => {
     const id = daemon.newArtifactId();
     daemon.ensureArtifactDir(room);
@@ -2854,6 +2854,17 @@ describe('produced-artifact endpoints (produced-run-artifacts-are-snapshotted-du
     expect(got.headers.get('content-disposition')).toContain('inline');
     expect(got.headers.get('x-content-type-options')).toBe('nosniff');
     expect(await got.text()).toBe('png-bytes');
+  });
+
+  it('returns per-run snapshot-failure states beside the artifacts', async () => {
+    daemon.recordArtifactError('eng', 42);
+    const list = await fetch(`${base}/api/rooms/eng/artifacts`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(list.status).toBe(200);
+    const body = await list.json() as { artifacts: unknown[]; errors: { source_message_id: number }[] };
+    expect(body.errors.map((error) => error.source_message_id)).toContain(42);
+    expect(JSON.stringify(body.errors)).not.toContain('/'); // path-free
   });
 
   it('serves a document artifact as an inert nosniff download', async () => {
@@ -2893,4 +2904,4 @@ describe('produced-artifact endpoints (produced-run-artifacts-are-snapshotted-du
     expect(malformed.status).toBe(404);
   });
 });
-// harn:end produced-run-artifacts-are-snapshotted-durably-and-served-inert
+// harn:end durable-inert-snapshots-of-successfully-produced-files

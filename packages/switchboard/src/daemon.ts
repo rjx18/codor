@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
@@ -23,6 +23,7 @@ import type {
   Message,
   PendingInteraction,
   ProducedArtifact,
+  ProducedArtifactError,
   Role,
   RoomSupport,
   RunSummary,
@@ -37,6 +38,7 @@ import {
   AttachmentSchema,
   MemberStatusResponseSchema,
   ProducedArtifactSchema,
+  ProducedArtifactErrorSchema,
   deriveRoomId,
   parseRunItemPayload,
 } from '@codor/protocol';
@@ -506,6 +508,9 @@ export class Daemon {
   private readonly socketPath: string;
   private readonly attachmentsRoot: string;
   private readonly artifactsRoot: string;
+  // Per-run snapshot-failure states live OUTSIDE the artifacts tree so a failure to
+  // write into a room's artifact dir cannot also swallow the failure record.
+  private readonly artifactErrorsRoot: string;
   private readonly stopResidencyReachability?: () => void;
   private closing = false;
   private closed = false;
@@ -525,7 +530,9 @@ export class Daemon {
     this.socketPath = options.socketPath ?? localSocketPath(dirname(options.dbPath));
     this.attachmentsRoot = join(dirname(options.dbPath), 'attachments');
     this.artifactsRoot = join(dirname(options.dbPath), 'artifacts');
+    this.artifactErrorsRoot = join(dirname(options.dbPath), 'artifact-errors');
     this.sweepOrphanAttachments(); // boot-time: drop uploads no message ever claimed
+    this.cleanupArtifactStore(); // boot-time: drop temp + orphan (sidecar-less) artifact blobs
     this.ledger?.setRoomValidator((room) => this.store.getRoom(room) !== undefined);
     this.ledger?.setRemoteWriteAuthorizer((peerId, room, author) => {
       const members = this.store.listMembers(room);
@@ -4927,7 +4934,7 @@ export class Daemon {
   }
   // harn:end attachments-are-capped-files-served-inert
 
-  // harn:assume produced-run-artifacts-are-snapshotted-durably-and-served-inert ref=produced-artifact-snapshot
+  // harn:assume durable-inert-snapshots-of-successfully-produced-files ref=produced-artifact-snapshot
   newArtifactId(): string {
     return randomBytes(16).toString('hex');
   }
@@ -4990,32 +4997,142 @@ export class Daemon {
     }
   }
 
-  /** At finalization, snapshot the files this run PRODUCED. A candidate is only a
-   *  path named by a successful created/modified file_change that resolves — via
-   *  realpath, never following a symlink — to a regular file inside the room's
-   *  known cwds; a read-only path, a symlink, a non-regular or outside-cwd path,
-   *  an over-allowlist type, an oversize file, or beyond the per-run cap are all
-   *  refused. A partial write leaves nothing behind. */
+  // Atomic storage: write bytes and metadata through temp files and publish the
+  // validated sidecar LAST (listArtifacts scans sidecars), so an interrupted write
+  // leaves at most an orphan blob and never a half-visible artifact. The two
+  // persist steps are separate methods so a test can inject a failure at either the
+  // blob or the metadata boundary.
+  protected persistArtifactBlob(room: string, id: string, bytes: Buffer): void {
+    const path = this.artifactPath(room, id);
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, bytes);
+    renameSync(tmp, path);
+  }
+
+  protected persistArtifactMeta(room: string, id: string, meta: ProducedArtifact): void {
+    const path = this.artifactMetaPath(room, id);
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, JSON.stringify(meta));
+    renameSync(tmp, path); // sidecar published last = the commit/visibility marker
+  }
+
+  private writeArtifactAtomic(room: string, id: string, bytes: Buffer, meta: ProducedArtifact): void {
+    this.ensureArtifactDir(room);
+    try {
+      this.persistArtifactBlob(room, id, bytes);
+      this.persistArtifactMeta(room, id, meta);
+    } catch (error) {
+      // Roll back every temp and the (possibly published) blob so no orphan or
+      // partial artifact survives — the sidecar is the only visibility marker.
+      rmSync(`${this.artifactPath(room, id)}.tmp`, { force: true });
+      rmSync(`${this.artifactMetaPath(room, id)}.tmp`, { force: true });
+      rmSync(this.artifactPath(room, id), { force: true });
+      rmSync(this.artifactMetaPath(room, id), { force: true });
+      throw error;
+    }
+  }
+
+  private artifactErrorPath(room: string, runMsgId: number): string {
+    return join(this.artifactErrorsRoot, room, `${String(runMsgId)}.json`);
+  }
+
+  /** Record ONE durable, path-free failure state for a run whose snapshot could not
+   *  be stored (a storage failure, never a policy refusal). Best-effort and never
+   *  throws — finalization must not fail because the failure note could not land. */
+  recordArtifactError(room: string, runMsgId: number): void {
+    try {
+      mkdirSync(join(this.artifactErrorsRoot, room), { recursive: true });
+      const path = this.artifactErrorPath(room, runMsgId);
+      const tmp = `${path}.tmp`;
+      const error: ProducedArtifactError = { source_message_id: runMsgId, produced_at: new Date().toISOString() };
+      writeFileSync(tmp, JSON.stringify(error));
+      renameSync(tmp, path);
+    } catch { /* best-effort; a lost failure note must not break the turn */ }
+  }
+
+  /** Per-run snapshot-storage failures for the room, newest first. */
+  listArtifactErrors(room: string): ProducedArtifactError[] {
+    let files: string[];
+    try {
+      files = readdirSync(join(this.artifactErrorsRoot, room));
+    } catch {
+      return [];
+    }
+    const errors: ProducedArtifactError[] = [];
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      try {
+        errors.push(ProducedArtifactErrorSchema.parse(
+          JSON.parse(readFileSync(join(this.artifactErrorsRoot, room, file), 'utf8')),
+        ));
+      } catch { /* skip unreadable */ }
+    }
+    return errors.sort((left, right) => right.produced_at.localeCompare(left.produced_at));
+  }
+
+  /** Boot-time reconciliation: drop temp files and orphan blobs (a blob with no
+   *  committed sidecar is an interrupted write) so restart never surfaces or
+   *  accumulates partial artifacts. */
+  private cleanupArtifactStore(): void {
+    let rooms: string[];
+    try {
+      rooms = readdirSync(this.artifactsRoot);
+    } catch {
+      return;
+    }
+    for (const room of rooms) {
+      const dir = join(this.artifactsRoot, room);
+      let files: string[];
+      try {
+        files = readdirSync(dir);
+      } catch {
+        continue;
+      }
+      const committed = new Set(files.filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -'.json'.length)));
+      for (const file of files) {
+        if (file.endsWith('.tmp')) { rmSync(join(dir, file), { force: true }); continue; }
+        if (file.endsWith('.json')) continue;
+        if (ARTIFACT_ID.test(file) && !committed.has(file)) rmSync(join(dir, file), { force: true });
+      }
+    }
+  }
+
+  /** At finalization, snapshot the files this run SUCCESSFULLY produced. Evidence is
+   *  success-only: created/modified file_change events (harnesses emit file_change
+   *  only for completed tools) unioned with tool_result diff paths whose status is
+   *  ok (Claude, which emits an ok tool_result.diff and never file_change). Each
+   *  candidate must realpath — never following a symlink — to a regular file inside
+   *  the PRODUCING member's own validated cwd; a symlink, non-regular, outside-cwd,
+   *  over-allowlist, oversize, or over-cap path is an explicit non-artifact. A
+   *  storage failure records one durable, path-free per-run failure state. */
   private snapshotProducedArtifacts(room: string, memberId: string, runMsgId: number): void {
     const member = this.store.getMember(room, memberId);
     if (member?.kind !== 'agent' || member.cwd === undefined) return;
-    // Compare real paths on both sides so a symlinked data root (e.g. /tmp) does
-    // not defeat the containment check.
-    const knownCwds = this.roomKnownCwds(room).map((cwd) => {
-      try { return realpathSync(cwd); } catch { return cwd; }
-    });
-    if (knownCwds.length === 0) return;
+    // Contain to the producing member's OWN cwd. Realpath both sides so a symlinked
+    // data root (e.g. /tmp) cannot defeat the check, and an absolute path into a
+    // different member's cwd is refused.
+    let memberCwd: string;
+    try { memberCwd = realpathSync(member.cwd); } catch { memberCwd = member.cwd; }
 
     const produced: string[] = [];
     for (const event of this.readRunBlob(room, runMsgId)) {
-      if (event.type !== 'run.item' || event.item_type !== 'file_change') continue;
-      const parsed = parseRunItemPayload('file_change', event.payload);
-      if (!parsed.success) continue;
-      if (parsed.data.change === 'created' || parsed.data.change === 'modified') produced.push(parsed.data.path);
+      if (event.type !== 'run.item') continue;
+      if (event.item_type === 'file_change') {
+        const parsed = parseRunItemPayload('file_change', event.payload);
+        if (parsed.success && (parsed.data.change === 'created' || parsed.data.change === 'modified')) {
+          produced.push(parsed.data.path);
+        }
+      } else if (event.item_type === 'tool_result') {
+        const parsed = parseRunItemPayload('tool_result', event.payload);
+        if (parsed.success && parsed.data.status === 'ok' && parsed.data.diff?.path !== undefined) {
+          produced.push(parsed.data.diff.path);
+        }
+      }
     }
 
     const seen = new Set<string>();
     let snapped = 0;
+    let storageFailed = false;
     for (const rawPath of produced) {
       if (snapped >= MAX_ARTIFACTS_PER_RUN) break;
       const candidate = resolve(member.cwd, rawPath);
@@ -5030,8 +5147,8 @@ export class Daemon {
       }
       if (!stat.isFile() || seen.has(real)) continue;
       seen.add(real);
-      if (!knownCwds.some((cwd) => real === cwd || real.startsWith(cwd + sep))) continue; // outside every known cwd
-      if (stat.size > MAX_ARTIFACT_BYTES) continue;
+      if (!(real === memberCwd || real.startsWith(memberCwd + sep))) continue; // outside the member's own cwd
+      if (stat.size > MAX_ARTIFACT_BYTES) continue; // policy refusal: oversize
       let bytes: Buffer;
       try {
         bytes = readFileSync(real);
@@ -5040,22 +5157,20 @@ export class Daemon {
       }
       const name = basename(real);
       const mediaType = sniffArtifactMediaType(bytes, name);
-      if (mediaType === undefined) continue; // not in the image/document allowlist
+      if (mediaType === undefined) continue; // policy refusal: not in the allowlist
       const id = this.newArtifactId();
       try {
-        this.ensureArtifactDir(room);
-        writeFileSync(this.artifactPath(room, id), bytes);
-        this.recordArtifact(room, {
+        this.writeArtifactAtomic(room, id, bytes, {
           id, name, media_type: mediaType, size: bytes.length,
           source_message_id: runMsgId, produced_at: new Date().toISOString(),
         });
         snapped += 1;
       } catch {
-        rmSync(this.artifactPath(room, id), { force: true });
-        rmSync(this.artifactMetaPath(room, id), { force: true });
+        storageFailed = true; // a STORAGE failure (not a policy refusal) must not vanish
       }
     }
+    if (storageFailed) this.recordArtifactError(room, runMsgId);
     if (snapped > 0) this.pruneArtifacts(room);
   }
-  // harn:end produced-run-artifacts-are-snapshotted-durably-and-served-inert
+  // harn:end durable-inert-snapshots-of-successfully-produced-files
 }
