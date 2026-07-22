@@ -964,7 +964,10 @@ describe('atomic turn lifecycle', () => {
       kind: 'agent',
       handle: 'coder',
       display_name: 'Coder',
+      harness: 'acp',
       state: 'running',
+    }, {
+      usage_baseline: { totalTokens: 20, inputTokens: 10, outputTokens: 5 },
     });
     const trigger = store.postMessage('eng', { author: owner.id, kind: 'chat', body: '@coder go' });
     const delivery = store.createDelivery('eng', { message_id: trigger.id, recipient: agent.id });
@@ -996,6 +999,8 @@ describe('atomic turn lifecycle', () => {
       estimated_cost_usd: 0.5,
       result_message_id: continuation.id,
     };
+    const nextBaseline = { totalTokens: 33, inputTokens: 16, outputTokens: 9 };
+    store.stageAgentUsageBaseline('eng', agent.id, running.id, nextBaseline);
 
     expect(() =>
       store.completeTurn('eng', {
@@ -1017,6 +1022,8 @@ describe('atomic turn lifecycle', () => {
     expect(store.getMember('eng', agent.id)!.state).toBe('running');
     expect(store.listDeliveries('eng', { recipient: owner.id })).toHaveLength(0);
     expect(store.getMeter('eng', 'not-a-date')).toBeUndefined();
+    expect(store.getAgentRuntimeConfig('eng', agent.id)?.usage_baseline)
+      .toMatchObject({ totalTokens: 20 });
     expect(store.getMessage('eng', running.id)).toMatchObject({ body: '', run: { status: 'running' } });
     expect(store.getMessage('eng', continuation.id)).toMatchObject({ body: '', deleted: undefined });
     expect(store.getMessage('eng', orphan.id)).toMatchObject({ body: '', deleted: undefined });
@@ -1052,6 +1059,10 @@ describe('atomic turn lifecycle', () => {
     expect(store.getMessage('eng', orphan.id)).toMatchObject({ deleted: true, body: '' });
     expect(store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
     expect(store.getMember('eng', agent.id)?.state).toBe('idle');
+    expect(store.getAgentRuntimeConfig('eng', agent.id)?.usage_baseline).toEqual(nextBaseline);
+    expect(store.db.prepare(
+      'SELECT acp_usage_pending FROM members WHERE room = ? AND id = ?',
+    ).get('eng', agent.id)).toEqual({ acp_usage_pending: null });
     expect(store.getMeter('eng', '2026-07-18')).toMatchObject({
       turns: 1, estimated_cost_usd: 0.5, input_tokens: 80, output_tokens: 20,
     });
@@ -1072,7 +1083,10 @@ describe('failed finalization reconciliation transaction', () => {
   it('fails the run, holds ambiguous input, meters and explains exactly once', () => {
     const { owner } = openRoom(store);
     const alpha = store.addMember('eng', {
-      kind: 'agent', handle: 'repair-alpha', display_name: 'Repair Alpha', state: 'running',
+      kind: 'agent', handle: 'repair-alpha', display_name: 'Repair Alpha',
+      harness: 'acp', state: 'running',
+    }, {
+      usage_baseline: { totalTokens: 20, inputTokens: 10, outputTokens: 5 },
     });
     const trigger = store.postMessage('eng', {
       author: owner.id, kind: 'chat', body: '@repair-alpha do the work',
@@ -1087,6 +1101,9 @@ describe('failed finalization reconciliation transaction', () => {
       model: 'gpt-5.6-terra',
       eventsRef: (id) => `runs/${String(id)}.jsonl`,
     })!;
+    store.stageAgentUsageBaseline('eng', alpha.id, started.runMessage.id, {
+      totalTokens: 33, inputTokens: 16, outputTokens: 9,
+    });
     store.setDeliveryAttemptProcess('eng', [delivery.id], { pid: 1234 });
 
     const first = store.repairFailedFinalization('eng', {
@@ -1116,6 +1133,8 @@ describe('failed finalization reconciliation transaction', () => {
     });
     expect(first.message).toMatchObject({ body: '', mentions: [], refs: [], ledger_refs: [] });
     expect(first.member?.state).toBe('idle');
+    expect(store.getAgentRuntimeConfig('eng', alpha.id)?.usage_baseline)
+      .toMatchObject({ totalTokens: 33 });
     expect(first.deliveries).toEqual([
       expect.objectContaining({ id: delivery.id, state: 'held', run_msg_id: started.runMessage.id }),
     ]);
@@ -1264,6 +1283,7 @@ describe('a member keeps the model and thinking level it was given', () => {
     expect(store.getMember('eng', alpha.id)).not.toHaveProperty('acp_launch');
     expect(store.listMembers('eng')[2]).not.toHaveProperty('session_lifecycle');
     expect(store.listMembers('eng')[2]).not.toHaveProperty('acp_usage_baseline');
+    expect(store.listMembers('eng')[2]).not.toHaveProperty('acp_usage_pending');
     expect(store.getAgentRuntimeConfig('eng', alpha.id)).toEqual({
       acp_launch: { executable: '/opt/acp-agent', argv: ['--profile', 'secret-name'] },
       lifecycle: { load: true, resume: false },
@@ -1276,6 +1296,15 @@ describe('a member keeps the model and thinking level it was given', () => {
     expect(store.getAgentRuntimeConfig('eng', alpha.id)?.lifecycle).toEqual({
       load: true, resume: true,
     });
+    store.stageAgentUsageBaseline('eng', alpha.id, 77, {
+      totalTokens: 33, inputTokens: 16, outputTokens: 9,
+      cachedReadTokens: 5, cachedWriteTokens: 3,
+    });
+    expect(store.getAgentRuntimeConfig('eng', alpha.id)?.usage_baseline)
+      .toMatchObject({ totalTokens: 20 });
+    expect(store.db.prepare(
+      'SELECT acp_usage_pending FROM members WHERE room = ? AND id = ?',
+    ).get('eng', alpha.id)).toMatchObject({ acp_usage_pending: expect.stringContaining('"run_msg_id":77') });
     store.setAgentUsageBaseline('eng', alpha.id, {
       totalTokens: 33, inputTokens: 16, outputTokens: 9,
       cachedReadTokens: 5, cachedWriteTokens: 3,
@@ -1320,6 +1349,7 @@ describe('a member keeps the model and thinking level it was given', () => {
     expect(columns).toContain('acp_launch');
     expect(columns).toContain('session_lifecycle');
     expect(columns).toContain('acp_usage_baseline');
+    expect(columns).toContain('acp_usage_pending');
 
     // And it still works: an insert against the rebuilt table must not fail.
     openRoom(migrated);

@@ -87,10 +87,9 @@ function turnUsage(response: PromptResponse, previous: AcpUsageBaseline | undefi
 } {
   const usage = response.usage;
   if (usage == null) return {};
-  const reset = previous !== undefined && usage.totalTokens <= previous.totalTokens;
+  const reset = previous !== undefined && usage.totalTokens < previous.totalTokens;
   const cachedInputTokens =
-    usageDelta(usage.cachedReadTokens, previous?.cachedReadTokens, reset) +
-    usageDelta(usage.cachedWriteTokens, previous?.cachedWriteTokens, reset);
+    usageDelta(usage.cachedReadTokens, previous?.cachedReadTokens, reset);
   return {
     usage: {
       inputTokens: usageDelta(usage.inputTokens, previous?.inputTokens, reset),

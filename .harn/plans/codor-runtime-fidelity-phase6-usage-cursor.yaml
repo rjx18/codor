@@ -36,8 +36,8 @@ assumptions:
         staged for the same terminal run.
     - id: lifecycle-retries-only-live-collaboration-work
       outcome: unchanged
-      reason: Lifecycle retry eligibility and terminality remain unchanged while
-        any reported ACP usage cursor settles with that attempt.
+      reason: Lifecycle retry eligibility and terminality remain unchanged while any
+        reported ACP usage cursor settles with that attempt.
     - id: last-agent-usage-is-transient-and-seeded
       outcome: unchanged
       reason: Staging the private ACP cumulative cursor beside terminal handling does
@@ -60,7 +60,8 @@ anchors:
   durable-agent-runtime-configuration:
     durable-agent-runtime-storage:
       action: change
-      reason: Store a private run-bound staged cursor separately from the committed cursor.
+      reason: Store a private run-bound staged cursor separately from the committed
+        cursor.
     durable-agent-runtime-regression:
       action: change
       reason: Prove staging secrecy and promotion during boot recovery.
@@ -99,5 +100,7 @@ files:
   - packages/switchboard/src/daemon.spec.ts
 verification: >
   Run ACP translator/runtime tests, focused private runtime/finalization Store
-  tests, focused ACP boot-recovery daemon tests, protocol/ACP/switchboard builds,
-  and Harn unstaged and staged gates.
+  tests, focused ACP boot-recovery daemon tests, protocol/ACP/switchboard
+  builds, and Harn unstaged and staged gates.
+applied:
+  applied_at: 2026-07-22T05:56:25.099Z

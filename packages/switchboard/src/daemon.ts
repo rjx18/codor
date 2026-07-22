@@ -2985,6 +2985,12 @@ export class Daemon {
           continue;
         }
         // harn:end agent-usage-limits-reported-not-guessed
+        if (journalEvent.type === 'run.completed' && member.harness === 'acp') {
+          const baseline = session?.acp_usage_baseline;
+          if (baseline !== undefined) {
+            this.store.stageAgentUsageBaseline(room, member.id, runMsg.id, baseline);
+          }
+        }
         // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-writer-engine
         // Allocate+insert before the id becomes journal truth. The empty row is
         // streamed before its first targeted event, so readers never observe an
@@ -3033,9 +3039,6 @@ export class Daemon {
             this.landContextWindow(room, member.id, journalEvent.agent_usage);
           }
           // harn:end last-agent-usage-is-transient-and-seeded
-          if (member.harness === 'acp' && session?.acp_usage_baseline !== undefined) {
-            this.store.setAgentUsageBaseline(room, member.id, session.acp_usage_baseline);
-          }
           // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
           completion = {
             status: journalEvent.status,

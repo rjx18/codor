@@ -15,10 +15,12 @@ const limitStop = args.includes('--max-tokens')
     : 'end_turn';
 const logIndex = args.indexOf('--log');
 const logPath = logIndex >= 0 ? args[logIndex + 1] : undefined;
+const initialTurnsIndex = args.indexOf('--initial-turns');
+const initialTurns = initialTurnsIndex >= 0 ? Number(args[initialTurnsIndex + 1]) : 0;
 const sessionId = 'fake-acp-session';
 let promptRequest;
 let permissionRequestId = 900;
-let completedTurns = 0;
+let completedTurns = Number.isSafeInteger(initialTurns) && initialTurns >= 0 ? initialTurns : 0;
 
 const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 const result = (id, value) => send({ jsonrpc: '2.0', id, result: value });

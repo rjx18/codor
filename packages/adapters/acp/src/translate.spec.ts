@@ -46,7 +46,7 @@ describe('ACP event normalization', () => {
       events: [expect.objectContaining({
         type: 'run.completed',
         status: 'completed',
-        usage: { input_tokens: 10, cached_input_tokens: 5, output_tokens: 5 },
+        usage: { input_tokens: 10, cached_input_tokens: 3, output_tokens: 5 },
       })],
       baseline: { totalTokens: 20, inputTokens: 10, outputTokens: 5 },
     });
@@ -66,7 +66,7 @@ describe('ACP event normalization', () => {
       },
     }, previous);
     expect(second.events[0]).toMatchObject({
-      usage: { input_tokens: 6, cached_input_tokens: 3, output_tokens: 4 },
+      usage: { input_tokens: 6, cached_input_tokens: 2, output_tokens: 4 },
     });
     const reset = translator.complete({
       stopReason: 'end_turn',
@@ -75,6 +75,24 @@ describe('ACP event normalization', () => {
     expect(reset.events[0]).toMatchObject({
       usage: { input_tokens: 4, cached_input_tokens: 2, output_tokens: 2 },
     });
+  });
+
+  it('does not recharge an identical cumulative snapshot', () => {
+    const baseline = {
+      totalTokens: 20, inputTokens: 10, outputTokens: 5,
+      cachedReadTokens: 3, cachedWriteTokens: 2,
+    };
+    const repeated = createAcpTurnTranslator().complete({
+      stopReason: 'end_turn',
+      usage: {
+        totalTokens: 20, inputTokens: 10, outputTokens: 5,
+        cachedReadTokens: 3, cachedWriteTokens: 2,
+      },
+    }, baseline);
+    expect(repeated.events[0]).toMatchObject({
+      usage: { input_tokens: 0, output_tokens: 0 },
+    });
+    expect(repeated.events[0]).not.toHaveProperty('usage.cached_input_tokens');
   });
 
   it('does not infer file deletion from an edit whose resulting content is empty', () => {

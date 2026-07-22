@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS members (
   acp_launch TEXT,
   session_lifecycle TEXT,
   acp_usage_baseline TEXT,
+  acp_usage_pending TEXT,
   credential_hash TEXT,
   host TEXT,
   state TEXT,
@@ -292,6 +293,9 @@ function migrateMemberAgentConfig(db: Database.Database): void {
   }
   if (!columns.some((column) => column.name === 'acp_usage_baseline')) {
     db.exec('ALTER TABLE members ADD COLUMN acp_usage_baseline TEXT');
+  }
+  if (!columns.some((column) => column.name === 'acp_usage_pending')) {
+    db.exec('ALTER TABLE members ADD COLUMN acp_usage_pending TEXT');
   }
 }
 // harn:end durable-agent-runtime-configuration
@@ -868,6 +872,7 @@ interface MemberRow {
   acp_launch: string | null;
   session_lifecycle: string | null;
   acp_usage_baseline: string | null;
+  acp_usage_pending: string | null;
   host: string | null;
   state: string | null;
   custody: string | null;
@@ -1499,6 +1504,34 @@ export class Store {
     this.db.prepare(
       'UPDATE members SET acp_usage_baseline = ? WHERE room = ? AND id = ?',
     ).run(JSON.stringify(baseline), room, memberId);
+  }
+
+  stageAgentUsageBaseline(
+    room: string,
+    memberId: string,
+    runMsgId: number,
+    baseline: AcpUsageBaseline,
+  ): void {
+    this.db.prepare(
+      'UPDATE members SET acp_usage_pending = ? WHERE room = ? AND id = ?',
+    ).run(JSON.stringify({ run_msg_id: runMsgId, baseline }), room, memberId);
+  }
+
+  private promoteAgentUsageBaseline(room: string, memberId: string, runMsgId: number): void {
+    const row = this.db.prepare(
+      'SELECT acp_usage_pending FROM members WHERE room = ? AND id = ?',
+    ).get(room, memberId) as Pick<MemberRow, 'acp_usage_pending'> | undefined;
+    if (row?.acp_usage_pending === null || row === undefined) return;
+    const pending = JSON.parse(row.acp_usage_pending) as {
+      run_msg_id: number;
+      baseline: AcpUsageBaseline;
+    };
+    if (pending.run_msg_id !== runMsgId) return;
+    this.db.prepare(
+      `UPDATE members
+       SET acp_usage_baseline = ?, acp_usage_pending = NULL
+       WHERE room = ? AND id = ?`,
+    ).run(JSON.stringify(pending.baseline), room, memberId);
   }
 
   setAgentSessionLifecycle(
@@ -2866,6 +2899,7 @@ export class Store {
         this.updateDelivery(room, deliveryId, { state: 'consumed' });
       }
       const member = this.updateMember(room, opts.memberId, opts.memberPatch);
+      this.promoteAgentUsageBaseline(room, opts.memberId, opts.runMsgId);
       const meter = this.bumpMeter(room, opts.meterDay, opts.meterDelta);
       const deliveries = opts.fanout.map((delivery) =>
         this.createDelivery(room, {
@@ -3534,6 +3568,7 @@ export class Store {
           // about a finalization rollback says the agent itself is gone.
           state: current.state === 'dead' || current.state === 'paused' ? current.state : 'idle',
         });
+      this.promoteAgentUsageBaseline(room, opts.memberId, opts.runMsgId);
 
       // completeTurn's rollback took its meter write with it, so this attempt's
       // spend is currently recorded NOWHERE. Count it here, exactly once — and
@@ -3671,6 +3706,7 @@ export class Store {
         outputMessages.push(this.deleteMessage(room, continuation.id));
       }
       const member = this.updateMember(room, opts.memberId, opts.memberPatch);
+      this.promoteAgentUsageBaseline(room, opts.memberId, opts.runMsgId);
       const requeued: Delivery[] = [];
       const settled: Delivery[] = [];
       const refusals: { delivery: Delivery; reason: LifecycleRetryRefusalReason }[] = [];

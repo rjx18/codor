@@ -1928,6 +1928,79 @@ describe('kill-point matrix (boot reconcile)', () => {
     expect(daemon.unreadCount('eng', daemon.ownerOf('eng').id)).toBeGreaterThan(0);
   });
 
+  it('boot repair promotes a staged ACP cursor before the next cumulative turn', async () => {
+    const acpRoot = mkdtempSync(join(tmpdir(), 'codor-acp-cursor-crash-'));
+    const dbPath = join(acpRoot, 'switchboard.sqlite');
+    const fakeAgent = fileURLToPath(new URL(
+      '../../adapters/acp/test-fixtures/fake-agent.mjs', import.meta.url,
+    ));
+    const createAcpDaemon = () => new Daemon({
+      dbPath,
+      blobRoot: join(acpRoot, 'blobs'),
+      adapters: [Object.assign(new AcpAdapter(), { configurable: true })],
+      homeDir: acpRoot,
+    });
+    let crashDaemon = createAcpDaemon();
+    crashDaemon.createRoom({
+      id: 'cursor-crash', name: 'Cursor crash',
+      owner: { handle: 'owner', display_name: 'Owner' },
+    });
+    const member = crashDaemon.spawnMember('cursor-crash', {
+      harness: 'acp', handle: 'helper', cwd: acpRoot,
+      acp_launch: {
+        executable: process.execPath,
+        argv: [fakeAgent, '--no-permission', '--initial-turns', '1'],
+      },
+    });
+    crashDaemon.store.setAgentSessionRuntime(
+      'cursor-crash', member.id, 'fake-acp-session', { load: true, resume: true },
+    );
+    const owner = crashDaemon.ownerOf('cursor-crash');
+    const trigger = crashDaemon.store.postMessage('cursor-crash', {
+      author: owner.id, kind: 'chat', body: '@helper crashed work',
+    });
+    const delivery = crashDaemon.store.createDelivery('cursor-crash', {
+      message_id: trigger.id, recipient: member.id,
+    });
+    const started = crashDaemon.store.beginTurn('cursor-crash', {
+      memberId: member.id,
+      deliveryIds: [delivery.id],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    });
+    const firstCursor = {
+      totalTokens: 20, inputTokens: 10, outputTokens: 5,
+      cachedReadTokens: 3, cachedWriteTokens: 2,
+    };
+    crashDaemon.store.stageAgentUsageBaseline(
+      'cursor-crash', member.id, started.runMessage.id, firstCursor,
+    );
+    crashDaemon.blobs.append('cursor-crash', started.runMessage.run!.events_ref, {
+      type: 'run.completed', status: 'completed',
+      usage: { input_tokens: 10, cached_input_tokens: 3, output_tokens: 5 },
+    });
+    await crashDaemon.close();
+
+    crashDaemon = createAcpDaemon();
+    await crashDaemon.reconcile();
+    await crashDaemon.settle();
+    expect(crashDaemon.store.getAgentRuntimeConfig('cursor-crash', member.id)?.usage_baseline)
+      .toEqual(firstCursor);
+
+    crashDaemon.postHumanMessage('cursor-crash', '@helper next turn');
+    await crashDaemon.settle();
+    const latest = crashDaemon.store.listMessages('cursor-crash', { limit: 20 })
+      .filter((message) => message.kind === 'run')
+      .at(-1);
+    expect(latest?.run?.usage).toEqual({
+      input_tokens: 6, cached_input_tokens: 2, output_tokens: 4,
+    });
+    expect(crashDaemon.store.getAgentRuntimeConfig('cursor-crash', member.id)?.usage_baseline)
+      .toMatchObject({ totalTokens: 33, cachedWriteTokens: 3 });
+    await crashDaemon.close();
+    rmSync(acpRoot, { recursive: true, force: true });
+  });
+
   it('provably never started (empty blob, first attempt) → retried ONCE reusing the same run message', async () => {
     const alpha = spawnAgent('alpha');
     const trigger = daemon.store.postMessage('eng', {
@@ -3175,7 +3248,7 @@ describe('a rebuilt session is the same agent it was before', () => {
     expect(after.thinking).toBeUndefined();
   });
 
-  it('persists the private ACP usage cursor and treats lower restored totals as a reset', async () => {
+  it('persists the private ACP usage cursor and does not recharge an equal restored snapshot', async () => {
     const acpRoot = mkdtempSync(join(tmpdir(), 'codor-acp-usage-restart-'));
     const dbPath = join(acpRoot, 'switchboard.sqlite');
     const fakeAgent = fileURLToPath(new URL(
@@ -3207,8 +3280,8 @@ describe('a rebuilt session is the same agent it was before', () => {
     const runs = acpDaemon.store.listMessages('acp-usage', { limit: 20 })
       .filter((message) => message.kind === 'run' && message.run?.status === 'completed');
     expect(runs.map((message) => message.run?.usage)).toEqual([
-      { input_tokens: 10, cached_input_tokens: 5, output_tokens: 5 },
-      { input_tokens: 10, cached_input_tokens: 5, output_tokens: 5 },
+      { input_tokens: 10, cached_input_tokens: 3, output_tokens: 5 },
+      { input_tokens: 0, output_tokens: 0 },
     ]);
     expect(acpDaemon.store.getMember('acp-usage', member.id)).not.toHaveProperty('acp_usage_baseline');
     await acpDaemon.close();

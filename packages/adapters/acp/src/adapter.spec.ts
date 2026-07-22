@@ -63,11 +63,11 @@ describe('ACP adapter', () => {
     expect(first.map((event) => event.type)).toContain('approval.raised');
     expect(first).toContainEqual(expect.objectContaining({
       type: 'run.completed', status: 'completed',
-      usage: { input_tokens: 10, cached_input_tokens: 5, output_tokens: 5 },
+      usage: { input_tokens: 10, cached_input_tokens: 3, output_tokens: 5 },
     }));
     expect(await collectTurn(adapter, session)).toContainEqual(expect.objectContaining({
       type: 'run.completed', status: 'completed',
-      usage: { input_tokens: 6, cached_input_tokens: 3, output_tokens: 4 },
+      usage: { input_tokens: 6, cached_input_tokens: 2, output_tokens: 4 },
     }));
     expect(session.acp_usage_baseline).toMatchObject({ totalTokens: 33, inputTokens: 16 });
     adapter.interrupt(session);
@@ -84,7 +84,7 @@ describe('ACP adapter', () => {
     const adapter = new AcpAdapter();
     expect(await collectTurn(adapter, restored)).toContainEqual(expect.objectContaining({
       status: 'completed',
-      usage: { input_tokens: 10, cached_input_tokens: 5, output_tokens: 5 },
+      usage: { input_tokens: 10, cached_input_tokens: 3, output_tokens: 5 },
     }));
     expect(readFileSync(log, 'utf8')).toContain('session/load');
     adapter.interrupt(restored);
