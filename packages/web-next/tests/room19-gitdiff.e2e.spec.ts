@@ -43,8 +43,19 @@ test.describe('git diff explorer', () => {
     await page.getByTestId('context-tab-diff').click();
     await expect(page.getByTestId('diff-files')).toBeVisible();
 
+    // Refresh is an icon-only circular control with an accessible name — no text
+    // label and no separate control row when this single-cwd room has one cwd.
+    const refresh = page.getByTestId('diff-refresh');
+    await expect(refresh).toHaveAccessibleName('Refresh working tree');
+    await expect(refresh).not.toContainText('Refresh');
+    await expect(refresh.locator('svg')).toBeVisible();
+    const size = await refresh.boundingBox();
+    expect(size?.width ?? 0).toBeGreaterThanOrEqual(36);
+    await expect(page.getByTestId('diff-cwd')).toHaveCount(0);
+    await expect(page.locator('.nx-diff-toolbar')).toHaveCount(0);
+
     await control('/git-reset');
-    await page.getByTestId('diff-refresh').click();
+    await refresh.click();
     await expect(page.getByTestId('diff-clean')).toContainText('Working tree clean');
 
     await control('/git-dirty'); // restore for any later run
@@ -88,7 +99,59 @@ test.describe('git diff explorer', () => {
   });
   // harn:end transcript-diffs-use-immutable-run-evidence
 
-  // harn:assume diff-panel-separates-live-and-history-modes ref=git-history-browser-regression
+  // harn:assume diff-panel-floats-refresh-and-overlays-history ref=git-history-browser-regression
+  test('the History popover overlays the diff, leaves the file list in place, and closes on Escape/outside click', async ({ page }) => {
+    await control('/git-dirty');
+    await openRoom(page);
+    await page.getByTestId('context-tab-diff').click();
+    const files = page.getByTestId('diff-files');
+    await expect(files).toBeVisible();
+
+    // The file list's top must not move when the popover opens over it.
+    const before = await files.boundingBox();
+    await page.getByTestId('git-history-toggle').click();
+    const popover = page.getByTestId('git-history-list');
+    await expect(popover).toBeVisible();
+    const after = await files.boundingBox();
+    expect(Math.round(after?.y ?? -1)).toBe(Math.round(before?.y ?? -2));
+
+    // Escape closes the popover and returns focus to the toggle.
+    await page.keyboard.press('Escape');
+    await expect(popover).toHaveCount(0);
+    await expect(page.getByTestId('git-history-toggle')).toBeFocused();
+
+    // An outside pointer press (the Diff tab header) also closes it.
+    await page.getByTestId('git-history-toggle').click();
+    await expect(popover).toBeVisible();
+    await page.getByTestId('context-tab-diff').click();
+    await expect(popover).toHaveCount(0);
+
+    await control('/git-dirty');
+  });
+
+  test('at a mobile width the History popover still overlays without moving the file list', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    await control('/git-dirty');
+    // Mobile has no desktop connection pill; wait on the timeline, then open the
+    // kebab context sheet where the DiffTab lives.
+    await page.goto(WORKSPACE);
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await page.getByTestId('mobile-kebab').click();
+    const sheet = page.getByTestId('mobile-context');
+    await expect(sheet).toBeVisible();
+    await sheet.getByTestId('context-tab-diff').click();
+    const files = sheet.getByTestId('diff-files');
+    await expect(files).toBeVisible();
+
+    const before = await files.boundingBox();
+    await sheet.getByTestId('git-history-toggle').click();
+    await expect(sheet.getByTestId('git-history-list')).toBeVisible();
+    const after = await files.boundingBox();
+    expect(Math.round(after?.y ?? -1)).toBe(Math.round(before?.y ?? -2));
+
+    await control('/git-dirty');
+  });
+
   test('history stays explicit and paginates across local branches in a clean tree', async ({ page }) => {
     await control('/git-reset');
     await openRoom(page);
@@ -145,7 +208,7 @@ test.describe('git diff explorer', () => {
     await page.getByTestId('git-history-toggle').click();
     await expect(page.getByTestId('git-history-empty')).toHaveText('No commits yet.');
   });
-  // harn:end diff-panel-separates-live-and-history-modes
+  // harn:end diff-panel-floats-refresh-and-overlays-history
 
   test('a revisit serves the cached working state instantly, never an empty pane', async ({ page }) => {
     await control('/git-dirty');

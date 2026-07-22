@@ -1527,14 +1527,18 @@
 .nx-diff-status.is-deleted { color: var(--c-diff-del-strong); }
 .nx-diff-status.is-renamed { color: var(--c-link); }
 .nx-diff-status.is-untracked { color: var(--c-faded); }
+/* Only rendered when more than one cwd exists; the right pad reserves the
+   corner the floating Refresh occupies. */
 .nx-diff-toolbar {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) calc(var(--sp-3) + 40px) var(--sp-2) var(--sp-3);
   border-bottom: 1px solid var(--c-line);
 }
-.nx-diff-cwd, .nx-diff-refresh {
+.nx-diff-cwd {
+  flex: 1;
+  min-width: 0;
   font: var(--t-caption-strong);
   padding: 4px var(--sp-2);
   border-radius: var(--r-pill);
@@ -1542,16 +1546,35 @@
   background: var(--c-raised);
   color: inherit;
 }
-.nx-diff-cwd { flex: 1; min-width: 0; }
-.nx-diff-refresh { flex: none; margin-left: auto; cursor: pointer; }
-.nx-diff-refresh:hover { background: var(--c-muted); }
-.nx-git-history { flex: none; border-bottom: 1px solid var(--c-line); }
+/* An icon-only circular control floating at the top-right of the Diff content,
+   so it never occupies its own row. */
+.nx-diff-refresh {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--c-line);
+  background: var(--c-raised);
+  color: var(--c-secondary);
+  box-shadow: var(--e-raised);
+  cursor: pointer;
+}
+.nx-diff-refresh:hover { background: var(--c-muted); color: var(--c-ink); }
+.nx-diff-refresh:disabled { cursor: default; opacity: 0.6; }
+@media (pointer: coarse) { .nx-diff-refresh { width: 44px; height: 44px; } }
+.nx-git-history { position: relative; flex: none; border-bottom: 1px solid var(--c-line); }
 .nx-git-history-toggle {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   width: 100%;
-  padding: 7px var(--sp-3);
+  padding: 7px calc(var(--sp-3) + 40px) 7px var(--sp-3);
   border: 0;
   background: var(--c-raised);
   color: var(--c-secondary);
@@ -1569,11 +1592,21 @@
   white-space: nowrap;
 }
 .nx-git-history-toggle > small { color: var(--c-faded); font: var(--t-caption); }
+/* A popover anchored under the toggle: it overlays the file list and diff
+   without changing their layout, and is bounded to the panel/viewport. */
 .nx-git-history-list {
+  position: absolute;
+  top: 100%;
+  left: var(--sp-2);
+  right: var(--sp-2);
+  z-index: 5;
   max-height: min(38dvh, 300px);
   overflow-y: auto;
   padding: var(--sp-2);
-  background: var(--c-surface);
+  background: var(--c-raised);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-control);
+  box-shadow: var(--e-overlay, var(--e-raised));
 }
 .nx-git-history-row {
   display: grid;

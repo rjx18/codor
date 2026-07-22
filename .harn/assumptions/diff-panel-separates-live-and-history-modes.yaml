@@ -1,7 +1,7 @@
 id: diff-panel-separates-live-and-history-modes
 hash: a-78e069502108
 title: The Diff panel keeps live working state distinct from selected history
-state: active
+state: retired
 statement: The Diff panel must open in Working tree / HEAD mode, place a
   collapsible paginated commit selector above the existing file list, keep an
   explicitly selected commit and file stable while history is viewed, render
@@ -12,3 +12,4 @@ statement: The Diff panel must open in Working tree / HEAD mode, place a
 depends_on:
   - git-history-pages-are-local-and-commit-addressed
 created_by: codor-runtime-fidelity-phase5
+retired_by: codor-polish-phase1-diff-history

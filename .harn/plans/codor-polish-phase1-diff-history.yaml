@@ -1,27 +1,26 @@
 id: codor-polish-phase1-diff-history
 title: Compact Diff controls (floating icon Refresh, conditional cwd row) and an
   overlay Git History popover
-notes: >-
-  Product-polish Phase 1 (plan of record tmp/codor-product-polish/PLAN.md). The
-  Diff panel's live/history presentation changes meaning: the text Refresh row
-  becomes a single icon-only circular control floating at the top-right of the
-  Diff content; the working-directory row is kept only when more than one cwd
-  exists (so a single cwd no longer renders a control row just for Refresh); and
-  the Git History list stops pushing the file list down and instead opens as a
-  positioned popover anchored to the History toggle, overlaying the file list and
-  diff, closable on Escape/outside-click with focus returned to the toggle and
-  the selected commit preserved. Because this is a meaning change to the existing
-  diff-panel presentation contract, that assumption is retired and replaced
-  (never reviewed: changed). The server Git inspection/history data contract, the
+notes: "Product-polish Phase 1 (plan of record
+  tmp/codor-product-polish/PLAN.md). The Diff panel's live/history presentation
+  changes meaning: the text Refresh row becomes a single icon-only circular
+  control floating at the top-right of the Diff content; the working-directory
+  row is kept only when more than one cwd exists (so a single cwd no longer
+  renders a control row just for Refresh); and the Git History list stops
+  pushing the file list down and instead opens as a positioned popover anchored
+  to the History toggle, overlaying the file list and diff, closable on
+  Escape/outside-click with focus returned to the toggle and the selected commit
+  preserved. Because this is a meaning change to the existing diff-panel
+  presentation contract, that assumption is retired and replaced (never
+  reviewed: changed). The server Git inspection/history data contract, the
   full-hash commit validation, working-tree/HEAD selection, live
-  stale-while-revalidate refresh, and the immutable transcript diff modal are all
-  unchanged. Only packages/web-next presentation and its e2e regression change;
-  the daemon/server Git endpoints are untouched.
+  stale-while-revalidate refresh, and the immutable transcript diff modal are
+  all unchanged. Only packages/web-next presentation and its e2e regression
+  change; the daemon/server Git endpoints are untouched."
 assumptions:
   retire:
     - id: diff-panel-separates-live-and-history-modes
-      reason: >-
-        Its statement fixes the History selector as a collapsible list placed
+      reason: Its statement fixes the History selector as a collapsible list placed
         above the file list and a Refresh control in the toolbar row. Phase 1
         makes Refresh a floating icon control, drops the control row when a
         single cwd exists, and turns History into an overlay popover that does
@@ -29,44 +28,40 @@ assumptions:
         it is retired and replaced.
   create:
     - id: diff-panel-floats-refresh-and-overlays-history
-      title: The Diff panel floats an icon Refresh, hides the row for a single cwd, and
-        overlays History as an anchored popover
-      statement: >-
-        The Diff panel opens in Working tree / HEAD mode and keeps live working
-        state distinct from a selected commit. A single icon-only circular
-        Refresh control floats at the top-right of the Diff content - with an
-        accessible name, tooltip, visible focus style, a disabled/loading state,
-        and at least a 36px (44px on coarse pointers) target - and re-reads only
-        the live working tree; it is absent in commit mode. A compact
-        working-directory row appears only when more than one eligible cwd
-        exists; with a single cwd no control row is rendered. Git History opens
-        as a positioned popover anchored to the History toggle that overlays the
-        file list and diff without changing their layout, is bounded to the
-        panel/viewport with its own elevation and border, and retains the
-        existing scroll, paging, retry, empty, no-repository, ref-decoration, and
-        selected-commit behaviour. The popover closes on Escape and outside
-        click, returns focus to the toggle, and preserves the selected historical
-        commit; collapsing History never reverts to the working tree. Working
-        tree / HEAD selection, full-hash commit validation, server-provided
-        history and commit data, and live stale-while-revalidate refresh are
-        unchanged.
-      reason: >-
-        Denser, clearer Diff controls that do not waste a row on Refresh and do
-        not push the file list down when browsing history, while preserving every
-        existing mode, selection, and honest-state behaviour.
+      title: The Diff panel floats an icon Refresh, hides the row for a single cwd,
+        and overlays History as an anchored popover
+      statement: The Diff panel opens in Working tree / HEAD mode and keeps live
+        working state distinct from a selected commit. A single icon-only
+        circular Refresh control floats at the top-right of the Diff content -
+        with an accessible name, tooltip, visible focus style, a
+        disabled/loading state, and at least a 36px (44px on coarse pointers)
+        target - and re-reads only the live working tree; it is absent in commit
+        mode. A compact working-directory row appears only when more than one
+        eligible cwd exists; with a single cwd no control row is rendered. Git
+        History opens as a positioned popover anchored to the History toggle
+        that overlays the file list and diff without changing their layout, is
+        bounded to the panel/viewport with its own elevation and border, and
+        retains the existing scroll, paging, retry, empty, no-repository,
+        ref-decoration, and selected-commit behaviour. The popover closes on
+        Escape and outside click, returns focus to the toggle, and preserves the
+        selected historical commit; collapsing History never reverts to the
+        working tree. Working tree / HEAD selection, full-hash commit
+        validation, server-provided history and commit data, and live
+        stale-while-revalidate refresh are unchanged.
+      reason: Denser, clearer Diff controls that do not waste a row on Refresh and do
+        not push the file list down when browsing history, while preserving
+        every existing mode, selection, and honest-state behaviour.
       depends_on:
         - git-history-pages-are-local-and-commit-addressed
   reviewed:
     - id: git-history-pages-are-local-and-commit-addressed
       outcome: unchanged
-      reason: >-
-        Phase 1 changes only presentation; the client history/commit query
+      reason: Phase 1 changes only presentation; the client history/commit query
         construction and the daemon's bounded local-ref history and
         commit-addressed detail are untouched.
     - id: transcript-diffs-use-immutable-run-evidence
       outcome: unchanged
-      reason: >-
-        The immutable transcript diff dialog and its stored-evidence rendering
+      reason: The immutable transcript diff dialog and its stored-evidence rendering
         are not edited; the live Diff panel popover is a distinct surface.
 anchors:
   diff-panel-separates-live-and-history-modes:
@@ -75,12 +70,14 @@ anchors:
       reason: The retired assumption's DiffTab region is re-pointed to the replacement.
     git-history-browser-regression:
       action: remove
-      reason: The retired assumption's browser regression is re-pointed to the replacement.
+      reason: The retired assumption's browser regression is re-pointed to the
+        replacement.
   diff-panel-floats-refresh-and-overlays-history:
     git-history-panel-state:
       action: change
       reason: DiffTab floats the icon Refresh, drops the single-cwd row, and renders
-        History as an anchored popover with Escape/outside-close and focus return.
+        History as an anchored popover with Escape/outside-close and focus
+        return.
     git-history-browser-regression:
       action: change
       reason: The browser regression proves the floating icon Refresh, no row with one
@@ -90,15 +87,20 @@ files:
   - packages/web-next/src/room/ContextPanel.tsx
   - packages/web-next/src/styles/room.css
   - packages/web-next/tests/room19-gitdiff.e2e.spec.ts
-verification: |
+verification: >
   - Refresh is an icon-only circular control floating top-right of the Diff
     content, with an accessible name/tooltip/focus/disabled state; with a single
     cwd no control row is rendered; it refreshes only the live working tree and is
     absent in commit mode.
-  - Git History opens as a popover overlaying the file list/diff so the file-list
+  - Git History opens as a popover overlaying the file list/diff so the
+  file-list
     top position is unchanged before/after opening; it closes on Escape and
     outside click, returns focus to the toggle, preserves the selected commit, and
     collapsing never reverts to the working tree.
-  - Existing scroll/paging/retry/empty/no-repo/ref/selection behaviour is intact.
+  - Existing scroll/paging/retry/empty/no-repo/ref/selection behaviour is
+  intact.
+
   - web-next build; focused Playwright room19-gitdiff (desktop + a mobile width)
     with axe; Harn unstaged/staged gates pass.
+applied:
+  applied_at: 2026-07-22T07:19:19.357Z

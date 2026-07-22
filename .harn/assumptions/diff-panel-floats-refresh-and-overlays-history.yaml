@@ -1,0 +1,25 @@
+id: diff-panel-floats-refresh-and-overlays-history
+hash: a-cef63803e81c
+title: The Diff panel floats an icon Refresh, hides the row for a single cwd,
+  and overlays History as an anchored popover
+state: active
+statement: The Diff panel opens in Working tree / HEAD mode and keeps live
+  working state distinct from a selected commit. A single icon-only circular
+  Refresh control floats at the top-right of the Diff content - with an
+  accessible name, tooltip, visible focus style, a disabled/loading state, and
+  at least a 36px (44px on coarse pointers) target - and re-reads only the live
+  working tree; it is absent in commit mode. A compact working-directory row
+  appears only when more than one eligible cwd exists; with a single cwd no
+  control row is rendered. Git History opens as a positioned popover anchored to
+  the History toggle that overlays the file list and diff without changing their
+  layout, is bounded to the panel/viewport with its own elevation and border,
+  and retains the existing scroll, paging, retry, empty, no-repository,
+  ref-decoration, and selected-commit behaviour. The popover closes on Escape
+  and outside click, returns focus to the toggle, and preserves the selected
+  historical commit; collapsing History never reverts to the working tree.
+  Working tree / HEAD selection, full-hash commit validation, server-provided
+  history and commit data, and live stale-while-revalidate refresh are
+  unchanged.
+depends_on:
+  - git-history-pages-are-local-and-commit-addressed
+created_by: codor-polish-phase1-diff-history

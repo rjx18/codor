@@ -1,5 +1,5 @@
 import type { AgentLimit, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
-import { Bot, ChevronRight, LoaderCircle, Minimize2, MoreVertical, Plus, Square, X } from 'lucide-react';
+import { Bot, ChevronRight, LoaderCircle, Minimize2, MoreVertical, Plus, RefreshCw, Square, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@runtime/api.js';
@@ -863,12 +863,14 @@ function commitLabel(commit: GitCommit): string {
   return `${shortHash(commit.hash)} ${commit.subject}`;
 }
 
-// harn:assume diff-panel-separates-live-and-history-modes ref=git-history-panel-state
+// harn:assume diff-panel-floats-refresh-and-overlays-history ref=git-history-panel-state
 function DiffTab(props: { room: string; token: () => string }) {
   const [selectedCwd, setSelectedCwd] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [pickedPath, setPickedPath] = useState<string>();
   const [historyOpen, setHistoryOpen] = useState(false);
+  const historyToggleRef = useRef<HTMLButtonElement>(null);
+  const historyPopoverRef = useRef<HTMLDivElement>(null);
   const [history, setHistory] = useState<GitHistoryPage>();
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState(false);
@@ -930,6 +932,30 @@ function DiffTab(props: { room: string; token: () => string }) {
     loadHistory(0, true);
   }, [history, historyBusy, historyError, historyOpen, loadHistory]);
 
+  // The History popover closes on Escape (returning focus to the toggle) and on
+  // an outside pointer press. The selected commit is left untouched, so closing
+  // the popover never reverts to the working tree.
+  useEffect(() => {
+    if (!historyOpen) return undefined;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setHistoryOpen(false);
+      historyToggleRef.current?.focus();
+    };
+    const onPointer = (event: PointerEvent): void => {
+      const target = event.target as Node | null;
+      if (target !== null && (historyPopoverRef.current?.contains(target) || historyToggleRef.current?.contains(target))) return;
+      setHistoryOpen(false);
+    };
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('pointerdown', onPointer, true);
+    };
+  }, [historyOpen]);
+
   useEffect(() => {
     if (selectedCommit === undefined) {
       setCommitState(undefined);
@@ -975,8 +1001,10 @@ function DiffTab(props: { room: string; token: () => string }) {
           <LoaderCircle className="nx-spin" size={12} aria-hidden="true" /> Refreshing…
         </span>
       )}
-      <div className="nx-diff-toolbar">
-        {(state?.cwds.length ?? 0) > 1 && (
+      {/* A single cwd needs no control row; the working-directory picker appears
+          only when more than one eligible directory exists. */}
+      {(state?.cwds.length ?? 0) > 1 && (
+        <div className="nx-diff-toolbar">
           <select
             className="nx-diff-cwd"
             data-testid="diff-cwd"
@@ -986,21 +1014,27 @@ function DiffTab(props: { room: string; token: () => string }) {
           >
             {state?.cwds.map((cwd) => <option key={cwd} value={cwd}>{shortenCwd(cwd)}</option>)}
           </select>
-        )}
-        {liveMode && (
-          <button
-            type="button"
-            className="nx-diff-refresh"
-            data-testid="diff-refresh"
-            onClick={() => setRefreshKey((key) => key + 1)}
-          >
-            Refresh
-          </button>
-        )}
-      </div>
+        </div>
+      )}
+      {/* Refresh floats at the top-right of the Diff content — icon-only, so it
+          never consumes a row — and re-reads only the live working tree. */}
+      {liveMode && (
+        <button
+          type="button"
+          className="nx-diff-refresh"
+          data-testid="diff-refresh"
+          aria-label="Refresh working tree"
+          title="Refresh working tree"
+          disabled={refreshing}
+          onClick={() => setRefreshKey((key) => key + 1)}
+        >
+          <RefreshCw className={refreshing ? 'nx-spin' : ''} size={15} aria-hidden="true" />
+        </button>
+      )}
 
       <section className="nx-git-history" aria-label="Git revision">
         <button
+          ref={historyToggleRef}
           type="button"
           className="nx-git-history-toggle"
           aria-expanded={historyOpen}
@@ -1012,7 +1046,7 @@ function DiffTab(props: { room: string; token: () => string }) {
           <small>History</small>
         </button>
         {historyOpen && (
-          <div className="nx-git-history-list" data-testid="git-history-list">
+          <div ref={historyPopoverRef} className="nx-git-history-list" data-testid="git-history-list">
             <button
               type="button"
               className={`nx-git-history-row ${liveMode ? 'is-active' : ''}`}
@@ -1132,7 +1166,7 @@ function DiffTab(props: { room: string; token: () => string }) {
     </div>
   );
 }
-// harn:end diff-panel-separates-live-and-history-modes
+// harn:end diff-panel-floats-refresh-and-overlays-history
 
 // ── Preview tab: image artifacts from run evidence; dot-grid empty state ───
 
