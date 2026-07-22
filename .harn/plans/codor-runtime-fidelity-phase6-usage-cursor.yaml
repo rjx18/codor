@@ -38,6 +38,11 @@ assumptions:
       outcome: unchanged
       reason: Lifecycle retry eligibility and terminality remain unchanged while
         any reported ACP usage cursor settles with that attempt.
+    - id: last-agent-usage-is-transient-and-seeded
+      outcome: unchanged
+      reason: Staging the private ACP cumulative cursor beside terminal handling does
+        not change the transient lastUsage registry, seeding, projection, or
+        non-persistence behavior.
 anchors:
   acp-v1-events-and-capabilities-are-negotiated:
     acp-adapter-runtime:
@@ -77,6 +82,11 @@ anchors:
     lifecycle-interruption-settlement:
       action: change
       reason: Settle any staged cursor with the same lifecycle-interrupted attempt.
+  last-agent-usage-is-transient-and-seeded:
+    last-usage-runtime-registry:
+      action: change
+      reason: Stage the run-bound private ACP cursor before journaling while leaving
+        transient member usage behavior unchanged.
 files:
   - packages/adapters/acp/src/adapter.ts
   - packages/adapters/acp/src/adapter.spec.ts
