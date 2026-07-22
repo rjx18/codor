@@ -1,0 +1,179 @@
+id: codor-polish-phase4-corrections
+title: Phase 4 correction - snapshot only successful output, own-cwd containment,
+  atomic durable storage with a visible failure state, and inert Preview classification
+notes: >-
+  Correction of Phase 4 (Codex #924 review). The committed snapshotter is broader
+  and weaker than the approved contract. This plan tightens six defects and adds
+  regressions plus one real (non-stubbed) browser durability flow.
+
+  Evidence (adapter + daemon): the ACP adapter is normalized to emit file_change
+  ONLY for completed tools; failed tools retain only their error tool_result. The
+  daemon then derives produced paths from success evidence only - created/modified
+  file_change events UNION tool_result.diff paths whose tool_result status is ok
+  (covering Claude, which emits an ok tool_result.diff and never file_change). No
+  unkeyed next-tool_result correlation. Codex completed file_change still
+  snapshots.
+
+  Containment: each candidate must realpath to a regular non-symlink file inside
+  the PRODUCING member's own validated cwd, never any other room-known cwd.
+
+  Storage: bytes and metadata are written through temp files and the validated
+  JSON sidecar is published (renamed) LAST as the commit/visibility marker; temp,
+  partial, and orphan (sidecar-less) state is cleaned on failure and on daemon
+  restart, so only fully committed artifacts are ever listed. A storage failure
+  (not a policy refusal like unsupported/oversized) records one durable, path-free
+  per-run failure state, listed beside artifacts and surfaced in the Preview UI.
+
+  Protocol: the artifact id is a strict 32-hex opaque id.
+
+  Preview (web-next): embedded run images are classified by media_type like every
+  other item (non-raster never reaches an <img>); the room-scoped Preview is
+  remounted/keyed by room so a room switch cannot show a stale frame; a per-run
+  storage-failure state renders as a path-free notice.
+assumptions:
+  retire:
+    - id: produced-run-artifacts-are-snapshotted-durably-and-served-inert
+      reason: Meaning changes - containment moves from the room-known cwd set to the
+        producing member's own cwd, the evidence source moves from raw file_change
+        to success-gated file_change plus ok tool_result.diff, storage becomes an
+        atomic sidecar-committed lifecycle with restart cleanup, and a bounded
+        snapshot failure becomes a durable operator-visible per-run state.
+  create:
+    - id: durable-inert-snapshots-of-successfully-produced-files
+      title: Successfully produced files are snapshotted under own-cwd, atomic,
+        allowlisted rules with a visible failure state, and served inert
+      statement: At run finalization the daemon snapshots only files an agent
+        successfully produced, derived from success evidence only - created or
+        modified file_change events (harnesses emit file_change only for completed
+        tools; the ACP adapter is normalized to do so) unioned with tool_result
+        diff paths whose tool_result status is ok (Claude, which emits an ok
+        tool_result.diff and never file_change) - never a path merely read, a
+        failed tool's output, or a tool-output string. Each candidate must resolve
+        through realpath to a regular, non-symlink file inside the producing
+        member's own validated working directory, never another member's
+        directory. Each candidate is content-typed by magic bytes (with a small
+        extension fallback) against an explicit image/document allowlist and
+        refused as an explicit non-artifact when outside the allowlist, above the
+        per-file byte cap, or beyond the per-run and per-room count caps. A
+        retained snapshot writes its bytes and its metadata through temporary
+        files and publishes the validated JSON metadata sidecar last as the commit
+        and visibility marker, so only fully committed artifacts are ever listed;
+        temporary, partial, and orphan (sidecar-less) state is removed on failure
+        and on daemon restart. Metadata carries a strict 32-hex opaque id, name,
+        safe media type, size, source message id, and timestamp, independent of
+        the source message, so the artifact survives commit, rename, deletion,
+        working-tree cleanup, and daemon restart. A storage failure (distinct from
+        a policy refusal) records exactly one durable, path-free, operator-visible
+        failure state per affected run. Artifacts and per-run failure states are
+        listed and served only through authenticated, room-read-authorized
+        endpoints addressed by validated hex id; the serve endpoint renders raster
+        image media types inline and every other type as an octet-stream download
+        with x-content-type-options nosniff, exposing an opaque artifact URL and
+        never a local path.
+      reason: Preview must show durable evidence of what agents actually and
+        successfully produced, contained to the producing member's own directory,
+        stored atomically, never inlining active content, and honestly reporting a
+        storage failure instead of dropping it silently.
+      depends_on:
+        - attachments-are-capped-files-served-inert
+        - room-git-inspection-read-only-from-known-cwds
+  reviewed:
+    - id: finalized-turn-routes-aggregate-from-terminal-output
+      outcome: unchanged
+      reason: Terminal-output aggregate routing is unchanged; finalization still calls
+        the artifact snapshotter with the same signature and mutates no routing.
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      outcome: unchanged
+      reason: The ACP negotiation and normalization contract stands; only the
+        file_change emission is tightened to completed tools, a correctness
+        refinement of the existing file-diff normalization.
+anchors:
+  produced-run-artifacts-are-snapshotted-durably-and-served-inert:
+    produced-artifact-schema:
+      action: remove
+      reason: Marker re-homed to the corrected assumption (retire+create rename).
+    produced-artifact-snapshot:
+      action: remove
+      reason: Marker re-homed to the corrected assumption (retire+create rename).
+    produced-artifact-serve:
+      action: remove
+      reason: Marker re-homed to the corrected assumption (retire+create rename).
+    produced-artifact-schema-regression:
+      action: remove
+      reason: Marker re-homed to the corrected assumption (retire+create rename).
+    produced-artifact-daemon-regression:
+      action: remove
+      reason: Marker re-homed to the corrected assumption (retire+create rename).
+    produced-artifact-server-regression:
+      action: remove
+      reason: Marker re-homed to the corrected assumption (retire+create rename).
+  durable-inert-snapshots-of-successfully-produced-files:
+    produced-artifact-schema:
+      action: change
+      reason: Strict 32-hex artifact id and a path-free per-run snapshot-failure entry.
+    produced-artifact-snapshot:
+      action: change
+      reason: Success-evidence derivation, own-cwd containment, atomic sidecar-committed
+        storage with failure/restart cleanup, and the durable per-run failure state.
+    produced-artifact-serve:
+      action: change
+      reason: List endpoint returns artifacts plus per-run failure states; serve
+        endpoint unchanged in contract.
+    produced-artifact-schema-regression:
+      action: change
+      reason: Tests for strict-id accept/reject and the failure-entry schema.
+    produced-artifact-daemon-regression:
+      action: change
+      reason: Tests for Claude ok tool_result.diff snapshot, failed-ACP refusal, Codex
+        completed file_change, cross-member cwd refusal, atomic blob/metadata
+        injected-failure rollback with a visible per-run error, and restart cleanup.
+    produced-artifact-server-regression:
+      action: change
+      reason: Tests for the list endpoint returning per-run failure states, inert
+        serving, and authorization unchanged.
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-event-normalization:
+      action: change
+      reason: Normalize file_change only for completed tools; a failed tool retains
+        only its error tool_result evidence.
+files:
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/adapters/acp/src/translate.ts
+  - packages/adapters/acp/src/translate.spec.ts
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room28-preview.e2e.spec.ts
+  - packages/web-next/tests/harness.mjs
+verification: >
+  - ACP: a completed tool emits normalized created/modified file_change; a failed
+  tool emits only an error tool_result and no file_change.
+
+  - Daemon: a Claude-style ok tool_result.diff is snapshotted; a failed tool's
+  evidence is refused; a Codex-style completed file_change is snapshotted; a path
+  resolving outside the producing member's own cwd (including an absolute path into
+  another member's cwd) is refused; an injected blob write failure and an injected
+  sidecar write failure each leave no partial/orphan artifact and record one
+  durable path-free per-run failure state; orphan/temp state is removed on restart;
+  metadata carries a strict 32-hex id and no local path.
+
+  - Server: the list endpoint returns artifacts plus per-run failure states for
+  room readers only; serve renders raster inline and everything else octet-stream,
+  both nosniff; anonymous and cross-room ids refused.
+
+  - Protocol: the artifact id accepts only 32 lowercase hex and the failure entry
+  round-trips.
+
+  - web-next: a non-raster embedded run image renders as an inert card, never an
+  <img>; switching room remounts Preview with no stale artifact/image frame; a
+  per-run storage failure renders a path-free notice; the real browser durability
+  flow drives the actual finalization snapshot path, removes the source file, and
+  still opens the stored artifact through the real endpoint; axe-clean.
+
+  - Affected adapter/protocol/switchboard/browser suites and Harn unstaged/staged
+  gates pass.
