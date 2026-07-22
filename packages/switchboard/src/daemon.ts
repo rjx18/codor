@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, constants as fsConstants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
@@ -103,6 +103,7 @@ const ARTIFACT_ID = /^[0-9a-f]{32}$/;
 const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024; // per produced-file snapshot
 const MAX_ARTIFACTS_PER_RUN = 8;
 const MAX_ARTIFACTS_PER_ROOM = 50;
+const MAX_ARTIFACT_ERRORS_PER_ROOM = 50; // bound the durable per-run failure feed
 
 /** Content-type an eligible produced file by magic bytes, with a small text
  *  extension fallback, against an explicit allowlist. Anything not recognized
@@ -4934,7 +4935,7 @@ export class Daemon {
   }
   // harn:end attachments-are-capped-files-served-inert
 
-  // harn:assume durable-inert-snapshots-of-successfully-produced-files ref=produced-artifact-snapshot
+  // harn:assume descriptor-safe-durable-inert-snapshots-of-successful-output ref=produced-artifact-snapshot
   newArtifactId(): string {
     return randomBytes(16).toString('hex');
   }
@@ -5010,6 +5011,7 @@ export class Daemon {
   }
 
   protected persistArtifactMeta(room: string, id: string, meta: ProducedArtifact): void {
+    ProducedArtifactSchema.parse(meta); // never publish an invalid sidecar
     const path = this.artifactMetaPath(room, id);
     const tmp = `${path}.tmp`;
     writeFileSync(tmp, JSON.stringify(meta));
@@ -5047,7 +5049,17 @@ export class Daemon {
       const error: ProducedArtifactError = { source_message_id: runMsgId, produced_at: new Date().toISOString() };
       writeFileSync(tmp, JSON.stringify(error));
       renameSync(tmp, path);
+      this.pruneArtifactErrors(room);
     } catch { /* best-effort; a lost failure note must not break the turn */ }
+  }
+
+  /** Bound the durable per-run failure feed, dropping the oldest beyond the cap. */
+  private pruneArtifactErrors(room: string): void {
+    for (const stale of this.listArtifactErrors(room).slice(MAX_ARTIFACT_ERRORS_PER_ROOM)) {
+      try {
+        rmSync(this.artifactErrorPath(room, stale.source_message_id), { force: true });
+      } catch { /* best-effort prune */ }
+    }
   }
 
   /** Per-run snapshot-storage failures for the room, newest first. */
@@ -5078,7 +5090,7 @@ export class Daemon {
     try {
       rooms = readdirSync(this.artifactsRoot);
     } catch {
-      return;
+      rooms = []; // no artifacts yet — still reconcile the error feed below
     }
     for (const room of rooms) {
       const dir = join(this.artifactsRoot, room);
@@ -5095,16 +5107,77 @@ export class Daemon {
         if (ARTIFACT_ID.test(file) && !committed.has(file)) rmSync(join(dir, file), { force: true });
       }
     }
+    // Reconcile the failure feed too: drop temp records and re-bound each room.
+    let errorRooms: string[];
+    try { errorRooms = readdirSync(this.artifactErrorsRoot); } catch { errorRooms = []; }
+    for (const room of errorRooms) {
+      const dir = join(this.artifactErrorsRoot, room);
+      let files: string[];
+      try { files = readdirSync(dir); } catch { continue; }
+      for (const file of files) {
+        if (file.endsWith('.tmp')) rmSync(join(dir, file), { force: true });
+      }
+      this.pruneArtifactErrors(room);
+    }
+  }
+
+  /** Open a produced-file candidate ONCE and verify everything on the descriptor:
+   *  refuse a final-component symlink (O_NOFOLLOW), require a regular file, verify
+   *  canonical containment within the producing member's own cwd through the opened
+   *  fd (/proc/self/fd on the Linux target — fail closed if it cannot be verified),
+   *  read through the fd with a bounded loop of at most the cap + 1 (rejecting a
+   *  post-stat growth), and re-check identity/type. Closes the fd unconditionally. */
+  private readContainedArtifact(candidate: string, memberCwd: string):
+    | { ok: true; bytes: Buffer; canonical: string }
+    | { ok: false; reason: 'skip' | 'fail' } {
+    let fd: number;
+    try {
+      fd = openSync(candidate, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    } catch {
+      return { ok: false, reason: 'skip' }; // missing, or final component is a symlink
+    }
+    try {
+      const before = fstatSync(fd);
+      if (!before.isFile()) return { ok: false, reason: 'skip' }; // regular-file identity via the fd
+      if (before.size > MAX_ARTIFACT_BYTES) return { ok: false, reason: 'skip' }; // policy: oversize
+      // Canonical containment of the OPENED descriptor (race-free). If it cannot be
+      // verified (no /proc), fail closed rather than trust a re-resolved path.
+      let canonical: string;
+      try {
+        canonical = realpathSync(`/proc/self/fd/${String(fd)}`);
+      } catch {
+        return { ok: false, reason: 'fail' };
+      }
+      if (!(canonical === memberCwd || canonical.startsWith(memberCwd + sep))) return { ok: false, reason: 'skip' };
+      // Read through the fd; the extra byte over the cap proves a post-stat growth.
+      const limit = MAX_ARTIFACT_BYTES + 1;
+      const buffer = Buffer.alloc(limit);
+      let total = 0;
+      while (total < limit) {
+        const n = readSync(fd, buffer, total, limit - total, total);
+        if (n === 0) break;
+        total += n;
+      }
+      if (total > MAX_ARTIFACT_BYTES) return { ok: false, reason: 'skip' }; // grew past the cap
+      const after = fstatSync(fd);
+      if (!after.isFile() || after.ino !== before.ino || after.dev !== before.dev) {
+        return { ok: false, reason: 'skip' }; // identity/type changed under us
+      }
+      return { ok: true, bytes: buffer.subarray(0, total), canonical };
+    } finally {
+      closeSync(fd);
+    }
   }
 
   /** At finalization, snapshot the files this run SUCCESSFULLY produced. Evidence is
    *  success-only: created/modified file_change events (harnesses emit file_change
    *  only for completed tools) unioned with tool_result diff paths whose status is
    *  ok (Claude, which emits an ok tool_result.diff and never file_change). Each
-   *  candidate must realpath — never following a symlink — to a regular file inside
-   *  the PRODUCING member's own validated cwd; a symlink, non-regular, outside-cwd,
-   *  over-allowlist, oversize, or over-cap path is an explicit non-artifact. A
-   *  storage failure records one durable, path-free per-run failure state. */
+   *  candidate is read through a single verified descriptor (see readContainedArtifact):
+   *  a final symlink, non-regular, outside-own-cwd, over-allowlist, oversize, or
+   *  over-cap path is an explicit non-artifact. A storage failure — including a
+   *  containment verification that cannot be performed — records one durable,
+   *  path-free per-run failure state. */
   private snapshotProducedArtifacts(room: string, memberId: string, runMsgId: number): void {
     const member = this.store.getMember(room, memberId);
     if (member?.kind !== 'agent' || member.cwd === undefined) return;
@@ -5136,26 +5209,15 @@ export class Daemon {
     for (const rawPath of produced) {
       if (snapped >= MAX_ARTIFACTS_PER_RUN) break;
       const candidate = resolve(member.cwd, rawPath);
-      let real: string;
-      let stat: ReturnType<typeof statSync>;
-      try {
-        if (lstatSync(candidate).isSymbolicLink()) continue; // never follow a symlink to authority
-        real = realpathSync(candidate);
-        stat = statSync(real);
-      } catch {
-        continue; // missing/unreadable
-      }
-      if (!stat.isFile() || seen.has(real)) continue;
-      seen.add(real);
-      if (!(real === memberCwd || real.startsWith(memberCwd + sep))) continue; // outside the member's own cwd
-      if (stat.size > MAX_ARTIFACT_BYTES) continue; // policy refusal: oversize
-      let bytes: Buffer;
-      try {
-        bytes = readFileSync(real);
-      } catch {
+      const read = this.readContainedArtifact(candidate, memberCwd);
+      if (!read.ok) {
+        if (read.reason === 'fail') storageFailed = true; // fail-closed verification is a visible failure
         continue;
       }
-      const name = basename(real);
+      const { bytes, canonical } = read;
+      if (seen.has(canonical)) continue;
+      seen.add(canonical);
+      const name = basename(canonical);
       const mediaType = sniffArtifactMediaType(bytes, name);
       if (mediaType === undefined) continue; // policy refusal: not in the allowlist
       const id = this.newArtifactId();
@@ -5172,5 +5234,5 @@ export class Daemon {
     if (storageFailed) this.recordArtifactError(room, runMsgId);
     if (snapped > 0) this.pruneArtifacts(room);
   }
-  // harn:end durable-inert-snapshots-of-successfully-produced-files
+  // harn:end descriptor-safe-durable-inert-snapshots-of-successful-output
 }

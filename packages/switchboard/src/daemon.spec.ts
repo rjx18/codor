@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { AgentLimit, HarnessAdapter, Message, ServerFrame, Session, SpawnOpts, WireEvent } from '@codor/protocol';
+import { createTurnTranslator as createCodexTurnTranslator } from '@codor/adapter-codex';
 import { AcpAdapter } from '@codor/adapter-acp';
 import { createTurnTranslator, wireEventFromHook } from '@codor/adapter-claude-code';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -5438,8 +5439,8 @@ describe('git working state (diff explorer)', () => {
   // harn:end git-history-pages-are-local-and-commit-addressed
 });
 
-// harn:assume durable-inert-snapshots-of-successfully-produced-files ref=produced-artifact-daemon-regression
-describe('produced-artifact snapshots (durable-inert-snapshots-of-successfully-produced-files)', () => {
+// harn:assume descriptor-safe-durable-inert-snapshots-of-successful-output ref=produced-artifact-daemon-regression
+describe('produced-artifact snapshots (descriptor-safe-durable-inert-snapshots-of-successful-output)', () => {
   const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
 
   // Drive one finalized fake turn journaling the given run items.
@@ -5606,8 +5607,75 @@ describe('produced-artifact snapshots (durable-inert-snapshots-of-successfully-p
       await restarted.close();
     }
   });
+
+  it('snapshots a native Codex no-diff completed file change (real translator to finalization)', async () => {
+    const cwd = testCwd('produce-codex');
+    writeFileSync(join(cwd, 'codex.png'), PNG);
+    // Drive the REAL native Codex translator for a completed fileChange with no diff body.
+    const events = createCodexTurnTranslator().push('item/completed', {
+      threadId: 't', turnId: 'u',
+      item: { type: 'fileChange', id: 'fc', changes: [{ path: 'codex.png', kind: { type: 'add' } }], status: 'completed' },
+    });
+    await produceEvents('codexer', cwd, events as WireEvent[]);
+    const artifacts = daemon.listArtifacts('eng');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({ name: 'codex.png', media_type: 'image/png' });
+  });
+
+  it('refuses a candidate that escapes the member cwd through an intermediate symlink', async () => {
+    const cwd = testCwd('produce-escape');
+    const secret = join(dir, 'secret-loot');
+    mkdirSync(secret, { recursive: true });
+    writeFileSync(join(secret, 'loot.png'), PNG);
+    symlinkSync(secret, join(cwd, 'out')); // cwd/out -> outside dir (intermediate symlink)
+    await produce('escaper', cwd, [{ path: 'out/loot.png', change: 'created' }]);
+    // The opened descriptor's canonical path is outside the member cwd — refused.
+    expect(daemon.listArtifacts('eng')).toEqual([]);
+  });
+
+  it('refuses an oversize produced file (byte cap on actual bytes)', async () => {
+    const cwd = testCwd('produce-oversize');
+    writeFileSync(join(cwd, 'huge.png'), Buffer.concat([PNG, Buffer.alloc(6 * 1024 * 1024)]));
+    await produce('heavy', cwd, [{ path: 'huge.png', change: 'created' }]);
+    expect(daemon.listArtifacts('eng')).toEqual([]);
+  });
+
+  it('refuses to publish a schema-invalid metadata sidecar', () => {
+    daemon.ensureArtifactDir('eng');
+    const id = daemon.newArtifactId();
+    const invalid = { id, name: 'x.png', media_type: '', size: 1, source_message_id: 1, produced_at: '2026-07-22T00:00:00.000Z' };
+    expect(() => (daemon as unknown as { persistArtifactMeta: (r: string, i: string, m: unknown) => void })
+      .persistArtifactMeta('eng', id, invalid)).toThrow();
+    expect(daemon.getArtifactMeta('eng', id)).toBeUndefined(); // nothing committed
+  });
+
+  it('bounds the durable per-run failure feed', () => {
+    for (let i = 0; i < 60; i += 1) daemon.recordArtifactError('eng', i + 1);
+    expect(daemon.listArtifactErrors('eng')).toHaveLength(50); // MAX_ARTIFACT_ERRORS_PER_ROOM
+  });
+
+  it('cleans error temp state on restart, keeping real failure records', async () => {
+    daemon.recordArtifactError('eng', 7);
+    const errDir = join(dir, 'artifact-errors', 'eng');
+    writeFileSync(join(errDir, '999.json.tmp'), '{}'); // leftover temp from an interrupted write
+    await daemon.close();
+
+    const restarted = new Daemon({
+      dbPath: join(dir, 'switchboard.sqlite'),
+      blobRoot: join(dir, 'blobs'),
+      adapters: [new FakeAdapter('fake')],
+      discoverModels: false,
+      homeDir: dir,
+    });
+    try {
+      expect(restarted.listArtifactErrors('eng').map((error) => error.source_message_id)).toEqual([7]);
+      expect(readdirSync(errDir).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+    } finally {
+      await restarted.close();
+    }
+  });
 });
-// harn:end durable-inert-snapshots-of-successfully-produced-files
+// harn:end descriptor-safe-durable-inert-snapshots-of-successful-output
 
 describe('message attachments', () => {
   const stage = (room: string, name: string, mime: string, bytes: string) => {

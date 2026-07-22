@@ -114,7 +114,7 @@ export const MessageSchema = z.object({
 });
 export type Message = z.infer<typeof MessageSchema>;
 
-// harn:assume durable-inert-snapshots-of-successfully-produced-files ref=produced-artifact-schema
+// harn:assume descriptor-safe-durable-inert-snapshots-of-successful-output ref=produced-artifact-schema
 /** Metadata for a durable snapshot of a file an agent produced. The bytes live
  *  under the daemon data tree keyed by `id`; `name` and `source_message_id` are
  *  provenance only — never a local path — and `media_type` is the sniffed,
@@ -137,4 +137,4 @@ export const ProducedArtifactErrorSchema = z.object({
   produced_at: TimestampSchema,
 });
 export type ProducedArtifactError = z.infer<typeof ProducedArtifactErrorSchema>;
-// harn:end durable-inert-snapshots-of-successfully-produced-files
+// harn:end descriptor-safe-durable-inert-snapshots-of-successful-output

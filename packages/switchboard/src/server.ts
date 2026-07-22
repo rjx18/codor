@@ -905,7 +905,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end attachments-are-capped-files-served-inert
 
-  // harn:assume durable-inert-snapshots-of-successfully-produced-files ref=produced-artifact-serve
+  // harn:assume descriptor-safe-durable-inert-snapshots-of-successful-output ref=produced-artifact-serve
   // Durable produced-artifact feed: list metadata for room readers, and serve the
   // stored bytes inertly (raster inline with the sniffed media type, everything
   // else an octet-stream download) with nosniff — an opaque URL, never a path.
@@ -938,7 +938,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       )
       .send(createReadStream(path));
   });
-  // harn:end durable-inert-snapshots-of-successfully-produced-files
+  // harn:end descriptor-safe-durable-inert-snapshots-of-successful-output
 
   // harn:assume graph-derived-from-vault-links-readonly-v5 ref=ledger-graph-rest
   app.get('/api/rooms/:room/ledger', (req, reply) => {

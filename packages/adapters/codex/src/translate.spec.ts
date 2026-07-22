@@ -291,3 +291,37 @@ describe('terminal app-server semantics', () => {
     })).toEqual([{ type: 'run.completed', status: 'interrupted' }]);
   });
 });
+
+describe('Codex completed no-diff file change carries path-bearing evidence', () => {
+  const change = (status: string, body: Record<string, unknown>): WireEvent[] =>
+    createTurnTranslator().push('item/completed', {
+      threadId: 't', turnId: 'u',
+      item: { type: 'fileChange', id: 'fc', changes: [body], status },
+    });
+  const hasFileChange = (events: WireEvent[]): boolean =>
+    events.some((event) => event.type === 'run.item' && event.item_type === 'file_change');
+
+  it('emits a path-bearing file_change (no invented patch text) when the completion has no diff', () => {
+    const events = change('completed', { path: '/work/out.png', kind: { type: 'add' } });
+    const fileChange = events.find((event) => event.type === 'run.item' && event.item_type === 'file_change');
+    expect(fileChange?.type === 'run.item' ? fileChange.payload : undefined)
+      .toEqual({ path: '/work/out.png', change: 'created' }); // path + change only, no diff
+  });
+
+  it('emits no file_change for a failed change, keeping only the error tool_result', () => {
+    const events = change('failed', { path: '/work/out.png', kind: { type: 'add' } });
+    expect(hasFileChange(events)).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({
+      item_type: 'tool_result', payload: expect.objectContaining({ status: 'error' }),
+    }));
+  });
+
+  it('keeps a diff-bearing completion on the tool_result with no duplicate file row', () => {
+    const events = change('completed', { path: '/work/edit.txt', kind: { type: 'update' }, diff: '--- a\n+++ b\n' });
+    expect(hasFileChange(events)).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({
+      item_type: 'tool_result',
+      payload: expect.objectContaining({ diff: expect.objectContaining({ path: '/work/edit.txt' }) }),
+    }));
+  });
+});

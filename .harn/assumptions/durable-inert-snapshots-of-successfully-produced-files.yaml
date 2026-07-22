@@ -2,7 +2,7 @@ id: durable-inert-snapshots-of-successfully-produced-files
 hash: a-d68be3ead7c3
 title: Successfully produced files are snapshotted under own-cwd, atomic,
   allowlisted rules with a visible failure state, and served inert
-state: active
+state: retired
 statement: At run finalization the daemon snapshots only files an agent
   successfully produced, derived from success evidence only - created or
   modified file_change events (harnesses emit file_change only for completed
@@ -34,3 +34,4 @@ depends_on:
   - attachments-are-capped-files-served-inert
   - room-git-inspection-read-only-from-known-cwds
 created_by: codor-polish-phase4-corrections
+retired_by: codor-polish-phase4-corrections-2

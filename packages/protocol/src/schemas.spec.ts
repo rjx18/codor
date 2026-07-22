@@ -1469,7 +1469,7 @@ describe('a session carries the environment its children need', () => {
 });
 // harn:end a-session-carries-the-environment-its-children-need
 
-// harn:assume durable-inert-snapshots-of-successfully-produced-files ref=produced-artifact-schema-regression
+// harn:assume descriptor-safe-durable-inert-snapshots-of-successful-output ref=produced-artifact-schema-regression
 describe('ProducedArtifactSchema', () => {
   const artifact = {
     id: 'a'.repeat(32), name: 'chart.png', media_type: 'image/png',
@@ -1492,4 +1492,4 @@ describe('ProducedArtifactSchema', () => {
     expect(ProducedArtifactSchema.safeParse({ ...artifact, id: 'not-a-valid-id' }).success).toBe(false);
   });
 });
-// harn:end durable-inert-snapshots-of-successfully-produced-files
+// harn:end descriptor-safe-durable-inert-snapshots-of-successful-output

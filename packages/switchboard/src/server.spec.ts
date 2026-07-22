@@ -2822,8 +2822,8 @@ describe('browser protocol epoch', () => {
 });
 // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
 
-// harn:assume durable-inert-snapshots-of-successfully-produced-files ref=produced-artifact-server-regression
-describe('produced-artifact endpoints (durable-inert-snapshots-of-successfully-produced-files)', () => {
+// harn:assume descriptor-safe-durable-inert-snapshots-of-successful-output ref=produced-artifact-server-regression
+describe('produced-artifact endpoints (descriptor-safe-durable-inert-snapshots-of-successful-output)', () => {
   const stageArtifact = (room: string, name: string, mediaType: string, bytes: Buffer) => {
     const id = daemon.newArtifactId();
     daemon.ensureArtifactDir(room);
@@ -2904,4 +2904,4 @@ describe('produced-artifact endpoints (durable-inert-snapshots-of-successfully-p
     expect(malformed.status).toBe(404);
   });
 });
-// harn:end durable-inert-snapshots-of-successfully-produced-files
+// harn:end descriptor-safe-durable-inert-snapshots-of-successful-output

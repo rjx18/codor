@@ -1,0 +1,39 @@
+id: descriptor-safe-durable-inert-snapshots-of-successful-output
+hash: a-c00b6a4a01a8
+title: Successful output is snapshotted through a single verified descriptor,
+  stored atomically with a bounded visible failure feed, and served inert
+state: active
+statement: At run finalization the daemon snapshots only files an agent
+  successfully produced, derived from success evidence only - created or
+  modified file_change events (harnesses emit file_change only for completed
+  tools; the ACP adapter and the native Codex adapter, including Codex completed
+  file changes that carry no diff body, are normalized to do so) unioned with
+  tool_result diff paths whose tool_result status is ok - never a path merely
+  read, a failed or in-progress tool's output, or a tool-output string. Each
+  candidate is opened exactly once without following a final symlink; its
+  regular-file identity and its canonical containment within the producing
+  member's own validated working directory are verified through the opened
+  descriptor, and its bytes are read through that same descriptor with a bounded
+  loop of at most the per-file byte cap plus one byte, refusing when the extra
+  byte exists or the descriptor's identity or type changes. Verification that
+  cannot be performed fails closed. Candidates outside the allowlist, over the
+  byte cap, or beyond the per-run and per-room count caps are explicit
+  non-artifacts. A retained snapshot writes its bytes and its schema-validated
+  metadata through temporary files and publishes the validated JSON sidecar last
+  as the commit and visibility marker, so only fully committed artifacts are
+  ever listed; temporary, partial, and orphan state for both artifacts and
+  failure records is removed on failure and on daemon restart. Metadata carries
+  a strict 32-hex opaque id, name, safe media type, size, source message id, and
+  timestamp, independent of the source message, so the artifact survives commit,
+  rename, deletion, working-tree cleanup, and daemon restart. A storage failure
+  (distinct from a policy refusal) records one durable, path-free,
+  operator-visible failure state per affected run, and the per-run failure feed
+  is bounded and pruned. Artifacts and per-run failure states are listed and
+  served only through authenticated, room-read-authorized endpoints addressed by
+  validated hex id; the serve endpoint renders raster image media types inline
+  and every other type as an octet-stream download with x-content-type-options
+  nosniff, exposing an opaque artifact URL and never a local path.
+depends_on:
+  - attachments-are-capped-files-served-inert
+  - working-directories-validated-before-spawn
+created_by: codor-polish-phase4-corrections-2

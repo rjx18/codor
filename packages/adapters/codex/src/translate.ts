@@ -343,8 +343,21 @@ export function createTurnTranslator(
                 raw: { status: item.status, change },
               },
             };
-            if (startedFileChanges.delete(callId)) return [result];
-            return [call, result];
+            // A genuinely completed change with NO diff body still carries truthful
+            // path-bearing success evidence as a file_change (no invented patch text)
+            // so the daemon can snapshot Codex output the app-server reports without a
+            // diff. Diff-bearing completions keep only their tool_result.diff (no
+            // duplicate row); failed/in-progress items emit no file_change.
+            const noDiffFileChange: WireEvent[] =
+              status === 'ok' && typeof change.diff !== 'string'
+                ? [{
+                    type: 'run.item',
+                    item_type: 'file_change',
+                    payload: { path, change: fileChangeKind(change.kind) },
+                  }]
+                : [];
+            if (startedFileChanges.delete(callId)) return [...noDiffFileChange, result];
+            return [call, ...noDiffFileChange, result];
           });
         }
 
