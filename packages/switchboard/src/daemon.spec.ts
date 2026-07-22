@@ -6560,14 +6560,28 @@ describe('member task projection landing (member-task-projection-is-durable-and-
     }
   });
 
-  it('preserves tasks across a same-session revive/re-bind and clears on a different native session', async () => {
-    const id = await emit('rebinder', testCwd('rebinder'), replace('a', 'pending'));
-    expect(daemon.store.getMember('eng', id)?.tasks?.items).toHaveLength(1);
-    // Re-binding to the SAME native session (reconnect/revive) preserves the list.
-    const sessionRef = daemon.store.getMember('eng', id)?.session_ref ?? 'sess-0';
-    expect(daemon.store.setAgentSessionRuntime('eng', id, sessionRef, { load: true, resume: true }).tasks?.items).toHaveLength(1);
-    // A genuinely different native session clears it atomically.
-    expect(daemon.store.setAgentSessionRuntime('eng', id, `${sessionRef}-other`, { load: true, resume: true }).tasks).toBeUndefined();
+  it('preserves tasks across a real kill/revive attach and clears on a different native session', async () => {
+    const cwd = testCwd('rebinder');
+    const alpha = spawnAgent('rebinder', cwd);
+    // A turn establishes the native session and lands the checklist.
+    fake.enqueue({ kind: 'complete', final_text: 'done', items: [replace('a', 'pending')] });
+    daemon.postHumanMessage('eng', '@rebinder go');
+    await daemon.settle();
+    const sessionRef = daemon.store.getMember('eng', alpha.id)!.session_ref!;
+    expect(daemon.store.getMember('eng', alpha.id)?.tasks?.items).toHaveLength(1);
+
+    // Kill then revive: the adapter re-attaches the EXACT persisted native session and
+    // the task projection survives (a same-session revive preserves it).
+    expect(daemon.killMember('eng', alpha.id).state).toBe('dead');
+    fake.enqueue({ kind: 'complete', final_text: 'revived' });
+    daemon.reviveMember('eng', alpha.id);
+    await daemon.settle();
+    expect(fake.wasAttached(sessionRef)).toBe(true);
+    expect(daemon.store.getMember('eng', alpha.id)!.state).toBe('idle');
+    expect(daemon.store.getMember('eng', alpha.id)?.tasks?.items).toHaveLength(1);
+
+    // A genuinely different native session then clears the projection.
+    expect(daemon.store.setAgentSessionRuntime('eng', alpha.id, `${sessionRef}-fresh`, { load: true, resume: true }).tasks).toBeUndefined();
   });
 });
 // harn:end member-task-projection-is-durable-and-session-scoped
