@@ -13,12 +13,20 @@ import {
 } from './adapter-registry.js';
 import { FakeAdapter } from './fake-adapter.js';
 
-// harn:assume built-in-adapters-require-daemon-path ref=builtin-executable-regression
+// harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=adapter-catalog-regression
 describe('built-in executable registry', () => {
   it('keeps the approved canonical executable mapping beside built-in composition', () => {
     expect(BUILTIN_ADAPTER_EXECUTABLES).toEqual({
       antigravity: 'agy', 'claude-code': 'claude', codex: 'codex', copilot: 'copilot',
       cursor: 'cursor-agent', gemini: 'gemini', opencode: 'opencode',
+    });
+  });
+
+  it('registers ACP as configurable without inventing a canonical provider executable', async () => {
+    expect(BUILTIN_ADAPTER_EXECUTABLES).not.toHaveProperty('acp');
+    expect((await loadAdapterRegistry()).find((adapter) => adapter.id === 'acp')).toMatchObject({
+      configurable: true,
+      capabilities: { resume: false, live_inbox: false },
     });
   });
 
@@ -40,7 +48,7 @@ describe('built-in executable registry', () => {
     rmSync(dir, { recursive: true });
   });
 });
-// harn:end built-in-adapters-require-daemon-path
+// harn:end adapter-catalog-distinguishes-installed-and-configurable
 
 // harn:assume harness-declares-supported-thinking-levels ref=registry-thinking-level-regression
 describe('adapter registry spawn controls', () => {
@@ -50,6 +58,7 @@ describe('adapter registry spawn controls', () => {
     expect(adapters.map((adapter) => [adapter.id, adapter.capabilities.live_inbox]))
       .toEqual([
         ['antigravity', false],
+        ['acp', false],
         ['claude-code', true],
         ['codex', true],
         ['copilot', false],
@@ -69,6 +78,7 @@ describe('adapter registry spawn controls', () => {
       adapter.capabilities.thinking_levels,
     ])).toEqual([
       ['antigravity', false, undefined],
+      ['acp', false, undefined],
       ['claude-code', true, ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']],
       ['codex', true, ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']],
       ['copilot', false, undefined],

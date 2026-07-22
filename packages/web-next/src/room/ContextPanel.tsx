@@ -617,7 +617,8 @@ function SpawnDialog(props: {
   const owner = channelOwner(props.members);
   const derived = handle.trim();
   const ownerClash = collidesWithOwner(derived, owner);
-  const canSpawn = harness !== '' && derived !== '' && cwd.trim() !== '' && !ownerClash && !props.pending;
+  const canSpawn = harness !== '' && derived !== '' && cwd.trim() !== '' && !ownerClash
+    && (harness !== 'acp' || (config.acpExecutable?.trim() ?? '') !== '') && !props.pending;
 
   const submit = (event: { preventDefault: () => void }) => {
     event.preventDefault();

@@ -21,6 +21,15 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@22.20.1)(happy-dom@20.10.6)(jiti@2.7.0)(jsdom@29.1.1)(lightningcss@1.32.0)(terser@5.49.0)
 
+  packages/adapters/acp:
+    dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: 1.2.1
+        version: 1.2.1(zod@4.4.3)
+      '@codor/protocol':
+        specifier: workspace:*
+        version: link:../../protocol
+
   packages/adapters/antigravity:
     dependencies:
       '@codor/protocol':
@@ -163,6 +172,9 @@ importers:
 
   packages/switchboard:
     dependencies:
+      '@codor/adapter-acp':
+        specifier: workspace:*
+        version: link:../adapters/acp
       '@codor/adapter-antigravity':
         specifier: workspace:*
         version: link:../adapters/antigravity
@@ -345,6 +357,11 @@ importers:
         version: 3.5.39(typescript@5.9.3)
 
 packages:
+
+  '@agentclientprotocol/sdk@1.2.1':
+    resolution: {integrity: sha512-jwYUdOQR7tc+Zfch53VL4JJyUNK/46q03uUTYb+PjECsmnNl94XFXOfYLJ8RBpMNidXd1rpOAVgb0vqD98xImA==}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
 
   '@algolia/abtesting@1.21.2':
     resolution: {integrity: sha512-uXj0rgk30EpsKvOpuS+R+1XFDrnm56hED1Lz56e8uBkZdKCxw99LS2U8eXBqAHYU8kpkbsnV1GC8velBG070Hg==}
@@ -4654,6 +4671,10 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@agentclientprotocol/sdk@1.2.1(zod@4.4.3)':
+    dependencies:
+      zod: 4.4.3
 
   '@algolia/abtesting@1.21.2':
     dependencies:

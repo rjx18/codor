@@ -414,4 +414,17 @@ describe('payload hygiene', () => {
     });
     expect(spec.model).toBeUndefined();
   });
+
+  // harn:assume acp-launch-is-structured-authorized-and-bounded ref=acp-launch-regression
+  it('builds ACP executable and literal one-argument-per-line configuration', () => {
+    const acp: AdapterLike = { id: 'acp', configurable: true, capabilities: { thinking: false } };
+    const spec = buildSpawnSpec({
+      config: config({
+        harness: 'acp', acpExecutable: '  kimi  ', acpArgs: 'acp\n--profile=x\n',
+      }),
+      handle: 'kimi', cwd: '/p', adapters: [acp], members: [],
+    });
+    expect(spec.acp_launch).toEqual({ executable: 'kimi', argv: ['acp', '--profile=x'] });
+  });
+  // harn:end acp-launch-is-structured-authorized-and-bounded
 });

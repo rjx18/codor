@@ -20,6 +20,7 @@ import {
 /** The subset of an adapter registration these rules need. */
 export interface AdapterLike {
   id: string;
+  configurable?: boolean;
   capabilities: {
     thinking?: boolean;
     thinking_levels?: readonly ThinkingLevel[];
@@ -252,6 +253,22 @@ export interface AgentConfig {
   model: string;
   thinking: string;
   policy: Policy | '';
+  acpExecutable?: string;
+  /** One literal argument per line; never parsed as shell text. */
+  acpArgs?: string;
+}
+
+export function acpLaunchFromConfig(config: AgentConfig): {
+  executable: string;
+  argv: string[];
+} | undefined {
+  if (config.harness !== 'acp') return undefined;
+  const executable = config.acpExecutable?.trim() ?? '';
+  if (executable === '') return undefined;
+  return {
+    executable,
+    argv: (config.acpArgs ?? '').split('\n').filter((arg) => arg !== ''),
+  };
 }
 
 /**
@@ -364,6 +381,7 @@ export interface SpawnSpec {
   model?: string;
   thinking?: ThinkingLevel;
   purpose?: string;
+  acp_launch?: { executable: string; argv: string[] };
 }
 
 /**
@@ -386,6 +404,7 @@ export function buildSpawnSpec(input: {
   const adapter = input.adapters.find((candidate) => candidate.id === harness);
   const thinking = supportedThinking(adapter, input.config.thinking);
   const purpose = input.purpose?.trim();
+  const acpLaunch = acpLaunchFromConfig({ ...input.config, harness });
 
   return {
     harness,
@@ -395,5 +414,6 @@ export function buildSpawnSpec(input: {
     ...(input.config.model !== '' && { model: input.config.model }),
     ...(thinking !== undefined && { thinking }),
     ...(purpose !== undefined && purpose !== '' && { purpose }),
+    ...(acpLaunch !== undefined && { acp_launch: acpLaunch }),
   };
 }

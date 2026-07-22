@@ -1,0 +1,16 @@
+id: acp-v1-events-and-capabilities-are-negotiated
+hash: a-8a0893063971
+title: ACP v1 sessions normalize only negotiated protocol truth
+state: active
+statement: The generic ACP adapter must negotiate protocol v1 on initialize,
+  retain the provider process for ordinary turns, normalize streamed text,
+  thought/plan, tool calls and results, file diffs, terminal references,
+  permissions, usage, stop reasons, failures, and cancellation into Codor
+  events, and advertise no live steering or global lifecycle support; negotiated
+  load or stable resume is persisted per session and used only when that exact
+  support is present again after rebuild.
+depends_on:
+  - normalized-run-item-payload-contract
+  - normalized-agent-usage-telemetry-with-estimates
+  - acp-launch-is-structured-authorized-and-bounded
+created_by: codor-runtime-fidelity-phase6

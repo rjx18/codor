@@ -115,14 +115,14 @@ export const MemberSchema = z
     session_ref: z.string().min(1).optional(), // harness-native resume token
     cwd: z.string().min(1).optional(), // persisted launch dir — resume/revive MUST reuse it
     policy: z.string().min(1).optional(), // sandbox/permission mode chip
-    // harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-schema
+    // harn:assume durable-agent-runtime-configuration ref=durable-agent-runtime-schema
     // Member state, not spawn-time arguments. The harness holds nothing: every turn is
     // a fresh subprocess whose argv is re-derived from the session, so a rebuild that
     // loses these downgrades the agent to its harness default without saying so.
     // Absent means exactly that — the harness default — never a guess.
     model: z.string().min(1).optional(),
     thinking: ThinkingLevelSchema.optional(),
-    // harn:end agent-model-and-thinking-are-durable
+    // harn:end durable-agent-runtime-configuration
     host: z.string().min(1).optional(), // which switchboard machine owns the session
     // harn:assume agent-usage-limits-reported-not-guessed ref=agent-limit-schema
     // Last-known harness-reported rate-limit windows; absent when the harness

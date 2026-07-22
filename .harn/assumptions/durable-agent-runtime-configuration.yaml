@@ -1,0 +1,13 @@
+id: durable-agent-runtime-configuration
+hash: a-3fbe202e2763
+title: Agent runtime configuration survives restart without leaking launch secrets
+state: active
+statement: Model and thinking overrides and, for ACP only, the structured
+  executable/argv launch record plus exact negotiated load/resume support must
+  persist server-side and rebuild the same session after restart; ordinary
+  room/member projections, prompts, logs, and errors never expose raw ACP argv,
+  and a restoration that cannot renegotiate its required lifecycle mechanism
+  fails rather than silently creating a new session.
+depends_on:
+  - canonical-spawn-controls-enforced
+created_by: codor-runtime-fidelity-phase6

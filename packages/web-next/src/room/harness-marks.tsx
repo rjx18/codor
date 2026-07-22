@@ -24,6 +24,10 @@ interface HarnessMark {
 }
 
 const MARKS: Record<string, HarnessMark> = {
+  'acp': {
+    label: 'ACP-compatible',
+    mark: (size: number) => <Cpu width={size} height={size} aria-hidden="true" />,
+  },
   'claude-code': {
     label: 'Claude Code',
     mark: (size: number) => (

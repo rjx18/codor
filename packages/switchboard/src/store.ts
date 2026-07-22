@@ -5,6 +5,7 @@ import { basename, join } from 'node:path';
 
 import Database from 'better-sqlite3';
 import {
+  type AcpLaunchConfig,
   type AttachLease,
   type Attachment,
   AttachLeaseSchema,
@@ -30,6 +31,7 @@ import {
   RoomSchema,
   type RoomSupport,
   RoomSupportSchema,
+  type SessionLifecycleSupport,
   type RunSummary,
   RunSummarySchema,
   deriveRoomColor,
@@ -77,6 +79,8 @@ CREATE TABLE IF NOT EXISTS members (
   policy TEXT,
   model TEXT,
   thinking TEXT,
+  acp_launch TEXT,
+  session_lifecycle TEXT,
   credential_hash TEXT,
   host TEXT,
   state TEXT,
@@ -266,7 +270,7 @@ function migrateMemberCustody(db: Database.Database): void {
   }
 }
 
-// harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-storage
+// harn:assume durable-agent-runtime-configuration ref=durable-agent-runtime-storage
 // An existing database has members whose model and thinking were only ever held in
 // memory, and are already gone. Null is the honest value for them: it means the
 // harness default, which is exactly what they have been silently getting.
@@ -278,8 +282,14 @@ function migrateMemberAgentConfig(db: Database.Database): void {
   if (!columns.some((column) => column.name === 'thinking')) {
     db.exec('ALTER TABLE members ADD COLUMN thinking TEXT');
   }
+  if (!columns.some((column) => column.name === 'acp_launch')) {
+    db.exec('ALTER TABLE members ADD COLUMN acp_launch TEXT');
+  }
+  if (!columns.some((column) => column.name === 'session_lifecycle')) {
+    db.exec('ALTER TABLE members ADD COLUMN session_lifecycle TEXT');
+  }
 }
-// harn:end agent-model-and-thinking-are-durable
+// harn:end durable-agent-runtime-configuration
 
 function migrateMemberLimits(db: Database.Database): void {
   const columns = db.pragma('table_info(members)') as { name: string }[];
@@ -850,6 +860,8 @@ interface MemberRow {
   policy: string | null;
   model: string | null;
   thinking: string | null;
+  acp_launch: string | null;
+  session_lifecycle: string | null;
   host: string | null;
   state: string | null;
   custody: string | null;
@@ -1125,6 +1137,11 @@ export interface NewMember {
   role?: Member['role'];
   roster_stale?: boolean;
   removed_ts?: string;
+}
+
+export interface AgentRuntimeConfig {
+  acp_launch?: AcpLaunchConfig;
+  lifecycle?: SessionLifecycleSupport;
 }
 
 export interface NewMessage {
@@ -1427,8 +1444,59 @@ export class Store {
     return validated;
   }
 
-  addMember(room: string, member: NewMember): Member {
-    return this.db.transaction(() => this.insertMember(room, member))();
+  addMember(room: string, member: NewMember, runtime: AgentRuntimeConfig = {}): Member {
+    return this.db.transaction(() => {
+      const inserted = this.insertMember(room, member);
+      if (runtime.acp_launch !== undefined || runtime.lifecycle !== undefined) {
+        this.db.prepare(
+          'UPDATE members SET acp_launch = ?, session_lifecycle = ? WHERE room = ? AND id = ?',
+        ).run(
+          runtime.acp_launch === undefined ? null : JSON.stringify(runtime.acp_launch),
+          runtime.lifecycle === undefined ? null : JSON.stringify(runtime.lifecycle),
+          room,
+          inserted.id,
+        );
+      }
+      return inserted;
+    })();
+  }
+
+  getAgentRuntimeConfig(room: string, memberId: string): AgentRuntimeConfig | undefined {
+    const row = this.db.prepare(
+      'SELECT acp_launch, session_lifecycle FROM members WHERE room = ? AND id = ?',
+    ).get(room, memberId) as Pick<MemberRow, 'acp_launch' | 'session_lifecycle'> | undefined;
+    if (row === undefined) return undefined;
+    return {
+      ...(row.acp_launch !== null && { acp_launch: JSON.parse(row.acp_launch) as AcpLaunchConfig }),
+      ...(row.session_lifecycle !== null && {
+        lifecycle: JSON.parse(row.session_lifecycle) as SessionLifecycleSupport,
+      }),
+    };
+  }
+
+  setAgentSessionLifecycle(
+    room: string,
+    memberId: string,
+    lifecycle: SessionLifecycleSupport,
+  ): void {
+    this.db.prepare(
+      'UPDATE members SET session_lifecycle = ? WHERE room = ? AND id = ?',
+    ).run(JSON.stringify(lifecycle), room, memberId);
+  }
+
+  setAgentSessionRuntime(
+    room: string,
+    memberId: string,
+    sessionRef: string,
+    lifecycle: SessionLifecycleSupport,
+  ): Member {
+    return this.db.transaction(() => {
+      this.db.prepare(
+        'UPDATE members SET session_ref = ?, session_lifecycle = ? WHERE room = ? AND id = ?',
+      ).run(sessionRef, JSON.stringify(lifecycle), room, memberId);
+      this.appendChange(room, 'member', memberId);
+      return this.getMember(room, memberId)!;
+    })();
   }
 
   updateMember(

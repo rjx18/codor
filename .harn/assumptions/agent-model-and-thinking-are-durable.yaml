@@ -1,7 +1,7 @@
 id: agent-model-and-thinking-are-durable
 hash: a-4f96d2696b37
 title: A rebuilt session is the same agent it was before
-state: active
+state: retired
 statement: A member's model and thinking level must be persisted on the member
   row and restored by EVERY path that rebuilds its session - the lazy rebuild
   after a switchboard restart, the attach used by revive and adopt, and the
@@ -17,3 +17,4 @@ statement: A member's model and thinking level must be persisted on the member
 depends_on:
   - canonical-spawn-controls-enforced
 created_by: a2-durable-agent-config
+retired_by: codor-runtime-fidelity-phase6

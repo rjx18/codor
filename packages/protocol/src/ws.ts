@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { PolicySchema, ThinkingLevelSchema } from './adapter.js';
+import { AcpLaunchConfigSchema, PolicySchema, ThinkingLevelSchema } from './adapter.js';
 import { DeliverySchema } from './delivery.js';
 import { WireEventSchema } from './events.js';
 import { MemberIdSchema, MessageIdSchema, RoomIdSchema, SeqSchema, TimestampSchema } from './ids.js';
@@ -112,6 +112,7 @@ export const ActSchema = z.discriminatedUnion('act', [
     policy: z.string().optional(),
     thinking: ThinkingLevelSchema.optional(),
     purpose: z.string().optional(),
+    acp_launch: AcpLaunchConfigSchema.optional(),
   }),
   z.object({
     act: z.literal('rename'),

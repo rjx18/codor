@@ -4,7 +4,7 @@ import { DeliverySchema } from './delivery.js';
 import { MemberIdSchema, RoomIdSchema, TimestampSchema } from './ids.js';
 import { AssignableHandleSchema, MemberKindSchema } from './member.js';
 import { MessageKindSchema, MessageSchema } from './message.js';
-import { PolicySchema, ThinkingLevelSchema } from './adapter.js';
+import { AcpLaunchConfigSchema, PolicySchema, ThinkingLevelSchema } from './adapter.js';
 
 // harn:assume brakes-default-off ref=room-config-brakes
 /**
@@ -103,7 +103,15 @@ export const StartingAgentSchema = z.object({
   // create-channel dialog could not express one because the contract had nowhere to
   // put it. The spawn dialog could. Same agent, same question, two different answers.
   policy: PolicySchema.optional(),
+  acp_launch: AcpLaunchConfigSchema.optional(),
   // harn:end one-control-chooses-an-agent-everywhere
+}).superRefine((agent, ctx) => {
+  if ((agent.harness === 'acp') !== (agent.acp_launch !== undefined)) {
+    ctx.addIssue({
+      code: 'custom', path: ['acp_launch'],
+      message: 'ACP launch configuration is required only for the acp harness',
+    });
+  }
 });
 export type StartingAgent = z.infer<typeof StartingAgentSchema>;
 

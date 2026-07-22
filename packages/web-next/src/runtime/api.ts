@@ -18,6 +18,8 @@ export interface AdapterRegistration {
   id: string;
   /** Daemon-host installation state. Omitted only by older compatible servers. */
   installed?: boolean;
+  /** Generic transports that need per-agent provider configuration. */
+  configurable?: boolean;
   capabilities: AdapterCapabilities;
   /** Models the harness itself reported. The web never hardcodes a model id. */
   models?: string[];

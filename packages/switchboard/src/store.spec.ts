@@ -1218,7 +1218,7 @@ describe('channel accents', () => {
   });
 });
 
-// harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-regression
+// harn:assume durable-agent-runtime-configuration ref=durable-agent-runtime-regression
 describe('a member keeps the model and thinking level it was given', () => {
   it('round-trips them through the database', () => {
     openRoom(store);
@@ -1250,6 +1250,29 @@ describe('a member keeps the model and thinking level it was given', () => {
     });
     expect(beta.model).toBeUndefined();
     expect(beta.thinking).toBeUndefined();
+  });
+
+  it('persists ACP launch and lifecycle privately while ordinary members omit them', () => {
+    openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'alpha', display_name: 'alpha', harness: 'acp', cwd: '/tmp/work',
+    }, {
+      acp_launch: { executable: '/opt/acp-agent', argv: ['--profile', 'secret-name'] },
+      lifecycle: { load: true, resume: false },
+    });
+    expect(store.getMember('eng', alpha.id)).not.toHaveProperty('acp_launch');
+    expect(store.listMembers('eng')[2]).not.toHaveProperty('session_lifecycle');
+    expect(store.getAgentRuntimeConfig('eng', alpha.id)).toEqual({
+      acp_launch: { executable: '/opt/acp-agent', argv: ['--profile', 'secret-name'] },
+      lifecycle: { load: true, resume: false },
+    });
+    const updated = store.setAgentSessionRuntime(
+      'eng', alpha.id, 'native-session', { load: true, resume: true },
+    );
+    expect(updated.session_ref).toBe('native-session');
+    expect(store.getAgentRuntimeConfig('eng', alpha.id)?.lifecycle).toEqual({
+      load: true, resume: true,
+    });
   });
 
   it('keeps the columns when a legacy database rebuilds the members table', () => {
@@ -1284,6 +1307,8 @@ describe('a member keeps the model and thinking level it was given', () => {
       .map((column) => column.name);
     expect(columns).toContain('model');
     expect(columns).toContain('thinking');
+    expect(columns).toContain('acp_launch');
+    expect(columns).toContain('session_lifecycle');
 
     // And it still works: an insert against the rebuilt table must not fail.
     openRoom(migrated);
@@ -1295,6 +1320,7 @@ describe('a member keeps the model and thinking level it was given', () => {
     migrated.close();
   });
 });
+// harn:end durable-agent-runtime-configuration
 
 // harn:assume only-an-admissible-delivery-becomes-delivering ref=turn-admission-regression
 describe('a consumed delivery is never resurrected into a turn', () => {

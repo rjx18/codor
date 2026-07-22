@@ -74,6 +74,48 @@ test.describe('spawn dialog', () => {
     await expect(page.getByTestId('member-nova')).toBeVisible();
     await expect(page.getByTestId('member-nova')).toContainText('Idle');
   });
+
+  // harn:assume acp-v1-events-and-capabilities-are-negotiated ref=acp-browser-regression
+  // harn:assume acp-launch-is-structured-authorized-and-bounded ref=acp-launch-regression
+  test('offers configurable ACP with explicit executable and literal argv fields', async ({ page }) => {
+    await page.route('**/api/adapters**', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const response = await route.fetch();
+      const listing = await response.json() as { adapters: unknown[]; discovering?: boolean };
+      await route.fulfill({
+        response,
+        body: JSON.stringify({
+          ...listing,
+          adapters: [...listing.adapters, {
+            id: 'acp', installed: false, configurable: true,
+            capabilities: {
+              resume: false, discover: false, interactiveAttach: false, ask: false,
+              approvals: 'runtime', extensions: false, thinking: false, live_inbox: false,
+              policies: { 'read-only': null, 'workspace-write': null, 'full-access': null },
+            },
+          }],
+        }),
+      });
+    });
+    await openRoom(page);
+    await page.getByTestId('spawn-agent').click();
+    const dialog = page.getByTestId('spawn-dialog');
+    await dialog.getByTestId('spawn-harness-acp').click();
+    await expect(dialog.getByTestId('spawn-harness-acp')).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByTestId('spawn-acp-launch')).toBeVisible();
+    await expect(dialog.getByTestId('spawn-acp-executable')).toHaveValue('');
+    await expect(dialog.getByTestId('spawn-model-input')).toHaveCount(0);
+    await dialog.getByTestId('spawn-handle').fill('acp-helper');
+    await dialog.getByTestId('spawn-use-current-dir').click();
+    await dialog.getByTestId('spawn-folder-typed').fill('/tmp');
+    await expect(dialog.getByTestId('spawn-go')).toBeDisabled();
+    await dialog.getByTestId('spawn-acp-executable').fill('/opt/acp agent');
+    await dialog.getByTestId('spawn-acp-args').fill('acp\n--profile=x');
+    await expect(dialog.getByTestId('spawn-go')).toBeEnabled();
+    await expect(dialog.getByText('Shell syntax is not evaluated.')).toBeVisible();
+  });
+  // harn:end acp-launch-is-structured-authorized-and-bounded
+  // harn:end acp-v1-events-and-capabilities-are-negotiated
 });
 
 test.describe('spawn before adapter discovery', () => {

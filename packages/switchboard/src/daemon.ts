@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
 
 import type {
+  AcpLaunchConfig,
   AgentLimit,
   AgentUsage,
   ModelCatalog,
@@ -421,11 +422,11 @@ export class Daemon {
   readonly blobs: BlobStore;
   readonly pushLog: { room: string; body: string; ts: string }[] = [];
   private readonly adapters = new Map<string, HarnessAdapter>();
-  // harn:assume built-in-adapters-require-daemon-path ref=daemon-adapter-availability
+  // harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=adapter-catalog-daemon
   private readonly adapterAvailability = new Map<string, boolean>();
   private readonly executableOnPath: (executable: string) => boolean;
   private readonly discoverAdapterModels: boolean;
-  // harn:end built-in-adapters-require-daemon-path
+  // harn:end adapter-catalog-distinguishes-installed-and-configurable
   private readonly modelCatalogs = new Map<string, ModelCatalog>();
   private pendingDiscoveries = 0;
   private readonly sessions = new Map<string, Session>();
@@ -861,9 +862,12 @@ export class Daemon {
         `starting agent handle @${opts.starting_agent.handle} is already in use by the channel owner`,
       );
     }
-    // harn:assume new-agent-requests-require-installed-harness ref=new-agent-availability-preflight
-    if (opts.starting_agent !== undefined) this.requireInstalledAdapter(opts.starting_agent.harness);
-    // harn:end new-agent-requests-require-installed-harness
+    // harn:assume new-agent-requests-require-available-harness ref=new-agent-availability-preflight
+    if (opts.starting_agent !== undefined) this.requireNewAgentAdapter(opts.starting_agent.harness);
+    if (opts.starting_agent?.acp_launch !== undefined && opts.starting_agent.harness !== 'acp') {
+      throw new Error('ACP launch configuration is accepted only for the acp harness');
+    }
+    // harn:end new-agent-requests-require-available-harness
     // harn:end starting-agent-name-derives-one-valid-identity-v6
     const baseId = opts.id ?? deriveRoomId(opts.name);
     let id = baseId;
@@ -877,6 +881,18 @@ export class Daemon {
         ? normalizeWorkingDirectory(process.cwd(), this.homeDir)
         : undefined;
     // harn:end spawn-default-cwd-is-absolute-or-empty
+    if (opts.starting_agent?.harness === 'acp') {
+      const adapter = this.requireNewAgentAdapter('acp');
+      const spawnOpts = {
+        cwd: cwd!,
+        policy: opts.starting_agent.policy,
+        model: opts.starting_agent.model,
+        thinking: opts.starting_agent.thinking,
+        acp_launch: opts.starting_agent.acp_launch,
+      };
+      validateSpawnOptions(adapter, spawnOpts);
+      adapter.spawn(spawnOpts);
+    }
     const created = this.store.createRoom({
       id,
       name: opts.name,
@@ -1050,7 +1066,9 @@ export class Daemon {
   }
 
   private detectAdapterAvailability(adapter: HarnessAdapter): boolean {
-    const executable = (adapter as RegisteredHarnessAdapter).executable;
+    const registered = adapter as RegisteredHarnessAdapter;
+    if (registered.configurable === true) return false;
+    const executable = registered.executable;
     return executable === undefined || this.executableOnPath(executable);
   }
 
@@ -1080,6 +1098,7 @@ export class Daemon {
   registeredAdapters(): {
     id: string;
     installed: boolean;
+    configurable?: boolean;
     capabilities: HarnessAdapter['capabilities'];
     models?: string[];
     models_source?: ModelCatalog['source'];
@@ -1090,6 +1109,7 @@ export class Daemon {
         return {
           id: adapter.id,
           installed: this.adapterAvailability.get(adapter.id) === true,
+          ...((adapter as RegisteredHarnessAdapter).configurable === true && { configurable: true }),
           capabilities: adapter.capabilities,
           ...(catalog && { models: catalog.models, models_source: catalog.source }),
         };
@@ -1285,15 +1305,17 @@ export class Daemon {
       model?: string;
       thinking?: Session['thinking'];
       purpose?: string;
+      acp_launch?: AcpLaunchConfig;
     },
   ): Member {
     const cwd = normalizeWorkingDirectory(opts.cwd, this.homeDir);
-    const adapter = this.requireInstalledAdapter(opts.harness);
+    const adapter = this.requireNewAgentAdapter(opts.harness);
     const spawnOpts = {
       cwd,
       policy: opts.policy,
       model: opts.model,
       thinking: opts.thinking,
+      acp_launch: opts.acp_launch,
     };
     // harn:assume canonical-spawn-controls-enforced ref=daemon-initial-spawn-validation
     validateSpawnOptions(adapter, spawnOpts);
@@ -1307,16 +1329,16 @@ export class Daemon {
       harness: opts.harness,
       cwd,
       policy: opts.policy,
-      // harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-rebuild
+      // harn:assume durable-agent-runtime-configuration ref=durable-agent-runtime-rebuild
       // These are turn arguments, re-derived from the session on every turn. Held only
       // in memory, they vanish on restart and the agent quietly becomes a different one.
       model: opts.model,
       thinking: opts.thinking,
-      // harn:end agent-model-and-thinking-are-durable
+      // harn:end durable-agent-runtime-configuration
       host: this.hostId,
       state: 'idle',
       custody: 'owned',
-    });
+    }, { acp_launch: opts.acp_launch });
     this.issueMemberCredential(room, member, session);
     this.sessions.set(member.id, session);
     this.markRostersStale(room);
@@ -1972,6 +1994,17 @@ export class Daemon {
     return adapter;
   }
 
+  private requireNewAgentAdapter(id: string): HarnessAdapter {
+    const adapter = this.requireAdapter(id);
+    if (
+      this.adapterAvailability.get(id) !== true &&
+      (adapter as RegisteredHarnessAdapter).configurable !== true
+    ) {
+      throw new Error(`harness '${id}' is not installed on the daemon host`);
+    }
+    return adapter;
+  }
+
   /** Sessions are rebuilt from the persisted member row after a restart. */
   private sessionFor(room: string, member: Member): Session {
     // A configure since the last turn: discard the cached session so this turn is built
@@ -1980,8 +2013,9 @@ export class Daemon {
     let session = this.sessions.get(member.id);
     if (!session) {
       const adapter = this.requireAdapter(member.harness!);
+      const runtimeConfig = this.store.getAgentRuntimeConfig(room, member.id);
       session =
-        member.session_ref !== undefined
+        member.session_ref !== undefined && member.harness !== 'acp'
           ? adapter.attach(member.session_ref)
           : (() => {
               const spawnOpts = {
@@ -1989,6 +2023,7 @@ export class Daemon {
                 policy: member.policy,
                 model: member.model,
                 thinking: member.thinking,
+                acp_launch: runtimeConfig?.acp_launch,
               };
               // harn:assume canonical-spawn-controls-enforced ref=daemon-session-rebuild-validation
               validateSpawnOptions(adapter, spawnOpts);
@@ -1996,14 +2031,17 @@ export class Daemon {
               // harn:end canonical-spawn-controls-enforced
               return rebuilt;
             })();
+      if (member.session_ref !== undefined) session.session_ref = member.session_ref;
+      session.acp_launch = runtimeConfig?.acp_launch;
+      session.lifecycle = runtimeConfig?.lifecycle;
       session.cwd = member.cwd ?? session.cwd; // revive MUST reuse the persisted cwd
       session.policy = member.policy;
-      // harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-rebuild
+      // harn:assume durable-agent-runtime-configuration ref=durable-agent-runtime-rebuild
       // This is the path a restart takes. Restoring cwd and policy but not these two is
       // how an agent silently reverted to its harness default model, mid-conversation.
       session.model = member.model;
       session.thinking = member.thinking;
-      // harn:end agent-model-and-thinking-are-durable
+      // harn:end durable-agent-runtime-configuration
       this.issueMemberCredential(room, member, session);
       this.sessions.set(member.id, session);
     }
@@ -2885,6 +2923,15 @@ export class Daemon {
           this.emitMember(
             room,
             this.store.updateMember(room, member.id, { session_ref: sessionRef }),
+          );
+        },
+        onSessionLifecycle: (support) => {
+          this.store.setAgentSessionLifecycle(room, member.id, support);
+        },
+        onSessionRuntime: ({ session_ref, lifecycle }) => {
+          this.emitMember(
+            room,
+            this.store.setAgentSessionRuntime(room, member.id, session_ref, lifecycle),
           );
         },
         // harn:end attempt-start-evidence-persisted

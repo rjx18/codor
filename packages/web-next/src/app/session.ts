@@ -129,7 +129,9 @@ export function useAdapterCatalog(token: () => string): AdapterCatalog {
 
   return {
     registered: adapters,
-    installed: adapters.filter((adapter) => adapter.installed !== false),
+    // harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=configurable-adapter-client
+    installed: adapters.filter((adapter) => adapter.installed !== false || adapter.configurable === true),
+    // harn:end adapter-catalog-distinguishes-installed-and-configurable
     refreshing,
     ...(refreshError !== undefined && { refreshError }),
     refresh,

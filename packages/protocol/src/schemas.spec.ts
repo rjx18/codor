@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ActSchema,
+  AcpLaunchConfigSchema,
   AgentUsageSchema,
   AssignableHandleSchema,
   AttachmentSchema,
@@ -138,7 +139,7 @@ describe('members', () => {
     expect(MemberSchema.parse({ ...agent, removed_ts: TS }).removed_ts).toBe(TS);
   });
 
-  // harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-schema
+  // harn:assume durable-agent-runtime-configuration ref=durable-agent-runtime-regression
   it('carries the model and thinking level as member state, not spawn-time arguments', () => {
     const parsed = MemberSchema.parse({ ...agent, model: 'opus-4.8', thinking: 'ultracode' });
     expect(parsed.model).toBe('opus-4.8');
@@ -154,7 +155,7 @@ describe('members', () => {
   it('rejects a thinking level the protocol does not define', () => {
     expect(() => MemberSchema.parse({ ...agent, thinking: 'extreme' })).toThrow();
   });
-  // harn:end agent-model-and-thinking-are-durable
+  // harn:end durable-agent-runtime-configuration
 
   it('accepts the new states unreachable and custody_uncertain', () => {
     expect(MemberSchema.safeParse({ ...agent, state: 'unreachable' }).success).toBe(true);
@@ -537,6 +538,24 @@ describe('room config', () => {
         starting_agent: { harness: 'claude-code', handle: 'switchboard' },
       }).success,
     ).toBe(false);
+
+    expect(CreateRoomRequestSchema.safeParse({
+      ...base,
+      starting_agent: {
+        harness: 'acp', handle: 'kimi',
+        acp_launch: { executable: 'kimi', argv: ['acp'] },
+      },
+    }).success).toBe(true);
+    expect(CreateRoomRequestSchema.safeParse({
+      ...base, starting_agent: { harness: 'acp', handle: 'kimi' },
+    }).success).toBe(false);
+    expect(CreateRoomRequestSchema.safeParse({
+      ...base,
+      starting_agent: {
+        harness: 'codex', handle: 'codor',
+        acp_launch: { executable: 'kimi', argv: [] },
+      },
+    }).success).toBe(false);
   });
 
   it('rooms default their whole config', () => {
@@ -645,6 +664,23 @@ describe('normalized run-item payloads', () => {
 });
 
 describe('spawn control vocabularies', () => {
+  // harn:assume acp-launch-is-structured-authorized-and-bounded ref=acp-launch-regression
+  it('accepts bounded structured ACP launch input and rejects unsafe shapes', () => {
+    expect(AcpLaunchConfigSchema.parse({ executable: 'kimi', argv: ['acp', '--profile=x'] }))
+      .toEqual({ executable: 'kimi', argv: ['acp', '--profile=x'] });
+    expect(AcpLaunchConfigSchema.safeParse({ executable: 'kimi\n--evil', argv: [] }).success)
+      .toBe(false);
+    expect(AcpLaunchConfigSchema.safeParse({ executable: 'kimi', argv: Array(65).fill('x') }).success)
+      .toBe(false);
+    expect(AcpLaunchConfigSchema.safeParse({ executable: 'kimi', argv: ['x\0y'] }).success)
+      .toBe(false);
+    expect(ActSchema.parse({
+      act: 'spawn', harness: 'acp', handle: 'kimi', cwd: '/work',
+      acp_launch: { executable: 'kimi', argv: ['acp'] },
+    })).toMatchObject({ acp_launch: { executable: 'kimi', argv: ['acp'] } });
+  });
+  // harn:end acp-launch-is-structured-authorized-and-bounded
+
   it.each(['read-only', 'workspace-write', 'full-access'] as const)(
     'accepts canonical policy %s',
     (policy) => {

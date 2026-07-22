@@ -2552,3 +2552,12 @@
   cursor: pointer;
 }
 .nx-picker-open:hover { color: var(--c-ink); background: var(--c-muted); }
+.nx-acp-launch {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.nx-acp-args {
+  min-height: 5.5rem;
+  resize: vertical;
+}

@@ -415,7 +415,7 @@ describe('multi-box member residency over hyperdht/testnet', () => {
   }, 20_000);
 });
 
-// harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-regression
+// harn:assume durable-agent-runtime-configuration ref=durable-agent-runtime-regression
 describe('the outpost runs the agent the operator actually chose', () => {
   const member = {
     id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -488,4 +488,4 @@ describe('the outpost runs the agent the operator actually chose', () => {
     }
   });
 });
-// harn:end agent-model-and-thinking-are-durable
+// harn:end durable-agent-runtime-configuration

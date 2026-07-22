@@ -1,0 +1,15 @@
+id: adapter-catalog-distinguishes-installed-and-configurable
+hash: a-0c186083c810
+title: Adapter selection distinguishes installed providers from configurable
+  transports
+state: active
+statement: Native built-in adapters are installed only when their registry-owned
+  executable resolves on daemon PATH, loaded third-party modules remain
+  installed by their loading contract, and the generic ACP transport is
+  catalogued explicitly as configurable rather than installed; unlocked
+  selection surfaces may offer installed or configurable entries, while every
+  concrete provider executable is still validated by the daemon before a member
+  can be created or restored.
+depends_on:
+  - adapter-registry-sole-harness-source
+created_by: codor-runtime-fidelity-phase6

@@ -12,6 +12,7 @@ import { FolderPicker } from './FolderPicker.js';
 import {
   DEFAULT_POLICY,
   type AgentConfig,
+  acpLaunchFromConfig,
   collidesWithOwner,
   isAgentFieldError,
   supportedThinking,
@@ -79,8 +80,10 @@ export function CreateChannelDialog(props: {
   // channel creation entirely — for an agent that was never going to be created.
   const ownerClash = agentHarness !== '' && derivedHandle !== undefined
     && collidesWithOwner(derivedHandle, owner);
+  const acpLaunch = acpLaunchFromConfig(agentConfig);
   const canCreate = name.trim() !== '' && cwd.trim() !== '' && owner !== undefined && !busy
-    && !ownerClash && (agentHarness === '' || derivedHandle !== undefined);
+    && !ownerClash && (agentHarness === '' || derivedHandle !== undefined)
+    && (agentHarness !== 'acp' || acpLaunch !== undefined);
 
   const submit = (): void => {
     if (!canCreate || owner === undefined) return;
@@ -100,6 +103,7 @@ export function CreateChannelDialog(props: {
           // Always carries a policy. A channel-seeded agent used to spawn with
           // none at all, which is the F11 regression legacy still warns about.
           policy: agentConfig.policy === '' ? DEFAULT_POLICY : agentConfig.policy,
+          ...(acpLaunch !== undefined && { acp_launch: acpLaunch }),
           ...(agentConfig.model !== '' && { model: agentConfig.model }),
           ...(() => {
             const level = supportedThinking(

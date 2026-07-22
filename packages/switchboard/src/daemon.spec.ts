@@ -2,8 +2,10 @@ import { execFileSync, spawn as spawnProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import type { AgentLimit, HarnessAdapter, Message, ServerFrame, Session, SpawnOpts } from '@codor/protocol';
+import { AcpAdapter } from '@codor/adapter-acp';
 import { createTurnTranslator, wireEventFromHook } from '@codor/adapter-claude-code';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -3014,9 +3016,9 @@ describe('adapter model discovery', () => {
     expect(daemon.registeredAdapters()[0]!.models).toBeUndefined();
   });
 
-  // harn:assume built-in-adapters-require-daemon-path ref=daemon-adapter-availability-regression
+  // harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=adapter-catalog-regression
   // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-runtime
-  // harn:assume new-agent-requests-require-installed-harness ref=new-agent-availability-regression
+  // harn:assume new-agent-requests-require-available-harness ref=new-agent-availability-regression
   it('filters built-ins, refreshes newly available models once, and rejects stale creation', async () => {
     const available = new Set<string>();
     const listModels = vi.fn(() => Promise.resolve({ models: ['new/model'], source: 'discovered' as const }));
@@ -3056,13 +3058,56 @@ describe('adapter model discovery', () => {
     expect(listModels).toHaveBeenCalledTimes(1);
     await daemon.close();
   });
-  // harn:end new-agent-requests-require-installed-harness
+
+  it('persists a configurable ACP session privately and resumes it after restart', async () => {
+    const acpRoot = mkdtempSync(join(tmpdir(), 'codor-acp-daemon-'));
+    const dbPath = join(acpRoot, 'switchboard.sqlite');
+    const fakeAgent = fileURLToPath(new URL('../../adapters/acp/test-fixtures/fake-agent.mjs', import.meta.url));
+    const log = join(acpRoot, 'methods.txt');
+    const adapter = Object.assign(new AcpAdapter(), { configurable: true });
+    let acpDaemon = new Daemon({
+      dbPath, blobRoot: join(acpRoot, 'blobs'), adapters: [adapter], homeDir: acpRoot,
+    });
+    acpDaemon.createRoom({ id: 'acp-room', name: 'ACP', owner: { handle: 'owner', display_name: 'Owner' } });
+    const member = acpDaemon.spawnMember('acp-room', {
+      harness: 'acp', handle: 'helper', cwd: acpRoot,
+      acp_launch: {
+        executable: process.execPath,
+        argv: [fakeAgent, '--no-permission', '--log', log],
+      },
+    });
+    expect(acpDaemon.registeredAdapters()).toEqual([expect.objectContaining({
+      id: 'acp', installed: false, configurable: true,
+    })]);
+    expect(acpDaemon.store.getMember('acp-room', member.id)).not.toHaveProperty('acp_launch');
+    acpDaemon.postHumanMessage('acp-room', '@helper first');
+    await acpDaemon.settle();
+    expect(acpDaemon.store.getMember('acp-room', member.id)?.session_ref).toBe('fake-acp-session');
+    expect(acpDaemon.store.getAgentRuntimeConfig('acp-room', member.id)?.lifecycle).toEqual({
+      load: true, resume: true,
+    });
+    await acpDaemon.close();
+
+    acpDaemon = new Daemon({
+      dbPath, blobRoot: join(acpRoot, 'blobs'),
+      adapters: [Object.assign(new AcpAdapter(), { configurable: true })], homeDir: acpRoot,
+    });
+    acpDaemon.postHumanMessage('acp-room', '@helper second');
+    await acpDaemon.settle();
+    expect(readFileSync(log, 'utf8')).toContain('session/resume');
+    expect(acpDaemon.store.listMessages('acp-room', { limit: 20 }).filter(
+      (message) => message.kind === 'run' && message.run?.status === 'completed',
+    )).toHaveLength(2);
+    await acpDaemon.close();
+    rmSync(acpRoot, { recursive: true, force: true });
+  });
+  // harn:end new-agent-requests-require-available-harness
   // harn:end adapter-refresh-is-authorized-and-incremental
-  // harn:end built-in-adapters-require-daemon-path
+  // harn:end adapter-catalog-distinguishes-installed-and-configurable
 });
 // harn:end adapters-own-their-model-catalog
 
-// harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-regression
+// harn:assume durable-agent-runtime-configuration ref=durable-agent-runtime-regression
 describe('a rebuilt session is the same agent it was before', () => {
   const spawnThinker = (model?: string, thinking?: 'low' | 'medium' | 'high') =>
     daemon.spawnMember('eng', {
@@ -3130,7 +3175,7 @@ describe('a rebuilt session is the same agent it was before', () => {
     expect(after.thinking).toBeUndefined();
   });
 });
-// harn:end agent-model-and-thinking-are-durable
+// harn:end durable-agent-runtime-configuration
 
 // harn:assume one-control-chooses-an-agent-everywhere ref=shared-policy-control-regression
 describe('a channel-seeded agent gets the permission the operator chose', () => {

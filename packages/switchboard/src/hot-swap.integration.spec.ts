@@ -51,12 +51,12 @@ describe('configured adapter hot-swap', () => {
       executableOnPath: () => false,
     });
     try {
-      // harn:assume built-in-adapters-require-daemon-path ref=custom-adapter-installation-regression
+      // harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=adapter-catalog-regression
       expect(daemon.registeredAdapters()).toEqual(expect.arrayContaining([
         expect.objectContaining({ id: 'codex', installed: false }),
         expect.objectContaining({ id: 'fixture-harness', installed: true }),
       ]));
-      // harn:end built-in-adapters-require-daemon-path
+      // harn:end adapter-catalog-distinguishes-installed-and-configurable
       const created = daemon.createRoom({
         id: 'sdk',
         name: 'Adapter SDK',

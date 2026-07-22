@@ -21,12 +21,12 @@ export interface ResidentMember {
   harness: string;
   cwd: string;
   policy?: string;
-  // harn:assume agent-model-and-thinking-are-durable ref=durable-agent-config-remote
+  // harn:assume durable-agent-runtime-configuration ref=durable-agent-runtime-remote
   // A deliberate wire-shape change: an outpost that rebuilds a session without these
   // runs the operator's agent on a different model than the one they chose.
   model?: string;
   thinking?: ThinkingLevel;
-  // harn:end agent-model-and-thinking-are-durable
+  // harn:end durable-agent-runtime-configuration
   session_ref?: string;
 }
 

@@ -10,6 +10,7 @@ import { FolderPicker } from '../room/FolderPicker.js';
 import {
   DEFAULT_POLICY,
   type AgentConfig,
+  acpLaunchFromConfig,
   supportedThinking,
 } from '../room/agent-spec.js';
 import { useAdapterCatalog } from '../app/session.js';
@@ -53,8 +54,10 @@ export function NoChannels(props: { token: string }) {
   }, [adapters, agentConfig, hasAgent]);
   // harn:end agent-selection-catalog-is-refreshable
   const identityClash = hasAgent && ownerHandle !== undefined && agentHandle === ownerHandle;
+  const acpLaunch = acpLaunchFromConfig(agentConfig);
   const canCreate = name.trim() !== '' && cwd.trim() !== '' && ownerHandle !== undefined && !busy
-    && (!hasAgent || (agentHandle !== undefined && !identityClash));
+    && (!hasAgent || (agentHandle !== undefined && !identityClash))
+    && (agentConfig.harness !== 'acp' || acpLaunch !== undefined);
 
   const chooseFolder = (path: string): void => {
     setCwd(path);
@@ -77,6 +80,7 @@ export function NoChannels(props: { token: string }) {
           handle: agentHandle,
           display_name: effectiveAgentName,
           policy: agentConfig.policy === '' ? DEFAULT_POLICY : agentConfig.policy,
+          ...(acpLaunch !== undefined && { acp_launch: acpLaunch }),
           ...(agentConfig.model !== '' && { model: agentConfig.model }),
           ...(() => {
             const thinking = supportedThinking(

@@ -22,6 +22,33 @@ export type ThinkingLevel = z.infer<typeof ThinkingLevelSchema>;
 /** Harness-native session/rollout id — the resume token and identity anchor. */
 export type SessionRef = string;
 
+// harn:assume acp-launch-is-structured-authorized-and-bounded ref=acp-launch-schema
+// harn:assume durable-agent-runtime-configuration ref=durable-agent-runtime-schema
+export const ACP_MAX_ARG_COUNT = 64;
+export const ACP_MAX_ARG_LENGTH = 4096;
+export const AcpLaunchConfigSchema = z.object({
+  executable: z.string().min(1).max(4096).refine(
+    (value) => value.trim() === value && !/[\0\r\n]/.test(value),
+    'ACP executable must be one trimmed path or command name',
+  ),
+  argv: z.array(z.string().max(ACP_MAX_ARG_LENGTH).refine(
+    (value) => !value.includes('\0'),
+    'ACP arguments must not contain NUL bytes',
+  )).max(ACP_MAX_ARG_COUNT),
+}).strict().refine(
+  (value) => value.argv.reduce((total, arg) => total + arg.length, 0) <= 32_768,
+  'ACP arguments are too large',
+);
+export type AcpLaunchConfig = z.infer<typeof AcpLaunchConfigSchema>;
+
+export const SessionLifecycleSupportSchema = z.object({
+  load: z.boolean(),
+  resume: z.boolean(),
+}).strict();
+export type SessionLifecycleSupport = z.infer<typeof SessionLifecycleSupportSchema>;
+// harn:end durable-agent-runtime-configuration
+// harn:end acp-launch-is-structured-authorized-and-bounded
+
 /**
  * A live handle on a harness session. Adapters may carry more state
  * internally; this is the shape the switchboard sees. `session_ref` is
@@ -35,6 +62,10 @@ export interface Session {
   model?: string;
   policy?: string;
   thinking?: ThinkingLevel;
+  /** Private daemon-side ACP launch material. Never part of a Member projection. */
+  acp_launch?: AcpLaunchConfig;
+  /** Exact lifecycle support negotiated for this provider session. */
+  lifecycle?: SessionLifecycleSupport;
   // harn:assume a-session-carries-the-environment-its-children-need ref=session-env-contract
   // Environment for the children spawned under this session. Adapters MUST merge it OVER
   // the inherited process env for every child they spawn for the session.
@@ -53,6 +84,7 @@ export interface SpawnOpts {
   model?: string;
   policy?: string;
   thinking?: ThinkingLevel;
+  acp_launch?: AcpLaunchConfig;
 }
 
 export interface AdapterCapabilities {
@@ -109,6 +141,13 @@ export interface AdapterTurnHooks {
   onStarted?(process: { pid?: number; process_group_id?: number }): void;
   /** Called as soon as provider output or an RPC response reveals the native resume token. */
   onSessionRef?(session_ref: SessionRef): void;
+  /** Persist exact per-session lifecycle support learned during runtime negotiation. */
+  onSessionLifecycle?(support: SessionLifecycleSupport): void;
+  /** Persist a newly-created session id and its lifecycle support atomically. */
+  onSessionRuntime?(runtime: {
+    session_ref: SessionRef;
+    lifecycle: SessionLifecycleSupport;
+  }): void;
 }
 
 // harn:assume claude-agent-sdk-query-is-the-session-runtime ref=adapter-runtime-contract

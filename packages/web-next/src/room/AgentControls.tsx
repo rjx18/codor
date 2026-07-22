@@ -128,9 +128,11 @@ export function AgentIdentityControls(props: {
               >
                 {harnessMark(candidate.id)}
                 <span className="nx-harness-name">{harnessLabel(candidate.id)}</span>
-                {candidate.capabilities.resume === false && (
-                  <span className="nx-harness-sub">ephemeral</span>
-                )}
+                {candidate.configurable === true
+                  ? <span className="nx-harness-sub">configure</span>
+                  : candidate.capabilities.resume === false && (
+                    <span className="nx-harness-sub">ephemeral</span>
+                  )}
                 <span className="nx-check" aria-hidden="true" />
               </button>
             ))}
@@ -198,6 +200,34 @@ export function AgentControls(props: {
 
   const behaviour = (
     <>
+      {config.harness === 'acp' && props.lockHarness !== true && (
+        <div className="nx-acp-launch" data-testid={`${id}-acp-launch`}>
+          <label className="nx-field">
+            <span className="nx-label">ACP executable</span>
+            <input
+              className="nx-input nx-mono"
+              value={config.acpExecutable ?? ''}
+              onChange={(event) => { set({ acpExecutable: event.target.value }); }}
+              placeholder="e.g. kimi acp or /absolute/path/to/agent"
+              required
+              data-testid={`${id}-acp-executable`}
+            />
+            <p className="nx-note">A command name on the daemon PATH or an absolute executable path.</p>
+          </label>
+          <label className="nx-field">
+            <span className="nx-label">Arguments <span className="nx-opt">· optional</span></span>
+            <textarea
+              className="nx-input nx-mono nx-acp-args"
+              value={config.acpArgs ?? ''}
+              onChange={(event) => { set({ acpArgs: event.target.value }); }}
+              placeholder={'One literal argument per line\n--acp'}
+              data-testid={`${id}-acp-args`}
+            />
+            <p className="nx-note">Each non-empty line is one literal argument. Shell syntax is not evaluated.</p>
+          </label>
+        </div>
+      )}
+      {config.harness !== 'acp' && (
       <div className="nx-field">
         <span className="nx-label">Model</span>
         {models.length === 0 ? (
@@ -264,6 +294,7 @@ export function AgentControls(props: {
           </>
         )}
       </div>
+      )}
 
       <div className="nx-field">
         <span className="nx-label">Thinking effort</span>

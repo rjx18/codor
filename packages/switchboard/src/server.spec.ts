@@ -1185,7 +1185,7 @@ describe('REST', () => {
   });
 
   // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-rest
-  // harn:assume new-agent-requests-require-installed-harness ref=new-agent-availability-regression
+  // harn:assume new-agent-requests-require-available-harness ref=new-agent-availability-regression
   it('authorizes refresh and rejects stale spawn and starting-agent requests', async () => {
     const postRefresh = (token: string) => fetch(`${base}/api/adapters/refresh`, {
       method: 'POST', headers: { authorization: `Bearer ${token}` },
@@ -1218,7 +1218,25 @@ describe('REST', () => {
     expect(create.status).toBe(400);
     expect(daemon.store.getRoom('stale-create')).toBeUndefined();
   });
-  // harn:end new-agent-requests-require-installed-harness
+
+  // harn:assume acp-launch-is-structured-authorized-and-bounded ref=acp-launch-regression
+  it('keeps structured launch input behind agent management and out of errors', async () => {
+    const secret = 'profile-secret-that-must-not-echo';
+    const response = await fetch(`${base}/api/rooms/eng/members`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        harness: 'fake', handle: 'unsafe-config', cwd: testCwd('unsafe-config'),
+        acp_launch: { executable: 'provider', argv: ['--profile', secret] },
+      }),
+    });
+    expect(response.status).toBe(400);
+    const body = await response.text();
+    expect(body).toContain('accepted only for the acp harness');
+    expect(body).not.toContain(secret);
+  });
+  // harn:end acp-launch-is-structured-authorized-and-bounded
+  // harn:end new-agent-requests-require-available-harness
   // harn:end adapter-refresh-is-authorized-and-incremental
 
   it('serves run blobs through the redacted endpoint', async () => {

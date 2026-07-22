@@ -1,7 +1,7 @@
 id: built-in-adapters-require-daemon-path
 hash: a-4407330f1198
 title: Built-in harness availability comes from the daemon PATH
-state: active
+state: retired
 statement: A built-in adapter is available for new agents only when its
   registry-owned canonical executable resolves on the daemon host PATH, while a
   successfully loaded configured adapter is available by virtue of module
@@ -11,3 +11,4 @@ depends_on:
   - adapter-registry-sole-harness-source
   - adapters-own-their-model-catalog
 created_by: codor-agent-onboarding-phase3
+retired_by: codor-runtime-fidelity-phase6

@@ -10,6 +10,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   BROWSER_PROTOCOL_EPOCH,
+  AcpLaunchConfigSchema,
   ClientFrameSchema,
   CreateRoomRequestSchema,
   type BridgeOrigin,
@@ -645,6 +646,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (!principal || !authorizeGlobal(principal, 'manage_rooms', reply)) return;
     try {
       const body = CreateRoomRequestSchema.parse(req.body);
+      if (
+        body.starting_agent?.acp_launch !== undefined &&
+        !authorizeGlobal(principal, 'manage_agents', reply)
+      ) return;
       const created = daemon.createRoom(body);
       options.crypto?.roomKeys.ensureRoom(created.room.id);
       // harn:assume browser-created-channel-delivers-its-room-key ref=browser-room-key-response
@@ -1009,9 +1014,22 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       model?: string;
       thinking?: 'low' | 'medium' | 'high';
       purpose?: string;
+      acp_launch?: unknown;
     };
     try {
-      return reply.send(daemon.spawnMember(room, body));
+      const acpLaunch = body.acp_launch === undefined
+        ? undefined
+        : AcpLaunchConfigSchema.parse(body.acp_launch);
+      // harn:assume acp-launch-is-structured-authorized-and-bounded ref=acp-launch-rest-authorization
+      if (acpLaunch !== undefined && !authorizeRoom(principal, room, 'manage_agents', reply)) return;
+      if (body.harness === 'acp' && acpLaunch === undefined) {
+        return reply.code(400).send({ error: 'ACP launch configuration is required' });
+      }
+      if (body.harness !== 'acp' && acpLaunch !== undefined) {
+        return reply.code(400).send({ error: 'ACP launch configuration is accepted only for the acp harness' });
+      }
+      // harn:end acp-launch-is-structured-authorized-and-bounded
+      return reply.send(daemon.spawnMember(room, { ...body, acp_launch: acpLaunch }));
     } catch (error) {
       return reply.code(400).send({ error: String(error) });
     }
@@ -1425,6 +1443,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             }
             // harn:end live-agent-waits-are-transient
             else if (act.act === 'spawn') {
+              if (act.acp_launch !== undefined) assertHumanCapability(actor, 'manage_agents');
               daemon.spawnMember(frame.room, {
                 harness: act.harness,
                 handle: act.handle,
@@ -1433,6 +1452,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 model: act.model,
                 thinking: act.thinking,
                 purpose: act.purpose,
+                acp_launch: act.acp_launch,
               });
             } else if (act.act === 'configure') {
               daemon.configureMember(

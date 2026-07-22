@@ -1,0 +1,13 @@
+id: acp-launch-is-structured-authorized-and-bounded
+hash: a-51181e847d02
+title: ACP launch configuration is structured, authorized, and shell-free
+state: active
+statement: Only manage_agents authority may submit an ACP executable and argv
+  array; the daemon rejects empty, control/NUL-bearing, oversized, or over-count
+  arguments, resolves the executable on each spawn and rebuild to an executable
+  non-directory file, and starts it with shell false and no user-supplied
+  environment override or interpolation.
+depends_on:
+  - durable-agent-runtime-configuration
+  - adapter-catalog-distinguishes-installed-and-configurable
+created_by: codor-runtime-fidelity-phase6

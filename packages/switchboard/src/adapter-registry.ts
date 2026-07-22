@@ -3,6 +3,7 @@ import { delimiter, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { AntigravityAdapter } from '@codor/adapter-antigravity';
+import { AcpAdapter } from '@codor/adapter-acp';
 import { ClaudeCodeAdapter } from '@codor/adapter-claude-code';
 import { CodexAdapter } from '@codor/adapter-codex';
 import { CopilotAdapter } from '@codor/adapter-copilot';
@@ -34,23 +35,31 @@ type AdapterFactory = () => HarnessAdapter;
 export interface RegisteredHarnessAdapter extends HarnessAdapter {
   /** Canonical daemon-host executable for built-ins. Configured modules omit it. */
   executable?: string;
+  /** A transport whose concrete provider executable is supplied per authorized spawn. */
+  configurable?: boolean;
 }
 
 // harn:assume adapter-registry-sole-harness-source ref=configured-adapter-registry
-// harn:assume built-in-adapters-require-daemon-path ref=builtin-executable-registry
-const builtinDefinitions = {
+// harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=adapter-catalog-registry
+const builtinDefinitions: Record<string, {
+  create: AdapterFactory;
+  executable?: string;
+  configurable?: boolean;
+}> = {
   antigravity: { executable: 'agy', create: () => new AntigravityAdapter() },
+  acp: { configurable: true, create: () => new AcpAdapter() },
   'claude-code': { executable: 'claude', create: () => new ClaudeCodeAdapter() },
   codex: { executable: 'codex', create: () => new CodexAdapter() },
   copilot: { executable: 'copilot', create: () => new CopilotAdapter() },
   cursor: { executable: 'cursor-agent', create: () => new CursorAdapter() },
   gemini: { executable: 'gemini', create: () => new GeminiAdapter() },
   opencode: { executable: 'opencode', create: () => new OpenCodeAdapter() },
-} satisfies Record<string, { executable: string; create: AdapterFactory }>;
+};
 
 export const BUILTIN_ADAPTER_EXECUTABLES = Object.freeze(
-  Object.fromEntries(Object.entries(builtinDefinitions).map(([id, definition]) => [id, definition.executable])),
-) as Readonly<Record<keyof typeof builtinDefinitions, string>>;
+  Object.fromEntries(Object.entries(builtinDefinitions).flatMap(([id, definition]) =>
+    definition.executable === undefined ? [] : [[id, definition.executable]])),
+) as Readonly<Partial<Record<keyof typeof builtinDefinitions, string>>>;
 
 export function executableOnPath(
   executable: string,
@@ -72,7 +81,7 @@ export function executableOnPath(
   }
   return false;
 }
-// harn:end built-in-adapters-require-daemon-path
+// harn:end adapter-catalog-distinguishes-installed-and-configurable
 
 export const BUILTIN_ADAPTER_IDS = Object.freeze(Object.keys(builtinDefinitions));
 
@@ -133,6 +142,9 @@ const validPolicies = PolicySchema.options.join(', ');
 const validThinking = ThinkingLevelSchema.options.join(', ');
 
 export function validateSpawnOptions(adapter: HarnessAdapter, opts: SpawnOpts): void {
+  if (opts.acp_launch !== undefined && adapter.id !== 'acp') {
+    throw new Error(`adapter '${adapter.id}' does not accept ACP launch configuration`);
+  }
   if (opts.policy !== undefined && !PolicySchema.safeParse(opts.policy).success) {
     throw new Error(`unknown policy '${opts.policy}'; valid policies: ${validPolicies}`);
   }
@@ -160,6 +172,7 @@ function withSpawnValidation(adapter: RegisteredHarnessAdapter): RegisteredHarne
     id: adapter.id,
     capabilities: adapter.capabilities,
     ...(adapter.executable !== undefined && { executable: adapter.executable }),
+    ...(adapter.configurable === true && { configurable: true }),
     spawn: (opts) => {
       validateSpawnOptions(adapter, opts);
       return adapter.spawn(opts);
@@ -217,7 +230,10 @@ export async function loadAdapterRegistry(
   const registry = new Map<string, RegisteredHarnessAdapter>(
     Object.entries(builtinDefinitions).map(([id, definition]) => [
       id,
-      withSpawnValidation(Object.assign(definition.create(), { executable: definition.executable })),
+      withSpawnValidation(Object.assign(definition.create(), {
+        ...(definition.executable !== undefined && { executable: definition.executable }),
+        ...(definition.configurable === true && { configurable: true }),
+      })),
     ]),
   );
   const baseDir = resolve(options.baseDir ?? process.cwd());

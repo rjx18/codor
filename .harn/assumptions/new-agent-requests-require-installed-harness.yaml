@@ -1,7 +1,7 @@
 id: new-agent-requests-require-installed-harness
 hash: a-69c54f367c51
 title: Stale clients cannot create agents with unavailable harnesses
-state: active
+state: retired
 statement: New member spawn requests and room creation requests with a starting
   agent must reject an unavailable adapter before spawning or persisting the
   room, while failures after a valid installed-harness preflight retain the
@@ -11,3 +11,4 @@ depends_on:
   - canonical-spawn-controls-enforced
   - channel-creation-derived-and-seeded
 created_by: codor-agent-onboarding-phase3
+retired_by: codor-runtime-fidelity-phase6
