@@ -1345,7 +1345,9 @@ describe('@codor/cli', () => {
         body: 'Welcome to Codor 👋 This is your Desk. Add an agent from the Members panel, then send a message here to start working. Use @mentions when you want a specific helper, and create another channel when you want a separate project.',
       }),
     ]);
-    expect(running.daemon.registeredAdapters().map((adapter) => adapter.id)).toEqual(
+    expect(running.daemon.registeredAdapters()
+      .filter((adapter) => adapter.id === adapter.harness)
+      .map((adapter) => adapter.id)).toEqual(
       [...BUILTIN_ADAPTER_IDS].sort(),
     );
     expect(running.server.socketPath).toBe(localSocketPath(dataDir));
@@ -1521,7 +1523,9 @@ describe('@codor/cli', () => {
       adapters: { 'cli-fixture': fixture },
     });
     try {
-      expect(running.daemon.registeredAdapters().map((adapter) => adapter.id)).toEqual(
+      expect(running.daemon.registeredAdapters()
+        .filter((adapter) => adapter.id === adapter.harness)
+        .map((adapter) => adapter.id)).toEqual(
         [...BUILTIN_ADAPTER_IDS, 'cli-fixture'].sort(),
       );
     } finally {

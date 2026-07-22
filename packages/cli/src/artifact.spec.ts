@@ -19,6 +19,7 @@ import {
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const EXPECTED_CLOSURE = [
+  '@codor/adapter-acp',
   '@codor/adapter-antigravity',
   '@codor/adapter-claude-code',
   '@codor/adapter-codex',
@@ -45,7 +46,7 @@ function filesBelow(root: string): string[] {
 }
 
 describe('artifact graph', () => {
-  it('finds exactly the current ten-package runtime closure', () => {
+  it('finds exactly the current eleven-package runtime closure', () => {
     expect(discoverClosure(readWorkspace(repoRoot))).toEqual(EXPECTED_CLOSURE);
   });
 
@@ -54,7 +55,7 @@ describe('artifact graph', () => {
     const direct = Object.keys(workspace.get(ENTRY_PACKAGE)?.manifest.dependencies ?? {});
     expect(direct.some((name) => name.startsWith('@codor/adapter-'))).toBe(false);
     expect(discoverClosure(workspace).filter((name) => name.startsWith('@codor/adapter-')))
-      .toHaveLength(7);
+      .toHaveLength(8);
   });
 
   it('rejects conflicting third-party dependency ranges', () => {
@@ -115,13 +116,16 @@ describe('built public artifact', () => {
 
   it('emits the public manifest without renaming tracked workspace packages', () => {
     const { manifest } = buildArtifact({ repoRoot, outDir });
+    const releaseVersion = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
+      version: string;
+    };
     expect(manifest.name).toBe(PUBLIC_PACKAGE_NAME);
     expect(manifest.private).toBeUndefined();
     expect(manifest.publishConfig).toEqual({ access: 'public' });
     expect(manifest.engines).toEqual({ node: '>=22.12.0' });
     expect(manifest.bundleDependencies).toEqual(EXPECTED_CLOSURE);
     expect(JSON.parse(readFileSync(join(outDir, 'node_modules', ENTRY_PACKAGE, 'package.json'), 'utf8')))
-      .toMatchObject({ name: ENTRY_PACKAGE, version: '0.10.0' });
+      .toMatchObject({ name: ENTRY_PACKAGE, version: releaseVersion.version });
   });
 
   // harn:assume public-package-readme-renders-on-npm ref=artifact-readme-regression

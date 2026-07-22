@@ -20,12 +20,14 @@ assumptions:
         protocol negotiation and normalized runtime behavior remain unchanged.
     - id: artifact-build-runs-from-clean-source
       outcome: unchanged
-      reason: The artifact regression is updated for the ACP adapter that Phase 6 added
-        to the recursive runtime closure; the clean-build contract remains unchanged.
+      reason: The artifact regression is updated for the ACP adapter that Phase 6
+        added to the recursive runtime closure; the clean-build contract remains
+        unchanged.
     - id: adapter-registry-sole-harness-source
       outcome: unchanged
       reason: CLI composition regressions now distinguish registry adapters from
-        PATH-detected named ACP catalog entries without changing registry ownership.
+        PATH-detected named ACP catalog entries without changing registry
+        ownership.
     - id: empty-database-desk-seeds-tutorial-atomically
       outcome: unchanged
       reason: Its existing regression receives only a corrected adapter-catalog
@@ -73,8 +75,8 @@ anchors:
       action: change
       files:
         - packages/cli/src/index.spec.ts
-      reason: Correct the nested catalog expectation only; service-home behavior remains
-        byte-for-byte unchanged.
+      reason: Correct the nested catalog expectation only; service-home behavior
+        remains byte-for-byte unchanged.
 files:
   - package.json
   - packages/adapters/acp/package.json
@@ -100,4 +102,7 @@ files:
 verification: Confirm every tracked workspace manifest and the ACP client
   identity report 0.10.4; run frozen install, the artifact build, license and
   release audits, run the corrected CLI/ACP regressions, pack the staged public
-  package, and install-smoke the exact resulting TGZ. Do not publish, tag, or push.
+  package, and install-smoke the exact resulting TGZ. Do not publish, tag, or
+  push.
+applied:
+  applied_at: 2026-07-22T16:07:45.296Z
