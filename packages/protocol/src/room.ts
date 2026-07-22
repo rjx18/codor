@@ -4,7 +4,12 @@ import { DeliverySchema } from './delivery.js';
 import { MemberIdSchema, RoomIdSchema, TimestampSchema } from './ids.js';
 import { AssignableHandleSchema, MemberKindSchema } from './member.js';
 import { MessageKindSchema, MessageSchema } from './message.js';
-import { AcpLaunchConfigSchema, PolicySchema, ThinkingLevelSchema } from './adapter.js';
+import {
+  AcpLaunchConfigSchema,
+  AcpProviderIdSchema,
+  PolicySchema,
+  ThinkingLevelSchema,
+} from './adapter.js';
 
 // harn:assume brakes-default-off ref=room-config-brakes
 /**
@@ -104,15 +109,32 @@ export const StartingAgentSchema = z.object({
   // put it. The spawn dialog could. Same agent, same question, two different answers.
   policy: PolicySchema.optional(),
   acp_launch: AcpLaunchConfigSchema.optional(),
+  // A named ACP provider id is a safe public selection; the daemon compiles it to the
+  // private launch. Mutually exclusive with a custom acp_launch (enforced below).
+  acp_provider: AcpProviderIdSchema.optional(),
   // harn:end one-control-chooses-an-agent-everywhere
-}).superRefine((agent, ctx) => {
-  if ((agent.harness === 'acp') !== (agent.acp_launch !== undefined)) {
-    ctx.addIssue({
-      code: 'custom', path: ['acp_launch'],
-      message: 'ACP launch configuration is required only for the acp harness',
-    });
-  }
-});
+})
+  // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-starting-agent-schema
+  .superRefine((agent, ctx) => {
+    const isAcp = agent.harness === 'acp';
+    const hasProvider = agent.acp_provider !== undefined;
+    const hasLaunch = agent.acp_launch !== undefined;
+    if (isAcp) {
+      // Exactly one of a curated provider id or an authorized custom launch.
+      if (hasProvider === hasLaunch) {
+        ctx.addIssue({
+          code: 'custom', path: ['acp_provider'],
+          message: 'ACP agents require exactly one of a named provider id or a custom launch',
+        });
+      }
+    } else if (hasProvider || hasLaunch) {
+      ctx.addIssue({
+        code: 'custom', path: ['acp_launch'],
+        message: 'only the acp harness may carry a provider id or custom launch',
+      });
+    }
+  });
+// harn:end named-acp-provider-selection-resolves-to-private-structured-launch
 export type StartingAgent = z.infer<typeof StartingAgentSchema>;
 
 export const CreateRoomRequestSchema = z.object({

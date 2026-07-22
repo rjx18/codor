@@ -2532,3 +2532,44 @@ describe('member task projection', () => {
   });
 });
 // harn:end member-task-projection-is-durable-and-session-scoped
+
+// harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-store-regression
+describe('a named ACP provider persists a public id while its launch stays private', () => {
+  it('projects acp_provider publicly, keeps acp_launch private, and survives reopen', () => {
+    openRoom(store);
+    const path = join(dir, 'test.sqlite');
+    const member = store.addMember('eng', {
+      kind: 'agent', handle: 'kimo', display_name: 'Kimo', state: 'idle',
+      harness: 'acp', acp_provider: 'kimi',
+    }, { acp_launch: { executable: 'kimi', argv: ['acp'] } });
+
+    // Public projection carries the safe id and never the command.
+    expect(store.getMember('eng', member.id)?.acp_provider).toBe('kimi');
+    expect(store.getMember('eng', member.id)).not.toHaveProperty('acp_launch');
+    // The exact launch is retrievable only through the private runtime accessor.
+    expect(store.getAgentRuntimeConfig('eng', member.id)?.acp_launch)
+      .toEqual({ executable: 'kimi', argv: ['acp'] });
+
+    // Reopening the database preserves both the public id and the private launch.
+    store.close();
+    const reopened = new Store(path);
+    expect(reopened.getMember('eng', member.id)?.acp_provider).toBe('kimi');
+    expect(reopened.getMember('eng', member.id)).not.toHaveProperty('acp_launch');
+    expect(reopened.getAgentRuntimeConfig('eng', member.id)?.acp_launch)
+      .toEqual({ executable: 'kimi', argv: ['acp'] });
+    reopened.close();
+  });
+
+  it('leaves the public provider id untouched through an ordinary config edit', () => {
+    openRoom(store);
+    const member = store.addMember('eng', {
+      kind: 'agent', handle: 'kimo', display_name: 'Kimo', state: 'idle',
+      harness: 'acp', acp_provider: 'kimi',
+    }, { acp_launch: { executable: 'kimi', argv: ['acp'] } });
+    store.updateMember('eng', member.id, { policy: 'read-only' });
+    expect(store.getMember('eng', member.id)?.acp_provider).toBe('kimi'); // locked identity
+    expect(store.getAgentRuntimeConfig('eng', member.id)?.acp_launch)
+      .toEqual({ executable: 'kimi', argv: ['acp'] }); // private launch untouched
+  });
+});
+// harn:end named-acp-provider-selection-resolves-to-private-structured-launch

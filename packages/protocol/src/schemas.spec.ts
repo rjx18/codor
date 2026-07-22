@@ -695,6 +695,12 @@ describe('spawn control vocabularies', () => {
       act: 'spawn', harness: 'acp', handle: 'kimi', cwd: '/work',
       acp_launch: { executable: 'kimi', argv: ['acp'] },
     })).toMatchObject({ acp_launch: { executable: 'kimi', argv: ['acp'] } });
+    // A named request carries the safe provider id and no command material at all.
+    const named = ActSchema.parse({
+      act: 'spawn', harness: 'acp', handle: 'kimi', cwd: '/work', acp_provider: 'kimi',
+    });
+    expect(named).toMatchObject({ acp_provider: 'kimi' });
+    expect(named).not.toHaveProperty('acp_launch');
   });
   // harn:end acp-launch-is-structured-authorized-and-bounded
 
@@ -721,6 +727,62 @@ describe('spawn control vocabularies', () => {
   });
   // harn:end harness-declares-supported-thinking-levels
 });
+
+// harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-protocol-regression
+describe('named ACP provider identity and one-of selection', () => {
+  const base = {
+    name: 'Room',
+    owner: { handle: 'owner', display_name: 'Owner' },
+  };
+  const startingAgent = (extra: Record<string, unknown>) =>
+    CreateRoomRequestSchema.safeParse({
+      ...base,
+      starting_agent: { harness: 'acp', handle: 'kimi', ...extra },
+    });
+
+  it('accepts a short lowercase provider slug and rejects malformed or oversized ids', () => {
+    expect(startingAgent({ acp_provider: 'kimi' }).success).toBe(true);
+    expect(startingAgent({ acp_provider: 'kilo' }).success).toBe(true);
+    expect(startingAgent({ acp_provider: 'acp:kimi' }).success).toBe(false); // selector id, not a provider id
+    expect(startingAgent({ acp_provider: 'Kimi' }).success).toBe(false); // uppercase
+    expect(startingAgent({ acp_provider: '-kimi' }).success).toBe(false); // leading hyphen
+    expect(startingAgent({ acp_provider: '' }).success).toBe(false);
+    expect(startingAgent({ acp_provider: 'k'.repeat(65) }).success).toBe(false);
+  });
+
+  it('requires exactly one of a named provider id or a custom launch for the acp harness', () => {
+    expect(startingAgent({ acp_provider: 'kimi' }).success).toBe(true);
+    expect(startingAgent({ acp_launch: { executable: 'kimi', argv: ['acp'] } }).success).toBe(true);
+    // Both is ambiguous; neither is unlaunchable.
+    expect(startingAgent({
+      acp_provider: 'kimi', acp_launch: { executable: 'kimi', argv: ['acp'] },
+    }).success).toBe(false);
+    expect(startingAgent({}).success).toBe(false);
+  });
+
+  it('refuses a provider id or a custom launch on a non-acp harness', () => {
+    expect(CreateRoomRequestSchema.safeParse({
+      ...base, starting_agent: { harness: 'codex', handle: 'codor', acp_provider: 'kimi' },
+    }).success).toBe(false);
+    expect(CreateRoomRequestSchema.safeParse({
+      ...base, starting_agent: { harness: 'claude-code', handle: 'codor' },
+    }).success).toBe(true); // native needs neither
+  });
+
+  it('carries a safe public provider id on the member projection and the spawn act', () => {
+    const member = MemberSchema.parse({
+      id: ULID_A, kind: 'agent', handle: 'kimi', display_name: 'Kimi',
+      harness: 'acp', acp_provider: 'kimi',
+    });
+    expect(member.acp_provider).toBe('kimi');
+    expect(member).not.toHaveProperty('acp_launch'); // never projected
+    const spawn = ActSchema.parse({
+      act: 'spawn', harness: 'acp', handle: 'kimi', cwd: '/work', acp_provider: 'kilo',
+    });
+    expect(spawn).toMatchObject({ acp_provider: 'kilo' });
+  });
+});
+// harn:end named-acp-provider-selection-resolves-to-private-structured-launch
 
 describe('wire events', () => {
   const cases: [string, unknown][] = [

@@ -16,17 +16,32 @@ export interface ApiOptions {
   origin?: string;
 }
 
+// harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=acp-provider-catalog-client
 export interface AdapterRegistration {
+  /** Selector id: a native adapter id, `acp:<provider>` for a named provider, or `acp`. */
   id: string;
+  /** Runtime harness id; named provider and generic ACP entries run on `acp`. */
+  harness?: string;
+  /** Human label for named provider entries. */
+  label?: string;
   /** Daemon-host installation state. Omitted only by older compatible servers. */
   installed?: boolean;
-  /** Generic transports that need per-agent provider configuration. */
+  /** Generic transports that need per-agent provider configuration (the custom ACP tile). */
   configurable?: boolean;
+  /** Present on ACP entries — named providers and the generic custom tile. */
+  transport?: 'acp';
+  /** Safe curated provider id for named entries; the API never sends its executable or argv. */
+  acp_provider?: string;
+  /** Documentation link surfaced beside a named provider tile. */
+  help_url?: string;
+  /** A currently-installed native adapter that shadows this named provider from primary selection. */
+  shadowed_by_native?: string;
   capabilities: AdapterCapabilities;
   /** Models the harness itself reported. The web never hardcodes a model id. */
   models?: string[];
   models_source?: 'discovered' | 'curated';
 }
+// harn:end agent-selection-shows-detected-acp-and-advanced-custom
 
 export interface MemberDetail {
   member: Member;

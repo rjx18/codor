@@ -51,6 +51,30 @@ describe('adapter listing', () => {
     }));
     expect(listing.adapters[0]!.installed).toBe(false);
   });
+
+  // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=acp-provider-catalog-client
+  it('surfaces named provider entries with safe metadata and no command material', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve(respond({
+      adapters: [
+        { id: 'codex', installed: true, capabilities: { thinking: true } },
+        {
+          id: 'acp:kimi', harness: 'acp', label: 'Kimi Code CLI', transport: 'acp',
+          acp_provider: 'kimi', help_url: 'https://example.test', installed: true,
+          capabilities: { thinking: false },
+        },
+      ],
+      discovering: false,
+    })));
+    const listing = await fetchAdapters({ token: 't' });
+    const named = listing.adapters.find((adapter) => adapter.acp_provider === 'kimi')!;
+    expect(named.harness).toBe('acp');
+    expect(named.transport).toBe('acp');
+    expect(named.label).toBe('Kimi Code CLI');
+    expect(named.help_url).toBe('https://example.test');
+    expect(named).not.toHaveProperty('executable');
+    expect(named).not.toHaveProperty('argv');
+  });
+  // harn:end agent-selection-shows-detected-acp-and-advanced-custom
 });
 
 // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=actionable-rest-error-regression

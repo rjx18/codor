@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { ThinkingLevelSchema } from './adapter.js';
+import { AcpProviderIdSchema, ThinkingLevelSchema } from './adapter.js';
 import { MemberIdSchema, TimestampSchema } from './ids.js';
 
 export const MemberKindSchema = z.enum(['human', 'agent', 'extension', 'system', 'bridge']);
@@ -184,6 +184,12 @@ export const MemberSchema = z
     thinking: ThinkingLevelSchema.optional(),
     // harn:end durable-agent-runtime-configuration
     host: z.string().min(1).optional(), // which switchboard machine owns the session
+    // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-member-identity
+    // Safe public identity of a curated named ACP provider — set only when harness is
+    // 'acp'. Additive identity: the exact executable/argv stay private daemon-side and
+    // are never part of this projection.
+    acp_provider: AcpProviderIdSchema.optional(),
+    // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
     // harn:assume agent-usage-limits-reported-not-guessed ref=agent-limit-schema
     // Last-known harness-reported rate-limit windows; absent when the harness
     // reports none. Provider status, not configuration — refreshed by reports.

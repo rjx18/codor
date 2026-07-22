@@ -3092,7 +3092,7 @@ describe('adapter model discovery', () => {
 
   // harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=adapter-catalog-regression
   // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-runtime
-  // harn:assume new-agent-requests-require-available-harness ref=new-agent-availability-regression
+  // harn:assume new-agent-requests-require-available-native-or-detected-acp ref=new-agent-provider-availability-regression
   it('filters built-ins, refreshes newly available models once, and rejects stale creation', async () => {
     const available = new Set<string>();
     const listModels = vi.fn(() => Promise.resolve({ models: ['new/model'], source: 'discovered' as const }));
@@ -3150,9 +3150,17 @@ describe('adapter model discovery', () => {
         argv: [fakeAgent, '--no-permission', '--log', log],
       },
     });
-    expect(acpDaemon.registeredAdapters()).toEqual([expect.objectContaining({
+    const acpCatalog = acpDaemon.registeredAdapters();
+    expect(acpCatalog).toEqual(expect.arrayContaining([expect.objectContaining({
       id: 'acp', installed: false, configurable: true,
-    })]);
+    })]));
+    // Named providers are a separate detected class in the SAME catalog, command-private.
+    expect(acpCatalog.filter((entry) => entry.transport === 'acp' && entry.acp_provider !== undefined)
+      .map((entry) => entry.id)).toEqual(['acp:kimi', 'acp:kilo']);
+    for (const entry of acpCatalog) {
+      expect(entry).not.toHaveProperty('executable');
+      expect(entry).not.toHaveProperty('argv');
+    }
     expect(acpDaemon.store.getMember('acp-room', member.id)).not.toHaveProperty('acp_launch');
     acpDaemon.postHumanMessage('acp-room', '@helper first');
     await acpDaemon.settle();
@@ -3175,7 +3183,7 @@ describe('adapter model discovery', () => {
     await acpDaemon.close();
     rmSync(acpRoot, { recursive: true, force: true });
   });
-  // harn:end new-agent-requests-require-available-harness
+  // harn:end new-agent-requests-require-available-native-or-detected-acp
   // harn:end adapter-refresh-is-authorized-and-incremental
   // harn:end adapter-catalog-distinguishes-installed-and-configurable
 });
@@ -6585,3 +6593,86 @@ describe('member task projection landing (member-task-projection-is-durable-and-
   });
 });
 // harn:end member-task-projection-is-durable-and-session-scoped
+
+describe('named ACP providers (detection and command-private launch)', () => {
+  // harn:assume named-acp-provider-catalog-is-path-detected-and-command-private ref=acp-provider-catalog-regression
+  it('detects named providers by PATH at startup and across refresh, command-private', async () => {
+    const present = new Set<string>();
+    const dir = mkdtempSync(join(tmpdir(), 'codor-named-catalog-'));
+    const acpDaemon = new Daemon({
+      dbPath: join(dir, 'switchboard.sqlite'), blobRoot: join(dir, 'blobs'),
+      adapters: [Object.assign(new AcpAdapter(), { configurable: true })], homeDir: dir,
+      executableOnPath: (executable) => present.has(executable),
+      discoverModels: false,
+    });
+    const named = () => acpDaemon.registeredAdapters().filter((entry) => entry.acp_provider !== undefined);
+    // Startup: both curated providers appear, uninstalled, in stable DEFINITION order.
+    expect(named().map((entry) => [entry.id, entry.acp_provider, entry.harness, entry.transport, entry.installed]))
+      .toEqual([
+        ['acp:kimi', 'kimi', 'acp', 'acp', false],
+        ['acp:kilo', 'kilo', 'acp', 'acp', false],
+      ]);
+    for (const entry of named()) {
+      expect(entry).not.toHaveProperty('executable'); // command-private
+      expect(entry).not.toHaveProperty('argv');
+      expect(entry.capabilities.resume).toBe(false); // conservative generic-ACP capabilities
+    }
+    // false -> true -> false as the binary appears and disappears; refresh recomputes.
+    present.add('kimi');
+    acpDaemon.refreshAdapterAvailability();
+    expect(named().find((entry) => entry.acp_provider === 'kimi')?.installed).toBe(true);
+    present.delete('kimi');
+    acpDaemon.refreshAdapterAvailability();
+    expect(named().find((entry) => entry.acp_provider === 'kimi')?.installed).toBe(false);
+    await acpDaemon.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  // harn:end named-acp-provider-catalog-is-path-detected-and-command-private
+
+  // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-regression
+  it('resolves a detected named provider to a private launch and refuses unknown or stale ids', async () => {
+    const present = new Set<string>(['kimi']);
+    const dir = mkdtempSync(join(tmpdir(), 'codor-named-spawn-'));
+    let acpDaemon = new Daemon({
+      dbPath: join(dir, 'switchboard.sqlite'), blobRoot: join(dir, 'blobs'),
+      adapters: [Object.assign(new FakeAdapter('acp') as unknown as AcpAdapter, { configurable: true })], homeDir: dir,
+      executableOnPath: (executable) => present.has(executable),
+      discoverModels: false,
+    });
+    acpDaemon.createRoom({ id: 'acp', name: 'ACP', owner: { handle: 'owner', display_name: 'Owner' } });
+
+    // Unknown id fails before any member is persisted.
+    expect(() => acpDaemon.spawnMember('acp', {
+      harness: 'acp', handle: 'ghost', cwd: dir, acp_provider: 'ghost',
+    })).toThrow("unknown ACP provider 'ghost'");
+    // Stale id (curated but not currently detected) fails before persistence.
+    expect(() => acpDaemon.spawnMember('acp', {
+      harness: 'acp', handle: 'staly', cwd: dir, acp_provider: 'kilo',
+    })).toThrow("ACP provider 'kilo' is not currently installed");
+    expect(acpDaemon.store.listMembers('acp').some((m) => m.handle === 'ghost' || m.handle === 'staly')).toBe(false);
+
+    // Detected named id succeeds: public id projected, exact private launch persisted, never leaked.
+    const member = acpDaemon.spawnMember('acp', {
+      harness: 'acp', handle: 'kimo', cwd: dir, acp_provider: 'kimi',
+    });
+    expect(acpDaemon.store.getMember('acp', member.id)?.acp_provider).toBe('kimi');
+    expect(acpDaemon.store.getMember('acp', member.id)).not.toHaveProperty('acp_launch');
+    expect(acpDaemon.store.getAgentRuntimeConfig('acp', member.id)?.acp_launch)
+      .toEqual({ executable: 'kimi', argv: ['acp'] });
+    await acpDaemon.close();
+
+    // Restart/rebuild reuses the EXACT persisted private launch and revalidates it.
+    acpDaemon = new Daemon({
+      dbPath: join(dir, 'switchboard.sqlite'), blobRoot: join(dir, 'blobs'),
+      adapters: [Object.assign(new FakeAdapter('acp') as unknown as AcpAdapter, { configurable: true })], homeDir: dir,
+      executableOnPath: (executable) => present.has(executable),
+      discoverModels: false,
+    });
+    expect(acpDaemon.store.getAgentRuntimeConfig('acp', member.id)?.acp_launch)
+      .toEqual({ executable: 'kimi', argv: ['acp'] });
+    expect(acpDaemon.store.getMember('acp', member.id)?.acp_provider).toBe('kimi');
+    await acpDaemon.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
+});

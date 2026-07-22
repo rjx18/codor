@@ -2456,6 +2456,69 @@
 .nx-harness-name { font: var(--t-caption-strong); color: var(--c-ink); text-align: center; }
 .nx-harness-sub { font: var(--t-mono-small); color: var(--c-faded); }
 
+/* Named-provider monogram — a neutral bordered badge drawn in currentColor, sized
+   to fill the box the mark slot sets inline (so it inverts with the theme like the
+   vendor SVGs beside it). */
+.nx-harness-monogram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: 700 10px/1 var(--f-sans);
+  letter-spacing: 0.02em;
+  color: currentColor;
+  border: 1px solid currentColor;
+  border-radius: var(--r-pill);
+}
+
+/* The "ACP" transport pill, sitting where .nx-harness-sub sits beneath the name. */
+.nx-harness-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--sp-1);
+  font: var(--t-mono-small);
+  letter-spacing: 0.04em;
+  color: var(--c-accent-text);
+  background: var(--c-accent-tint);
+  border-radius: var(--r-pill);
+}
+
+/* Advanced disclosure — the generic custom-ACP tile lives behind this. The summary
+   reads as a subtle toggle, not a raw list marker, and keeps a real keyboard focus
+   ring for axe-clean operability. */
+.nx-advanced {
+  margin-top: var(--sp-3);
+  border-top: 1px solid var(--c-line);
+  padding-top: var(--sp-3);
+}
+.nx-advanced-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font: var(--t-caption-strong);
+  color: var(--c-secondary);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.nx-advanced-summary::-webkit-details-marker { display: none; }
+.nx-advanced-summary::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform var(--m-fast) var(--m-ease);
+}
+.nx-advanced[open] > .nx-advanced-summary::before { transform: rotate(90deg); }
+.nx-advanced-summary:hover { color: var(--c-ink); }
+.nx-advanced-summary:focus-visible {
+  outline: 2px solid var(--c-ink);
+  outline-offset: 2px;
+  border-radius: var(--r-pill);
+}
+.nx-advanced > .nx-harness-grid { margin-top: var(--sp-3); }
+
 .nx-tile-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .nx-tile {
   position: relative;

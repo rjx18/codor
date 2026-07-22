@@ -55,6 +55,19 @@ export const AcpUsageBaselineSchema = z.object({
 }).strict();
 export type AcpUsageBaseline = z.infer<typeof AcpUsageBaselineSchema>;
 // harn:end durable-agent-runtime-configuration
+
+// harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-id-schema
+/**
+ * A stable public id for a curated named ACP provider (e.g. `kimi`). It is
+ * additive public identity — never a runtime harness id and never a command.
+ * The daemon compiles it privately to the bounded {@link AcpLaunchConfigSchema}.
+ */
+export const AcpProviderIdSchema = z.string().regex(
+  /^[a-z0-9][a-z0-9-]{0,63}$/,
+  'ACP provider id must be a short lowercase slug',
+);
+export type AcpProviderId = z.infer<typeof AcpProviderIdSchema>;
+// harn:end named-acp-provider-selection-resolves-to-private-structured-launch
 // harn:end acp-launch-is-structured-authorized-and-bounded
 
 /**

@@ -43,6 +43,12 @@ import {
   parseRunItemPayload,
 } from '@codor/protocol';
 
+import {
+  type AcpProviderMetadata,
+  buildAcpProviderLaunch,
+  detectAcpProviders,
+  findAcpProviderDefinition,
+} from './acp-providers.js';
 import { BlobStore } from './blobs.js';
 import {
   executableOnPath,
@@ -459,6 +465,8 @@ export class Daemon {
   private readonly adapterAvailability = new Map<string, boolean>();
   private readonly executableOnPath: (executable: string) => boolean;
   private readonly discoverAdapterModels: boolean;
+  /** Named ACP providers, a separate detected class from native/configurable adapters. */
+  private acpProviderCatalog: AcpProviderMetadata[] = [];
   // harn:end adapter-catalog-distinguishes-installed-and-configurable
   private readonly modelCatalogs = new Map<string, ModelCatalog>();
   private pendingDiscoveries = 0;
@@ -554,6 +562,7 @@ export class Daemon {
       this.adapters.set(adapter.id, adapter);
       this.adapterAvailability.set(adapter.id, this.detectAdapterAvailability(adapter));
     }
+    this.detectAcpProviderCatalog();
     if (this.discoverAdapterModels) this.discoverModels();
     this.attachLeaseTimeoutMs = options.attachLeaseTimeoutMs ?? 5_000;
     this.processProbe = options.processProbe ?? ((target) => {
@@ -908,12 +917,15 @@ export class Daemon {
         `starting agent handle @${opts.starting_agent.handle} is already in use by the channel owner`,
       );
     }
-    // harn:assume new-agent-requests-require-available-harness ref=new-agent-availability-preflight
-    if (opts.starting_agent !== undefined) this.requireNewAgentAdapter(opts.starting_agent.harness);
-    if (opts.starting_agent?.acp_launch !== undefined && opts.starting_agent.harness !== 'acp') {
-      throw new Error('ACP launch configuration is accepted only for the acp harness');
+    // harn:assume new-agent-requests-require-available-native-or-detected-acp ref=new-agent-provider-availability-preflight
+    // A native harness must be installed; an acp request must resolve to exactly one of
+    // a currently-detected named provider or an authorized custom launch — all before
+    // any room or member is persisted.
+    if (opts.starting_agent !== undefined) {
+      this.requireNewAgentAdapter(opts.starting_agent.harness);
+      this.resolveAcpLaunch(opts.starting_agent);
     }
-    // harn:end new-agent-requests-require-available-harness
+    // harn:end new-agent-requests-require-available-native-or-detected-acp
     // harn:end starting-agent-name-derives-one-valid-identity-v6
     const baseId = opts.id ?? deriveRoomId(opts.name);
     let id = baseId;
@@ -929,12 +941,13 @@ export class Daemon {
     // harn:end spawn-default-cwd-is-absolute-or-empty
     if (opts.starting_agent?.harness === 'acp') {
       const adapter = this.requireNewAgentAdapter('acp');
+      const { acp_launch } = this.resolveAcpLaunch(opts.starting_agent);
       const spawnOpts = {
         cwd: cwd!,
         policy: opts.starting_agent.policy,
         model: opts.starting_agent.model,
         thinking: opts.starting_agent.thinking,
-        acp_launch: opts.starting_agent.acp_launch,
+        acp_launch,
       };
       validateSpawnOptions(adapter, spawnOpts);
       adapter.spawn(spawnOpts);
@@ -1126,6 +1139,9 @@ export class Daemon {
       this.adapterAvailability.set(adapter.id, installed);
       if (this.discoverAdapterModels && installed && !wasInstalled) this.discoverModelsFor(adapter);
     }
+    // The same authorized presence-only refresh recomputes named provider detection,
+    // reflecting any native availability change into provider shadowing.
+    this.detectAcpProviderCatalog();
     return this.registeredAdapters();
   }
   // harn:end adapter-refresh-is-authorized-and-incremental
@@ -1141,28 +1157,91 @@ export class Daemon {
   }
   // harn:end model-catalogs-reach-a-browser-that-arrives-early
 
+  // harn:assume named-acp-provider-catalog-is-path-detected-and-command-private ref=acp-provider-catalog-runtime
   registeredAdapters(): {
     id: string;
+    harness?: string;
+    label?: string;
     installed: boolean;
     configurable?: boolean;
+    transport?: 'acp';
+    acp_provider?: string;
+    help_url?: string;
+    advanced?: boolean;
+    shadowed_by_native?: string;
     capabilities: HarnessAdapter['capabilities'];
     models?: string[];
     models_source?: ModelCatalog['source'];
   }[] {
-    return [...this.adapters.values()]
-      .map((adapter) => {
-        const catalog = this.modelCatalogs.get(adapter.id);
-        return {
-          id: adapter.id,
-          installed: this.adapterAvailability.get(adapter.id) === true,
-          ...((adapter as RegisteredHarnessAdapter).configurable === true && { configurable: true }),
-          capabilities: adapter.capabilities,
-          ...(catalog && { models: catalog.models, models_source: catalog.source }),
-        };
-      })
-      .sort((a, b) => a.id.localeCompare(b.id));
+    // Native/configurable adapter entries are unchanged; the detected named providers
+    // (acp:<id>) are a separate class published into the same catalog with only safe
+    // public metadata — never an executable or argv.
+    return [
+      ...[...this.adapters.values()]
+        .map((adapter) => {
+          const catalog = this.modelCatalogs.get(adapter.id);
+          return {
+            id: adapter.id,
+            installed: this.adapterAvailability.get(adapter.id) === true,
+            ...((adapter as RegisteredHarnessAdapter).configurable === true && { configurable: true }),
+            capabilities: adapter.capabilities,
+            ...(catalog && { models: catalog.models, models_source: catalog.source }),
+          };
+        })
+        .sort((a, b) => a.id.localeCompare(b.id)),
+      // Named entries follow the native adapters in stable curated definition order.
+      ...this.namedAcpCatalogEntries(),
+    ];
   }
+  // harn:end named-acp-provider-catalog-is-path-detected-and-command-private
   // harn:end adapters-own-their-model-catalog
+
+  // harn:assume named-acp-provider-catalog-is-path-detected-and-command-private ref=acp-provider-catalog-runtime
+  /**
+   * Recompute PATH-only detection for every curated named provider. Runs at
+   * startup and inside the authorized adapter refresh — never on a request path.
+   * Detection reuses the same presence-only PATH resolver as native adapters, so
+   * no provider, package runner, installer, downloader, or version probe is ever
+   * invoked and PATH is never mutated. Shadowing consults current native
+   * availability so a provider hides from primary selection only when its
+   * preferred native adapter is installed.
+   */
+  private detectAcpProviderCatalog(): void {
+    this.acpProviderCatalog = detectAcpProviders({
+      isInstalled: (definition) => this.executableOnPath(definition.executable),
+      isNativeInstalled: (nativeAdapterId) => this.adapterAvailability.get(nativeAdapterId) === true,
+    });
+  }
+
+  /**
+   * The curated named ACP providers as catalog entries — a separate class from the
+   * native/configurable adapters, sharing the registration shape. Selector id is
+   * `acp:<provider>`, runtime harness is the generic `acp` transport, and only safe
+   * public metadata (label/help_url/installed/shadow) is carried. The private
+   * executable and argv are never part of this projection. A provider prefers the
+   * generic ACP transport's conservative capabilities; detection never advertises
+   * resume, steering, task, or usage support.
+   */
+  private namedAcpCatalogEntries(): ReturnType<Daemon['registeredAdapters']> {
+    const capabilities = this.adapters.get('acp')?.capabilities;
+    if (capabilities === undefined) return [];
+    return this.acpProviderCatalog.map((provider) => {
+      const definition = findAcpProviderDefinition(provider.id);
+      const shadowedBy = provider.shadowed ? definition?.native_adapter_id : undefined;
+      return {
+        id: `acp:${provider.id}`,
+        harness: 'acp',
+        label: provider.label,
+        installed: provider.installed,
+        transport: 'acp' as const,
+        acp_provider: provider.id,
+        help_url: provider.help_url,
+        ...(shadowedBy !== undefined && { shadowed_by_native: shadowedBy }),
+        capabilities,
+      };
+    });
+  }
+  // harn:end named-acp-provider-catalog-is-path-detected-and-command-private
 
   // harn:assume account-usage-limits-are-probed-periodically-and-honestly-refreshable ref=usage-probe-runtime
   /** An authorized manual usage refresh, coalesced with the periodic probe and
@@ -1376,17 +1455,25 @@ export class Daemon {
       thinking?: Session['thinking'];
       purpose?: string;
       acp_launch?: AcpLaunchConfig;
+      // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-resolution
+      acp_provider?: string;
+      // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
     },
   ): Member {
     const cwd = normalizeWorkingDirectory(opts.cwd, this.homeDir);
     const adapter = this.requireNewAgentAdapter(opts.harness);
+    // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-resolution
+    // Resolve a named provider id to its private launch (rechecking detection) before
+    // any persistence; a custom launch passes through unchanged. Non-ACP carries neither.
+    const { acp_launch } = this.resolveAcpLaunch(opts);
     const spawnOpts = {
       cwd,
       policy: opts.policy,
       model: opts.model,
       thinking: opts.thinking,
-      acp_launch: opts.acp_launch,
+      acp_launch,
     };
+    // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
     // harn:assume canonical-spawn-controls-enforced ref=daemon-initial-spawn-validation
     validateSpawnOptions(adapter, spawnOpts);
     const session = adapter.spawn(spawnOpts);
@@ -1405,10 +1492,18 @@ export class Daemon {
       model: opts.model,
       thinking: opts.thinking,
       // harn:end durable-agent-runtime-configuration
+      // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-resolution
+      // Safe public identity; the resolved launch above stays private in the runtime arg.
+      acp_provider: opts.acp_provider,
+      // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
       host: this.hostId,
       state: 'idle',
       custody: 'owned',
-    }, { acp_launch: opts.acp_launch });
+      // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-resolution
+      // The runtime arg persists the RESOLVED private launch (a named provider's compiled
+      // command or the authorized custom launch) — never the client's raw input.
+    }, { acp_launch });
+    // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
     this.issueMemberCredential(room, member, session);
     this.sessions.set(member.id, session);
     this.markRostersStale(room);
@@ -2075,6 +2170,45 @@ export class Daemon {
     return adapter;
   }
 
+  // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-resolution
+  /**
+   * Resolve the private ACP launch for a new-agent request, enforcing the public
+   * one-of contract. A native (non-acp) request must carry neither a provider id
+   * nor a custom launch. An acp request carries exactly one: a curated provider
+   * id, resolved through the frozen registry with a fresh PATH detection recheck
+   * and compiled to its private executable/argv; or an authorized custom launch,
+   * passed through unchanged. Unknown or currently undetected provider ids fail
+   * here, before any persistence. Errors name only the safe public id — never the
+   * resolved executable or argv.
+   */
+  private resolveAcpLaunch(sel: {
+    harness: string;
+    acp_provider?: string;
+    acp_launch?: AcpLaunchConfig;
+  }): { acp_launch?: AcpLaunchConfig } {
+    if (sel.harness !== 'acp') {
+      if (sel.acp_provider !== undefined || sel.acp_launch !== undefined) {
+        throw new Error('a provider id or custom launch is accepted only for the acp harness');
+      }
+      return {};
+    }
+    const hasProvider = sel.acp_provider !== undefined;
+    const hasLaunch = sel.acp_launch !== undefined;
+    if (hasProvider === hasLaunch) {
+      throw new Error('an acp agent requires exactly one of a named provider id or a custom launch');
+    }
+    if (sel.acp_launch !== undefined) return { acp_launch: sel.acp_launch };
+    const definition = findAcpProviderDefinition(sel.acp_provider!);
+    if (definition === undefined) {
+      throw new Error(`unknown ACP provider '${sel.acp_provider!}'`);
+    }
+    if (!this.executableOnPath(definition.executable)) {
+      throw new Error(`ACP provider '${definition.id}' is not currently installed on the daemon host`);
+    }
+    return { acp_launch: buildAcpProviderLaunch(definition) };
+  }
+  // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
+
   /** Sessions are rebuilt from the persisted member row after a restart. */
   private sessionFor(room: string, member: Member): Session {
     // A configure since the last turn: discard the cached session so this turn is built
@@ -2093,6 +2227,9 @@ export class Daemon {
                 policy: member.policy,
                 model: member.model,
                 thinking: member.thinking,
+                // A named provider reuses its EXACT persisted private launch here — never
+                // re-resolved from the registry — so a later definition change never
+                // rewrites an existing member; it is revalidated, failing closed.
                 acp_launch: runtimeConfig?.acp_launch,
               };
               // harn:assume canonical-spawn-controls-enforced ref=daemon-session-rebuild-validation

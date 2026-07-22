@@ -1,0 +1,23 @@
+id: named-acp-provider-catalog-is-path-detected-and-command-private
+hash: a-6083c52f3231
+title: Named ACP providers are curated, PATH-detected without invocation, and
+  command-private
+state: active
+statement: A frozen reviewed switchboard provider registry owns stable public
+  ids, labels, help links, direct executable names, literal argv, and optional
+  native-adapter preference. Initial entries are exactly Kimi Code CLI id kimi
+  executable kimi argv [acp], and Kilo Code id kilo executable kilo argv [acp].
+  Startup and authorized adapter refresh detect only an executable non-directory
+  file on the daemon service PATH through the existing presence-only resolver;
+  they never invoke a provider, npx, uvx, an installer, a downloader, or a
+  version probe and never mutate PATH. Registered catalog metadata includes safe
+  provider identity and installation/shadow state but never executable or argv.
+  An installed richer native adapter shadows the named provider only from
+  primary new selection, not from metadata needed by existing members. Detection
+  never advertises lifecycle, steering, usage, model, or plan support; those
+  remain negotiated by the generic ACP session.
+depends_on:
+  - adapter-catalog-distinguishes-installed-and-configurable
+  - adapter-refresh-is-authorized-and-incremental
+  - built-in-adapters-require-daemon-path
+created_by: codor-polish-phase6-acp-providers

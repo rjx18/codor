@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-import { AcpLaunchConfigSchema, PolicySchema, ThinkingLevelSchema } from './adapter.js';
+import {
+  AcpLaunchConfigSchema,
+  AcpProviderIdSchema,
+  PolicySchema,
+  ThinkingLevelSchema,
+} from './adapter.js';
 import { DeliverySchema } from './delivery.js';
 import { WireEventSchema } from './events.js';
 import { MemberIdSchema, MessageIdSchema, RoomIdSchema, SeqSchema, TimestampSchema } from './ids.js';
@@ -113,6 +118,12 @@ export const ActSchema = z.discriminatedUnion('act', [
     thinking: ThinkingLevelSchema.optional(),
     purpose: z.string().optional(),
     acp_launch: AcpLaunchConfigSchema.optional(),
+    // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-act-schema
+    // A curated named ACP provider id — mutually exclusive with acp_launch and valid only
+    // for the acp harness. The daemon compiles it privately; the one-of invariant is
+    // enforced where this act is consumed (server WS spawn handler).
+    acp_provider: AcpProviderIdSchema.optional(),
+    // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
   }),
   z.object({
     act: z.literal('rename'),

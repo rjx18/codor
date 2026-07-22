@@ -15,6 +15,7 @@ import {
   acpLaunchFromConfig,
   collidesWithOwner,
   isAgentFieldError,
+  resolveSelector,
   supportedThinking,
 } from './agent-spec.js';
 import { Button, Code, Modal } from '../primitives/primitives.js';
@@ -31,6 +32,10 @@ export function CreateChannelDialog(props: {
   const selfId = useClientStore((state) => roomSlice(state, activeRoom).selfMemberId);
   const adapterCatalog = useAdapterCatalog(props.token);
   const adapters = adapterCatalog.installed;
+  const advanced = adapterCatalog.advanced;
+  // Reconciliation spans both grids: a custom-ACP selection (id `acp`) lives in
+  // `advanced`, so healing and adapter lookups must see the combined list.
+  const all = [...adapters, ...advanced];
   const [name, setName] = useState('');
   const [cwd, setCwd] = useState('');
   const [agentConfig, setAgentConfig] = useState<AgentConfig>({
@@ -63,13 +68,13 @@ export function CreateChannelDialog(props: {
     }
     setAgentConfig(next);
   };
-  // harn:assume agent-selection-catalog-is-refreshable ref=create-harness-refresh
+  // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=create-provider-selection
   useEffect(() => {
-    if (agentConfig.harness === '' || adapters.some((adapter) => adapter.id === agentConfig.harness)) return;
+    if (agentConfig.harness === '' || all.some((adapter) => adapter.id === agentConfig.harness)) return;
     hiddenAgentConfig.current = agentConfig;
     setAgentConfig({ ...agentConfig, harness: '', model: '', thinking: '' });
-  }, [adapters, agentConfig]);
-  // harn:end agent-selection-catalog-is-refreshable
+  }, [all, agentConfig]);
+  // harn:end agent-selection-shows-detected-acp-and-advanced-custom
   const effectiveAgentName = agentName.trim() === '' ? 'Agent' : agentName.trim();
   const derivedHandle = useMemo(
     () => deriveAssignableHandle(effectiveAgentName),
@@ -96,18 +101,23 @@ export function CreateChannelDialog(props: {
       cwd: cwd.trim(),
       ...(agentHarness !== '' && derivedHandle !== undefined && {
         starting_agent: {
-          harness: agentHarness,
+          // A named tile's selector id (`acp:kimi`) resolves to the `acp` harness plus a
+          // safe provider id; the generic tile keeps its custom launch. Never send the
+          // raw selector id as a harness.
+          harness: resolveSelector(agentHarness).harness,
           handle: derivedHandle,
           // A blank name falls back rather than blocking submit.
           display_name: effectiveAgentName,
           // Always carries a policy. A channel-seeded agent used to spawn with
           // none at all, which is the F11 regression legacy still warns about.
           policy: agentConfig.policy === '' ? DEFAULT_POLICY : agentConfig.policy,
+          ...(resolveSelector(agentHarness).acp_provider !== undefined
+            && { acp_provider: resolveSelector(agentHarness).acp_provider }),
           ...(acpLaunch !== undefined && { acp_launch: acpLaunch }),
           ...(agentConfig.model !== '' && { model: agentConfig.model }),
           ...(() => {
             const level = supportedThinking(
-              adapters.find((a) => a.id === agentHarness), agentConfig.thinking,
+              all.find((a) => a.id === agentHarness), agentConfig.thinking,
             );
             return level === undefined ? {} : { thinking: level };
           })(),
@@ -166,6 +176,7 @@ export function CreateChannelDialog(props: {
       <div className="nx-agent-panel">
           <AgentIdentityControls
             adapters={adapters}
+            advanced={advanced}
             config={agentConfig}
             onChange={changeAgentIdentityConfig}
             allowNone
@@ -209,7 +220,7 @@ export function CreateChannelDialog(props: {
               {/* The same control the spawn and configure dialogs use, so a channel-seeded
                   agent is configured exactly as thoroughly as a later one. */}
               <AgentControls
-                adapters={adapters}
+                adapters={all}
                 config={agentConfig}
                 onChange={setAgentConfig}
                 hideHarness

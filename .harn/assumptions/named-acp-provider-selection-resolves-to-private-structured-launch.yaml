@@ -1,0 +1,24 @@
+id: named-acp-provider-selection-resolves-to-private-structured-launch
+hash: a-2cd67fb8b861
+title: A named ACP id resolves server-side to one private validated durable launch
+state: active
+statement: Public starting-agent and spawn requests for harness acp carry
+  exactly one of a bounded curated acp_provider id or an authorized structured
+  acp_launch; non-ACP requests carry neither. Named selector ids such as
+  acp:kimi never become runtime harness ids. Before persistence the daemon
+  resolves a named id through its frozen registry, requires current PATH
+  detection, rechecks its executable, builds the definition's private executable
+  and literal argv, and passes that launch through the existing ACP validator.
+  Unknown or stale ids fail before member persistence. The safe provider id is a
+  public member field; exact launch remains private server-side state and is not
+  returned by catalog/member APIs, prompts, logs, or errors. Restart and rebuild
+  reuse that exact private launch and revalidate it, failing closed rather than
+  changing provider/session; definition changes never rewrite an existing
+  member. Native adapters and custom ACP authorization and shell-free bounds
+  remain unchanged.
+depends_on:
+  - named-acp-provider-catalog-is-path-detected-and-command-private
+  - acp-launch-is-structured-authorized-and-bounded
+  - durable-agent-runtime-configuration
+  - channel-creation-derived-and-seeded
+created_by: codor-polish-phase6-acp-providers

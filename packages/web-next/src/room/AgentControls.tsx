@@ -64,6 +64,8 @@ export function Section(props: {
  */
 export function AgentIdentityControls(props: {
   adapters: readonly AdapterLike[];
+  /** The generic custom ACP transport, offered only inside the Advanced disclosure. */
+  advanced?: readonly AdapterLike[];
   config: AgentConfig;
   onChange: (next: AgentConfig) => void;
   lockHarness?: boolean;
@@ -75,6 +77,36 @@ export function AgentIdentityControls(props: {
   refreshError?: string;
 }) {
   const id = props.idPrefix ?? 'agent';
+  const all = [...props.adapters, ...(props.advanced ?? [])];
+  const tile = (candidate: AdapterLike) => {
+    const named = candidate.transport === 'acp' && candidate.acp_provider !== undefined;
+    return (
+      <button
+        key={candidate.id}
+        type="button"
+        className="nx-harness"
+        aria-pressed={candidate.id === props.config.harness}
+        disabled={props.lockHarness === true}
+        data-testid={`${id}-harness-${candidate.id}`}
+        onClick={() => { props.onChange(reconcileConfig(props.config, candidate.id, all)); }}
+      >
+        {harnessMark(candidate.id)}
+        <span className="nx-harness-name">
+          {candidate.configurable === true
+            ? 'Custom ACP command'
+            : candidate.label ?? harnessLabel(candidate.id)}
+        </span>
+        {named
+          ? <span className="nx-harness-pill" data-testid={`${id}-acp-pill-${candidate.acp_provider}`}>ACP</span>
+          : candidate.configurable === true
+            ? <span className="nx-harness-sub">custom</span>
+            : candidate.capabilities.resume === false && (
+              <span className="nx-harness-sub">ephemeral</span>
+            )}
+        <span className="nx-check" aria-hidden="true" />
+      </button>
+    );
+  };
   return (
     <>
       <div className="nx-field">
@@ -114,29 +146,20 @@ export function AgentIdentityControls(props: {
                 <span className="nx-check" aria-hidden="true" />
               </button>
             )}
-            {props.adapters.map((candidate) => (
-              <button
-                key={candidate.id}
-                type="button"
-                className="nx-harness"
-                aria-pressed={candidate.id === props.config.harness}
-                disabled={props.lockHarness === true}
-                data-testid={`${id}-harness-${candidate.id}`}
-                onClick={() => {
-                  props.onChange(reconcileConfig(props.config, candidate.id, props.adapters));
-                }}
-              >
-                {harnessMark(candidate.id)}
-                <span className="nx-harness-name">{harnessLabel(candidate.id)}</span>
-                {candidate.configurable === true
-                  ? <span className="nx-harness-sub">configure</span>
-                  : candidate.capabilities.resume === false && (
-                    <span className="nx-harness-sub">ephemeral</span>
-                  )}
-                <span className="nx-check" aria-hidden="true" />
-              </button>
-            ))}
+            {props.adapters.map(tile)}
           </div>
+        {props.advanced !== undefined && props.advanced.length > 0 && props.lockHarness !== true && (
+          <details className="nx-advanced" data-testid={`${id}-advanced`}>
+            <summary className="nx-advanced-summary">Advanced</summary>
+            <p className="nx-note">
+              Run any Agent Client Protocol tool by giving its exact command. For a recognised
+              product, prefer its named tile above.
+            </p>
+            <div className="nx-harness-grid" role="group" aria-label="Custom ACP command">
+              {props.advanced.map(tile)}
+            </div>
+          </details>
+        )}
       </div>
 
     </>

@@ -283,7 +283,7 @@ test.describe('Tier-1: rendered reconciliation and validation', () => {
   });
 });
 
-// harn:assume agent-selection-catalog-is-refreshable ref=harness-refresh-browser-regression
+// harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=detected-acp-browser-regression
 test.describe('Create Channel installed harness catalog', () => {
   test('refresh resets a disappeared optional harness to None and preserves typed identity', async ({ page }) => {
     let listing: { adapters: { id: string; installed?: boolean }[] } | undefined;
@@ -323,7 +323,7 @@ test.describe('Create Channel installed harness catalog', () => {
     await expect(dialog.getByTestId('create-name')).toHaveValue('Kept Channel');
   });
 });
-// harn:end agent-selection-catalog-is-refreshable
+// harn:end agent-selection-shows-detected-acp-and-advanced-custom
 
 test.describe('Tier-1: create channel keyboard and fallbacks', () => {
   test('Enter creates, and a blank agent name falls back to Agent', async ({ page }) => {

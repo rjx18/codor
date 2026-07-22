@@ -77,14 +77,18 @@ export function useConnected(): boolean {
 /** Adapter catalog with the adapter retry contract: discovery is asynchronous, so keep
  *  asking (bounded) until the catalog stops reporting `discovering`. */
 export interface AdapterCatalog {
+  /** Every catalog entry — used by Configure to derive a locked selector. */
   registered: AdapterRegistration[];
+  /** Primary unlocked choices only: installed natives + detected, unshadowed named providers. */
   installed: AdapterRegistration[];
+  /** The generic custom ACP transport, shown only behind an Advanced disclosure. */
+  advanced: AdapterRegistration[];
   refreshing: boolean;
   refreshError?: string;
   refresh: () => void;
 }
 
-// harn:assume agent-selection-catalog-is-refreshable ref=refreshable-adapter-catalog
+// harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=detected-acp-catalog-client
 export function useAdapterCatalog(token: () => string): AdapterCatalog {
   const [adapters, setAdapters] = useState<AdapterRegistration[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -130,14 +134,21 @@ export function useAdapterCatalog(token: () => string): AdapterCatalog {
   return {
     registered: adapters,
     // harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=configurable-adapter-client
-    installed: adapters.filter((adapter) => adapter.installed !== false || adapter.configurable === true),
+    // Primary selection excludes the generic custom ACP tile (configurable) and any named
+    // provider shadowed by an installed native adapter; named providers appear only when
+    // actually detected on the daemon host.
+    installed: adapters.filter((adapter) =>
+      adapter.installed !== false
+      && adapter.configurable !== true
+      && adapter.shadowed_by_native === undefined),
+    advanced: adapters.filter((adapter) => adapter.configurable === true),
     // harn:end adapter-catalog-distinguishes-installed-and-configurable
     refreshing,
     ...(refreshError !== undefined && { refreshError }),
     refresh,
   };
 }
-// harn:end agent-selection-catalog-is-refreshable
+// harn:end agent-selection-shows-detected-acp-and-advanced-custom
 
 export function useRooms(token: () => string): Room[] {
   const connected = useConnected();

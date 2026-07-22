@@ -11,6 +11,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import {
   BROWSER_PROTOCOL_EPOCH,
   AcpLaunchConfigSchema,
+  AcpProviderIdSchema,
   ClientFrameSchema,
   CreateRoomRequestSchema,
   type BridgeOrigin,
@@ -617,6 +618,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   app.post('/api/adapters/refresh', (req, reply) => {
     const principal = authed(req, reply);
     if (!principal || !authorizeGlobal(principal, 'manage_agents', reply)) return;
+    // The same authorized refresh rechecks native adapters and named provider executables
+    // in one operation; the returned catalog carries safe named entries (acp:<id>) but
+    // never a provider's executable or argv.
     void reply.send({
       adapters: daemon.refreshAdapterAvailability(),
       discovering: daemon.modelDiscoveryPending(),
@@ -657,10 +661,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (!principal || !authorizeGlobal(principal, 'manage_rooms', reply)) return;
     try {
       const body = CreateRoomRequestSchema.parse(req.body);
+      // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-rest-boundary
+      // Only a CUSTOM launch carries client command material and requires manage_agents.
+      // A named acp_provider is a safe curated id the daemon resolves privately, so it
+      // needs no extra authorization; the schema already enforces exactly one of them.
       if (
         body.starting_agent?.acp_launch !== undefined &&
         !authorizeGlobal(principal, 'manage_agents', reply)
       ) return;
+      // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
       const created = daemon.createRoom(body);
       options.crypto?.roomKeys.ensureRoom(created.room.id);
       // harn:assume browser-created-channel-delivers-its-room-key ref=browser-room-key-response
@@ -1061,21 +1070,39 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       thinking?: 'low' | 'medium' | 'high';
       purpose?: string;
       acp_launch?: unknown;
+      acp_provider?: unknown;
     };
     try {
       const acpLaunch = body.acp_launch === undefined
         ? undefined
         : AcpLaunchConfigSchema.parse(body.acp_launch);
+      // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-rest-boundary
+      // A named provider is only a safe curated id; the daemon resolves the private
+      // launch. The request never carries — and this boundary never accepts — a command
+      // for a named provider.
+      const acpProvider = body.acp_provider === undefined
+        ? undefined
+        : AcpProviderIdSchema.parse(body.acp_provider);
+      // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
       // harn:assume acp-launch-is-structured-authorized-and-bounded ref=acp-launch-rest-authorization
+      // Only a custom launch carries client command material and requires manage_agents;
+      // a named provider id needs no extra authorization.
       if (acpLaunch !== undefined && !authorizeRoom(principal, room, 'manage_agents', reply)) return;
-      if (body.harness === 'acp' && acpLaunch === undefined) {
-        return reply.code(400).send({ error: 'ACP launch configuration is required' });
-      }
-      if (body.harness !== 'acp' && acpLaunch !== undefined) {
-        return reply.code(400).send({ error: 'ACP launch configuration is accepted only for the acp harness' });
+      if (body.harness === 'acp') {
+        if ((acpLaunch === undefined) === (acpProvider === undefined)) {
+          return reply.code(400).send({
+            error: 'ACP agents require exactly one of a named provider id or a custom launch',
+          });
+        }
+      } else if (acpLaunch !== undefined || acpProvider !== undefined) {
+        return reply.code(400).send({
+          error: 'a provider id or custom launch is accepted only for the acp harness',
+        });
       }
       // harn:end acp-launch-is-structured-authorized-and-bounded
-      return reply.send(daemon.spawnMember(room, { ...body, acp_launch: acpLaunch }));
+      return reply.send(daemon.spawnMember(room, {
+        ...body, acp_launch: acpLaunch, acp_provider: acpProvider,
+      }));
     } catch (error) {
       return reply.code(400).send({ error: String(error) });
     }
@@ -1499,6 +1526,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 thinking: act.thinking,
                 purpose: act.purpose,
                 acp_launch: act.acp_launch,
+                // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-rest-boundary
+                acp_provider: act.acp_provider,
+                // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
               });
             } else if (act.act === 'configure') {
               daemon.configureMember(

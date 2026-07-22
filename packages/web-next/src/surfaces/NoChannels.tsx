@@ -11,6 +11,7 @@ import {
   DEFAULT_POLICY,
   type AgentConfig,
   acpLaunchFromConfig,
+  resolveSelector,
   supportedThinking,
 } from '../room/agent-spec.js';
 import { useAdapterCatalog } from '../app/session.js';
@@ -26,6 +27,10 @@ export function NoChannels(props: { token: string }) {
   const token = useCallback(() => props.token, [props.token]);
   const adapterCatalog = useAdapterCatalog(token);
   const adapters = adapterCatalog.installed;
+  const advanced = adapterCatalog.advanced;
+  // Reconciliation spans both grids: a custom-ACP selection (id `acp`) lives in
+  // `advanced`, so healing and adapter lookups must see the combined list.
+  const all = [...adapters, ...advanced];
   const [name, setName] = useState('');
   const [nameEdited, setNameEdited] = useState(false);
   const [cwd, setCwd] = useState('');
@@ -47,12 +52,12 @@ export function NoChannels(props: { token: string }) {
     [effectiveAgentName],
   );
   const hasAgent = agentConfig.harness !== '';
-  // harn:assume agent-selection-catalog-is-refreshable ref=first-channel-harness-refresh
+  // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=first-provider-selection
   useEffect(() => {
-    if (!hasAgent || adapters.some((adapter) => adapter.id === agentConfig.harness)) return;
+    if (!hasAgent || all.some((adapter) => adapter.id === agentConfig.harness)) return;
     setAgentConfig({ ...agentConfig, harness: '', model: '', thinking: '' });
-  }, [adapters, agentConfig, hasAgent]);
-  // harn:end agent-selection-catalog-is-refreshable
+  }, [all, agentConfig, hasAgent]);
+  // harn:end agent-selection-shows-detected-acp-and-advanced-custom
   const identityClash = hasAgent && ownerHandle !== undefined && agentHandle === ownerHandle;
   const acpLaunch = acpLaunchFromConfig(agentConfig);
   const canCreate = name.trim() !== '' && cwd.trim() !== '' && ownerHandle !== undefined && !busy
@@ -76,15 +81,19 @@ export function NoChannels(props: { token: string }) {
       cwd: cwd.trim(),
       ...(hasAgent && agentHandle !== undefined && {
         starting_agent: {
-          harness: agentConfig.harness,
+          // A named tile's selector id (`acp:kimi`) resolves to the `acp` harness plus a
+          // safe provider id; the generic tile keeps its custom launch.
+          harness: resolveSelector(agentConfig.harness).harness,
           handle: agentHandle,
           display_name: effectiveAgentName,
           policy: agentConfig.policy === '' ? DEFAULT_POLICY : agentConfig.policy,
+          ...(resolveSelector(agentConfig.harness).acp_provider !== undefined
+            && { acp_provider: resolveSelector(agentConfig.harness).acp_provider }),
           ...(acpLaunch !== undefined && { acp_launch: acpLaunch }),
           ...(agentConfig.model !== '' && { model: agentConfig.model }),
           ...(() => {
             const thinking = supportedThinking(
-              adapters.find((adapter) => adapter.id === agentConfig.harness),
+              all.find((adapter) => adapter.id === agentConfig.harness),
               agentConfig.thinking,
             );
             return thinking === undefined ? {} : { thinking };
@@ -155,6 +164,7 @@ export function NoChannels(props: { token: string }) {
           <div className="nx-first-agent">
             <AgentIdentityControls
               adapters={adapters}
+              advanced={advanced}
               config={agentConfig}
               onChange={setAgentConfig}
               allowNone
@@ -181,7 +191,7 @@ export function NoChannels(props: { token: string }) {
                   )}
                 </label>
                 <AgentControls
-                  adapters={adapters}
+                  adapters={all}
                   config={agentConfig}
                   onChange={setAgentConfig}
                   hideHarness

@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS members (
   model TEXT,
   thinking TEXT,
   acp_launch TEXT,
+  acp_provider TEXT,
   session_lifecycle TEXT,
   acp_usage_baseline TEXT,
   acp_usage_pending TEXT,
@@ -326,6 +327,18 @@ function migrateMemberContextWindow(db: Database.Database): void {
     db.exec('ALTER TABLE members ADD COLUMN context_window INTEGER');
   }
 }
+
+// harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-storage
+// Existing ACP members were launched from a custom acp_launch and carry no named
+// provider; NULL is the honest value for them. New named members persist a safe public
+// provider id here while their exact launch stays in the private acp_launch column.
+function migrateMemberAcpProvider(db: Database.Database): void {
+  const columns = db.pragma('table_info(members)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'acp_provider')) {
+    db.exec('ALTER TABLE members ADD COLUMN acp_provider TEXT');
+  }
+}
+// harn:end named-acp-provider-selection-resolves-to-private-structured-launch
 
 // harn:assume agent-member-credentials-stay-secret ref=member-credential-storage
 function migrateMemberCredential(db: Database.Database): void {
@@ -883,6 +896,9 @@ interface MemberRow {
   model: string | null;
   thinking: string | null;
   acp_launch: string | null;
+  // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-storage
+  acp_provider: string | null;
+  // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
   session_lifecycle: string | null;
   acp_usage_baseline: string | null;
   acp_usage_pending: string | null;
@@ -1028,6 +1044,9 @@ function memberFromRow(row: MemberRow): Member {
     policy: row.policy ?? undefined,
     model: row.model ?? undefined,
     thinking: row.thinking ?? undefined,
+    // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-storage
+    acp_provider: row.acp_provider ?? undefined,
+    // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
     host: row.host ?? undefined,
     state: row.state ?? undefined,
     custody: row.custody ?? undefined,
@@ -1202,6 +1221,9 @@ export interface NewMember {
   policy?: string;
   model?: string;
   thinking?: Member['thinking'];
+  // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-storage
+  acp_provider?: string;
+  // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
   host?: string;
   state?: Member['state'];
   custody?: Member['custody'];
@@ -1341,6 +1363,7 @@ export class Store {
       migrateMemberLimits(this.db);
       migrateMemberTasks(this.db);
       migrateMemberContextWindow(this.db);
+      migrateMemberAcpProvider(this.db);
       migrateMemberCredential(this.db);
       migrateMessageAck(this.db);
       migrateMessagePinned(this.db);
@@ -1475,12 +1498,15 @@ export class Store {
 
   private insertMember(room: string, member: NewMember): Member {
     const validated = MemberSchema.parse({ id: this.newUlid(), ...member });
+    // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-storage
+    // The safe public provider id is persisted with the other member identity columns.
+    // The exact launch is written privately (addMember) and never appears here.
     this.db
       .prepare(
         `INSERT INTO members (id, room, kind, handle, display_name, purpose, harness, session_ref,
            cwd, policy, model, thinking, host, state, custody, parent, role, conventions_sent,
-           misaddressed, roster_stale, removed_ts)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           misaddressed, roster_stale, removed_ts, acp_provider)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         validated.id,
@@ -1504,7 +1530,9 @@ export class Store {
         fromBool(validated.misaddressed),
         fromBool(validated.roster_stale),
         orNull(validated.removed_ts),
+        orNull(validated.acp_provider),
       );
+    // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
     const seq = this.appendChange(room, 'member', validated.id);
     // harn:assume human-room-read-cursors-are-durable-and-monotonic ref=durable-room-read-storage
     if (validated.kind === 'human') {
@@ -1672,7 +1700,7 @@ export class Store {
           `UPDATE members SET handle = ?, display_name = ?, purpose = ?, harness = ?, session_ref = ?,
              cwd = ?, policy = ?, model = ?, thinking = ?, host = ?, state = ?, custody = ?,
              parent = ?, role = ?, conventions_sent = ?, misaddressed = ?, roster_stale = ?,
-             removed_ts = ?, limits = ?, tasks = ?
+             removed_ts = ?, limits = ?, tasks = ?, acp_provider = ?
            WHERE room = ? AND id = ?`,
         )
         .run(
@@ -1696,6 +1724,9 @@ export class Store {
           orNull(merged.removed_ts),
           merged.limits === undefined ? null : JSON.stringify(merged.limits),
           nextTasks === undefined ? null : JSON.stringify(nextTasks),
+          // acp_provider is public locked identity: preserved from the merged member,
+          // never rewritten by an ordinary Configure edit (harness stays locked too).
+          orNull(merged.acp_provider),
           room,
           memberId,
         );

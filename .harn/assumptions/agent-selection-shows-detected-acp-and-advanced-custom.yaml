@@ -1,0 +1,24 @@
+id: agent-selection-shows-detected-acp-and-advanced-custom
+hash: a-0169f45fd092
+title: Shared agent selectors show detected named ACP providers and keep custom
+  ACP Advanced
+state: active
+statement: Create Channel, first-channel onboarding, and Add Agent share one
+  catalog control whose primary grid contains installed native adapters and
+  detected unshadowed named ACP providers only. Named tiles use server labels,
+  neutral product monograms, and visible ACP pills, and serialize only harness
+  acp plus acp_provider. The generic ACP tile is absent from primary selection
+  and appears once inside an accessible Advanced disclosure as Custom ACP
+  command; only that choice renders the existing executable and literal
+  one-argument-per-line fields. Refresh busy, failure, empty, and disappeared
+  selection behavior remains shared. Configure derives a locked selector from
+  persisted provider identity and registered metadata so its name and ACP pill
+  remain stable if the binary disappears, and it never reveals saved custom
+  argv.
+depends_on:
+  - named-acp-provider-catalog-is-path-detected-and-command-private
+  - named-acp-provider-selection-resolves-to-private-structured-launch
+  - agent-controls-shared-by-both-dialogs
+  - paired-empty-state-creates-first-channel
+  - web-spawn-dialog-exposes-canonical-agent-controls
+created_by: codor-polish-phase6-acp-providers

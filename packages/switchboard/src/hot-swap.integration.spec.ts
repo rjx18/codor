@@ -52,10 +52,16 @@ describe('configured adapter hot-swap', () => {
     });
     try {
       // harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=adapter-catalog-regression
-      expect(daemon.registeredAdapters()).toEqual(expect.arrayContaining([
+      const catalog = daemon.registeredAdapters();
+      expect(catalog).toEqual(expect.arrayContaining([
         expect.objectContaining({ id: 'codex', installed: false }),
         expect.objectContaining({ id: 'fixture-harness', installed: true }),
       ]));
+      // Named ACP providers are a separate detected class beside the native adapters,
+      // published in definition order and never carrying command material.
+      expect(catalog.filter((entry) => entry.acp_provider !== undefined).map((entry) => entry.id))
+        .toEqual(['acp:kimi', 'acp:kilo']);
+      expect(JSON.stringify(catalog)).not.toContain('argv');
       // harn:end adapter-catalog-distinguishes-installed-and-configurable
       const created = daemon.createRoom({
         id: 'sdk',

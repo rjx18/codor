@@ -1185,7 +1185,7 @@ describe('REST', () => {
   });
 
   // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-rest
-  // harn:assume new-agent-requests-require-available-harness ref=new-agent-availability-regression
+  // harn:assume new-agent-requests-require-available-native-or-detected-acp ref=new-agent-provider-availability-regression
   it('authorizes refresh and rejects stale spawn and starting-agent requests', async () => {
     const postRefresh = (token: string) => fetch(`${base}/api/adapters/refresh`, {
       method: 'POST', headers: { authorization: `Bearer ${token}` },
@@ -1217,6 +1217,18 @@ describe('REST', () => {
     });
     expect(create.status).toBe(400);
     expect(daemon.store.getRoom('stale-create')).toBeUndefined();
+
+    // A named provider id on a NON-acp harness is refused at the boundary, before persistence.
+    const nativeWithProvider = await fetch(`${base}/api/rooms/eng/members`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        harness: 'fake', handle: 'wrong', cwd: testCwd('wrong'), acp_provider: 'kimi',
+      }),
+    });
+    expect(nativeWithProvider.status).toBe(400);
+    expect(await nativeWithProvider.text()).toContain('only for the acp harness');
+    expect(daemon.store.listMembers('eng').some((m) => m.handle === 'wrong')).toBe(false);
   });
 
   // harn:assume acp-launch-is-structured-authorized-and-bounded ref=acp-launch-regression
@@ -1236,7 +1248,7 @@ describe('REST', () => {
     expect(body).not.toContain(secret);
   });
   // harn:end acp-launch-is-structured-authorized-and-bounded
-  // harn:end new-agent-requests-require-available-harness
+  // harn:end new-agent-requests-require-available-native-or-detected-acp
   // harn:end adapter-refresh-is-authorized-and-incremental
 
   // harn:assume account-usage-limits-are-probed-periodically-and-honestly-refreshable ref=usage-refresh-auth-regression
@@ -2905,3 +2917,95 @@ describe('produced-artifact endpoints (descriptor-safe-durable-inert-snapshots-o
   });
 });
 // harn:end descriptor-safe-durable-inert-snapshots-of-successful-output
+
+describe('named ACP providers over REST', () => {
+  let dir: string;
+  let daemon: Daemon;
+  let server: RunningServer;
+  let base: string;
+  let present: Set<string>;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'codor-acp-rest-'));
+    present = new Set<string>();
+    daemon = new Daemon({
+      dbPath: join(dir, 'db.sqlite'),
+      blobRoot: join(dir, 'blobs'),
+      adapters: [Object.assign(new FakeAdapter('acp'), { configurable: true }) as unknown as FakeAdapter],
+      ledger: new LedgerManager({ dataDir: dir }),
+      homeDir: dir,
+      executableOnPath: (executable) => present.has(executable),
+      discoverModels: false,
+    });
+    daemon.createRoom({ id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' } });
+    server = await startServer({
+      daemon, token: TOKEN, principals: [],
+      crypto: new CryptoVault(dir),
+      pushSubscriptions: new PushSubscriptionStore(dir, new CryptoVault(join(dir, 'k')).keys),
+      homeDir: dir,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+  });
+
+  afterEach(async () => {
+    await server.close();
+    await daemon.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // harn:assume named-acp-provider-catalog-is-path-detected-and-command-private ref=acp-provider-catalog-rest-regression
+  it('publishes named provider metadata over catalog and refresh without any command material', async () => {
+    const read = async (path: string, method = 'GET') => (await fetch(`${base}${path}`, {
+      method, headers: { authorization: `Bearer ${TOKEN}` },
+    })).json() as Promise<{ adapters: { id: string; acp_provider?: string; installed: boolean }[] }>;
+
+    const initial = await read('/api/adapters');
+    const named = initial.adapters.filter((entry) => entry.acp_provider !== undefined);
+    expect(named.map((entry) => entry.id)).toEqual(['acp:kimi', 'acp:kilo']);
+    expect(named.every((entry) => entry.installed === false)).toBe(true);
+    // No entry — named or native — ever serializes an executable or argv.
+    const serialized = JSON.stringify(initial.adapters);
+    expect(serialized).not.toContain('executable');
+    expect(serialized).not.toContain('argv');
+
+    // Authorized refresh re-detects: kimi flips to installed, still command-private.
+    present.add('kimi');
+    const refreshed = await read('/api/adapters/refresh', 'POST');
+    expect(refreshed.adapters.find((entry) => entry.acp_provider === 'kimi')?.installed).toBe(true);
+    expect(JSON.stringify(refreshed.adapters)).not.toContain('argv');
+  });
+  // harn:end named-acp-provider-catalog-is-path-detected-and-command-private
+
+  // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-rest-regression
+  it('accepts a safe named provider id and enforces the one-of contract without leaking commands', async () => {
+    present.add('kimi');
+    const spawn = (body: Record<string, unknown>) => fetch(`${base}/api/rooms/eng/members`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ handle: 'a', cwd: dir, ...body }),
+    });
+
+    // Named request carries only the safe id; the member projects it and never a command.
+    const ok = await spawn({ harness: 'acp', handle: 'kimo', acp_provider: 'kimi' });
+    expect(ok.status).toBe(200);
+    const member = await ok.json() as Member & { acp_launch?: unknown };
+    expect(member.acp_provider).toBe('kimi');
+    expect(member).not.toHaveProperty('acp_launch');
+    expect(JSON.stringify(member)).not.toContain('argv');
+
+    // Both provider and custom launch is ambiguous → rejected before persistence.
+    const both = await spawn({
+      harness: 'acp', handle: 'both', acp_provider: 'kimi',
+      acp_launch: { executable: 'x', argv: ['acp'] },
+    });
+    expect(both.status).toBe(400);
+    // Neither is unlaunchable → rejected.
+    expect((await spawn({ harness: 'acp', handle: 'neither' })).status).toBe(400);
+    // A currently-undetected curated id → rejected, and the safe id is echoed, not a command.
+    const stale = await spawn({ harness: 'acp', handle: 'staly', acp_provider: 'kilo' });
+    expect(stale.status).toBe(400);
+    expect(await stale.text()).toContain("'kilo'");
+    expect(daemon.store.listMembers('eng').map((m) => m.handle)).not.toContain('staly');
+  });
+  // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
+});

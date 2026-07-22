@@ -83,14 +83,22 @@ const thinky = Object.assign(new FakeAdapter('thinky', {
   }),
 });
 
+// A configurable ACP transport so the browser exercises the named-provider catalog
+// (Kimi/Kilo) and the generic custom-ACP tile. Detection is injected and MUTABLE so a
+// spec can make a provider appear/disappear across Refresh; the fake accepts any resolved
+// launch without touching a real binary. kimi starts detected, kilo does not.
+const acp = Object.assign(new FakeAdapter('acp'), { configurable: true });
+const acpPresent = new Set(['kimi']);
+
 const ledger = new LedgerManager({ dataDir: dir });
 const crypto = new CryptoVault(dir);
 const daemon = new Daemon({
   discoverModels: true,
   dbPath: join(dir, 'db.sqlite'),
   blobRoot: join(dir, 'blobs'),
-  adapters: [fake, thinky],
+  adapters: [fake, thinky, acp],
   ledger,
+  executableOnPath: (executable) => acpPresent.has(executable),
 });
 
 // ── Channels: distinct previews / working / failure / unread states ──────
@@ -114,10 +122,20 @@ for (const [id, name] of [
   ['continuations', 'Continuation Fixtures'],
   ['preview', 'Preview'],
   ['tasks', 'Tasks'],
+  ['acp-providers', 'ACP Providers'],
 ]) {
   daemon.createRoom({ id, name, owner });
   crypto.roomKeys.ensureRoom(id);
 }
+
+// An existing NAMED ACP member so Configure can prove the named tile (with its ACP pill)
+// stays stable and locked from persisted provider identity, even if the binary later
+// disappears. Seeded while kimi is detected; the fake acp adapter accepts the launch.
+const acpCwd = join(dir, 'acp-providers');
+mkdirSync(acpCwd, { recursive: true });
+daemon.spawnMember('acp-providers', {
+  harness: 'acp', handle: 'kimo', cwd: acpCwd, acp_provider: 'kimi',
+});
 
 // Scratch: an agent-free room of pre-seeded, non-grouped owner messages for the
 // deletion tests — deleting here creates no runs and cannot collide with eng.
@@ -1196,6 +1214,17 @@ createServer((req, res) => {
         const updated = daemon.store.applyMemberTaskUpdate('tasks', member.id, { op: 'replace', items: [] });
         if (updated) daemon.emitMember('tasks', updated);
         payload = { ok: updated !== undefined };
+      }
+      if (url.pathname === '/acp-detect-kilo') {
+        // Make Kilo appear on PATH; the UI Refresh re-detects it into the catalog.
+        acpPresent.add('kilo');
+        payload = { ok: true };
+      }
+      if (url.pathname === '/acp-reset') {
+        // Back to the seeded state: only kimi detected.
+        acpPresent.clear();
+        acpPresent.add('kimi');
+        payload = { ok: true };
       }
       if (url.pathname === '/complete-agent') {
         const body = raw === '' ? {} : JSON.parse(raw);

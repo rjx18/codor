@@ -28,6 +28,20 @@ const MARKS: Record<string, HarnessMark> = {
     label: 'ACP-compatible',
     mark: (size: number) => <Cpu width={size} height={size} aria-hidden="true" />,
   },
+  // Named ACP providers use neutral product monograms — not a borrowed vendor logo —
+  // keyed by their `acp:<provider>` selector id.
+  'acp:kimi': {
+    label: 'Kimi Code CLI',
+    mark: (size: number) => (
+      <span className="nx-harness-monogram" style={{ width: size, height: size }} aria-hidden="true">Ki</span>
+    ),
+  },
+  'acp:kilo': {
+    label: 'Kilo Code',
+    mark: (size: number) => (
+      <span className="nx-harness-monogram" style={{ width: size, height: size }} aria-hidden="true">Kl</span>
+    ),
+  },
   'claude-code': {
     label: 'Claude Code',
     mark: (size: number) => (

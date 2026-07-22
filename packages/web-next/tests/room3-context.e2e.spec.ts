@@ -77,31 +77,17 @@ test.describe('spawn dialog', () => {
 
   // harn:assume acp-v1-events-and-capabilities-are-negotiated ref=acp-browser-regression
   // harn:assume acp-launch-is-structured-authorized-and-bounded ref=acp-launch-regression
-  test('offers configurable ACP with explicit executable and literal argv fields', async ({ page }) => {
-    await page.route('**/api/adapters**', async (route) => {
-      if (route.request().method() !== 'GET') return route.continue();
-      const response = await route.fetch();
-      const listing = await response.json() as { adapters: unknown[]; discovering?: boolean };
-      await route.fulfill({
-        response,
-        body: JSON.stringify({
-          ...listing,
-          adapters: [...listing.adapters, {
-            id: 'acp', installed: false, configurable: true,
-            capabilities: {
-              resume: false, discover: false, interactiveAttach: false, ask: false,
-              approvals: 'runtime', extensions: false, thinking: false, live_inbox: false,
-              policies: { 'read-only': null, 'workspace-write': null, 'full-access': null },
-            },
-          }],
-        }),
-      });
-    });
+  test('offers the generic custom ACP command behind Advanced with executable and literal argv fields', async ({ page }) => {
+    // The fixture registers the generic configurable `acp` transport; it is not a
+    // primary tile — it lives inside the Advanced disclosure as Custom ACP command.
     await openRoom(page);
     await page.getByTestId('spawn-agent').click();
     const dialog = page.getByTestId('spawn-dialog');
-    await dialog.getByTestId('spawn-harness-acp').click();
-    await expect(dialog.getByTestId('spawn-harness-acp')).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByTestId('spawn-acp-launch')).toHaveCount(0); // hidden until chosen
+    await dialog.getByTestId('spawn-advanced').locator('summary').click();
+    await dialog.getByTestId('spawn-advanced').getByTestId('spawn-harness-acp').click();
+    await expect(dialog.getByTestId('spawn-advanced').getByTestId('spawn-harness-acp'))
+      .toHaveAttribute('aria-pressed', 'true');
     await expect(dialog.getByTestId('spawn-acp-launch')).toBeVisible();
     await expect(dialog.getByTestId('spawn-acp-executable')).toHaveValue('');
     await expect(dialog.getByTestId('spawn-acp-executable')).toHaveAttribute('placeholder', 'e.g. kimi');
@@ -161,7 +147,7 @@ test.describe('spawn before adapter discovery', () => {
   });
 });
 
-// harn:assume agent-selection-catalog-is-refreshable ref=harness-refresh-browser-regression
+// harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=detected-acp-browser-regression
 test.describe('installed harness refresh', () => {
   test('Add Agent filters, shows busy and failure states, and reconciles without losing fields', async ({ page }) => {
     let listing: { adapters: { id: string; installed?: boolean }[]; discovering?: boolean } | undefined;
@@ -215,7 +201,7 @@ test.describe('installed harness refresh', () => {
     await expect(dialog.getByRole('alert')).toContainText('Refresh failed: refresh unavailable');
   });
 });
-// harn:end agent-selection-catalog-is-refreshable
+// harn:end agent-selection-shows-detected-acp-and-advanced-custom
 
 test.describe('usage limits', () => {
   test('member cards show the harness-reported windows; agents without reports show none', async ({ page }) => {

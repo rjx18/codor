@@ -1,7 +1,7 @@
 id: new-agent-requests-require-available-harness
 hash: a-de2a4c16378a
 title: New agents require truthful native or configurable availability
-state: active
+state: retired
 statement: New member and starting-agent requests must reject a native adapter
   that is unavailable before persistence, while ACP requests must carry
   authorized valid structured launch configuration whose executable resolves on
@@ -13,3 +13,4 @@ depends_on:
   - canonical-spawn-controls-enforced
   - channel-creation-derived-and-seeded
 created_by: codor-runtime-fidelity-phase6
+retired_by: codor-polish-phase6-acp-providers

@@ -39,7 +39,7 @@ async function storedRoomKey(page: Page, room: string): Promise<unknown> {
 }
 
 test.describe('first-channel onboarding', () => {
-  // harn:assume agent-selection-catalog-is-refreshable ref=harness-refresh-browser-regression
+  // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=detected-acp-browser-regression
   test('shows the shared Refresh action and honest empty installed-harness state', async ({ page }) => {
     await page.route('**/api/adapters**', async (route) => {
       const response = await route.fetch();
@@ -56,9 +56,14 @@ test.describe('first-channel onboarding', () => {
     await expect(onboarding.getByTestId('first-refresh-adapters')).toBeVisible();
     await expect(onboarding.getByText('No supported harnesses found')).toBeVisible();
     await expect(onboarding.getByTestId('first-harness-none')).toHaveAttribute('aria-pressed', 'true');
-    await expect(onboarding.locator('[data-testid^="first-harness-"]:not([data-testid="first-harness-none"])')).toHaveCount(0);
+    // No installed native or detected named provider -> the PRIMARY grid offers only None,
+    // while the deliberate Custom ACP escape hatch stays available behind Advanced.
+    await expect(onboarding.locator('.nx-harness-grid').first()
+      .locator('[data-testid^="first-harness-"]:not([data-testid="first-harness-none"])')).toHaveCount(0);
+    await expect(onboarding.getByTestId('first-advanced')).toBeVisible();
+    await expect(onboarding.getByTestId('first-advanced').getByTestId('first-harness-acp')).toHaveCount(1);
   });
-  // harn:end agent-selection-catalog-is-refreshable
+  // harn:end agent-selection-shows-detected-acp-and-advanced-custom
 
   test('a paired browser creates its first channel, keeps its chosen name, and stores the new key', async ({ page }) => {
     await showEmptyStateOnce(page);

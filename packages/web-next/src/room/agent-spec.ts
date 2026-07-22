@@ -19,8 +19,23 @@ import {
 
 /** The subset of an adapter registration these rules need. */
 export interface AdapterLike {
+  /** Selector id: a native adapter id, `acp:<provider>` for a named provider, or `acp`. */
   id: string;
+  /** Runtime harness id; named entries and the generic tile run on `acp`. */
+  harness?: string;
+  /** Server label for named providers; native tiles fall back to their mark. */
+  label?: string;
   configurable?: boolean;
+  /** Present on ACP entries (named providers and the generic custom tile). */
+  transport?: 'acp';
+  /** Safe curated provider id for named entries; absent for native and generic ACP. */
+  acp_provider?: string;
+  /** Documentation link surfaced beside a named provider tile. */
+  help_url?: string;
+  /** True only for the generic custom ACP tile — hidden behind the Advanced disclosure. */
+  advanced?: boolean;
+  /** A currently-installed native adapter that hides this named provider from primary selection. */
+  shadowed_by_native?: string;
   capabilities: {
     thinking?: boolean;
     thinking_levels?: readonly ThinkingLevel[];
@@ -381,7 +396,19 @@ export interface SpawnSpec {
   model?: string;
   thinking?: ThinkingLevel;
   purpose?: string;
+  /** A curated named provider id — mutually exclusive with acp_launch. Never a command. */
+  acp_provider?: string;
   acp_launch?: { executable: string; argv: string[] };
+}
+
+/** The `acp:` selector-id prefix a named provider tile carries. */
+export const ACP_SELECTOR_PREFIX = 'acp:';
+
+/** Map a selector id to its runtime harness and (for named tiles) safe provider id. */
+export function resolveSelector(selectorId: string): { harness: string; acp_provider?: string } {
+  return selectorId.startsWith(ACP_SELECTOR_PREFIX)
+    ? { harness: 'acp', acp_provider: selectorId.slice(ACP_SELECTOR_PREFIX.length) }
+    : { harness: selectorId };
 }
 
 /**
@@ -400,11 +427,16 @@ export function buildSpawnSpec(input: {
   adapters: readonly AdapterLike[];
   members: readonly Member[];
 }): SpawnSpec {
-  const harness = effectiveHarness(input.config.harness, input.adapters);
-  const adapter = input.adapters.find((candidate) => candidate.id === harness);
+  const selectorId = effectiveHarness(input.config.harness, input.adapters);
+  const adapter = input.adapters.find((candidate) => candidate.id === selectorId);
+  const { harness, acp_provider } = resolveSelector(selectorId);
   const thinking = supportedThinking(adapter, input.config.thinking);
   const purpose = input.purpose?.trim();
-  const acpLaunch = acpLaunchFromConfig({ ...input.config, harness });
+  // A named provider carries only its safe id; a custom launch is built solely for the
+  // generic `acp` tile. The two are mutually exclusive and never sent together.
+  const acpLaunch = acp_provider === undefined
+    ? acpLaunchFromConfig({ ...input.config, harness: selectorId })
+    : undefined;
 
   return {
     harness,
@@ -414,6 +446,7 @@ export function buildSpawnSpec(input: {
     ...(input.config.model !== '' && { model: input.config.model }),
     ...(thinking !== undefined && { thinking }),
     ...(purpose !== undefined && purpose !== '' && { purpose }),
+    ...(acp_provider !== undefined && { acp_provider }),
     ...(acpLaunch !== undefined && { acp_launch: acpLaunch }),
   };
 }

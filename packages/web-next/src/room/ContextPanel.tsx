@@ -7,6 +7,7 @@ import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attach
 import { AgentControls, AgentIdentityControls, RolePresetControls, Section } from './AgentControls.js';
 import { FolderPicker } from './FolderPicker.js';
 import {
+  ACP_SELECTOR_PREFIX,
   DEFAULT_POLICY,
   type AgentConfig,
   type SpawnSpec,
@@ -208,6 +209,7 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
       {spawning && (
         <SpawnDialog
           adapters={adapterCatalog.installed}
+          advanced={adapterCatalog.advanced}
           onRefresh={adapterCatalog.refresh}
           refreshing={adapterCatalog.refreshing}
           refreshError={adapterCatalog.refreshError}
@@ -635,9 +637,16 @@ function ConfigureDialog(props: {
   }) => void;
 }) {
   // Same control as spawn and channel-create, with the harness locked: an existing
-  // member cannot change the harness it is running.
+  // member cannot change the harness it is running. The locked tile is keyed by the
+  // SELECTOR id, not the runtime harness: a named provider member persists its safe
+  // `acp_provider`, so its selector is `acp:<provider>` — that is the tile that shows
+  // (locked, with its ACP pill) even if the provider's binary later disappears, since
+  // the named catalog entry is always listed. A native or custom-ACP member keys off
+  // its plain harness id.
   const [config, setConfig] = useState<AgentConfig>({
-    harness: props.member.harness ?? '',
+    harness: props.member.acp_provider !== undefined
+      ? `${ACP_SELECTOR_PREFIX}${props.member.acp_provider}`
+      : props.member.harness ?? '',
     model: props.member.model ?? '',
     thinking: props.member.thinking ?? '',
     policy: asPolicy(props.member.policy),
@@ -690,6 +699,8 @@ function ConfigureDialog(props: {
 
 function SpawnDialog(props: {
   adapters: AdapterRegistration[];
+  /** The generic custom ACP transport, offered only inside the Advanced disclosure. */
+  advanced: AdapterRegistration[];
   onRefresh: () => void;
   refreshing: boolean;
   refreshError?: string;
@@ -721,15 +732,18 @@ function SpawnDialog(props: {
   // open, so the dialog greets you with "Cancel" instead of the first field.
   const handleRef = useRef<HTMLInputElement>(null);
 
+  // Reconciliation spans both grids: a custom-ACP selection (id `acp`) lives in
+  // `advanced`, so healing and adapter lookups must see the combined list.
+  const all = [...props.adapters, ...props.advanced];
   // Adapter discovery is asynchronous; a selection made before the list arrives
   // heals rather than sticking at a dead value.
-  const harness = effectiveHarness(config.harness, props.adapters);
-  // harn:assume agent-selection-catalog-is-refreshable ref=spawn-harness-refresh
+  const harness = effectiveHarness(config.harness, all);
+  // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=spawn-provider-selection
   useEffect(() => {
     if (config.harness === harness) return;
-    setConfig(reconcileConfig(config, harness, props.adapters));
-  }, [config, harness, props.adapters]);
-  // harn:end agent-selection-catalog-is-refreshable
+    setConfig(reconcileConfig(config, harness, all));
+  }, [config, harness, all]);
+  // harn:end agent-selection-shows-detected-acp-and-advanced-custom
   const owner = channelOwner(props.members);
   const derived = handle.trim();
   const ownerClash = collidesWithOwner(derived, owner);
@@ -744,7 +758,7 @@ function SpawnDialog(props: {
       handle: derived,
       cwd,
       purpose,
-      adapters: props.adapters,
+      adapters: all,
       members: props.members,
     }));
   };
@@ -771,6 +785,7 @@ function SpawnDialog(props: {
         <Section n={1} title="Identity">
         <AgentIdentityControls
           adapters={props.adapters}
+          advanced={props.advanced}
           config={{ ...config, harness }}
           onChange={setConfig}
           idPrefix="spawn"
@@ -825,7 +840,7 @@ function SpawnDialog(props: {
             const applied = applyPreset({
               preset,
               config: { ...config, harness },
-              adapters: props.adapters,
+              adapters: all,
               members: props.members,
             });
             setConfig(applied.config);
@@ -836,7 +851,7 @@ function SpawnDialog(props: {
         </Section>
 
         <AgentControls
-          adapters={props.adapters}
+          adapters={all}
           config={{ ...config, harness }}
           onChange={setConfig}
           hideHarness

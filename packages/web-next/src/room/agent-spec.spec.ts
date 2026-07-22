@@ -19,6 +19,7 @@ import {
   applyPreset,
   effectiveHarness,
   reconcileConfig,
+  resolveSelector,
   supportedThinking,
   thinkingLevelsFor,
 } from './agent-spec.js';
@@ -77,6 +78,52 @@ describe('policy is never omitted (Tier-1 #1)', () => {
     expect([...POLICIES]).toEqual(['read-only', 'workspace-write', 'full-access']);
   });
 });
+
+const kimi: AdapterLike = {
+  id: 'acp:kimi', harness: 'acp', label: 'Kimi Code CLI', transport: 'acp', acp_provider: 'kimi',
+  capabilities: { thinking: false, resume: false },
+};
+const acpGeneric: AdapterLike = {
+  id: 'acp', harness: 'acp', configurable: true, capabilities: { thinking: false },
+};
+
+// harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=provider-selection-wire-mapping
+describe('named ACP provider selection maps to the safe wire shape', () => {
+  it('sends a native harness id unchanged, with no provider or launch', () => {
+    const spec = buildSpawnSpec({
+      config: config({ harness: 'claude-code' }), handle: 'a', cwd: '/p', adapters: [claude], members: [],
+    });
+    expect(spec.harness).toBe('claude-code');
+    expect(spec).not.toHaveProperty('acp_provider');
+    expect(spec).not.toHaveProperty('acp_launch');
+  });
+
+  it('resolves a named selector id to the acp harness plus a safe provider id, never a command', () => {
+    const spec = buildSpawnSpec({
+      config: config({ harness: 'acp:kimi' }), handle: 'a', cwd: '/p', adapters: [kimi], members: [],
+    });
+    expect(spec.harness).toBe('acp');
+    expect(spec.acp_provider).toBe('kimi');
+    expect(spec).not.toHaveProperty('acp_launch');
+  });
+
+  it('builds a custom launch only for the generic acp tile, with no provider id', () => {
+    const spec = buildSpawnSpec({
+      config: config({ harness: 'acp', acpExecutable: 'my-tool', acpArgs: 'acp\n--x' }),
+      handle: 'a', cwd: '/p', adapters: [acpGeneric], members: [],
+    });
+    expect(spec.harness).toBe('acp');
+    expect(spec).not.toHaveProperty('acp_provider');
+    expect(spec.acp_launch).toEqual({ executable: 'my-tool', argv: ['acp', '--x'] });
+  });
+
+  it('splits selector ids deterministically', () => {
+    expect(resolveSelector('codex')).toEqual({ harness: 'codex' });
+    expect(resolveSelector('acp')).toEqual({ harness: 'acp' });
+    expect(resolveSelector('acp:kimi')).toEqual({ harness: 'acp', acp_provider: 'kimi' });
+  });
+});
+// harn:end agent-selection-shows-detected-acp-and-advanced-custom
 
 describe('cwd is inherited, not retyped (Tier-1 #2)', () => {
   it('prefers the room directory', () => {

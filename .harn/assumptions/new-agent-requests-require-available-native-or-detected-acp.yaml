@@ -1,0 +1,18 @@
+id: new-agent-requests-require-available-native-or-detected-acp
+hash: a-44b20ae461dc
+title: New agents require an installed native adapter, detected named ACP id, or
+  authorized custom ACP launch
+state: active
+statement: New member and starting-agent requests reject an unavailable native
+  adapter, unknown or currently undetected named ACP provider, and missing,
+  unauthorized, malformed, or nonresolving custom ACP launch before member
+  persistence. Named ACP launch is resolved only by the daemon registry and
+  never from client command data. Once preflight passes, channel creation
+  retains the existing rule that a genuine starting-agent spawn failure leaves
+  the seeded channel and records the failure.
+depends_on:
+  - named-acp-provider-catalog-is-path-detected-and-command-private
+  - named-acp-provider-selection-resolves-to-private-structured-launch
+  - canonical-spawn-controls-enforced
+  - channel-creation-derived-and-seeded
+created_by: codor-polish-phase6-acp-providers
