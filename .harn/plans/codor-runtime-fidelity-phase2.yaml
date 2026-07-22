@@ -1,0 +1,240 @@
+id: codor-runtime-fidelity-phase2
+title: Deliver ordered active-turn steering and truthful capabilities
+notes: >-
+  Add one optional adapter steering operation whose acknowledgement means the
+  native active turn accepted the input. Codex implements it with the pinned
+  app-server turn/steer RPC and exact expected turn id. The daemon serializes
+  steering per member, leaves each delivery durably queued until native
+  acknowledgement, records successful steering, and falls back to the ordinary
+  FIFO after idle races or failures. Claude's established PostToolUse inbox
+  mechanism remains unchanged. The built-in audit keeps Antigravity, Copilot,
+  Cursor, Gemini, and OpenCode false because their captured protocols provide
+  no genuine active-turn input channel.
+assumptions:
+  retire:
+    - id: live-inbox-capability-is-evidence-backed
+      reason: Codex now has an evidence-backed active-turn channel in addition to
+        Claude's hook, so the old Claude-alone capability statement is false.
+    - id: agent-delivery-lifecycle-streams
+      reason: Successful active-turn steering adds a native-acknowledged consumed
+        transition and persisted disposition to the existing queued, delivering,
+        and completed lifecycle.
+  create:
+    - id: live-inbox-capability-is-evidence-backed-v2
+      title: Live inbox capability matches a genuine active-turn channel
+      statement: Claude Code and Codex alone among built-ins must advertise
+        live_inbox true, backed respectively by Claude's exact PostToolUse Codor
+        inbox hook and Codex app-server turn/steer with the expected active turn
+        id; Antigravity, Copilot, Cursor, Gemini, and OpenCode must remain false
+        because their captured first-party protocols cannot accept input during
+        a running turn.
+      reason: Capability reporting must describe what a harness can receive now,
+        not what Codor can queue for its next turn.
+      depends_on:
+        - adapter-children-inherit-session-env
+        - extensions-hooks-authoritative
+        - codex-app-server-contract-is-pinned-to-0-144-5
+    - id: agent-delivery-lifecycle-streams-v2
+      title: Agent delivery lifecycle and steering disposition stream live
+      statement: Every recorded agent-delivery transition must be emitted to room
+        subscribers immediately, including queued creation, turn admission,
+        turn completion, and native-acknowledged active steering; a steered
+        delivery must persist its acknowledgement timestamp so reconnects and
+        the transcript distinguish it from work intentionally waiting for the
+        next turn.
+      reason: Connected and reconnecting operators need one truthful answer about
+        whether a message is queued, admitted, completed, or steered now.
+    - id: active-turn-steering-is-ordered-and-durable
+      title: Active-turn steering is ordered and never loses queued work
+      statement: For an owned local member with a steer-capable adapter and one
+        active turn, the daemon must submit newly routed deliveries to that turn
+        in FIFO order, mark each consumed with steered_ts only after the native
+        acknowledgement names the expected turn, and leave or restore it queued
+        for the next turn when the member is idle, the turn races closed, or the
+        steering request fails.
+      reason: Same-turn correction must be immediate without reordering messages or
+        converting transport uncertainty into lost instructions.
+      depends_on:
+        - live-inbox-capability-is-evidence-backed-v2
+        - agent-delivery-lifecycle-streams-v2
+        - one-inflight-turn-per-member
+        - delivery-fifo-has-durable-sequence
+        - delivery-payload-snapshotted
+  reviewed:
+    - id: cli-hook-inbox-is-silent-when-empty
+      outcome: unchanged
+      reason: Claude's exact queue consumption and empty-output hook behavior are
+        untouched even though Codex gains a separate native steering channel.
+    - id: one-inflight-turn-per-member
+      outcome: unchanged
+      reason: Steering adds input to the sole active native turn and never calls
+        adapter.deliver concurrently; non-steered work still drains in one later
+        batch.
+    - id: inflight-member-state-survives-new-delivery
+      outcome: unchanged
+      reason: A running or awaiting-input member keeps its state while the delivery
+        is either consumed by the live channel or remains queued for the next batch.
+    - id: codex-app-server-is-the-member-runtime
+      outcome: unchanged
+      reason: Steering uses the same retained client, native thread, and active turn
+        already owned by the member runtime without changing process lifecycle.
+    - id: codex-app-server-contract-is-pinned-to-0-144-5
+      outcome: unchanged
+      reason: The exact camelCase turn/steer request and response are exercised
+        hermetically through the existing injected fake app server.
+    - id: adapter-wrappers-preserve-the-whole-contract
+      outcome: unchanged
+      reason: The production registry wrapper must forward the new optional steering
+        method just as it forwards every other optional adapter member.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: Active steering submits the same immutable routed payload snapshot
+        that an ordinary later turn would consume.
+    - id: delivery-fifo-has-durable-sequence
+      outcome: unchanged
+      reason: Per-member promise serialization follows creation order while durable
+        queue sequence remains authoritative for every fallback batch.
+    - id: mirrored-deliveries-queue
+      outcome: unchanged
+      reason: Mirrored and remote members retain existing queue behavior; direct
+        steering is only attempted for a locally owned adapter runtime.
+    - id: grouped-deliveries-have-an-isolated-batch-class
+      outcome: unchanged
+      reason: Collaboration group deliveries retain their barrier and batch rules and
+        are not diverted into the ordinary single-recipient steering path.
+    - id: run-journals-own-evidence-across-output-messages
+      outcome: unchanged
+      reason: steered_ts is delivery lifecycle metadata, not run-event evidence or a
+        database run blob.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: The shared deliveries table gains scalar steering metadata without
+        changing attach lease storage or process ownership.
+    - id: collaboration-groups-are-durable-state
+      outcome: unchanged
+      reason: The shared deliveries table gains scalar steering metadata without
+        changing group, round, participant, or barrier persistence.
+    - id: substantive-output-messages-drive-unread
+      outcome: unchanged
+      reason: Delivery steering metadata does not change message activity sequence or
+        unread rules.
+anchors:
+  live-inbox-capability-is-evidence-backed:
+    claude-live-inbox-notes: { action: remove, reason: Re-anchor unchanged Claude evidence to the v2 capability truth. }
+    claude-live-inbox-regression: { action: remove, reason: Re-anchor unchanged Claude evidence to the v2 capability truth. }
+    claude-live-inbox-capability: { action: remove, reason: Re-anchor unchanged Claude evidence to the v2 capability truth. }
+    claude-post-tool-use-hook: { action: remove, reason: Re-anchor unchanged Claude evidence to the v2 capability truth. }
+    claude-capability-snapshot: { action: remove, reason: Re-anchor unchanged Claude evidence to the v2 capability truth. }
+    codex-live-inbox-notes: { action: remove, reason: Replace the obsolete no-steering evidence. }
+    codex-live-inbox-capability: { action: remove, reason: Replace Codex false with evidence-backed true. }
+    codex-capability-snapshot: { action: remove, reason: Replace the obsolete Codex capability snapshot. }
+    copilot-live-inbox-notes: { action: remove, reason: Re-anchor audited false evidence to v2. }
+    copilot-live-inbox-capability: { action: remove, reason: Re-anchor audited false evidence to v2. }
+    copilot-capability-snapshot: { action: remove, reason: Re-anchor audited false evidence to v2. }
+    gemini-live-inbox-notes: { action: remove, reason: Re-anchor audited false evidence to v2. }
+    gemini-live-inbox-capability: { action: remove, reason: Re-anchor audited false evidence to v2. }
+    gemini-capability-snapshot: { action: remove, reason: Re-anchor audited false evidence to v2. }
+    opencode-live-inbox-notes: { action: remove, reason: Re-anchor audited false evidence to v2. }
+    opencode-live-inbox-capability: { action: remove, reason: Re-anchor audited false evidence to v2. }
+    opencode-capability-snapshot: { action: remove, reason: Re-anchor audited false evidence to v2. }
+  live-inbox-capability-is-evidence-backed-v2:
+    adapter-live-inbox-contract: { action: change, reason: Add the optional active-turn steering acknowledgement contract. }
+    claude-live-inbox-notes: { action: change, reason: Keep Claude's exact hook evidence unchanged under v2 truth. }
+    claude-live-inbox-regression: { action: change, reason: Keep Claude's hook regression unchanged under v2 truth. }
+    claude-live-inbox-capability: { action: change, reason: Keep Claude true under the audited matrix. }
+    claude-post-tool-use-hook: { action: change, reason: Keep the existing PostToolUse channel stable. }
+    claude-capability-snapshot: { action: change, reason: Keep the existing Claude snapshot stable. }
+    codex-live-inbox-notes: { action: change, reason: Document the exact app-server steering operation. }
+    codex-live-inbox-capability: { action: change, reason: Advertise true only with the implementation present. }
+    codex-capability-snapshot: { action: change, reason: Lock the corrected Codex capability. }
+    copilot-live-inbox-notes: { action: change, reason: Preserve audited false evidence. }
+    copilot-live-inbox-capability: { action: change, reason: Preserve audited false declaration. }
+    copilot-capability-snapshot: { action: change, reason: Preserve audited false snapshot. }
+    cursor-live-inbox-capability: { action: change, reason: Anchor the audited false declaration. }
+    cursor-capability-snapshot: { action: change, reason: Anchor the audited false snapshot. }
+    antigravity-live-inbox-capability: { action: change, reason: Anchor the audited false declaration. }
+    gemini-live-inbox-notes: { action: change, reason: Preserve audited false evidence. }
+    gemini-live-inbox-capability: { action: change, reason: Preserve audited false declaration. }
+    gemini-capability-snapshot: { action: change, reason: Preserve audited false snapshot. }
+    opencode-live-inbox-notes: { action: change, reason: Preserve audited false evidence. }
+    opencode-live-inbox-capability: { action: change, reason: Preserve audited false declaration. }
+    opencode-capability-snapshot: { action: change, reason: Preserve audited false snapshot. }
+    builtin-live-inbox-matrix: { action: change, reason: Prove all seven built-in declarations together. }
+  agent-delivery-lifecycle-streams:
+    delivery-created-emit: { action: remove, reason: Re-anchor the existing transition to v2. }
+    delivery-bound-emit: { action: remove, reason: Re-anchor the existing transition to v2. }
+    delivery-consumed-emit: { action: remove, reason: Re-anchor the existing transition to v2. }
+  agent-delivery-lifecycle-streams-v2:
+    delivery-created-emit: { action: change, reason: Keep queued creation visible. }
+    delivery-bound-emit: { action: change, reason: Keep ordinary turn admission visible. }
+    delivery-consumed-emit: { action: change, reason: Keep ordinary completion visible. }
+    steered-delivery-protocol: { action: change, reason: Add durable steering acknowledgement metadata. }
+    steered-delivery-storage: { action: change, reason: Persist and migrate steered_ts. }
+    steered-delivery-emit: { action: change, reason: Stream native-acknowledged steering immediately. }
+    steering-delivery-indicator: { action: change, reason: Label steered versus queued delivery honestly. }
+    steering-delivery-indicator-regression: { action: change, reason: Prove the three visible dispositions. }
+  active-turn-steering-is-ordered-and-durable:
+    adapter-steering-contract: { action: change, reason: Define acknowledgement and idle fallback semantics. }
+    codex-active-turn-steering: { action: change, reason: Call turn/steer with the expected active turn id. }
+    codex-active-turn-steering-regression: { action: change, reason: Prove active, idle, response mismatch, and RPC failure behavior. }
+    daemon-active-turn-steering: { action: change, reason: Serialize local steering and restore ordinary queue delivery on failure. }
+    daemon-active-turn-steering-regression: { action: change, reason: Prove active delivery, idle fallback, FIFO order, and failure recovery. }
+    fake-active-turn-steering: { action: change, reason: Provide an observable hermetic steering adapter. }
+  adapter-wrappers-preserve-the-whole-contract:
+    registry-wrapper-completeness: { action: change, reason: Forward optional steer through the production wrapper. }
+  codex-app-server-is-the-member-runtime:
+    codex-app-server-session-lifecycle: { action: change, reason: Reuse the retained active runtime for steering. }
+    codex-app-server-session-regression: { action: change, reason: Exercise steering through the retained fake server. }
+  codex-app-server-contract-is-pinned-to-0-144-5:
+    codex-app-server-contract-notes: { action: change, reason: Record the exact pinned steering request and response. }
+  one-inflight-turn-per-member:
+    inflight-guard: { action: change, reason: Exclude in-progress steering rows from later-turn admission without opening a second turn. }
+  inflight-member-state-survives-new-delivery:
+    preserve-live-state-on-queue: { action: change, reason: Preserve active member state during steering and fallback. }
+    preserve-live-state-regression: { action: change, reason: Extend the live-delivery regression with steering truth. }
+  run-journals-own-evidence-across-output-messages:
+    store-schema-no-blobs: { action: change, reason: Add scalar delivery metadata while retaining pointer-only run storage. }
+  attach-custody-lease-tracks-child-pid:
+    attach-lease-store: { action: change, reason: Account for the shared schema edit without changing leases. }
+  collaboration-groups-are-durable-state:
+    collaboration-store-schema: { action: change, reason: Account for the shared deliveries-table edit without changing groups. }
+  substantive-output-messages-drive-unread:
+    message-activity-storage: { action: change, reason: Account for the shared schema edit without changing unread behavior. }
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/delivery.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/adapters/antigravity/src/adapter.ts
+  - packages/adapters/claude-code/NOTES.md
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/claude-code/src/adapter.spec.ts
+  - packages/adapters/claude-code/src/index.spec.ts
+  - packages/adapters/codex/NOTES.md
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/adapter.spec.ts
+  - packages/adapters/codex/src/index.spec.ts
+  - packages/adapters/copilot/NOTES.md
+  - packages/adapters/copilot/src/adapter.ts
+  - packages/adapters/copilot/src/index.spec.ts
+  - packages/adapters/cursor/src/adapter.ts
+  - packages/adapters/cursor/src/index.spec.ts
+  - packages/adapters/gemini/NOTES.md
+  - packages/adapters/gemini/src/adapter.ts
+  - packages/adapters/gemini/src/index.spec.ts
+  - packages/adapters/opencode/NOTES.md
+  - packages/adapters/opencode/src/adapter.ts
+  - packages/adapters/opencode/src/index.spec.ts
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+verification: Run focused Codex steering, built-in capability matrix, daemon
+  active/idle/order/failure, delivery storage/protocol, and transcript status
+  tests; run protocol, Codex, switchboard, and web-next typecheck/build plus
+  Harn unstaged and staged gates, then apply and commit Phase 2 as one
+  implementation transaction.
