@@ -1,0 +1,103 @@
+id: rebuild-public-package-0-10-4
+title: Rebuild the public package as version 0.10.4
+notes: Advance the repository release set from 0.10.3 to 0.10.4 so Richard can
+  publish the approved six-phase product-polish runtime. Align every existing
+  workspace manifest, including the new ACP adapter, and its ACP client
+  identity. Rebuild and verify the tarball only; do not publish, tag, or push.
+assumptions:
+  reviewed:
+    - id: public-package-bundles-complete-codor-runtime
+      outcome: unchanged
+      reason: The artifact continues to bundle the exact workspace closure and resolve
+        every workspace dependency to the new common release version.
+    - id: public-package-readme-renders-on-npm
+      outcome: unchanged
+      reason: The rebuilt tarball carries the existing npm-safe README unchanged; only
+        the publishable version identity advances.
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      outcome: unchanged
+      reason: The ACP adapter advertises the matching Codor release version while its
+        protocol negotiation and normalized runtime behavior remain unchanged.
+    - id: artifact-build-runs-from-clean-source
+      outcome: unchanged
+      reason: The artifact regression is updated for the ACP adapter that Phase 6 added
+        to the recursive runtime closure; the clean-build contract remains unchanged.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: CLI composition regressions now distinguish registry adapters from
+        PATH-detected named ACP catalog entries without changing registry ownership.
+    - id: empty-database-desk-seeds-tutorial-atomically
+      outcome: unchanged
+      reason: Its existing regression receives only a corrected adapter-catalog
+        expectation; Desk and Tutorial bootstrap behavior is unchanged.
+    - id: empty-database-desk-uses-service-home
+      outcome: unchanged
+      reason: Its existing regression receives only a corrected adapter-catalog
+        expectation; service-home selection is unchanged.
+anchors:
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-adapter-runtime:
+      action: change
+      files:
+        - packages/adapters/acp/src/adapter.ts
+      reason: Advance the ACP initialize clientInfo version from 0.10.3 to 0.10.4.
+  artifact-build-runs-from-clean-source:
+    artifact-build-command:
+      action: change
+      files:
+        - packages/cli/src/artifact.spec.ts
+      reason: Update the artifact graph fixture from ten packages/seven adapters to
+        the eleven-package/eight-adapter closure that includes ACP.
+  public-package-bundles-complete-codor-runtime:
+    artifact-runtime-regression:
+      action: change
+      files:
+        - packages/cli/src/artifact.spec.ts
+      reason: Assert the exact staged public manifest includes the ACP adapter.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      files:
+        - packages/cli/src/index.spec.ts
+      reason: Keep registry composition assertions exact while excluding separately
+        detected named ACP catalog entries.
+  empty-database-desk-seeds-tutorial-atomically:
+    bootstrap-tutorial-regression:
+      action: change
+      files:
+        - packages/cli/src/index.spec.ts
+      reason: Correct the nested catalog expectation only; tutorial bootstrap remains
+        byte-for-byte unchanged.
+  empty-database-desk-uses-service-home:
+    bootstrap-service-home-regression:
+      action: change
+      files:
+        - packages/cli/src/index.spec.ts
+      reason: Correct the nested catalog expectation only; service-home behavior remains
+        byte-for-byte unchanged.
+files:
+  - package.json
+  - packages/adapters/acp/package.json
+  - packages/adapters/acp/src/adapter.ts
+  - packages/adapters/antigravity/package.json
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/codex/package.json
+  - packages/adapters/copilot/package.json
+  - packages/adapters/cursor/package.json
+  - packages/adapters/gemini/package.json
+  - packages/adapters/opencode/package.json
+  - packages/bridges/core/package.json
+  - packages/bridges/slack/package.json
+  - packages/bridges/telegram/package.json
+  - packages/cli/package.json
+  - packages/cli/src/artifact.spec.ts
+  - packages/cli/src/index.spec.ts
+  - packages/protocol/package.json
+  - packages/switchboard/package.json
+  - packages/web-next/package.json
+  - relay/package.json
+  - website/package.json
+verification: Confirm every tracked workspace manifest and the ACP client
+  identity report 0.10.4; run frozen install, the artifact build, license and
+  release audits, run the corrected CLI/ACP regressions, pack the staged public
+  package, and install-smoke the exact resulting TGZ. Do not publish, tag, or push.
