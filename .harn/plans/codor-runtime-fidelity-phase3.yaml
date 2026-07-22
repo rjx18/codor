@@ -1,12 +1,11 @@
 id: codor-runtime-fidelity-phase3
 title: Price resolved Codex usage and migrate legacy accounting once
-notes: >-
-  Use current public standard API list prices from the official OpenAI model
-  catalog: GPT-5.6 Luna 1/0.10/6, Terra 2.5/0.25/15, Sol 5/0.50/30,
-  and GPT-5.5 5/0.50/30 USD per million uncached-input/cached-input/output
-  tokens. Preserve the documented gpt-5.6 -> gpt-5.6-sol alias and GPT-5.5
-  snapshot alias. The pinned app-server has a model on thread start/resume but
-  not turn/start; as authorized in channel #762, retain that response model and
+notes: "Use current public standard API list prices from the official OpenAI
+  model catalog: GPT-5.6 Luna 1/0.10/6, Terra 2.5/0.25/15, Sol 5/0.50/30, and
+  GPT-5.5 5/0.50/30 USD per million uncached-input/cached-input/output tokens.
+  Preserve the documented gpt-5.6 -> gpt-5.6-sol alias and GPT-5.5 snapshot
+  alias. The pinned app-server has a model on thread start/resume but not
+  turn/start; as authorized in channel #762, retain that response model and
   update it from thread/settings/updated and model/rerouted notifications
   correlated to the retained thread/active turn. Future terminal usage stores
   its cached split, truthful resolved model, and one immutable estimate unless
@@ -16,56 +15,59 @@ notes: >-
   affected room/day meters from run truth before recording its marker. The
   read-only production audit found 501 unpriced Codex runs and 8,878,785,095
   unpriced tokens, with no unpriced non-Codex population; development never
-  mutates that database.
+  mutates that database."
 assumptions:
   retire:
     - id: estimate-price-table-matches-curated-models
       reason: Codex estimates must now distinguish cached input and recognize the
-        current documented aliases, which the uncached-only table cannot express.
+        current documented aliases, which the uncached-only table cannot
+        express.
     - id: codex-app-server-usage-is-context-aware-and-uncosted
       reason: Codex still reports no exact provider dollars, but its terminal usage
         now preserves cached tokens and the runtime's resolved model for an
         advisory estimate.
     - id: run-cost-estimates-are-finalization-snapshots
       reason: Future estimates remain immutable finalization snapshots, while the
-        approved one-time migration deliberately prices previously uncosted legacy
-        Codex history.
+        approved one-time migration deliberately prices previously uncosted
+        legacy Codex history.
     - id: estimated-cost-is-advisory-not-spend-brake-input
       reason: The provenance separation remains, but its dependency must move to the
         resolved-model snapshot and one-time historical migration contracts.
   create:
     - id: codex-price-table-models-cache-and-aliases
       title: Codex advisory prices distinguish cache and documented aliases
-      statement: The advisory price table must key every current curated Codex
-        model, retain only documented compatibility aliases for stored history,
-        and calculate uncached input, cached input, and output separately at
-        cited public standard API rates including the documented long-context
-        tier; unknown models return no estimate and exact provider cost is never
+      statement: The advisory price table must key every current curated Codex model,
+        retain only documented compatibility aliases for stored history, and
+        calculate uncached input, cached input, and output separately at cited
+        public standard API rates including the documented long-context tier;
+        unknown models return no estimate and exact provider cost is never
         replaced by this advisory calculation.
       reason: A cached token is materially cheaper than an uncached token, while a
-        stale model alias or guessed unknown price makes the operator gauge false.
+        stale model alias or guessed unknown price makes the operator gauge
+        false.
       depends_on:
         - adapters-own-their-model-catalog
     - id: codex-app-server-usage-preserves-cache-and-resolved-model
       title: Codex completion preserves cached usage and resolved runtime model
-      statement: Codex thread token usage must normalize last input, cached input,
-        and output tokens, emit the cached split durably on terminal completion,
-        and snapshot the latest truthful model from thread start or resume,
-        thread settings updates, or an active-turn model reroute correlated to
-        the retained runtime; it must never invent an exact provider cost or a
+      statement: Codex thread token usage must normalize last input, cached input, and
+        output tokens, emit the cached split durably on terminal completion, and
+        snapshot the latest truthful model from thread start or resume, thread
+        settings updates, or an active-turn model reroute correlated to the
+        retained runtime; it must never invent an exact provider cost or a
         turn/start model field absent from the pinned protocol.
       reason: Future estimates require both the billable cached split and the model
-        the runtime actually used, rather than only the member's configured wish.
+        the runtime actually used, rather than only the member's configured
+        wish.
       depends_on:
         - codex-app-server-contract-is-pinned-to-0-144-5
         - normalized-agent-usage-telemetry-with-estimates
     - id: resolved-run-cost-estimates-are-finalization-snapshots
       title: Future run estimates snapshot resolved model and cached usage
       statement: A newly terminal tokens-only run must atomically persist its latest
-        truthful resolved model, cached-input-aware advisory estimate, usage, and
-        meter update; retries and repairs preserve that snapshot, exact provider
-        cost remains authoritative, and later member configuration or price-table
-        changes cannot reprice finalized new history.
+        truthful resolved model, cached-input-aware advisory estimate, usage,
+        and meter update; retries and repairs preserve that snapshot, exact
+        provider cost remains authoritative, and later member configuration or
+        price-table changes cannot reprice finalized new history.
       reason: Runtime resolution and cache usage make the estimate accurate at the
         only safe immutable accounting boundary.
       depends_on:
@@ -81,9 +83,10 @@ assumptions:
         persisted run model, native session journal evidence, member model, then
         gpt-5.6-sol only as the legacy Codex fallback; price all recorded legacy
         input at the ordinary current input rate, preserve exact costs, rebuild
-        each affected room/day meter from all run truth rather than adding deltas,
-        require zero historical Codex uncosted tokens, and record the marker only
-        after success so rollback is intact and every restart is a no-op.
+        each affected room/day meter from all run truth rather than adding
+        deltas, require zero historical Codex uncosted tokens, and record the
+        marker only after success so rollback is intact and every restart is a
+        no-op.
       reason: Historical sessions must become fully priced without double charging,
         guessing non-Codex models, or leaving a partially migrated database.
       depends_on:
@@ -95,9 +98,10 @@ assumptions:
       statement: Room meters, member details, and browser surfaces must project
         provider-reported cost and stored estimated cost as separate
         non-overlapping buckets, label every estimate and mixture explicitly,
-        evaluate spend_brake_usd from provider-reported cost alone, and retain no
-        uncosted Codex tokens after the approved historical migration; advisory
-        prices remain observability and never billing truth or enforcement input.
+        evaluate spend_brake_usd from provider-reported cost alone, and retain
+        no uncosted Codex tokens after the approved historical migration;
+        advisory prices remain observability and never billing truth or
+        enforcement input.
       reason: Repriced history improves the gauge without changing exact-spend
         provenance or safety enforcement.
       depends_on:
@@ -113,9 +117,16 @@ assumptions:
         transient telemetry vocabulary or estimation marker.
     - id: codex-app-server-contract-is-pinned-to-0-144-5
       outcome: unchanged
-      reason: Model capture follows the exact pinned response and notification
-        members and remains covered by the injected fake server without a model
-        request.
+      reason: Model capture follows the exact pinned response and notification members
+        and remains covered by the injected fake server without a model request.
+    - id: codex-app-server-is-the-member-runtime
+      outcome: unchanged
+      reason: Resolved-model capture reads metadata from the already retained client,
+        thread, and active turn without changing member process or session lifecycle.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: Adding resolved model to the finalized run object crosses the shared
+        acknowledgement block without changing classification, content, or routing.
     - id: turn-output-finalization-is-atomic
       outcome: unchanged
       reason: Resolved model, usage, estimate, meter settlement, output, and routing
@@ -127,8 +138,8 @@ assumptions:
     - id: spend-meter-always-on
       outcome: unchanged
       reason: New turns remain metered on finalization; the historical migration
-        reconstructs affected aggregates from terminal run truth without changing
-        ordinary always-on accounting.
+        reconstructs affected aggregates from terminal run truth without
+        changing ordinary always-on accounting.
     - id: adapters-own-their-model-catalog
       outcome: unchanged
       reason: Pricing recognizes the existing curated Codex catalog and documented
@@ -152,7 +163,8 @@ anchors:
   codex-price-table-models-cache-and-aliases:
     codex-price-table:
       action: change
-      reason: Cite and implement current cached, uncached, output, alias, and tier rates.
+      reason: Cite and implement current cached, uncached, output, alias, and tier
+        rates.
     codex-price-regression:
       action: change
       reason: Pin aliases, all three token classes, long context, and unknown models.
@@ -198,7 +210,8 @@ anchors:
       reason: Prefer terminal resolved evidence and price cached input atomically.
     resolved-run-estimate-repair:
       action: change
-      reason: Apply identical authoritative-cost and immutable-estimate rules on repair.
+      reason: Apply identical authoritative-cost and immutable-estimate rules on
+        repair.
     resolved-run-estimate-regression:
       action: change
       reason: Prove normal, exact-cost, missing-model, retry, and repair behavior.
@@ -243,13 +256,25 @@ anchors:
       reason: The terminal event gains durable resolved-model and cached Usage fields
         while the existing AgentUsage telemetry contract remains unchanged.
   codex-app-server-contract-is-pinned-to-0-144-5:
+    codex-app-server-fake:
+      action: change
+      reason: Return the pinned top-level response model for hermetic capture tests.
+  codex-app-server-is-the-member-runtime:
     codex-app-server-session-regression:
       action: change
-      reason: Exercise exact model-bearing responses and correlated notifications.
+      reason: Exercise model capture on the existing retained session lifecycle.
+    codex-app-server-session-lifecycle:
+      action: change
+      reason: Retain app-server model metadata without changing process/thread ownership.
+  substantive-routing-excludes-acknowledgements:
+    exact-ack-finalization:
+      action: change
+      reason: Snapshot resolved model beside unchanged ACK classification and routing.
   turn-output-finalization-is-atomic:
     atomic-turn-finalization:
       action: change
-      reason: Include resolved model and cached-aware estimate in the existing transaction.
+      reason: Include resolved model and cached-aware estimate in the existing
+        transaction.
     output-finalization-regression:
       action: change
       reason: Prove new accounting fields roll back with the full turn.
@@ -266,8 +291,8 @@ anchors:
   spend-meter-always-on:
     meter-cost-and-token-accounting:
       action: change
-      reason: Historical affected rows are rebuilt from run truth; ordinary finalization
-        accounting remains always on.
+      reason: Historical affected rows are rebuilt from run truth; ordinary
+        finalization accounting remains always on.
 files:
   - packages/protocol/src/message.ts
   - packages/protocol/src/events.ts
@@ -282,11 +307,11 @@ files:
   - packages/switchboard/src/pricing.spec.ts
   - packages/switchboard/src/daemon.ts
   - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
   - packages/switchboard/src/store.ts
   - packages/switchboard/src/store.spec.ts
-verification: >-
-  Run focused protocol schema, Codex adapter model/usage, switchboard pricing,
-  daemon finalization/repair, and Store migration tests plus affected package
-  typecheck/build. Run Harn unstaged and staged gates, apply the locked plan,
-  and commit Phase 3 as one implementation transaction. Never open the live
-  database except read-only during verification.
+verification: Run focused protocol schema, Codex adapter model/usage,
+  switchboard pricing, daemon finalization/repair, and Store migration tests
+  plus affected package typecheck/build. Run Harn unstaged and staged gates,
+  apply the locked plan, and commit Phase 3 as one implementation transaction.
+  Never open the live database except read-only during verification.
