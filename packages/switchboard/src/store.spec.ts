@@ -59,6 +59,34 @@ describe('agent member credential storage', () => {
 
 // harn:assume live-delivery-consumption-is-idempotent ref=consumption-store-regression
 describe('queued delivery consumption', () => {
+  // harn:assume agent-delivery-lifecycle-streams-v2 ref=steered-delivery-storage
+  it('persists steering acknowledgement and migrates a legacy delivery table', () => {
+    const { owner } = openRoom(store);
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'steered-alpha', display_name: 'Steered Alpha', state: 'running',
+    });
+    const message = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'adjust course' });
+    const delivery = store.createDelivery('eng', { message_id: message.id, recipient: alpha.id });
+    const steeredTs = '2026-07-22T03:00:00.000Z';
+    expect(store.updateDelivery('eng', delivery.id, {
+      state: 'consumed', steered_ts: steeredTs,
+    })).toMatchObject({ state: 'consumed', steered_ts: steeredTs });
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getDelivery('eng', delivery.id)).toMatchObject({
+      state: 'consumed', steered_ts: steeredTs,
+    });
+
+    store.close();
+    const legacy = new Database(join(dir, 'test.sqlite'));
+    legacy.exec('ALTER TABLE deliveries DROP COLUMN steered_ts');
+    legacy.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getDelivery('eng', delivery.id)?.steered_ts).toBeUndefined();
+  });
+  // harn:end agent-delivery-lifecycle-streams-v2
+
   it('is recipient-bound, idempotent, and wins cleanly before turn admission', () => {
     const { owner } = openRoom(store);
     const alpha = store.addMember('eng', {

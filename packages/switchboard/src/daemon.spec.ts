@@ -485,6 +485,98 @@ describe('queued work during a live turn', () => {
 });
 // harn:end inflight-member-state-survives-new-delivery
 
+// harn:assume active-turn-steering-is-ordered-and-durable ref=daemon-active-turn-steering-regression
+describe('active-turn steering', () => {
+  const enableSteering = (): void => {
+    Object.assign(fake.capabilities, { live_inbox: true });
+  };
+
+  it('consumes an active delivery only after steering acknowledgement', async () => {
+    enableSteering();
+    const alpha = spawnAgent('steering-alpha', testCwd('steering-alpha'));
+    fake.enqueue({ kind: 'complete', final_text: '@richard original done', delay_ms: 120 });
+    daemon.postHumanMessage('eng', '@steering-alpha start');
+    await until(() => fake.deliveries.length === 1 && daemon.store.getMember('eng', alpha.id)?.state === 'running'
+      ? true
+      : undefined);
+
+    const correction = daemon.postHumanMessage('eng', '@steering-alpha focus on the failing test');
+    const steered = await until(() => daemon.store.listDeliveries('eng', { recipient: alpha.id })
+      .find((delivery) => delivery.message_id === correction.id)?.steered_ts === undefined
+      ? undefined
+      : daemon.store.listDeliveries('eng', { recipient: alpha.id })
+        .find((delivery) => delivery.message_id === correction.id));
+
+    expect(steered).toMatchObject({ state: 'consumed', steered_ts: expect.any(String) });
+    expect(fake.steers).toHaveLength(1);
+    expect(fake.steers[0]?.payload).toContain('focus on the failing test');
+    expect(fake.deliveries).toHaveLength(1);
+    expect(frames).toContainEqual(expect.objectContaining({
+      room: 'eng',
+      frame: expect.objectContaining({
+        type: 'inbox',
+        delivery: expect.objectContaining({ id: steered.id, state: 'consumed', steered_ts: steered.steered_ts }),
+      }),
+    }));
+    await daemon.settle();
+  });
+
+  it('uses ordinary delivery while idle and serializes active steering in FIFO order', async () => {
+    enableSteering();
+    const idle = spawnAgent('idle-alpha', testCwd('idle-alpha'));
+    fake.enqueue({ kind: 'complete', final_text: '@richard idle delivery done' });
+    daemon.postHumanMessage('eng', '@idle-alpha ordinary idle work');
+    await daemon.settle();
+    expect(fake.steers).toHaveLength(0);
+    expect(fake.deliveries).toHaveLength(1);
+
+    const active = spawnAgent('ordered-alpha', testCwd('ordered-alpha'));
+    fake.steerDelayMs = 25;
+    fake.enqueue({ kind: 'complete', final_text: '@richard ordered done', delay_ms: 160 });
+    daemon.postHumanMessage('eng', '@ordered-alpha start');
+    await until(() => fake.deliveries.length === 2 && daemon.store.getMember('eng', active.id)?.state === 'running'
+      ? true
+      : undefined);
+    daemon.postHumanMessage('eng', '@ordered-alpha first correction');
+    daemon.postHumanMessage('eng', '@ordered-alpha second correction');
+    await until(() => fake.steers.length === 2 ? true : undefined);
+    expect(fake.steers.map((steer) => steer.payload.match(/(first|second) correction/)?.[0]))
+      .toEqual(['first correction', 'second correction']);
+    expect(fake.maxConcurrentSteers).toBe(1);
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(2);
+  });
+
+  it('restores failed steering to the ordinary next-turn queue', async () => {
+    enableSteering();
+    const alpha = spawnAgent('recovery-alpha', testCwd('recovery-alpha'));
+    fake.failNextSteer('native steering failed');
+    fake.enqueue(
+      { kind: 'complete', final_text: '@richard first turn done', delay_ms: 120 },
+      { kind: 'complete', final_text: '@richard queued recovery done' },
+    );
+    daemon.postHumanMessage('eng', '@recovery-alpha start');
+    await until(() => fake.deliveries.length === 1 && daemon.store.getMember('eng', alpha.id)?.state === 'running'
+      ? true
+      : undefined);
+    const correction = daemon.postHumanMessage('eng', '@recovery-alpha preserve this correction');
+    await until(() => fake.steers.length === 1 && daemon.store.listDeliveries('eng', {
+      recipient: alpha.id, state: 'queued',
+    }).some((delivery) => delivery.message_id === correction.id) ? true : undefined);
+    const queued = daemon.store.listDeliveries('eng', { recipient: alpha.id })
+      .find((delivery) => delivery.message_id === correction.id)!;
+    expect(queued).toMatchObject({ state: 'queued' });
+    expect(queued.steered_ts).toBeUndefined();
+
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(2);
+    expect(fake.deliveries[1]?.payload).toContain('preserve this correction');
+    expect(daemon.store.getDelivery('eng', queued.id)).toMatchObject({ state: 'consumed' });
+    expect(daemon.store.getDelivery('eng', queued.id)?.steered_ts).toBeUndefined();
+  });
+});
+// harn:end active-turn-steering-is-ordered-and-durable
+
 // harn:assume fake-adapter-drives-live-collaboration ref=fake-live-step-regression
 // harn:assume interim-agent-posts-are-nonfinal-routing ref=interim-post-regression
 // harn:assume awaiting-reply-marker-is-delivery-context ref=awaiting-reply-daemon-regression

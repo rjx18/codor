@@ -161,10 +161,13 @@ provider/model rejection becomes an ordinary failed turn. No model call was
 made while migrating the transport.
 <!-- harn:end adapters-own-their-model-catalog -->
 
-<!-- harn:assume live-inbox-capability-is-evidence-backed ref=codex-live-inbox-notes -->
+<!-- harn:assume live-inbox-capability-is-evidence-backed-v2 ref=codex-live-inbox-notes -->
 ## Live inbox
 
-The app-server protocol has broader turn primitives, but this adapter does not
-yet provide an evidence-backed in-flight Codor inbox delivery channel or route
-`turn/steer`. It therefore continues to declare `live_inbox:false`.
-<!-- harn:end live-inbox-capability-is-evidence-backed -->
+The retained app-server routes active Codor inbox input through `turn/steer`
+with the current `threadId` and required `expectedTurnId`. Only a response naming
+that same turn acknowledges delivery; idle races and RPC failures leave the
+message queued for the next ordinary turn. The adapter therefore declares
+`live_inbox:true` without changing spawn-time approvals or starting another
+turn.
+<!-- harn:end live-inbox-capability-is-evidence-backed-v2 -->

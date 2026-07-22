@@ -414,7 +414,7 @@ describe('Agent SDK permission callbacks', () => {
 // harn:end claude-sdk-permissions-back-codor-interactions
 
 // harn:assume claude-sdk-hooks-are-authoritative ref=claude-sdk-hook-regression
-// harn:assume live-inbox-capability-is-evidence-backed ref=claude-live-inbox-regression
+// harn:assume live-inbox-capability-is-evidence-backed-v2 ref=claude-live-inbox-regression
 describe('Agent SDK hooks', () => {
   it('emits extension lifecycle and returns PostToolUse inbox context', async () => {
     const records: MockQueryRecord[] = [];
@@ -492,7 +492,7 @@ describe('Agent SDK hooks', () => {
     expect(records[0]!.input.options).not.toHaveProperty('settingsPath');
   });
 });
-// harn:end live-inbox-capability-is-evidence-backed
+// harn:end live-inbox-capability-is-evidence-backed-v2
 // harn:end claude-sdk-hooks-are-authoritative
 
 describe('manual compaction', () => {

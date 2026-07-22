@@ -1,0 +1,14 @@
+id: live-inbox-capability-is-evidence-backed-v2
+hash: a-1693472a47ba
+title: Live inbox capability matches a genuine active-turn channel
+state: active
+statement: Claude Code and Codex alone among built-ins must advertise live_inbox
+  true, backed respectively by Claude's exact PostToolUse Codor inbox hook and
+  Codex app-server turn/steer with the expected active turn id; Antigravity,
+  Copilot, Cursor, Gemini, and OpenCode must remain false because their captured
+  first-party protocols cannot accept input during a running turn.
+depends_on:
+  - adapter-children-inherit-session-env
+  - extensions-hooks-authoritative
+  - codex-app-server-contract-is-pinned-to-0-144-5
+created_by: codor-runtime-fidelity-phase2

@@ -1,4 +1,4 @@
-import type { Message } from '@codor/protocol';
+import type { Delivery, Message } from '@codor/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('./markdown.js', () => ({ renderMarkdown: (body: string) => body }));
@@ -6,12 +6,40 @@ vi.mock('./markdown.js', () => ({ renderMarkdown: (body: string) => body }));
 import {
   continuationTrailingText,
   continuationVisibleMessages,
+  deliveryIndicator,
   messageReadSeq,
   resolveRunningSince,
 } from './Transcript.js';
 import { transcriptMessages } from './transcript-order.js';
 
 const TS = '2026-07-18T00:00:00.000Z';
+
+// harn:assume agent-delivery-lifecycle-streams-v2 ref=steering-delivery-indicator-regression
+describe('delivery indicator truth', () => {
+  const delivery = (state: Delivery['state'], steered = false): Delivery => ({
+    id: `delivery-${state}-${String(steered)}`,
+    room: 'eng',
+    message_id: 1,
+    recipient: 'agent',
+    state,
+    attempt_count: 0,
+    ...(steered && { steered_ts: TS }),
+    ts: TS,
+  });
+
+  it('distinguishes queued, ordinary delivered, and active-turn steered messages', () => {
+    expect(deliveryIndicator([delivery('queued')])).toEqual({
+      seen: false, disposition: 'queued', title: 'Queued for the next turn',
+    });
+    expect(deliveryIndicator([delivery('delivering')])).toEqual({
+      seen: true, disposition: 'delivered', title: 'Delivered to its agents',
+    });
+    expect(deliveryIndicator([delivery('consumed', true)])).toEqual({
+      seen: true, disposition: 'steered', title: 'Steered into the active turn',
+    });
+  });
+});
+// harn:end agent-delivery-lifecycle-streams-v2
 
 function chat(id: number, body = `chat ${String(id)}`): Message {
   return {

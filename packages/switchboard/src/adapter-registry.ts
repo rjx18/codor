@@ -182,6 +182,9 @@ function withSpawnValidation(adapter: RegisteredHarnessAdapter): RegisteredHarne
     ...(adapter.compactSession && {
       compactSession: (session) => adapter.compactSession!(session),
     }),
+    ...(adapter.steer && {
+      steer: (session, payload) => adapter.steer!(session, payload),
+    }),
     // harn:end adapter-wrappers-preserve-the-whole-contract
   };
 }

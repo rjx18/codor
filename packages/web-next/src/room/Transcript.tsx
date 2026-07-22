@@ -928,6 +928,23 @@ function DeleteButton(props: { messageId: number; connection: Connection }) {
 
 /** Delivery ticks per Richard #302: a message to agents is "seen" once its
  *  deliveries are consumed — queued or held ones have not reached anyone yet. */
+// harn:assume agent-delivery-lifecycle-streams-v2 ref=steering-delivery-indicator
+export function deliveryIndicator(deliveries: readonly Delivery[]): {
+  seen: boolean;
+  disposition: 'queued' | 'delivered' | 'steered';
+  title: string;
+} {
+  const seen = deliveries.every((delivery) =>
+    delivery.state === 'delivering' || delivery.state === 'consumed');
+  if (!seen) {
+    return { seen: false, disposition: 'queued', title: 'Queued for the next turn' };
+  }
+  if (deliveries.length > 0 && deliveries.every((delivery) => delivery.steered_ts !== undefined)) {
+    return { seen: true, disposition: 'steered', title: 'Steered into the active turn' };
+  }
+  return { seen: true, disposition: 'delivered', title: 'Delivered to its agents' };
+}
+
 function SeenTicks(props: {
   message: Message;
   deliveries: Record<string, Delivery>;
@@ -938,18 +955,20 @@ function SeenTicks(props: {
   );
   if (relevant.length === 0) return null;
   // delivering means the turn already carries the payload — the agent has it.
-  const seen = relevant.every((d) => d.state === 'delivering' || d.state === 'consumed');
+  const indicator = deliveryIndicator(relevant);
   return (
     <span
-      className={`nx-seen ${seen ? 'is-seen' : ''}`}
-      title={seen ? 'Delivered to its agents' : 'Waiting in the queue'}
+      className={`nx-seen ${indicator.seen ? 'is-seen' : ''}`}
+      title={indicator.title}
       data-testid={`msg-${props.message.id}-seen`}
-      data-seen={seen}
+      data-seen={indicator.seen}
+      data-delivery-disposition={indicator.disposition}
     >
-      {seen ? <CheckCheck size={13} aria-hidden="true" /> : <Clock3 size={12} aria-hidden="true" />}
+      {indicator.seen ? <CheckCheck size={13} aria-hidden="true" /> : <Clock3 size={12} aria-hidden="true" />}
     </span>
   );
 }
+// harn:end agent-delivery-lifecycle-streams-v2
 
 /** Bold a mention of the viewer's own handle in already-sanitized markdown HTML.
  *  Only @handle preceded by a non-word/non-path char is wrapped (skips emails). */

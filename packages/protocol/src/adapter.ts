@@ -79,11 +79,13 @@ export interface AdapterCapabilities {
   policies: Record<Policy, string | null>;
   // harn:end harness-declares-what-a-policy-becomes
   // harn:assume a-session-carries-the-environment-its-children-need ref=live-inbox-capability
+  // harn:assume live-inbox-capability-is-evidence-backed-v2 ref=adapter-live-inbox-contract
   // Whether this harness can deliver a message INTO a turn that is already running —
   // rather than only between turns. OPTIONAL, and absent means no: the adapters that
   // implement it declare it in the phase that builds it, so no adapter — first-party or
   // third-party — stops registering today.
   live_inbox?: boolean;
+  // harn:end live-inbox-capability-is-evidence-backed-v2
   // harn:end a-session-carries-the-environment-its-children-need
 }
 // harn:end canonical-spawn-controls-enforced
@@ -140,6 +142,14 @@ export interface HarnessAdapter {
   // harn:assume attempt-start-evidence-persisted ref=adapter-turn-hooks
   deliver(session: Session, payload: string, hooks?: AdapterTurnHooks): AsyncIterable<WireEvent>;
   // harn:end attempt-start-evidence-persisted
+  // harn:assume active-turn-steering-is-ordered-and-durable ref=adapter-steering-contract
+  /**
+   * Submit input to this session's active native turn. Resolve true only after
+   * the harness acknowledges that exact turn; false means there is no active
+   * steerable turn and the caller must retain ordinary queued delivery.
+   */
+  steer?(session: Session, payload: string): Promise<boolean>;
+  // harn:end active-turn-steering-is-ordered-and-durable
   /** Resolves on adapter acknowledgement (the interaction is truly answered). */
   respondInteraction(session: Session, interaction_id: string, answer: unknown): Promise<void>;
   interrupt(session: Session): void;

@@ -75,9 +75,9 @@ export class OpenCodeAdapter implements HarnessAdapter {
     extensions: false,
     thinking: true,
     thinking_levels: OPENCODE_THINKING_LEVELS,
-    // harn:assume live-inbox-capability-is-evidence-backed ref=opencode-live-inbox-capability
+    // harn:assume live-inbox-capability-is-evidence-backed-v2 ref=opencode-live-inbox-capability
     live_inbox: false,
-    // harn:end live-inbox-capability-is-evidence-backed
+    // harn:end live-inbox-capability-is-evidence-backed-v2
     // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-declarations
     // Only full-access emits a flag. read-only and workspace-write build IDENTICAL
     // arguments, so neither is enforced by us: both defer to opencode's own rules.

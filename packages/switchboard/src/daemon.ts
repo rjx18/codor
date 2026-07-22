@@ -342,6 +342,10 @@ export class Daemon {
    */
   private readonly staleSessions = new Set<string>();
   private readonly inflight = new Set<string>();
+  // harn:assume active-turn-steering-is-ordered-and-durable ref=daemon-active-turn-steering
+  private readonly steeringDeliveries = new Set<string>();
+  private readonly steeringTails = new Map<string, Promise<void>>();
+  // harn:end active-turn-steering-is-ordered-and-durable
   private readonly active = new Set<Promise<void>>();
   private readonly listeners: FrameListener[] = [];
   private readonly pendingAttach = new Set<string>();
@@ -2231,11 +2235,11 @@ export class Daemon {
   private dispatchCreatedDeliveries(room: string, created: Delivery[]): void {
     for (const delivery of created) {
       const recipient = this.store.getMember(room, delivery.recipient);
-      // harn:assume agent-delivery-lifecycle-streams ref=delivery-created-emit
+      // harn:assume agent-delivery-lifecycle-streams-v2 ref=delivery-created-emit
       // Agent recipients stream their queued frame too — a connected client's
       // seen tick starts honest instead of waiting for a reconnect snapshot.
       if (recipient !== undefined) this.emitInbox(room, delivery);
-      // harn:end agent-delivery-lifecycle-streams
+      // harn:end agent-delivery-lifecycle-streams-v2
       if (recipient?.kind === 'agent') {
         if (
           delivery.group_id !== undefined &&
@@ -2267,6 +2271,19 @@ export class Daemon {
     const reason = this.deliveryBrakeReason(room, delivery);
     if (reason) {
       this.holdDelivery(room, delivery.id, reason);
+      return;
+    }
+    const adapter = recipient.harness === undefined ? undefined : this.adapters.get(recipient.harness);
+    if (
+      delivery.group_id === undefined &&
+      recipient.custody === 'owned' &&
+      !this.isRemoteMember(recipient) &&
+      this.inflight.has(recipient.id) &&
+      (recipient.state === 'running' || recipient.state === 'awaiting_input') &&
+      adapter?.capabilities.live_inbox === true &&
+      adapter.steer !== undefined
+    ) {
+      this.scheduleAgentSteering(room, delivery, recipient, adapter);
       return;
     }
     this.queueAgentDelivery(room, recipient);
@@ -2308,6 +2325,88 @@ export class Daemon {
     this.track(this.maybeStartTurn(room, recipient.id));
   }
   // harn:end mirrored-deliveries-queue
+
+  // harn:assume active-turn-steering-is-ordered-and-durable ref=daemon-active-turn-steering
+  private scheduleAgentSteering(
+    room: string,
+    delivery: Delivery,
+    recipient: Member,
+    adapter: HarnessAdapter,
+  ): void {
+    this.steeringDeliveries.add(delivery.id);
+    const previous = this.steeringTails.get(recipient.id) ?? Promise.resolve();
+    const task = previous
+      .catch(() => undefined)
+      .then(() => this.steerAgentDelivery(room, delivery.id, recipient.id, adapter));
+    this.steeringTails.set(recipient.id, task);
+    this.track(task.finally(() => {
+      if (this.steeringTails.get(recipient.id) === task) {
+        this.steeringTails.delete(recipient.id);
+      }
+    }));
+  }
+
+  private steeringPayload(room: string, delivery: Delivery): string {
+    const encoded = this.store.getDeliveryPayloadSnapshot(room, delivery.id);
+    if (encoded === undefined) throw new Error(`delivery ${delivery.id} has no payload snapshot`);
+    const snapshot = JSON.parse(encoded) as DeliveryPayloadSnapshot;
+    return composePayload(snapshot.context, snapshot.you) +
+      this.attachmentPayloadLines(room, delivery.message_id);
+  }
+
+  private async steerAgentDelivery(
+    room: string,
+    deliveryId: string,
+    memberId: string,
+    adapter: HarnessAdapter,
+  ): Promise<void> {
+    let fallback: Member | undefined;
+    try {
+      const delivery = this.store.getDelivery(room, deliveryId);
+      const member = this.store.getMember(room, memberId);
+      if (delivery?.state !== 'queued' || member?.kind !== 'agent') return;
+      const canStillSteer =
+        this.inflight.has(memberId) &&
+        (member.state === 'running' || member.state === 'awaiting_input') &&
+        member.harness === adapter.id &&
+        adapter.steer !== undefined;
+      if (!canStillSteer) {
+        fallback = member;
+        return;
+      }
+
+      const accepted = await adapter.steer!(
+        this.sessionFor(room, member),
+        this.steeringPayload(room, delivery),
+      );
+      if (!accepted) {
+        fallback = this.store.getMember(room, memberId) ?? member;
+        return;
+      }
+      const current = this.store.getDelivery(room, deliveryId);
+      if (current?.state !== 'queued') return;
+      // harn:assume agent-delivery-lifecycle-streams-v2 ref=steered-delivery-emit
+      this.emitInbox(room, this.store.updateDelivery(room, deliveryId, {
+        state: 'consumed',
+        steered_ts: new Date().toISOString(),
+      }));
+      // harn:end agent-delivery-lifecycle-streams-v2
+    } catch (error) {
+      const member = this.store.getMember(room, memberId);
+      const delivery = this.store.getDelivery(room, deliveryId);
+      if (member?.kind === 'agent' && delivery?.state === 'queued') {
+        fallback = member;
+      }
+      throw error;
+    } finally {
+      this.steeringDeliveries.delete(deliveryId);
+      const delivery = this.store.getDelivery(room, deliveryId);
+      if (fallback !== undefined && delivery?.state === 'queued') {
+        this.queueAgentDelivery(room, fallback);
+      }
+    }
+  }
+  // harn:end active-turn-steering-is-ordered-and-durable
 
   private planFanout(
     room: string,
@@ -2543,7 +2642,8 @@ export class Daemon {
     const eligible = this.turnStartEligibility(room, memberId);
     if (!eligible.member) return; // holds its queue; the room shows the backlog
     const member = eligible.member;
-    const queued = this.store.listDeliveries(room, { recipient: memberId, state: 'queued' });
+    const queued = this.store.listDeliveries(room, { recipient: memberId, state: 'queued' })
+      .filter((delivery) => !this.steeringDeliveries.has(delivery.id));
     if (queued.length === 0) return;
     // harn:assume grouped-deliveries-have-an-isolated-batch-class ref=group-batch-pump-integration
     const selected = selectDeliveryBatchPrefix(queued);
@@ -2615,13 +2715,13 @@ export class Daemon {
     // run.completed lands, so a crash leaves reconcilable evidence.
     const bound = started.deliveries;
     // harn:end delivery-attempt-wal-reconcile
-    // harn:assume agent-delivery-lifecycle-streams ref=delivery-bound-emit
+    // harn:assume agent-delivery-lifecycle-streams-v2 ref=delivery-bound-emit
     // Every bound delivery whose state moved (queued/held -> delivering)
     // streams its transition — formerly only releases out of held did.
     for (const delivery of bound) {
       if (originalStates.get(delivery.id) !== delivery.state) this.emitInbox(room, delivery);
     }
-    // harn:end agent-delivery-lifecycle-streams
+    // harn:end agent-delivery-lifecycle-streams-v2
 
     const payload = this.composeBatchPayload(room, member, bound);
     this.emitMember(room, this.store.updateMember(room, member.id, { state: 'running' }));
@@ -3308,14 +3408,14 @@ export class Daemon {
     // harn:end live-agent-waits-are-transient
     for (const output of completed.outputMessages) this.emitMessage(room, output);
     this.emitMember(room, completed.member);
-    // harn:assume agent-delivery-lifecycle-streams ref=delivery-consumed-emit
+    // harn:assume agent-delivery-lifecycle-streams-v2 ref=delivery-consumed-emit
     // The turn just consumed its inputs — stream the settled rows so seen
     // ticks flip without a reconnect.
     for (const input of batch) {
       const settled = this.store.getDelivery(room, input.id);
       if (settled !== undefined) this.emitInbox(room, settled);
     }
-    // harn:end agent-delivery-lifecycle-streams
+    // harn:end agent-delivery-lifecycle-streams-v2
     // harn:assume extensions-retire-with-parent-run ref=parent-finalization-extension-sweep
     for (const extension of this.store.listMembers(room)) {
       if (extension.kind !== 'extension' || extension.parent !== memberId || extension.state !== 'running') continue;

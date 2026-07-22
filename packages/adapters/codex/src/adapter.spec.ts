@@ -133,6 +133,76 @@ describe('Codex app-server controls', () => {
 
 // harn:assume codex-app-server-is-the-member-runtime ref=codex-app-server-session-regression
 describe('persistent Codex app-server lifecycle', () => {
+  // harn:assume active-turn-steering-is-ordered-and-durable ref=codex-active-turn-steering-regression
+  it('steers only the active expected turn and returns idle fallback after completion', async () => {
+    const server = createFakeCodexAppServer({
+      'turn/steer': (params) => ({ turnId: (params as { expectedTurnId: string }).expectedTurnId }),
+    });
+    const { adapter } = fixtureAdapter(server);
+    const session = adapter.spawn({ cwd: '/work' });
+    const run = collect(adapter, session, 'start');
+    await server.waitForRequest('turn/start');
+    server.notify('turn/started', {
+      threadId: 'thread-1',
+      turn: { id: 'turn-1', status: 'inProgress', items: [], error: null },
+    });
+
+    await expect(adapter.steer(session, 'focus on the failing test')).resolves.toBe(true);
+    expect((await server.waitForRequest('turn/steer')).params).toEqual({
+      threadId: 'thread-1',
+      input: [{ type: 'text', text: 'focus on the failing test', text_elements: [] }],
+      expectedTurnId: 'turn-1',
+    });
+
+    server.notify('turn/completed', {
+      threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [], error: null },
+    });
+    await run;
+    await expect(adapter.steer(session, 'too late')).resolves.toBe(false);
+    expect(server.messages.filter((message) => message.method === 'turn/steer')).toHaveLength(1);
+  });
+
+  it('rejects a mismatched acknowledgement without ending the active turn', async () => {
+    const server = createFakeCodexAppServer({
+      'turn/steer': () => ({ turnId: 'some-other-turn' }),
+    });
+    const { adapter } = fixtureAdapter(server);
+    const session = adapter.spawn({ cwd: '/work' });
+    const run = collect(adapter, session, 'start');
+    await server.waitForRequest('turn/start');
+    server.notify('turn/started', {
+      threadId: 'thread-1', turn: { id: 'turn-1', status: 'inProgress', items: [], error: null },
+    });
+
+    await expect(adapter.steer(session, 'mismatch')).rejects.toThrow(
+      'steered unexpected turn some-other-turn; expected turn-1',
+    );
+    completeTurn(server, 'turn-1');
+    await expect(run).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'run.completed', status: 'completed' }),
+    ]));
+  });
+
+  it('surfaces an app-server steering failure while preserving the active turn', async () => {
+    const server = createFakeCodexAppServer({
+      'turn/steer': async () => { throw new Error('active turn closed'); },
+    });
+    const { adapter } = fixtureAdapter(server);
+    const session = adapter.spawn({ cwd: '/work' });
+    const run = collect(adapter, session, 'start');
+    await server.waitForRequest('turn/start');
+    server.notify('turn/started', {
+      threadId: 'thread-1', turn: { id: 'turn-1', status: 'inProgress', items: [], error: null },
+    });
+
+    await expect(adapter.steer(session, 'recover me')).rejects.toThrow('active turn closed');
+    completeTurn(server, 'turn-1');
+    await expect(run).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'run.completed', status: 'completed' }),
+    ]));
+  });
+  // harn:end active-turn-steering-is-ordered-and-durable
+
   it('serves multiple turns through one initialized child and one native thread', async () => {
     let turn = 0;
     const server = createFakeCodexAppServer({

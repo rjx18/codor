@@ -100,7 +100,9 @@ export class AntigravityAdapter implements HarnessAdapter {
     approvals: 'spawn-time',
     extensions: false,
     thinking: false,
+    // harn:assume live-inbox-capability-is-evidence-backed-v2 ref=antigravity-live-inbox-capability
     live_inbox: false,
+    // harn:end live-inbox-capability-is-evidence-backed-v2
     // harn:assume harness-declares-what-a-policy-becomes ref=antigravity-policy-declarations
     policies: {
       'read-only': '--mode plan',

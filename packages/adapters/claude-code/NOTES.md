@@ -164,15 +164,15 @@ aliases `haiku`, `sonnet`, `opus`, and `fable`. Aliases deliberately track the
 latest tier; operators may still enter a full custom model id.
 <!-- harn:end adapters-own-their-model-catalog -->
 
-<!-- harn:assume live-inbox-capability-is-evidence-backed ref=claude-live-inbox-notes -->
+<!-- harn:assume live-inbox-capability-is-evidence-backed-v2 ref=claude-live-inbox-notes -->
 ## Live inbox
 
-Claude remains the only first-party adapter declaring `live_inbox: true`. The
+Claude remains one of two first-party adapters declaring `live_inbox: true`. The
 exact existing command, `codor inbox --new --consume --format hook`, now runs
 inside the SDK `PostToolUse` callback with the member environment. Its parsed
-hook output is returned to Claude. Other adapters retain their documented false
-capability.
-<!-- harn:end live-inbox-capability-is-evidence-backed -->
+hook output is returned to Claude. Codex has its separate native `turn/steer`
+channel; the other built-ins retain their documented false capability.
+<!-- harn:end live-inbox-capability-is-evidence-backed-v2 -->
 
 ## Probe/spend record
 

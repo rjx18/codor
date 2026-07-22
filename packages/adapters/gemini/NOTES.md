@@ -134,11 +134,11 @@ This interface exposes no documented low/medium/high thinking control, so the ad
 declares `thinking:false` and the thinking row renders disabled with the capability hint.
 <!-- harn:end adapters-own-their-model-catalog -->
 
-<!-- harn:assume live-inbox-capability-is-evidence-backed ref=gemini-live-inbox-notes -->
+<!-- harn:assume live-inbox-capability-is-evidence-backed-v2 ref=gemini-live-inbox-notes -->
 ## Live inbox (LC3)
 
 Rechecked 2026-07-13 against the first-party headless stream-json sources cited above; the
 Gemini binary remains absent and no model call was made. The documented interface exposes no
 first-party tool-boundary hook whose command stdout enters the running model turn. This
 adapter therefore declares `live_inbox:false`.
-<!-- harn:end live-inbox-capability-is-evidence-backed -->
+<!-- harn:end live-inbox-capability-is-evidence-backed-v2 -->

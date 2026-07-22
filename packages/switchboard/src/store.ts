@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
   batch_id TEXT,
   run_msg_id INTEGER,
   read_ts TEXT,
+  steered_ts TEXT,
   interaction_resolved_ts TEXT,
   payload_snapshot TEXT,        -- immutable routed prompt context; never run events
   process_id INTEGER,            -- bounded attempt evidence, never run event payloads
@@ -506,6 +507,15 @@ function migrateDeliveryHopCount(db: Database.Database): void {
   }
 }
 
+// harn:assume agent-delivery-lifecycle-streams-v2 ref=steered-delivery-storage
+function migrateDeliverySteering(db: Database.Database): void {
+  const columns = db.pragma('table_info(deliveries)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'steered_ts')) {
+    db.exec('ALTER TABLE deliveries ADD COLUMN steered_ts TEXT');
+  }
+}
+// harn:end agent-delivery-lifecycle-streams-v2
+
 function migrateMeterUncostedTokens(db: Database.Database): void {
   const columns = db.pragma('table_info(meters)') as { name: string }[];
   if (!columns.some((column) => column.name === 'uncosted_tokens')) {
@@ -619,6 +629,7 @@ interface DeliveryRow {
   batch_id: string | null;
   run_msg_id: number | null;
   read_ts: string | null;
+  steered_ts: string | null;
   interaction_resolved_ts: string | null;
   payload_snapshot: string | null;
   process_id: number | null;
@@ -763,6 +774,7 @@ function deliveryFromRow(row: DeliveryRow): Delivery {
     batch_id: row.batch_id ?? undefined,
     run_msg_id: row.run_msg_id ?? undefined,
     read_ts: row.read_ts ?? undefined,
+    steered_ts: row.steered_ts ?? undefined,
     interaction_resolved_ts: row.interaction_resolved_ts ?? undefined,
     group_id: row.group_id ?? undefined,
     group_round: row.group_round ?? undefined,
@@ -981,6 +993,7 @@ export class Store {
     migrateRoomReadCursors(this.db);
     migrateApprovalDeliveryResolution(this.db);
     migrateDeliveryHopCount(this.db);
+    migrateDeliverySteering(this.db);
     migrateMeterUncostedTokens(this.db);
     migrateMeterEstimatedCost(this.db);
     migrateBridgeOriginUniqueness(this.db);
@@ -2156,7 +2169,8 @@ export class Store {
     room: string,
     deliveryId: string,
     patch: Partial<Pick<Delivery,
-      'state' | 'attempt_count' | 'batch_id' | 'run_msg_id' | 'read_ts' | 'interaction_resolved_ts'>>,
+      'state' | 'attempt_count' | 'batch_id' | 'run_msg_id' | 'read_ts' | 'steered_ts' |
+      'interaction_resolved_ts'>>,
   ): Delivery {
     return this.db.transaction(() => {
       const existing = this.getDelivery(room, deliveryId);
@@ -2165,7 +2179,7 @@ export class Store {
       this.db
         .prepare(
           `UPDATE deliveries SET state = ?, attempt_count = ?, batch_id = ?,
-             run_msg_id = ?, read_ts = ?, interaction_resolved_ts = ?
+             run_msg_id = ?, read_ts = ?, steered_ts = ?, interaction_resolved_ts = ?
            WHERE room = ? AND id = ?`,
         )
         .run(
@@ -2174,6 +2188,7 @@ export class Store {
           orNull(merged.batch_id),
           orNull(merged.run_msg_id),
           orNull(merged.read_ts),
+          orNull(merged.steered_ts),
           orNull(merged.interaction_resolved_ts),
           room,
           deliveryId,
@@ -2181,7 +2196,12 @@ export class Store {
       const recipient = this.getMember(room, merged.recipient);
       // Client-visible inbox records: human deliveries always; agent
       // deliveries once they need operator attention (held ⇄ released).
-      if (recipient?.kind === 'human' || merged.state === 'held' || existing.state === 'held') {
+      if (
+        recipient?.kind === 'human' ||
+        merged.state === 'held' ||
+        existing.state === 'held' ||
+        merged.steered_ts !== existing.steered_ts
+      ) {
         this.appendChange(room, 'inbox', deliveryId);
       }
       return merged;

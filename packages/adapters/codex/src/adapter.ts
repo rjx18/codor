@@ -219,9 +219,9 @@ export class CodexAdapter implements HarnessAdapter {
     extensions: false,
     thinking: true,
     thinking_levels: CODEX_THINKING_LEVELS,
-    // harn:assume live-inbox-capability-is-evidence-backed ref=codex-live-inbox-capability
-    live_inbox: false,
-    // harn:end live-inbox-capability-is-evidence-backed
+    // harn:assume live-inbox-capability-is-evidence-backed-v2 ref=codex-live-inbox-capability
+    live_inbox: true,
+    // harn:end live-inbox-capability-is-evidence-backed-v2
     // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-declarations
     // Full access uses Codex's no-approval, no-sandbox mode; all three are distinct.
     policies: {
@@ -684,6 +684,36 @@ export class CodexAdapter implements HarnessAdapter {
   private failCompaction(runtime: CodexRuntime, error: Error): void {
     this.clearCompaction(runtime)?.fail(error);
   }
+
+  // harn:assume active-turn-steering-is-ordered-and-durable ref=codex-active-turn-steering
+  async steer(session: Session, payload: string): Promise<boolean> {
+    const runtime = this.liveRuntime(session);
+    if (runtime === undefined) return false;
+    const turn = runtime.active;
+    if (
+      runtime.client === null ||
+      runtime.threadId === undefined ||
+      turn === null ||
+      turn.terminal ||
+      turn.turnId === undefined
+    ) {
+      return false;
+    }
+    const expectedTurnId = turn.turnId;
+    const response = await runtime.client.request('turn/steer', {
+      threadId: runtime.threadId,
+      input: [{ type: 'text', text: payload, text_elements: [] }],
+      expectedTurnId,
+    });
+    const acceptedTurnId = record(response)?.turnId;
+    if (acceptedTurnId !== expectedTurnId) {
+      throw new Error(
+        `Codex app-server steered unexpected turn ${String(acceptedTurnId)}; expected ${expectedTurnId}`,
+      );
+    }
+    return true;
+  }
+  // harn:end active-turn-steering-is-ordered-and-durable
 
   /** Find-only: the runtime this session already has, never creating one. */
   private liveRuntime(session: Session): CodexRuntime | undefined {

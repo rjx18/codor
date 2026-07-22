@@ -145,10 +145,10 @@ daemon cannot validate all degrade silently to no list, and the dialog falls bac
 Thinking is supported and maps to `run --variant <level>`.
 <!-- harn:end adapters-own-their-model-catalog -->
 
-<!-- harn:assume live-inbox-capability-is-evidence-backed ref=opencode-live-inbox-notes -->
+<!-- harn:assume live-inbox-capability-is-evidence-backed-v2 ref=opencode-live-inbox-notes -->
 ## Live inbox (LC3)
 
 Rechecked 2026-07-13 with installed `opencode run --help`, without a model call. The direct
 runner exposes no first-party tool-boundary hook whose command stdout enters the running
 model turn. This adapter therefore declares `live_inbox:false`.
-<!-- harn:end live-inbox-capability-is-evidence-backed -->
+<!-- harn:end live-inbox-capability-is-evidence-backed-v2 -->

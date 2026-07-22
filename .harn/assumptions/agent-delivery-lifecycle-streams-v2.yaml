@@ -1,0 +1,11 @@
+id: agent-delivery-lifecycle-streams-v2
+hash: a-3164b152589f
+title: Agent delivery lifecycle and steering disposition stream live
+state: active
+statement: Every recorded agent-delivery transition must be emitted to room
+  subscribers immediately, including queued creation, turn admission, turn
+  completion, and native-acknowledged active steering; a steered delivery must
+  persist its acknowledgement timestamp so reconnects and the transcript
+  distinguish it from work intentionally waiting for the next turn.
+depends_on: []
+created_by: codor-runtime-fidelity-phase2

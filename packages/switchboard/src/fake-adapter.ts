@@ -67,12 +67,24 @@ export interface DeliverRecord {
   attached: boolean;
 }
 
+export interface SteerRecord {
+  payload: string;
+  session_ref: string | undefined;
+}
+
 export class FakeAdapter implements HarnessAdapter {
   readonly id: string;
   readonly capabilities: AdapterCapabilities;
 
   private script: FakeTurn[] = [];
   readonly deliveries: DeliverRecord[] = [];
+  // harn:assume active-turn-steering-is-ordered-and-durable ref=fake-active-turn-steering
+  readonly steers: SteerRecord[] = [];
+  steerDelayMs = 0;
+  maxConcurrentSteers = 0;
+  private concurrentSteers = 0;
+  private nextSteerError: Error | undefined;
+  // harn:end active-turn-steering-is-ordered-and-durable
   // harn:assume context-peek-reads-session-artifacts ref=adapter-peek-contract
   /** Scriptable pre-turn context estimate; undefined = no artifact. */
   peekUsage: AgentUsage | undefined;
@@ -123,6 +135,10 @@ export class FakeAdapter implements HarnessAdapter {
 
   failNextResponse(message: string): void {
     this.nextResponseError = new Error(message);
+  }
+
+  failNextSteer(message: string): void {
+    this.nextSteerError = new Error(message);
   }
 
   spawn(opts: SpawnOpts): Session {
@@ -262,6 +278,27 @@ export class FakeAdapter implements HarnessAdapter {
     resolve(answer);
     await new Promise((r) => setImmediate(r)); // ack after the turn resumed
   }
+
+  // harn:assume active-turn-steering-is-ordered-and-durable ref=fake-active-turn-steering
+  async steer(session: Session, payload: string): Promise<boolean> {
+    this.steers.push({ payload, session_ref: session.session_ref });
+    this.concurrentSteers += 1;
+    this.maxConcurrentSteers = Math.max(this.maxConcurrentSteers, this.concurrentSteers);
+    try {
+      if (this.steerDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, this.steerDelayMs));
+      }
+      if (this.nextSteerError !== undefined) {
+        const error = this.nextSteerError;
+        this.nextSteerError = undefined;
+        throw error;
+      }
+      return true;
+    } finally {
+      this.concurrentSteers -= 1;
+    }
+  }
+  // harn:end active-turn-steering-is-ordered-and-durable
 
   /**
    * Observable stand-in for a harness's native compaction: records the call and

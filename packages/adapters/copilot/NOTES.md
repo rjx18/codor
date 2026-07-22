@@ -136,11 +136,11 @@ no documented low/medium/high thinking control in prompt-mode JSONL, so the adap
 `thinking:false` and the thinking row renders disabled with the capability hint.
 <!-- harn:end adapters-own-their-model-catalog -->
 
-<!-- harn:assume live-inbox-capability-is-evidence-backed ref=copilot-live-inbox-notes -->
+<!-- harn:assume live-inbox-capability-is-evidence-backed-v2 ref=copilot-live-inbox-notes -->
 ## Live inbox (LC3)
 
 Rechecked 2026-07-13 against the documented headless prompt/JSONL surface already cited
 above; no Copilot binary is installed and no model call was made. That surface exposes no
 first-party tool-boundary hook whose command stdout enters the running model turn. This
 adapter therefore declares `live_inbox:false`.
-<!-- harn:end live-inbox-capability-is-evidence-backed -->
+<!-- harn:end live-inbox-capability-is-evidence-backed-v2 -->

@@ -27,6 +27,10 @@ export const DeliverySchema = z.object({
   batch_id: z.string().min(1).optional(), // set when drained as part of a batched turn
   run_msg_id: MessageIdSchema.optional(), // attempt WAL: the run message this attempt feeds
   read_ts: TimestampSchema.optional(), // human inbox read lifecycle
+  // harn:assume agent-delivery-lifecycle-streams-v2 ref=steered-delivery-protocol
+  /** Native active-turn acknowledgement time; absent means ordinary queued/turn delivery. */
+  steered_ts: TimestampSchema.optional(),
+  // harn:end agent-delivery-lifecycle-streams-v2
   // harn:assume approval-deliveries-project-resolution-separately ref=approval-delivery-resolution-schema
   // Approval resolution is lifecycle state, not evidence that a notification was read.
   interaction_resolved_ts: TimestampSchema.optional(),

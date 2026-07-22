@@ -44,6 +44,22 @@ describe('built-in executable registry', () => {
 
 // harn:assume harness-declares-supported-thinking-levels ref=registry-thinking-level-regression
 describe('adapter registry spawn controls', () => {
+  // harn:assume live-inbox-capability-is-evidence-backed-v2 ref=builtin-live-inbox-matrix
+  it('advertises active-turn input only for the two evidence-backed built-ins', async () => {
+    const adapters = await loadAdapterRegistry();
+    expect(adapters.map((adapter) => [adapter.id, adapter.capabilities.live_inbox]))
+      .toEqual([
+        ['antigravity', false],
+        ['claude-code', true],
+        ['codex', true],
+        ['copilot', false],
+        ['cursor', false],
+        ['gemini', false],
+        ['opencode', false],
+      ]);
+  });
+  // harn:end live-inbox-capability-is-evidence-backed-v2
+
   it('reports each built-in thinking capability and exact accepted levels', async () => {
     const adapters = await loadAdapterRegistry();
     expect(adapters.map((adapter) => adapter.id)).toEqual(BUILTIN_ADAPTER_IDS);
@@ -145,6 +161,13 @@ describe('the registry wrapper preserves the whole adapter contract', () => {
     expect(claude.compactSession).toBeTypeOf('function');
     await expect(claude.compactSession!({ harness: 'claude-code', cwd: '/' }))
       .rejects.toThrow(/no live Claude session/);
+  });
+
+  it('forwards optional active-turn steering to the production Codex wrapper', async () => {
+    const adapters = await loadAdapterRegistry();
+    const codex = adapters.find((adapter) => adapter.id === 'codex')!;
+    expect(codex.steer).toBeTypeOf('function');
+    await expect(codex.steer!({ harness: 'codex', cwd: '/' }, 'idle')).resolves.toBe(false);
   });
 
   it('carries every declared member of the contract through the wrapper', async () => {

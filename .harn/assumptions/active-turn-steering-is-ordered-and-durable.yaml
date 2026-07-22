@@ -1,0 +1,17 @@
+id: active-turn-steering-is-ordered-and-durable
+hash: a-b1d1217bc977
+title: Active-turn steering is ordered and never loses queued work
+state: active
+statement: For an owned local member with a steer-capable adapter and one active
+  turn, the daemon must submit newly routed deliveries to that turn in FIFO
+  order, mark each consumed with steered_ts only after the native
+  acknowledgement names the expected turn, and leave or restore it queued for
+  the next turn when the member is idle, the turn races closed, or the steering
+  request fails.
+depends_on:
+  - live-inbox-capability-is-evidence-backed-v2
+  - agent-delivery-lifecycle-streams-v2
+  - one-inflight-turn-per-member
+  - delivery-fifo-has-durable-sequence
+  - delivery-payload-snapshotted
+created_by: codor-runtime-fidelity-phase2

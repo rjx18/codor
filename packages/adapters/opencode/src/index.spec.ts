@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { OpenCodeAdapter } from './index.js';
 
-// harn:assume live-inbox-capability-is-evidence-backed ref=opencode-capability-snapshot
+// harn:assume live-inbox-capability-is-evidence-backed-v2 ref=opencode-capability-snapshot
 describe('@codor/adapter-opencode barrel', () => {
   it('exposes only demonstrated capabilities', () => {
     const adapter = new OpenCodeAdapter();
@@ -26,4 +26,4 @@ describe('@codor/adapter-opencode barrel', () => {
     });
   });
 });
-// harn:end live-inbox-capability-is-evidence-backed
+// harn:end live-inbox-capability-is-evidence-backed-v2

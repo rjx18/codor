@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { CopilotAdapter } from './index.js';
 
-// harn:assume live-inbox-capability-is-evidence-backed ref=copilot-capability-snapshot
+// harn:assume live-inbox-capability-is-evidence-backed-v2 ref=copilot-capability-snapshot
 describe('@codor/adapter-copilot barrel', () => {
   it('exposes only documented and fixture-demonstrated capabilities', () => {
     const adapter = new CopilotAdapter();
@@ -25,4 +25,4 @@ describe('@codor/adapter-copilot barrel', () => {
     });
   });
 });
-// harn:end live-inbox-capability-is-evidence-backed
+// harn:end live-inbox-capability-is-evidence-backed-v2

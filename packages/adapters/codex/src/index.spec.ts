@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { CodexAdapter } from './index.js';
 
-// harn:assume live-inbox-capability-is-evidence-backed ref=codex-capability-snapshot
+// harn:assume live-inbox-capability-is-evidence-backed-v2 ref=codex-capability-snapshot
 describe('@codor/adapter-codex barrel', () => {
   it('exposes the adapter with its honest capabilities', () => {
     const adapter = new CodexAdapter();
@@ -16,7 +16,7 @@ describe('@codor/adapter-codex barrel', () => {
       extensions: false,
       thinking: true,
       thinking_levels: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-      live_inbox: false,
+      live_inbox: true,
       policies: {
         'read-only': 'read-only',
         'workspace-write': 'workspace-write',
@@ -25,4 +25,4 @@ describe('@codor/adapter-codex barrel', () => {
     });
   });
 });
-// harn:end live-inbox-capability-is-evidence-backed
+// harn:end live-inbox-capability-is-evidence-backed-v2

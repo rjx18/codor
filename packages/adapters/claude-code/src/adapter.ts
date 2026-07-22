@@ -368,9 +368,9 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     extensions: true,
     thinking: true,
     thinking_levels: CLAUDE_THINKING_LEVELS,
-    // harn:assume live-inbox-capability-is-evidence-backed ref=claude-live-inbox-capability
+    // harn:assume live-inbox-capability-is-evidence-backed-v2 ref=claude-live-inbox-capability
     live_inbox: true,
-    // harn:end live-inbox-capability-is-evidence-backed
+    // harn:end live-inbox-capability-is-evidence-backed-v2
     // harn:assume harness-declares-what-a-policy-becomes ref=adapter-policy-declarations
     policies: {
       'read-only': 'plan',
@@ -574,12 +574,12 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     // harn:assume claude-sdk-hooks-are-authoritative ref=claude-sdk-hook-callbacks
     const postToolUseHook: HookCallback = async () => {
       const current = runtime.session;
-      // harn:assume live-inbox-capability-is-evidence-backed ref=claude-post-tool-use-hook
+      // harn:assume live-inbox-capability-is-evidence-backed-v2 ref=claude-post-tool-use-hook
       return await this.inboxHookRunner({
         cwd: current.cwd,
         env: { ...process.env, ...current.env },
       }) ?? {};
-      // harn:end live-inbox-capability-is-evidence-backed
+      // harn:end live-inbox-capability-is-evidence-backed-v2
     };
     // harn:end claude-sdk-hooks-are-authoritative
 

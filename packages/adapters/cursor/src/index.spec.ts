@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { CursorAdapter } from './index.js';
 
+// harn:assume live-inbox-capability-is-evidence-backed-v2 ref=cursor-capability-snapshot
 describe('@codor/adapter-cursor barrel', () => {
   it('exposes only demonstrated capabilities', () => {
     const adapter = new CursorAdapter();
@@ -23,3 +24,4 @@ describe('@codor/adapter-cursor barrel', () => {
     });
   });
 });
+// harn:end live-inbox-capability-is-evidence-backed-v2

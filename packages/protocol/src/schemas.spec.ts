@@ -359,6 +359,16 @@ describe('deliveries', () => {
     expect(DeliverySchema.safeParse({ ...base, state }).success).toBe(true);
   });
 
+  // harn:assume agent-delivery-lifecycle-streams-v2 ref=steered-delivery-protocol
+  it('preserves an active-turn steering acknowledgement timestamp', () => {
+    expect(DeliverySchema.parse({
+      ...base,
+      state: 'consumed',
+      steered_ts: TS,
+    })).toMatchObject({ state: 'consumed', steered_ts: TS });
+  });
+  // harn:end agent-delivery-lifecycle-streams-v2
+
   it('defaults attempt_count to 0 and supports the attempt WAL binding', () => {
     expect(DeliverySchema.parse({ ...base, state: 'queued' }).attempt_count).toBe(0);
     const inflight = DeliverySchema.parse({
