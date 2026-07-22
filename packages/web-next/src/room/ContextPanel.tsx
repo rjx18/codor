@@ -1,6 +1,6 @@
 import type { AgentLimit, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
-import { Bot, LoaderCircle, Minimize2, MoreVertical, Plus, Square, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Bot, ChevronRight, LoaderCircle, Minimize2, MoreVertical, Plus, Square, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchRunEvents, type AdapterRegistration, type MemberDetail } from '@runtime/api.js';
 import { AgentControls, AgentIdentityControls, RolePresetControls, Section } from './AgentControls.js';
@@ -29,7 +29,19 @@ import { clockTime, compactCount, memberAccent } from '../primitives/identity.js
 import { Button, Chip, Eyebrow, IconButton, Modal, Segmented, StatusPill } from '../primitives/primitives.js';
 import { useAdapterCatalog, useMemberDetails } from '../app/session.js';
 import { ContextWindowMeter } from './ContextWindowMeter.js';
-import { cachedGitWorkingState, fetchGitWorkingState, rememberGitWorkingState, shortenCwd, statusLetter, type GitWorkingState } from './git-diff.js';
+import {
+  cachedGitWorkingState,
+  fetchGitCommitState,
+  fetchGitHistory,
+  fetchGitWorkingState,
+  rememberGitWorkingState,
+  shortenCwd,
+  statusLetter,
+  type GitCommit,
+  type GitCommitState,
+  type GitHistoryPage,
+  type GitWorkingState,
+} from './git-diff.js';
 import { costProvenanceLabel } from './spend-label.js';
 import { DiffViewer } from './DiffViewer.js';
 
@@ -799,6 +811,7 @@ function useGitWorkingState(
   token: () => string,
   cwd: string | undefined,
   refreshKey: number,
+  enabled: boolean,
 ): { state: GitWorkingState | undefined; failed: boolean; refreshing: boolean } {
   const messages = useClientStore((state) => roomSlice(state, room).messages);
   const finalizedRuns = useMemo(
@@ -813,6 +826,10 @@ function useGitWorkingState(
   const [failed, setFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(true);
   useEffect(() => {
+    if (!enabled) {
+      setRefreshing(false);
+      return undefined;
+    }
     let cancelled = false;
     const seed = cachedGitWorkingState(room, cwd);
     setState(seed);
@@ -833,60 +850,245 @@ function useGitWorkingState(
         if (seed === undefined) setFailed(true);
       });
     return () => { cancelled = true; };
-  }, [room, token, cwd, refreshKey, finalizedRuns]);
+  }, [room, token, cwd, refreshKey, finalizedRuns, enabled]);
   return { state, failed, refreshing };
 }
 
+const GIT_HISTORY_PAGE_SIZE = 5;
+
+function shortHash(hash: string): string { return hash.slice(0, 8); }
+
+function commitLabel(commit: GitCommit): string {
+  return `${shortHash(commit.hash)} ${commit.subject}`;
+}
+
+// harn:assume diff-panel-separates-live-and-history-modes ref=git-history-panel-state
 function DiffTab(props: { room: string; token: () => string }) {
   const [selectedCwd, setSelectedCwd] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [pickedPath, setPickedPath] = useState<string>();
-  const { state, failed, refreshing } = useGitWorkingState(props.room, props.token, selectedCwd, refreshKey);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<GitHistoryPage>();
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
+  const historyRequest = useRef(0);
+  const [selectedCommit, setSelectedCommit] = useState<string>();
+  const [commitState, setCommitState] = useState<GitCommitState>();
+  const [commitBusy, setCommitBusy] = useState(false);
+  const [commitError, setCommitError] = useState(false);
+  const liveMode = selectedCommit === undefined;
+  const { state, failed, refreshing } = useGitWorkingState(
+    props.room,
+    props.token,
+    selectedCwd,
+    refreshKey,
+    liveMode,
+  );
+  const effectiveCwd = selectedCwd ?? state?.selected ?? undefined;
 
-  if (failed) {
+  const loadHistory = useCallback((cursor: number, replace: boolean): void => {
+    const request = ++historyRequest.current;
+    setHistoryBusy(true);
+    setHistoryError(false);
+    void fetchGitHistory(props.room, props.token(), {
+      cwd: effectiveCwd,
+      cursor,
+      limit: GIT_HISTORY_PAGE_SIZE,
+    }).then((page) => {
+      if (request !== historyRequest.current) return;
+      setHistory((prior) => replace || prior === undefined
+        ? page
+        : {
+            ...page,
+            commits: [...prior.commits, ...page.commits.filter(
+              (commit) => !prior.commits.some((existing) => existing.hash === commit.hash),
+            )],
+          });
+      setHistoryBusy(false);
+    }).catch(() => {
+      if (request !== historyRequest.current) return;
+      setHistoryBusy(false);
+      setHistoryError(true);
+    });
+  }, [effectiveCwd, props.room, props.token]);
+
+  useEffect(() => {
+    historyRequest.current += 1;
+    setHistory(undefined);
+    setHistoryBusy(false);
+    setHistoryError(false);
+    setSelectedCommit(undefined);
+    setCommitState(undefined);
+    setPickedPath(undefined);
+  }, [effectiveCwd, props.room]);
+
+  useEffect(() => () => { historyRequest.current += 1; }, []);
+
+  useEffect(() => {
+    if (!historyOpen || history !== undefined || historyBusy || historyError) return;
+    loadHistory(0, true);
+  }, [history, historyBusy, historyError, historyOpen, loadHistory]);
+
+  useEffect(() => {
+    if (selectedCommit === undefined) {
+      setCommitState(undefined);
+      setCommitError(false);
+      setCommitBusy(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setCommitBusy(true);
+    setCommitError(false);
+    void fetchGitCommitState(props.room, props.token(), selectedCommit, effectiveCwd)
+      .then((next) => {
+        if (cancelled) return;
+        setCommitState(next);
+        setCommitBusy(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCommitState(undefined);
+        setCommitBusy(false);
+        setCommitError(true);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveCwd, props.room, props.token, selectedCommit]);
+
+  if (failed && liveMode) {
     return <EmptyState testid="diff-error">Couldn’t read the repository.</EmptyState>;
   }
-  if (state === undefined) {
+  if (state === undefined && liveMode) {
     return <EmptyState testid="diff-loading">{refreshing ? 'Reading the working tree…' : 'No repository.'}</EmptyState>;
   }
 
-  const files = state.files;
+  const selectedMeta = history?.commits.find((commit) => commit.hash === selectedCommit)
+    ?? commitState?.commit;
+  const files = liveMode ? (state?.files ?? []) : (commitState?.files ?? []);
   const focusMissing = pickedPath !== undefined && !files.some((file) => file.path === pickedPath);
   const active = files.find((file) => file.path === pickedPath) ?? files[0];
 
   return (
     <div className="nx-diff">
-      {refreshing && (
+      {liveMode && refreshing && (
         <span className="nx-diff-refreshing" data-testid="diff-refreshing">
           <LoaderCircle className="nx-spin" size={12} aria-hidden="true" /> Refreshing…
         </span>
       )}
       <div className="nx-diff-toolbar">
-        {state.cwds.length > 1 && (
+        {(state?.cwds.length ?? 0) > 1 && (
           <select
             className="nx-diff-cwd"
             data-testid="diff-cwd"
             aria-label="Working directory"
-            value={state.selected ?? ''}
-            onChange={(event) => { setSelectedCwd(event.target.value); setPickedPath(undefined); }}
+            value={effectiveCwd ?? ''}
+            onChange={(event) => { setSelectedCwd(event.target.value); }}
           >
-            {state.cwds.map((cwd) => <option key={cwd} value={cwd}>{shortenCwd(cwd)}</option>)}
+            {state?.cwds.map((cwd) => <option key={cwd} value={cwd}>{shortenCwd(cwd)}</option>)}
           </select>
         )}
-        <button
-          type="button"
-          className="nx-diff-refresh"
-          data-testid="diff-refresh"
-          onClick={() => setRefreshKey((key) => key + 1)}
-        >
-          Refresh
-        </button>
+        {liveMode && (
+          <button
+            type="button"
+            className="nx-diff-refresh"
+            data-testid="diff-refresh"
+            onClick={() => setRefreshKey((key) => key + 1)}
+          >
+            Refresh
+          </button>
+        )}
       </div>
 
-      {files.length === 0 && !focusMissing && (
-        <EmptyState testid="diff-clean">Working tree clean — no uncommitted changes.</EmptyState>
+      <section className="nx-git-history" aria-label="Git revision">
+        <button
+          type="button"
+          className="nx-git-history-toggle"
+          aria-expanded={historyOpen}
+          data-testid="git-history-toggle"
+          onClick={() => setHistoryOpen((open) => !open)}
+        >
+          <ChevronRight size={14} aria-hidden="true" className={historyOpen ? 'is-open' : ''} />
+          <span>{liveMode ? 'Working tree / HEAD' : selectedMeta ? commitLabel(selectedMeta) : shortHash(selectedCommit)}</span>
+          <small>History</small>
+        </button>
+        {historyOpen && (
+          <div className="nx-git-history-list" data-testid="git-history-list">
+            <button
+              type="button"
+              className={`nx-git-history-row ${liveMode ? 'is-active' : ''}`}
+              aria-current={liveMode ? 'true' : undefined}
+              onClick={() => { setSelectedCommit(undefined); setPickedPath(undefined); }}
+            >
+              <strong>Working tree / HEAD</strong><small>Live</small>
+            </button>
+            {historyError && (
+              <div className="nx-git-history-error" role="alert" data-testid="git-history-error">
+                <p className="nx-diff-note is-error">Couldn’t read commit history.</p>
+                <button type="button" onClick={() => loadHistory(0, true)}>Retry</button>
+              </div>
+            )}
+            {history !== undefined && !history.repository && (
+              <p className="nx-diff-note" data-testid="git-history-no-repo">No Git repository at this location.</p>
+            )}
+            {history?.repository === true && history.commits.length === 0 && (
+              <p className="nx-diff-note" data-testid="git-history-empty">No commits yet.</p>
+            )}
+            {history?.commits.map((commit) => (
+              <button
+                key={commit.hash}
+                type="button"
+                className={`nx-git-history-row ${selectedCommit === commit.hash ? 'is-active' : ''}`}
+                aria-current={selectedCommit === commit.hash ? 'true' : undefined}
+                data-testid="git-history-commit"
+                onClick={() => {
+                  setCommitState(undefined);
+                  setCommitBusy(true);
+                  setSelectedCommit(commit.hash);
+                  setPickedPath(undefined);
+                }}
+              >
+                <span className="nx-git-history-subject">{commit.subject || '(no subject)'}</span>
+                <code>{shortHash(commit.hash)}</code>
+                <small>{commit.author} · {new Date(commit.authored_ts).toLocaleString()}</small>
+                {commit.refs.length > 0 && <span className="nx-git-refs">{commit.refs.join(' · ')}</span>}
+              </button>
+            ))}
+            {historyBusy && <p className="nx-diff-note" data-testid="git-history-loading">Loading history…</p>}
+            {history?.next_cursor !== null && history?.next_cursor !== undefined && !historyBusy && (
+              <button
+                type="button"
+                className="nx-git-history-more"
+                data-testid="git-history-more"
+                onClick={() => loadHistory(history.next_cursor!, false)}
+              >
+                Load more
+              </button>
+            )}
+          </div>
+        )}
+      </section>
+
+      {!liveMode && selectedMeta !== undefined && (
+        <div className="nx-git-commit-meta" data-testid="git-commit-meta">
+          <strong>{selectedMeta.subject || '(no subject)'}</strong>
+          <span><code>{selectedMeta.hash}</code> · {selectedMeta.author}</span>
+          {selectedMeta.refs.length > 0 && <span>{selectedMeta.refs.join(' · ')}</span>}
+          {commitState !== undefined && (
+            <small>{commitState.comparison === 'root' ? 'Root commit compared with the empty tree' : 'Compared with first parent'}</small>
+          )}
+        </div>
       )}
-      {files.length > 0 && (
+
+      {!liveMode && commitBusy && <EmptyState testid="git-commit-loading">Reading commit…</EmptyState>}
+      {!liveMode && commitError && <EmptyState testid="git-commit-error">Couldn’t read this commit.</EmptyState>}
+
+      {!commitBusy && !commitError && files.length === 0 && !focusMissing && (
+        <EmptyState testid={liveMode ? 'diff-clean' : 'git-commit-empty'}>
+          {liveMode
+            ? 'Working tree clean — no uncommitted changes.'
+            : 'This commit has no changes against its comparison parent.'}
+        </EmptyState>
+      )}
+      {!commitBusy && !commitError && files.length > 0 && (
         <ul className="nx-diff-files" data-testid="diff-files">
           {files.map((file) => (
             <li key={file.path}>
@@ -894,7 +1096,10 @@ function DiffTab(props: { room: string; token: () => string }) {
                 className={`nx-diff-file ${file === active && !focusMissing ? 'is-active' : ''}`}
                 onClick={() => setPickedPath(file.path)}
               >
-                <span className={`nx-diff-status is-${file.status}`} title={file.status}>
+                <span
+                  className={`nx-diff-status is-${file.status}`}
+                  title={file.old_path === undefined ? file.status : `${file.status} from ${file.old_path}`}
+                >
                   {statusLetter(file.status)}
                 </span>
                 <span className="nx-diff-path">{file.path}</span>
@@ -911,11 +1116,22 @@ function DiffTab(props: { room: string; token: () => string }) {
           No current changes for {pickedPath}.
         </p>
       ) : (
-        active !== undefined && <DiffViewer diff={{ path: active.path, unified: active.diff }} />
+        active !== undefined && (active.binary ? (
+          <p className="nx-diff-note" data-testid="git-binary-note">Binary file changed; no text patch is available.</p>
+        ) : (
+          <>
+            <DiffViewer diff={{ path: active.path, unified: active.diff }} />
+            {active.truncated && <p className="nx-diff-note">Patch truncated at the server output limit.</p>}
+          </>
+        ))
+      )}
+      {commitState?.files_truncated === true && (
+        <p className="nx-diff-note">File list truncated at the server output limit.</p>
       )}
     </div>
   );
 }
+// harn:end diff-panel-separates-live-and-history-modes
 
 // ── Preview tab: image artifacts from run evidence; dot-grid empty state ───
 

@@ -2125,7 +2125,8 @@ describe('rooms summary', () => {
 });
 // harn:end durable-room-summaries-stream-and-fallback
 
-describe('git working state endpoint (room-git-state-read-only-from-known-cwds)', () => {
+// harn:assume room-git-inspection-read-only-from-known-cwds ref=room-git-inspection-server-regression
+describe('git inspection endpoints (room-git-inspection-read-only-from-known-cwds)', () => {
   const initRepo = (): string => {
     const repo = testCwd('gitrepo');
     const env = {
@@ -2159,6 +2160,7 @@ describe('git working state endpoint (room-git-state-read-only-from-known-cwds)'
   it('refuses an anonymous request', async () => {
     daemon.configureRoom('eng', { cwd: initRepo() });
     expect((await fetch(`${base}/api/rooms/eng/git-diff`)).status).toBe(401);
+    expect((await fetch(`${base}/api/rooms/eng/git-history`)).status).toBe(401);
   });
 
   it("refuses a cwd outside the room's known set", async () => {
@@ -2168,7 +2170,42 @@ describe('git working state endpoint (room-git-state-read-only-from-known-cwds)'
     });
     expect(res.status).toBe(400);
   });
+
+  it('pages commit metadata and reads a selected full hash', async () => {
+    const repo = initRepo();
+    daemon.configureRoom('eng', { cwd: repo });
+    const history = await fetch(`${base}/api/rooms/eng/git-history?limit=1&cursor=0`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(history.status).toBe(200);
+    const page = await history.json() as { repository: boolean; commits: { hash: string; subject: string }[] };
+    expect(page.repository).toBe(true);
+    expect(page.commits).toHaveLength(1);
+    expect(page.commits[0]?.subject).toBe('init');
+
+    const detail = await fetch(
+      `${base}/api/rooms/eng/git-diff?commit=${page.commits[0]!.hash}`,
+      { headers: { authorization: `Bearer ${TOKEN}` } },
+    );
+    expect(detail.status).toBe(200);
+    expect(await detail.json()).toMatchObject({ comparison: 'root', files_truncated: false });
+  });
+
+  it('rejects unbounded paging and arbitrary revision syntax', async () => {
+    daemon.configureRoom('eng', { cwd: initRepo() });
+    for (const query of ['limit=51', 'cursor=-1', 'cursor=10001']) {
+      const res = await fetch(`${base}/api/rooms/eng/git-history?${query}`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(res.status).toBe(400);
+    }
+    const revision = await fetch(`${base}/api/rooms/eng/git-diff?commit=HEAD`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(revision.status).toBe(400);
+  });
 });
+// harn:end room-git-inspection-read-only-from-known-cwds
 
 describe('message attachment endpoints (attachments-are-capped-files-served-inert)', () => {
   const upload = (

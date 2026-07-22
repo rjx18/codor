@@ -88,6 +88,65 @@ test.describe('git diff explorer', () => {
   });
   // harn:end transcript-diffs-use-immutable-run-evidence
 
+  // harn:assume diff-panel-separates-live-and-history-modes ref=git-history-browser-regression
+  test('history stays explicit and paginates across local branches in a clean tree', async ({ page }) => {
+    await control('/git-reset');
+    await openRoom(page);
+    await page.getByTestId('context-tab-diff').click();
+
+    await expect(page.getByTestId('git-history-toggle')).toContainText('Working tree / HEAD');
+    await expect(page.getByTestId('diff-clean')).toContainText('Working tree clean');
+    await page.getByTestId('git-history-toggle').click();
+    await expect(page.getByTestId('git-history-commit')).toHaveCount(5);
+    await expect(page.getByTestId('git-history-more')).toBeVisible();
+
+    await page.getByTestId('git-history-more').click();
+    await expect(page.getByTestId('git-history-commit')).toHaveCount(8);
+    await expect(page.getByTestId('git-history-list')).toContainText('feature/local-history');
+
+    await page.getByTestId('git-history-commit').filter({ hasText: 'History fixture 6' }).click();
+    const meta = page.getByTestId('git-commit-meta');
+    await expect(meta).toContainText('History fixture 6');
+    await expect(meta.locator('code')).toHaveText(/^[0-9a-f]{40}$/);
+    await expect(page.getByTestId('diff-files')).toContainText('history.txt');
+    await expect(page.getByTestId('diff-view').locator('.nx-diff-line.is-add').first()).toContainText('history');
+    await expect(page.getByTestId('diff-refresh')).toHaveCount(0);
+
+    // Collapsing the selector and browsing the patch cannot change the selected hash.
+    const selectedHash = await meta.locator('code').textContent();
+    await page.getByTestId('git-history-toggle').click();
+    await expect(meta.locator('code')).toHaveText(selectedHash ?? '');
+    await page.getByTestId('git-history-toggle').click();
+    await page.getByRole('button', { name: /Working tree \/ HEAD/ }).last().click();
+    await expect(page.getByTestId('diff-clean')).toContainText('Working tree clean');
+    await expect(page.getByTestId('diff-refresh')).toBeVisible();
+
+    const { default: AxeBuilder } = await import('@axe-core/playwright');
+    const { violations } = await new AxeBuilder({ page }).analyze();
+    expect(violations.map((v) => `${v.id}: ${v.nodes[0]?.target[0]}`)).toEqual([]);
+    await control('/git-dirty');
+  });
+
+  test('history loading failures remain visible and retryable', async ({ page }) => {
+    await page.route('**/api/rooms/workspace/git-history**', async (route) => {
+      await route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"fixture"}' });
+    });
+    await openRoom(page);
+    await page.getByTestId('context-tab-diff').click();
+    await page.getByTestId('git-history-toggle').click();
+    await expect(page.getByTestId('git-history-error')).toContainText('Couldn’t read commit history');
+    await expect(page.getByTestId('git-history-error').getByRole('button', { name: 'Retry' })).toBeVisible();
+  });
+
+  test('a repository without commits has an explicit history empty state', async ({ page }) => {
+    await page.goto('/?room=empty-history&token=next-e2e-token');
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await page.getByTestId('context-tab-diff').click();
+    await page.getByTestId('git-history-toggle').click();
+    await expect(page.getByTestId('git-history-empty')).toHaveText('No commits yet.');
+  });
+  // harn:end diff-panel-separates-live-and-history-modes
+
   test('a revisit serves the cached working state instantly, never an empty pane', async ({ page }) => {
     await control('/git-dirty');
     await openRoom(page);

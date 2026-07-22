@@ -1,0 +1,14 @@
+id: git-history-pages-are-local-and-commit-addressed
+hash: a-912134cbcf2b
+title: Git history pages expose bounded local ref truth and immutable selections
+state: active
+statement: Git history must page a bounded newest-first union of commits
+  reachable from local branches plus HEAD, carrying full hash, subject, author,
+  authored timestamp, parents, and ref decoration; commit detail accepts only a
+  full hexadecimal object id that resolves to a commit and compares the root
+  empty tree or a merge's first parent to that exact commit, with bounded file
+  and patch output and explicit rename, delete, binary, truncation, root, and
+  merge evidence.
+depends_on:
+  - room-git-inspection-read-only-from-known-cwds
+created_by: codor-runtime-fidelity-phase5

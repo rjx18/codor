@@ -5045,6 +5045,106 @@ describe('git working state (diff explorer)', () => {
     expect(after).toEqual(before);
     expect(after.staged).toBe(''); // the read never staged anything
   });
+
+  // harn:assume git-history-pages-are-local-and-commit-addressed ref=git-history-daemon-regression
+  it('pages local-branch history and renders root plus first-parent merge evidence', async () => {
+    const repo = initRepo('history');
+    daemon.configureRoom('eng', { cwd: repo });
+    const main = execFileSync('git', ['branch', '--show-current'], { cwd: repo }).toString().trim();
+    writeFileSync(join(repo, 'remove.txt'), 'remove in feature\n');
+    git(repo, ['add', '.']);
+    git(repo, ['commit', '-q', '--amend', '--no-edit']);
+    const root = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo }).toString().trim();
+
+    git(repo, ['checkout', '-q', '-b', 'feature/history']);
+    git(repo, ['mv', 'gone.txt', 'renamed.txt']);
+    rmSync(join(repo, 'remove.txt'));
+    writeFileSync(join(repo, 'image.bin'), Buffer.from([0, 1, 2, 3, 0, 4]));
+    git(repo, ['add', '.']);
+    git(repo, ['commit', '-q', '-m', 'feature rename and binary']);
+    const feature = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo }).toString().trim();
+
+    git(repo, ['checkout', '-q', main]);
+    writeFileSync(join(repo, 'keep.txt'), 'one\ntwo\nthree\nmain\n');
+    git(repo, ['add', '.']);
+    git(repo, ['commit', '-q', '-m', 'main change']);
+    git(repo, ['merge', '-q', '--no-ff', 'feature/history', '-m', 'merge feature history']);
+    const merge = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo }).toString().trim();
+
+    const first = await daemon.gitHistory('eng', undefined, 0, 2);
+    expect(first.repository).toBe(true);
+    expect(first.commits).toHaveLength(2);
+    expect(first.commits[0]).toMatchObject({ hash: merge, subject: 'merge feature history' });
+    expect(first.commits[0]?.parents).toHaveLength(2);
+    expect(first.commits.some((commit) => commit.refs.some((ref) => ref.includes(main)))).toBe(true);
+    expect(first.next_cursor).toBe(2);
+    const second = await daemon.gitHistory('eng', undefined, first.next_cursor!, 2);
+    expect(second.commits.map((commit) => commit.hash)).not.toContain(merge);
+    expect([...first.commits, ...second.commits].map((commit) => commit.hash)).toContain(feature);
+
+    const mergeState = await daemon.gitCommitState('eng', merge);
+    expect(mergeState.comparison).toBe('first-parent');
+    expect(mergeState.commit.parents).toHaveLength(2);
+    expect(mergeState.files.find((file) => file.path === 'renamed.txt')).toMatchObject({
+      old_path: 'gone.txt', status: 'renamed',
+    });
+    expect(mergeState.files.find((file) => file.path === 'image.bin')).toMatchObject({
+      status: 'added', binary: true, additions: 0, deletions: 0,
+    });
+    expect(mergeState.files.find((file) => file.path === 'remove.txt')?.status).toBe('deleted');
+
+    const rootState = await daemon.gitCommitState('eng', root);
+    expect(rootState.comparison).toBe('root');
+    expect(rootState.base).toBeNull();
+    expect(rootState.files.some((file) => file.status === 'added')).toBe(true);
+  });
+
+  it('reports non-repositories and repositories without commits honestly', async () => {
+    const plain = join(dir, 'history-plain');
+    mkdirSync(plain);
+    daemon.configureRoom('eng', { cwd: plain });
+    expect(await daemon.gitHistory('eng')).toMatchObject({ repository: false, commits: [] });
+
+    const empty = join(dir, 'history-empty');
+    mkdirSync(empty);
+    git(empty, ['init', '-q']);
+    daemon.configureRoom('eng', { cwd: empty });
+    expect(await daemon.gitHistory('eng')).toMatchObject({ repository: true, commits: [], next_cursor: null });
+  });
+
+  it('rejects revision syntax and unreachable commit objects', async () => {
+    const repo = initRepo('history-validation');
+    daemon.configureRoom('eng', { cwd: repo });
+    await expect(daemon.gitCommitState('eng', 'HEAD')).rejects.toThrow(/full 40-character/);
+
+    git(repo, ['checkout', '-q', '--orphan', 'discarded']);
+    git(repo, ['rm', '-q', '-rf', '.']);
+    writeFileSync(join(repo, 'discarded.txt'), 'not reachable later\n');
+    git(repo, ['add', '.']);
+    git(repo, ['commit', '-q', '-m', 'discarded object']);
+    const discarded = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo }).toString().trim();
+    const main = execFileSync('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads'], { cwd: repo })
+      .toString().split('\n').find((name) => name !== '' && name !== 'discarded')!;
+    git(repo, ['checkout', '-q', main]);
+    git(repo, ['branch', '-D', 'discarded']);
+    await expect(daemon.gitCommitState('eng', discarded)).rejects.toThrow(/not reachable/);
+  });
+
+  it('truncates oversized historical patches without changing repository state', async () => {
+    const repo = initRepo('history-limit');
+    daemon.configureRoom('eng', { cwd: repo });
+    writeFileSync(join(repo, 'large.txt'), 'line\n'.repeat(20_000));
+    git(repo, ['add', '.']);
+    git(repo, ['commit', '-q', '-m', 'large patch']);
+    const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo }).toString().trim();
+    const before = execFileSync('git', ['status', '--porcelain=v1'], { cwd: repo }).toString();
+    const state = await daemon.gitCommitState('eng', commit);
+    const file = state.files.find((candidate) => candidate.path === 'large.txt');
+    expect(file?.truncated).toBe(true);
+    expect(file?.diff).toContain('diff truncated');
+    expect(execFileSync('git', ['status', '--porcelain=v1'], { cwd: repo }).toString()).toBe(before);
+  });
+  // harn:end git-history-pages-are-local-and-commit-addressed
 });
 
 describe('message attachments', () => {

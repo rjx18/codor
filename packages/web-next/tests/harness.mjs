@@ -104,6 +104,7 @@ for (const [id, name] of [
   ['recovery', 'Recovery'],
   ['interleave', 'Interleave'],
   ['workspace', 'Workspace'],
+  ['empty-history', 'Empty History'],
   ['files', 'Files'],
   ['hydration', 'Hydration'],
   ['fixtures', 'Fixtures'],
@@ -294,6 +295,10 @@ const gitEnv = {
   GIT_COMMITTER_NAME: 'Codor', GIT_COMMITTER_EMAIL: 'codor@example.com',
 };
 const gitIn = (args) => execFileSync('git', args, { cwd: workspaceRepo, env: gitEnv });
+const emptyHistoryRepo = join(dir, 'empty-history-repo');
+mkdirSync(emptyHistoryRepo, { recursive: true });
+execFileSync('git', ['init', '-q'], { cwd: emptyHistoryRepo, env: gitEnv });
+daemon.configureRoom('empty-history', { cwd: emptyHistoryRepo });
 mkdirSync(join(workspaceRepo, 'src'), { recursive: true });
 writeFileSync(join(workspaceRepo, 'src', 'app.ts'), 'export const version = 1;\n');
 writeFileSync(join(workspaceRepo, 'legacy.ts'), 'export const old = true;\n');
@@ -301,14 +306,24 @@ writeFileSync(join(workspaceRepo, 'README.md'), '# Workspace\n');
 gitIn(['init', '-q']);
 gitIn(['add', '.']);
 gitIn(['commit', '-q', '-m', 'initial workspace']);
+const workspaceMain = gitIn(['branch', '--show-current']).toString().trim();
+gitIn(['checkout', '-q', '-b', 'feature/local-history']);
+writeFileSync(join(workspaceRepo, 'feature.txt'), 'local branch evidence\n');
+gitIn(['add', '.']);
+gitIn(['commit', '-q', '-m', 'Add local branch evidence']);
+gitIn(['checkout', '-q', workspaceMain]);
+for (let index = 1; index <= 6; index += 1) {
+  writeFileSync(join(workspaceRepo, 'history.txt'), `${'history\n'.repeat(index)}`);
+  gitIn(['add', '.']);
+  gitIn(['commit', '-q', '-m', `History fixture ${String(index)}`]);
+}
 const dirtyWorkspace = () => {
   writeFileSync(join(workspaceRepo, 'src', 'app.ts'), 'export const version = 2;\nexport const patched = true;\n');
   rmSync(join(workspaceRepo, 'legacy.ts'), { force: true });
   writeFileSync(join(workspaceRepo, 'notes.md'), 'scratch notes\nmore notes\n');
 };
 daemon.spawnMember('workspace', { harness: 'fake', handle: 'builder', cwd: workspaceRepo });
-// A completed run whose Edit chip references the file the working tree changed,
-// so clicking the chip lands on that file's CURRENT diff.
+// A completed run whose Edit chip carries the immutable patch captured then.
 fake.enqueue({
   kind: 'complete',
   final_text: 'Bumped src/app.ts to version 2 and added a patch flag.',

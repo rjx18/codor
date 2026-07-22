@@ -1,21 +1,20 @@
 id: codor-runtime-fidelity-phase5
 title: Add a bounded Git history explorer to the live Diff panel
-notes: >-
-  Extend the existing read-only room Git boundary rather than introducing a
+notes: Extend the existing read-only room Git boundary rather than introducing a
   general Git client. Working tree remains the default and only live mode
   revalidates after completed runs. A collapsed selector requests bounded pages
   of commits reachable from local branches plus HEAD, shows immutable commit
   identity/ref metadata, and selects a full hash. The daemon validates that hash
   and the requested cwd before using fixed execFile argument arrays to compare
   the root empty tree or first parent with the commit. File/patch output is
-  bounded and reports merges, renames, deletes, and binary evidence honestly.
-  No operation mutates Git state, invokes a shell, reads remotes, or changes the
+  bounded and reports merges, renames, deletes, and binary evidence honestly. No
+  operation mutates Git state, invokes a shell, reads remotes, or changes the
   durable transcript dialog.
 assumptions:
   retire:
     - id: room-git-state-read-only-from-known-cwds
-      reason: The same safe room/cwd boundary now serves both live working state
-        and bounded local commit history, so the live-only statement is no longer
+      reason: The same safe room/cwd boundary now serves both live working state and
+        bounded local commit history, so the live-only statement is no longer
         the complete review obligation.
   create:
     - id: room-git-inspection-read-only-from-known-cwds
@@ -49,9 +48,10 @@ assumptions:
         collapsible paginated commit selector above the existing file list, keep
         an explicitly selected commit and file stable while history is viewed,
         render commit metadata and parent-to-commit files from the server, and
-        resume live stale-while-revalidate behavior only when Working tree / HEAD
-        is selected; loading, no-repository, no-commit, empty-commit, pagination,
-        and failure states must describe the evidence actually available.
+        resume live stale-while-revalidate behavior only when Working tree /
+        HEAD is selected; loading, no-repository, no-commit, empty-commit,
+        pagination, and failure states must describe the evidence actually
+        available.
       reason: Operators need useful history in a clean tree without confusing an
         immutable commit with the automatically changing working directory.
       depends_on:
@@ -59,12 +59,12 @@ assumptions:
   reviewed:
     - id: modal-dialogs-layer-above-room-chrome
       outcome: unchanged
-      reason: Phase 5 stays entirely inside the existing Diff panel and does not
-        edit or reuse the transcript modal surface.
+      reason: Phase 5 stays entirely inside the existing Diff panel and does not edit
+        or reuse the transcript modal surface.
     - id: transcript-diffs-use-immutable-run-evidence
       outcome: unchanged
-      reason: Historical transcript chips continue rendering only run-journal
-        evidence and do not call either Git history endpoint.
+      reason: Historical transcript chips continue rendering only run-journal evidence
+        and do not call either Git history endpoint.
 anchors:
   room-git-state-read-only-from-known-cwds:
     room-git-state-contract:
@@ -74,12 +74,12 @@ anchors:
   room-git-inspection-read-only-from-known-cwds:
     room-git-inspection-contract:
       action: change
-      reason: Generalize the validated cwd and fixed read-only execution boundary
-        from working state to bounded history and commit detail.
+      reason: Generalize the validated cwd and fixed read-only execution boundary from
+        working state to bounded history and commit detail.
     room-git-inspection-server-regression:
       action: change
-      reason: Prove authentication, authorization, cwd rejection, revision
-        validation, paging bounds, and endpoint errors.
+      reason: Prove authentication, authorization, cwd rejection, revision validation,
+        paging bounds, and endpoint errors.
   git-history-pages-are-local-and-commit-addressed:
     git-history-daemon-regression:
       action: change
@@ -107,8 +107,10 @@ files:
   - packages/web-next/src/styles/room.css
   - packages/web-next/tests/harness.mjs
   - packages/web-next/tests/room19-gitdiff.e2e.spec.ts
-verification: >-
-  Run focused switchboard daemon/server Git inspection tests, focused web-next
-  Git client tests, and the room19 Diff panel browser file. Run switchboard and
-  web-next TypeScript/production builds, Harn unstaged and staged gates, apply
-  the locked plan, and commit Phase 5 as one implementation transaction.
+verification: Run focused switchboard daemon/server Git inspection tests,
+  focused web-next Git client tests, and the room19 Diff panel browser file. Run
+  switchboard and web-next TypeScript/production builds, Harn unstaged and
+  staged gates, apply the locked plan, and commit Phase 5 as one implementation
+  transaction.
+applied:
+  applied_at: 2026-07-22T04:37:48.807Z

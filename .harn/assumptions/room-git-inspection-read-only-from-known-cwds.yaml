@@ -1,0 +1,12 @@
+id: room-git-inspection-read-only-from-known-cwds
+hash: a-bbb118d2b950
+title: Room Git inspection is authorized, bounded, and read-only
+state: active
+statement: The daemon must serve working state, local-branch history, and
+  selected commit patches only behind room read authorization and only for a cwd
+  exactly in the room's canonical known-directory set; every Git process uses
+  execFile with a timeout, fixed arguments, bounded buffers and response limits,
+  never shell interpolation or a mutating/remote Git operation, while
+  non-repositories and command failures are represented honestly.
+depends_on: []
+created_by: codor-runtime-fidelity-phase5

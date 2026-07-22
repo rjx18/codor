@@ -5,11 +5,13 @@ export type GitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untr
 
 export interface GitFile {
   path: string;
+  old_path?: string;
   status: GitFileStatus;
   additions: number;
   deletions: number;
   diff: string;
   truncated: boolean;
+  binary?: boolean;
 }
 
 export interface GitWorkingState {
@@ -17,6 +19,39 @@ export interface GitWorkingState {
   selected: string | null;
   clean: boolean;
   files: GitFile[];
+}
+
+export interface GitCommit {
+  hash: string;
+  parents: string[];
+  subject: string;
+  author: string;
+  authored_ts: string;
+  refs: string[];
+}
+
+export interface GitHistoryPage {
+  cwds: string[];
+  selected: string | null;
+  repository: boolean;
+  commits: GitCommit[];
+  next_cursor: number | null;
+}
+
+export interface GitCommitState {
+  cwds: string[];
+  selected: string;
+  commit: GitCommit;
+  comparison: 'root' | 'first-parent';
+  base: string | null;
+  files: GitFile[];
+  files_truncated: boolean;
+}
+
+async function readGitJson<T>(path: string, token: string): Promise<T> {
+  const res = await fetch(path, { headers: { authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`git request failed: ${String(res.status)}`);
+  return res.json() as Promise<T>;
 }
 
 /** Read the room's live git working state. `cwd` selects one of the room's known
@@ -27,12 +62,34 @@ export async function fetchGitWorkingState(
   cwd?: string,
 ): Promise<GitWorkingState> {
   const query = cwd !== undefined ? `?cwd=${encodeURIComponent(cwd)}` : '';
-  const res = await fetch(`/api/rooms/${encodeURIComponent(room)}/git-diff${query}`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`git-diff request failed: ${String(res.status)}`);
-  return res.json() as Promise<GitWorkingState>;
+  return readGitJson(`/api/rooms/${encodeURIComponent(room)}/git-diff${query}`, token);
 }
+
+// harn:assume git-history-pages-are-local-and-commit-addressed ref=git-history-client-contract
+export async function fetchGitHistory(
+  room: string,
+  token: string,
+  opts: { cwd?: string; cursor?: number; limit?: number } = {},
+): Promise<GitHistoryPage> {
+  const query = new URLSearchParams();
+  if (opts.cwd !== undefined) query.set('cwd', opts.cwd);
+  if (opts.cursor !== undefined) query.set('cursor', String(opts.cursor));
+  if (opts.limit !== undefined) query.set('limit', String(opts.limit));
+  const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+  return readGitJson(`/api/rooms/${encodeURIComponent(room)}/git-history${suffix}`, token);
+}
+
+export async function fetchGitCommitState(
+  room: string,
+  token: string,
+  commit: string,
+  cwd?: string,
+): Promise<GitCommitState> {
+  const query = new URLSearchParams({ commit });
+  if (cwd !== undefined) query.set('cwd', cwd);
+  return readGitJson(`/api/rooms/${encodeURIComponent(room)}/git-diff?${query.toString()}`, token);
+}
+// harn:end git-history-pages-are-local-and-commit-addressed
 
 const STATUS_LETTER: Record<GitFileStatus, string> = {
   modified: 'M',

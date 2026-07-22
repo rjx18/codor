@@ -82,11 +82,11 @@ import { normalizeWorkingDirectory } from './working-directory.js';
 
 const execFileAsync = promisify(execFile);
 
-// ── Room git working-state (diff explorer) ─────────────────────────────────
+// ── Room git inspection (working state + local history) ────────────────────
 // Every git call is read-only and runs through execFileAsync (no shell, no
 // interpolation). The directory is always one the room already recorded — never
-// a free path from the client. Per-file diffs are capped so a large working tree
-// cannot balloon the response. See gitWorkingState / readGitWorkingFiles below.
+// a free path from the client. History pages, file counts, and per-file diffs are
+// capped so a large repository cannot balloon the response.
 // ── Message attachments ────────────────────────────────────────────────────
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_ATTACHMENTS_PER_MESSAGE = 8;
@@ -109,16 +109,23 @@ const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_BUFFER = 16 * 1024 * 1024;
 const MAX_FILE_DIFF_CHARS = 40_000;
 const DIFF_TRUNCATED_MARKER = '\n… diff truncated …\n';
+const MAX_HISTORY_FILES = 200;
+const MAX_HISTORY_PAGE = 50;
+const MAX_HISTORY_CURSOR = 10_000;
+const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const FULL_GIT_HASH = /^[0-9a-fA-F]{40}$/;
 
 export type RoomGitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked';
 
 export interface RoomGitFile {
   path: string;
+  old_path?: string;
   status: RoomGitFileStatus;
   additions: number;
   deletions: number;
   diff: string;
   truncated: boolean;
+  binary?: boolean;
 }
 
 export interface RoomGitWorkingState {
@@ -128,9 +135,99 @@ export interface RoomGitWorkingState {
   files: RoomGitFile[];
 }
 
+export interface RoomGitCommit {
+  hash: string;
+  parents: string[];
+  subject: string;
+  author: string;
+  authored_ts: string;
+  refs: string[];
+}
+
+export interface RoomGitHistoryPage {
+  cwds: string[];
+  selected: string | null;
+  repository: boolean;
+  commits: RoomGitCommit[];
+  next_cursor: number | null;
+}
+
+export interface RoomGitCommitState {
+  cwds: string[];
+  selected: string;
+  commit: RoomGitCommit;
+  comparison: 'root' | 'first-parent';
+  base: string | null;
+  files: RoomGitFile[];
+  files_truncated: boolean;
+}
+
 interface PorcelainEntry {
   path: string;
   status: RoomGitFileStatus;
+}
+
+interface HistoricalEntry extends PorcelainEntry {
+  old_path?: string;
+}
+
+async function runGitRead(cwd: string, args: readonly string[], tolerateDiff = false): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
+      timeout: GIT_TIMEOUT_MS,
+      maxBuffer: GIT_MAX_BUFFER,
+      windowsHide: true,
+    });
+    return stdout;
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    const stdout = (error as { stdout?: unknown }).stdout;
+    if (tolerateDiff && code === 1 && typeof stdout === 'string') return stdout;
+    throw error;
+  }
+}
+
+function parseHistoryCommits(output: string): RoomGitCommit[] {
+  const fields = output.split('\0');
+  if (fields.at(-1) === '') fields.pop();
+  const commits: RoomGitCommit[] = [];
+  for (let index = 0; index + 5 < fields.length; index += 6) {
+    const [rawHash, parents, author, authoredTs, subject, refs] = fields.slice(index, index + 6);
+    const hash = rawHash?.replace(/^\n+/, '');
+    if (!hash || !FULL_GIT_HASH.test(hash)) continue;
+    commits.push({
+      hash: hash.toLowerCase(),
+      parents: (parents ?? '').split(' ').filter(Boolean),
+      author: (author ?? '').slice(0, 500),
+      authored_ts: authoredTs ?? '',
+      subject: (subject ?? '').slice(0, 1_000),
+      refs: (refs ?? '').split(',').map((ref) => ref.trim()).filter(Boolean).slice(0, 50),
+    });
+  }
+  return commits;
+}
+
+function parseHistoricalStatus(output: string): HistoricalEntry[] {
+  const tokens = output.split('\0');
+  const entries: HistoricalEntry[] = [];
+  for (let index = 0; index < tokens.length;) {
+    const code = tokens[index++];
+    if (!code) continue;
+    const status = code[0];
+    if (status === 'R' || status === 'C') {
+      const oldPath = tokens[index++];
+      const path = tokens[index++];
+      if (oldPath && path) entries.push({ path, old_path: oldPath, status: 'renamed' });
+      continue;
+    }
+    const path = tokens[index++];
+    if (!path) continue;
+    entries.push({
+      path,
+      status: status === 'A' ? 'added' : status === 'D' ? 'deleted' : 'modified',
+    });
+  }
+  return entries;
 }
 
 function porcelainStatus(x: string, y: string): RoomGitFileStatus {
@@ -4373,7 +4470,7 @@ export class Daemon {
     return this.project(room, this.blobs.read(room, message.run.events_ref));
   }
 
-  // harn:assume room-git-state-read-only-from-known-cwds ref=room-git-state-contract
+  // harn:assume room-git-inspection-read-only-from-known-cwds ref=room-git-inspection-contract
   /**
    * The diff explorer's live git working-state for one of the room's known
    * directories. `requestedCwd` is a SELECTOR into the room's recorded cwd set,
@@ -4381,14 +4478,130 @@ export class Daemon {
    * A non-git or clean directory yields an empty, clean state.
    */
   async gitWorkingState(room: string, requestedCwd?: string): Promise<RoomGitWorkingState> {
+    const { cwds, selected } = this.resolveRoomGitCwd(room, requestedCwd);
+    if (selected === null) return { cwds, selected, clean: true, files: [] };
+    const files = await this.readGitWorkingFiles(selected);
+    return { cwds, selected, clean: files.length === 0, files };
+  }
+
+  /** A bounded newest-first union of commits reachable from local branches or
+   *  HEAD. Offset cursors are deliberately opaque to the UI and re-read only
+   *  when the operator opens/extends the selector. */
+  async gitHistory(
+    room: string,
+    requestedCwd?: string,
+    cursor = 0,
+    limit = 20,
+  ): Promise<RoomGitHistoryPage> {
+    if (!Number.isSafeInteger(cursor) || cursor < 0 || cursor > MAX_HISTORY_CURSOR) {
+      throw new Error(`cursor must be an integer from 0 to ${String(MAX_HISTORY_CURSOR)}`);
+    }
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_HISTORY_PAGE) {
+      throw new Error(`limit must be an integer from 1 to ${String(MAX_HISTORY_PAGE)}`);
+    }
+    const { cwds, selected } = this.resolveRoomGitCwd(room, requestedCwd);
+    if (selected === null) return { cwds, selected, repository: false, commits: [], next_cursor: null };
+    if (!await this.isGitRepository(selected)) {
+      return { cwds, selected, repository: false, commits: [], next_cursor: null };
+    }
+    try {
+      await runGitRead(selected, ['rev-parse', '--verify', 'HEAD']);
+    } catch {
+      // A valid repository without a first commit has no HEAD yet.
+      return { cwds, selected, repository: true, commits: [], next_cursor: null };
+    }
+    const commits = parseHistoryCommits(await runGitRead(selected, [
+      'log', '--branches', 'HEAD', '--date-order', `--max-count=${String(limit + 1)}`,
+      `--skip=${String(cursor)}`, '--date=iso-strict',
+      '--format=%H%x00%P%x00%an%x00%aI%x00%s%x00%D%x00',
+    ]));
+    const hasMore = commits.length > limit;
+    return {
+      cwds,
+      selected,
+      repository: true,
+      commits: hasMore ? commits.slice(0, limit) : commits,
+      next_cursor: hasMore ? cursor + limit : null,
+    };
+  }
+
+  /** The immutable first-parent (or empty-tree root) patch for one full commit
+   *  hash that is still reachable from a local branch or HEAD. */
+  async gitCommitState(room: string, hash: string, requestedCwd?: string): Promise<RoomGitCommitState> {
+    if (!FULL_GIT_HASH.test(hash)) throw new Error('commit must be a full 40-character hexadecimal hash');
+    const normalizedHash = hash.toLowerCase();
+    const { cwds, selected } = this.resolveRoomGitCwd(room, requestedCwd);
+    if (selected === null || !await this.isGitRepository(selected)) throw new Error('no git repository');
+    try {
+      await runGitRead(selected, ['cat-file', '-e', `${normalizedHash}^{commit}`]);
+    } catch {
+      throw new Error('commit is unavailable');
+    }
+    if (!await this.gitCommitIsRelevant(selected, normalizedHash)) {
+      throw new Error('commit is not reachable from a local branch or HEAD');
+    }
+    const metadata = parseHistoryCommits(await runGitRead(selected, [
+      'show', '-s', '--date=iso-strict',
+      '--format=%H%x00%P%x00%an%x00%aI%x00%s%x00%D%x00', normalizedHash,
+    ]))[0];
+    if (metadata === undefined) throw new Error('commit metadata is unavailable');
+    const root = metadata.parents.length === 0;
+    const base = root ? EMPTY_TREE_HASH : metadata.parents[0]!;
+    const entries = parseHistoricalStatus(await runGitRead(selected, [
+      'diff', '--name-status', '-z', '--find-renames', '--no-ext-diff',
+      '--no-textconv', base, normalizedHash, '--',
+    ]));
+    const filesTruncated = entries.length > MAX_HISTORY_FILES;
+    const files: RoomGitFile[] = [];
+    for (const entry of entries.slice(0, MAX_HISTORY_FILES)) {
+      let diff = await runGitRead(selected, [
+        'diff', '--find-renames', '--no-ext-diff', '--no-textconv', base, normalizedHash,
+        '--', ...(entry.old_path === undefined ? [entry.path] : [entry.old_path, entry.path]),
+      ]);
+      let truncated = false;
+      if (diff.length > MAX_FILE_DIFF_CHARS) {
+        diff = diff.slice(0, MAX_FILE_DIFF_CHARS) + DIFF_TRUNCATED_MARKER;
+        truncated = true;
+      }
+      const binary = /^(?:Binary files .* differ|GIT binary patch)$/m.test(diff);
+      const counts = binary ? { additions: 0, deletions: 0 } : countDiffLines(diff);
+      files.push({ ...entry, ...counts, diff, truncated, ...(binary && { binary: true }) });
+    }
+    return {
+      cwds,
+      selected,
+      commit: metadata,
+      comparison: root ? 'root' : 'first-parent',
+      base: root ? null : base,
+      files,
+      files_truncated: filesTruncated,
+    };
+  }
+
+  private resolveRoomGitCwd(room: string, requestedCwd?: string): { cwds: string[]; selected: string | null } {
     const cwds = this.roomKnownCwds(room);
     if (requestedCwd !== undefined && !cwds.includes(requestedCwd)) {
       throw new Error("cwd is not one of the room's known directories");
     }
-    const selected = requestedCwd ?? cwds[0] ?? null;
-    if (selected === null) return { cwds, selected, clean: true, files: [] };
-    const files = await this.readGitWorkingFiles(selected);
-    return { cwds, selected, clean: files.length === 0, files };
+    return { cwds, selected: requestedCwd ?? cwds[0] ?? null };
+  }
+
+  private async isGitRepository(cwd: string): Promise<boolean> {
+    try {
+      return (await runGitRead(cwd, ['rev-parse', '--is-inside-work-tree'])).trim() === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  private async gitCommitIsRelevant(cwd: string, hash: string): Promise<boolean> {
+    if ((await runGitRead(cwd, ['branch', '--contains', hash, '--format=%(refname)'])).trim() !== '') return true;
+    try {
+      await runGitRead(cwd, ['merge-base', '--is-ancestor', hash, 'HEAD']);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** The room's known directories: distinct existing cwds of its agent members
@@ -4422,32 +4635,11 @@ export class Daemon {
    *  read-only subcommands run, each via execFile with a timeout — no shell, no
    *  mutation. A non-git or clean directory returns no files. */
   private async readGitWorkingFiles(cwd: string): Promise<RoomGitFile[]> {
-    const git = async (args: string[], tolerateDiff = false): Promise<string> => {
-      try {
-        const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
-          timeout: GIT_TIMEOUT_MS,
-          maxBuffer: GIT_MAX_BUFFER,
-          windowsHide: true,
-        });
-        return stdout;
-      } catch (error) {
-        // `diff --no-index` exits 1 when the files differ — expected, not failure.
-        const code = (error as { code?: unknown }).code;
-        const stdout = (error as { stdout?: unknown }).stdout;
-        if (tolerateDiff && code === 1 && typeof stdout === 'string') return stdout;
-        throw error;
-      }
-    };
-
-    try {
-      if ((await git(['rev-parse', '--is-inside-work-tree'])).trim() !== 'true') return [];
-    } catch {
-      return []; // not a git repository (or git unavailable)
-    }
+    if (!await this.isGitRepository(cwd)) return [];
 
     let statusOut: string;
     try {
-      statusOut = await git(['status', '--porcelain=v1', '-z']);
+      statusOut = await runGitRead(cwd, ['status', '--porcelain=v1', '-z']);
     } catch {
       return [];
     }
@@ -4456,7 +4648,7 @@ export class Daemon {
 
     const numstat = new Map<string, { additions: number; deletions: number }>();
     try {
-      const out = await git(['diff', 'HEAD', '--numstat']);
+      const out = await runGitRead(cwd, ['diff', '--no-ext-diff', '--no-textconv', '--numstat', 'HEAD']);
       for (const line of out.split('\n')) {
         const match = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(line);
         if (!match) continue;
@@ -4476,8 +4668,8 @@ export class Daemon {
       let diff = '';
       try {
         diff = entry.status === 'untracked'
-          ? await git(['diff', '--no-index', '--', '/dev/null', entry.path], true)
-          : await git(['diff', 'HEAD', '--', entry.path]);
+          ? await runGitRead(cwd, ['diff', '--no-ext-diff', '--no-textconv', '--no-index', '--', '/dev/null', entry.path], true)
+          : await runGitRead(cwd, ['diff', '--no-ext-diff', '--no-textconv', 'HEAD', '--', entry.path]);
       } catch {
         diff = '';
       }
@@ -4498,7 +4690,7 @@ export class Daemon {
     }
     return files;
   }
-  // harn:end room-git-state-read-only-from-known-cwds
+  // harn:end room-git-inspection-read-only-from-known-cwds
 
   // harn:assume attachments-are-capped-files-served-inert ref=attachment-contract
   // The attachment contract: files live under the data dir keyed by a server-issued

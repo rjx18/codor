@@ -1545,6 +1545,95 @@
 .nx-diff-cwd { flex: 1; min-width: 0; }
 .nx-diff-refresh { flex: none; margin-left: auto; cursor: pointer; }
 .nx-diff-refresh:hover { background: var(--c-muted); }
+.nx-git-history { flex: none; border-bottom: 1px solid var(--c-line); }
+.nx-git-history-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 7px var(--sp-3);
+  border: 0;
+  background: var(--c-raised);
+  color: var(--c-secondary);
+  text-align: left;
+  font: var(--t-caption-strong);
+}
+.nx-git-history-toggle:hover { color: var(--c-ink); background: var(--c-muted); }
+.nx-git-history-toggle svg { flex: none; transition: transform var(--m-fast) var(--m-ease); }
+.nx-git-history-toggle svg.is-open { transform: rotate(90deg); }
+.nx-git-history-toggle > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nx-git-history-toggle > small { color: var(--c-faded); font: var(--t-caption); }
+.nx-git-history-list {
+  max-height: min(38dvh, 300px);
+  overflow-y: auto;
+  padding: var(--sp-2);
+  background: var(--c-surface);
+}
+.nx-git-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--sp-2);
+  width: 100%;
+  padding: 7px var(--sp-2);
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--c-secondary);
+  text-align: left;
+}
+.nx-git-history-row:hover,
+.nx-git-history-row.is-active { background: var(--c-muted); color: var(--c-ink); }
+.nx-git-history-row code { font: var(--t-mono-small); color: var(--c-faded); }
+.nx-git-history-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--t-caption);
+  color: var(--c-faded);
+}
+.nx-git-history-subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-git-refs {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--t-caption);
+  color: var(--c-link);
+}
+.nx-git-history-more,
+.nx-git-history-error button {
+  width: 100%;
+  padding: 6px var(--sp-2);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-pill);
+  background: var(--c-raised);
+  color: var(--c-secondary);
+  font: var(--t-caption-strong);
+}
+.nx-git-history-more:hover,
+.nx-git-history-error button:hover { background: var(--c-muted); color: var(--c-ink); }
+.nx-git-history-error { padding: 0 var(--sp-2) var(--sp-2); }
+.nx-git-history-error .nx-diff-note { padding: var(--sp-2) 0; }
+.nx-git-commit-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-line);
+  background: var(--c-raised);
+  color: var(--c-secondary);
+  font: var(--t-caption);
+}
+.nx-git-commit-meta strong { color: var(--c-ink); font: var(--t-caption-strong); }
+.nx-git-commit-meta code { overflow-wrap: anywhere; font: var(--t-mono-small); }
+.nx-git-commit-meta small { color: var(--c-faded); }
 .nx-diff-note {
   margin: 0;
   padding: var(--sp-4);

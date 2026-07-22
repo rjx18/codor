@@ -2,7 +2,7 @@ id: room-git-state-read-only-from-known-cwds
 hash: a-c6a7b9587d15
 title: The diff explorer serves live git state only from the room's recorded
   directories via read-only commands
-state: active
+state: retired
 statement: The daemon answers the room git-diff endpoint by running exclusively
   read-only git subcommands through execFile with a timeout in a directory that
   exactly matches the room's known cwd set (distinct agent member cwds plus the
@@ -12,3 +12,4 @@ statement: The daemon answers the room git-diff endpoint by running exclusively
   truncated with an explicit marker rather than streamed unbounded.
 depends_on: []
 created_by: room-git-diff-explorer
+retired_by: codor-runtime-fidelity-phase5
