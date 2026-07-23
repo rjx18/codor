@@ -1,0 +1,4 @@
+{"type":"text","data":"hello "}
+{"type":"thought","data":"checking the answer"}
+{"type":"text","data":"world"}
+{"type":"end","stopReason":"EndTurn","sessionId":"22222222-2222-4222-8222-222222222222"}

@@ -25,6 +25,7 @@
     "@codor/adapter-copilot": "workspace:*",
     "@codor/adapter-cursor": "workspace:*",
     "@codor/adapter-gemini": "workspace:*",
+    "@codor/adapter-grok": "workspace:*",
     "@codor/adapter-opencode": "workspace:*",
     "@codor/protocol": "workspace:*",
     "better-sqlite3": "^12.11.1",

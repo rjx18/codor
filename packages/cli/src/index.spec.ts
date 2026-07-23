@@ -810,6 +810,20 @@ describe('@codor/cli', () => {
     });
   });
 
+  it('resolves Grok interactive resume through the supervised attach path', () => {
+    expect(nativeResumeCommand({
+      id: 'grok-member',
+      kind: 'agent',
+      handle: 'grok',
+      display_name: 'Grok',
+      harness: 'grok',
+      session_ref: '44444444-4444-4444-8444-444444444444',
+    }, { CODOR_GROK_COMMAND: '/opt/grok' })).toEqual({
+      command: '/opt/grok',
+      args: ['--resume', '44444444-4444-4444-8444-444444444444'],
+    });
+  });
+
   it('spawns, posts, and tails through the unix WebSocket protocol', async () => {
     await cli('channels');
     expect(output).toContain('eng\tEngineering');

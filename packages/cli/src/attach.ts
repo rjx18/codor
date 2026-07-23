@@ -53,6 +53,12 @@ export const nativeResumeCommand: InteractiveCommandResolver = (member, env) => 
       args: ['--resume', member.session_ref],
     };
   }
+  if (member.harness === 'grok') {
+    return {
+      command: env.CODOR_GROK_COMMAND ?? 'grok',
+      args: ['--resume', member.session_ref],
+    };
+  }
   throw new Error(`adapter '${member.harness ?? 'unknown'}' has no interactive resume command`);
 };
 

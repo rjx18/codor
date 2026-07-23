@@ -9,6 +9,7 @@ import { CodexAdapter } from '@codor/adapter-codex';
 import { CopilotAdapter } from '@codor/adapter-copilot';
 import { CursorAdapter } from '@codor/adapter-cursor';
 import { GeminiAdapter } from '@codor/adapter-gemini';
+import { GrokAdapter } from '@codor/adapter-grok';
 import { OpenCodeAdapter } from '@codor/adapter-opencode';
 import {
   type AdapterCapabilities,
@@ -53,6 +54,7 @@ const builtinDefinitions: Record<string, {
   copilot: { executable: 'copilot', create: () => new CopilotAdapter() },
   cursor: { executable: 'cursor-agent', create: () => new CursorAdapter() },
   gemini: { executable: 'gemini', create: () => new GeminiAdapter() },
+  grok: { executable: 'grok', create: () => new GrokAdapter() },
   opencode: { executable: 'opencode', create: () => new OpenCodeAdapter() },
 };
 

@@ -26,6 +26,7 @@ const EXPECTED_CLOSURE = [
   '@codor/adapter-copilot',
   '@codor/adapter-cursor',
   '@codor/adapter-gemini',
+  '@codor/adapter-grok',
   '@codor/adapter-opencode',
   '@codor/cli',
   '@codor/protocol',
@@ -55,7 +56,7 @@ describe('artifact graph', () => {
     const direct = Object.keys(workspace.get(ENTRY_PACKAGE)?.manifest.dependencies ?? {});
     expect(direct.some((name) => name.startsWith('@codor/adapter-'))).toBe(false);
     expect(discoverClosure(workspace).filter((name) => name.startsWith('@codor/adapter-')))
-      .toHaveLength(8);
+      .toHaveLength(9);
   });
 
   it('rejects conflicting third-party dependency ranges', () => {

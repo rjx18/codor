@@ -61,7 +61,7 @@ interface HarnessAdapter {
 ```
 
 Design rule: **adapters expose one normalized turn contract while using the provider-native
-runtime that preserves a session correctly.** Copilot, Gemini, and OpenCode remain plain
+runtime that preserves a session correctly.** Copilot, Gemini, Grok, and OpenCode remain plain
 supervised per-turn CLI subprocesses. Claude's first-party Agent SDK and Codex's app-server
 are deliberate persistent-runtime exceptions. The switchboard still sees the same
 `deliver()`/interaction/interrupt/session-ref boundary.
@@ -226,7 +226,7 @@ verified in M0 before any code lands (unverified entries marked ⚠).
 | Claude session driving | `@anthropic-ai/claude-agent-sdk` (`query()` streaming input + `resume`) | depend | one long-lived query per member; first-party callbacks for permissions/hooks; engine-native compaction |
 | Codex session driving | `codex app-server` JSON-RPC (`thread/start`, `thread/resume`, `turn/start`) | depend | one persistent supervised process per member; native usage and compaction notifications |
 | Harness normalization | Zed ACP (`agent-client-protocol` + `claude-agent-acp`, both Apache-2.0) | rejected as driver layer (M0 verdict) | P0.2 spike: resume OK, usage coarse (per-turn tokens still a Draft RFD), subagent visibility absent by design; codex adapter is third-party (JetBrains). CLI drivers stay; ACP = candidate future fourth adapter |
-| Additional harness adapters (Copilot CLI, OpenCode, Gemini, Pi, …) | paseo's adapter set as the *behavioral reference* (AGPL forbids copying code, not learning from it); ACP adapters where they exist (Apache/MIT); each harness's first-party headless docs | pattern / depend | per harness: read their connector → write a behavioral spec (`packages/adapters/<harness>/NOTES.md`: invocation, resume, session store, event format, quirks) → implement our small adapter from the spec against the six-method interface. No paseo code in this repo, in-process or sidecar |
+| Additional harness adapters (Copilot CLI, OpenCode, Gemini, Grok, Pi, …) | paseo's adapter set as the *behavioral reference* (AGPL forbids copying code, not learning from it); ACP adapters where they exist (Apache/MIT); each harness's first-party headless docs | pattern / depend | per harness: read their connector → write a behavioral spec (`packages/adapters/<harness>/NOTES.md`: invocation, resume, session store, event format, quirks) → implement our small adapter from the spec against the six-method interface. No paseo code in this repo, in-process or sidecar |
 | P2P transport | `hyperswarm` (+ DHT, Noise) — walkie's stack (**MIT, verified P0.2**) | depend; walkie as pattern/vendor | `line:secret` → DHT topic, exactly walkie's channel model; walkie's `listen()/send()` lib is MIT (`walkie-sh` v1.5.0) — reuse permitted with attribution, else hyperswarm directly |
 | Tailnet access | Tailscale (user-supplied): `tailscale serve` for TLS; app connectors for custom-domain team access | depend | zero code: bind the tailnet IP; connector setup is documentation, not software |
 | Session-store discovery | partyline-sh/cli (MIT, Go) | port | its readers for `~/.claude` / `~/.codex` / Gemini session stores solve attach-by-session-id; port the formats to TS (Go binary doesn't transplant into a Node daemon) |
