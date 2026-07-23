@@ -18,7 +18,7 @@ describe('built-in executable registry', () => {
   it('keeps the approved canonical executable mapping beside built-in composition', () => {
     expect(BUILTIN_ADAPTER_EXECUTABLES).toEqual({
       antigravity: 'agy', 'claude-code': 'claude', codex: 'codex', copilot: 'copilot',
-      cursor: 'cursor-agent', gemini: 'gemini', opencode: 'opencode',
+      cursor: 'cursor-agent', gemini: 'gemini', grok: 'grok', opencode: 'opencode',
     });
   });
 
@@ -64,6 +64,7 @@ describe('adapter registry spawn controls', () => {
         ['copilot', false],
         ['cursor', false],
         ['gemini', false],
+        ['grok', false],
         ['opencode', false],
       ]);
   });
@@ -84,6 +85,7 @@ describe('adapter registry spawn controls', () => {
       ['copilot', false, undefined],
       ['cursor', false, undefined],
       ['gemini', false, undefined],
+      ['grok', true, ['low', 'medium', 'high']],
       ['opencode', true, ['low', 'medium', 'high']],
     ]);
   });
@@ -144,7 +146,7 @@ describe('the registry wrapper preserves the whole adapter contract', () => {
     const adapters = await loadAdapterRegistry();
     const answering = adapters.filter((adapter) => adapter.listModels !== undefined);
     expect(answering.map((adapter) => adapter.id).sort()).toEqual(
-      ['antigravity', 'claude-code', 'codex', 'copilot', 'gemini', 'opencode'],
+      ['antigravity', 'claude-code', 'codex', 'copilot', 'gemini', 'grok', 'opencode'],
     );
 
     const claude = adapters.find((adapter) => adapter.id === 'claude-code')!;

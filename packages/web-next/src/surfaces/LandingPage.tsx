@@ -112,7 +112,7 @@ export function LandingPage() {
           </p>
           <div className="nx-tool-row" aria-label="Supported coding harnesses">
             <span>Claude Code</span><span>Codex</span><span>Cursor</span><span>Gemini CLI</span>
-            <span>OpenCode</span><span>GitHub Copilot</span><span>Antigravity</span>
+            <span>OpenCode</span><span>Grok</span><span>GitHub Copilot</span><span>Antigravity</span>
           </div>
         </div>
 

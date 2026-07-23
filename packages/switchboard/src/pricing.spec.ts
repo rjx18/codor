@@ -54,6 +54,22 @@ describe('estimateCostUsd', () => {
     })).toBeCloseTo(0.980004, 9);
   });
 
+  it('uses the published Grok 4.5 token rates', () => {
+    expect(estimateCostUsd('grok-4.5', {
+      input_tokens: 100_000,
+      output_tokens: 10_000,
+    })).toBeCloseTo(0.26, 9);
+    expect(estimateCostUsd('grok-4.5', {
+      input_tokens: 200_000,
+      output_tokens: 10_000,
+    })).toBeCloseTo(0.92, 9);
+    expect(estimateCostUsd('grok-4.5', {
+      input_tokens: 200_000,
+      cached_input_tokens: 100_000,
+      output_tokens: 10_000,
+    })).toBeCloseTo(0.58, 9);
+  });
+
   it('retains the retired Gemini Pro spelling only as stored-history compatibility', () => {
     const usage = { input_tokens: 10_000, output_tokens: 1_000 };
     expect(estimateCostUsd('gemini-3-pro-preview', usage))

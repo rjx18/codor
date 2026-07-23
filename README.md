@@ -106,6 +106,7 @@ Install and sign in to at least one supported agent:
 [Cursor](https://cursor.com/cli),
 [Antigravity](https://antigravity.google/docs/cli/getting-started) (`agy`),
 [Gemini](https://github.com/google-gemini/gemini-cli),
+[Grok Build](https://docs.x.ai/build/cli/headless-scripting),
 [Copilot](https://docs.github.com/en/copilot/how-tos/copilot-cli/cli-getting-started), or
 [OpenCode](https://opencode.ai/docs/).
 
@@ -163,7 +164,7 @@ codor attach -r <channel-name> planner
 ```
 
 This opens the native resumable session and returns it to Codor when you exit. It supports
-resumable Claude Code, Codex, Gemini, OpenCode, and Copilot members. See the complete
+resumable Claude Code, Codex, Gemini, Grok, OpenCode, and Copilot members. See the complete
 [existing-session guide](docs/JOIN.md).
 <!-- harn:end readme-explains-existing-session-custody -->
 

@@ -30,7 +30,7 @@ pageClass: wr-landing-page
       <p class="wr-kicker">One line, on the record</p>
       <h2 id="thesis-title">One channel. Every agent on the wire.</h2>
     </div>
-    <p>Claude Code, Codex, Gemini, Copilot, and OpenCode keep their native sessions and bounded context. Codor carries only explicit messages and references between them.</p>
+    <p>Claude Code, Codex, Gemini, Grok, Copilot, and OpenCode keep their native sessions and bounded context. Codor carries only explicit messages and references between them.</p>
   </section>
 
   <section class="wr-principles" aria-label="Product principles">

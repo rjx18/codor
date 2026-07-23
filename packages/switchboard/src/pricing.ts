@@ -9,6 +9,7 @@
  * - https://developers.openai.com/api/docs/models/gpt-5.5
  * - https://ai.google.dev/gemini-api/docs/pricing
  * - https://ai.google.dev/gemini-api/docs/changelog
+ * - https://docs.x.ai/developers/models
  *
  * OpenAI uses its higher full-request rate when input exceeds 272K tokens.
  * Gemini 3.1 Pro Preview and 2.5 Pro use their higher full-request rate when
@@ -24,7 +25,7 @@ export interface TokenRate {
 
 export interface ModelPrice {
   standard: TokenRate;
-  longContext?: TokenRate & { aboveInputTokens: number };
+  longContext?: TokenRate & { aboveInputTokens: number; inclusive?: boolean };
 }
 
 const MILLION = 1_000_000;
@@ -81,6 +82,16 @@ export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   'gemini-2.5-flash': {
     standard: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
   },
+  'grok-4.5': {
+    standard: { inputPerMTok: 2, outputPerMTok: 6 },
+    longContext: {
+      aboveInputTokens: 200_000,
+      inclusive: true,
+      inputPerMTok: 4,
+      cachedInputPerMTok: 0.6,
+      outputPerMTok: 12,
+    },
+  },
 };
 
 const MODEL_ALIASES: Readonly<Record<string, string>> = {
@@ -100,7 +111,10 @@ export function estimateCostUsd(
 ): number | undefined {
   const price = priceForModel(model);
   if (price === undefined) return undefined;
-  const rate = price.longContext !== undefined && usage.input_tokens > price.longContext.aboveInputTokens
+  const rate = price.longContext !== undefined && (
+    usage.input_tokens > price.longContext.aboveInputTokens ||
+    (price.longContext.inclusive === true && usage.input_tokens >= price.longContext.aboveInputTokens)
+  )
     ? price.longContext
     : price.standard;
   const cachedInputTokens = Math.min(usage.cached_input_tokens ?? 0, usage.input_tokens);
