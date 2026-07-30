@@ -71,6 +71,27 @@ afterEach(() => {
 });
 
 describe('connector resume', () => {
+  it('acts in a background room without changing the selected room', () => {
+    const connector = build('eng');
+    latest().accept();
+
+    connector.actInRoom('design', {
+      act: 'interrupt',
+      member_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    });
+
+    expect(connector.room()).toBe('eng');
+    expect(latest().sent.map((raw) => JSON.parse(raw) as Record<string, unknown>)).toContainEqual({
+      type: 'act',
+      room: 'design',
+      act: {
+        act: 'interrupt',
+        member_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+      },
+    });
+    connector.dispose();
+  });
+
   it('replaces an apparently-open socket and retires the old generation', async () => {
     const connector = build();
     const first = latest();

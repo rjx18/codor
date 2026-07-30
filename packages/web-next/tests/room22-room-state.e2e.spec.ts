@@ -20,6 +20,22 @@ async function open(page: Page, room: string): Promise<void> {
 }
 
 test.describe('multiplexed room state', () => {
+  test('the Codor mark opens a searchable channels home without reloading the app', async ({ page }) => {
+    await open(page, 'eng');
+    await page.evaluate(() => { (window as unknown as { __stay?: boolean }).__stay = true; });
+
+    await page.getByTestId('channels-home-link').click();
+
+    await expect(page.getByTestId('channels-home')).toBeVisible();
+    await expect(page).toHaveURL(/\/channels$/);
+    expect(await page.evaluate(() => (window as unknown as { __stay?: boolean }).__stay)).toBe(true);
+
+    const search = page.getByRole('searchbox', { name: 'Search channels' }).last();
+    await search.fill('Design');
+    await expect(page.getByTestId('home-room-design')).toBeVisible();
+    await expect(page.getByTestId('home-room-eng')).toHaveCount(0);
+  });
+
   test('one socket streams every rail and fetches journals only after promotion', async ({ page }) => {
     const sockets: string[] = [];
     const summaryRequests: string[] = [];
@@ -156,17 +172,17 @@ test.describe('multiplexed room state', () => {
 
   test('archives the current channel and restores it from the channel rail', async ({ page }) => {
     await open(page, 'ops');
-    await page.getByTestId('archive-room').click();
+    await page.getByTestId('room-actions-ops').click();
+    await page.getByRole('menu', { name: 'Ops actions' }).getByRole('menuitem').click();
     const dialog = page.getByTestId('archive-room-dialog');
     await expect(dialog).toContainText('Messages and participants will be preserved');
     await dialog.getByTestId('archive-room-confirm').click();
 
-    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId('channels-home')).toBeVisible();
     await expect(page.getByTestId('room-link-ops')).toHaveCount(0);
-    await page.getByTestId('archived-rooms-toggle').click();
-    await expect(page.getByTestId('archived-room-ops')).toContainText('Ops');
+    await expect(page.getByTestId('home-restore-room-ops')).toBeVisible();
 
-    await page.getByTestId('restore-room-ops').click();
+    await page.getByTestId('home-restore-room-ops').click();
     await expect(page.locator('.nx-chat-title h1')).toHaveText('Ops');
     await expect(page.getByTestId('room-link-ops')).toBeVisible();
   });

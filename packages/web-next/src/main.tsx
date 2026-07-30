@@ -46,7 +46,14 @@ async function surfaceFor(path: string, room: string, token: string) {
     const { LedgerPage } = await import('./surfaces/LedgerPage.js');
     return <LedgerPage room={room} token={token} />;
   }
-  return <RoomPage room={room} token={token} refreshToken={resolveAccessToken} />;
+  return (
+    <RoomPage
+      room={room}
+      token={token}
+      refreshToken={resolveAccessToken}
+      home={path === '/channels'}
+    />
+  );
 }
 
 async function render(): Promise<void> {
@@ -85,7 +92,7 @@ async function render(): Promise<void> {
         return <StartupUnavailable />;
       }
       rememberRoom(offlineRoom);
-      canonicalizeRoom(path, offlineRoom);
+      if (path !== '/channels') canonicalizeRoom(path, offlineRoom);
       return surfaceFor(path, offlineRoom, token);
     }
 
@@ -102,7 +109,7 @@ async function render(): Promise<void> {
       forgetRoom();
     }
     rememberRoom(startup);
-    canonicalizeRoom(path, startup);
+    if (path !== '/channels') canonicalizeRoom(path, startup);
     return surfaceFor(path, startup, token);
   })();
   createRoot(rootElement).render(

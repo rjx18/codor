@@ -276,6 +276,53 @@ describe('agent member session credentials', () => {
 
 // harn:assume live-delivery-consumption-is-idempotent ref=consumption-daemon-regression
 describe('live queued-delivery consumption', () => {
+  it('returns a mirrored member to idle after its last queued delivery is consumed', () => {
+    const alpha = daemon.joinMember('eng', {
+      harness: 'fake',
+      handle: 'alpha',
+      session_ref: 'native-alpha-session',
+      cwd: testCwd('alpha'),
+    });
+    daemon.postHumanMessage('eng', '@alpha handle this in the operator terminal');
+    const queued = daemon.store.listDeliveries('eng', {
+      recipient: alpha.id,
+      state: 'queued',
+    })[0]!;
+
+    expect(daemon.store.getMember('eng', alpha.id)?.state).toBe('queued');
+    daemon.consumeDelivery('eng', queued.id, alpha.id);
+
+    expect(daemon.store.listDeliveries('eng', {
+      recipient: alpha.id,
+      state: 'queued',
+    })).toHaveLength(0);
+    expect(daemon.store.getMember('eng', alpha.id)?.state).toBe('idle');
+  });
+
+  it('interrupt cancels genuine queued work and clears a stale queued projection', () => {
+    const alpha = daemon.joinMember('eng', {
+      harness: 'fake',
+      handle: 'alpha',
+      session_ref: 'native-alpha-session',
+      cwd: testCwd('alpha'),
+    });
+    daemon.postHumanMessage('eng', '@alpha cancel this before the terminal consumes it');
+
+    daemon.interruptMember('eng', alpha.id);
+
+    expect(daemon.store.listDeliveries('eng', {
+      recipient: alpha.id,
+      state: 'queued',
+    })).toHaveLength(0);
+    expect(daemon.store.getMember('eng', alpha.id)?.state).toBe('idle');
+    expect(daemon.store.listMessages('eng', { limit: 20 }).at(-1)?.body)
+      .toContain('@alpha');
+
+    daemon.store.updateMember('eng', alpha.id, { state: 'queued' });
+    daemon.interruptMember('eng', alpha.id);
+    expect(daemon.store.getMember('eng', alpha.id)?.state).toBe('idle');
+  });
+
   it('removes work queued during a blocked turn without admitting a second run', async () => {
     const alpha = spawnAgent('alpha');
     fake.enqueue({

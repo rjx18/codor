@@ -17,6 +17,8 @@ import { requireBrowserUpgrade } from './compatibility.js';
 export interface RoomConnector extends Connection {
   /** Select another already-multiplexed room without replacing the socket. */
   switchRoom(room: string): void;
+  /** Act in any subscribed room without changing what the operator is viewing. */
+  actInRoom(room: string, act: Act): void;
   room(): string;
   /** What this connector is doing — resume legality depends on it. */
   state(): ConnectorState;
@@ -278,6 +280,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
       }),
     act: (act: Act) => send({ type: 'act', room: currentRoom, act }),
+    actInRoom: (room: string, act: Act) => send({ type: 'act', room, act }),
     disconnect: () => {
       // An operator-chosen park: lifecycle events must not undo it.
       state = 'parked-manual';

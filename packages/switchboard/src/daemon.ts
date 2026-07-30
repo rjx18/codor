@@ -2055,8 +2055,32 @@ export class Daemon {
 
   interruptMember(room: string, memberId: string): void {
     const member = this.store.getMember(room, memberId);
+    if (!member || member.kind !== 'agent') {
+      throw new Error(`no such agent member: ${memberId}`);
+    }
+    if (member.state === 'queued') {
+      const queued = this.store.listDeliveries(room, {
+        recipient: memberId,
+        state: 'queued',
+      });
+      for (const delivery of queued) {
+        if (delivery.group_id !== undefined) {
+          this.skipUnavailableGroupDelivery(room, delivery);
+        } else {
+          this.emitInbox(room, this.store.updateDelivery(room, delivery.id, { state: 'consumed' }));
+        }
+      }
+      const current = this.store.getMember(room, memberId);
+      if (current?.state === 'queued') {
+        this.emitMember(room, this.store.updateMember(room, memberId, { state: 'idle' }));
+      }
+      if (queued.length > 0) {
+        this.postSystemMessage(room, `@${member.handle}'s queued work was cancelled`);
+      }
+      return;
+    }
     const session = this.sessions.get(memberId);
-    if (member?.harness && session) {
+    if (member.harness && session) {
       if (this.inflight.has(memberId)) this.operatorInterrupts.add(memberId);
       this.requireAdapter(member.harness).interrupt(session);
     }
@@ -4158,6 +4182,23 @@ export class Daemon {
       // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-seeding
       for (const member of this.store.listMembers(room.id)) {
         this.seedContextUsage(room.id, member);
+        // A mirrored terminal consumes its own deliveries. Older daemons left
+        // the member projection queued after the final consume, so the browser
+        // could show permanent activity with no work behind it. Reconcile the
+        // projection from durable delivery truth on every boot.
+        if (
+          member.kind === 'agent' &&
+          member.state === 'queued' &&
+          this.store.listDeliveries(room.id, {
+            recipient: member.id,
+            state: 'queued',
+          }).length === 0
+        ) {
+          this.emitMember(
+            room.id,
+            this.store.updateMember(room.id, member.id, { state: 'idle' }),
+          );
+        }
       }
       // harn:end last-agent-usage-is-transient-and-seeded
       const delivering = this.store.listDeliveries(room.id, { state: 'delivering' });
@@ -4611,10 +4652,19 @@ export class Daemon {
     deliveryId: string,
     byMemberId: string,
   ): { delivery: Delivery; message: Message } {
-    return this.project(
+    const consumed = this.project(
       room,
       this.store.consumeQueuedDelivery(room, deliveryId, byMemberId),
     );
+    const member = this.store.getMember(room, byMemberId);
+    if (
+      member?.kind === 'agent' &&
+      member.state === 'queued' &&
+      this.store.listDeliveries(room, { recipient: member.id, state: 'queued' }).length === 0
+    ) {
+      this.emitMember(room, this.store.updateMember(room, member.id, { state: 'idle' }));
+    }
+    return consumed;
   }
   // harn:end live-delivery-consumption-is-idempotent
 

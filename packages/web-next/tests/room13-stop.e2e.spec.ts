@@ -45,6 +45,18 @@ test.describe('agent stop control', () => {
     await expect(page.locator('[data-run-status="interrupted"]')).toHaveCount(1);
   });
 
+  test('the channel activity line opens agent controls and stops the selected run', async ({ page }) => {
+    await openRoom(page);
+    await startFableWorking(page);
+
+    await page.getByTestId('room-working-eng').click();
+    await expect(page.getByRole('menu', { name: 'Agent activity in Engineering' })).toBeVisible();
+    await page.getByTestId('rail-stop-fable').click();
+
+    await expect(page.getByTestId('member-fable')).toContainText('Idle');
+    await expect(page.getByTestId('member-fable-stop')).toHaveCount(0);
+  });
+
   test('the sticky typing chip carries a stop that interrupts its agent', async ({ page }) => {
     await openRoom(page);
     await startFableWorking(page);

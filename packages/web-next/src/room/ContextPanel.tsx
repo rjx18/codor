@@ -302,7 +302,7 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
   );
 }
 
-function ArchiveChannelDialog(props: {
+export function ArchiveChannelDialog(props: {
   roomName: string;
   busy: boolean;
   error?: string;
@@ -412,8 +412,9 @@ function MemberCard(props: {
   room: string;
 }) {
   const { member, detail } = props;
-  // Stop interrupts an in-flight turn; a queued agent has nothing to interrupt.
   const running = member.state === 'running';
+  const queued = member.state === 'queued';
+  const stoppable = running || queued;
   const [menu, setMenu] = useState(false);
   const [confirming, setConfirming] = useState<'kill' | 'remove'>();
   const [renaming, setRenaming] = useState(false);
@@ -552,13 +553,15 @@ function MemberCard(props: {
             <span>Revive</span>
           </button>
         )}
-        {member.kind === 'agent' && running && props.canStop && (
+        {member.kind === 'agent' && stoppable && props.canStop && (
           <button
             type="button"
             className="nx-member-stop"
-            aria-label={`Stop @${member.handle}`}
+            aria-label={running ? `Stop @${member.handle}` : `Cancel queued work for @${member.handle}`}
             data-testid={`member-${member.handle}-stop`}
-            title="Stop this run (the agent stays alive)"
+            title={running
+              ? 'Stop this run (the agent stays alive)'
+              : 'Cancel queued work (the agent stays available)'}
             onClick={() => props.connection.act({ act: 'interrupt', member_id: member.id })}
           >
             <Square size={13} aria-hidden="true" />
@@ -712,8 +715,10 @@ function MemberStateWord(props: { state: Member['state'] }) {
     : props.state === 'dead'
       ? 'error'
       : 'neutral';
-  const word = props.state === 'running' || props.state === 'queued'
+  const word = props.state === 'running'
     ? 'Working'
+    : props.state === 'queued'
+      ? 'Queued'
     : props.state === 'dead'
       ? 'Dead'
       : props.state === 'awaiting_input'

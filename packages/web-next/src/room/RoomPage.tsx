@@ -1,9 +1,9 @@
-import type { Room } from '@codor/protocol';
-import { ArchiveRestore, ChevronDown, ChevronLeft, MoreVertical, Plus, Search, Settings, Share2, Users, X } from 'lucide-react';
+import type { Member, Room } from '@codor/protocol';
+import { Archive, ArchiveRestore, ChevronDown, ChevronLeft, MoreVertical, Plus, Search, Settings, Share2, Square, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
-import { fetchArchivedRooms, restoreRoom } from '@runtime/api.js';
+import { archiveRoom, fetchArchivedRooms, restoreRoom } from '@runtime/api.js';
 
 import { createConnector, type RoomConnector } from '../app/connector.js';
 import { rememberRoom } from '../app/startup.js';
@@ -16,7 +16,7 @@ import {
 } from '../app/session.js';
 import { useRoomSummaries, type RoomSummary } from '../app/summary.js';
 import { roomSlice, useClientStore } from '../app/store.js';
-import { ContextPanel } from './ContextPanel.js';
+import { ArchiveChannelDialog, ContextPanel } from './ContextPanel.js';
 import { Chip, IconButton, Eyebrow, Modal, StatusPill } from '../primitives/primitives.js';
 import { compactCount, memberAccent, relativeTime } from '../primitives/identity.js';
 import { Composer } from './Composer.js';
@@ -29,11 +29,13 @@ export function RoomPage(props: {
   room: string;
   token: string;
   refreshToken?: () => Promise<string>;
+  home?: boolean;
 }) {
   const token = useAccessToken(props.token);
   // The room is resolved and validated before this component exists, so the
   // connector never opens on a speculative id.
   const [room, setRoom] = useState(props.room);
+  const [home, setHome] = useState(props.home === true);
   const connectorRef = useRef<RoomConnector | null>(null);
   if (connectorRef.current === null) {
     connectorRef.current = createConnector({
@@ -54,11 +56,17 @@ export function RoomPage(props: {
   // In-place channel switching: select the room's keyed slice, keep the shared
   // socket and every background subscription alive, and let the URL follow.
   const switchRoom = (next: string): void => {
-    if (next === room) return;
-    connection.switchRoom(next);
-    setRoom(next);
-    rememberRoom(next);
+    if (next !== room) {
+      connection.switchRoom(next);
+      setRoom(next);
+      rememberRoom(next);
+    }
+    setHome(false);
     window.history.pushState(null, '', `/?room=${encodeURIComponent(next)}`);
+  };
+  const openHome = (): void => {
+    setHome(true);
+    window.history.pushState(null, '', '/channels');
   };
 
   // The connector owns global listeners and a socket; unmounting without
@@ -67,9 +75,14 @@ export function RoomPage(props: {
 
   useEffect(() => {
     const onPop = (): void => {
+      if (window.location.pathname === '/channels') {
+        setHome(true);
+        return;
+      }
       // Back/forward only ever reaches rooms this session already opened.
       const next = pageParams().room;
       if (next === undefined) return;
+      setHome(false);
       connection.switchRoom(next);
       setRoom(next);
       rememberRoom(next);
@@ -81,7 +94,7 @@ export function RoomPage(props: {
 
   // Mobile is a two-surface stack (channels ⇄ room), never a drawer.
   const isMobile = useIsMobile();
-  const [surface, setSurface] = useState<'channels' | 'room'>('room');
+  const [surface, setSurface] = useState<'channels' | 'room'>(home ? 'channels' : 'room');
   const [mobileContext, setMobileContext] = useState(false);
   const [responsiveContext, setResponsiveContext] = useState(false);
 
@@ -106,6 +119,13 @@ export function RoomPage(props: {
           <ChannelRail
             activeRoom={room}
             token={token}
+            home={home}
+            onHome={openHome}
+            onStopAgents={(targetRoom, members) => {
+              for (const member of members) {
+                connection.actInRoom(targetRoom, { act: 'interrupt', member_id: member.id });
+              }
+            }}
             onSwitch={(next) => {
               switchRoom(next);
               setSurface('room');
@@ -135,16 +155,41 @@ export function RoomPage(props: {
   }
 
   return (
-    <div className="nx-app" data-testid="app">
-      <ChannelRail activeRoom={room} token={token} onSwitch={switchRoom} />
-      <ChatPanel
-        room={room}
-        connection={connection}
+    <div className={`nx-app ${home ? 'is-home' : ''}`} data-testid="app">
+      <ChannelRail
+        activeRoom={room}
         token={token}
-        onContext={() => setResponsiveContext(true)}
+        home={home}
+        onHome={openHome}
+        onSwitch={switchRoom}
+        onStopAgents={(targetRoom, members) => {
+          for (const member of members) {
+            connection.actInRoom(targetRoom, { act: 'interrupt', member_id: member.id });
+          }
+        }}
       />
-      <ContextPanel room={room} token={token} connection={connection} />
-      {responsiveContext && (
+      {home ? (
+        <ChannelsHome
+          token={token}
+          onSwitch={switchRoom}
+          onStopAgents={(targetRoom, members) => {
+            for (const member of members) {
+              connection.actInRoom(targetRoom, { act: 'interrupt', member_id: member.id });
+            }
+          }}
+        />
+      ) : (
+        <>
+          <ChatPanel
+            room={room}
+            connection={connection}
+            token={token}
+            onContext={() => setResponsiveContext(true)}
+          />
+          <ContextPanel room={room} token={token} connection={connection} />
+        </>
+      )}
+      {responsiveContext && !home && (
         <Modal
           label="Channel context"
           testid="responsive-context"
@@ -173,9 +218,13 @@ export function RoomPage(props: {
 function ChannelRail(props: {
   activeRoom: string;
   token: () => string;
+  home: boolean;
+  onHome: () => void;
   onSwitch: (room: string) => void;
+  onStopAgents: (room: string, members: Member[]) => void;
 }) {
   const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [archivedRooms, setArchivedRooms] = useState<Room[]>([]);
   const [archivedError, setArchivedError] = useState<string>();
@@ -224,22 +273,47 @@ function ChannelRail(props: {
     const lastActivity = (entry: RoomSummary): number =>
       Date.parse(entry.latest?.ts ?? entry.created_ts) || 0;
     return list.sort((a, b) => {
-      const aWorking = (workingByRoom[a.id]?.length ?? 0) > 0 || a.working;
-      const bWorking = (workingByRoom[b.id]?.length ?? 0) > 0 || b.working;
+      const aHydrated = roomStates[a.id]?.room !== undefined;
+      const bHydrated = roomStates[b.id]?.room !== undefined;
+      const aWorking = (workingByRoom[a.id]?.length ?? 0) > 0 || (!aHydrated && a.working);
+      const bWorking = (workingByRoom[b.id]?.length ?? 0) > 0 || (!bHydrated && b.working);
       if (aWorking !== bWorking) return aWorking ? -1 : 1;
       return lastActivity(b) - lastActivity(a);
     });
-  }, [summaries, room, workingByRoom]);
+  }, [summaries, room, workingByRoom, roomStates]);
+  const visibleEntries = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    if (needle === '') return entries;
+    return entries.filter((entry) =>
+      [entry.name, entry.id, summaryPreview(entry)]
+        .some((value) => value.toLocaleLowerCase().includes(needle)));
+  }, [entries, query]);
 
   return (
     <nav className="nx-rail" aria-label="Channels">
-      <div className="nx-brand">
+      <a
+        className="nx-brand"
+        href="/channels"
+        aria-current={props.home ? 'page' : undefined}
+        data-testid="channels-home-link"
+        onClick={(event) => {
+          if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+          event.preventDefault();
+          props.onHome();
+        }}
+      >
         <span className="nx-brand-tile" aria-hidden="true" />
         <strong>Codor</strong>
-      </div>
+      </a>
       <div className="nx-rail-search">
         <Search size={15} aria-hidden="true" />
-        <input type="search" placeholder="Search" aria-label="Search channels" />
+        <input
+          type="search"
+          placeholder="Search"
+          aria-label="Search channels"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
       </div>
       <div className="nx-rail-label">
         <Eyebrow>Channels</Eyebrow>
@@ -253,20 +327,17 @@ function ChannelRail(props: {
         />
       </div>
       <ul className="nx-rail-list">
-        {entries.map((entry) => {
+        {visibleEntries.map((entry) => {
           const active = entry.id === props.activeRoom;
           const workingAgents = workingByRoom[entry.id] ?? [];
-          const isWorking = workingAgents.length > 0 || entry.working;
-          const workingLabel = workingAgents.length === 1
-            ? `@${workingAgents[0]!.handle} is working…`
-            : workingAgents.length > 1
-              ? `${String(workingAgents.length)} agents are working…`
-              : 'working…';
+          const fallbackWorking = roomStates[entry.id]?.room === undefined && entry.working;
+          const isWorking = workingAgents.length > 0 || fallbackWorking;
+          const workingLabel = activityLabel(workingAgents, fallbackWorking);
           const unread = entry.unread;
           const lastTs = entry.latest?.ts;
           const preview = summaryPreview(entry);
           return (
-            <li key={entry.id}>
+            <li className="nx-row-shell" key={entry.id}>
               <a
                 className={`nx-row ${active ? 'is-active' : ''}`}
                 href={`/?room=${encodeURIComponent(entry.id)}`}
@@ -292,8 +363,7 @@ function ChannelRail(props: {
                   </span>
                   <span className="nx-row-bottom">
                     {isWorking ? (
-                      <span className="nx-row-working" data-testid={`room-working-${entry.id}`}>
-                        <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>
+                      <span className="nx-row-working-summary">
                         {workingLabel}
                       </span>
                     ) : entry.attention ? (
@@ -309,6 +379,22 @@ function ChannelRail(props: {
                   </span>
                 </span>
               </a>
+              {isWorking && (
+                <ChannelWorkControl
+                  room={entry.id}
+                  roomName={entry.name}
+                  agents={workingAgents}
+                  fallbackWorking={fallbackWorking}
+                  onStop={props.onStopAgents}
+                />
+              )}
+              <ChannelActionsMenu
+                room={entry.id}
+                roomName={entry.name}
+                token={props.token}
+                working={isWorking}
+                onArchived={() => { window.location.assign('/channels'); }}
+              />
             </li>
           );
         })}
@@ -383,6 +469,358 @@ function ChannelRail(props: {
         />
       )}
     </nav>
+  );
+}
+
+function activityLabel(agents: Member[], fallbackWorking: boolean): string {
+  const running = agents.filter((member) => member.state === 'running');
+  const queued = agents.filter((member) => member.state === 'queued');
+  if (running.length > 0 && queued.length > 0) {
+    return `${String(running.length)} working · ${String(queued.length)} queued`;
+  }
+  if (queued.length === 1) return `@${queued[0]!.handle} is queued`;
+  if (queued.length > 1) return `${String(queued.length)} agents queued`;
+  if (running.length === 1) return `@${running[0]!.handle} is working`;
+  if (running.length > 1) return `${String(running.length)} agents are working`;
+  return fallbackWorking ? 'Activity is syncing' : 'Idle';
+}
+
+function ChannelWorkControl(props: {
+  room: string;
+  roomName: string;
+  agents: Member[];
+  fallbackWorking: boolean;
+  onStop: (room: string, agents: Member[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const label = activityLabel(props.agents, props.fallbackWorking);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent): void => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="nx-row-work-control" ref={ref}>
+      <button
+        type="button"
+        className="nx-row-working"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Manage agent activity in ${props.roomName}: ${label}`}
+        data-testid={`room-working-${props.room}`}
+        onClick={() => setOpen((shown) => !shown)}
+      >
+        <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>
+        {label}
+      </button>
+      {open && (
+        <div className="nx-menu nx-work-menu" role="menu" aria-label={`Agent activity in ${props.roomName}`}>
+          <strong>Agent activity</strong>
+          {props.agents.length === 0 ? (
+            <p>Status is syncing. Open this channel to see its members.</p>
+          ) : (
+            <>
+              {props.agents.map((agent) => (
+                <button
+                  type="button"
+                  role="menuitem"
+                  key={agent.id}
+                  data-testid={`rail-stop-${agent.handle}`}
+                  onClick={() => {
+                    props.onStop(props.room, [agent]);
+                    setOpen(false);
+                  }}
+                >
+                  <span>@{agent.handle}</span>
+                  <span>{agent.state === 'queued' ? 'Cancel queued work' : 'Stop run'}</span>
+                </button>
+              ))}
+              {props.agents.length > 1 && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="is-danger"
+                  data-testid={`rail-stop-all-${props.room}`}
+                  onClick={() => {
+                    props.onStop(props.room, props.agents);
+                    setOpen(false);
+                  }}
+                >
+                  <Square size={12} aria-hidden="true" />
+                  Stop all agent work
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChannelActionsMenu(props: {
+  room: string;
+  roomName: string;
+  token: () => string;
+  working: boolean;
+  onArchived: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState<string>();
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent): void => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <div className="nx-row-actions" ref={ref}>
+        <IconButton
+          icon={MoreVertical}
+          label={`Actions for ${props.roomName}`}
+          size="sm"
+          variant="quiet"
+          data-testid={`room-actions-${props.room}`}
+          onClick={() => setOpen((shown) => !shown)}
+        />
+        {open && (
+          <div className="nx-menu" role="menu" aria-label={`${props.roomName} actions`}>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={props.working}
+              title={props.working ? 'Stop or cancel the active agents before archiving.' : undefined}
+              onClick={() => {
+                setOpen(false);
+                setArchiveError(undefined);
+                setArchiving(true);
+              }}
+            >
+              <Archive size={13} aria-hidden="true" />
+              {props.working ? 'Archive after agents stop' : 'Archive channel…'}
+            </button>
+          </div>
+        )}
+      </div>
+      {archiving && (
+        <ArchiveChannelDialog
+          roomName={props.roomName}
+          busy={archiveBusy}
+          error={archiveError}
+          onClose={() => {
+            if (!archiveBusy) setArchiving(false);
+          }}
+          onArchive={() => {
+            setArchiveBusy(true);
+            setArchiveError(undefined);
+            void archiveRoom(props.room, { token: props.token() }).then(
+              props.onArchived,
+              (failure: unknown) => {
+                setArchiveError(failure instanceof Error ? failure.message : String(failure));
+                setArchiveBusy(false);
+              },
+            );
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function ChannelsHome(props: {
+  token: () => string;
+  onSwitch: (room: string) => void;
+  onStopAgents: (room: string, members: Member[]) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [archivedRooms, setArchivedRooms] = useState<Room[]>([]);
+  const [restoringRoom, setRestoringRoom] = useState<string>();
+  const [error, setError] = useState<string>();
+  const summaries = useRoomSummaries(props.token);
+  const roomStates = useClientStore((state) => state.rooms);
+  const workingByRoom = useMemo(() => Object.fromEntries(
+    Object.entries(roomStates).map(([roomId, slice]) => [
+      roomId,
+      Object.values(slice.members)
+        .filter((member) => member.kind === 'agent' && (member.state === 'running' || member.state === 'queued'))
+        .sort((left, right) => left.handle.localeCompare(right.handle)),
+    ]),
+  ), [roomStates]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchArchivedRooms({ token: props.token() }).then(
+      (rooms) => {
+        if (!cancelled) setArchivedRooms(rooms);
+      },
+      (failure: unknown) => {
+        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
+      },
+    );
+    return () => { cancelled = true; };
+  }, [props.token]);
+
+  const needle = query.trim().toLocaleLowerCase();
+  const visible = summaries.filter((entry) =>
+    needle === '' ||
+    [entry.name, entry.id, summaryPreview(entry)]
+      .some((value) => value.toLocaleLowerCase().includes(needle)));
+  const visibleArchived = archivedRooms.filter((room) =>
+    needle === '' ||
+    [room.name, room.id].some((value) => value.toLocaleLowerCase().includes(needle)));
+
+  return (
+    <main className="nx-channel-home" data-testid="channels-home">
+      <header className="nx-channel-home-head">
+        <div>
+          <Eyebrow>Home</Eyebrow>
+          <h1>Channels</h1>
+          <p>Open a workspace, manage its agents, or archive finished work.</p>
+        </div>
+        <button type="button" className="nx-btn is-primary" data-testid="home-create-room" onClick={() => setCreating(true)}>
+          <Plus size={15} aria-hidden="true" />
+          New channel
+        </button>
+      </header>
+      <label className="nx-channel-home-search">
+        <Search size={17} aria-hidden="true" />
+        <span className="sr-only">Search channels</span>
+        <input
+          type="search"
+          placeholder="Search channels"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          autoFocus
+        />
+      </label>
+      {error !== undefined && <p className="nx-archived-error" role="alert">{error}</p>}
+      <section className="nx-channel-home-section" aria-labelledby="active-channels-title">
+        <div className="nx-channel-home-label">
+          <h2 id="active-channels-title">Active</h2>
+          <span>{visible.length}</span>
+        </div>
+        <ul className="nx-channel-grid">
+          {visible.map((entry) => {
+            const agents = workingByRoom[entry.id] ?? [];
+            const fallbackWorking = roomStates[entry.id]?.room === undefined && entry.working;
+            const working = agents.length > 0 || fallbackWorking;
+            return (
+              <li className="nx-channel-card" key={entry.id}>
+                <a
+                  href={`/?room=${encodeURIComponent(entry.id)}`}
+                  data-testid={`home-room-${entry.id}`}
+                  onClick={(event) => {
+                    if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+                    event.preventDefault();
+                    props.onSwitch(entry.id);
+                  }}
+                >
+                  <Chip name={entry.name} accent="indigo" size={42} presence={working ? 'live' : 'idle'} />
+                  <span>
+                    <strong>{entry.name}</strong>
+                    <small>{working ? activityLabel(agents, fallbackWorking) : summaryPreview(entry)}</small>
+                  </span>
+                </a>
+                {working && (
+                  <ChannelWorkControl
+                    room={entry.id}
+                    roomName={entry.name}
+                    agents={agents}
+                    fallbackWorking={fallbackWorking}
+                    onStop={props.onStopAgents}
+                  />
+                )}
+                <ChannelActionsMenu
+                  room={entry.id}
+                  roomName={entry.name}
+                  token={props.token}
+                  working={working}
+                  onArchived={() => { window.location.reload(); }}
+                />
+              </li>
+            );
+          })}
+        </ul>
+        {visible.length === 0 && <p className="nx-channel-home-empty">No active channels match that search.</p>}
+      </section>
+      {(visibleArchived.length > 0 || archivedRooms.length > 0) && (
+        <section className="nx-channel-home-section" aria-labelledby="archived-channels-title">
+          <div className="nx-channel-home-label">
+            <h2 id="archived-channels-title">Archived</h2>
+            <span>{visibleArchived.length}</span>
+          </div>
+          <ul className="nx-channel-grid is-archived">
+            {visibleArchived.map((room) => (
+              <li className="nx-channel-card" key={room.id}>
+                <span className="nx-channel-card-archived">
+                  <Chip name={room.name} accent="violet" size={42} />
+                  <span><strong>{room.name}</strong><small>Messages and participants preserved</small></span>
+                </span>
+                <button
+                  type="button"
+                  className="nx-btn is-quiet"
+                  disabled={restoringRoom !== undefined}
+                  data-testid={`home-restore-room-${room.id}`}
+                  onClick={() => {
+                    setRestoringRoom(room.id);
+                    setError(undefined);
+                    void restoreRoom(room.id, { token: props.token() }).then(
+                      (restored) => props.onSwitch(restored.id),
+                      (failure: unknown) => {
+                        setError(failure instanceof Error ? failure.message : String(failure));
+                        setRestoringRoom(undefined);
+                      },
+                    );
+                  }}
+                >
+                  <ArchiveRestore size={13} aria-hidden="true" />
+                  {restoringRoom === room.id ? 'Restoring…' : 'Restore'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {creating && (
+        <CreateChannelDialog
+          token={props.token}
+          onClose={() => setCreating(false)}
+          onCreated={(created) => {
+            setCreating(false);
+            props.onSwitch(created.id);
+          }}
+        />
+      )}
+    </main>
   );
 }
 
