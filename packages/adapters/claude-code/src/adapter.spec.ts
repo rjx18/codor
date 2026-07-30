@@ -17,6 +17,7 @@ import {
 import type { ClaudeQueryFactory, ClaudeQueryInput } from './query.js';
 
 const SESSION_ID = '22222222-2222-4222-8222-222222222222';
+const SOURCE_SESSION_ID = '11111111-1111-4111-8111-111111111111';
 
 const message = (value: Record<string, unknown>): SDKMessage => value as unknown as SDKMessage;
 const init = () => message({
@@ -140,6 +141,34 @@ describe('Claude Agent SDK query lifecycle', () => {
       env: { CODOR_TEST_SESSION_ENV: 'member-value' },
     });
     expect(records[0]!.input.options).not.toHaveProperty('resume');
+  });
+
+  it('forks a source session once and continues on the new native session id', async () => {
+    const records: MockQueryRecord[] = [];
+    const factory = queryFactory(async function* (input) {
+      for await (const _user of input.prompt) {
+        yield init();
+        yield result('forked');
+      }
+    }, records);
+    const adapter = new ClaudeCodeAdapter({ queryFactory: factory });
+    const session = tracked(adapter, adapter.spawn({
+      cwd: process.cwd(),
+      fork_session_ref: SOURCE_SESSION_ID,
+    }));
+    const refs: string[] = [];
+
+    await collect(adapter.deliver(session, 'continue independently', {
+      onSessionRef: (ref) => refs.push(ref),
+    }));
+
+    expect(records[0]!.input.options).toMatchObject({
+      resume: SOURCE_SESSION_ID,
+      forkSession: true,
+    });
+    expect(session.session_ref).toBe(SESSION_ID);
+    expect(session.fork_session_ref).toBeUndefined();
+    expect(refs).toEqual([SESSION_ID]);
   });
 
   it('recreates a crashed query and resumes the captured native session', async () => {

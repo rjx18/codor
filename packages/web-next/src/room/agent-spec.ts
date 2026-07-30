@@ -413,16 +413,15 @@ export interface SpawnSpec {
 }
 
 /**
- * A native session attached to a channel without transferring process custody.
- *
- * The server assigns mirrored custody for the `join` act. The browser therefore
- * does not offer an authority picker here: an existing terminal remains the
- * authority, and its Codor hooks/inbox decide when queued messages are observed.
+ * A native session used as either the source of a Codor-owned fork or a
+ * read-only mirror. Fork is the safe interactive default because it leaves the
+ * original terminal independent while giving Codor a session it can drive.
  */
 export interface JoinSpec {
   harness: string;
   handle: string;
   session_ref: string;
+  ownership: 'fork' | 'mirror';
   cwd: string;
   policy: Policy;
   purpose?: string;
@@ -442,13 +441,14 @@ export function isValidSessionRef(harness: string, sessionRef: string): boolean 
     : true;
 }
 
-/** Build the conservative wire payload for joining an existing native session. */
+/** Build the wire payload for copying or mirroring an existing native session. */
 export function buildJoinSpec(input: {
   harness: string;
   sessionRef: string;
   handle: string;
   cwd: string;
   purpose?: string;
+  ownership?: 'fork' | 'mirror';
   members: readonly Member[];
 }): JoinSpec {
   const purpose = input.purpose?.trim();
@@ -456,6 +456,7 @@ export function buildJoinSpec(input: {
     harness: input.harness.trim(),
     handle: availableAgentHandle(input.handle.trim(), input.members),
     session_ref: input.sessionRef.trim(),
+    ownership: input.ownership ?? 'fork',
     cwd: input.cwd.trim(),
     policy: DEFAULT_POLICY,
     ...(purpose !== undefined && purpose !== '' && { purpose }),

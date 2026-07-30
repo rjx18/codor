@@ -102,6 +102,7 @@ export class FakeAdapter implements HarnessAdapter {
   private readonly pendingAnswers = new Map<string, (answer: unknown) => void>();
   private readonly pendingBySession = new WeakMap<Session, string>();
   private readonly attachedRefs = new Set<string>();
+  private readonly discoveredRefs = new Set<string>();
   private nextSession = 0;
   private nextRequest = 0;
   private nextResponseError: Error | undefined;
@@ -150,6 +151,7 @@ export class FakeAdapter implements HarnessAdapter {
   spawn(opts: SpawnOpts): Session {
     return {
       harness: this.id,
+      fork_session_ref: opts.fork_session_ref,
       cwd: opts.cwd,
       policy: opts.policy,
       model: opts.model,
@@ -166,6 +168,10 @@ export class FakeAdapter implements HarnessAdapter {
     return this.attachedRefs.has(ref);
   }
 
+  addDiscoveredSession(ref: string): void {
+    this.discoveredRefs.add(ref);
+  }
+
   async *deliver(
     session: Session,
     payload: string,
@@ -174,6 +180,7 @@ export class FakeAdapter implements HarnessAdapter {
     hooks.onStarted?.({});
     if (session.session_ref === undefined) {
       session.session_ref = `fake-session-${++this.nextSession}`;
+      session.fork_session_ref = undefined;
       hooks.onSessionRef?.(session.session_ref);
     }
     this.deliveries.push({
@@ -351,7 +358,7 @@ export class FakeAdapter implements HarnessAdapter {
   }
 
   discoverSessions(): SessionRef[] {
-    return [];
+    return [...this.discoveredRefs];
   }
 }
 

@@ -219,6 +219,7 @@ export class CodexAdapter implements HarnessAdapter {
   readonly id = 'codex';
   readonly capabilities = {
     resume: true,
+    fork: true,
     discover: true,
     interactiveAttach: true,
     ask: false,
@@ -254,6 +255,7 @@ export class CodexAdapter implements HarnessAdapter {
     validateThinking(opts.thinking);
     return {
       harness: this.id,
+      fork_session_ref: opts.fork_session_ref,
       cwd: opts.cwd,
       model: opts.model,
       policy: opts.policy,
@@ -448,13 +450,25 @@ export class CodexAdapter implements HarnessAdapter {
 
   private async ensureThread(runtime: CodexRuntime, turn: TurnState): Promise<void> {
     if (runtime.threadId !== undefined) return;
-    const response = await runtime.client!.request('thread/start', this.threadOptions(runtime.session));
+    const source = runtime.session.fork_session_ref;
+    const response = source === undefined
+      ? await runtime.client!.request('thread/start', this.threadOptions(runtime.session))
+      : await runtime.client!.request('thread/fork', {
+          threadId: source,
+          deferGoalContinuation: true,
+          ...this.threadOptions(runtime.session),
+        });
     const threadId = responseId(response, 'thread');
-    if (threadId === undefined) throw new Error('Codex app-server did not return a thread id');
+    if (threadId === undefined) {
+      throw new Error(
+        `Codex app-server did not return a thread id while ${source === undefined ? 'starting' : 'forking'} a session`,
+      );
+    }
     runtime.threadId = threadId;
     runtime.threadModel = responseModel(response);
     runtime.context.latestResolvedModel = runtime.threadModel;
     runtime.session.session_ref = threadId;
+    runtime.session.fork_session_ref = undefined;
     turn.hooks.onSessionRef?.(threadId);
   }
 

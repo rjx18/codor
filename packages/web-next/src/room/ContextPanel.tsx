@@ -869,6 +869,7 @@ function SpawnDialog(props: {
   const [joinHarnessChoice, setJoinHarnessChoice] = useState<JoinHarnessChoice>('codex');
   const [customJoinHarness, setCustomJoinHarness] = useState('');
   const [sessionRef, setSessionRef] = useState('');
+  const [joinOwnership, setJoinOwnership] = useState<'fork' | 'mirror'>('fork');
   const [joinRole, setJoinRole] = useState('reviewer');
   const initialJoinPreset = SPAWN_PRESETS.find((preset) => preset.id === 'reviewer');
   const [joinHandle, setJoinHandle] = useState(initialJoinPreset?.handle ?? 'reviewer');
@@ -906,6 +907,7 @@ function SpawnDialog(props: {
     && (connectorHarness === undefined || config.model.trim() !== '')
     && (harness !== 'acp' || (config.acpExecutable?.trim() ?? '') !== '') && !props.pending;
   const joinHarness = joinHarnessChoice === 'other' ? customJoinHarness.trim() : joinHarnessChoice;
+  const effectiveJoinOwnership = joinHarnessChoice === 'other' ? 'mirror' : joinOwnership;
   const joinDerived = joinHandle.trim();
   const joinOwnerClash = collidesWithOwner(joinDerived, owner);
   const sessionRefValid = isValidSessionRef(joinHarness, sessionRef);
@@ -925,6 +927,7 @@ function SpawnDialog(props: {
         handle: joinDerived,
         cwd,
         purpose: rolePurpose,
+        ownership: effectiveJoinOwnership,
         members: props.members,
       }));
       return;
@@ -1146,6 +1149,19 @@ function SpawnDialog(props: {
               : 'Codex and Claude session IDs use the full 36-character UUID format.'}
           </p>
         )}
+        {joinHarnessChoice !== 'other' && (
+          <label className="nx-field">
+            <span className="nx-label">How Codor should connect</span>
+            <select
+              value={joinOwnership}
+              onChange={(event) => setJoinOwnership(event.target.value as 'fork' | 'mirror')}
+              data-testid="join-ownership"
+            >
+              <option value="fork">Fork a copy into Codor — recommended</option>
+              <option value="mirror">Mirror the live terminal — read-only</option>
+            </select>
+          </label>
+        )}
         </Section>
 
         <Section n={2} title="Role &amp; identity">
@@ -1238,8 +1254,17 @@ function SpawnDialog(props: {
             : <FolderPicker token={props.token} value={pickedCwd} onChange={setPickedCwd} idPrefix="join" />}
         </div>
         <div className="nx-participant-trust" data-testid="join-custody-note">
-          <strong>Mirrored · read-only</strong>
-          <span>The native terminal keeps control. Joining does not run a turn or transfer custody.</span>
+          {effectiveJoinOwnership === 'fork' ? (
+            <>
+              <strong>Forked copy · Codor-controlled</strong>
+              <span>The original terminal stays open and unchanged. Codor creates a separate copy on the first message.</span>
+            </>
+          ) : (
+            <>
+              <strong>Mirrored · read-only</strong>
+              <span>The native terminal keeps control. Messages wait until that terminal hands over custody.</span>
+            </>
+          )}
         </div>
         </Section>
         </>

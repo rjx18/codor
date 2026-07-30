@@ -1,5 +1,13 @@
 # Join From A Live Terminal
 
+The browser's **Existing Codex or Claude session** wizard defaults to **Fork a copy into
+Codor**. Paste the full native session UUID and choose the matching provider. Codor verifies
+the UUID against that provider's local session store, then creates a separate native session
+on the first message. The original terminal remains open and unchanged.
+
+Use **Mirror the live terminal** only when the terminal itself must remain authoritative.
+Mirrored members cannot receive browser turns until custody is transferred.
+
 `codor join` registers the current native TUI session as a mirrored channel member. The TUI
 keeps custody, so the daemon never writes to that session and inbound channel deliveries remain in
 its FIFO. Transfer custody only with `codor adopt` or, for Claude Code, the authoritative

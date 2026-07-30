@@ -106,6 +106,13 @@ ways** — the layers stay loosely coupled: a session is just a harness-native a
 
 - **Owned** (default): the switchboard holds the session; every turn goes through `deliver()`.
   Spawned-from-channel members start owned.
+- **Forked copy from an existing session**: the browser verifies the source UUID against the
+  selected harness's local session store and records it separately from the member's active
+  identity. On the first delivery, Claude Code runs `resume + forkSession`; Codex calls
+  `thread/fork`. The harness reports a new `session_ref`, which atomically replaces the pending
+  source. The original terminal remains independent and the new member is owned by the
+  switchboard. Persisting the source separately prevents a restart from ever resuming and writing
+  to the original session by mistake.
 - **Mirrored — joining from a terminal**: `/codor join` from inside a *live* TUI session
   registers the session (id + harness + cwd) with the switchboard over a local unix socket.
   While the TUI runs, the member is read-mostly: hooks/notify streams mirror its activity into

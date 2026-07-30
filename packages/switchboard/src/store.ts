@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS members (
   purpose TEXT,
   harness TEXT,
   session_ref TEXT,
+  fork_source_ref TEXT,
   cwd TEXT,
   policy TEXT,
   model TEXT,
@@ -276,6 +277,13 @@ function migrateMemberCustody(db: Database.Database): void {
   const columns = db.pragma('table_info(members)') as { name: string }[];
   if (!columns.some((column) => column.name === 'custody')) {
     db.exec('ALTER TABLE members ADD COLUMN custody TEXT');
+  }
+}
+
+function migrateMemberForkSource(db: Database.Database): void {
+  const columns = db.pragma('table_info(members)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'fork_source_ref')) {
+    db.exec('ALTER TABLE members ADD COLUMN fork_source_ref TEXT');
   }
 }
 
@@ -899,6 +907,7 @@ interface MemberRow {
   purpose: string | null;
   harness: string | null;
   session_ref: string | null;
+  fork_source_ref: string | null;
   cwd: string | null;
   policy: string | null;
   model: string | null;
@@ -1049,6 +1058,7 @@ function memberFromRow(row: MemberRow): Member {
     purpose: row.purpose ?? undefined,
     harness: row.harness ?? undefined,
     session_ref: row.session_ref ?? undefined,
+    fork_source_ref: row.fork_source_ref ?? undefined,
     cwd: row.cwd ?? undefined,
     policy: row.policy ?? undefined,
     model: row.model ?? undefined,
@@ -1227,6 +1237,7 @@ export interface NewMember {
   purpose?: string;
   harness?: string;
   session_ref?: string;
+  fork_source_ref?: string;
   cwd?: string;
   policy?: string;
   model?: string;
@@ -1371,6 +1382,7 @@ export class Store {
       // members table from an explicit column list, which would silently drop these two
       // again — and then every insert would fail on a column that no longer exists.
       migrateMemberAgentConfig(this.db);
+      migrateMemberForkSource(this.db);
       migrateMemberLimits(this.db);
       migrateMemberTasks(this.db);
       migrateMemberContextWindow(this.db);
@@ -1544,9 +1556,9 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO members (id, room, kind, handle, display_name, purpose, harness, session_ref,
-           cwd, policy, model, thinking, host, state, custody, parent, role, conventions_sent,
+           fork_source_ref, cwd, policy, model, thinking, host, state, custody, parent, role, conventions_sent,
            misaddressed, roster_stale, removed_ts, acp_provider)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         validated.id,
@@ -1557,6 +1569,7 @@ export class Store {
         orNull(validated.purpose),
         orNull(validated.harness),
         orNull(validated.session_ref),
+        orNull(validated.fork_source_ref),
         orNull(validated.cwd),
         orNull(validated.policy),
         orNull(validated.model),
@@ -1687,7 +1700,7 @@ export class Store {
       const existing = this.getMember(room, memberId);
       const clearTasks = existing?.session_ref !== undefined && existing.session_ref !== sessionRef;
       this.db.prepare(
-        `UPDATE members SET session_ref = ?, session_lifecycle = ?${clearTasks ? ', tasks = NULL' : ''} WHERE room = ? AND id = ?`,
+        `UPDATE members SET session_ref = ?, fork_source_ref = NULL, session_lifecycle = ?${clearTasks ? ', tasks = NULL' : ''} WHERE room = ? AND id = ?`,
       ).run(sessionRef, JSON.stringify(lifecycle), room, memberId);
       // harn:end member-task-projection-is-durable-and-session-scoped
       this.appendChange(room, 'member', memberId);
@@ -1738,7 +1751,7 @@ export class Store {
           // noticed. A configure that called this would have reported success and
           // persisted nothing at all.
           `UPDATE members SET handle = ?, display_name = ?, purpose = ?, harness = ?, session_ref = ?,
-             cwd = ?, policy = ?, model = ?, thinking = ?, host = ?, state = ?, custody = ?,
+             fork_source_ref = ?, cwd = ?, policy = ?, model = ?, thinking = ?, host = ?, state = ?, custody = ?,
              parent = ?, role = ?, conventions_sent = ?, misaddressed = ?, roster_stale = ?,
              removed_ts = ?, limits = ?, tasks = ?, acp_provider = ?
            WHERE room = ? AND id = ?`,
@@ -1749,6 +1762,7 @@ export class Store {
           orNull(merged.purpose),
           orNull(merged.harness),
           orNull(merged.session_ref),
+          orNull(merged.fork_source_ref),
           orNull(merged.cwd),
           orNull(merged.policy),
           orNull(merged.model),

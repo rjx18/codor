@@ -131,11 +131,15 @@ test.describe('add-participant wizard', () => {
     await expect(page.getByTestId('spawn-agent')).toHaveText('Add participant');
     const dialog = await openSpawn(page);
     await dialog.getByTestId('participant-mode').selectOption('existing');
+    await expect(dialog.getByTestId('join-ownership')).toHaveValue('fork');
+    await expect(dialog.getByTestId('join-custody-note'))
+      .toContainText('Forked copy · Codor-controlled');
 
     const session = dialog.getByTestId('join-session-ref');
     await expect(session).not.toHaveAttribute('maxlength');
     await dialog.getByTestId('join-harness').selectOption('other');
     await expect(dialog.getByTestId('join-custom-harness')).toBeVisible();
+    await expect(dialog.getByTestId('join-ownership')).toHaveCount(0);
     await dialog.getByTestId('join-custom-harness').fill('fake');
     await session.fill('provider-session-reference-that-must-not-be-truncated');
 
@@ -380,7 +384,11 @@ test.describe('Tier-1: the create dialog seeds a fully configured agent', () => 
     await dialog.getByTestId('create-name').fill('UUID Channel');
     await dialog.getByTestId('create-folder-alpha-project').click();
     await dialog.getByTestId('create-participant-mode').selectOption('existing');
+    await expect(dialog.getByTestId('create-join-ownership')).toHaveValue('fork');
+    await expect(dialog.getByTestId('create-join-custody-note'))
+      .toContainText('Forked copy · Codor-controlled');
     await dialog.getByTestId('create-join-harness').selectOption('other');
+    await expect(dialog.getByTestId('create-join-ownership')).toHaveCount(0);
     await dialog.getByTestId('create-join-custom-harness').fill('fake');
     await dialog.getByTestId('create-join-session-ref')
       .fill('019faeb6-e4e4-79b0-96a4-f8dcd3a97a54');

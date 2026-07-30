@@ -140,14 +140,15 @@ export const StartingAgentSchema = z.object({
 export type StartingAgent = z.infer<typeof StartingAgentSchema>;
 
 /**
- * An already-running native session that should join the channel without
- * transferring process custody. This is deliberately separate from
- * StartingAgentSchema: a session reference is attached, never spawned.
+ * An already-running native session used either as the source of a new
+ * Codor-owned fork or as a read-only mirror. Omission preserves the legacy
+ * mirror behavior for older clients; current browser clients send `fork`.
  */
 export const StartingSessionSchema = z.object({
   harness: z.string().min(1),
   handle: AssignableHandleSchema,
   session_ref: z.string().min(1),
+  ownership: z.enum(['fork', 'mirror']).optional(),
   policy: PolicySchema.optional(),
   purpose: z.string().min(1).optional(),
 });

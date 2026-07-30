@@ -361,6 +361,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   readonly id = 'claude-code';
   readonly capabilities = {
     resume: true,
+    fork: true,
     discover: true,
     interactiveAttach: true,
     ask: true,
@@ -398,6 +399,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     }
     return {
       harness: this.id,
+      fork_session_ref: opts.fork_session_ref,
       cwd: opts.cwd,
       model: opts.model,
       policy: opts.policy,
@@ -597,7 +599,10 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
       allowDangerouslySkipPermissions: true,
       ...(permissionMode !== undefined && { permissionMode }),
       ...(session.model !== undefined && { model: session.model }),
-      ...(session.session_ref !== undefined && { resume: session.session_ref }),
+      ...((session.fork_session_ref ?? session.session_ref) !== undefined && {
+        resume: session.fork_session_ref ?? session.session_ref,
+      }),
+      ...(session.fork_session_ref !== undefined && { forkSession: true }),
       ...claudeThinkingOptions(session.thinking),
       // harn:assume adapter-children-inherit-session-env ref=claude-child-environment
       env: { ...process.env, ...session.env },
@@ -692,6 +697,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     if (discovered !== undefined && discovered !== turn.reportedSessionRef) {
       runtime.context.sessionId = discovered;
       runtime.session.session_ref = discovered;
+      runtime.session.fork_session_ref = undefined;
       turn.reportedSessionRef = discovered;
       turn.hooks.onSessionRef?.(discovered);
     }

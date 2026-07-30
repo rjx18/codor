@@ -522,6 +522,7 @@ describe('existing-session join payloads', () => {
       harness: 'codex',
       session_ref: uuid,
       handle: 'reviewer',
+      ownership: 'fork',
       cwd: '/srv/project',
       policy: 'read-only',
       purpose: 'Review architecture and flag risks.',
@@ -549,7 +550,7 @@ describe('existing-session join payloads', () => {
     });
   });
 
-  it('always joins mirrored and read-only, and makes the handle unique', () => {
+  it('defaults to a Codor-owned fork with read-only permissions and a unique handle', () => {
     const spec = buildJoinSpec({
       harness: 'codex',
       sessionRef: uuid,
@@ -558,8 +559,20 @@ describe('existing-session join payloads', () => {
       members: [agent({ handle: 'reviewer' })],
     });
     expect(spec.handle).toBe('reviewer-2');
+    expect(spec.ownership).toBe('fork');
     expect(spec.policy).toBe('read-only');
     expect(spec).not.toHaveProperty('custody');
+  });
+
+  it('keeps read-only mirroring available as an explicit fallback', () => {
+    expect(buildJoinSpec({
+      harness: 'claude-code',
+      sessionRef: uuid,
+      handle: 'observer',
+      cwd: '/p',
+      ownership: 'mirror',
+      members: [],
+    }).ownership).toBe('mirror');
   });
 
   it('drops an empty optional purpose', () => {

@@ -9,6 +9,7 @@ describe('@codor/adapter-claude-code barrel', () => {
     expect(adapter.id).toBe('claude-code');
     expect(adapter.capabilities).toEqual({
       resume: true,
+      fork: true,
       discover: true,
       interactiveAttach: true,
       ask: true,

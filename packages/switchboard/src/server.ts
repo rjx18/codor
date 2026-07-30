@@ -1471,6 +1471,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 handle: act.handle,
                 session_ref: act.session_ref,
                 cwd: act.cwd,
+                ownership: act.ownership,
                 policy: act.policy,
                 purpose: act.purpose,
               });

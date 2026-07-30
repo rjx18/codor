@@ -64,6 +64,7 @@ export function StartingParticipantControls(props: {
   const [joinHarnessChoice, setJoinHarnessChoice] = useState<JoinHarnessChoice>('codex');
   const [customJoinHarness, setCustomJoinHarness] = useState('');
   const [sessionRef, setSessionRef] = useState('');
+  const [joinOwnership, setJoinOwnership] = useState<'fork' | 'mirror'>('fork');
   const initialJoinPreset = SPAWN_PRESETS.find((preset) => preset.id === 'reviewer');
   const [joinRole, setJoinRole] = useState(initialJoinPreset?.id ?? 'reviewer');
   const [joinHandle, setJoinHandle] = useState(initialJoinPreset?.handle ?? 'reviewer');
@@ -109,6 +110,7 @@ export function StartingParticipantControls(props: {
   const joinHarness = joinHarnessChoice === 'other'
     ? customJoinHarness.trim()
     : joinHarnessChoice;
+  const effectiveJoinOwnership = joinHarnessChoice === 'other' ? 'mirror' : joinOwnership;
   const joinOwnerClash = collidesWithOwner(joinHandle.trim(), props.owner);
   const joinValid = mode === 'existing'
     && props.cwd.trim() !== ''
@@ -155,6 +157,7 @@ export function StartingParticipantControls(props: {
           harness: joinHarness,
           handle: joinHandle.trim(),
           session_ref: sessionRef.trim(),
+          ownership: effectiveJoinOwnership,
           policy: DEFAULT_POLICY,
           ...(trimmedPurpose !== '' && { purpose: trimmedPurpose }),
         },
@@ -173,6 +176,7 @@ export function StartingParticipantControls(props: {
     harness,
     joinHandle,
     joinHarness,
+    effectiveJoinOwnership,
     joinPurpose,
     joinRole,
     joinValid,
@@ -353,6 +357,19 @@ export function StartingParticipantControls(props: {
                 : 'Codex and Claude session IDs use the full 36-character UUID format.'}
             </p>
           )}
+          {joinHarnessChoice !== 'other' && (
+            <label className="nx-field">
+              <span className="nx-label">How Codor should connect</span>
+              <select
+                value={joinOwnership}
+                onChange={(event) => setJoinOwnership(event.target.value as 'fork' | 'mirror')}
+                data-testid={`${id}-join-ownership`}
+              >
+                <option value="fork">Fork a copy into Codor — recommended</option>
+                <option value="mirror">Mirror the live terminal — read-only</option>
+              </select>
+            </label>
+          )}
           <label className="nx-field">
             <span className="nx-label">Role</span>
             <select
@@ -417,8 +434,17 @@ export function StartingParticipantControls(props: {
             />
           </label>
           <div className="nx-participant-trust" data-testid={`${id}-join-custody-note`}>
-            <strong>Mirrored · read-only</strong>
-            <span>The native terminal keeps control. Creating the channel does not run a turn or transfer custody.</span>
+            {effectiveJoinOwnership === 'fork' ? (
+              <>
+                <strong>Forked copy · Codor-controlled</strong>
+                <span>The original terminal stays open and unchanged. Codor creates a separate copy on the first message.</span>
+              </>
+            ) : (
+              <>
+                <strong>Mirrored · read-only</strong>
+                <span>The native terminal keeps control. Messages wait until that terminal hands over custody.</span>
+              </>
+            )}
           </div>
         </>
       )}

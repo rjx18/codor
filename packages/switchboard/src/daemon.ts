@@ -940,21 +940,29 @@ export class Daemon {
     // agent's provider. A duplicate or non-resumable reference must not leave an
     // unexpected empty channel behind.
     if (opts.starting_session !== undefined) {
-      const adapter = this.requireAdapter(opts.starting_session.harness);
+      const fork = opts.starting_session.ownership === 'fork';
+      const adapter = fork
+        ? this.requireForkSource(
+            opts.starting_session.harness,
+            opts.starting_session.session_ref,
+          )
+        : this.requireAdapter(opts.starting_session.harness);
       if (!adapter.capabilities.resume) {
         throw new Error(
-          `adapter '${adapter.id}' cannot back a persistent mirrored member`,
+          `adapter '${adapter.id}' cannot back a persistent session member`,
         );
       }
-      const joined = this.store.findMemberBySessionRef(
-        opts.starting_session.harness,
-        opts.starting_session.session_ref,
-      );
-      if (joined !== undefined) {
-        throw new Error(
-          `session ${opts.starting_session.session_ref} is already ` +
-          `@${joined.member.handle} in room ${joined.room}`,
+      if (!fork) {
+        const joined = this.store.findMemberBySessionRef(
+          opts.starting_session.harness,
+          opts.starting_session.session_ref,
         );
+        if (joined !== undefined) {
+          throw new Error(
+            `session ${opts.starting_session.session_ref} is already ` +
+            `@${joined.member.handle} in room ${joined.room}`,
+          );
+        }
       }
     }
     // harn:end starting-agent-name-derives-one-valid-identity-v6
@@ -1674,20 +1682,26 @@ export class Daemon {
       handle: string;
       session_ref: string;
       cwd: string;
+      ownership?: 'fork' | 'mirror';
       policy?: string;
       purpose?: string;
     },
   ): Member {
     const cwd = normalizeWorkingDirectory(opts.cwd, this.homeDir);
-    const adapter = this.requireAdapter(opts.harness);
+    const fork = opts.ownership === 'fork';
+    const adapter = fork
+      ? this.requireForkSource(opts.harness, opts.session_ref)
+      : this.requireAdapter(opts.harness);
     if (!adapter.capabilities.resume) {
-      throw new Error(`adapter '${adapter.id}' cannot back a persistent mirrored member`);
+      throw new Error(`adapter '${adapter.id}' cannot back a persistent session member`);
     }
-    const joined = this.store.findMemberBySessionRef(opts.harness, opts.session_ref);
-    if (joined) {
-      throw new Error(
-        `session ${opts.session_ref} is already @${joined.member.handle} in room ${joined.room}`,
-      );
+    if (!fork) {
+      const joined = this.store.findMemberBySessionRef(opts.harness, opts.session_ref);
+      if (joined) {
+        throw new Error(
+          `session ${opts.session_ref} is already @${joined.member.handle} in room ${joined.room}`,
+        );
+      }
     }
     const member = this.store.addMember(room, {
       kind: 'agent',
@@ -1695,18 +1709,26 @@ export class Daemon {
       display_name: opts.handle,
       purpose: opts.purpose,
       harness: opts.harness,
-      session_ref: opts.session_ref,
+      ...(fork
+        ? { fork_source_ref: opts.session_ref }
+        : { session_ref: opts.session_ref }),
       cwd,
       policy: opts.policy,
       state: 'idle',
-      custody: 'mirrored',
+      custody: fork ? 'owned' : 'mirrored',
+      ...(fork && { host: this.hostId }),
     });
     this.markRostersStale(room);
     this.emitMember(room, member);
     // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-seeding
-    this.seedContextUsage(room, member);
+    if (!fork) this.seedContextUsage(room, member);
     // harn:end last-agent-usage-is-transient-and-seeded
-    this.postSystemMessage(room, `@${member.handle} joined from a live ${opts.harness} terminal`);
+    this.postSystemMessage(
+      room,
+      fork
+        ? `@${member.handle} will fork ${opts.harness} session ${opts.session_ref} on its first turn; the original terminal stays independent`
+        : `@${member.handle} joined from a live ${opts.harness} terminal`,
+    );
     return member;
   }
 
@@ -2221,6 +2243,36 @@ export class Daemon {
     return adapter;
   }
 
+  private requireForkSource(harness: string, sessionRef: string): HarnessAdapter {
+    const adapter = this.requireInstalledAdapter(harness);
+    if (adapter.capabilities.fork !== true || !adapter.capabilities.discover) {
+      throw new Error(`adapter '${adapter.id}' cannot fork an existing native session`);
+    }
+    if (adapter.discoverSessions().includes(sessionRef)) return adapter;
+
+    for (const candidate of this.adapters.values()) {
+      if (candidate.id === harness || !candidate.capabilities.discover) continue;
+      try {
+        if (candidate.discoverSessions().includes(sessionRef)) {
+          throw new Error(
+            `session ${sessionRef} belongs to '${candidate.id}', not '${harness}'; ` +
+            `select the matching session type`,
+          );
+        }
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.includes(`belongs to '${candidate.id}'`)
+        ) {
+          throw error;
+        }
+      }
+    }
+    throw new Error(
+      `session ${sessionRef} was not found in the local '${harness}' session store`,
+    );
+  }
+
   private requireInstalledAdapter(id: string): HarnessAdapter {
     const adapter = this.requireAdapter(id);
     if (this.adapterAvailability.get(id) !== true) {
@@ -2294,6 +2346,7 @@ export class Daemon {
           : (() => {
               const spawnOpts = {
                 cwd: member.cwd ?? process.cwd(),
+                fork_session_ref: member.fork_source_ref,
                 policy: member.policy,
                 model: member.model,
                 thinking: member.thinking,
@@ -3197,10 +3250,16 @@ export class Daemon {
         },
         onSessionRef: (sessionRef) => {
           const persisted = this.store.getMember(room, member.id);
-          if (persisted?.session_ref === sessionRef) return;
+          if (
+            persisted?.session_ref === sessionRef &&
+            persisted.fork_source_ref === undefined
+          ) return;
           this.emitMember(
             room,
-            this.store.updateMember(room, member.id, { session_ref: sessionRef }),
+            this.store.updateMember(room, member.id, {
+              session_ref: sessionRef,
+              fork_source_ref: undefined,
+            }),
           );
         },
         onSessionLifecycle: (support) => {

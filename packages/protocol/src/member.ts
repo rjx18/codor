@@ -173,6 +173,9 @@ export const MemberSchema = z
     // agent + extension only:
     harness: z.string().min(1).optional(), // adapter id, open set
     session_ref: z.string().min(1).optional(), // harness-native resume token
+    // Source identity for a pending one-time fork. It is cleared atomically
+    // when the adapter reports the new Codor-owned session_ref.
+    fork_source_ref: z.string().min(1).optional(),
     cwd: z.string().min(1).optional(), // persisted launch dir — resume/revive MUST reuse it
     policy: z.string().min(1).optional(), // sandbox/permission mode chip
     // harn:assume durable-agent-runtime-configuration ref=durable-agent-runtime-schema
@@ -259,6 +262,23 @@ export const MemberSchema = z
         code: 'custom',
         path: ['role'],
         message: 'only human members may have a role',
+      });
+    }
+    if (member.fork_source_ref !== undefined && member.session_ref !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['fork_source_ref'],
+        message: 'a pending fork source cannot also be an active session reference',
+      });
+    }
+    if (
+      member.fork_source_ref !== undefined &&
+      (member.kind !== 'agent' || member.custody !== 'owned')
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['fork_source_ref'],
+        message: 'a pending fork source requires an owned agent member',
       });
     }
     // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-member-identity

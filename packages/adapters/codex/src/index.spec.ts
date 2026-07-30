@@ -9,6 +9,7 @@ describe('@codor/adapter-codex barrel', () => {
     expect(adapter.id).toBe('codex');
     expect(adapter.capabilities).toEqual({
       resume: true,
+      fork: true,
       discover: true,
       interactiveAttach: true,
       ask: false,

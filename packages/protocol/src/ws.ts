@@ -85,6 +85,7 @@ export const ActSchema = z.discriminatedUnion('act', [
     handle: AssignableHandleSchema,
     session_ref: z.string().min(1),
     cwd: z.string().min(1),
+    ownership: z.enum(['fork', 'mirror']).optional(),
     policy: z.string().optional(),
     purpose: z.string().optional(),
   }),

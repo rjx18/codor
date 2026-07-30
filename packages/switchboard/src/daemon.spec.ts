@@ -48,7 +48,7 @@ async function until<T>(fn: () => T | undefined, ms = 2000): Promise<T> {
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'codor-daemon-'));
-  fake = new FakeAdapter('fake', { interactiveAttach: true }, async (session, step) => {
+  fake = new FakeAdapter('fake', { interactiveAttach: true, fork: true }, async (session, step) => {
     const room = session.env?.CODOR_CHANNEL;
     const memberId = session.env?.CODOR_MEMBER_ID;
     if (!room || !memberId) throw new Error('fake live step has no member environment');
@@ -91,8 +91,8 @@ beforeEach(() => {
       daemon.endWait(room, memberId);
     }
   });
-  claudeFake = new FakeAdapter('claude-code', { extensions: true });
-  codexFake = new FakeAdapter('codex');
+  claudeFake = new FakeAdapter('claude-code', { extensions: true, fork: true });
+  codexFake = new FakeAdapter('codex', { fork: true });
   // `fake` must keep thinking:false — a test below relies on it rejecting a thinking level.
   thinkingFake = new FakeAdapter('thinking-fake', { thinking: true });
   frames = [];
@@ -2934,6 +2934,55 @@ describe('Phase 3 usability core', () => {
       },
     })).toThrow('either a new agent or an existing session, not both');
     expect(daemon.store.getRoom('ambiguous-starting-participant')).toBeUndefined();
+  });
+
+  it('forks a discovered session into an owned member without resuming the source', async () => {
+    const source = 'source-session-ref';
+    fake.addDiscoveredSession(source);
+    const spawn = vi.spyOn(fake, 'spawn');
+    const member = daemon.joinMember('eng', {
+      harness: 'fake',
+      handle: 'forked-reviewer',
+      session_ref: source,
+      ownership: 'fork',
+      cwd: testCwd('forked-reviewer'),
+    });
+
+    expect(member).toMatchObject({
+      custody: 'owned',
+      fork_source_ref: source,
+      state: 'idle',
+    });
+    expect(member.session_ref).toBeUndefined();
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    fake.enqueue({ kind: 'complete', final_text: '@richard forked copy is active' });
+    daemon.postHumanMessage('eng', '@forked-reviewer verify the fork');
+    await daemon.settle();
+
+    expect(spawn).toHaveBeenCalledWith(expect.objectContaining({
+      fork_session_ref: source,
+    }));
+    expect(fake.wasAttached(source)).toBe(false);
+    expect(daemon.store.getMember('eng', member.id)).toMatchObject({
+      custody: 'owned',
+      session_ref: 'fake-session-1',
+    });
+    expect(daemon.store.getMember('eng', member.id)?.fork_source_ref).toBeUndefined();
+  });
+
+  it('identifies a session/provider mismatch before persisting a member', () => {
+    const source = 'claude-session-ref';
+    claudeFake.addDiscoveredSession(source);
+    expect(() => daemon.joinMember('eng', {
+      harness: 'codex',
+      handle: 'wrong-provider',
+      session_ref: source,
+      ownership: 'fork',
+      cwd: testCwd('wrong-provider'),
+    })).toThrow(`session ${source} belongs to 'claude-code', not 'codex'`);
+    expect(daemon.store.getMemberByHandle('eng', 'wrong-provider')).toBeUndefined();
   });
 
   // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-create-regression

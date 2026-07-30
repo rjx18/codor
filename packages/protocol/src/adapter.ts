@@ -79,6 +79,12 @@ export type AcpProviderId = z.infer<typeof AcpProviderIdSchema>;
 export interface Session {
   harness: string;
   session_ref?: SessionRef;
+  /**
+   * Source session to copy exactly once before the first Codor-owned turn.
+   * Kept separate from `session_ref` so a restart can never resume and mutate
+   * the operator's original terminal session by mistake.
+   */
+  fork_session_ref?: SessionRef;
   cwd: string;
   model?: string;
   policy?: string;
@@ -104,6 +110,7 @@ export interface Session {
 
 export interface SpawnOpts {
   cwd: string;
+  fork_session_ref?: SessionRef;
   model?: string;
   policy?: string;
   thinking?: ThinkingLevel;
@@ -112,6 +119,8 @@ export interface SpawnOpts {
 
 export interface AdapterCapabilities {
   resume: boolean; // false ⇒ one-shot ephemeral members only
+  /** Can create a new native session that copies an existing session's history. */
+  fork?: boolean;
   discover: boolean; // can enumerate the harness session store
   interactiveAttach: boolean; // native TUI resume exists (jump-in)
   ask: boolean; // raises ask.raised cards

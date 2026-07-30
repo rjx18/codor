@@ -239,6 +239,49 @@ describe('persistent Codex app-server lifecycle', () => {
     server.assertNoErrors();
   });
 
+  it('forks a source thread before the first turn and reports the new thread id', async () => {
+    const server = createFakeCodexAppServer({
+      'thread/fork': () => ({ thread: { id: 'thread-forked' }, model: 'gpt-5.6-sol' }),
+    });
+    const { adapter } = fixtureAdapter(server);
+    const session = adapter.spawn({
+      cwd: '/work',
+      fork_session_ref: 'thread-source',
+      policy: 'workspace-write',
+    });
+    const refs: string[] = [];
+
+    const run = collect(adapter, session, 'continue independently', {
+      onSessionRef: (ref) => refs.push(ref),
+    });
+    const forkRequest = await server.waitForRequest('thread/fork');
+    expect(forkRequest.params).toMatchObject({
+      threadId: 'thread-source',
+      deferGoalContinuation: true,
+      cwd: '/work',
+      approvalPolicy: 'never',
+      sandbox: 'workspace-write',
+    });
+    expect(server.messages.filter((message) => message.method === 'thread/resume')).toHaveLength(0);
+    expect(server.messages.filter((message) => message.method === 'thread/start')).toHaveLength(0);
+
+    await server.waitForRequest('turn/start');
+    server.notify('turn/started', {
+      threadId: 'thread-forked',
+      turn: { id: 'turn-forked', status: 'inProgress', items: [], error: null },
+    });
+    server.notify('turn/completed', {
+      threadId: 'thread-forked',
+      turn: { id: 'turn-forked', status: 'completed', items: [], error: null },
+    });
+    await run;
+
+    expect(session.session_ref).toBe('thread-forked');
+    expect(session.fork_session_ref).toBeUndefined();
+    expect(refs).toEqual(['thread-forked']);
+    server.assertNoErrors();
+  });
+
   it('reuses the member process when the daemon rebuilds the Session object', async () => {
     const server = createFakeCodexAppServer();
     const { adapter, factory } = fixtureAdapter(server);
