@@ -48,6 +48,7 @@ export interface AdapterRegistration {
 export interface MemberDetail {
   member: Member;
   queued_count: number;
+  unattempted_queued_since?: string;
   spend: {
     turns: number;
     input_tokens: number;

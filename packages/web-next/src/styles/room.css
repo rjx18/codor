@@ -1562,6 +1562,34 @@
   font: var(--t-caption);
   color: var(--c-secondary);
 }
+.nx-queue-warning {
+  display: grid;
+  gap: var(--sp-1);
+  margin: var(--sp-2) 0 0 calc(32px + var(--sp-3));
+  padding: var(--sp-2);
+  border: 1px solid color-mix(in srgb, var(--c-warn) 40%, transparent);
+  border-radius: var(--r-control);
+  background: var(--c-warn-tint);
+  color: var(--c-body);
+}
+.nx-queue-warning strong {
+  color: var(--c-warn-text);
+  font: var(--t-caption-strong);
+}
+.nx-queue-warning p {
+  margin: 0;
+  font: var(--t-caption);
+}
+.nx-queue-warning-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+.nx-queue-warning-actions .nx-btn {
+  min-height: 28px;
+  padding: 0 var(--sp-2);
+  font: var(--t-caption-strong);
+}
 .nx-member-limits {
   display: flex;
   flex-wrap: wrap;

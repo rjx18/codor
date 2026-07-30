@@ -42,6 +42,7 @@ import {
   type JoinHarnessChoice,
   type ParticipantMode,
 } from './participant-options.js';
+import { queueWarningDelay, queueWarningDue } from './queue-warning.js';
 import {
   cachedGitWorkingState,
   fetchGitCommitState,
@@ -402,6 +403,20 @@ function MemberTaskList(props: { handle: string; tasks: AgentTaskList }) {
 }
 // harn:end people-and-agents-shows-only-nonempty-task-lists
 
+function useQueueWarning(unattemptedQueuedSince: string | undefined): boolean {
+  const [, rerender] = useState(0);
+  useEffect(() => {
+    const delay = queueWarningDelay(unattemptedQueuedSince, Date.now());
+    if (delay === undefined || delay === 0) return undefined;
+    const timer = window.setTimeout(
+      () => rerender((value) => value + 1),
+      Math.min(delay + 25, 2_147_483_647),
+    );
+    return () => window.clearTimeout(timer);
+  }, [unattemptedQueuedSince]);
+  return queueWarningDue(unattemptedQueuedSince, Date.now());
+}
+
 function MemberCard(props: {
   member: Member;
   detail: MemberDetail | undefined;
@@ -432,6 +447,7 @@ function MemberCard(props: {
 
   const spend = detail?.spend;
   const tokens = spend !== undefined ? spend.input_tokens + spend.output_tokens : undefined;
+  const queueWarning = useQueueWarning(detail?.unattempted_queued_since);
 
   // Compaction is a round trip to the engine with no run to watch, so the card
   // owns the only evidence the operator has that their click did anything. It
@@ -613,6 +629,43 @@ function MemberCard(props: {
           {spend !== undefined ? ` · ${costProvenanceLabel(spend)} · ${spend.turns} turns` : ''}
           {(detail?.queued_count ?? 0) > 0 ? ` · ${detail?.queued_count} queued` : ''}
         </p>
+      )}
+      {member.kind === 'agent' && queueWarning && (
+        <div
+          className="nx-queue-warning"
+          role="alert"
+          data-testid={`member-${member.handle}-queue-warning`}
+        >
+          <strong>Queued, but nothing has started</strong>
+          <p>
+            {member.state === 'paused'
+              ? 'This agent is paused. '
+              : member.custody === 'mirrored'
+                ? 'This session is read-only. Reconnect it as a forked copy to send browser messages. '
+                : ''}
+            Codor has made no delivery attempt for at least one minute. This queued work is not using model tokens.
+          </p>
+          {props.canStop && (
+            <div className="nx-queue-warning-actions">
+              {member.state === 'paused' && (
+                <Button
+                  variant="secondary"
+                  data-testid={`member-${member.handle}-queue-resume`}
+                  onClick={() => props.connection.act({ act: 'unpause', member_id: member.id })}
+                >
+                  Resume queued work
+                </Button>
+              )}
+              <Button
+                variant="quiet"
+                data-testid={`member-${member.handle}-queue-cancel`}
+                onClick={() => props.connection.act({ act: 'interrupt', member_id: member.id })}
+              >
+                Cancel queued work
+              </Button>
+            </div>
+          )}
+        </div>
       )}
       {member.limits !== undefined && member.limits.length > 0 && (
         <p className="nx-member-limits" data-testid={`member-${member.handle}-limits`}>

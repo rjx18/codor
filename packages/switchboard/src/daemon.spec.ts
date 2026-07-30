@@ -916,7 +916,14 @@ describe('member management', () => {
     daemon.postHumanMessage('eng', '@alpha two');
     await daemon.settle();
     expect(fake.deliveries).toHaveLength(0);
-    expect(daemon.memberDetails('eng').find((item) => item.member.id === alpha.id)!.queued_count).toBe(2);
+    const queued = daemon.store.listDeliveries('eng', {
+      recipient: alpha.id,
+      state: 'queued',
+    });
+    expect(daemon.memberDetails('eng').find((item) => item.member.id === alpha.id)).toMatchObject({
+      queued_count: 2,
+      unattempted_queued_since: queued.map((delivery) => delivery.ts).sort()[0],
+    });
 
     fake.enqueue({ kind: 'complete', final_text: '@richard both done' });
     daemon.unpauseMember('eng', alpha.id);
@@ -924,6 +931,27 @@ describe('member management', () => {
     expect(fake.deliveries).toHaveLength(1);
     expect(fake.deliveries[0]!.payload).toContain('@alpha one');
     expect(fake.deliveries[0]!.payload).toContain('@alpha two');
+    expect(daemon.memberDetails('eng').find((item) => item.member.id === alpha.id))
+      .not.toHaveProperty('unattempted_queued_since');
+  });
+
+  it('cancels unattempted queued work while preserving a deliberate pause', async () => {
+    const alpha = spawnAgent('alpha');
+    daemon.pauseMember('eng', alpha.id);
+    daemon.postHumanMessage('eng', '@alpha wait for the provider');
+    await daemon.settle();
+
+    daemon.interruptMember('eng', alpha.id);
+
+    expect(daemon.store.getMember('eng', alpha.id)?.state).toBe('paused');
+    expect(daemon.store.listDeliveries('eng', {
+      recipient: alpha.id,
+      state: 'queued',
+    })).toHaveLength(0);
+    expect(daemon.memberDetails('eng').find((item) => item.member.id === alpha.id))
+      .not.toHaveProperty('unattempted_queued_since');
+    expect(daemon.store.listMessages('eng', { limit: 100 }).at(-1)?.body)
+      .toBe("@alpha's queued work was cancelled");
   });
 
   it('kill leaves a revivable dead member and revive attaches the exact session ref', async () => {

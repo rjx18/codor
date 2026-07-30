@@ -343,6 +343,7 @@ export interface DaemonOptions {
 export interface MemberDetails {
   member: Member;
   queued_count: number;
+  unattempted_queued_since?: string;
   spend: {
     turns: number;
     input_tokens: number;
@@ -1443,6 +1444,16 @@ export class Daemon {
   memberDetails(room: string): MemberDetails[] {
     const messages = this.store.listMessages(room, { limit: Number.MAX_SAFE_INTEGER });
     return this.store.listMembers(room).map((member) => {
+      const queued = this.store.listDeliveries(room, {
+        recipient: member.id,
+        state: 'queued',
+      });
+      const unattemptedQueuedSince = queued
+        .filter((delivery) => delivery.attempt_count === 0)
+        .reduce<string | undefined>(
+          (oldest, delivery) => oldest === undefined || delivery.ts < oldest ? delivery.ts : oldest,
+          undefined,
+        );
       const runs = messages.filter(
         (message) =>
           message.kind === 'run' &&
@@ -1453,10 +1464,9 @@ export class Daemon {
         // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-member-projection
         member: this.memberWithLastUsage(room, member),
         // harn:end last-agent-usage-is-transient-and-seeded
-        queued_count: this.store.listDeliveries(room, {
-          recipient: member.id,
-          state: 'queued',
-        }).length,
+        queued_count: queued.length,
+        ...(unattemptedQueuedSince !== undefined
+          && { unattempted_queued_since: unattemptedQueuedSince }),
         // harn:assume estimated-cost-is-advisory-not-spend-brake-input ref=member-advisory-cost-projection
         spend: runs.reduce((total, message) => {
           const usage = message.run?.usage;
@@ -2080,11 +2090,11 @@ export class Daemon {
     if (!member || member.kind !== 'agent') {
       throw new Error(`no such agent member: ${memberId}`);
     }
-    if (member.state === 'queued') {
-      const queued = this.store.listDeliveries(room, {
-        recipient: memberId,
-        state: 'queued',
-      });
+    const queued = this.store.listDeliveries(room, {
+      recipient: memberId,
+      state: 'queued',
+    });
+    if (!this.inflight.has(memberId) && (queued.length > 0 || member.state === 'queued')) {
       for (const delivery of queued) {
         if (delivery.group_id !== undefined) {
           this.skipUnavailableGroupDelivery(room, delivery);

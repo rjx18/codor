@@ -19,7 +19,7 @@ import {
 import { connect, type Connection } from '@runtime/ws.js';
 import type { Room } from '@codor/protocol';
 
-import { useClientStore } from './store.js';
+import { roomSlice, useClientStore } from './store.js';
 
 /**
  * The room named in the URL, or nothing. Never a placeholder: `'default'` was
@@ -167,6 +167,14 @@ export function useRooms(token: () => string): Room[] {
 
 export function useMemberDetails(room: string, token: () => string): Record<string, MemberDetail> {
   const connected = useConnected();
+  const refreshKey = useClientStore((state) => {
+    const slice = roomSlice(state, room);
+    const memberStates = Object.values(slice.members)
+      .map((member) => `${member.id}:${member.state}`)
+      .sort()
+      .join('|');
+    return `${String(Object.keys(slice.messages).length)}:${memberStates}`;
+  });
   const [details, setDetails] = useState<Record<string, MemberDetail>>({});
   useEffect(() => {
     if (!connected) return;
@@ -177,7 +185,7 @@ export function useMemberDetails(room: string, token: () => string): Record<stri
       })
       .catch(() => undefined);
     return () => { current = false; };
-  }, [connected, room, token]);
+  }, [connected, refreshKey, room, token]);
   return details;
 }
 
