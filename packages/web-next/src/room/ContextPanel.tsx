@@ -579,6 +579,18 @@ function MemberCard(props: {
             />
             {menu && (
               <div className="nx-menu" role="menu" aria-label={`@${member.handle} actions`}>
+                {member.state === 'paused' && (
+                  <button
+                    role="menuitem"
+                    data-testid={`member-${member.handle}-resume`}
+                    onClick={() => {
+                      setMenu(false);
+                      props.connection.act({ act: 'unpause', member_id: member.id });
+                    }}
+                  >
+                    Resume queued work
+                  </button>
+                )}
                 <button role="menuitem" onClick={() => { setMenu(false); setRenaming(true); }}>Rename…</button>
                 <button role="menuitem" onClick={() => { setMenu(false); setConfiguring(true); }}>Configure…</button>
                 {member.state !== 'dead' && (
