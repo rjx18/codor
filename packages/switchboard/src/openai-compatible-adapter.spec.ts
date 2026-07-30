@@ -76,6 +76,18 @@ describe('configured OpenAI-compatible adapters', () => {
     );
   });
 
+  it('offers the live-tested NVIDIA model before the larger current option', async () => {
+    const adapter = createOpenAICompatibleAdapter({ id: 'nvidia' });
+
+    await expect(adapter.listModels()).resolves.toEqual({
+      models: [
+        'meta/llama-3.1-8b-instruct',
+        'meta/llama-3.3-70b-instruct',
+      ],
+      source: 'curated',
+    });
+  });
+
   it('completes a chat-only Ollama turn with normalized text and usage', async () => {
     const fetcher = vi.fn().mockResolvedValue(response({
       model: 'qwen3.6:latest',

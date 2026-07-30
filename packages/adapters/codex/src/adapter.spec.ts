@@ -254,6 +254,13 @@ describe('persistent Codex app-server lifecycle', () => {
     const run = collect(adapter, session, 'continue independently', {
       onSessionRef: (ref) => refs.push(ref),
     });
+    const initializeRequest = await server.waitForRequest('initialize');
+    expect(initializeRequest.params).toMatchObject({
+      capabilities: {
+        experimentalApi: true,
+        requestAttestation: false,
+      },
+    });
     const forkRequest = await server.waitForRequest('thread/fork');
     expect(forkRequest.params).toMatchObject({
       threadId: 'thread-source',

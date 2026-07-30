@@ -428,6 +428,10 @@ export class CodexAdapter implements HarnessAdapter {
     try {
       await client.request('initialize', {
         clientInfo: { name: 'codor', title: 'Codor', version: '0.1.0' },
+        capabilities: {
+          experimentalApi: true,
+          requestAttestation: false,
+        },
       });
       client.notify('initialized');
       if (runtime.threadId !== undefined) {

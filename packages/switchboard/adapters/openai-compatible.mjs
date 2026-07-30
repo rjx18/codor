@@ -13,7 +13,7 @@ const PROVIDERS = Object.freeze({
     endpoint: 'https://integrate.api.nvidia.com/v1',
     label: 'NVIDIA NIM',
     models: Object.freeze([
-      'meta/llama-4-maverick-17b-128e-instruct',
+      'meta/llama-3.1-8b-instruct',
       'meta/llama-3.3-70b-instruct',
     ]),
   }),
