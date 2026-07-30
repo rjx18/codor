@@ -6,11 +6,13 @@ import {
   POLICIES,
   type AdapterLike,
   availableAgentHandle,
+  buildJoinSpec,
   buildSpawnSpec,
   channelOwner,
   collidesWithOwner,
   defaultSpawnCwd,
   HANDLE_PATTERN,
+  isValidSessionRef,
   errorConcernsSpawn,
   isAgentFieldError,
   errorMentionsHandle,
@@ -360,14 +362,39 @@ describe('the channel owner is found by role, not by position', () => {
 });
 
 describe('role presets', () => {
+  it('orders roles by coordinating authority and real-work delegation sequence', () => {
+    expect(SPAWN_PRESETS.map((preset) => preset.id)).toEqual([
+      'orchestrator',
+      'planner',
+      'coder',
+      'tester',
+      'reviewer',
+      'writer',
+    ]);
+  });
+
   it('keeps legacy values rather than drifting', () => {
     const byId = Object.fromEntries(SPAWN_PRESETS.map((p) => [p.id, p]));
     expect(byId.writer?.thinking).toBe('low');
     expect(byId.reviewer?.policy).toBe('read-only');
     expect(byId.planner?.policy).toBe('read-only');
+    expect(byId.orchestrator).toMatchObject({
+      handle: 'orchestrator',
+      policy: 'read-only',
+      thinking: 'high',
+    });
+    expect(byId.orchestrator?.purpose).toContain('@mention');
+    expect(byId.orchestrator?.purpose).toContain('lower-cost models');
     expect(byId.coder?.policy).toBe('workspace-write');
     // Nothing here may quietly hand out full access.
     expect(SPAWN_PRESETS.every((p) => p.policy !== 'full-access')).toBe(true);
+  });
+
+  it('gives every role a collaboration-ready operating brief', () => {
+    for (const preset of SPAWN_PRESETS) {
+      expect(preset.purpose.length, preset.id).toBeGreaterThan(240);
+      expect(preset.purpose, preset.id).toContain('@mention');
+    }
   });
 
   it('drops a level the harness does not accept instead of arming it', () => {
@@ -477,4 +504,80 @@ describe('payload hygiene', () => {
     expect(spec.acp_launch).toEqual({ executable: 'kimi', argv: ['acp', '--profile=x'] });
   });
   // harn:end acp-launch-is-structured-authorized-and-bounded
+});
+
+describe('existing-session join payloads', () => {
+  const uuid = '019faeb6-e4e4-79b0-96a4-f8dcd3a97a54';
+
+  it('preserves a complete Codex UUID without truncating it', () => {
+    const spec = buildJoinSpec({
+      harness: 'codex',
+      sessionRef: `  ${uuid}  `,
+      handle: 'reviewer',
+      cwd: '  /srv/project  ',
+      purpose: '  Review architecture and flag risks.  ',
+      members: [],
+    });
+    expect(spec).toEqual({
+      harness: 'codex',
+      session_ref: uuid,
+      handle: 'reviewer',
+      cwd: '/srv/project',
+      policy: 'read-only',
+      purpose: 'Review architecture and flag risks.',
+    });
+  });
+
+  it('supports Claude Code and a custom harness without changing their identifiers', () => {
+    expect(buildJoinSpec({
+      harness: 'claude-code',
+      sessionRef: uuid,
+      handle: 'planner',
+      cwd: '/p',
+      members: [],
+    }).harness).toBe('claude-code');
+
+    expect(buildJoinSpec({
+      harness: '  my-native-adapter  ',
+      sessionRef: '  provider-session-token  ',
+      handle: 'advisor',
+      cwd: '/p',
+      members: [],
+    })).toMatchObject({
+      harness: 'my-native-adapter',
+      session_ref: 'provider-session-token',
+    });
+  });
+
+  it('always joins mirrored and read-only, and makes the handle unique', () => {
+    const spec = buildJoinSpec({
+      harness: 'codex',
+      sessionRef: uuid,
+      handle: 'reviewer',
+      cwd: '/p',
+      members: [agent({ handle: 'reviewer' })],
+    });
+    expect(spec.handle).toBe('reviewer-2');
+    expect(spec.policy).toBe('read-only');
+    expect(spec).not.toHaveProperty('custody');
+  });
+
+  it('drops an empty optional purpose', () => {
+    expect(buildJoinSpec({
+      harness: 'codex',
+      sessionRef: uuid,
+      handle: 'reviewer',
+      cwd: '/p',
+      purpose: '   ',
+      members: [],
+    }).purpose).toBeUndefined();
+  });
+
+  it('requires UUID-shaped references for Codex and Claude, but permits custom adapters to define theirs', () => {
+    expect(isValidSessionRef('codex', uuid)).toBe(true);
+    expect(isValidSessionRef('claude-code', uuid)).toBe(true);
+    expect(isValidSessionRef('codex', '019faeb6-e4e4-79b0')).toBe(false);
+    expect(isValidSessionRef('my-native-adapter', 'provider-session-token')).toBe(true);
+    expect(isValidSessionRef('my-native-adapter', '   ')).toBe(false);
+  });
 });

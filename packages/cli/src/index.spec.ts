@@ -1425,6 +1425,17 @@ describe('@codor/cli', () => {
   // harn:end empty-database-desk-seeds-tutorial-atomically
   // harn:end empty-database-desk-uses-service-home
 
+  it('rejects a wildcard foreground bind before creating pilot data', async () => {
+    const dataDir = join(dir, 'wildcard-bind-data');
+    await expect(startCodor({
+      dataDir,
+      token: 'wildcard-bind-token',
+      host: '0.0.0.0',
+      port: 0,
+    })).rejects.toThrow(/127\.0\.0\.1/);
+    expect(existsSync(dataDir)).toBe(false);
+  });
+
   // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=production-browser-protocol-regression
   it('enforces epoch 2 in the real up composition while an epoch-less agent still hydrates', async () => {
     const token = 'production-epoch-token';

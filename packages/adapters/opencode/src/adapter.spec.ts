@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -86,7 +86,7 @@ console.log(JSON.stringify({type:'step_finish',sessionID:'ses_existing',part:{ty
         '--session', 'ses_existing',
         'PONG',
       ],
-      cwd,
+      cwd: realpathSync(cwd),
       input: '',
     });
     expect(done.usage).toEqual({ input_tokens: 1, output_tokens: 2, cost_usd: 0.01 });

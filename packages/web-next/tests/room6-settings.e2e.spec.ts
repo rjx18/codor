@@ -51,6 +51,14 @@ test.describe('devices', () => {
     await page.keyboard.press('Escape');
     await expect(offer).toBeHidden();
   });
+
+  test('the pairing deep link mints an offer without another click', async ({ page }) => {
+    await page.goto(`${SETTINGS}&pair=1`);
+    const offer = page.getByTestId('pairing-offer');
+    await expect(offer).toBeVisible();
+    await expect(offer.getByTestId('pairing-code')).not.toBeEmpty();
+    await expect(offer.locator('.nx-pair-qr')).toBeVisible();
+  });
 });
 
 test.describe('accessibility', () => {

@@ -90,10 +90,36 @@
 
 .nx-onboarding-actions .nx-btn { gap: 8px; white-space: nowrap; }
 
+.nx-onboarding-archived {
+  width: min(720px, 100%);
+  display: grid;
+  gap: 18px;
+  padding: clamp(22px, 4vw, 32px);
+  border: 1px solid var(--c-line);
+  border-radius: 24px;
+  background: var(--c-surface);
+}
+.nx-onboarding-archived h2 { margin: 4px 0 0; font: var(--t-title); color: var(--c-ink); }
+.nx-onboarding-archived ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.nx-onboarding-archived li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-control);
+  background: var(--c-raised);
+  color: var(--c-ink);
+  font: var(--t-ui-strong);
+}
+.nx-onboarding-archived .nx-btn { gap: 7px; }
+
 @media (max-width: 520px) {
   .nx-onboarding { padding: 28px 10px; gap: 24px; }
   .nx-onboarding-card { padding: 20px 12px; border-radius: 18px; }
   .nx-onboarding-actions { align-items: stretch; flex-direction: column; }
   .nx-onboarding-actions .nx-btn { width: 100%; }
   .nx-onboarding-actions > span { justify-content: center; text-align: center; }
+  .nx-onboarding-archived { padding: 20px 12px; border-radius: 18px; }
 }

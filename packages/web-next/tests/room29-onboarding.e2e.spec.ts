@@ -53,13 +53,14 @@ test.describe('first-channel onboarding', () => {
     await showEmptyStateOnce(page);
     await page.goto(`/?token=${OWNER_TOKEN}`);
     const onboarding = page.getByTestId('first-channel-onboarding');
+    await expect(onboarding.getByTestId('first-participant-none-note')).toBeVisible();
+    await onboarding.getByTestId('first-participant-mode').selectOption('new');
     await expect(onboarding.getByTestId('first-refresh-adapters')).toBeVisible();
     await expect(onboarding.getByText('No supported harnesses found')).toBeVisible();
-    await expect(onboarding.getByTestId('first-harness-none')).toHaveAttribute('aria-pressed', 'true');
-    // No installed native or detected named provider -> the PRIMARY grid offers only None,
-    // while the deliberate Custom ACP escape hatch stays available behind Advanced.
+    // No installed native or detected named provider -> the primary grid is
+    // empty, while the deliberate Custom ACP escape hatch stays available.
     await expect(onboarding.locator('.nx-harness-grid').first()
-      .locator('[data-testid^="first-harness-"]:not([data-testid="first-harness-none"])')).toHaveCount(0);
+      .locator('[data-testid^="first-harness-"]')).toHaveCount(0);
     await expect(onboarding.getByTestId('first-advanced')).toBeVisible();
     await expect(onboarding.getByTestId('first-advanced').getByTestId('first-harness-acp')).toHaveCount(1);
   });
@@ -84,6 +85,7 @@ test.describe('first-channel onboarding', () => {
     await page.getByTestId('first-folder-beta-project').click();
     await expect(name).toHaveValue('Stable Plan');
 
+    await page.getByTestId('first-participant-mode').selectOption('new');
     await page.getByTestId('first-harness-fake').click();
     await page.getByTestId('first-channel-create').click();
     await expect(page).toHaveURL(/\?room=stable-plan$/, { timeout: 15_000 });
@@ -107,6 +109,7 @@ test.describe('first-channel onboarding', () => {
 
     const onboarding = page.getByTestId('first-channel-onboarding');
     await expect(onboarding).toBeVisible();
+    await onboarding.getByTestId('first-participant-mode').selectOption('new');
     // The detected named provider is offered here too, with its ACP pill.
     await expect(onboarding.getByTestId('first-harness-acp:kimi')).toBeVisible();
     await expect(onboarding.getByTestId('first-acp-pill-kimi')).toHaveText('ACP');
@@ -125,6 +128,48 @@ test.describe('first-channel onboarding', () => {
     expect(agent).not.toHaveProperty('model');
   });
   // harn:end agent-selection-shows-detected-acp-and-advanced-custom
+
+  test('the first channel can start with an existing mirrored session', async ({ page }) => {
+    await showEmptyStateOnce(page);
+    await page.goto(`/?token=${OWNER_TOKEN}`);
+    const onboarding = page.getByTestId('first-channel-onboarding');
+    await page.getByTestId('first-folder-alpha-project').click();
+    await page.getByTestId('first-channel-name').fill('Existing Session Start');
+    await onboarding.getByTestId('first-participant-mode').selectOption('existing');
+
+    // Codex and Claude remain first-class choices with complete UUID validation.
+    await expect(onboarding.getByTestId('first-join-harness')).toHaveValue('codex');
+    await onboarding.getByTestId('first-join-session-ref').fill('019faeb6-e4e4-79b0');
+    await expect(onboarding.getByTestId('first-join-session-error'))
+      .toContainText('36-character UUID');
+    await expect(page.getByTestId('first-channel-create')).toBeDisabled();
+
+    // The isolated browser fixture has one resumable adapter (`fake`), so use
+    // the explicit Other path for the real join rather than claiming the UUID
+    // belongs to a live Codex process.
+    await onboarding.getByTestId('first-join-harness').selectOption('other');
+    await onboarding.getByTestId('first-join-custom-harness').fill('fake');
+    await onboarding.getByTestId('first-join-session-ref')
+      .fill('first-channel-existing-session');
+    await onboarding.getByTestId('first-join-role').selectOption('orchestrator');
+
+    const request = page.waitForRequest((candidate) =>
+      candidate.method() === 'POST' && new URL(candidate.url()).pathname === '/api/rooms');
+    await page.getByTestId('first-channel-create').click();
+    const payload = (await request).postDataJSON() as {
+      starting_agent?: unknown;
+      starting_session?: Record<string, unknown>;
+    };
+    expect(payload).not.toHaveProperty('starting_agent');
+    expect(payload.starting_session).toMatchObject({
+      harness: 'fake',
+      handle: 'orchestrator',
+      session_ref: 'first-channel-existing-session',
+      policy: 'read-only',
+    });
+    await expect(page).toHaveURL(/\?room=existing-session-start$/, { timeout: 15_000 });
+    await expect(page.getByTestId('member-orchestrator')).toContainText('mirrored');
+  });
 
   test('the project folder is required: a valid name alone does not enable the first channel', async ({ page }) => {
     await showEmptyStateOnce(page);

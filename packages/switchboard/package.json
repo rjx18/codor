@@ -17,7 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@fastify/static": "^9.3.0",
+    "@fastify/static": "^10.1.2",
     "@codor/adapter-antigravity": "workspace:*",
     "@codor/adapter-acp": "workspace:*",
     "@codor/adapter-claude-code": "workspace:*",

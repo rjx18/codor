@@ -1,19 +1,16 @@
-import { deriveAssignableHandle, deriveRoomId } from '@codor/protocol';
-import { ArrowRight, FolderPlus, Sparkles } from 'lucide-react';
+import { deriveAssignableHandle, deriveRoomId, type Room } from '@codor/protocol';
+import { ArchiveRestore, ArrowRight, FolderPlus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { createRoom } from '@runtime/api.js';
+import { createRoom, fetchArchivedRooms, restoreRoom } from '@runtime/api.js';
 
 import { Button, Code } from '../primitives/primitives.js';
-import { AgentControls, AgentIdentityControls, Section } from '../room/AgentControls.js';
+import { Section } from '../room/AgentControls.js';
 import { FolderPicker } from '../room/FolderPicker.js';
 import {
-  DEFAULT_POLICY,
-  type AgentConfig,
-  acpLaunchFromConfig,
-  resolveSelector,
-  supportedThinking,
-} from '../room/agent-spec.js';
+  StartingParticipantControls,
+  type StartingParticipantSelection,
+} from '../room/StartingParticipant.js';
 import { useAdapterCatalog } from '../app/session.js';
 
 export function suggestedChannelName(path: string): string {
@@ -28,41 +25,39 @@ export function NoChannels(props: { token: string }) {
   const adapterCatalog = useAdapterCatalog(token);
   const adapters = adapterCatalog.installed;
   const advanced = adapterCatalog.advanced;
-  // Reconciliation spans both grids: a custom-ACP selection (id `acp`) lives in
-  // `advanced`, so healing and adapter lookups must see the combined list.
-  const all = [...adapters, ...advanced];
   const [name, setName] = useState('');
   const [nameEdited, setNameEdited] = useState(false);
   const [cwd, setCwd] = useState('');
   const [ownerName, setOwnerName] = useState('You');
-  const [agentName, setAgentName] = useState('Codor');
-  const [agentConfig, setAgentConfig] = useState<AgentConfig>({
-    harness: '', model: '', thinking: '', policy: DEFAULT_POLICY,
+  const [startingParticipant, setStartingParticipant] = useState<StartingParticipantSelection>({
+    mode: 'none',
+    valid: true,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [archivedRooms, setArchivedRooms] = useState<Room[]>([]);
+  const [restoreBusy, setRestoreBusy] = useState<string>();
+  const [restoreError, setRestoreError] = useState<string>();
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchArchivedRooms({ token: props.token }).then(
+      (rooms) => {
+        if (!cancelled) setArchivedRooms(rooms);
+      },
+      (failure: unknown) => {
+        if (!cancelled) setRestoreError(failure instanceof Error ? failure.message : String(failure));
+      },
+    );
+    return () => { cancelled = true; };
+  }, [props.token]);
 
   const ownerHandle = useMemo(
     () => deriveAssignableHandle(ownerName.trim()),
     [ownerName],
   );
-  const effectiveAgentName = agentName.trim() === '' ? 'Agent' : agentName.trim();
-  const agentHandle = useMemo(
-    () => deriveAssignableHandle(effectiveAgentName),
-    [effectiveAgentName],
-  );
-  const hasAgent = agentConfig.harness !== '';
-  // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=first-provider-selection
-  useEffect(() => {
-    if (!hasAgent || all.some((adapter) => adapter.id === agentConfig.harness)) return;
-    setAgentConfig({ ...agentConfig, harness: '', model: '', thinking: '' });
-  }, [all, agentConfig, hasAgent]);
-  // harn:end agent-selection-shows-detected-acp-and-advanced-custom
-  const identityClash = hasAgent && ownerHandle !== undefined && agentHandle === ownerHandle;
-  const acpLaunch = acpLaunchFromConfig(agentConfig);
   const canCreate = name.trim() !== '' && cwd.trim() !== '' && ownerHandle !== undefined && !busy
-    && (!hasAgent || (agentHandle !== undefined && !identityClash))
-    && (agentConfig.harness !== 'acp' || acpLaunch !== undefined);
+    && startingParticipant.valid;
 
   const chooseFolder = (path: string): void => {
     setCwd(path);
@@ -79,29 +74,10 @@ export function NoChannels(props: { token: string }) {
       name: name.trim(),
       owner: { handle: ownerHandle, display_name: ownerName.trim() },
       cwd: cwd.trim(),
-      ...(hasAgent && agentHandle !== undefined && {
-        starting_agent: {
-          // A named tile's selector id (`acp:kimi`) resolves to the `acp` harness plus a
-          // safe provider id; the generic tile keeps its custom launch.
-          harness: resolveSelector(agentConfig.harness).harness,
-          handle: agentHandle,
-          display_name: effectiveAgentName,
-          policy: agentConfig.policy === '' ? DEFAULT_POLICY : agentConfig.policy,
-          ...(resolveSelector(agentConfig.harness).acp_provider !== undefined
-            && { acp_provider: resolveSelector(agentConfig.harness).acp_provider }),
-          ...(acpLaunch !== undefined && { acp_launch: acpLaunch }),
-          // The ACP transport rejects a client-selected model, so never seed one for it.
-          ...(resolveSelector(agentConfig.harness).harness !== 'acp' && agentConfig.model !== ''
-            && { model: agentConfig.model }),
-          ...(() => {
-            const thinking = supportedThinking(
-              all.find((adapter) => adapter.id === agentConfig.harness),
-              agentConfig.thinking,
-            );
-            return thinking === undefined ? {} : { thinking };
-          })(),
-        },
-      }),
+      ...(startingParticipant.starting_agent !== undefined
+        && { starting_agent: startingParticipant.starting_agent }),
+      ...(startingParticipant.starting_session !== undefined
+        && { starting_session: startingParticipant.starting_session }),
     }, { token: props.token }).then(
       (room) => { window.location.assign(`/?room=${encodeURIComponent(room.id)}`); },
       (failure: unknown) => {
@@ -115,9 +91,13 @@ export function NoChannels(props: { token: string }) {
     <main className="nx-onboarding" data-testid="first-channel-onboarding">
       <header className="nx-onboarding-head">
         <span className="nx-onboarding-mark" aria-hidden="true" />
-        <p className="nx-eyebrow">Paired successfully</p>
-        <h1>Create your first channel</h1>
-        <p>Point Codor at a project, then bring in an agent now or add one later.</p>
+        <p className="nx-eyebrow">{archivedRooms.length > 0 ? 'Channels' : 'Paired successfully'}</p>
+        <h1>{archivedRooms.length > 0 ? 'No active channels' : 'Create your first channel'}</h1>
+        <p>
+          {archivedRooms.length > 0
+            ? 'Create a new channel or restore one of your archived channels below.'
+            : 'Point Codor at a project, then bring in an agent now or add one later.'}
+        </p>
       </header>
 
       <form className="nx-onboarding-card" onSubmit={(event) => { event.preventDefault(); submit(); }}>
@@ -162,50 +142,19 @@ export function NoChannels(props: { token: string }) {
           </div>
         </Section>
 
-        <Section n={2} title="Starting agent" headingLevel={2}>
+        <Section n={2} title="Starting participant" headingLevel={2}>
           <div className="nx-first-agent">
-            <AgentIdentityControls
+            <StartingParticipantControls
               adapters={adapters}
               advanced={advanced}
-              config={agentConfig}
-              onChange={setAgentConfig}
-              allowNone
-              optional
+              cwd={cwd}
+              owner={ownerHandle === undefined ? undefined : { handle: ownerHandle }}
               idPrefix="first"
+              onChange={setStartingParticipant}
               onRefresh={adapterCatalog.refresh}
               refreshing={adapterCatalog.refreshing}
               refreshError={adapterCatalog.refreshError}
             />
-            {hasAgent ? (
-              <>
-                <label className="nx-field">
-                  <span className="nx-label">Agent name</span>
-                  <input
-                    value={agentName}
-                    data-testid="first-agent-name"
-                    onChange={(event) => setAgentName(event.target.value)}
-                  />
-                  {agentHandle !== undefined && !identityClash && (
-                    <span className="nx-field-note">joins as <Code>@{agentHandle}</Code></span>
-                  )}
-                  {identityClash && (
-                    <span className="nx-field-note is-error">The owner and agent need different handles.</span>
-                  )}
-                </label>
-                <AgentControls
-                  adapters={all}
-                  config={agentConfig}
-                  onChange={setAgentConfig}
-                  hideHarness
-                  embedded
-                  behaviourSection={3}
-                  permissionsSection={4}
-                  idPrefix="first"
-                />
-              </>
-            ) : (
-              <p className="nx-first-later"><Sparkles size={16} aria-hidden="true" /> You can add agents from the channel at any time.</p>
-            )}
           </div>
         </Section>
 
@@ -217,6 +166,45 @@ export function NoChannels(props: { token: string }) {
           </Button>
         </footer>
       </form>
+      {archivedRooms.length > 0 && (
+        <section className="nx-onboarding-archived" aria-labelledby="archived-channels-title">
+          <div>
+            <p className="nx-eyebrow">Preserved work</p>
+            <h2 id="archived-channels-title">Archived channels</h2>
+          </div>
+          <ul>
+            {archivedRooms.map((archived) => (
+              <li key={archived.id}>
+                <span>{archived.name}</span>
+                <Button
+                  variant="secondary"
+                  disabled={restoreBusy !== undefined}
+                  data-testid={`restore-empty-room-${archived.id}`}
+                  onClick={() => {
+                    setRestoreBusy(archived.id);
+                    setRestoreError(undefined);
+                    void restoreRoom(archived.id, { token: props.token }).then(
+                      (restored) => {
+                        window.location.assign(`/?room=${encodeURIComponent(restored.id)}`);
+                      },
+                      (failure: unknown) => {
+                        setRestoreError(failure instanceof Error ? failure.message : String(failure));
+                        setRestoreBusy(undefined);
+                      },
+                    );
+                  }}
+                >
+                  <ArchiveRestore size={14} aria-hidden="true" />
+                  {restoreBusy === archived.id ? 'Restoring…' : 'Restore'}
+                </Button>
+              </li>
+            ))}
+          </ul>
+          {restoreError !== undefined && (
+            <p className="nx-field-note is-error" role="alert">{restoreError}</p>
+          )}
+        </section>
+      )}
     </main>
   );
 }

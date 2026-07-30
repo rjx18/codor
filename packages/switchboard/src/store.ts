@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   created_ts TEXT NOT NULL,
+  archived_ts TEXT,
   config TEXT NOT NULL,        -- RoomConfig JSON
   seq INTEGER NOT NULL DEFAULT 0
 );
@@ -275,6 +276,13 @@ function migrateMemberCustody(db: Database.Database): void {
   const columns = db.pragma('table_info(members)') as { name: string }[];
   if (!columns.some((column) => column.name === 'custody')) {
     db.exec('ALTER TABLE members ADD COLUMN custody TEXT');
+  }
+}
+
+function migrateRoomArchive(db: Database.Database): void {
+  const columns = db.pragma('table_info(rooms)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'archived_ts')) {
+    db.exec('ALTER TABLE rooms ADD COLUMN archived_ts TEXT');
   }
 }
 
@@ -1016,6 +1024,7 @@ interface RoomRow {
   id: string;
   name: string;
   created_ts: string;
+  archived_ts: string | null;
   config: string;
   seq: number;
 }
@@ -1199,6 +1208,7 @@ function roomFromRow(row: RoomRow): Room {
     id: row.id,
     name: row.name,
     created_ts: row.created_ts,
+    archived_ts: row.archived_ts ?? undefined,
     // Channels the CLI made (the boot-seeded unit among them) carry no colour.
     // Deriving on read gives every existing channel an accent without a migration.
     config: { ...config, color: config.color ?? deriveRoomColor(row.id) },
@@ -1353,6 +1363,7 @@ export class Store {
       this.db.pragma('journal_mode = WAL');
       this.db.pragma('foreign_keys = ON');
       this.db.exec(SCHEMA);
+      migrateRoomArchive(this.db);
       migrateDeliveryPayloadSnapshot(this.db);
       migrateMemberCustody(this.db);
       migrateMemberLifecycle(this.db);
@@ -1479,6 +1490,35 @@ export class Store {
   listRooms(): Room[] {
     const rows = this.db.prepare('SELECT * FROM rooms ORDER BY id').all() as RoomRow[];
     return rows.map(roomFromRow);
+  }
+
+  archiveRoom(room: string, archivedTs = new Date().toISOString()): Room {
+    return this.db.transaction(() => {
+      const current = this.getRoom(room);
+      if (!current) throw new Error(`no such room: ${room}`);
+      if (current.archived_ts !== undefined) return current;
+      const activeAgents = this.listMembers(room).filter(
+        (member) => member.kind === 'agent'
+          && (member.state === 'running' || member.state === 'queued'),
+      );
+      if (activeAgents.length > 0) throw new Error(`room ${room} has active agents`);
+      const validated = RoomSchema.parse({ ...current, archived_ts: archivedTs });
+      this.db.prepare('UPDATE rooms SET archived_ts = ? WHERE id = ?')
+        .run(validated.archived_ts, room);
+      this.appendChange(room, 'room', room);
+      return this.getRoom(room)!;
+    })();
+  }
+
+  restoreRoom(room: string): Room {
+    return this.db.transaction(() => {
+      const current = this.getRoom(room);
+      if (!current) throw new Error(`no such room: ${room}`);
+      if (current.archived_ts === undefined) return current;
+      this.db.prepare('UPDATE rooms SET archived_ts = NULL WHERE id = ?').run(room);
+      this.appendChange(room, 'room', room);
+      return this.getRoom(room)!;
+    })();
   }
 
   updateRoomConfig(room: string, patch: Partial<RoomConfig>): Room {
@@ -1992,6 +2032,11 @@ export class Store {
     message: NewMessage,
     options: { activity?: MessageActivityMode } = {},
   ): Message {
+    const target = this.getRoom(room);
+    if (!target) throw new Error(`no such room: ${room}`);
+    if (target.archived_ts !== undefined) {
+      throw new Error(`room ${room} is archived; restore it before posting`);
+    }
     return this.db.transaction(() => {
       const next = this.db
         .prepare('SELECT COALESCE(MAX(id), 0) + 1 AS id FROM messages WHERE room = ?')

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { Agent as HttpAgent, request as httpRequest } from 'node:http';
 import { connect as netConnect } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -1845,6 +1845,33 @@ describe('Phase 3 REST boundaries', () => {
     expect((await second.json() as { room: { id: string } }).room.id).toBe('demo-site-2');
   });
 
+  it('creates a channel with a mirrored existing session in the same request', async () => {
+    const cwd = testCwd('create-existing-session');
+    const response = await fetch(`${base}/api/rooms`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Existing Session Room',
+        owner: { handle: 'session-owner', display_name: 'Session Owner' },
+        cwd,
+        starting_session: {
+          harness: 'fake',
+          handle: 'orchestrator',
+          session_ref: 'rest-existing-session-ref',
+          policy: 'read-only',
+          purpose: 'Coordinate the room.',
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(daemon.store.getMemberByHandle('existing-session-room', 'orchestrator')).toMatchObject({
+      session_ref: 'rest-existing-session-ref',
+      custody: 'mirrored',
+      purpose: 'Coordinate the room.',
+    });
+  });
+
   // harn:assume browser-created-channel-delivers-its-room-key ref=browser-room-key-regression
   it('returns a new room key only to the paired browser that created it', async () => {
     const browser = new CryptoVault(join(dir, 'creating-browser'));
@@ -1899,7 +1926,7 @@ describe('Phase 3 REST boundaries', () => {
       const listing = await listed.json() as {
         path: string; parent: string | null; dirs: { name: string; path: string }[];
       };
-      expect(listing.path).toBe(dir);
+      expect(listing.path).toBe(realpathSync(dir));
       expect(listing.parent).toBeNull();
       expect(listing.dirs.some((entry) => entry.name === 'alpha')).toBe(true);
       expect(listing.dirs.some((entry) => entry.name === '.hidden')).toBe(false);
@@ -2171,6 +2198,68 @@ describe('rooms summary', () => {
   });
 });
 // harn:end durable-room-summaries-stream-and-fallback
+
+describe('room archive endpoints', () => {
+  const ownerHeaders = {
+    authorization: `Bearer ${TOKEN}`,
+  };
+
+  it('separates active and archived lists and restores a preserved channel', async () => {
+    daemon.postHumanMessage('eng', 'Keep this message');
+
+    const archive = await fetch(`${base}/api/rooms/eng/archive`, {
+      method: 'POST',
+      headers: ownerHeaders,
+    });
+    expect(archive.status).toBe(200);
+    expect((await archive.json() as { room: { archived_ts?: string } }).room.archived_ts)
+      .toBeDefined();
+
+    const active = await fetch(`${base}/api/rooms`, { headers: ownerHeaders });
+    expect((await active.json() as { rooms: { id: string }[] }).rooms).toEqual([]);
+    const archived = await fetch(`${base}/api/rooms?archived=1`, { headers: ownerHeaders });
+    expect((await archived.json() as { rooms: { id: string }[] }).rooms.map((room) => room.id))
+      .toEqual(['eng']);
+    const summaries = await fetch(`${base}/api/rooms/summary`, { headers: ownerHeaders });
+    expect((await summaries.json() as { rooms: { id: string }[] }).rooms).toEqual([]);
+    expect(() => daemon.postHumanMessage('eng', 'Blocked')).toThrow('room eng is archived');
+
+    const restore = await fetch(`${base}/api/rooms/eng/restore`, {
+      method: 'POST',
+      headers: ownerHeaders,
+    });
+    expect(restore.status).toBe(200);
+    expect((await restore.json() as { room: { archived_ts?: string } }).room.archived_ts)
+      .toBeUndefined();
+    expect(daemon.store.listMessages('eng').map((message) => message.body))
+      .toEqual(['Keep this message']);
+  });
+
+  it('refuses archive while an agent is running and forbids non-managers', async () => {
+    const agent = daemon.store.addMember('eng', {
+      kind: 'agent',
+      handle: 'busy',
+      display_name: 'Busy',
+      state: 'queued',
+    });
+    const busy = await fetch(`${base}/api/rooms/eng/archive`, {
+      method: 'POST',
+      headers: ownerHeaders,
+    });
+    expect(busy.status).toBe(409);
+    expect(await busy.json()).toEqual({ error: 'room eng has active agents' });
+
+    daemon.store.updateMember('eng', agent.id, { state: 'idle' });
+    const memberAttempt = await fetch(`${base}/api/rooms/eng/archive`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${MEMBER_TOKEN}`,
+      },
+    });
+    expect(memberAttempt.status).toBe(403);
+    expect(daemon.store.getRoom('eng')?.archived_ts).toBeUndefined();
+  });
+});
 
 // harn:assume room-git-inspection-read-only-from-known-cwds ref=room-git-inspection-server-regression
 describe('git inspection endpoints (room-git-inspection-read-only-from-known-cwds)', () => {

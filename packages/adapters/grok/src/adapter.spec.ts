@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -61,7 +61,7 @@ console.log(JSON.stringify({type:'response.completed',status:'completed',usage:{
     expect(done).toMatchObject({ type: 'run.completed', status: 'completed', usage: { input_tokens: 2, output_tokens: 3 } });
     expect(JSON.parse(done.final_text!)).toEqual({
       argv: ['-p', 'PONG', '--output-format', 'streaming-json', '--no-auto-update', '--model', 'grok-4.5', '--effort', 'medium'],
-      cwd,
+      cwd: realpathSync(cwd),
       input: '',
     });
     expect(session.session_ref).toBe('22222222-2222-4222-8222-222222222222');

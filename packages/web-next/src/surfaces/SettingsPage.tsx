@@ -37,6 +37,7 @@ export function SettingsPage(props: {
     () => () => currentBrowserAccessToken(props.token),
     [props.token],
   );
+  const autoPair = new URL(window.location.href).searchParams.get('pair') === '1';
   const connectorRef = useRef<RoomConnector | null>(null);
   if (connectorRef.current === null) {
     connectorRef.current = createConnector({
@@ -58,7 +59,7 @@ export function SettingsPage(props: {
         <AppearanceSection />
         <NotificationsSection token={token} />
         <BrakesSection connection={connectorRef.current} />
-        <DevicesSection token={token} />
+        <DevicesSection token={token} autoPair={autoPair} />
         <PrivacySection />
       </div>
     </main>
@@ -263,12 +264,13 @@ function BrakesSection(props: { connection: RoomConnector }) {
 
 // ── Devices ────────────────────────────────────────────────────────────────
 
-function DevicesSection(props: { token: () => string }) {
+function DevicesSection(props: { token: () => string; autoPair?: boolean }) {
   const [devices, setDevices] = useState<DeviceSummary[]>();
   const [offer, setOffer] = useState<PairingOffer>();
   const [qr, setQr] = useState<string>();
   const [revoking, setRevoking] = useState<DeviceSummary>();
   const [error, setError] = useState<string>();
+  const autoPairStarted = useRef(false);
 
   const refresh = (): void => {
     void fetchDevices({ token: props.token() })
@@ -276,6 +278,19 @@ function DevicesSection(props: { token: () => string }) {
       .catch(() => setError('Couldn’t load paired devices.'));
   };
   useEffect(refresh, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mintOffer = (): void => {
+    setError(undefined);
+    void mintPairingOffer(window.location.origin, { token: props.token() })
+      .then(setOffer)
+      .catch(() => setError('Couldn’t mint a pairing offer.'));
+  };
+
+  useEffect(() => {
+    if (!props.autoPair || autoPairStarted.current) return;
+    autoPairStarted.current = true;
+    mintOffer();
+  }, [props.autoPair]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!offer) {
@@ -318,11 +333,7 @@ function DevicesSection(props: { token: () => string }) {
         <Button
           variant="secondary"
           data-testid="pair-new-device"
-          onClick={() => {
-            void mintPairingOffer(window.location.origin, { token: props.token() })
-              .then(setOffer)
-              .catch(() => setError('Couldn’t mint a pairing offer.'));
-          }}
+          onClick={mintOffer}
         >
           <QrCode size={15} aria-hidden="true" /> Pair a new device
         </Button>

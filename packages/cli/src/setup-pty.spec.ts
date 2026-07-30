@@ -125,7 +125,10 @@ const SOURCE = `
 function runPty(keys: readonly string[], rows: number, columns: number, scenario = 'advance') {
   const feed = keys.map((key) => `printf '${key}'; sleep 0.25`).join('; ');
   const command = `stty rows ${String(rows)} cols ${String(columns)}; exec ${shellQuote(process.execPath)} --input-type=module -e ${shellQuote(SOURCE)}`;
-  return spawnSync('bash', ['-c', `(sleep 0.4; ${feed}) | script -qefc ${shellQuote(command)} /dev/null`], {
+  const script = process.platform === 'darwin'
+    ? `script -qe /dev/null bash -c ${shellQuote(command)}`
+    : `script -qefc ${shellQuote(command)} /dev/null`;
+  return spawnSync('bash', ['-c', `(sleep 0.4; ${feed}) | ${script}`], {
     encoding: 'utf8',
     timeout: 15_000,
     env: { ...process.env, NO_COLOR: '1', SCENARIO: scenario },

@@ -213,6 +213,59 @@ describe('room seeding', () => {
   });
 });
 
+describe('room archiving', () => {
+  it('preserves history, blocks new messages, and restores the channel', () => {
+    const { owner } = openRoom(store);
+    const first = store.postMessage('eng', {
+      author: owner.id,
+      kind: 'chat',
+      body: 'Preserve this history',
+    });
+
+    const archived = store.archiveRoom('eng', '2026-07-30T12:00:00.000Z');
+    expect(archived.archived_ts).toBe('2026-07-30T12:00:00.000Z');
+    expect(store.listMessages('eng')).toEqual([first]);
+    expect(() => store.postMessage('eng', {
+      author: owner.id,
+      kind: 'chat',
+      body: 'Blocked while archived',
+    })).toThrow('room eng is archived');
+
+    const restored = store.restoreRoom('eng');
+    expect(restored.archived_ts).toBeUndefined();
+    expect(store.postMessage('eng', {
+      author: owner.id,
+      kind: 'chat',
+      body: 'Allowed after restore',
+    }).id).toBe(2);
+  });
+
+  it('refuses to archive a channel while an agent is working', () => {
+    openRoom(store);
+    store.addMember('eng', {
+      kind: 'agent',
+      handle: 'working',
+      display_name: 'Working',
+      state: 'running',
+    });
+    expect(() => store.archiveRoom('eng')).toThrow('room eng has active agents');
+    expect(store.getRoom('eng')?.archived_ts).toBeUndefined();
+  });
+
+  it('adds archive support when reopening an older database', () => {
+    openRoom(store);
+    store.close();
+    const legacy = new Database(join(dir, 'test.sqlite'));
+    legacy.exec('ALTER TABLE rooms DROP COLUMN archived_ts');
+    legacy.close();
+
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getRoom('eng')?.id).toBe('eng');
+    expect(store.getRoom('eng')?.archived_ts).toBeUndefined();
+    expect(store.archiveRoom('eng').archived_ts).toBeDefined();
+  });
+});
+
 describe('ack and active member lifecycle storage', () => {
   it('roundtrips ack evidence and keeps removed identities outside active lookups', () => {
     const { owner } = openRoom(store);

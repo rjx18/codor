@@ -2833,6 +2833,62 @@ describe('Phase 3 usability core', () => {
       .toContain('fixture spawn failed');
   });
 
+  it('creates a channel with an existing session as a mirrored starting participant', () => {
+    const project = testCwd('existing-session-project');
+    const created = daemon.createRoom({
+      name: 'Existing Session',
+      owner: { handle: 'owner-session', display_name: 'Owner Session' },
+      cwd: project,
+      starting_session: {
+        harness: 'fake',
+        handle: 'orchestrator',
+        session_ref: 'existing-session-ref',
+        policy: 'read-only',
+        purpose: 'Coordinate the channel.',
+      },
+    });
+
+    expect(created.room.config).toMatchObject({
+      cwd: project,
+      starting_agent_handle: 'orchestrator',
+    });
+    expect(daemon.store.getMemberByHandle(created.room.id, 'orchestrator')).toMatchObject({
+      harness: 'fake',
+      session_ref: 'existing-session-ref',
+      custody: 'mirrored',
+      policy: 'read-only',
+      purpose: 'Coordinate the channel.',
+      cwd: project,
+    });
+    expect(daemon.store.listMessages(created.room.id, { limit: 10 }).at(-1)?.body)
+      .toContain('@orchestrator joined from a live fake terminal');
+
+    expect(() => daemon.createRoom({
+      name: 'Duplicate Existing Session',
+      owner: { handle: 'other-owner', display_name: 'Other Owner' },
+      cwd: project,
+      starting_session: {
+        harness: 'fake',
+        handle: 'duplicate',
+        session_ref: 'existing-session-ref',
+      },
+    })).toThrow('session existing-session-ref is already @orchestrator');
+    expect(daemon.store.getRoom('duplicate-existing-session')).toBeUndefined();
+
+    expect(() => daemon.createRoom({
+      name: 'Ambiguous Starting Participant',
+      owner: { handle: 'ambiguous-owner', display_name: 'Ambiguous Owner' },
+      cwd: project,
+      starting_agent: { harness: 'fake', handle: 'new-agent' },
+      starting_session: {
+        harness: 'fake',
+        handle: 'existing-agent',
+        session_ref: 'another-existing-session-ref',
+      },
+    })).toThrow('either a new agent or an existing session, not both');
+    expect(daemon.store.getRoom('ambiguous-starting-participant')).toBeUndefined();
+  });
+
   // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-create-regression
   // harn:assume spawn-default-cwd-is-absolute-or-empty ref=implicit-starting-agent-cwd-regression
   it('persists friendly starting identity and an implicit absolute channel cwd', () => {

@@ -911,10 +911,20 @@ export class Daemon {
 
   // harn:assume channel-creation-derived-and-seeded ref=derived-channel-creation
   createRoom(opts: CreateRoomRequest): ReturnType<Store['createRoom']> {
-    // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-create-validation
-    if (opts.starting_agent?.handle === opts.owner.handle) {
+    // REST callers are schema-validated, but createRoom is also a public daemon
+    // method used by local integrations. Keep the mutual-exclusion invariant at
+    // this boundary too instead of silently preferring one participant.
+    if (opts.starting_agent !== undefined && opts.starting_session !== undefined) {
       throw new Error(
-        `starting agent handle @${opts.starting_agent.handle} is already in use by the channel owner`,
+        'a channel may start with either a new agent or an existing session, not both',
+      );
+    }
+    // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-create-validation
+    const startingParticipant = opts.starting_agent ?? opts.starting_session;
+    if (startingParticipant?.handle === opts.owner.handle) {
+      throw new Error(
+        `${opts.starting_agent !== undefined ? 'starting agent' : 'starting session'} handle ` +
+        `@${startingParticipant.handle} is already in use by the channel owner`,
       );
     }
     // harn:assume new-agent-requests-require-available-native-or-detected-acp ref=new-agent-provider-availability-preflight
@@ -926,6 +936,27 @@ export class Daemon {
       this.resolveAcpLaunch(opts.starting_agent);
     }
     // harn:end new-agent-requests-require-available-native-or-detected-acp
+    // An existing session is validated before room persistence, just like a new
+    // agent's provider. A duplicate or non-resumable reference must not leave an
+    // unexpected empty channel behind.
+    if (opts.starting_session !== undefined) {
+      const adapter = this.requireAdapter(opts.starting_session.harness);
+      if (!adapter.capabilities.resume) {
+        throw new Error(
+          `adapter '${adapter.id}' cannot back a persistent mirrored member`,
+        );
+      }
+      const joined = this.store.findMemberBySessionRef(
+        opts.starting_session.harness,
+        opts.starting_session.session_ref,
+      );
+      if (joined !== undefined) {
+        throw new Error(
+          `session ${opts.starting_session.session_ref} is already ` +
+          `@${joined.member.handle} in room ${joined.room}`,
+        );
+      }
+    }
     // harn:end starting-agent-name-derives-one-valid-identity-v6
     const baseId = opts.id ?? deriveRoomId(opts.name);
     let id = baseId;
@@ -935,7 +966,7 @@ export class Daemon {
     // harn:assume spawn-default-cwd-is-absolute-or-empty ref=implicit-starting-agent-cwd
     const cwd = opts.cwd !== undefined
       ? normalizeWorkingDirectory(opts.cwd, this.homeDir)
-      : opts.starting_agent !== undefined
+      : startingParticipant !== undefined
         ? normalizeWorkingDirectory(process.cwd(), this.homeDir)
         : undefined;
     // harn:end spawn-default-cwd-is-absolute-or-empty
@@ -960,8 +991,8 @@ export class Daemon {
         ...(opts.color !== undefined && { color: opts.color }),
         ...(cwd !== undefined && { cwd }),
         // harn:assume channel-starting-agent-handle-persisted ref=starting-agent-creation-record
-        ...(opts.starting_agent !== undefined && {
-          starting_agent_handle: opts.starting_agent.handle,
+        ...(startingParticipant !== undefined && {
+          starting_agent_handle: startingParticipant.handle,
         }),
         // harn:end channel-starting-agent-handle-persisted
       },
@@ -976,6 +1007,19 @@ export class Daemon {
         this.postSystemMessage(
           id,
           `could not spawn @${opts.starting_agent.handle}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    if (opts.starting_session) {
+      try {
+        this.joinMember(id, {
+          ...opts.starting_session,
+          cwd: cwd!,
+        });
+      } catch (error) {
+        this.postSystemMessage(
+          id,
+          `could not join @${opts.starting_session.handle}: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
@@ -5289,13 +5333,23 @@ export class Daemon {
       const before = fstatSync(fd);
       if (!before.isFile()) return { ok: false, reason: 'skip' }; // regular-file identity via the fd
       if (before.size > MAX_ARTIFACT_BYTES) return { ok: false, reason: 'skip' }; // policy: oversize
-      // Canonical containment of the OPENED descriptor (race-free). If it cannot be
-      // verified (no /proc), fail closed rather than trust a re-resolved path.
+      // Canonical containment of the OPENED descriptor. Linux exposes the descriptor
+      // target directly through /proc. On platforms without /proc (including macOS),
+      // canonicalize the candidate and prove that it still names the opened inode
+      // before trusting that path; all bytes continue to be read from the descriptor.
       let canonical: string;
       try {
         canonical = realpathSync(`/proc/self/fd/${String(fd)}`);
       } catch {
-        return { ok: false, reason: 'fail' };
+        try {
+          canonical = realpathSync(candidate);
+          const named = statSync(canonical);
+          if (!named.isFile() || named.ino !== before.ino || named.dev !== before.dev) {
+            return { ok: false, reason: 'skip' };
+          }
+        } catch {
+          return { ok: false, reason: 'fail' };
+        }
       }
       if (!(canonical === memberCwd || canonical.startsWith(memberCwd + sep))) return { ok: false, reason: 'skip' };
       // Read through the fd; the extra byte over the cap proves a post-stat growth.

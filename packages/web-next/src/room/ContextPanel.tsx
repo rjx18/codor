@@ -1,8 +1,8 @@
 import type { AgentLimit, AgentTaskList, AgentTaskStatus, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
-import { Bot, ChevronRight, FileText, LoaderCircle, Minimize2, MoreVertical, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
+import { Archive, Bot, ChevronRight, FileText, LoaderCircle, Minimize2, MoreVertical, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { artifactUrl, fetchArtifacts, fetchRunEvents, refreshUsage, type AdapterRegistration, type ArtifactFeed, type MemberDetail } from '@runtime/api.js';
+import { archiveRoom, artifactUrl, fetchArtifacts, fetchRunEvents, refreshUsage, type AdapterRegistration, type ArtifactFeed, type MemberDetail } from '@runtime/api.js';
 import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attachments.js';
 import { AgentControls, AgentIdentityControls, RolePresetControls, Section } from './AgentControls.js';
 import { FolderPicker } from './FolderPicker.js';
@@ -10,13 +10,17 @@ import {
   ACP_SELECTOR_PREFIX,
   DEFAULT_POLICY,
   type AgentConfig,
+  type JoinSpec,
   type SpawnSpec,
+  SPAWN_PRESETS,
+  buildJoinSpec,
   buildSpawnSpec,
   applyPreset,
   asPolicy,
   channelOwner,
   collidesWithOwner,
   HANDLE_PATTERN,
+  isValidSessionRef,
   defaultSpawnCwd,
   effectiveHarness,
   reconcileConfig,
@@ -31,6 +35,13 @@ import { clockTime, compactCount, memberAccent } from '../primitives/identity.js
 import { Button, Chip, Eyebrow, IconButton, Modal, Segmented, StatusPill } from '../primitives/primitives.js';
 import { useAdapterCatalog, useMemberDetails } from '../app/session.js';
 import { ContextWindowMeter } from './ContextWindowMeter.js';
+import {
+  PARTICIPANT_MODE_COPY,
+  configuredConnector,
+  connectorHarnessFor,
+  type JoinHarnessChoice,
+  type ParticipantMode,
+} from './participant-options.js';
 import {
   cachedGitWorkingState,
   fetchGitCommitState,
@@ -89,6 +100,9 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
   // gauges arrive as member frames).
   const [usageBusy, setUsageBusy] = useState(false);
   const [usageError, setUsageError] = useState<string>();
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState<string>();
   const refreshUsageLimits = useCallback(() => {
     if (usageBusy) return;
     setUsageBusy(true);
@@ -161,6 +175,10 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
     const agents = active.filter((m) => m.kind === 'agent');
     return [...humans, ...agents];
   }, [members]);
+  const working = roster.some(
+    (candidate) => candidate.kind === 'agent'
+      && (candidate.state === 'running' || candidate.state === 'queued'),
+  );
 
   return (
     <div className="nx-members">
@@ -179,14 +197,15 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
             disabled={usageBusy}
             onClick={refreshUsageLimits}
           />
-          <IconButton
-            icon={Plus}
-            label="Spawn agent"
-            size="sm"
-            variant="quiet"
+          <Button
+            variant="secondary"
+            className="nx-add-participant"
             data-testid="spawn-agent"
             onClick={() => setSpawning(true)}
-          />
+          >
+            <Plus size={14} aria-hidden="true" />
+            Add participant
+          </Button>
         </div>
       </div>
       {usageError !== undefined && (
@@ -206,6 +225,30 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
           />
         ))}
       </ul>
+      {canManage && room !== undefined && (
+        <div className="nx-channel-archive-control">
+          <div>
+            <strong>Channel history</strong>
+            <span>
+              {working
+                ? 'Wait for active agents to finish before archiving.'
+                : 'Archive this channel when the work is finished. You can restore it later.'}
+            </span>
+          </div>
+          <Button
+            variant="quiet"
+            data-testid="archive-room"
+            disabled={working}
+            onClick={() => {
+              setArchiveError(undefined);
+              setArchiveOpen(true);
+            }}
+          >
+            <Archive size={14} aria-hidden="true" />
+            Archive
+          </Button>
+        </div>
+      )}
       {spawning && (
         <SpawnDialog
           adapters={adapterCatalog.installed}
@@ -226,9 +269,89 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
             setPendingHandle(spec.handle);
             props.connection.act({ act: 'spawn', ...spec });
           }}
+          onJoin={(spec) => {
+            seenErrors.current = roomErrors.length;
+            setSpawnFailure(undefined);
+            setPendingHandle(spec.handle);
+            props.connection.act({ act: 'join', ...spec });
+          }}
+        />
+      )}
+      {archiveOpen && room !== undefined && (
+        <ArchiveChannelDialog
+          roomName={room.name}
+          busy={archiveBusy}
+          error={archiveError}
+          onClose={() => {
+            if (!archiveBusy) setArchiveOpen(false);
+          }}
+          onArchive={() => {
+            setArchiveBusy(true);
+            setArchiveError(undefined);
+            void archiveRoom(props.room, { token: props.token() }).then(
+              () => { window.location.assign('/'); },
+              (failure: unknown) => {
+                setArchiveError(failure instanceof Error ? failure.message : String(failure));
+                setArchiveBusy(false);
+              },
+            );
+          }}
         />
       )}
     </div>
+  );
+}
+
+function ArchiveChannelDialog(props: {
+  roomName: string;
+  busy: boolean;
+  error?: string;
+  onClose: () => void;
+  onArchive: () => void;
+}) {
+  return (
+    <Modal label="Archive channel" onClose={props.onClose} testid="archive-room-dialog" structured alert>
+      <form onSubmit={(event) => { event.preventDefault(); props.onArchive(); }}>
+        <div className="nx-dialog-head">
+          <div className="nx-dialog-headings">
+            <span className="nx-dialog-icon" aria-hidden="true"><Archive size={19} /></span>
+            <div>
+              <h2 className="nx-dialog-title">Archive {props.roomName}?</h2>
+              <p className="nx-dialog-sub">Messages and participants will be preserved.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="nx-dialog-close"
+            aria-label="Close archive channel"
+            onClick={props.onClose}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="nx-dialog-body">
+          <p className="nx-archive-explanation">
+            New messages and agent work stop until you restore this channel from Archived.
+          </p>
+          {props.error !== undefined && (
+            <p className="nx-field-note is-error" role="alert">{props.error}</p>
+          )}
+        </div>
+        <div className="nx-dialog-actions">
+          <Button variant="quiet" type="button" disabled={props.busy} onClick={props.onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={props.busy}
+            data-testid="archive-room-confirm"
+          >
+            {props.busy ? 'Archiving…' : 'Archive channel'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -353,7 +476,12 @@ function MemberCard(props: {
           <span className="nx-member-sub">
             {member.kind === 'human'
               ? member.display_name
-              : [member.harness, member.model, member.policy].filter(Boolean).join(' · ') || 'agent'}
+              : [
+                  member.harness,
+                  member.model,
+                  member.policy,
+                  member.custody === 'mirrored' ? 'mirrored' : undefined,
+                ].filter(Boolean).join(' · ') || 'agent'}
           </span>
         </span>
         <span className="nx-member-state">
@@ -669,7 +797,7 @@ function ConfigureDialog(props: {
 
   return (
     <Modal label="Configure agent" onClose={props.onClose} testid="configure-dialog" structured>
-      <form onSubmit={submit}>
+      <form className="nx-participant-wizard" onSubmit={submit}>
         <div className="nx-dialog-head">
           <div>
             <h2 className="nx-dialog-title">Configure @{props.member.handle}</h2>
@@ -713,10 +841,12 @@ function SpawnDialog(props: {
   members: readonly Member[];
   onClose: () => void;
   onSpawn: (spec: SpawnSpec) => void;
+  onJoin: (spec: JoinSpec) => void;
   /** Set while the request is in flight; cleared with an error if it failed. */
   pending: boolean;
   failure: string | undefined;
 }) {
+  const [participantMode, setParticipantMode] = useState<ParticipantMode>('new');
   const [config, setConfig] = useState<AgentConfig>({
     harness: '', model: '', thinking: '', policy: DEFAULT_POLICY,
   });
@@ -731,6 +861,15 @@ function SpawnDialog(props: {
   const [pickedCwd, setPickedCwd] = useState(inheritedCwd);
   const cwd = useCurrentDir ? inheritedCwd : pickedCwd;
   const [purpose, setPurpose] = useState('');
+  const [joinHarnessChoice, setJoinHarnessChoice] = useState<JoinHarnessChoice>('codex');
+  const [customJoinHarness, setCustomJoinHarness] = useState('');
+  const [sessionRef, setSessionRef] = useState('');
+  const [joinRole, setJoinRole] = useState('reviewer');
+  const initialJoinPreset = SPAWN_PRESETS.find((preset) => preset.id === 'reviewer');
+  const [joinHandle, setJoinHandle] = useState(initialJoinPreset?.handle ?? 'reviewer');
+  const [joinPurpose, setJoinPurpose] = useState(initialJoinPreset?.purpose ?? '');
+  const [customRole, setCustomRole] = useState('');
+  const [otherParticipant, setOtherParticipant] = useState('');
   // Without this the X close button is the first focusable and takes focus on
   // open, so the dialog greets you with "Cancel" instead of the first field.
   const handleRef = useRef<HTMLInputElement>(null);
@@ -738,57 +877,131 @@ function SpawnDialog(props: {
   // Reconciliation spans both grids: a custom-ACP selection (id `acp`) lives in
   // `advanced`, so healing and adapter lookups must see the combined list.
   const all = [...props.adapters, ...props.advanced];
+  const connectorHarness = connectorHarnessFor(participantMode);
+  const connectorAdapter = configuredConnector(participantMode, props.adapters);
+  const connectorReady = connectorAdapter !== undefined;
+  const spawnMode = participantMode === 'new' || connectorReady;
+  // A provider shortcut is a scope lock, not just a visual hint. Restrict both
+  // reconciliation and payload construction to that adapter so asynchronous
+  // catalog updates can never heal Ollama/NVIDIA to an unrelated harness.
+  const spawnAdapters = connectorAdapter === undefined ? all : [connectorAdapter];
   // Adapter discovery is asynchronous; a selection made before the list arrives
   // heals rather than sticking at a dead value.
-  const harness = effectiveHarness(config.harness, all);
+  const harness = effectiveHarness(config.harness, spawnAdapters);
   // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=spawn-provider-selection
   useEffect(() => {
     if (config.harness === harness) return;
-    setConfig(reconcileConfig(config, harness, all));
-  }, [config, harness, all]);
+    setConfig(reconcileConfig(config, harness, spawnAdapters));
+  }, [config, harness, spawnAdapters]);
   // harn:end agent-selection-shows-detected-acp-and-advanced-custom
   const owner = channelOwner(props.members);
   const derived = handle.trim();
   const ownerClash = collidesWithOwner(derived, owner);
   const canSpawn = harness !== '' && derived !== '' && cwd.trim() !== '' && !ownerClash
+    && (connectorHarness === undefined || config.model.trim() !== '')
     && (harness !== 'acp' || (config.acpExecutable?.trim() ?? '') !== '') && !props.pending;
+  const joinHarness = joinHarnessChoice === 'other' ? customJoinHarness.trim() : joinHarnessChoice;
+  const joinDerived = joinHandle.trim();
+  const joinOwnerClash = collidesWithOwner(joinDerived, owner);
+  const sessionRefValid = isValidSessionRef(joinHarness, sessionRef);
+  const canJoin = joinHarness !== '' && sessionRefValid && joinDerived !== '' && cwd.trim() !== ''
+    && !joinOwnerClash && !props.pending;
 
   const submit = (event: { preventDefault: () => void }) => {
     event.preventDefault();
-    if (!canSpawn) return;
-    props.onSpawn(buildSpawnSpec({
-      config: { ...config, harness },
-      handle: derived,
-      cwd,
-      purpose,
-      adapters: all,
-      members: props.members,
-    }));
+    if (participantMode === 'existing') {
+      if (!canJoin) return;
+      const rolePurpose = joinRole === 'other' && customRole.trim() !== ''
+        ? `Role: ${customRole.trim()}.\n\n${joinPurpose.trim()}`.trim()
+        : joinPurpose;
+      props.onJoin(buildJoinSpec({
+        harness: joinHarness,
+        sessionRef,
+        handle: joinDerived,
+        cwd,
+        purpose: rolePurpose,
+        members: props.members,
+      }));
+      return;
+    }
+    if (spawnMode && canSpawn) {
+      props.onSpawn(buildSpawnSpec({
+        config: { ...config, harness },
+        handle: derived,
+        cwd,
+        purpose,
+        adapters: spawnAdapters,
+        members: props.members,
+      }));
+    }
   };
 
   return (
-    <Modal label="Spawn agent" onClose={props.onClose} testid="spawn-dialog" initialFocus={handleRef} structured>
+    <Modal label="Add participant" onClose={props.onClose} testid="spawn-dialog" initialFocus={handleRef} structured>
       {/* A native form so Enter submits from any field. */}
-      <form onSubmit={submit}>
+      <form className="nx-participant-wizard" onSubmit={submit}>
         <div className="nx-dialog-head">
           <div className="nx-dialog-headings">
             <span className="nx-dialog-icon" aria-hidden="true"><Bot size={19} /></span>
             <div>
-              <h2 className="nx-dialog-title">Spawn agent</h2>
-              <p className="nx-dialog-sub">Into <code className="nx-mono">#{props.room?.name ?? props.roomId}</code></p>
+              <h2 className="nx-dialog-title">Add participant</h2>
+              <p className="nx-dialog-sub">Choose what should join <code className="nx-mono">#{props.room?.name ?? props.roomId}</code></p>
             </div>
           </div>
-          <button type="button" className="nx-dialog-close" aria-label="Close spawn agent"
+          <button type="button" className="nx-dialog-close" aria-label="Close add participant"
             data-testid="spawn-close" onClick={props.onClose}>
             <X size={16} aria-hidden="true" />
           </button>
         </div>
 
         <div className="nx-dialog-body">
+        <label className="nx-field nx-participant-mode">
+          <span className="nx-label">What do you want to add?</span>
+          <select
+            value={participantMode}
+            onChange={(event) => {
+              const next = event.target.value as ParticipantMode;
+              setParticipantMode(next);
+              if (next === 'ollama' || next === 'nvidia') {
+                setConfig({
+                  harness: next,
+                  model: '',
+                  thinking: '',
+                  policy: 'read-only',
+                });
+                setHandle(next);
+              }
+            }}
+            data-testid="participant-mode"
+          >
+            <option value="new">New agent</option>
+            <option value="existing">Existing Codex or Claude session</option>
+            <option value="ollama">Ollama local model</option>
+            <option value="nvidia">NVIDIA-hosted model</option>
+            <option value="codex-cloud">Codex Cloud task</option>
+            <option value="other">Other…</option>
+          </select>
+          <span className="nx-field-note">
+            The wizard only enables actions this Codor host can actually perform.
+          </span>
+        </label>
+
+        {spawnMode && (
+        <>
+        {connectorHarness !== undefined && (
+          <div className="nx-participant-trust" data-testid={`${connectorHarness}-bridge-note`}>
+            <strong>{connectorHarness === 'ollama' ? 'Local bridge' : 'Hosted bridge'} · chat-only</strong>
+            <span>
+              {connectorHarness === 'ollama'
+                ? 'Runs through Ollama on this Mac. It receives conversation text, no filesystem tools, and requires an exact model.'
+                : 'Retrieves a dedicated NVIDIA credential from the Codor host Keychain only when a turn runs. It receives conversation text, no filesystem tools, and requires an exact model.'}
+            </span>
+          </div>
+        )}
         <Section n={1} title="Identity">
         <AgentIdentityControls
-          adapters={props.adapters}
-          advanced={props.advanced}
+          adapters={connectorAdapter === undefined ? props.adapters : [connectorAdapter]}
+          advanced={connectorAdapter === undefined ? props.advanced : []}
           config={{ ...config, harness }}
           onChange={setConfig}
           idPrefix="spawn"
@@ -843,7 +1056,7 @@ function SpawnDialog(props: {
             const applied = applyPreset({
               preset,
               config: { ...config, harness },
-              adapters: all,
+              adapters: spawnAdapters,
               members: props.members,
             });
             setConfig(applied.config);
@@ -854,7 +1067,7 @@ function SpawnDialog(props: {
         </Section>
 
         <AgentControls
-          adapters={all}
+          adapters={spawnAdapters}
           config={{ ...config, harness }}
           onChange={setConfig}
           hideHarness
@@ -875,6 +1088,179 @@ function SpawnDialog(props: {
           />
         </label>
         </Section>
+        </>
+        )}
+
+        {participantMode === 'existing' && (
+        <>
+        <Section n={1} title="Session">
+        <label className="nx-field">
+          <span className="nx-label">Session type</span>
+          <select
+            value={joinHarnessChoice}
+            onChange={(event) => setJoinHarnessChoice(event.target.value as JoinHarnessChoice)}
+            data-testid="join-harness"
+          >
+            <option value="codex">Codex CLI session</option>
+            <option value="claude-code">Claude Code session</option>
+            <option value="other">Other native adapter…</option>
+          </select>
+        </label>
+        {joinHarnessChoice === 'other' && (
+          <label className="nx-field">
+            <span className="nx-label">Adapter ID</span>
+            <input
+              value={customJoinHarness}
+              onChange={(event) => setCustomJoinHarness(event.target.value)}
+              placeholder="e.g. my-native-adapter"
+              required
+              data-testid="join-custom-harness"
+            />
+          </label>
+        )}
+        <label className="nx-field">
+          <span className="nx-label">Full session UUID or reference</span>
+          <input
+            value={sessionRef}
+            onChange={(event) => setSessionRef(event.target.value)}
+            placeholder={joinHarnessChoice === 'other'
+              ? 'Paste the adapter’s complete session reference'
+              : 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'}
+            autoComplete="off"
+            spellCheck={false}
+            required
+            aria-invalid={sessionRef !== '' && !sessionRefValid}
+            data-testid="join-session-ref"
+          />
+          <span className="nx-field-note">Paste the complete value. It is never shortened or reformatted.</span>
+        </label>
+        {sessionRef !== '' && !sessionRefValid && (
+          <p className="nx-field-error" role="alert" data-testid="join-session-error">
+            {joinHarnessChoice === 'other'
+              ? 'Enter the complete session reference.'
+              : 'Codex and Claude session IDs use the full 36-character UUID format.'}
+          </p>
+        )}
+        </Section>
+
+        <Section n={2} title="Role &amp; identity">
+        <label className="nx-field">
+          <span className="nx-label">Role</span>
+          <select
+            value={joinRole}
+            onChange={(event) => {
+              const next = event.target.value;
+              setJoinRole(next);
+              if (next === 'other') {
+                setJoinHandle('');
+                setJoinPurpose('');
+                return;
+              }
+              const preset = SPAWN_PRESETS.find((candidate) => candidate.id === next);
+              if (preset !== undefined) {
+                setJoinHandle(preset.handle);
+                setJoinPurpose(preset.purpose);
+              }
+            }}
+            data-testid="join-role"
+          >
+            {SPAWN_PRESETS.map((preset) => (
+              <option key={preset.id} value={preset.id}>{preset.label} — {preset.blurb}</option>
+            ))}
+            <option value="other">Other…</option>
+          </select>
+        </label>
+        {joinRole === 'other' && (
+          <label className="nx-field">
+            <span className="nx-label">Custom role</span>
+            <input
+              value={customRole}
+              onChange={(event) => setCustomRole(event.target.value)}
+              placeholder="e.g. Orchestrator"
+              data-testid="join-custom-role"
+            />
+          </label>
+        )}
+        <label className="nx-field">
+          <span className="nx-label">Channel handle</span>
+          <input
+            value={joinHandle}
+            pattern={HANDLE_PATTERN}
+            maxLength={31}
+            onChange={(event) => setJoinHandle(event.target.value)}
+            placeholder="e.g. orchestrator"
+            required
+            data-testid="join-handle"
+          />
+          <span className="nx-field-note">Other participants will address this session as @{joinDerived || 'handle'}.</span>
+        </label>
+        {joinOwnerClash && (
+          <p className="nx-field-error" role="alert" data-testid="join-owner-clash">
+            @{joinDerived} is already in use by the channel owner.
+          </p>
+        )}
+        <label className="nx-field">
+          <span className="nx-label">Assignment and operating instructions <span className="nx-opt">· optional</span></span>
+          <textarea
+            value={joinPurpose}
+            rows={3}
+            onChange={(event) => setJoinPurpose(event.target.value)}
+            placeholder={customRole === ''
+              ? 'Define the objective, responsibilities, boundaries, collaboration behavior, expected output, and verification.'
+              : `Define the ${customRole}'s objective, responsibilities, boundaries, when to @mention others, expected output, and verification.`}
+            data-testid="join-purpose"
+          />
+        </label>
+        </Section>
+
+        <Section n={3} title="Working context">
+        <div className="nx-field">
+          <span className="nx-label">Working directory</span>
+          <label className="nx-switch-row">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={useCurrentDir}
+              onChange={(event) => setUseCurrentDir(event.target.checked)}
+              data-testid="join-use-current-dir"
+            />
+            <span>Use current channel directory</span>
+          </label>
+          {useCurrentDir
+            ? inheritedCwd !== '' && (
+              <span className="nx-field-note" data-testid="join-inherited-cwd">Uses {inheritedCwd}</span>
+            )
+            : <FolderPicker token={props.token} value={pickedCwd} onChange={setPickedCwd} idPrefix="join" />}
+        </div>
+        <div className="nx-participant-trust" data-testid="join-custody-note">
+          <strong>Mirrored · read-only</strong>
+          <span>The native terminal keeps control. Joining does not run a turn or transfer custody.</span>
+        </div>
+        </Section>
+        </>
+        )}
+
+        {participantMode !== 'new' && participantMode !== 'existing' && !connectorReady && (
+          <div className="nx-connector-guide" data-testid={`connector-guide-${participantMode}`}>
+            <div className="nx-connector-guide-head">
+              <span>{PARTICIPANT_MODE_COPY[participantMode].title}</span>
+              <StatusPill tone="warn">{PARTICIPANT_MODE_COPY[participantMode].status}</StatusPill>
+            </div>
+            <p>{PARTICIPANT_MODE_COPY[participantMode].body}</p>
+            <p className="nx-field-note">{PARTICIPANT_MODE_COPY[participantMode].detail}</p>
+            {participantMode === 'other' && (
+              <label className="nx-field">
+                <span className="nx-label">Provider or runtime</span>
+                <input
+                  value={otherParticipant}
+                  onChange={(event) => setOtherParticipant(event.target.value)}
+                  placeholder="Tell Codor what you want to connect"
+                  data-testid="other-participant"
+                />
+              </label>
+            )}
+          </div>
+        )}
 
         {props.failure !== undefined && (
           // A failed spawn used to close the dialog silently, losing both the
@@ -886,8 +1272,17 @@ function SpawnDialog(props: {
 
         <div className="nx-dialog-actions">
           <Button variant="quiet" type="button" onClick={props.onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" disabled={!canSpawn} data-testid="spawn-go">
-            {props.pending ? 'Spawning…' : 'Spawn agent'}
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={spawnMode ? !canSpawn : participantMode === 'existing' ? !canJoin : true}
+            data-testid={participantMode === 'existing' ? 'join-go' : 'spawn-go'}
+          >
+            {spawnMode
+              ? props.pending ? 'Spawning…' : 'Spawn agent'
+              : participantMode === 'existing'
+                ? props.pending ? 'Joining…' : 'Join session'
+                : 'Connector unavailable'}
           </Button>
         </div>
       </form>

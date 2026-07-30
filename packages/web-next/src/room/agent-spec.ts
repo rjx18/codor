@@ -210,30 +210,41 @@ export interface SpawnPreset {
 
 export const SPAWN_PRESETS: readonly SpawnPreset[] = [
   {
-    id: 'coder', label: 'Coder', blurb: 'Writes and edits code',
-    handle: 'coder', purpose: 'Implement the change we agree on, in small reviewable steps.',
-    policy: 'workspace-write', thinking: 'medium',
-  },
-  {
-    id: 'reviewer', label: 'Reviewer', blurb: 'Reads and critiques',
-    handle: 'reviewer', purpose: 'Review the diff for correctness and risk. Do not edit files.',
+    id: 'orchestrator', label: 'Orchestrator', blurb: 'Delegates and integrates',
+    handle: 'orchestrator',
+    purpose: 'Coordinate the channel from goal through verified completion. Break work into bounded assignments and delegate each one by @mention to the participant whose provider, model, tools, and specialty best fit it; prefer fast or lower-cost models for routine work and stronger models for ambiguous, high-risk, or integrative reasoning. Track dependencies, resolve conflicting recommendations, request independent review for consequential changes, and synthesize a single evidence-backed result. Do not perform every task yourself, silently expand scope, or claim delegated work until its result has been received and checked.',
     policy: 'read-only', thinking: 'high',
   },
   {
     id: 'planner', label: 'Planner', blurb: 'Breaks work down',
-    handle: 'planner', purpose: 'Turn the goal into an ordered plan with checkable steps.',
+    handle: 'planner',
+    purpose: 'Turn the goal into an ordered, checkable plan grounded in the current project state. Identify assumptions, constraints, dependencies, risks, decision points, owners, and acceptance evidence for every phase. Use @mentions to request targeted research or validation from suitable participants. Do not implement unless explicitly asked; keep the plan updated when new evidence changes the recommended sequence.',
+    policy: 'read-only', thinking: 'high',
+  },
+  {
+    id: 'coder', label: 'Coder', blurb: 'Writes and edits code',
+    handle: 'coder',
+    purpose: 'Implement the agreed scope in small, reviewable steps. Inspect the existing code and conventions before editing, preserve unrelated work, and choose the smallest change that fully solves the problem. Run focused checks after each meaningful change. Report the files changed, tests run, results, assumptions, and remaining risks; then @mention the reviewer when the work is ready for independent review.',
+    policy: 'workspace-write', thinking: 'medium',
+  },
+  {
+    id: 'tester', label: 'Tester', blurb: 'Runs and fixes tests',
+    handle: 'tester',
+    purpose: 'Verify behavior with the smallest reliable set of checks. Reproduce reported failures before changing tests, add focused coverage for the expected behavior and important edge cases, and distinguish product defects from test or environment problems. Report exact commands, results, and evidence. @mention the implementer with actionable failure details, then rerun the affected checks after fixes and state what remains unverified.',
+    policy: 'workspace-write', thinking: 'medium',
+  },
+  {
+    id: 'reviewer', label: 'Reviewer', blurb: 'Reads and critiques',
+    handle: 'reviewer',
+    purpose: 'Review proposed changes for correctness, regressions, security, maintainability, and fidelity to the agreed scope. Inspect the relevant source and test evidence, cite specific files or behaviors, and separate blocking defects from recommendations. Do not edit files unless explicitly asked. @mention the responsible implementer with actionable findings, then verify the resulting fixes before approving.',
     policy: 'read-only', thinking: 'high',
   },
   {
     id: 'writer', label: 'Writer', blurb: 'Docs and prose',
-    handle: 'writer', purpose: 'Write and revise documentation for this project.',
+    handle: 'writer',
+    purpose: 'Write and revise documentation that matches the product’s actual behavior, intended audience, terminology, and tone. Preserve important nuance, distinguish verified facts from assumptions, and validate commands, links, names, and examples against the source. Structure the result for easy use without changing its meaning. @mention the relevant domain expert or reviewer for factual and semantic checks before calling it final.',
     // low, matching legacy: prose does not need the deliberation budget code does.
     policy: 'workspace-write', thinking: 'low',
-  },
-  {
-    id: 'tester', label: 'Tester', blurb: 'Runs and fixes tests',
-    handle: 'tester', purpose: 'Run the suite, diagnose failures, and add missing coverage.',
-    policy: 'workspace-write', thinking: 'medium',
   },
 ];
 
@@ -399,6 +410,56 @@ export interface SpawnSpec {
   /** A curated named provider id — mutually exclusive with acp_launch. Never a command. */
   acp_provider?: string;
   acp_launch?: { executable: string; argv: string[] };
+}
+
+/**
+ * A native session attached to a channel without transferring process custody.
+ *
+ * The server assigns mirrored custody for the `join` act. The browser therefore
+ * does not offer an authority picker here: an existing terminal remains the
+ * authority, and its Codor hooks/inbox decide when queued messages are observed.
+ */
+export interface JoinSpec {
+  harness: string;
+  handle: string;
+  session_ref: string;
+  cwd: string;
+  policy: Policy;
+  purpose?: string;
+}
+
+const UUID_SESSION_REF = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Codex and Claude Code expose UUID session ids. A custom native adapter owns
+ * its own reference format, so the wizard only requires a non-empty value there.
+ */
+export function isValidSessionRef(harness: string, sessionRef: string): boolean {
+  const value = sessionRef.trim();
+  if (value === '') return false;
+  return harness === 'codex' || harness === 'claude-code'
+    ? UUID_SESSION_REF.test(value)
+    : true;
+}
+
+/** Build the conservative wire payload for joining an existing native session. */
+export function buildJoinSpec(input: {
+  harness: string;
+  sessionRef: string;
+  handle: string;
+  cwd: string;
+  purpose?: string;
+  members: readonly Member[];
+}): JoinSpec {
+  const purpose = input.purpose?.trim();
+  return {
+    harness: input.harness.trim(),
+    handle: availableAgentHandle(input.handle.trim(), input.members),
+    session_ref: input.sessionRef.trim(),
+    cwd: input.cwd.trim(),
+    policy: DEFAULT_POLICY,
+    ...(purpose !== undefined && purpose !== '' && { purpose }),
+  };
 }
 
 /** The `acp:` selector-id prefix a named provider tile carries. */

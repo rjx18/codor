@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -13,12 +13,13 @@ describe('home-contained local directory listing', () => {
     mkdirSync(join(home, 'alpha'));
     mkdirSync(join(home, '.hidden'));
     writeFileSync(join(home, 'file.txt'), 'ignored');
+    const canonicalHome = realpathSync(home);
     expect(listLocalDirectories(undefined, false, home)).toEqual({
-      path: home,
+      path: canonicalHome,
       parent: null,
       dirs: [
-        { name: 'alpha', path: join(home, 'alpha') },
-        { name: 'zeta', path: join(home, 'zeta') },
+        { name: 'alpha', path: join(canonicalHome, 'alpha') },
+        { name: 'zeta', path: join(canonicalHome, 'zeta') },
       ],
     });
     expect(listLocalDirectories(home, true, home).dirs.map((entry) => entry.name))

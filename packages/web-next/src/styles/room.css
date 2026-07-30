@@ -166,6 +166,56 @@
   text-align: center;
 }
 
+.nx-archived-rooms {
+  margin: 0 var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--c-line);
+}
+.nx-archived-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: var(--sp-3);
+  border: 0;
+  background: transparent;
+  color: var(--c-secondary);
+  font: var(--t-caption-strong);
+  cursor: pointer;
+}
+.nx-archived-toggle svg { transition: transform var(--m-fast) var(--m-ease); }
+.nx-archived-toggle[aria-expanded='true'] svg { transform: rotate(180deg); }
+.nx-archived-toggle > span { margin-left: auto; }
+.nx-archived-list { display: grid; gap: 4px; margin: 0; padding: 0 0 var(--sp-2); list-style: none; }
+.nx-archived-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 7px var(--sp-3);
+  color: var(--c-body);
+  font: var(--t-caption);
+}
+.nx-archived-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-archived-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: var(--c-muted);
+  color: var(--c-ink);
+  font: var(--t-caption-strong);
+  cursor: pointer;
+}
+.nx-archived-row button:disabled { cursor: wait; opacity: 0.65; }
+.nx-archived-error {
+  margin: 0;
+  padding: 0 var(--sp-3) var(--sp-2);
+  color: var(--c-error-text);
+  font: var(--t-caption);
+}
+
 .nx-rail-footer {
   display: flex;
   align-items: center;
@@ -1174,6 +1224,20 @@
   list-style: none;
   overflow-y: auto;
 }
+.nx-channel-archive-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin: var(--sp-2);
+  padding: var(--sp-3);
+  border-top: 1px solid var(--c-line);
+}
+.nx-channel-archive-control > div { display: grid; gap: 2px; min-width: 0; }
+.nx-channel-archive-control strong { font: var(--t-caption-strong); color: var(--c-ink); }
+.nx-channel-archive-control span { font: var(--t-caption); color: var(--c-secondary); }
+.nx-channel-archive-control .nx-btn { flex: none; gap: 6px; }
+.nx-archive-explanation { margin: 0; color: var(--c-body); font: var(--t-body); }
 .nx-roster-row {
   display: flex;
   align-items: center;
@@ -1212,8 +1276,14 @@
   justify-content: space-between;
   padding: var(--sp-3) var(--sp-4) var(--sp-1);
 }
-/* Refresh-usage then Plus as one right-aligned action group. */
+/* Refresh usage and the explicit participant entry point stay together. */
 .nx-members-actions { display: flex; align-items: center; gap: var(--sp-1); }
+.nx-add-participant {
+  min-height: 32px;
+  padding: 0 var(--sp-3);
+  white-space: nowrap;
+  font: var(--t-caption-strong);
+}
 /* The usage refresh spins while probing and tints on a concise error, without
    touching the gauges (which update from member frames). */
 .nx-usage-refresh.is-busy svg { animation: nx-spin 0.8s linear infinite; }
@@ -2454,7 +2524,7 @@
 }
 .nx-harness:disabled { opacity: 0.5; cursor: not-allowed; }
 .nx-harness-name { font: var(--t-caption-strong); color: var(--c-ink); text-align: center; }
-.nx-harness-sub { font: var(--t-mono-small); color: var(--c-faded); }
+.nx-harness-sub { font: var(--t-mono-small); color: var(--c-body); }
 
 /* Named-provider monogram — a neutral bordered badge drawn in currentColor, sized
    to fill the box the mark slot sets inline (so it inverts with the theme like the
@@ -2782,6 +2852,50 @@
 .nx-dialog-close:hover { color: var(--c-ink); }
 .nx-dialog-sub { margin: 2px 0 0; font: var(--t-caption); color: var(--c-secondary); }
 .nx-field-error { margin-top: var(--sp-2); font: var(--t-caption); color: var(--c-error-text); }
+.nx-participant-mode {
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--c-line);
+}
+.nx-participant-mode select {
+  width: 100%;
+  max-width: 100%;
+}
+/* The shared caption tokens narrowly miss WCAG AA at this modal's small text
+   sizes. Keep the contribution scoped: the wizard opts into the stronger body
+   token without silently restyling every existing dialog. */
+.nx-participant-wizard .nx-dialog-sub,
+.nx-participant-wizard .nx-field-note,
+.nx-participant-wizard .nx-sec-title,
+.nx-participant-wizard .nx-opt,
+.nx-participant-wizard .nx-btn.is-quiet {
+  color: var(--c-body);
+}
+.nx-participant-trust,
+.nx-connector-guide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-raised);
+  color: var(--c-body);
+}
+.nx-participant-trust strong {
+  font: var(--t-ui-strong);
+  color: var(--c-ink);
+}
+.nx-participant-trust span { font: var(--t-caption); color: var(--c-secondary); }
+.nx-connector-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font: var(--t-title);
+  color: var(--c-ink);
+}
+.nx-connector-guide p { margin: 0; }
+.nx-connector-guide .nx-field { margin: var(--sp-2) 0 0; }
 .nx-agent-panel {
   padding: var(--sp-4);
   border: 1px solid var(--c-line);

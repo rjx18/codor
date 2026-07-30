@@ -153,6 +153,23 @@ test.describe('multiplexed room state', () => {
       (await control<{ summary: { unread: number } }>('/room-support', { room: 'hydration' })).summary.unread,
     ).toBe(0);
   });
+
+  test('archives the current channel and restores it from the channel rail', async ({ page }) => {
+    await open(page, 'ops');
+    await page.getByTestId('archive-room').click();
+    const dialog = page.getByTestId('archive-room-dialog');
+    await expect(dialog).toContainText('Messages and participants will be preserved');
+    await dialog.getByTestId('archive-room-confirm').click();
+
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId('room-link-ops')).toHaveCount(0);
+    await page.getByTestId('archived-rooms-toggle').click();
+    await expect(page.getByTestId('archived-room-ops')).toContainText('Ops');
+
+    await page.getByTestId('restore-room-ops').click();
+    await expect(page.locator('.nx-chat-title h1')).toHaveText('Ops');
+    await expect(page.getByTestId('room-link-ops')).toBeVisible();
+  });
 });
 
 test.describe('support projections', () => {

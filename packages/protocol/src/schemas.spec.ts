@@ -509,6 +509,7 @@ describe('room config', () => {
           display_name: 'Review Lead',
           model: 'haiku',
           thinking: 'high',
+          purpose: 'Review the implementation.',
         },
       }).starting_agent,
     ).toEqual({
@@ -517,6 +518,7 @@ describe('room config', () => {
       display_name: 'Review Lead',
       model: 'haiku',
       thinking: 'high',
+      purpose: 'Review the implementation.',
     });
     expect(CreateRoomRequestSchema.parse({
       ...base,
@@ -573,11 +575,49 @@ describe('room config', () => {
         acp_launch: { executable: 'kimi', argv: [] },
       },
     }).success).toBe(false);
+
+    expect(CreateRoomRequestSchema.parse({
+      ...base,
+      starting_session: {
+        harness: 'codex',
+        handle: 'orchestrator',
+        session_ref: '019faeb6-e4e4-79b0-96a4-f8dcd3a97a54',
+        policy: 'read-only',
+        purpose: 'Coordinate the channel.',
+      },
+    }).starting_session).toEqual({
+      harness: 'codex',
+      handle: 'orchestrator',
+      session_ref: '019faeb6-e4e4-79b0-96a4-f8dcd3a97a54',
+      policy: 'read-only',
+      purpose: 'Coordinate the channel.',
+    });
+    expect(CreateRoomRequestSchema.safeParse({
+      ...base,
+      starting_agent: { harness: 'claude-code', handle: 'new-agent' },
+      starting_session: {
+        harness: 'codex',
+        handle: 'existing-agent',
+        session_ref: '019faeb6-e4e4-79b0-96a4-f8dcd3a97a54',
+      },
+    }).success).toBe(false);
   });
 
   it('rooms default their whole config', () => {
     const room = RoomSchema.parse({ id: 'r', name: 'R', created_ts: TS });
     expect(room.config.turn_brake).toBeNull();
+  });
+
+  it('rooms carry a reversible archive timestamp without changing existing rooms', () => {
+    const active = RoomSchema.parse({ id: 'active', name: 'Active', created_ts: TS });
+    const archived = RoomSchema.parse({
+      id: 'archived',
+      name: 'Archived',
+      created_ts: TS,
+      archived_ts: '2026-07-30T12:00:00.000Z',
+    });
+    expect(active.archived_ts).toBeUndefined();
+    expect(archived.archived_ts).toBe('2026-07-30T12:00:00.000Z');
   });
 
   it('meters carry per-day turns, cost, and tokens', () => {

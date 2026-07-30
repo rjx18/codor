@@ -1,7 +1,9 @@
-import { ChevronLeft, MoreVertical, Plus, Search, Settings, Share2, Users, X } from 'lucide-react';
+import type { Room } from '@codor/protocol';
+import { ArchiveRestore, ChevronDown, ChevronLeft, MoreVertical, Plus, Search, Settings, Share2, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
+import { fetchArchivedRooms, restoreRoom } from '@runtime/api.js';
 
 import { createConnector, type RoomConnector } from '../app/connector.js';
 import { rememberRoom } from '../app/startup.js';
@@ -174,6 +176,10 @@ function ChannelRail(props: {
   onSwitch: (room: string) => void;
 }) {
   const [creating, setCreating] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedRooms, setArchivedRooms] = useState<Room[]>([]);
+  const [archivedError, setArchivedError] = useState<string>();
+  const [restoringRoom, setRestoringRoom] = useState<string>();
   const summaries = useRoomSummaries(props.token);
   const connected = useClientStore((state) => state.connected);
   const roomStates = useClientStore((state) => state.rooms);
@@ -184,6 +190,20 @@ function ChannelRail(props: {
   useMinuteTick();
 
   const self = selfId !== undefined ? members[selfId] : undefined;
+  useEffect(() => {
+    let cancelled = false;
+    void fetchArchivedRooms({ token: props.token() }).then(
+      (rooms) => {
+        if (!cancelled) setArchivedRooms(rooms);
+      },
+      (failure: unknown) => {
+        if (!cancelled) {
+          setArchivedError(failure instanceof Error ? failure.message : String(failure));
+        }
+      },
+    );
+    return () => { cancelled = true; };
+  }, [props.token]);
   const workingByRoom = useMemo(() => Object.fromEntries(
     Object.entries(roomStates).map(([roomId, slice]) => [
       roomId,
@@ -293,6 +313,54 @@ function ChannelRail(props: {
           );
         })}
       </ul>
+      {archivedRooms.length > 0 && (
+        <div className="nx-archived-rooms">
+          <button
+            type="button"
+            className="nx-archived-toggle"
+            aria-expanded={showArchived}
+            data-testid="archived-rooms-toggle"
+            onClick={() => setShowArchived((shown) => !shown)}
+          >
+            <ChevronDown size={14} aria-hidden="true" />
+            Archived
+            <span>{archivedRooms.length}</span>
+          </button>
+          {showArchived && (
+            <ul className="nx-archived-list">
+              {archivedRooms.map((archived) => (
+                <li className="nx-archived-row" key={archived.id} data-testid={`archived-room-${archived.id}`}>
+                  <span>{archived.name}</span>
+                  <button
+                    type="button"
+                    disabled={restoringRoom !== undefined}
+                    data-testid={`restore-room-${archived.id}`}
+                    onClick={() => {
+                      setRestoringRoom(archived.id);
+                      setArchivedError(undefined);
+                      void restoreRoom(archived.id, { token: props.token() }).then(
+                        (restored) => {
+                          window.location.assign(`/?room=${encodeURIComponent(restored.id)}`);
+                        },
+                        (failure: unknown) => {
+                          setArchivedError(failure instanceof Error ? failure.message : String(failure));
+                          setRestoringRoom(undefined);
+                        },
+                      );
+                    }}
+                  >
+                    <ArchiveRestore size={13} aria-hidden="true" />
+                    {restoringRoom === archived.id ? 'Restoring…' : 'Restore'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {archivedError !== undefined && (
+            <p className="nx-archived-error" role="alert">{archivedError}</p>
+          )}
+        </div>
+      )}
       <footer className="nx-rail-footer">
         <Chip name={self?.display_name ?? self?.handle ?? 'You'} accent="user" size={32} />
         <span className="nx-rail-id">

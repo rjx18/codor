@@ -41,6 +41,7 @@ export const RoomSchema = z.object({
   id: RoomIdSchema,
   name: z.string().min(1),
   created_ts: TimestampSchema,
+  archived_ts: TimestampSchema.optional(),
   config: RoomConfigSchema.prefault({}),
 });
 export type Room = z.infer<typeof RoomSchema>;
@@ -103,6 +104,7 @@ export const StartingAgentSchema = z.object({
   // harn:end starting-agent-name-derives-one-valid-identity-v6
   model: z.string().optional(),
   thinking: ThinkingLevelSchema.optional(),
+  purpose: z.string().min(1).optional(),
   // harn:assume one-control-chooses-an-agent-everywhere ref=starting-agent-policy
   // Without this, every channel-seeded agent spawned with NO policy at all — the
   // create-channel dialog could not express one because the contract had nowhere to
@@ -137,6 +139,20 @@ export const StartingAgentSchema = z.object({
 // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
 export type StartingAgent = z.infer<typeof StartingAgentSchema>;
 
+/**
+ * An already-running native session that should join the channel without
+ * transferring process custody. This is deliberately separate from
+ * StartingAgentSchema: a session reference is attached, never spawned.
+ */
+export const StartingSessionSchema = z.object({
+  harness: z.string().min(1),
+  handle: AssignableHandleSchema,
+  session_ref: z.string().min(1),
+  policy: PolicySchema.optional(),
+  purpose: z.string().min(1).optional(),
+});
+export type StartingSession = z.infer<typeof StartingSessionSchema>;
+
 export const CreateRoomRequestSchema = z.object({
   id: RoomIdSchema.optional(),
   name: z.string().min(1),
@@ -147,6 +163,15 @@ export const CreateRoomRequestSchema = z.object({
   color: z.string().min(1).optional(),
   cwd: z.string().min(1).optional(),
   starting_agent: StartingAgentSchema.optional(),
+  starting_session: StartingSessionSchema.optional(),
+}).superRefine((request, ctx) => {
+  if (request.starting_agent !== undefined && request.starting_session !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['starting_session'],
+      message: 'a channel may start with either a new agent or an existing session, not both',
+    });
+  }
 });
 export type CreateRoomRequest = z.infer<typeof CreateRoomRequestSchema>;
 // harn:end channel-create-request-contract

@@ -125,6 +125,166 @@ test.describe('Tier-1: spawn payload', () => {
   });
 });
 
+test.describe('add-participant wizard', () => {
+  test('joins an existing session with full reference, role choices and conservative custody', async ({ page }) => {
+    await openRoom(page);
+    await expect(page.getByTestId('spawn-agent')).toHaveText('Add participant');
+    const dialog = await openSpawn(page);
+    await dialog.getByTestId('participant-mode').selectOption('existing');
+
+    const session = dialog.getByTestId('join-session-ref');
+    await expect(session).not.toHaveAttribute('maxlength');
+    await dialog.getByTestId('join-harness').selectOption('other');
+    await expect(dialog.getByTestId('join-custom-harness')).toBeVisible();
+    await dialog.getByTestId('join-custom-harness').fill('fake');
+    await session.fill('provider-session-reference-that-must-not-be-truncated');
+
+    await dialog.getByTestId('join-role').selectOption('other');
+    await expect(dialog.getByTestId('join-custom-role')).toBeVisible();
+    await dialog.getByTestId('join-custom-role').fill('Orchestrator');
+    await dialog.getByTestId('join-handle').fill('joinedwizard');
+    await dialog.getByTestId('join-purpose').fill('Coordinate the participants and address them by handle.');
+
+    await expect(dialog.getByTestId('join-custody-note')).toContainText('Mirrored · read-only');
+    await dialog.getByTestId('join-go').click();
+    await expect(page.getByTestId('member-joinedwizard')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('member-joinedwizard')).toContainText('read-only');
+    await expect(dialog).toBeHidden();
+  });
+
+  test('validates complete native UUIDs and reveals Other fields only when selected', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    await dialog.getByTestId('participant-mode').selectOption('existing');
+
+    await dialog.getByTestId('join-session-ref').fill('019faeb6-e4e4-79b0');
+    await expect(dialog.getByTestId('join-session-error')).toContainText('36-character UUID');
+    await expect(dialog.getByTestId('join-go')).toBeDisabled();
+
+    await dialog.getByTestId('join-session-ref').fill('019faeb6-e4e4-79b0-96a4-f8dcd3a97a54');
+    await expect(dialog.getByTestId('join-session-error')).toHaveCount(0);
+    await expect(dialog.getByTestId('join-go')).toBeEnabled();
+
+    await dialog.getByTestId('join-harness').selectOption('other');
+    await expect(dialog.getByTestId('join-custom-harness')).toBeVisible();
+    await dialog.getByTestId('join-role').selectOption('other');
+    await expect(dialog.getByTestId('join-custom-role')).toBeVisible();
+  });
+
+  test('describes unavailable providers without collecting browser secrets or enabling a fake action', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+
+    for (const mode of ['ollama', 'nvidia', 'codex-cloud'] as const) {
+      await dialog.getByTestId('participant-mode').selectOption(mode);
+      await expect(dialog.getByTestId(`connector-guide-${mode}`)).toBeVisible();
+      await expect(dialog.getByTestId('spawn-go')).toBeDisabled();
+      await expect(dialog.locator('input[type="password"]')).toHaveCount(0);
+    }
+
+    await dialog.getByTestId('participant-mode').selectOption('other');
+    await expect(dialog.getByTestId('other-participant')).toBeVisible();
+  });
+
+  test('turns configured Ollama and NVIDIA bridges into scoped chat-only spawn forms', async ({ page }) => {
+    await page.route('**/api/adapters**', async (route) => {
+      const response = await route.fetch();
+      const listing = await response.json() as {
+        adapters: Record<string, unknown>[];
+        discovering?: boolean;
+      };
+      await route.fulfill({
+        response,
+        body: JSON.stringify({
+          ...listing,
+          adapters: [
+            ...listing.adapters,
+            {
+              id: 'ollama',
+              installed: true,
+              capabilities: {
+                resume: true,
+                thinking: false,
+                policies: {
+                  'read-only': 'chat-only',
+                  'workspace-write': null,
+                  'full-access': null,
+                },
+              },
+              models: ['qwen3.6:latest'],
+              models_source: 'discovered',
+            },
+            {
+              id: 'nvidia',
+              installed: true,
+              capabilities: {
+                resume: true,
+                thinking: false,
+                policies: {
+                  'read-only': 'chat-only',
+                  'workspace-write': null,
+                  'full-access': null,
+                },
+              },
+              models: ['meta/llama-4-maverick-17b-128e-instruct'],
+              models_source: 'curated',
+            },
+          ],
+          discovering: false,
+        }),
+      });
+    });
+
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+
+    await dialog.getByTestId('participant-mode').selectOption('ollama');
+    await expect(dialog.getByTestId('ollama-bridge-note')).toContainText('Local bridge · chat-only');
+    await expect(dialog.getByTestId('connector-guide-ollama')).toHaveCount(0);
+    await expect(dialog.getByTestId('spawn-harness-ollama')).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByTestId('spawn-go')).toBeDisabled();
+    await dialog.getByTestId('spawn-model-qwen3.6:latest').click();
+    await expect(dialog.getByTestId('spawn-go')).toBeEnabled();
+
+    await dialog.getByTestId('participant-mode').selectOption('nvidia');
+    await expect(dialog.getByTestId('nvidia-bridge-note')).toContainText('Hosted bridge · chat-only');
+    await expect(dialog.getByTestId('connector-guide-nvidia')).toHaveCount(0);
+    await expect(dialog.getByTestId('spawn-harness-nvidia')).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.locator('input[type="password"]')).toHaveCount(0);
+    await expect(dialog.getByTestId('spawn-go')).toBeDisabled();
+    await dialog.getByTestId('spawn-model-meta/llama-4-maverick-17b-128e-instruct').click();
+    await expect(dialog.getByTestId('spawn-go')).toBeEnabled();
+
+    await dialog.getByTestId('participant-mode').selectOption('codex-cloud');
+    await expect(dialog.getByTestId('connector-guide-codex-cloud')).toBeVisible();
+    await expect(dialog.getByTestId('spawn-go')).toBeDisabled();
+  });
+
+  test('is axe-clean in both themes for the existing-session and connector states', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    for (const mode of ['existing', 'nvidia'] as const) {
+      await dialog.getByTestId('participant-mode').selectOption(mode);
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((next) => { document.documentElement.dataset.theme = next; }, theme);
+        const result = await new AxeBuilder({ page })
+          .include('[data-testid="spawn-dialog"]')
+          .analyze();
+        const detail = result.violations.map((violation) => ({
+          id: violation.id,
+          nodes: violation.nodes.map((node) => ({
+            target: node.target,
+            html: node.html,
+            failure: node.failureSummary,
+          })),
+        }));
+        expect(result.violations.map((violation) => violation.id),
+          `${mode} ${theme}\n${JSON.stringify(detail, null, 2)}`).toEqual([]);
+      }
+    }
+  });
+});
+
 test.describe('Tier-1 #5: a failed spawn stays visible and recoverable', () => {
   test('a rejected spawn keeps the dialog, the error and the typed values', async ({ page }) => {
     await openRoom(page);
@@ -184,10 +344,11 @@ test.describe('Tier-1: the create dialog seeds a fully configured agent', () => 
     await dialog.getByTestId('create-name').fill('seeded');
     await expect(dialog).toContainText('id:');
 
-    // None is an honestly agentless state: only the harness choice and guidance
-    // remain, with every agent-only field absent.
+    // None is an honestly participant-free state: the shared chooser remains
+    // while every participant-only field is absent.
     await expect(dialog.getByTestId('create-agent-name')).toHaveCount(0);
-    await expect(dialog.getByTestId('create-agent-none-note')).toBeVisible();
+    await expect(dialog.getByTestId('create-participant-none-note')).toBeVisible();
+    await dialog.getByTestId('create-participant-mode').selectOption('new');
     await dialog.getByTestId('create-harness-thinky').click();
     await expect(dialog.getByTestId('create-agent-name')).toBeVisible();
     // It defaults to codor rather than starting empty.
@@ -196,9 +357,9 @@ test.describe('Tier-1: the create dialog seeds a fully configured agent', () => 
     await dialog.getByTestId('create-model-custom').fill('thinky/custom');
     await dialog.getByTestId('create-thinking-range').fill('3');
     await dialog.getByTestId('create-policy-full-access').click();
-    await dialog.getByTestId('create-harness-none').click();
+    await dialog.getByTestId('create-participant-mode').selectOption('none');
     await expect(dialog.getByTestId('create-agent-name')).toHaveCount(0);
-    await dialog.getByTestId('create-harness-thinky').click();
+    await dialog.getByTestId('create-participant-mode').selectOption('new');
     await expect(dialog.getByTestId('create-agent-name')).toHaveValue('restored');
     await expect(dialog.getByTestId('create-model-custom')).toHaveValue('thinky/custom');
     await expect(dialog.getByTestId('create-thinking-value')).toHaveText('high');
@@ -210,6 +371,106 @@ test.describe('Tier-1: the create dialog seeds a fully configured agent', () => 
     await expect(page.locator('.nx-chat-title h1')).toHaveText('seeded', { timeout: 15_000 });
     await expect(page.getByTestId('member-restored')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('member-restored')).toContainText('full-access');
+  });
+
+  test('creates a channel with an existing full session reference as the mirrored orchestrator', async ({ page }) => {
+    await openRoom(page);
+    await page.getByTestId('create-room').click();
+    const dialog = page.getByTestId('create-channel-dialog');
+    await dialog.getByTestId('create-name').fill('UUID Channel');
+    await dialog.getByTestId('create-folder-alpha-project').click();
+    await dialog.getByTestId('create-participant-mode').selectOption('existing');
+    await dialog.getByTestId('create-join-harness').selectOption('other');
+    await dialog.getByTestId('create-join-custom-harness').fill('fake');
+    await dialog.getByTestId('create-join-session-ref')
+      .fill('019faeb6-e4e4-79b0-96a4-f8dcd3a97a54');
+    await dialog.getByTestId('create-join-role').selectOption('orchestrator');
+
+    const request = page.waitForRequest((candidate) =>
+      candidate.method() === 'POST' && new URL(candidate.url()).pathname === '/api/rooms');
+    await dialog.getByTestId('create-go').click();
+    const payload = (await request).postDataJSON() as {
+      starting_agent?: unknown;
+      starting_session?: Record<string, unknown>;
+    };
+    expect(payload).not.toHaveProperty('starting_agent');
+    expect(payload.starting_session).toMatchObject({
+      harness: 'fake',
+      handle: 'orchestrator',
+      session_ref: '019faeb6-e4e4-79b0-96a4-f8dcd3a97a54',
+      policy: 'read-only',
+    });
+    await expect(page.locator('.nx-chat-title h1')).toHaveText('UUID Channel', { timeout: 15_000 });
+    await expect(page.getByTestId('member-orchestrator')).toContainText('mirrored');
+  });
+
+  test('offers configured Ollama and NVIDIA bridges while keeping cloud tasks unavailable', async ({ page }) => {
+    await page.route('**/api/adapters**', async (route) => {
+      const response = await route.fetch();
+      const listing = await response.json() as { adapters: Record<string, unknown>[] };
+      await route.fulfill({
+        response,
+        body: JSON.stringify({
+          ...listing,
+          adapters: [
+            ...listing.adapters,
+            {
+              id: 'ollama',
+              installed: true,
+              capabilities: {
+                resume: true,
+                thinking: false,
+                policies: {
+                  'read-only': 'chat-only',
+                  'workspace-write': null,
+                  'full-access': null,
+                },
+              },
+              models: ['qwen3.6:latest'],
+              models_source: 'discovered',
+            },
+            {
+              id: 'nvidia',
+              installed: true,
+              capabilities: {
+                resume: true,
+                thinking: false,
+                policies: {
+                  'read-only': 'chat-only',
+                  'workspace-write': null,
+                  'full-access': null,
+                },
+              },
+              models: ['meta/llama-4-maverick-17b-128e-instruct'],
+              models_source: 'curated',
+            },
+          ],
+          discovering: false,
+        }),
+      });
+    });
+    await openRoom(page);
+    await page.getByTestId('create-room').click();
+    const dialog = page.getByTestId('create-channel-dialog');
+    await dialog.getByTestId('create-name').fill('Provider Channel');
+    await dialog.getByTestId('create-folder-alpha-project').click();
+
+    await dialog.getByTestId('create-participant-mode').selectOption('ollama');
+    await expect(dialog.getByTestId('create-ollama-bridge-note')).toContainText('chat-only');
+    await expect(dialog.getByTestId('create-go')).toBeDisabled();
+    await dialog.getByTestId('create-model-qwen3.6:latest').click();
+    await expect(dialog.getByTestId('create-go')).toBeEnabled();
+
+    await dialog.getByTestId('create-participant-mode').selectOption('nvidia');
+    await expect(dialog.getByTestId('create-nvidia-bridge-note')).toContainText('chat-only');
+    await expect(dialog.locator('input[type="password"]')).toHaveCount(0);
+    await expect(dialog.getByTestId('create-go')).toBeDisabled();
+    await dialog.getByTestId('create-model-meta/llama-4-maverick-17b-128e-instruct').click();
+    await expect(dialog.getByTestId('create-go')).toBeEnabled();
+
+    await dialog.getByTestId('create-participant-mode').selectOption('codex-cloud');
+    await expect(dialog.getByTestId('create-connector-guide-codex-cloud')).toBeVisible();
+    await expect(dialog.getByTestId('create-go')).toBeDisabled();
   });
 });
 
@@ -310,6 +571,7 @@ test.describe('Create Channel installed harness catalog', () => {
     await openRoom(page);
     await page.getByTestId('create-room').click();
     const dialog = page.getByTestId('create-channel-dialog');
+    await dialog.getByTestId('create-participant-mode').selectOption('new');
     await expect(dialog.getByTestId('create-harness-thinky')).toBeVisible();
     await expect(dialog.getByTestId('create-harness-fake')).toHaveCount(0);
     await dialog.getByTestId('create-harness-thinky').click();
@@ -317,9 +579,9 @@ test.describe('Create Channel installed harness catalog', () => {
     await dialog.getByTestId('create-name').fill('Kept Channel');
     await dialog.getByTestId('create-refresh-adapters').click();
 
-    await expect(dialog.getByTestId('create-harness-none')).toHaveAttribute('aria-pressed', 'true');
     await expect(dialog.getByText('No supported harnesses found')).toBeVisible();
-    await expect(dialog.getByTestId('create-agent-name')).toHaveCount(0);
+    await expect(dialog.getByTestId('create-agent-name')).toHaveValue('kept-name');
+    await expect(dialog.getByTestId('create-go')).toBeDisabled();
     await expect(dialog.getByTestId('create-name')).toHaveValue('Kept Channel');
   });
 });
@@ -332,6 +594,7 @@ test.describe('Tier-1: create channel keyboard and fallbacks', () => {
     const dialog = page.getByTestId('create-channel-dialog');
     await expect(dialog).toBeVisible();
 
+    await dialog.getByTestId('create-participant-mode').selectOption('new');
     await dialog.getByTestId('create-harness-fake').click();
     // Clearing the name must not block submit — it falls back to "Agent".
     await dialog.getByTestId('create-agent-name').fill('');
@@ -357,13 +620,14 @@ test.describe('the "None" state means none', () => {
     await dialog.getByTestId('create-name').fill('agentless');
     await dialog.getByTestId('create-folder-alpha-project').click();
 
+    await dialog.getByTestId('create-participant-mode').selectOption('new');
     await dialog.getByTestId('create-harness-fake').click();
     await dialog.getByTestId('create-agent-name').fill('richard');
     await expect(dialog.getByTestId('create-owner-clash')).toBeVisible();
     await expect(dialog.getByTestId('create-go')).toBeDisabled();
 
     // Back to None: the same text is inert, and creation is possible again.
-    await dialog.getByTestId('create-harness-none').click();
+    await dialog.getByTestId('create-participant-mode').selectOption('none');
     await expect(dialog.getByTestId('create-agent-name')).toHaveCount(0);
     await expect(dialog.getByTestId('create-policy-read-only')).toHaveCount(0);
     await expect(dialog.getByTestId('create-owner-clash')).toBeHidden();
@@ -387,6 +651,7 @@ test.describe('the "None" state means none', () => {
     await page.getByTestId('create-room').click();
     const dialog = page.getByTestId('create-channel-dialog');
     await dialog.getByTestId('create-name').fill('reservedname');
+    await dialog.getByTestId('create-participant-mode').selectOption('new');
     await dialog.getByTestId('create-harness-fake').click();
     await dialog.getByTestId('create-agent-name').fill('all');
     await expect(dialog.getByTestId('create-go')).toBeDisabled();
@@ -512,6 +777,7 @@ test.describe('all three dialogs share one control', () => {
 
     await page.getByTestId('create-room').click();
     const create = page.getByTestId('create-channel-dialog');
+    await create.getByTestId('create-participant-mode').selectOption('new');
     await create.getByTestId('create-harness-fake').click();
     await expect(create.getByTestId('create-harness-fake')).toBeVisible();
     await expect(create.getByTestId('create-policy-read-only')).toBeVisible();
@@ -521,21 +787,33 @@ test.describe('all three dialogs share one control', () => {
 
 test.describe('accessibility', () => {
   test('the create dialog is axe-clean in both themes', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await openRoom(page);
     await page.getByTestId('create-room').click();
     const dialog = page.getByTestId('create-channel-dialog');
     await expect(dialog).toBeVisible();
     await expect(dialog.getByTestId('create-close')).toBeVisible();
     await expect(dialog.getByTestId('create-go')).toBeVisible();
+    await dialog.getByTestId('create-participant-mode').selectOption('new');
     await dialog.getByTestId('create-harness-fake').click();
     for (const theme of ['light', 'dark']) {
       await page.evaluate((t) => { document.documentElement.dataset.theme = t; }, theme);
-      const res = await new AxeBuilder({ page }).analyze();
-      expect(res.violations.map((v) => v.id), theme).toEqual([]);
+      const result = await new AxeBuilder({ page }).analyze();
+      const detail = result.violations.map((violation) => ({
+        id: violation.id,
+        nodes: violation.nodes.map((node) => ({
+          target: node.target,
+          html: node.html,
+          failure: node.failureSummary,
+        })),
+      }));
+      expect(result.violations.map((violation) => violation.id),
+        `${theme}\n${JSON.stringify(detail, null, 2)}`).toEqual([]);
     }
   });
 
   test('the configure dialog is axe-clean in both themes and shares the control', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await openRoom(page);
     // Spawn one so there is definitely a configurable agent present.
     const spawn = await openSpawn(page);
@@ -553,8 +831,17 @@ test.describe('accessibility', () => {
 
     for (const theme of ['light', 'dark']) {
       await page.evaluate((t) => { document.documentElement.dataset.theme = t; }, theme);
-      const res = await new AxeBuilder({ page }).analyze();
-      expect(res.violations.map((v) => v.id), theme).toEqual([]);
+      const result = await new AxeBuilder({ page }).analyze();
+      const detail = result.violations.map((violation) => ({
+        id: violation.id,
+        nodes: violation.nodes.map((node) => ({
+          target: node.target,
+          html: node.html,
+          failure: node.failureSummary,
+        })),
+      }));
+      expect(result.violations.map((violation) => violation.id),
+        `${theme}\n${JSON.stringify(detail, null, 2)}`).toEqual([]);
     }
   });
 
@@ -581,6 +868,7 @@ test.describe('accessibility', () => {
     await expect(dialog.locator('[data-testid^="create-color-"]')).toHaveCount(0);
 
     // The three permission cards stay in one row and inside the modal at 320px.
+    await dialog.getByTestId('create-participant-mode').selectOption('new');
     await dialog.getByTestId('create-harness-thinky').click();
     const body = dialog.locator('.nx-dialog-body');
     await body.evaluate((node) => { node.scrollTop = node.scrollHeight; });

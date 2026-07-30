@@ -191,6 +191,31 @@ export async function fetchRooms(options: ApiOptions): Promise<Room[]> {
   return body.rooms;
 }
 
+export async function fetchArchivedRooms(options: ApiOptions): Promise<Room[]> {
+  const body = await fetchJson<{ rooms: Room[] }>('/api/rooms?archived=1', options);
+  return body.rooms;
+}
+
+export async function archiveRoom(room: string, options: ApiOptions): Promise<Room> {
+  const body = await sendJson<{ room: Room }>(
+    `/api/rooms/${encodeURIComponent(room)}/archive`,
+    'POST',
+    undefined,
+    options,
+  );
+  return body.room;
+}
+
+export async function restoreRoom(room: string, options: ApiOptions): Promise<Room> {
+  const body = await sendJson<{ room: Room }>(
+    `/api/rooms/${encodeURIComponent(room)}/restore`,
+    'POST',
+    undefined,
+    options,
+  );
+  return body.room;
+}
+
 // harn:assume web-room-rail-creates-owner-room ref=authenticated-room-create-client
 // harn:assume channel-accent-projects-accessibly-across-themes ref=authoritative-channel-client
 export async function createRoom(

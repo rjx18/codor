@@ -97,6 +97,10 @@ const DESK_TUTORIAL_MESSAGE = 'Welcome to Codor 👋 This is your Desk. Add an a
 
 export async function startCodor(options: UpOptions): Promise<RunningCodor> {
   if (!options.token.trim()) throw new Error('--token or CODOR_TOKEN is required');
+  const host = options.host ?? '127.0.0.1';
+  if (host !== '127.0.0.1') {
+    throw new Error('Codor foreground mode must bind to 127.0.0.1');
+  }
   const adapters = await loadAdapterRegistry({
     adapters: options.adapters,
     baseDir: options.adapterBaseDir,
@@ -166,7 +170,7 @@ export async function startCodor(options: UpOptions): Promise<RunningCodor> {
     const server = await startServer({
       daemon,
       token: options.token,
-      host: options.host ?? '127.0.0.1',
+      host,
       port: options.port ?? 8137,
       socketPath: localSocketPath(dataDir),
       staticRoot: options.staticRoot ?? (existsSync(defaultStatic) ? defaultStatic : undefined),

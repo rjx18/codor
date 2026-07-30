@@ -283,10 +283,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
   };
 
-  const roomsFor = (principal: AuthPrincipal) => daemon.store.listRooms().filter((room) => {
-    if (principal.kind === 'owner' || principal.kind === 'browser') return true;
-    if (principal.kind === 'agent') return room.id === principal.room;
-    return daemon.store.getMember(room.id, principal.memberId)?.kind === 'human';
+  const roomsFor = (
+    principal: AuthPrincipal,
+    archiveState: 'active' | 'archived' | 'all' = 'active',
+  ) => daemon.store.listRooms().filter((room) => {
+    const visible = principal.kind === 'owner' || principal.kind === 'browser'
+      || (principal.kind === 'agent'
+        ? room.id === principal.room
+        : daemon.store.getMember(room.id, principal.memberId)?.kind === 'human');
+    if (!visible) return false;
+    if (archiveState === 'all') return true;
+    return archiveState === 'archived'
+      ? room.archived_ts !== undefined
+      : room.archived_ts === undefined;
   });
   // harn:end agent-network-authority-is-narrow
 
@@ -520,7 +529,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (principal.kind === 'agent') {
       if (!authorizeRoom(principal, principal.room, 'read', reply)) return;
     } else if (!authorizeGlobal(principal, 'read', reply)) return;
-    void reply.send({ rooms: roomsFor(principal) });
+    const query = req.query as { archived?: string };
+    if (query.archived !== undefined && query.archived !== '0' && query.archived !== '1') {
+      return reply.code(400).send({ error: 'archived must be 0 or 1' });
+    }
+    void reply.send({
+      rooms: roomsFor(principal, query.archived === '1' ? 'archived' : 'active'),
+    });
   });
 
   // harn:assume durable-room-summaries-stream-and-fallback ref=durable-room-summary
@@ -666,7 +681,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       // A named acp_provider is a safe curated id the daemon resolves privately, so it
       // needs no extra authorization; the schema already enforces exactly one of them.
       if (
-        body.starting_agent?.acp_launch !== undefined &&
+        (body.starting_agent?.acp_launch !== undefined || body.starting_session !== undefined) &&
         !authorizeGlobal(principal, 'manage_agents', reply)
       ) return;
       // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
@@ -685,6 +700,32 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     } catch (error) {
       return reply.code(400).send({ error: String(error) });
     }
+  });
+
+  app.post('/api/rooms/:room/archive', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_rooms', reply)) return;
+    const { room } = req.params as { room: string };
+    if (!daemon.store.getRoom(room)) {
+      return reply.code(404).send({ error: `no such room ${room}` });
+    }
+    try {
+      return reply.send({ room: daemon.store.archiveRoom(room) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = message.includes('active agents') ? 409 : 400;
+      return reply.code(status).send({ error: message });
+    }
+  });
+
+  app.post('/api/rooms/:room/restore', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_rooms', reply)) return;
+    const { room } = req.params as { room: string };
+    if (!daemon.store.getRoom(room)) {
+      return reply.code(404).send({ error: `no such room ${room}` });
+    }
+    return reply.send({ room: daemon.store.restoreRoom(room) });
   });
   // harn:end channel-creation-derived-and-seeded
 
