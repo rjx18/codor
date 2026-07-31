@@ -724,13 +724,19 @@
   background: oklch(95% 0.035 218);
 }
 .nx-turn[data-tone='codex'] .nx-turn-main {
-  --c-ink: #fff;
-  --c-body: #f5f5f5;
-  --c-secondary: #d4d4d4;
-  --c-faded: #bdbdbd;
-  --c-link: #b8d4ff;
-  border-color: #050505;
-  background: #181818;
+  /* Codex keeps its monochrome service identity without reversing the entire
+     transcript surface. Dark ink also keeps inline code and tool pills legible. */
+  --c-ink: oklch(20% 0.006 90);
+  --c-body: oklch(25% 0.006 90);
+  --c-secondary: oklch(38% 0.006 90);
+  --c-faded: oklch(48% 0.006 90);
+  --c-link: oklch(43% 0.13 252);
+  --c-raised: oklch(96% 0.004 90);
+  --c-muted: oklch(94% 0.005 90);
+  --c-line: oklch(87% 0.006 90);
+  --c-line-strong: oklch(72% 0.008 90);
+  border-color: oklch(30% 0.006 90);
+  background: oklch(99% 0.003 90);
 }
 .nx-turn-meta {
   display: flex;
@@ -774,13 +780,8 @@ html[data-theme='dark'] .nx-turn[data-tone='gemini'] .nx-turn-main {
   background: oklch(25% 0.03 218);
 }
 html[data-theme='dark'] .nx-turn[data-tone='codex'] .nx-turn-main {
-  --c-ink: #171717;
-  --c-body: #242424;
-  --c-secondary: #444;
-  --c-faded: #616161;
-  --c-link: #155fb0;
-  border-color: #fff;
-  background: #f7f7f7;
+  border-color: oklch(75% 0.008 90);
+  background: oklch(98% 0.003 90);
 }
 
 .nx-prose {
