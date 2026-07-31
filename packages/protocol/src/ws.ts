@@ -88,6 +88,7 @@ export const ActSchema = z.discriminatedUnion('act', [
     ownership: z.enum(['fork', 'mirror']).optional(),
     policy: z.string().optional(),
     purpose: z.string().optional(),
+    color_hue: z.number().int().min(0).max(359).optional(),
   }),
   z.object({ act: z.literal('adopt'), member_id: MemberIdSchema }),
   z.object({
@@ -118,6 +119,7 @@ export const ActSchema = z.discriminatedUnion('act', [
     policy: z.string().optional(),
     thinking: ThinkingLevelSchema.optional(),
     purpose: z.string().optional(),
+    color_hue: z.number().int().min(0).max(359).optional(),
     acp_launch: AcpLaunchConfigSchema.optional(),
     // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-act-schema
     // A curated named ACP provider id — mutually exclusive with acp_launch and valid only
@@ -167,6 +169,7 @@ export const ActSchema = z.discriminatedUnion('act', [
     model: z.string().min(1).nullable().optional(),
     thinking: ThinkingLevelSchema.nullable().optional(),
     policy: PolicySchema.optional(),
+    color_hue: z.number().int().min(0).max(359).optional(),
   }),
   // harn:end member-config-is-changed-not-respawned
   z.object({

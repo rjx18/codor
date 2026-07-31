@@ -13,6 +13,36 @@ export function memberAccent(member: Pick<Member, 'kind' | 'handle'>): AccentNam
   return AGENT_ORDER[hash % AGENT_ORDER.length] ?? 'indigo';
 }
 
+export function memberHue(member: Pick<Member, 'kind' | 'handle' | 'harness' | 'acp_provider' | 'color_hue'>): number {
+  if (member.color_hue !== undefined) return member.color_hue;
+  if (member.kind === 'human') return 142;
+  const service = `${member.harness ?? ''} ${member.acp_provider ?? ''}`.toLowerCase();
+  if (service.includes('claude')) return 28;
+  if (service.includes('codex') || service.includes('openai')) return 0;
+  if (service.includes('gemini')) return 218;
+  let hash = 0;
+  for (const ch of member.handle) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return hash % 360;
+}
+
+export function memberMarkId(member: Pick<Member, 'kind' | 'harness' | 'acp_provider'>): string | undefined {
+  if (member.kind === 'human' || member.kind === 'system') return undefined;
+  if (member.harness === 'acp' && member.acp_provider !== undefined) {
+    return `acp:${member.acp_provider}`;
+  }
+  return member.harness;
+}
+
+export function memberTone(member: Pick<Member, 'kind' | 'handle' | 'harness' | 'acp_provider' | 'color_hue'>): string {
+  const hue = memberHue(member);
+  if (member.kind === 'human' && hue === 142) return 'human';
+  const service = `${member.harness ?? ''} ${member.acp_provider ?? ''}`.toLowerCase();
+  if ((service.includes('codex') || service.includes('openai')) && hue === 0) return 'codex';
+  if (service.includes('claude') && hue === 28) return 'claude';
+  if (service.includes('gemini') && hue === 218) return 'gemini';
+  return 'custom';
+}
+
 /** Two-letter initials for the squircle chip: '@code-reviewer' -> 'cr', 'Richard' -> 'Ri'. */
 export function initials(nameOrHandle: string): string {
   const clean = nameOrHandle.replace(/^@/, '');

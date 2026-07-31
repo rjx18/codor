@@ -2,7 +2,7 @@ import type { Attachment, Delivery, Member, Message, RunItemDiff, WireEvent } fr
 import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Paperclip, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
 
@@ -18,7 +18,7 @@ import {
 import { useIsMobile } from '../app/session.js';
 import { HISTORY_PAGE_SIZE, roomSlice, useClientStore } from '../app/store.js';
 import { Button, Chip, Modal, TypingDots } from '../primitives/primitives.js';
-import { clockTime, memberAccent } from '../primitives/identity.js';
+import { clockTime, memberHue, memberTone } from '../primitives/identity.js';
 import { CompactionMarker } from './CompactionMarker.js';
 import { RunDiffDialog } from './RunDiffDialog.js';
 import { JUMP_ANCHOR_EVENT, jumpToMessage } from './panels.js';
@@ -32,6 +32,7 @@ import {
 import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attachments.js';
 import { presentRunTimeline, type CompactionRunTimelineItem } from './run-timeline.js';
 import { continuationFloor, transcriptMessages, transcriptTime } from './transcript-order.js';
+import { MemberChip } from './MemberChip.js';
 
 /** Consecutive same-author messages within this window collapse their header. */
 const GROUP_WINDOW_MS = 2 * 60_000;
@@ -607,7 +608,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
             <div className="nx-typing-bar" data-testid="live-activity">
               {workingAgents.map((agent) => (
                 <span key={agent.id} className="nx-typing-agent" data-testid={`typing-${agent.handle}`}>
-                  <Chip name={agent.handle} accent={memberAccent(agent)} size={24} />
+                  <MemberChip member={agent} size={24} />
                   <TypingDots label={`@${agent.handle} is working`} />
                   {/* The pill is the ONE activity surface, so the clock lives
                       here rather than inside a transcript row. It counts from
@@ -667,6 +668,12 @@ function pinnedSnippet(message: Message): string {
 
 // ── One turn: header (unless grouped) + body content ─────────────────────
 
+function AuthorChip(props: { author: Member | undefined; handle: string; size: number }) {
+  return props.author
+    ? <MemberChip member={props.author} size={props.size} />
+    : <Chip name={props.handle} accent="indigo" size={props.size} />;
+}
+
 function TurnBlock(props: {
   message: Message;
   author: Member | undefined;
@@ -716,15 +723,17 @@ function TurnBlock(props: {
         id={String(message.id)}
         data-testid={`msg-${message.id}`}
         className={`nx-turn is-deleted ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''}`}
+        data-tone={author ? memberTone(author) : undefined}
+        style={author ? { '--member-hue': memberHue(author) } as CSSProperties : undefined}
       >
         {!props.grouped && !isMobile && (
-          <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />
+          <AuthorChip author={author} handle={handle} size={34} />
         )}
         <div className="nx-turn-main">
           {!props.grouped && (
             <div className="nx-turn-meta">
               {isMobile && (
-                <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={24} />
+                <AuthorChip author={author} handle={handle} size={24} />
               )}
               <strong className="nx-turn-author">@{handle}</strong>
               <time className="nx-turn-time" dateTime={message.ts}>{clockTime(message.ts)}</time>
@@ -751,17 +760,20 @@ function TurnBlock(props: {
       data-testid={message.kind === 'run' ? `run-${message.id}` : `msg-${message.id}`}
       data-read-seq={messageReadSeq(message, props.mine)}
       data-mentions-me={mentionsMe ? 'true' : undefined}
+      data-message-kind={message.kind}
+      data-tone={author ? memberTone(author) : undefined}
+      style={author ? { '--member-hue': memberHue(author) } as CSSProperties : undefined}
       className={`nx-turn ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''} ${message.pinned === true ? 'is-pinned' : ''} ${mentionsMe ? 'is-mentioned' : ''}`}
     >
       {!props.grouped && !isMobile && (
-        <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />
+        <AuthorChip author={author} handle={handle} size={34} />
       )}
       <div className="nx-turn-main">
         {!props.grouped && (
           <div className="nx-turn-meta">
             {/* The phone trades the chip column for a small chip in the header. */}
             {isMobile && (
-              <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={24} />
+              <AuthorChip author={author} handle={handle} size={24} />
             )}
             <strong className="nx-turn-author">@{handle}</strong>
             {message.origin !== undefined && (
@@ -1516,12 +1528,15 @@ function RunStretch(props: {
       id={props.anchored ? String(message.id) : undefined}
       data-testid={`run-${message.id}`}
       data-read-seq={messageReadSeq(message, props.mine)}
+      data-message-kind="run"
+      data-tone={author ? memberTone(author) : undefined}
+      style={author ? { '--member-hue': memberHue(author) } as CSSProperties : undefined}
       className={`nx-turn ${props.mine ? 'is-mine' : ''}`}
     >
-      {!isMobile && <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />}
+      {!isMobile && <AuthorChip author={author} handle={handle} size={34} />}
       <div className="nx-turn-main">
         <div className="nx-turn-meta">
-          {isMobile && <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={24} />}
+          {isMobile && <AuthorChip author={author} handle={handle} size={24} />}
           <strong className="nx-turn-author">@{handle}</strong>
           <time className="nx-turn-time" dateTime={message.ts}>{clockTime(message.ts)}</time>
           {props.anchored && message.pinned === true && (

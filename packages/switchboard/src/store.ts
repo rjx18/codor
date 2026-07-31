@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS members (
   kind TEXT NOT NULL,
   handle TEXT NOT NULL,
   display_name TEXT NOT NULL,
+  color_hue INTEGER,
   purpose TEXT,
   harness TEXT,
   session_ref TEXT,
@@ -423,6 +424,82 @@ function migrateMemberLifecycle(db: Database.Database): void {
   `);
 }
 // harn:end roster-briefing-refreshes-on-membership
+
+const PARTICIPANT_COLOR_HUES = [
+  12, 28, 48, 72, 104, 142, 166, 188, 208, 226, 246, 268, 286, 308, 328, 346,
+] as const;
+const PARTICIPANT_SERVICE_COLORS_MIGRATION = 'participant-service-colors-v1';
+
+function preferredMemberColorHue(
+  member: Pick<NewMember, 'kind' | 'harness' | 'acp_provider'>,
+): number | undefined {
+  if (member.kind === 'human') return 142;
+  const service = `${member.harness ?? ''} ${member.acp_provider ?? ''}`.toLowerCase();
+  if (service.includes('claude')) return 28;
+  if (service.includes('codex') || service.includes('openai')) return 0;
+  if (service.includes('gemini')) return 218;
+  if (service.includes('nvidia')) return 118;
+  if (service.includes('ollama')) return 268;
+  return undefined;
+}
+
+function migrateMemberColorHue(db: Database.Database): void {
+  const columns = db.pragma('table_info(members)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'color_hue')) {
+    db.exec('ALTER TABLE members ADD COLUMN color_hue INTEGER');
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS codor_migrations (
+    id TEXT PRIMARY KEY,
+    applied_ts TEXT NOT NULL
+  )`);
+  const applied = db.prepare('SELECT 1 FROM codor_migrations WHERE id = ?')
+    .get(PARTICIPANT_SERVICE_COLORS_MIGRATION);
+  if (applied === undefined) {
+    db.transaction(() => {
+      db.exec('DROP INDEX IF EXISTS active_member_color_hue_unique');
+      const acpProviderColumn = columns.some((column) => column.name === 'acp_provider')
+        ? 'acp_provider'
+        : 'NULL AS acp_provider';
+      const rows = db.prepare(
+        `SELECT id, room, kind, harness, ${acpProviderColumn} FROM members
+         WHERE kind != 'system' AND removed_ts IS NULL
+         ORDER BY room, CASE WHEN kind = 'human' THEN 0 ELSE 1 END, id`,
+      ).all() as Array<{
+        id: string;
+        room: string;
+        kind: Member['kind'];
+        harness: string | null;
+        acp_provider: string | null;
+      }>;
+      const usedByRoom = new Map<string, Set<number>>();
+      const update = db.prepare('UPDATE members SET color_hue = ? WHERE id = ?');
+      for (const row of rows) {
+        const used = usedByRoom.get(row.room) ?? new Set<number>();
+        usedByRoom.set(row.room, used);
+        const preferred = preferredMemberColorHue({
+          kind: row.kind,
+          harness: row.harness ?? undefined,
+          acp_provider: row.acp_provider ?? undefined,
+        });
+        const hue = preferred !== undefined && !used.has(preferred)
+          ? preferred
+          : PARTICIPANT_COLOR_HUES.find((candidate) => !used.has(candidate)) ??
+            Array.from({ length: 360 }, (_, candidate) => candidate)
+              .find((candidate) => !used.has(candidate));
+        if (hue === undefined) throw new Error(`room ${row.room} has no unused participant colors`);
+        update.run(hue, row.id);
+        used.add(hue);
+      }
+      db.prepare(
+        `INSERT INTO codor_migrations (id, applied_ts)
+         VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+      ).run(PARTICIPANT_SERVICE_COLORS_MIGRATION);
+    })();
+  }
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS active_member_color_hue_unique
+    ON members (room, color_hue)
+    WHERE removed_ts IS NULL AND color_hue IS NOT NULL AND kind != 'system'`);
+}
 
 function migrateMessageAck(db: Database.Database): void {
   const columns = db.pragma('table_info(messages)') as { name: string }[];
@@ -904,6 +981,7 @@ interface MemberRow {
   kind: string;
   handle: string;
   display_name: string;
+  color_hue: number | null;
   purpose: string | null;
   harness: string | null;
   session_ref: string | null;
@@ -1055,6 +1133,7 @@ function memberFromRow(row: MemberRow): Member {
     kind: row.kind,
     handle: row.handle,
     display_name: row.display_name,
+    color_hue: row.color_hue ?? undefined,
     purpose: row.purpose ?? undefined,
     harness: row.harness ?? undefined,
     session_ref: row.session_ref ?? undefined,
@@ -1234,6 +1313,7 @@ export interface NewMember {
   kind: Member['kind'];
   handle: string;
   display_name: string;
+  color_hue?: number;
   purpose?: string;
   harness?: string;
   session_ref?: string;
@@ -1378,6 +1458,7 @@ export class Store {
       migrateDeliveryPayloadSnapshot(this.db);
       migrateMemberCustody(this.db);
       migrateMemberLifecycle(this.db);
+      migrateMemberColorHue(this.db);
       // MUST run after migrateMemberLifecycle: on a legacy database that one REBUILDS the
       // members table from an explicit column list, which would silently drop these two
       // again — and then every insert would fail on a column that no longer exists.
@@ -1447,7 +1528,7 @@ export class Store {
   createRoom(opts: {
     id: string;
     name: string;
-    owner: { handle: string; display_name: string };
+    owner: { handle: string; display_name: string; color_hue?: number };
     config?: Partial<RoomConfig>;
     bootstrapWelcome?: {
       author: { handle: string; display_name: string };
@@ -1468,6 +1549,7 @@ export class Store {
         kind: 'human',
         handle: opts.owner.handle,
         display_name: opts.owner.display_name,
+        color_hue: opts.owner.color_hue,
         role: 'owner',
       });
       const system = this.insertMember(opts.id, {
@@ -1549,16 +1631,20 @@ export class Store {
   // ── members ───────────────────────────────────────────────────────────
 
   private insertMember(room: string, member: NewMember): Member {
-    const validated = MemberSchema.parse({ id: this.newUlid(), ...member });
+    const id = this.newUlid();
+    const color_hue = member.kind === 'system'
+      ? undefined
+      : this.availableMemberColorHue(room, member.color_hue, id, preferredMemberColorHue(member));
+    const validated = MemberSchema.parse({ id, ...member, color_hue });
     // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-storage
     // The safe public provider id is persisted with the other member identity columns.
     // The exact launch is written privately (addMember) and never appears here.
     this.db
       .prepare(
-        `INSERT INTO members (id, room, kind, handle, display_name, purpose, harness, session_ref,
+        `INSERT INTO members (id, room, kind, handle, display_name, color_hue, purpose, harness, session_ref,
            fork_source_ref, cwd, policy, model, thinking, host, state, custody, parent, role, conventions_sent,
            misaddressed, roster_stale, removed_ts, acp_provider)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         validated.id,
@@ -1566,6 +1652,7 @@ export class Store {
         validated.kind,
         validated.handle,
         validated.display_name,
+        orNull(validated.color_hue),
         orNull(validated.purpose),
         orNull(validated.harness),
         orNull(validated.session_ref),
@@ -1597,6 +1684,34 @@ export class Store {
     }
     // harn:end human-room-read-cursors-are-durable-and-monotonic
     return validated;
+  }
+
+  private availableMemberColorHue(
+    room: string,
+    requested: number | undefined,
+    seed: string,
+    preferred?: number,
+  ): number {
+    const rows = this.db.prepare(
+      `SELECT color_hue FROM members
+       WHERE room = ? AND removed_ts IS NULL AND color_hue IS NOT NULL AND kind != 'system'`,
+    ).all(room) as { color_hue: number }[];
+    const used = new Set(rows.map((row) => row.color_hue));
+    if (requested !== undefined) {
+      if (used.has(requested)) throw new Error(`participant color ${String(requested)} is already in use`);
+      return requested;
+    }
+    if (preferred !== undefined && !used.has(preferred)) return preferred;
+    let hash = 0;
+    for (const char of seed) hash = ((hash * 31) + char.charCodeAt(0)) >>> 0;
+    for (let offset = 0; offset < PARTICIPANT_COLOR_HUES.length; offset++) {
+      const hue = PARTICIPANT_COLOR_HUES[(hash + offset) % PARTICIPANT_COLOR_HUES.length]!;
+      if (!used.has(hue)) return hue;
+    }
+    const fallback = Array.from({ length: 360 }, (_, offset) => (hash + offset) % 360)
+      .find((hue) => !used.has(hue));
+    if (fallback === undefined) throw new Error(`room ${room} has no unused participant colors`);
+    return fallback;
   }
 
   addMember(room: string, member: NewMember, runtime: AgentRuntimeConfig = {}): Member {
@@ -1736,6 +1851,14 @@ export class Store {
       const existing = this.getMember(room, memberId);
       if (!existing) throw new Error(`no such member: ${memberId}`);
       const merged = MemberSchema.parse({ ...existing, ...patch });
+      const colorHue = merged.kind === 'system'
+        ? undefined
+        : existing.removed_ts !== undefined && merged.removed_ts === undefined
+          ? this.availableMemberColorHue(room, undefined, merged.id, merged.color_hue)
+          : merged.color_hue !== existing.color_hue
+            ? this.availableMemberColorHue(room, merged.color_hue, merged.id)
+            : merged.color_hue;
+      const colored = MemberSchema.parse({ ...merged, color_hue: colorHue });
       // harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-storage
       // Preserve the task projection across ordinary config edits; clear it only when
       // this update moves the member to a genuinely different native session.
@@ -1750,43 +1873,44 @@ export class Store {
           // READ about them — but not this. Nothing changed them after spawn, so nothing
           // noticed. A configure that called this would have reported success and
           // persisted nothing at all.
-          `UPDATE members SET handle = ?, display_name = ?, purpose = ?, harness = ?, session_ref = ?,
+          `UPDATE members SET handle = ?, display_name = ?, color_hue = ?, purpose = ?, harness = ?, session_ref = ?,
              fork_source_ref = ?, cwd = ?, policy = ?, model = ?, thinking = ?, host = ?, state = ?, custody = ?,
              parent = ?, role = ?, conventions_sent = ?, misaddressed = ?, roster_stale = ?,
              removed_ts = ?, limits = ?, tasks = ?, acp_provider = ?
            WHERE room = ? AND id = ?`,
         )
         .run(
-          merged.handle,
-          merged.display_name,
-          orNull(merged.purpose),
-          orNull(merged.harness),
-          orNull(merged.session_ref),
-          orNull(merged.fork_source_ref),
-          orNull(merged.cwd),
-          orNull(merged.policy),
-          orNull(merged.model),
-          orNull(merged.thinking),
-          orNull(merged.host),
-          orNull(merged.state),
-          orNull(merged.custody),
-          orNull(merged.parent),
-          orNull(merged.role),
-          fromBool(merged.conventions_sent),
-          fromBool(merged.misaddressed),
-          fromBool(merged.roster_stale),
-          orNull(merged.removed_ts),
-          merged.limits === undefined ? null : JSON.stringify(merged.limits),
+          colored.handle,
+          colored.display_name,
+          orNull(colored.color_hue),
+          orNull(colored.purpose),
+          orNull(colored.harness),
+          orNull(colored.session_ref),
+          orNull(colored.fork_source_ref),
+          orNull(colored.cwd),
+          orNull(colored.policy),
+          orNull(colored.model),
+          orNull(colored.thinking),
+          orNull(colored.host),
+          orNull(colored.state),
+          orNull(colored.custody),
+          orNull(colored.parent),
+          orNull(colored.role),
+          fromBool(colored.conventions_sent),
+          fromBool(colored.misaddressed),
+          fromBool(colored.roster_stale),
+          orNull(colored.removed_ts),
+          colored.limits === undefined ? null : JSON.stringify(colored.limits),
           nextTasks === undefined ? null : JSON.stringify(nextTasks),
           // acp_provider is public locked identity: preserved from the merged member,
           // never rewritten by an ordinary Configure edit (harness stays locked too).
-          orNull(merged.acp_provider),
+          orNull(colored.acp_provider),
           room,
           memberId,
         );
       // harn:end member-config-is-changed-not-respawned
       this.appendChange(room, 'member', memberId);
-      return { ...merged, tasks: nextTasks };
+      return { ...colored, tasks: nextTasks };
     })();
   }
 

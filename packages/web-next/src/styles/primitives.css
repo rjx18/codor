@@ -16,6 +16,15 @@
 .nx-chip.is-green { background: var(--chip-green-bg); color: var(--chip-green-ink); }
 .nx-chip.is-violet { background: var(--chip-violet-bg); color: var(--chip-violet-ink); }
 .nx-chip.is-user { background: var(--chip-user-bg); color: var(--chip-user-ink); }
+.nx-chip.has-hue {
+  background: oklch(91% 0.055 var(--member-hue));
+  color: oklch(34% 0.11 var(--member-hue));
+}
+.nx-chip.has-hue.is-human { background: oklch(88% 0.075 142); color: oklch(29% 0.095 142); }
+.nx-chip.has-hue.is-claude { background: oklch(89% 0.075 28); color: oklch(36% 0.12 28); }
+.nx-chip.has-hue.is-gemini { background: oklch(89% 0.06 218); color: oklch(32% 0.1 218); }
+.nx-chip.has-hue.is-codex { background: #151515; color: #fff; }
+.nx-chip svg { width: 56%; height: 56%; }
 
 .nx-presence {
   position: absolute;

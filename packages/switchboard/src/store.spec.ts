@@ -20,6 +20,40 @@ beforeEach(() => {
   store = new Store(join(dir, 'test.sqlite'));
 });
 
+describe('participant visual identity', () => {
+  it('assigns durable service defaults while keeping every active room color unique', () => {
+    const { owner } = openRoom(store);
+    const claude = store.addMember('eng', {
+      kind: 'agent', harness: 'claude-code', handle: 'claude', display_name: 'Claude', state: 'idle',
+    });
+    const codex = store.addMember('eng', {
+      kind: 'agent', harness: 'codex', handle: 'codex', display_name: 'Codex', state: 'idle',
+    });
+    const gemini = store.addMember('eng', {
+      kind: 'agent', harness: 'gemini', handle: 'gemini', display_name: 'Gemini', state: 'idle',
+    });
+    const secondClaude = store.addMember('eng', {
+      kind: 'agent', harness: 'claude-code', handle: 'claude-two', display_name: 'Claude two', state: 'idle',
+    });
+
+    expect(owner.color_hue).toBe(142);
+    expect(claude.color_hue).toBe(28);
+    expect(codex.color_hue).toBe(0);
+    expect(gemini.color_hue).toBe(218);
+    expect(secondClaude.color_hue).not.toBe(claude.color_hue);
+    expect(new Set(store.listMembers('eng').flatMap((member) =>
+      member.color_hue === undefined ? [] : [member.color_hue])).size).toBe(5);
+
+    expect(() => store.updateMember('eng', secondClaude.id, { color_hue: 28 }))
+      .toThrow('participant color 28 is already in use');
+    expect(store.updateMember('eng', secondClaude.id, { color_hue: 308 }).color_hue).toBe(308);
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getMember('eng', secondClaude.id)?.color_hue).toBe(308);
+  });
+});
+
 // harn:assume agent-member-credentials-stay-secret ref=member-credential-store-regression
 describe('agent member credential storage', () => {
   it('persists only a replaceable hash and never projects it as member state', () => {

@@ -279,6 +279,7 @@ export interface AgentConfig {
   model: string;
   thinking: string;
   policy: Policy | '';
+  colorHue?: number;
   acpExecutable?: string;
   /** One literal argument per line; never parsed as shell text. */
   acpArgs?: string;
@@ -407,6 +408,7 @@ export interface SpawnSpec {
   model?: string;
   thinking?: ThinkingLevel;
   purpose?: string;
+  color_hue?: number;
   /** A curated named provider id — mutually exclusive with acp_launch. Never a command. */
   acp_provider?: string;
   acp_launch?: { executable: string; argv: string[] };
@@ -425,6 +427,7 @@ export interface JoinSpec {
   cwd: string;
   policy: Policy;
   purpose?: string;
+  color_hue?: number;
 }
 
 const UUID_SESSION_REF = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -448,6 +451,7 @@ export function buildJoinSpec(input: {
   handle: string;
   cwd: string;
   purpose?: string;
+  colorHue?: number;
   ownership?: 'fork' | 'mirror';
   members: readonly Member[];
 }): JoinSpec {
@@ -460,6 +464,7 @@ export function buildJoinSpec(input: {
     cwd: input.cwd.trim(),
     policy: DEFAULT_POLICY,
     ...(purpose !== undefined && purpose !== '' && { purpose }),
+    ...(input.colorHue !== undefined && { color_hue: input.colorHue }),
   };
 }
 
@@ -510,6 +515,7 @@ export function buildSpawnSpec(input: {
     ...(harness !== 'acp' && input.config.model !== '' && { model: input.config.model }),
     ...(thinking !== undefined && { thinking }),
     ...(purpose !== undefined && purpose !== '' && { purpose }),
+    ...(input.config.colorHue !== undefined && { color_hue: input.config.colorHue }),
     ...(acp_provider !== undefined && { acp_provider }),
     ...(acpLaunch !== undefined && { acp_launch: acpLaunch }),
   };

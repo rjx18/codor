@@ -210,6 +210,9 @@ export function composeDeliveryBriefing(ctx: DeliveryBriefingContext): string {
       payload += `@${member.handle} (${member.kind}${member.purpose ? `, ${member.purpose}` : ''})\n`;
     }
     payload += ']\n';
+    payload += '[collaboration update: channel membership changed. Each purpose above is that ' +
+      'participant\'s assigned role, authority, scope, and collaboration boundary. Use these ' +
+      '@handles to invoke one another and follow the stated delegation hierarchy.]\n';
   }
   if (ctx.conventions) {
     // harn:assume collaboration-briefing-is-capability-aware ref=collaboration-conventions

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { DeliverySchema } from './delivery.js';
 import { MemberIdSchema, RoomIdSchema, TimestampSchema } from './ids.js';
-import { AssignableHandleSchema, MemberKindSchema } from './member.js';
+import { AssignableHandleSchema, MemberColorHueSchema, MemberKindSchema } from './member.js';
 import { MessageKindSchema, MessageSchema } from './message.js';
 import {
   AcpLaunchConfigSchema,
@@ -101,6 +101,7 @@ export const StartingAgentSchema = z.object({
   handle: AssignableHandleSchema,
   // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-identity-contract
   display_name: z.string().min(1).optional(),
+  color_hue: MemberColorHueSchema.optional(),
   // harn:end starting-agent-name-derives-one-valid-identity-v6
   model: z.string().optional(),
   thinking: ThinkingLevelSchema.optional(),
@@ -151,6 +152,7 @@ export const StartingSessionSchema = z.object({
   ownership: z.enum(['fork', 'mirror']).optional(),
   policy: PolicySchema.optional(),
   purpose: z.string().min(1).optional(),
+  color_hue: MemberColorHueSchema.optional(),
 });
 export type StartingSession = z.infer<typeof StartingSessionSchema>;
 

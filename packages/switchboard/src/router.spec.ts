@@ -469,7 +469,7 @@ describe('delivery payload template (byte-exact goldens)', () => {
   });
 
   it('renders a roster with optional purposes independently of conventions', () => {
-    expect(composePayload({
+    const payload = composePayload({
       ...payloadCtx,
       refs: [],
       ledgerRefs: [],
@@ -478,8 +478,14 @@ describe('delivery payload template (byte-exact goldens)', () => {
         { handle: 'richard', kind: 'human' },
         { handle: 'codex', kind: 'agent', purpose: 'Implements changes' },
       ],
-    }, 'codex')).toContain(
+    }, 'codex');
+    expect(payload).toContain(
       '\n[roster:\n@richard (human)\n@codex (agent, Implements changes)\n]\n',
+    );
+    expect(payload).toContain(
+      '[collaboration update: channel membership changed. Each purpose above is that ' +
+      "participant's assigned role, authority, scope, and collaboration boundary. Use these " +
+      '@handles to invoke one another and follow the stated delegation hierarchy.]',
     );
   });
 

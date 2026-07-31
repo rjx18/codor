@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { compactCount, initials, memberAccent, relativeTime, usd } from './identity.js';
+import {
+  compactCount,
+  initials,
+  memberAccent,
+  memberHue,
+  memberMarkId,
+  memberTone,
+  relativeTime,
+  usd,
+} from './identity.js';
 
 describe('memberAccent', () => {
   it('humans always get the inverse user chip', () => {
@@ -11,6 +20,24 @@ describe('memberAccent', () => {
     const first = memberAccent({ kind: 'agent', handle: 'fable' });
     expect(memberAccent({ kind: 'agent', handle: 'fable' })).toBe(first);
     expect(['indigo', 'green', 'violet']).toContain(first);
+  });
+});
+
+describe('participant service identity', () => {
+  it('uses provider defaults while honoring a durable selected hue', () => {
+    expect(memberHue({ kind: 'human', handle: 'emanuel' })).toBe(142);
+    expect(memberHue({ kind: 'agent', handle: 'claude', harness: 'claude-code' })).toBe(28);
+    expect(memberHue({ kind: 'agent', handle: 'codex', harness: 'codex' })).toBe(0);
+    expect(memberHue({ kind: 'agent', handle: 'gemini', harness: 'gemini' })).toBe(218);
+    expect(memberHue({ kind: 'agent', handle: 'codex', harness: 'codex', color_hue: 308 })).toBe(308);
+  });
+
+  it('maps agents to service marks and reserves branded tones for their defaults', () => {
+    expect(memberMarkId({ kind: 'agent', harness: 'claude-code' })).toBe('claude-code');
+    expect(memberMarkId({ kind: 'agent', harness: 'acp', acp_provider: 'kimi' })).toBe('acp:kimi');
+    expect(memberMarkId({ kind: 'human' })).toBeUndefined();
+    expect(memberTone({ kind: 'agent', handle: 'codex', harness: 'codex', color_hue: 0 })).toBe('codex');
+    expect(memberTone({ kind: 'agent', handle: 'codex', harness: 'codex', color_hue: 308 })).toBe('custom');
   });
 });
 

@@ -995,7 +995,12 @@ export class Daemon {
     const created = this.store.createRoom({
       id,
       name: opts.name,
-      owner: opts.owner,
+      owner: {
+        ...opts.owner,
+        // A manually selected green belongs to the new agent; move the owner's
+        // automatic green so the explicit choice is honoured without a collision.
+        ...(startingParticipant?.color_hue === 142 && { color_hue: 166 }),
+      },
       config: {
         ...(opts.color !== undefined && { color: opts.color }),
         ...(cwd !== undefined && { cwd }),
@@ -1518,6 +1523,7 @@ export class Daemon {
       model?: string;
       thinking?: Session['thinking'];
       purpose?: string;
+      color_hue?: number;
       acp_launch?: AcpLaunchConfig;
       // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-resolution
       acp_provider?: string;
@@ -1547,6 +1553,7 @@ export class Daemon {
       handle: opts.handle,
       display_name: opts.display_name ?? opts.handle,
       purpose: opts.purpose,
+      color_hue: opts.color_hue,
       harness: opts.harness,
       cwd,
       policy: opts.policy,
@@ -1695,6 +1702,7 @@ export class Daemon {
       ownership?: 'fork' | 'mirror';
       policy?: string;
       purpose?: string;
+      color_hue?: number;
     },
   ): Member {
     const cwd = normalizeWorkingDirectory(opts.cwd, this.homeDir);
@@ -1718,6 +1726,7 @@ export class Daemon {
       handle: opts.handle,
       display_name: opts.handle,
       purpose: opts.purpose,
+      color_hue: opts.color_hue,
       harness: opts.harness,
       ...(fork
         ? { fork_source_ref: opts.session_ref }
@@ -1966,7 +1975,12 @@ export class Daemon {
   configureMember(
     room: string,
     memberId: string,
-    changes: { model?: string | null; thinking?: ThinkingLevel | null; policy?: Policy },
+    changes: {
+      model?: string | null;
+      thinking?: ThinkingLevel | null;
+      policy?: Policy;
+      color_hue?: number;
+    },
     opts: { actor?: string } = {},
   ): Member {
     const member = this.store.getMember(room, memberId);
@@ -1975,7 +1989,9 @@ export class Daemon {
     // harn:assume a-permission-change-is-never-silent ref=configure-custody-and-capability-guards
     // A mirrored member's session lives on another switchboard. A half-applied remote
     // change is worse than a refused one, so refuse it here and say where to go.
-    if (member.custody === 'mirrored') {
+    const changesEngine = changes.model !== undefined || changes.thinking !== undefined ||
+      changes.policy !== undefined;
+    if (member.custody === 'mirrored' && changesEngine) {
       throw new Error(
         `member @${member.handle} is mirrored from another switchboard; configure it there`,
       );
@@ -1992,17 +2008,18 @@ export class Daemon {
     // The same single gate the spawn path uses: an unknown policy, or a thinking level
     // this harness cannot honour, is refused rather than recorded as a preference it
     // would silently ignore.
-    validateSpawnOptions(this.requireAdapter(member.harness!), next);
+    if (changesEngine) validateSpawnOptions(this.requireAdapter(member.harness!), next);
     // harn:end a-permission-change-is-never-silent
 
     const updated = this.store.updateMember(room, memberId, {
       model: next.model,
       thinking: next.thinking,
       policy: next.policy,
+      color_hue: changes.color_hue ?? member.color_hue,
     });
     // The next turn rebuilds from the row we just wrote. A turn already in flight keeps
     // the session it started with — including for the ask cards it has already raised.
-    this.staleSessions.add(memberId);
+    if (changesEngine) this.staleSessions.add(memberId);
 
     // harn:assume a-permission-change-is-never-silent ref=configure-audit-message
     // Raising what an agent may do to the operator's machine is a consequential act. A

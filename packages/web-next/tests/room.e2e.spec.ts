@@ -86,6 +86,32 @@ test.describe('transcript grouping', () => {
   });
 });
 
+test.describe('participant visual identity', () => {
+  test('renders operator messages on the right and agent messages on the left as distinct bubbles', async ({ page }) => {
+    await openRoom(page);
+    const operator = page.locator('article', {
+      hasText: 'morning — can we get the auth refactor over the line today?',
+    });
+    const agent = page.locator('article', { hasText: 'Queue is short:' }).first();
+
+    await expect(operator).toHaveClass(/is-mine/);
+    await expect(agent).not.toHaveClass(/is-mine/);
+    const positions = await Promise.all([
+      operator.locator('.nx-turn-main').boundingBox(),
+      agent.locator('.nx-turn-main').boundingBox(),
+    ]);
+    expect(positions[0]).not.toBeNull();
+    expect(positions[1]).not.toBeNull();
+    expect(positions[0]!.x).toBeGreaterThan(positions[1]!.x);
+
+    const backgrounds = await Promise.all([
+      operator.locator('.nx-turn-main').evaluate((node) => getComputedStyle(node).backgroundColor),
+      agent.locator('.nx-turn-main').evaluate((node) => getComputedStyle(node).backgroundColor),
+    ]);
+    expect(backgrounds[0]).not.toBe(backgrounds[1]);
+  });
+});
+
 test.describe('run evidence', () => {
   test('tool activity collapses to an aggregate line and expands to bordered cards', async ({ page }) => {
     await openRoom(page);

@@ -1172,7 +1172,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (!principal) return;
     const { room, memberId } = req.params as { room: string; memberId: string };
     if (!authorizeRoom(principal, room, 'configure', reply)) return;
-    const body = req.body as { model?: string | null; thinking?: ThinkingLevel | null; policy?: Policy };
+    const body = req.body as {
+      model?: string | null;
+      thinking?: ThinkingLevel | null;
+      policy?: Policy;
+      color_hue?: number;
+    };
     const actor = memberForRoom(principal, room);
     void reply.send(daemon.configureMember(room, memberId, body, { actor: actor.id }));
   });
@@ -1474,6 +1479,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 ownership: act.ownership,
                 policy: act.policy,
                 purpose: act.purpose,
+                color_hue: act.color_hue,
               });
             } else if (act.act === 'adopt') daemon.adoptMember(frame.room, act.member_id);
             else if (act.act === 'attach_acquire') {
@@ -1567,6 +1573,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 model: act.model,
                 thinking: act.thinking,
                 purpose: act.purpose,
+                color_hue: act.color_hue,
                 acp_launch: act.acp_launch,
                 // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-rest-boundary
                 acp_provider: act.acp_provider,
@@ -1576,7 +1583,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               daemon.configureMember(
                 frame.room,
                 act.member_id,
-                { model: act.model, thinking: act.thinking, policy: act.policy },
+                { model: act.model, thinking: act.thinking, policy: act.policy, color_hue: act.color_hue },
                 { actor: actor.id },
               );
             } else if (act.act === 'rename') daemon.renameMember(frame.room, act.member_id, act.handle, act.display_name);

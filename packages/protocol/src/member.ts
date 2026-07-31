@@ -24,6 +24,11 @@ export type Custody = z.infer<typeof CustodySchema>;
 export const RoleSchema = z.enum(['owner', 'admin', 'member', 'observer']);
 export type Role = z.infer<typeof RoleSchema>;
 
+/** Durable participant accent. Hue is stored instead of a palette name so a
+ *  room can keep every active participant visually distinct as it grows. */
+export const MemberColorHueSchema = z.number().int().min(0).max(359);
+export type MemberColorHue = z.infer<typeof MemberColorHueSchema>;
+
 // harn:assume reserved-handles-rejected ref=handle-schema
 export const HANDLE_REGEX = /^[a-z0-9][a-z0-9-]{1,30}$/;
 export const RESERVED_HANDLES = ['all', 'switchboard'] as const;
@@ -167,6 +172,8 @@ export const MemberSchema = z
     kind: MemberKindSchema,
     handle: HandleSchema,
     display_name: z.string(),
+    // Visual identity only. System authors intentionally have no participant color.
+    color_hue: MemberColorHueSchema.optional(),
     // harn:assume member-purpose-protocol-metadata ref=member-purpose-field
     purpose: z.string().optional(),
     // harn:end member-purpose-protocol-metadata

@@ -11,7 +11,7 @@
  * if a literal list reappears.
  */
 import { Ban, LoaderCircle, Lock, PencilLine, RefreshCw, Zap } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 
 import { ThinkingSlider } from './ThinkingSlider.js';
 import {
@@ -36,6 +36,25 @@ const POLICY_COPY: Record<string, { title: string; icon: typeof Lock }> = {
 /** Past this many models the list gets a search field. opencode reports ~80. */
 const SEARCH_THRESHOLD = 8;
 
+export const PARTICIPANT_COLORS = [
+  { hue: 0, name: 'Black' },
+  { hue: 28, name: 'Orange' },
+  { hue: 48, name: 'Gold' },
+  { hue: 72, name: 'Lime' },
+  { hue: 104, name: 'Leaf' },
+  { hue: 142, name: 'Green' },
+  { hue: 166, name: 'Teal' },
+  { hue: 188, name: 'Cyan' },
+  { hue: 208, name: 'Sky' },
+  { hue: 226, name: 'Blue' },
+  { hue: 246, name: 'Indigo' },
+  { hue: 268, name: 'Violet' },
+  { hue: 286, name: 'Purple' },
+  { hue: 308, name: 'Magenta' },
+  { hue: 328, name: 'Pink' },
+  { hue: 346, name: 'Rose' },
+] as const;
+
 /** A numbered section header with its hairline rule. */
 export function Section(props: {
   n: number;
@@ -53,6 +72,56 @@ export function Section(props: {
       </div>
       {props.children}
     </section>
+  );
+}
+
+export function ParticipantColorPicker(props: {
+  value: number | undefined;
+  onChange: (value: number | undefined) => void;
+  used?: readonly number[];
+  idPrefix?: string;
+  allowAutomatic?: boolean;
+}) {
+  const used = new Set(props.used ?? []);
+  const id = props.idPrefix ?? 'agent';
+  return (
+    <div className="nx-field">
+      <span className="nx-label">Message color</span>
+      <div className="nx-color-picker" role="radiogroup" aria-label="Message color">
+        {props.allowAutomatic !== false && (
+          <button
+            type="button"
+            className={`nx-color-auto ${props.value === undefined ? 'is-selected' : ''}`}
+            role="radio"
+            aria-checked={props.value === undefined}
+            data-testid={`${id}-color-auto`}
+            onClick={() => props.onChange(undefined)}
+          >
+            Automatic
+          </button>
+        )}
+        {PARTICIPANT_COLORS.map((color) => {
+          const unavailable = used.has(color.hue) && props.value !== color.hue;
+          return (
+            <button
+              key={color.hue}
+              type="button"
+              className={`nx-color-swatch ${color.hue === 0 ? 'is-monochrome' : ''} ${props.value === color.hue ? 'is-selected' : ''}`}
+              style={{ '--swatch-hue': color.hue } as CSSProperties}
+              role="radio"
+              aria-label={`${color.name}${unavailable ? ', already used' : ''}`}
+              aria-checked={props.value === color.hue}
+              disabled={unavailable}
+              data-testid={`${id}-color-${color.hue}`}
+              onClick={() => props.onChange(color.hue)}
+            />
+          );
+        })}
+      </div>
+      {props.allowAutomatic !== false && (
+        <p className="nx-field-note">Automatic uses the service color and chooses a distinct fallback when needed.</p>
+      )}
+    </div>
   );
 }
 

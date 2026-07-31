@@ -7,7 +7,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { AdapterRegistration } from '@runtime/api.js';
 
-import { AgentControls, AgentIdentityControls, RolePresetControls } from './AgentControls.js';
+import {
+  AgentControls,
+  AgentIdentityControls,
+  ParticipantColorPicker,
+  RolePresetControls,
+} from './AgentControls.js';
 import {
   DEFAULT_POLICY,
   SPAWN_PRESETS,
@@ -141,6 +146,7 @@ export function StartingParticipantControls(props: {
           ...(selector.harness !== 'acp' && config.model !== '' && { model: config.model }),
           ...(thinking !== undefined && { thinking }),
           ...(trimmedPurpose !== '' && { purpose: trimmedPurpose }),
+          ...(config.colorHue !== undefined && { color_hue: config.colorHue }),
         },
       };
     }
@@ -160,6 +166,7 @@ export function StartingParticipantControls(props: {
           ownership: effectiveJoinOwnership,
           policy: DEFAULT_POLICY,
           ...(trimmedPurpose !== '' && { purpose: trimmedPurpose }),
+          ...(config.colorHue !== undefined && { color_hue: config.colorHue }),
         },
       };
     }
@@ -171,6 +178,7 @@ export function StartingParticipantControls(props: {
     config.model,
     config.policy,
     config.thinking,
+    config.colorHue,
     customRole,
     effectiveAgentName,
     harness,
@@ -250,6 +258,11 @@ export function StartingParticipantControls(props: {
             onRefresh={props.onRefresh}
             refreshing={props.refreshing}
             refreshError={props.refreshError}
+          />
+          <ParticipantColorPicker
+            value={config.colorHue}
+            onChange={(colorHue) => setConfig({ ...config, colorHue })}
+            idPrefix={id}
           />
           <label className="nx-field">
             <span className="nx-label">Agent name</span>
@@ -433,6 +446,11 @@ export function StartingParticipantControls(props: {
               data-testid={`${id}-join-purpose`}
             />
           </label>
+          <ParticipantColorPicker
+            value={config.colorHue}
+            onChange={(colorHue) => setConfig({ ...config, colorHue })}
+            idPrefix={`${id}-join`}
+          />
           <div className="nx-participant-trust" data-testid={`${id}-join-custody-note`}>
             {effectiveJoinOwnership === 'fork' ? (
               <>

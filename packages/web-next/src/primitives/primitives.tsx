@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type ReactNode,
   type ReactPortal,
   type RefObject,
@@ -17,6 +18,9 @@ import { initials, type AccentName } from './identity.js';
 export function Chip(props: {
   name: string;
   accent: AccentName;
+  hue?: number;
+  mark?: ReactNode;
+  tone?: string;
   size?: number;
   presence?: 'live' | 'idle' | 'error';
   surface?: 'surface' | 'raised' | 'muted';
@@ -25,12 +29,17 @@ export function Chip(props: {
   const size = props.size ?? 34;
   return (
     <span
-      className={`nx-chip is-${props.accent}`}
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.35) }}
+      className={`nx-chip is-${props.accent} ${props.hue !== undefined ? 'has-hue' : ''} ${props.tone ? `is-${props.tone}` : ''}`}
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.35),
+        ...(props.hue !== undefined && { '--member-hue': props.hue }),
+      } as CSSProperties}
       title={props.title}
       aria-hidden="true"
     >
-      {initials(props.name)}
+      {props.mark ?? initials(props.name)}
       {props.presence && (
         <span className={`nx-presence is-${props.presence} on-${props.surface ?? 'surface'}`} />
       )}

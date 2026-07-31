@@ -4,7 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { archiveRoom, artifactUrl, fetchArtifacts, fetchRunEvents, refreshUsage, type AdapterRegistration, type ArtifactFeed, type MemberDetail } from '@runtime/api.js';
 import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attachments.js';
-import { AgentControls, AgentIdentityControls, RolePresetControls, Section } from './AgentControls.js';
+import {
+  AgentControls,
+  AgentIdentityControls,
+  ParticipantColorPicker,
+  RolePresetControls,
+  Section,
+} from './AgentControls.js';
 import { FolderPicker } from './FolderPicker.js';
 import {
   ACP_SELECTOR_PREFIX,
@@ -31,8 +37,8 @@ import { presentRunEvents, type RunRow } from '@runtime/run-presenter.js';
 import type { Connection } from '@runtime/ws.js';
 
 import { roomSlice, sortedMessages, useClientStore } from '../app/store.js';
-import { clockTime, compactCount, memberAccent } from '../primitives/identity.js';
-import { Button, Chip, Eyebrow, IconButton, Modal, Segmented, StatusPill } from '../primitives/primitives.js';
+import { clockTime, compactCount } from '../primitives/identity.js';
+import { Button, Eyebrow, IconButton, Modal, Segmented, StatusPill } from '../primitives/primitives.js';
 import { useAdapterCatalog, useMemberDetails } from '../app/session.js';
 import { ContextWindowMeter } from './ContextWindowMeter.js';
 import {
@@ -58,8 +64,17 @@ import {
 } from './git-diff.js';
 import { costProvenanceLabel } from './spend-label.js';
 import { DiffViewer } from './DiffViewer.js';
+import { MemberChip } from './MemberChip.js';
 
 type Tab = 'members' | 'diff' | 'preview';
+
+function usedColorHues(members: readonly Member[], excludeId?: string): number[] {
+  return members.flatMap((member) => (
+    member.id !== excludeId && member.removed_ts === undefined && member.color_hue !== undefined
+      ? [member.color_hue]
+      : []
+  ));
+}
 
 export function ContextPanel(props: { room: string; token: () => string; connection: Connection }) {
   const [tab, setTab] = useState<Tab>('members');
@@ -223,6 +238,7 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
             canManage={canManage}
             connection={props.connection}
             room={props.room}
+            usedColorHues={usedColorHues(roster, member.id)}
           />
         ))}
       </ul>
@@ -425,6 +441,7 @@ function MemberCard(props: {
   canManage: boolean;
   connection: Connection;
   room: string;
+  usedColorHues: readonly number[];
 }) {
   const { member, detail } = props;
   const running = member.state === 'running';
@@ -487,7 +504,7 @@ function MemberCard(props: {
   return (
     <li className="nx-member" data-testid={`member-${member.handle}`}>
       <div className="nx-member-row">
-        <Chip name={member.handle} accent={memberAccent(member)} size={32} />
+        <MemberChip member={member} size={32} />
         <span className="nx-member-id">
           <strong>@{member.handle}</strong>
           <span className="nx-member-sub">
@@ -739,6 +756,7 @@ function MemberCard(props: {
         <ConfigureDialog
           member={member}
           adapters={props.adapters}
+          usedColorHues={props.usedColorHues}
           onClose={() => setConfiguring(false)}
           onConfigure={(patch) => {
             props.connection.act({ act: 'configure', member_id: member.id, ...patch });
@@ -827,11 +845,13 @@ function RenameDialog(props: {
 function ConfigureDialog(props: {
   member: Member;
   adapters: AdapterRegistration[];
+  usedColorHues: readonly number[];
   onClose: () => void;
   onConfigure: (patch: {
     model?: string | null;
     thinking?: ThinkingLevel | null;
     policy?: Policy;
+    color_hue?: number;
   }) => void;
 }) {
   // Same control as spawn and channel-create, with the harness locked: an existing
@@ -848,6 +868,7 @@ function ConfigureDialog(props: {
     model: props.member.model ?? '',
     thinking: props.member.thinking ?? '',
     policy: asPolicy(props.member.policy),
+    colorHue: props.member.color_hue,
   });
 
   const submit = (event: { preventDefault: () => void }) => {
@@ -858,9 +879,14 @@ function ConfigureDialog(props: {
     const isAcp = props.member.harness === 'acp';
     props.onConfigure({
       // null clears an override; '' from the Default tile means exactly that.
-      ...(!isAcp && { model: config.model === '' ? null : config.model }),
-      thinking: supportedThinking(adapter, config.thinking) ?? null,
-      ...(config.policy !== '' && { policy: config.policy }),
+      ...(props.member.custody !== 'mirrored' && !isAcp && {
+        model: config.model === '' ? null : config.model,
+      }),
+      ...(props.member.custody !== 'mirrored' && {
+        thinking: supportedThinking(adapter, config.thinking) ?? null,
+      }),
+      ...(props.member.custody !== 'mirrored' && config.policy !== '' && { policy: config.policy }),
+      ...(config.colorHue !== undefined && { color_hue: config.colorHue }),
     });
     props.onClose();
   };
@@ -879,13 +905,24 @@ function ConfigureDialog(props: {
           </button>
         </div>
         <div className="nx-dialog-body">
-        <AgentControls
-          adapters={props.adapters}
-          config={config}
-          onChange={setConfig}
-          lockHarness
-          behaviourSection={1}
-          permissionsSection={2}
+        {props.member.custody !== 'mirrored' ? (
+          <AgentControls
+            adapters={props.adapters}
+            config={config}
+            onChange={setConfig}
+            lockHarness
+            behaviourSection={1}
+            permissionsSection={2}
+            idPrefix="configure"
+          />
+        ) : (
+          <p className="nx-note">Runtime settings stay with the terminal that owns this mirrored session.</p>
+        )}
+        <ParticipantColorPicker
+          value={config.colorHue}
+          used={props.usedColorHues}
+          allowAutomatic={false}
+          onChange={(colorHue) => setConfig({ ...config, colorHue })}
           idPrefix="configure"
         />
         </div>
@@ -993,6 +1030,7 @@ function SpawnDialog(props: {
         cwd,
         purpose: rolePurpose,
         ownership: effectiveJoinOwnership,
+        colorHue: config.colorHue,
         members: props.members,
       }));
       return;
@@ -1099,6 +1137,12 @@ function SpawnDialog(props: {
             data-testid="spawn-handle"
           />
         </label>
+        <ParticipantColorPicker
+          value={config.colorHue}
+          used={usedColorHues(props.members)}
+          onChange={(colorHue) => setConfig({ ...config, colorHue })}
+          idPrefix="spawn"
+        />
         {ownerClash && (
           <p className="nx-field-error" role="alert" data-testid="spawn-owner-clash">
             @{derived} is already in use by the channel owner.
@@ -1285,6 +1329,12 @@ function SpawnDialog(props: {
             @{joinDerived} is already in use by the channel owner.
           </p>
         )}
+        <ParticipantColorPicker
+          value={config.colorHue}
+          used={usedColorHues(props.members)}
+          onChange={(colorHue) => setConfig({ ...config, colorHue })}
+          idPrefix="join"
+        />
         <label className="nx-field">
           <span className="nx-label">Assignment and operating instructions <span className="nx-opt">· optional</span></span>
           <textarea
