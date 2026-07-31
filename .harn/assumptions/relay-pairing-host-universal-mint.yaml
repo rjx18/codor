@@ -1,0 +1,21 @@
+id: relay-pairing-host-universal-mint
+hash: a-ba345e4da354
+title: Relay pairing terminates in a dual-registered PairingService grant
+state: active
+statement: packages/switchboard/src/relay/pairing-host.ts must drive the host
+  side of relay pairing - reserve a room, connect the pairing-room WS as host,
+  run a fresh PakeHost per claimant with attempt and reset handling, and over
+  the pairing AEAD channel send hello carrying a pairing_token that
+  PairingService.issueForCode minted at room reservation for the room's own
+  nameplate+secret code (dual-registering that same eight-char code as a local
+  pairing grant), plus the host static key and session id; verify the echoed
+  token, call PairingService.complete to enroll the device into the existing
+  PairingResult, persist {device_id, kid, client_static_pub} to the relay store,
+  deliver the enrolled result, and signal success to burn the room. The session
+  must reuse the pre-minted token rather than minting a second token at claim
+  time, so the relay and local doors always share one grant.
+depends_on:
+  - tunnel-pake-cpace
+  - tunnel-pairing-channel-payloads
+  - relay-store-persistence
+created_by: relay-ux-p1-universal-code

@@ -1,0 +1,64 @@
+id: relay-onboard-p7-browser-failover
+title: relay-onboard P7 - browser alias failover, codor pair TUI card, relay
+  pair body fix
+anchors:
+  terminal-pairing-qr-matches-plain-url:
+    pair-qr-command:
+      action: change
+      reason: On a TTY, codor pair renders the SAME bordered pairing card as setup's
+        final step (renderPairingCard reuse, Richard msg 516) with a doors-aware
+        instruction line; the QR still encodes exactly the printed pairing URL.
+        Non-TTY output keeps the existing plain lines verbatim, so piped/test
+        output is unchanged.
+  pairing-code-enrollment-surfaces:
+    pair-code-command:
+      action: change
+      reason: Nested inside the pair command body being edited; the code still
+        surfaces on every path - inside the card on TTY, as the plain `code:`
+        line otherwise.
+  continuation-writer-follows-journaled-output-ownership:
+    continuation-cli-format:
+      action: change
+      reason: Top-of-file import of renderPairingCard may attribute to an early
+        top-level anchor (known harn import-attribution quirk); continuation
+        output behavior is untouched.
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-terminology:
+      action: change
+      reason: The CliContext interface gains an isTTY override next to this anchor's
+        region and the import shifts attribute here (harn attribution quirk); no
+        user-facing terminology changes - channels stay channels.
+files:
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+  - packages/cli/src/pair-universal.spec.ts
+  - packages/web-next/src/runtime/relay-dial.ts
+  - packages/web-next/src/runtime/relay-mode.ts
+  - packages/web-next/src/runtime/crypto.ts
+  - packages/web-next/src/runtime/relay.ts
+  - packages/web-next/src/runtime/relay.spec.ts
+  - packages/web-next/src/runtime/relay-records.spec.ts
+  - packages/web-next/tests/room7-pairing.e2e.spec.ts
+  - packages/web-next/tests/room35-startup-recovery.e2e.spec.ts
+  - packages/web-next/tests/mock-relay.mjs
+  - packages/web-next/tests/harness.mjs
+  - package.json
+  - packages/adapters/acp/package.json
+  - packages/adapters/antigravity/package.json
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/codex/package.json
+  - packages/adapters/copilot/package.json
+  - packages/adapters/cursor/package.json
+  - packages/adapters/gemini/package.json
+  - packages/adapters/opencode/package.json
+  - packages/bridges/core/package.json
+  - packages/bridges/slack/package.json
+  - packages/bridges/telegram/package.json
+  - packages/cli/package.json
+  - packages/protocol/package.json
+  - packages/switchboard/package.json
+  - packages/web-next/package.json
+  - relay/package.json
+  - website/package.json
+applied:
+  applied_at: 2026-07-31T18:50:39.485Z

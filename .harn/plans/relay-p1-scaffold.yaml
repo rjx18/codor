@@ -1,0 +1,124 @@
+id: relay-p1-scaffold
+title: Relay Phase 1 - scaffold relay-worker and @codor/tunnel with wire types
+assumptions:
+  create:
+    - id: relay-worker-stays-blind
+      title: The relay Worker is blind by construction
+      statement: The @codor/relay-worker package must declare zero runtime
+        dependencies and contain no cryptographic or key-handling code, and its
+        Worker router must route by path only without parsing or logging request
+        or response bodies, so the relay can forward opaque ciphertext and can
+        never hold user key material or plaintext.
+      reason: Requirements 1 and 2 make blindness the core security property;
+        enforcing it structurally (no deps, no crypto, no body inspection)
+        removes the possibility that a later change quietly gives the relay the
+        ability to read traffic.
+      depends_on: []
+    - id: relay-control-vocabulary-is-canonical
+      title: Relay control messages and close codes have one canonical vocabulary
+      statement: The relay cleartext control-message type names and WebSocket close
+        codes defined in the wire protocol must live as named constants in
+        relay-worker/src/control.ts for the Worker and its Durable Objects, and
+        packages/tunnel/src/control.ts must carry the matching client-side JSON
+        control types; the two files are a deliberate duplication (tunnel cannot
+        import the dependency-free Worker) and must stay in agreement.
+      reason: Both endpoints and both Durable Objects branch on these exact strings
+        and numeric close codes; a drift between the Worker copy and the tunnel
+        copy would silently break routing or burn semantics with no type error.
+      depends_on: []
+    - id: tunnel-mux-frame-wire-format
+      title: The tunnel stream-mux frame codec is byte-exact
+      statement: packages/tunnel/src/frames.ts must encode and decode the stream-mux
+        wire format exactly as specified - a frame is type(1) then streamId(4
+        big-endian) then payload, a packet is one or more frames each prefixed
+        by a u32 big-endian length, and the coalescer flushes buffered frames at
+        16 ms or 64 KiB whichever comes first - and it must reject truncated or
+        length-overflowing input rather than returning partial frames, because
+        the browser and switchboard depend on byte-for-byte agreement over the
+        opaque relay.
+      reason: This is the innermost wire contract shared by both endpoints across two
+        language runtimes; a silent change to the byte layout or a lenient
+        decoder would corrupt or desynchronize every tunneled stream.
+      depends_on: []
+    - id: tunnel-pairing-code-parity
+      title: Tunnel code helpers stay parity-locked with switchboard pairing codes
+      statement: packages/tunnel/src/codes.ts must use the same 32-symbol alphabet
+        (23456789ABCDEFGHJKLMNPQRSTUVWXYZ) as switchboard pairing.ts, and its
+        normalize, format, split, and generate helpers must produce results
+        consistent with normalizePairingCode and randomPairingCode over the
+        shared 8-character space (2-char nameplate + 6-char secret), because the
+        browser and switchboard must agree on code handling without sharing the
+        sodium-bound pairing module.
+      reason: The pairing PAKE derives a group element from the exact secret string;
+        any divergence in normalization, casing, dash handling, or the alphabet
+        would make matching codes fail to pair while looking identical to a
+        user.
+      depends_on: []
+  reviewed:
+    - id: workspace-gates-cover-all-buildable-projects
+      outcome: unchanged
+      reason: Adding the top-level relay-worker project keeps the assumption true -
+        the gate files still enumerate every previously required project, and
+        relay-worker is added to both pnpm-workspace.yaml (so pnpm recursion
+        cannot skip it) and vitest.workspace.ts (so the Vitest-owning-project
+        clause still holds); relay-worker carries its own vitest-pool-workers
+        config, so the shared workspace loads it as a Workers-pool project.
+anchors:
+  workspace-gates-cover-all-buildable-projects:
+    workspace-globs:
+      action: change
+      reason: Add the top-level relay-worker glob so pnpm recursion builds and tests
+        it.
+    vitest-projects:
+      action: change
+      reason: Document that relay-worker runs under its own vitest-pool-workers gate
+        and is intentionally excluded from the shared Node Vitest workspace.
+  relay-worker-stays-blind:
+    blind-router:
+      action: change
+      reason: Introduce the path-only Worker router with /healthz and opaque WS
+        upgrades, no body parsing or logging.
+    blind-deps-regression:
+      action: change
+      reason: Assert the package declares no runtime dependencies as a standing guard.
+  relay-control-vocabulary-is-canonical:
+    relay-control-source:
+      action: change
+      reason: Define the canonical relay control-message type names and close-code
+        constants for the Worker and both Durable Objects.
+    tunnel-control-mirror:
+      action: change
+      reason: Define the matching client-side control JSON types in the tunnel package.
+  tunnel-mux-frame-wire-format:
+    mux-wire-codec:
+      action: change
+      reason: Implement the frame/packet encoder, decoder, and coalescer with strict
+        truncation and overflow rejection.
+  tunnel-pairing-code-parity:
+    pairing-code-utils:
+      action: change
+      reason: Implement the alphabet constant and normalize/format/split/generate
+        helpers duplicated from switchboard pairing semantics.
+files:
+  - pnpm-workspace.yaml
+  - vitest.workspace.ts
+  - relay-worker/package.json
+  - relay-worker/wrangler.jsonc
+  - relay-worker/tsconfig.json
+  - relay-worker/vitest.config.ts
+  - relay-worker/src/index.ts
+  - relay-worker/src/control.ts
+  - relay-worker/src/pairing-room.ts
+  - relay-worker/src/session-relay.ts
+  - relay-worker/test/healthz.spec.ts
+  - relay-worker/test/blind.spec.ts
+  - packages/tunnel/package.json
+  - packages/tunnel/tsconfig.json
+  - packages/tunnel/src/index.ts
+  - packages/tunnel/src/codes.ts
+  - packages/tunnel/src/frames.ts
+  - packages/tunnel/src/control.ts
+  - packages/tunnel/src/codes.spec.ts
+  - packages/tunnel/src/frames.spec.ts
+applied:
+  applied_at: 2026-07-27T08:48:53.621Z

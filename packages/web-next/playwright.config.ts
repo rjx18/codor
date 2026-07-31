@@ -22,6 +22,10 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${String(apiPort)}`,
     // The reference desktop composition: all three islands visible.
     viewport: { width: 1440, height: 900 },
+    // A fake mic + auto-granted permission so dictation captures headlessly.
+    launchOptions: {
+      args: ['--use-fake-device-for-media-capture', '--use-fake-ui-for-media-capture'],
+    },
   },
   webServer: {
     // The harness imports built workspace packages and serves web-next/dist.

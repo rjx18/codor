@@ -1,0 +1,13 @@
+id: relay-store-persistence
+hash: a-7963740c9c59
+title: The switchboard relay record is a sealed local store
+state: active
+statement: packages/switchboard/src/relay/store.ts must persist the switchboard
+  relay record to <dataDir>/crypto/relay.json via privateJsonWrite (0600) -
+  {version, enabled, relay_url, session_id, host_static:{pub,priv},
+  devices:[{device_id, kid, client_static_pub, label, enrolled_at}]} -
+  generating session_id (32 random bytes as 64-hex) and the host_static X25519
+  keypair once on first enable, tolerating an absent file on load, and replacing
+  session_id on rotate (existing devices must re-pair).
+depends_on: []
+created_by: relay-p5-switchboard

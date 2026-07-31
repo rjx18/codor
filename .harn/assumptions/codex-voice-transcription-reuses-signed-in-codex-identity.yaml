@@ -1,0 +1,16 @@
+id: codex-voice-transcription-reuses-signed-in-codex-identity
+hash: a-0bf9a954f19f
+title: Codex voice transcription borrows the operator's signed-in codex
+  identity, host-side only
+state: active
+statement: CodexVoiceProvider reads credentials at request time from auth.json
+  under CODEX_HOME (default ~/.codex) using the same shape as the codex limits
+  probe - tokens.access_token or access_token plus tokens.account_id or
+  account_id - and POSTs the audio to https://chatgpt.com/backend-api/transcribe
+  with Authorization Bearer, ChatGPT-Account-Id, OAI-Product-Sku CODEX,
+  originator Codex Desktop, and a Codex Desktop User-Agent header. It never
+  stores, mints, or refreshes tokens, and credential material stays inside the
+  host process - never echoed into results, logs, or error messages.
+depends_on:
+  - voice-transcription-provider-contract
+created_by: codor-voice-phase1-provider-contract

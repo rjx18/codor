@@ -31,6 +31,7 @@ const EXPECTED_CLOSURE = [
   '@codor/cli',
   '@codor/protocol',
   '@codor/switchboard',
+  '@codor/tunnel',
 ];
 
 function filesBelow(root: string): string[] {
@@ -47,7 +48,7 @@ function filesBelow(root: string): string[] {
 }
 
 describe('artifact graph', () => {
-  it('finds exactly the current eleven-package runtime closure', () => {
+  it('finds exactly the current twelve-package runtime closure', () => {
     expect(discoverClosure(readWorkspace(repoRoot))).toEqual(EXPECTED_CLOSURE);
   });
 

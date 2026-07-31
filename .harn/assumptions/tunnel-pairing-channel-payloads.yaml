@@ -1,0 +1,17 @@
+id: tunnel-pairing-channel-payloads
+hash: a-e1b832a4a6c2
+title: The pairing channel carries the fixed JSON enrollment handshake
+state: active
+statement: packages/tunnel/src/pairing-channel.ts must define and validate the
+  JSON plaintexts exchanged over the pairing AEAD channel in PLAN §4.2 order -
+  host hello {type, switchboard, session_id, host_static_pub, pairing_token,
+  relay_url, protocol}, claimant enroll {type, request, client_static_pub,
+  pairing_token}, host enrolled {type, result}, claimant done {type} - encoding
+  each as UTF-8 JSON sealed by the AEAD channel and rejecting messages of the
+  wrong type or shape, because the enrollment result and the token echo it
+  carries are what bind a relay pairing to the existing PairingService
+  enrollment.
+depends_on:
+  - tunnel-pake-cpace
+  - tunnel-aead-counter-channel
+created_by: relay-p2-crypto-core

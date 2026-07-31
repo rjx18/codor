@@ -1,0 +1,26 @@
+id: relay-p7-alias
+title: Relay Phase 7 - pin the workers.dev alias on so a routine deploy can't
+  silently disable it
+notes: >
+  Follow-up hardening (fable #200). The blind relay is reached two ways:
+  browsers hit relay.codor.app (ECH hides the SNI), but SNI-filtered networks -
+  including the switchboard host itself - reach the SAME worker + DOs via the
+  workers.dev alias (codor-relay.<sub>.workers.dev), the shipping path there.
+  wrangler defaults the alias OFF and the today's redeploy silently disabled it
+  (re-enabled by hand via the API), so one routine `wrangler deploy` would break
+  every browser and host using the alias. Pin it in config: add "workers_dev":
+  true to wrangler.jsonc so the declared state matches the operational
+  requirement. Config only - no Worker source or anchored region changes; the
+  relay stays blind. Independent of the held relay-p7-landing plan; commits on
+  its own.
+assumptions:
+  reviewed:
+    - id: relay-worker-stays-blind
+      outcome: unchanged
+      reason: Enabling the workers.dev route is deploy configuration only; it changes
+        no routing, logging, observability, or retention behavior, so the
+        blind-router invariant is untouched.
+files:
+  - relay-worker/wrangler.jsonc
+applied:
+  applied_at: 2026-07-30T06:16:24.265Z

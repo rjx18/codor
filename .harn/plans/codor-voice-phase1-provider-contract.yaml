@@ -1,0 +1,130 @@
+id: codor-voice-phase1-provider-contract
+title: VoiceProvider contract in protocol plus the codex transcription provider
+notes: Phase 1 of the approved dictation plan (tmp/codor-voice/PLAN.md). Adds
+  the provider-agnostic voice transcription seam to the protocol package
+  (VoiceProvider interface, IO types, Zod provider-id schema, barrel export) and
+  the reference CodexVoiceProvider in the codex adapter package. The codex
+  provider reads the operator's signed-in codex credentials host-side
+  (limits-probe auth.json pattern), enforces the upstream ChatGPT-login-only
+  auth matrix, ensures 24 kHz mono PCM16 WAV (pure-TS downmix/resample, no
+  ffmpeg), and uploads one multipart file field to the verified
+  chatgpt.com/backend-api/transcribe endpoint. No switchboard endpoint, no
+  registry, no UI in this phase (Phases 2-3). Touched barrels
+  (protocol/src/index.ts, adapters/codex/src/index.ts) carry no existing
+  anchors; no existing assumption's anchored region is modified.
+assumptions:
+  create:
+    - id: voice-transcription-provider-contract
+      title: One VoiceProvider contract turns named audio input into transcript text
+      statement: The protocol package owns the voice transcription seam. A
+        VoiceProvider exposes transcribe(input) where input carries audio bytes,
+        a mimeType, and optional sampleRate/channels metadata, and resolves to a
+        result carrying the transcript text. Provider ids are bounded lowercase
+        slugs validated by a Zod VoiceProviderIdSchema, and the contract is
+        barrel-exported from the protocol index so switchboard, adapters, and
+        future providers share exactly one shape. Failures reject with
+        descriptive errors that preserve any non-success response body; errors
+        are never encoded into the success result.
+      reason: Dictation must stay swappable across STT backends (codex today, API-key
+        or local providers later) without reshaping switchboard or the web UI.
+    - id: codex-voice-transcription-reuses-signed-in-codex-identity
+      title: Codex voice transcription borrows the operator's signed-in codex
+        identity, host-side only
+      statement: CodexVoiceProvider reads credentials at request time from auth.json
+        under CODEX_HOME (default ~/.codex) using the same shape as the codex
+        limits probe - tokens.access_token or access_token plus
+        tokens.account_id or account_id - and POSTs the audio to
+        https://chatgpt.com/backend-api/transcribe with Authorization Bearer,
+        ChatGPT-Account-Id, OAI-Product-Sku CODEX, originator Codex Desktop, and
+        a Codex Desktop User-Agent header. It never stores, mints, or refreshes
+        tokens, and credential material stays inside the host process - never
+        echoed into results, logs, or error messages.
+      reason: The operator's existing codex login must power dictation with no
+        separate sign-in and no credential exposure beyond the host process.
+      depends_on:
+        - voice-transcription-provider-contract
+    - id: codex-voice-transcription-requires-chatgpt-login
+      title: Only ChatGPT-login codex auth may transcribe; 401 says re-authenticate
+      statement: Mirroring upstream validate_transcription_auth, CodexVoiceProvider
+        refuses to upload when auth.json is missing or unreadable or when it
+        represents api-key or personal-access-token auth, each rejection
+        carrying a mode-specific message naming the fix; only ChatGPT login
+        credentials proceed to upload. An HTTP 401 from the endpoint surfaces a
+        clear re-authenticate-with-codex error and v1 performs no OAuth token
+        refresh (documented follow-up).
+      reason: Wrong-mode uploads waste paid transcription calls and yield opaque
+        endpoint errors; the operator needs an actionable message instead.
+      depends_on:
+        - codex-voice-transcription-reuses-signed-in-codex-identity
+    - id: codex-voice-upload-is-24khz-mono-pcm16-wav
+      title: The codex transcription upload is exactly one 24 kHz mono PCM16 WAV
+        multipart part
+      statement: CodexVoiceProvider uploads exactly one multipart/form-data field
+        named file with filename codex.wav and part content-type audio/wav whose
+        bytes are a valid RIFF/WAVE PCM16 payload at 24000 Hz mono. PCM input at
+        other sample rates or channel counts is downmixed and linearly resampled
+        host-side in pure TypeScript - no ffmpeg or native media dependency -
+        and audio shorter than about one second is rejected before upload.
+      reason: The live endpoint only accepts this shape (verified 2026-07-27);
+        malformed or too-short audio wastes paid transcription calls.
+      depends_on:
+        - voice-transcription-provider-contract
+anchors:
+  voice-transcription-provider-contract:
+    voice-provider-contract:
+      action: change
+      reason: New protocol module defining the VoiceProvider interface, IO types, and
+        VoiceProviderIdSchema.
+    voice-provider-contract-regression:
+      action: change
+      reason: Prove id schema bounds and IO type shape at the protocol boundary.
+  codex-voice-transcription-reuses-signed-in-codex-identity:
+    codex-transcribe-credentials:
+      action: change
+      reason: Read-time auth.json credential resolution mirroring the limits probe,
+        CODEX_HOME override included.
+    codex-transcribe-request:
+      action: change
+      reason: Verified endpoint URL and Codex Desktop identity headers on the upload
+        request.
+    codex-transcribe-identity-regression:
+      action: change
+      reason: Prove headers, endpoint, read-time credential use, and no credential
+        leakage into errors; mock only the HTTP boundary.
+  codex-voice-transcription-requires-chatgpt-login:
+    codex-transcribe-auth-matrix:
+      action: change
+      reason: Auth-mode gate - chatgpt proceeds; api-key, PAT, missing each get a
+        specific rejection; 401 maps to a re-authenticate error.
+    codex-transcribe-auth-regression:
+      action: change
+      reason: Prove the full rejection matrix and the 401 message without any refresh
+        attempt.
+  codex-voice-upload-is-24khz-mono-pcm16-wav:
+    codex-transcribe-wav-format:
+      action: change
+      reason: WAV encode, downmix, linear resample to 24 kHz mono PCM16, and the
+        min-duration guard plus the single-field multipart body.
+    codex-transcribe-wav-regression:
+      action: change
+      reason: Prove RIFF/fmt header values, multipart field name and filename and
+        content type, 48k-stereo resample, and short-audio rejection.
+files:
+  - packages/protocol/src/voice.ts
+  - packages/protocol/src/voice.spec.ts
+  - packages/protocol/src/index.ts
+  - packages/adapters/codex/src/transcribe.ts
+  - packages/adapters/codex/src/transcribe.spec.ts
+  - packages/adapters/codex/src/transcribe.live.spec.ts
+  - packages/adapters/codex/src/index.ts
+verification: Vitest proves WAV header correctness (RIFF/WAVE, 24000 Hz, mono,
+  PCM16), multipart body shape (field file, filename codex.wav, audio/wav),
+  downmix/resample from 48 kHz stereo, the auth matrix (chatgpt ok; api-key,
+  PAT, none get specific errors; 401 yields the re-authenticate message with no
+  refresh), non-success body preservation, and sub-second rejection - only the
+  HTTP boundary is mocked. A spend-gated live smoke (CODOR_LIVE_SMOKE=1, WAV
+  path via CODOR_VOICE_SMOKE_WAV) drives CodexVoiceProvider.transcribe() against
+  the real endpoint and asserts a non-empty transcript. Protocol and
+  codex-adapter builds plus full unit suites pass; harn check passes.
+applied:
+  applied_at: 2026-07-27T02:47:04.631Z

@@ -1,0 +1,58 @@
+id: rebuild-public-package-0-10-5
+title: Rebuild the public package as version 0.10.5
+notes: Advance the repository release set from 0.10.4 to 0.10.5 so Richard can
+  install and test the approved web dictation feature (voice Phases 1-4, commits
+  102b310..0aa64ba). Align every workspace manifest and the ACP client identity;
+  rebuild, pack, and install-smoke the tarball only - do not publish, tag, or
+  push. No spec expectation changes are needed this time (the version is not
+  pinned in CLI regressions).
+assumptions:
+  reviewed:
+    - id: public-package-bundles-complete-codor-runtime
+      outcome: unchanged
+      reason: The artifact continues to bundle the exact workspace closure and resolve
+        every workspace dependency to the new common release version.
+    - id: public-package-readme-renders-on-npm
+      outcome: unchanged
+      reason: The rebuilt tarball carries the existing npm-safe README unchanged; only
+        the publishable version identity advances.
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      outcome: unchanged
+      reason: The ACP adapter advertises the matching Codor release version while its
+        protocol negotiation and normalized runtime behavior remain unchanged.
+    - id: artifact-build-runs-from-clean-source
+      outcome: unchanged
+      reason: The artifact build and its regressions run unmodified; only manifest
+        version identity advances.
+anchors:
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-adapter-runtime:
+      action: change
+      reason: Advance the ACP initialize clientInfo version from 0.10.4 to 0.10.5.
+files:
+  - package.json
+  - packages/adapters/acp/package.json
+  - packages/adapters/acp/src/adapter.ts
+  - packages/adapters/antigravity/package.json
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/codex/package.json
+  - packages/adapters/copilot/package.json
+  - packages/adapters/cursor/package.json
+  - packages/adapters/gemini/package.json
+  - packages/adapters/opencode/package.json
+  - packages/bridges/core/package.json
+  - packages/bridges/slack/package.json
+  - packages/bridges/telegram/package.json
+  - packages/cli/package.json
+  - packages/protocol/package.json
+  - packages/switchboard/package.json
+  - packages/web-next/package.json
+  - relay/package.json
+  - website/package.json
+verification: Every tracked workspace manifest and the ACP client identity
+  report 0.10.5; pnpm -r build passes; the ACP adapter regressions pass; license
+  and release audits pass; pnpm build:artifact stages the public package; npm
+  pack emits codor-0.10.5.tgz; scripts/packed-install-test.sh install-smokes the
+  exact resulting TGZ. Do not publish, tag, or push.
+applied:
+  applied_at: 2026-07-27T04:14:45.092Z

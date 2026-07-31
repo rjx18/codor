@@ -1,0 +1,14 @@
+id: tunnel-keepalive
+hash: a-0e41eb9371f3
+title: A shared keepalive detects half-open relay sockets from either endpoint
+state: active
+statement: packages/tunnel/src/keepalive.ts must provide one transport-agnostic
+  Keepalive used identically by the switchboard and the browser - it sends a
+  codor-ping (RELAY_KEEPALIVE_PING) on its socket every interval (default 30000
+  ms, injectable) while the socket is idle, is reset to alive by any inbound
+  traffic via noteActivity, and after two consecutive unanswered intervals
+  invokes onDead exactly once and stops so the caller can close and reconnect,
+  because the relay and both NAT paths can drop a socket silently and only an
+  active probe surfaces a half-open link before it strands a session.
+depends_on: []
+created_by: relay-p7-keepalive

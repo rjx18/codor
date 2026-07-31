@@ -11,7 +11,7 @@ import { WireEventSchema } from './events.js';
 import { MemberIdSchema, MessageIdSchema, RoomIdSchema, SeqSchema, TimestampSchema } from './ids.js';
 import { AssignableHandleSchema } from './member.js';
 import { MemberSchema } from './member.js';
-import { MessageSchema } from './message.js';
+import { MessageSchema, VoiceNoteSchema } from './message.js';
 import { RoomMeterSchema, RoomSchema, RoomSupportSchema } from './room.js';
 
 // ── client → server ────────────────────────────────────────────────────────
@@ -58,6 +58,9 @@ export const PostFrameSchema = z.object({
   reply_to: MessageIdSchema.optional(),
   // ids of files uploaded to this room beforehand; capped at 8 per message
   attachments: z.array(z.string().min(1)).max(8).optional(),
+  // harn:assume voice-message-metadata-is-bounded-and-additive ref=voice-post-frame
+  voice: VoiceNoteSchema.optional(), // bounded recording metadata for a dictated post
+  // harn:end voice-message-metadata-is-bounded-and-additive
   // harn:assume awaiting-reply-marker-is-delivery-context ref=awaiting-reply-post-contract
   awaiting_reply: z.boolean().optional(),
   // harn:end awaiting-reply-marker-is-delivery-context

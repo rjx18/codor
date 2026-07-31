@@ -1,0 +1,113 @@
+id: relay-p2-crypto-core
+title: Relay Phase 2 - tunnel crypto core (PAKE, AEAD, session handshake,
+  pairing channel)
+assumptions:
+  create:
+    - id: tunnel-aead-counter-channel
+      title: The tunnel AEAD channel uses deterministic per-direction counter nonces
+      statement: packages/tunnel/src/aead.ts must implement an XChaCha20-Poly1305
+        channel whose 24-byte nonce is an unsigned little-endian 64-bit
+        per-direction counter starting at 0 followed by 16 zero bytes, with
+        empty AAD, encrypting/decrypting one message per counter value; it must
+        refuse to reuse or skip a counter and must throw rather than wrap when
+        the counter would overflow, because nonce reuse under a fixed key is a
+        total break of confidentiality and integrity.
+      reason: Both the pairing channel (PLAN §4.2 step 6) and the post-handshake
+        session framing (PLAN §4.3) depend on this exact nonce discipline; a
+        silent counter reuse or a lenient decoder would void the AEAD guarantee.
+      depends_on: []
+    - id: tunnel-pake-cpace
+      title: The pairing PAKE follows the revised CPace-style construction exactly
+      statement: packages/tunnel/src/pake.ts must implement the PLAN §4.2 (revised
+        2026-07-27) CPace-style PAKE as PakeHost and PakeClaimant state machines
+        over ristretto255 - deriving the generator g via
+        ristretto255_hasher.hashToCurve(lv(secret) ‖ lv("nameplate:"+nameplate)
+        ‖ lv(sid)) with DST "codor-relay/v1/cpace", using sid = 16 random bytes,
+        MSG_A = sid(16) ‖ Ya(32), MSG_B = Yb(32), rejecting any K equal to the
+        identity element or any point that fails ristretto decoding as a failed
+        attempt, computing ISK = SHA-512(lv("codor-relay/v1/isk") ‖ lv(sid) ‖
+        lv(K) ‖ lv(Ya) ‖ lv(Yb))[0..32], confirming with HMAC-SHA256(ISK,
+        "confirm-claimant") then HMAC-SHA256(ISK, "confirm-host") verified in
+        constant time, and deriving the channel keys k_h2c/k_c2h via
+        HKDF-SHA256(ikm=ISK, salt=sid, info="codor-relay/v1/pair/h2c"|"…/c2h") -
+        so that the browser and switchboard agree on the shared key without ever
+        transmitting the code.
+      reason: This is the security core of pairing; every label, byte order, and the
+        identity-K rejection is normative, and a divergence would either break
+        pairing or silently weaken the zero-knowledge property of the code.
+      depends_on:
+        - tunnel-aead-counter-channel
+        - tunnel-pairing-code-parity
+    - id: tunnel-session-handshake-kk
+      title: The per-connection session handshake is a mutually authenticated KK
+        exchange
+      statement: packages/tunnel/src/handshake.ts must implement the PLAN §4.3
+        KK-style handshake as SessionInitiator (client) and SessionResponder
+        (host) using X25519 - kid = SHA-256(client_static_pub)[0..8], msg1 =
+        kid(8) ‖ Ec_pub(32), msg2 = Eh_pub(32) ‖ HMAC(K_conf,"host"), msg3 =
+        HMAC(K_conf,"client") - binding transcript =
+        SHA-256(lv("codor-relay/v1/kk") ‖ lv(session_id) ‖ lv(kid) ‖ lv(Ec_pub)
+        ‖ lv(Eh_pub) ‖ lv(S_c_pub) ‖ lv(S_h_pub)), mixing master =
+        HKDF-Extract(salt=transcript, ikm = dh_ee ‖ dh_es ‖ dh_se ‖ dh_ss) and
+        expanding K_conf/k_c2h/k_h2c via HKDF-Expand(master,
+        "confirm"|"c2h"|"h2c", 32), and verifying both confirmation tags in
+        constant time before any application data, so an impostor lacking a
+        static key cannot complete the handshake.
+      reason: Per-connection forward secrecy and mutual authentication rest on this
+        exact transcript, DH ordering, and tag discipline; a wrong label, DH
+        order, or a skipped verification would break authentication or key
+        agreement across the relay.
+      depends_on:
+        - tunnel-aead-counter-channel
+    - id: tunnel-pairing-channel-payloads
+      title: The pairing channel carries the fixed JSON enrollment handshake
+      statement: packages/tunnel/src/pairing-channel.ts must define and validate the
+        JSON plaintexts exchanged over the pairing AEAD channel in PLAN §4.2
+        order - host hello {type, switchboard, session_id, host_static_pub,
+        pairing_token, relay_url, protocol}, claimant enroll {type, request,
+        client_static_pub, pairing_token}, host enrolled {type, result},
+        claimant done {type} - encoding each as UTF-8 JSON sealed by the AEAD
+        channel and rejecting messages of the wrong type or shape, because the
+        enrollment result and the token echo it carries are what bind a relay
+        pairing to the existing PairingService enrollment.
+      reason: The switchboard and browser drivers (Phases 5-6) depend on this exact
+        message set and ordering to reach the existing PairingResult enrollment;
+        an unvalidated or reordered payload would corrupt enrollment or accept a
+        malformed peer message.
+      depends_on:
+        - tunnel-pake-cpace
+        - tunnel-aead-counter-channel
+  reviewed: []
+anchors:
+  tunnel-aead-counter-channel:
+    aead-counter-channel:
+      action: change
+      reason: Implement the XChaCha20-Poly1305 counter-nonce channel with
+        reuse/overflow rejection.
+  tunnel-pake-cpace:
+    pake-cpace:
+      action: change
+      reason: Implement PakeHost/PakeClaimant with the revised generator derivation,
+        message layouts, K rejection, ISK, confirmation, and channel-key HKDF.
+  tunnel-session-handshake-kk:
+    session-handshake-kk:
+      action: change
+      reason: Implement SessionInitiator/SessionResponder with the KK transcript, DH
+        mixing, HKDF expansion, and constant-time tag verification.
+  tunnel-pairing-channel-payloads:
+    pairing-channel-payloads:
+      action: change
+      reason: Implement the hello/enroll/enrolled/done JSON payload codecs over the
+        AEAD channel with type/shape validation.
+files:
+  - packages/tunnel/src/aead.ts
+  - packages/tunnel/src/pake.ts
+  - packages/tunnel/src/handshake.ts
+  - packages/tunnel/src/pairing-channel.ts
+  - packages/tunnel/src/index.ts
+  - packages/tunnel/src/aead.spec.ts
+  - packages/tunnel/src/pake.spec.ts
+  - packages/tunnel/src/handshake.spec.ts
+  - packages/tunnel/src/pairing-channel.spec.ts
+applied:
+  applied_at: 2026-07-27T09:25:44.492Z

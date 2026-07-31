@@ -17,6 +17,7 @@ import {
   type BridgeOrigin,
   type Member,
   type Policy,
+  VoiceTranscribeError,
   type ServerFrame,
   type ThinkingLevel,
 } from '@codor/protocol';
@@ -34,6 +35,39 @@ import { type Daemon, MAX_ATTACHMENT_BYTES } from './daemon.js';
 import { listLocalDirectories, LocalDirectoryError } from './local-dirs.js';
 import { isPipePath } from './local-socket.js';
 import type { PushSubscriptionStore } from './push/subscriptions.js';
+import {
+  VOICE_PROVIDER_DEFINITIONS,
+  resolveVoiceProvider,
+  voiceProviderCatalog,
+  type VoiceProviderDefinition,
+} from './voice-providers.js';
+
+/** Sentinel so the transcribe handler distinguishes its own timeout from provider errors. */
+class VoiceTimeout extends Error {}
+
+/** Hard cap on uploaded audio bytes; the audio lives only in process memory. */
+const MAX_VOICE_BYTES = 8 * 1024 * 1024;
+
+/** Loopback admin surface for the tunnel relay (implemented by the CLI composition). */
+export interface RelayAdmin {
+  status(): { enabled: boolean; relay_url: string; session_id: string; devices: number };
+  enable(url?: string): void;
+  disable(): void;
+  rotate(): string;
+  /**
+   * The universal mint: reserve a relay room and dual-register its code as a
+   * local grant, returning the full pairing offer (one code, both doors). Shape
+   * inlined to match PairingOffer without importing the sodium-bound module.
+   */
+  pair(endpoint?: string): Promise<{
+    endpoint: string;
+    pairing_token: string;
+    pairing_code: string;
+    expires_at: string;
+    switchboard_sign_pub: string;
+    doors: 'both' | 'local';
+  }>;
+}
 
 export interface ServerOptions {
   daemon: Daemon;
@@ -63,6 +97,14 @@ export interface ServerOptions {
   minimumBrowserProtocol?: number;
   /** Test/operations hook fired when a browser reports a positive protocol epoch. */
   onBrowserProtocolObserved?: (protocol: number) => void;
+  /** Loopback tunnel-relay administration (codor relay …). */
+  relay?: RelayAdmin;
+  /** Web dictation provider id; `'none'` disables dictation. Default `'codex'`. */
+  voiceProvider?: string;
+  /** Test-only injection of the voice provider catalog; defaults to the curated set. */
+  voiceProviders?: readonly VoiceProviderDefinition[];
+  /** Transcription provider-call timeout in ms. Default 60000. */
+  voiceTimeoutMs?: number;
 }
 
 export interface RunningServer {
@@ -299,6 +341,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end agent-network-authority-is-narrow
 
+  // harn:assume voice-provider-selection-is-operator-config ref=voice-selection-server-option
+  // The active provider is operator config only — a browser never names it.
+  const voiceSelected = options.voiceProvider ?? 'codex';
+  const voiceEnabled = voiceSelected !== 'none';
+  const voiceDefinitions = options.voiceProviders ?? VOICE_PROVIDER_DEFINITIONS;
+  const voiceTimeoutMs = options.voiceTimeoutMs ?? 60_000;
+  let voiceInFlight = false;
+  // harn:end voice-provider-selection-is-operator-config
+
   // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-compatibility-rest
   const observedBrowserProtocols = new Set<number>();
   const observeBrowserProtocol = (protocol: number | undefined): void => {
@@ -442,13 +493,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
   });
 
-  app.post('/api/pairing/offers', (req, reply) => {
+  app.post('/api/pairing/offers', async (req, reply) => {
     const principal = authed(req, reply);
     if (!principal || !authorizeGlobal(principal, 'manage_devices', reply)) return;
     if (!options.crypto) return reply.code(404).send({ error: 'pairing is not configured' });
     try {
       const { endpoint } = req.body as { endpoint: string };
-      return reply.header('cache-control', 'no-store').send(options.crypto.pairing.issue(endpoint));
+      // Relay enabled: mint the universal (dual-door) code so the Settings code
+      // opens both codor.app and the local door. Disabled: local-only, as before.
+      const offer = options.relay?.status().enabled
+        ? await options.relay.pair(endpoint)
+        : options.crypto.pairing.issue(endpoint);
+      return reply.header('cache-control', 'no-store').send(offer);
     } catch (error) {
       return reply.code(400).send({ error: String(error) });
     }
@@ -522,6 +578,55 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     return reply.send({ revoked });
   });
   // harn:end unpair-purges-all-browser-state
+
+  // Loopback tunnel-relay admin (codor relay …). Owner-scoped device management.
+  app.get('/api/relay/status', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'read', reply)) return;
+    if (!options.relay) return reply.code(404).send({ error: 'relay is not configured' });
+    return reply.header('cache-control', 'no-store').send(options.relay.status());
+  });
+  app.post('/api/relay/enable', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_devices', reply)) return;
+    if (!options.relay) return reply.code(404).send({ error: 'relay is not configured' });
+    try {
+      const body = (req.body ?? {}) as { url?: string };
+      options.relay.enable(typeof body.url === 'string' ? body.url : undefined);
+      return reply.send(options.relay.status());
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+  app.post('/api/relay/disable', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_devices', reply)) return;
+    if (!options.relay) return reply.code(404).send({ error: 'relay is not configured' });
+    options.relay.disable();
+    return reply.send(options.relay.status());
+  });
+  app.post('/api/relay/rotate', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_devices', reply)) return;
+    if (!options.relay) return reply.code(404).send({ error: 'relay is not configured' });
+    return reply.send({ session_id: options.relay.rotate() });
+  });
+  app.post('/api/relay/pair', async (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_devices', reply)) return;
+    if (!options.relay) return reply.code(404).send({ error: 'relay is not configured' });
+    try {
+      // Mint with the daemon's OWN address as the offer endpoint (the origin the
+      // caller reached), not the relay Worker — so a code exchanged at the local
+      // door resolves to a real pairing page. The CLI wants just the code line;
+      // carry `doors` so it can label a degraded (local-only) code honestly.
+      const localEndpoint = `${req.protocol}://${req.headers.host}`;
+      const offer = await options.relay.pair(localEndpoint);
+      return reply.send({ code: offer.pairing_code, expires_at: offer.expires_at, doors: offer.doors });
+    } catch (error) {
+      return reply.code(502).send({ error: String(error) });
+    }
+  });
 
   app.get('/api/rooms', (req, reply) => {
     const principal = authed(req, reply);
@@ -954,6 +1059,79 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       .send(createReadStream(path));
   });
   // harn:end attachments-are-capped-files-served-inert
+
+  // harn:assume voice-provider-catalog-is-named-and-safe ref=voice-catalog-rest
+  // Safe public catalog: browsers discover whether dictation is offered without
+  // the response ever becoming a credential or filesystem oracle.
+  app.get('/api/voice/providers', async (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    if (!authorizeGlobal(principal, 'read', reply)) return;
+    const providers = await voiceProviderCatalog(voiceDefinitions);
+    return reply.send({ enabled: voiceEnabled, selected: voiceSelected, providers });
+  });
+  // harn:end voice-provider-catalog-is-named-and-safe
+
+  // harn:assume voice-transcribe-endpoint-is-authorized-and-bounded ref=voice-transcribe-rest
+  // Authed, size-capped, single-in-flight, time-bounded. Audio bytes live only
+  // in process memory for the request and are never written to disk.
+  app.post('/api/voice/transcribe', { bodyLimit: MAX_VOICE_BYTES + 4096 }, async (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    if (!authorizeGlobal(principal, 'post', reply)) return;
+    if (!voiceEnabled) return reply.code(404).send({ error: 'voice dictation is disabled' });
+    if (voiceInFlight) return reply.code(429).send({ error: 'a transcription is already in progress' });
+    voiceInFlight = true; // claim the slot before any await closes the race
+    try {
+      const declared = Number(req.headers['content-length'] ?? 0);
+      if (Number.isFinite(declared) && declared > MAX_VOICE_BYTES) {
+        return reply.code(413).send({ error: 'audio exceeds 8 MB' });
+      }
+      const definition = resolveVoiceProvider(voiceSelected, voiceDefinitions);
+      if (!definition) {
+        return reply.code(503).send({ error: `voice provider ${voiceSelected} is not configured` });
+      }
+      const status = await definition.status();
+      if (!status.available) {
+        return reply.code(503).send({ error: status.reason ?? 'voice provider is unavailable' });
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      try {
+        for await (const chunk of req.body as AsyncIterable<Buffer>) {
+          size += chunk.length;
+          if (size > MAX_VOICE_BYTES) return reply.code(413).send({ error: 'audio exceeds 8 MB' });
+          chunks.push(chunk);
+        }
+      } catch (error) {
+        return reply.code(400).send({ error: String(error) });
+      }
+      const audio = new Uint8Array(Buffer.concat(chunks));
+      const mimeType = (req.headers['content-type'] ?? 'application/octet-stream').split(';')[0]?.trim()
+        || 'application/octet-stream';
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          definition.create().transcribe({ audio, mimeType }),
+          new Promise<never>((_, rejectTimeout) => {
+            timer = setTimeout(() => rejectTimeout(new VoiceTimeout()), voiceTimeoutMs);
+          }),
+        ]);
+        return reply.send({ text: result.text });
+      } catch (error) {
+        if (error instanceof VoiceTimeout) return reply.code(504).send({ error: 'voice transcription timed out' });
+        if (error instanceof VoiceTranscribeError) {
+          return reply.code(error.code === 'input' ? 400 : 502).send({ error: error.message });
+        }
+        return reply.code(502).send({ error: String(error) });
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    } finally {
+      voiceInFlight = false;
+    }
+  });
+  // harn:end voice-transcribe-endpoint-is-authorized-and-bounded
 
   // harn:assume descriptor-safe-durable-inert-snapshots-of-successful-output ref=produced-artifact-serve
   // Durable produced-artifact feed: list metadata for room readers, and serve the
@@ -1459,6 +1637,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 author: actor.id,
                 reply_to: frame.reply_to,
                 attachments,
+                voice: frame.voice,
               });
             }
           } else if (frame.type === 'act') {

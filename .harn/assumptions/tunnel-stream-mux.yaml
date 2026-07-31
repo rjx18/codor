@@ -1,0 +1,16 @@
+id: tunnel-stream-mux
+hash: a-652c687700a8
+title: The tunnel stream mux is a single shared windowed multiplexer
+state: active
+statement: packages/tunnel/src/mux.ts must implement the PLAN §4.4 stream
+  multiplexer as one transport-agnostic StreamMux used identically by both
+  endpoints - streams identified by client-odd / host-even ids over the frame
+  codec, with per-stream per-direction windowed flow control (512 KiB default, 4
+  MiB for app-WS streams) where DATA consumes credit, WINDOW replenishes it, and
+  a sender stalls at zero; OPEN/DATA/END/RESET drive stream open, half-close,
+  and abort; stream lifecycle and inbound data are surfaced via callbacks; and
+  outbound frames are emitted through the coalescer - so credit accounting and
+  stream state can never diverge between the browser and switchboard.
+depends_on:
+  - tunnel-mux-frame-wire-format
+created_by: relay-p5-switchboard

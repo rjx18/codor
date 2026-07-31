@@ -1,6 +1,6 @@
 {
   "name": "@codor/switchboard",
-  "version": "0.10.4",
+  "version": "0.10.7",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -28,6 +28,7 @@
     "@codor/adapter-grok": "workspace:*",
     "@codor/adapter-opencode": "workspace:*",
     "@codor/protocol": "workspace:*",
+    "@codor/tunnel": "workspace:*",
     "better-sqlite3": "^12.11.1",
     "chokidar": "^5.0.0",
     "fastify": "^5.10.0",

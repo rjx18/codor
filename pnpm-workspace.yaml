@@ -5,6 +5,7 @@ packages:
   - packages/bridges/*
   - website
   - relay
+  - relay-worker
 # harn:end workspace-gates-cover-all-buildable-projects
 
 # harn:assume pnpm-build-approvals-span-pinned-and-current-config ref=pnpm-current-build-approvals

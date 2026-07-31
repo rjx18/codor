@@ -96,3 +96,76 @@ export async function fetchAuthorizedRooms(token: string): Promise<RoomSummary[]
     return summaries;
   }
 }
+
+/**
+ * Backoff schedule (ms) for the post-pairing channel-list load. Its total (~2.6
+ * min) must comfortably cover the worst case: keepalive detection of a half-open
+ * host link (~60s) plus teardown plus the host's own backoff reconnect (up to
+ * ~60s), so the browser does not give up before the host is reachable again.
+ */
+export const AUTHORIZED_ROOMS_RETRY_MS = [500, 1000, 2000, 4000, 8000, 16000, 32000, 32000, 32000, 32000];
+
+/** Per-attempt deadline: a hung request (no drop, no response) must not stall the schedule. */
+export const AUTHORIZED_ROOMS_ATTEMPT_TIMEOUT_MS = 15_000;
+
+interface RetryDeps {
+  delaysMs?: number[];
+  attemptTimeoutMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  attemptTimeout?: (ms: number) => Promise<void>;
+}
+
+/** One channel-list load bounded by a deadline: undefined on error OR timeout, so
+ *  a never-settling request can never hang the caller. */
+export async function loadAuthorizedRoomsOnce(token: string, deps: RetryDeps = {}): Promise<RoomSummary[] | undefined> {
+  const ms = deps.attemptTimeoutMs ?? AUTHORIZED_ROOMS_ATTEMPT_TIMEOUT_MS;
+  const attemptTimeout = deps.attemptTimeout ?? ((n: number) => new Promise<void>((resolve) => setTimeout(resolve, n)));
+  const timedOut = Symbol('timeout');
+  try {
+    const result = await Promise.race<RoomSummary[] | typeof timedOut>([
+      fetchAuthorizedRooms(token),
+      attemptTimeout(ms).then(() => timedOut),
+    ]);
+    return result === timedOut ? undefined : result;
+  } catch {
+    return undefined; // request failed (session lost / error)
+  }
+}
+
+/**
+ * Keep retrying the channel-list load with backoff before giving up. A relay host
+ * can take up to a keepalive missed-pong cycle to notice a silently stale link and
+ * reconnect, so a paired launch in that window must not dead-end on the offline
+ * screen. Each attempt is deadline-bounded; the whole schedule is bounded so a
+ * genuinely offline device still settles. Returns undefined only after every
+ * attempt fails.
+ */
+export async function retryAuthorizedRooms(token: string, deps: RetryDeps = {}): Promise<RoomSummary[] | undefined> {
+  const delays = deps.delaysMs ?? AUTHORIZED_ROOMS_RETRY_MS;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  for (const delay of delays) {
+    await sleep(delay);
+    const rooms = await loadAuthorizedRoomsOnce(token, deps);
+    if (rooms !== undefined) return rooms;
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the authorized channels for bootstrap: one deadline-bounded attempt,
+ * then — ONLY in relay mode with no room to fall back to — the extended backoff
+ * retry that rides out a reconnecting relay host. The direct localhost/Tailscale
+ * path keeps its fast-fail (a single failed load → the unavailable screen at
+ * once), so an offline direct switchboard never leaves the root blank for minutes.
+ */
+export async function resolveAuthorizedRooms(
+  token: string,
+  opts: RetryDeps & { relayMode: boolean; explicit?: string; remembered?: string },
+): Promise<RoomSummary[] | undefined> {
+  const first = await loadAuthorizedRoomsOnce(token, opts);
+  if (first !== undefined) return first;
+  if (opts.relayMode && opts.explicit === undefined && opts.remembered === undefined) {
+    return retryAuthorizedRooms(token, opts);
+  }
+  return undefined;
+}

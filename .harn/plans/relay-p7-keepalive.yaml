@@ -1,0 +1,82 @@
+id: relay-p7-keepalive
+title: Relay Phase 7 - implement the missing §4.1 keepalive sender so idle links
+  don't go half-open
+notes: >
+  Must-fix found by the production smoke (fable #138/#139/#143): PLAN §4.1
+  mandates a 30-second codor-ping on idle relay sockets, but only the ANSWERING
+  side was ever built — SessionRelay auto-responds, and no endpoint ever sent a
+  ping. So an idle host session link silently went half-open over Richard's idle
+  hours; his first real session then bounced (four client connects, no live
+  host) and the web app dead-ended on the offline screen. This plan adds the
+  sender on every relay socket via one shared @codor/tunnel Keepalive helper
+  (mux precedent: identical logic client and host, tested once) - send
+  codor-ping every 30s while idle, reset on any traffic, and after two
+  unanswered pings treat the link as dead, close it, and let the existing
+  reconnect paths take over; the interval is injectable so tests drive it at
+  milliseconds. It arms PairingRoom's auto-response to mirror SessionRelay and
+  pings the pairing room from the host across the mint-to-claim window. It also
+  makes the web-next post-pairing bootstrap keep retrying the channel-list load
+  with backoff instead of dead-ending, since the host can take up to a
+  missed-pong cycle to notice a stale link even after this fix. Self-contained
+  plan+feat pair; the held relay-p7-landing item-2 changes are stashed out and
+  NOT folded in.
+assumptions:
+  create:
+    - id: tunnel-keepalive
+      title: A shared keepalive detects half-open relay sockets from either endpoint
+      statement: packages/tunnel/src/keepalive.ts must provide one transport-agnostic
+        Keepalive used identically by the switchboard and the browser - it sends
+        a codor-ping (RELAY_KEEPALIVE_PING) on its socket every interval
+        (default 30000 ms, injectable) while the socket is idle, is reset to
+        alive by any inbound traffic via noteActivity, and after two consecutive
+        unanswered intervals invokes onDead exactly once and stops so the caller
+        can close and reconnect, because the relay and both NAT paths can drop a
+        socket silently and only an active probe surfaces a half-open link
+        before it strands a session.
+      reason: The §4.1 ping was specified and its answering half was built and tested,
+        but no sender existed on any endpoint; one shared, interval-injectable
+        helper makes the detector byte-identical across host and browser and
+        unit-testable without wall-clock waits.
+      depends_on: []
+  reviewed:
+    - id: session-relay-lifecycle
+      outcome: unchanged
+      reason: SessionRelay already arms the codor-ping auto-response; the new senders
+        rely on that existing behavior and this plan does not change
+        SessionRelay.
+files:
+  - packages/tunnel/src/keepalive.ts
+  - packages/tunnel/src/index.ts
+  - packages/tunnel/src/keepalive.spec.ts
+  - relay-worker/src/pairing-room.ts
+  - relay-worker/test/pairing-room.spec.ts
+  - packages/switchboard/src/relay/link.ts
+  - packages/switchboard/src/relay/link.spec.ts
+  - packages/switchboard/src/relay/pairing-host.ts
+  - packages/switchboard/src/relay/pairing-host.spec.ts
+  - packages/web-next/src/runtime/relay.ts
+  - packages/web-next/src/main.tsx
+anchors:
+  tunnel-keepalive:
+    tunnel-keepalive:
+      action: change
+      reason: New shared Keepalive helper (create) anchored in
+        packages/tunnel/src/keepalive.ts.
+  pairing-room-lifecycle:
+    pairing-room-behavior:
+      action: change
+      reason: Arm the codor-ping auto-response on PairingRoom, mirroring SessionRelay,
+        so the pairing host's keepalive is answered without waking the object.
+  relay-link-lifecycle:
+    relay-link:
+      action: change
+      reason: RelayLink runs the shared Keepalive on its host session socket and
+        closes the link on two missed pongs so the existing backoff reconnect
+        takes over.
+  relay-pairing-host:
+    relay-pairing-host:
+      action: change
+      reason: RelayPairingSession runs the shared Keepalive on the room socket across
+        the mint-to-claim window.
+applied:
+  applied_at: 2026-07-30T06:04:40.493Z

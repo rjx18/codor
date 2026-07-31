@@ -82,8 +82,8 @@ DHT; a packet capture shows nothing readable; revoking a device locks it out of 
 - Push relay (`relay/`) built here: sealed-payload forwarding, padded buckets, self-host doc.
   **Web Push** (VAPID) to installed PWAs on iOS/Android/desktop; payloads decrypt in the
   service worker, so the relay and the push service carry ciphertext only.
-- Touch-polished ask/approval cards and composer; browser dictation where the platform offers
-  it.
+- Touch-polished ask/approval cards and composer; browser dictation **shipped** (0.10.5) — a
+  host-side cloud `VoiceProvider` registry, codex the default provider (PRIVACY §voice).
 
 **Acceptance:** the M1 acceptance flow driven entirely from a phone's installed PWA over
 tailnet, including answering an ask card and receiving a sealed push notification — with no

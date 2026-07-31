@@ -1,0 +1,12 @@
+id: relay-control-vocabulary-is-canonical
+hash: a-b7828e7aac06
+title: Relay control messages and close codes have one canonical vocabulary
+state: active
+statement: The relay cleartext control-message type names and WebSocket close
+  codes defined in the wire protocol must live as named constants in
+  relay-worker/src/control.ts for the Worker and its Durable Objects, and
+  packages/tunnel/src/control.ts must carry the matching client-side JSON
+  control types; the two files are a deliberate duplication (tunnel cannot
+  import the dependency-free Worker) and must stay in agreement.
+depends_on: []
+created_by: relay-p1-scaffold

@@ -1,0 +1,222 @@
+id: relay-ux-p1-universal-code
+title: Relay UX P1 - universal pairing code mint (one code, both doors)
+assumptions:
+  create:
+    - id: relay-pairing-host-universal-mint
+      title: Relay pairing terminates in a dual-registered PairingService grant
+      statement: packages/switchboard/src/relay/pairing-host.ts must drive the host
+        side of relay pairing - reserve a room, connect the pairing-room WS as
+        host, run a fresh PakeHost per claimant with attempt and reset handling,
+        and over the pairing AEAD channel send hello carrying a pairing_token
+        that PairingService.issueForCode minted at room reservation for the
+        room's own nameplate+secret code (dual-registering that same eight-char
+        code as a local pairing grant), plus the host static key and session id;
+        verify the echoed token, call PairingService.complete to enroll the
+        device into the existing PairingResult, persist {device_id, kid,
+        client_static_pub} to the relay store, deliver the enrolled result, and
+        signal success to burn the room. The session must reuse the pre-minted
+        token rather than minting a second token at claim time, so the relay and
+        local doors always share one grant.
+      reason: Minting the hello token at reservation via issueForCode is what makes
+        the displayed relay code also a valid local code and keeps both doors on
+        a single grant; a per-claim issue() would fork the grant and let the
+        local code outlive a relay enrollment (or the reverse), breaking the
+        one-code-both-doors contract and the online-guess bound.
+      depends_on:
+        - tunnel-pake-cpace
+        - tunnel-pairing-channel-payloads
+        - relay-store-persistence
+    - id: universal-pairing-code-dual-door
+      title: One relay-enabled mint registers a single code at both pairing doors
+      statement: PairingService.issueForCode must register a caller-supplied
+        eight-character code (normalized from the 32-symbol pairing alphabet,
+        displayed XXXX-XXXX) as a local pairing grant with the same ten-minute
+        expiry and single-use burn semantics as issue(), and when the relay is
+        enabled the single mint path must reserve a relay room and register that
+        room's nameplate+secret code through issueForCode so the one code
+        enrolls a device at BOTH the relay PAKE door and the local
+        /api/pairing/exchange door as one shared grant - consuming either door
+        (relay PairingService.complete or local exchange) invalidates the other
+        - while a relay-disabled mint stays local-only via issue(), because the
+        operator must never be shown or hand out a code that opens only one door
+        while the relay is enabled.
+      reason: This is the whole universal-code contract; if issueForCode drifted from
+        issue()'s burn/expiry rules, or the two doors stopped sharing one grant,
+        a single code could enroll at one door but fail at the other or outlive
+        its use at the second door - breaking enrollment and weakening the
+        bounded-guess property.
+      depends_on:
+        - short-pairing-code-grant-exchange
+        - relay-store-persistence
+        - relay-pairing-host-universal-mint
+    - id: cli-tests-isolate-operator-home
+      title: CLI tests run under an isolated throwaway HOME
+      statement: scripts/test-env.mjs must point HOME at a fresh throwaway directory
+        before spawning the CLI test process, so CLI tests never read the
+        operator's real ~/.config/codor (in particular the installed service
+        token file), which would otherwise let a test resolve a real bearer and
+        reach the operator's live service instead of its own fixtures.
+      reason: The token option now falls back to the installed operator token file, so
+        without HOME isolation a developer machine with an installed Codor would
+        make the default-URL CLI tests authenticate against the real daemon -
+        non-deterministic and a live-service side effect during unit tests.
+      depends_on:
+        - cli-tests-delete-inherited-codor-environment
+  retire:
+    - id: relay-pairing-host
+      reason: Its statement pins the hello pairing_token to PairingService.issue
+        minted per claimant; the universal-code mint moves the token to
+        PairingService.issueForCode at room reservation so the same code is
+        dual-registered as a local grant. Replaced by
+        relay-pairing-host-universal-mint, which restates the full host flow
+        with the new token source.
+  reviewed:
+    - id: short-pairing-code-grant-exchange
+      outcome: unchanged
+      reason: issueForCode is added inside the grant-source region but preserves every
+        invariant - the code is still a crypto-random eight-char value from the
+        same alphabet (nameplate from the relay plus a crypto-random secret),
+        shares the ten-minute expiry, is single-use, and a successful exchange
+        still burns the code and rotates the link token; issueForCode only lets
+        the caller supply the (still crypto-random) code instead of generating
+        it internally.
+    - id: pairing-code-enrollment-surfaces
+      outcome: unchanged
+      reason: The pair command still prints an XXXX-XXXX code line plus the URL and
+        QR; when the relay is enabled it delegates to the daemon universal mint
+        so the printed code opens both doors, which the assumption already
+        allows (it requires a code line and QR, not a specific mint path).
+    - id: terminal-pairing-qr-matches-plain-url
+      outcome: unchanged
+      reason: The pair command still emits a QR that encodes the same pairing URL it
+        prints; in relay-enabled mode the delegated offer carries the same
+        endpoint and link token, so pairingUrl(offer) yields one URL rendered
+        identically as text and QR.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: startCodor's relay admin composition is unchanged except that its pair
+        closure now forwards the endpoint argument to RelayPairingHost.pair so
+        the real Settings offer keeps the switchboard origin; the adapter
+        registry sourcing and the rest of the composition are untouched.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The relay pair command still uses channel terminology; the only change
+        is an honest label for a degraded local-only code, which does not touch
+        the rooms-to-channels vocabulary this assumption governs.
+    - id: cli-help-never-renders-selected-bearer
+      outcome: unchanged
+      reason: The token option gains an installed-service token-file fallback after
+        the env sources, but the help display default stays the redacted
+        placeholder, so no selected bearer is ever rendered - the redaction
+        invariant holds.
+    - id: windows-setup-installs-private-task-service
+      outcome: unchanged
+      reason: runSetup now derives its config dir and token path from a shared
+        exported helper instead of inline joins; the Windows task-service
+        install behavior and the paths themselves are byte-for-byte identical.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: Same shared-helper refactor of the config-dir and token-path derivation;
+        the private platform-service install and its file locations are
+        unchanged.
+    - id: cli-tests-delete-inherited-codor-environment
+      outcome: unchanged
+      reason: The wrapper still strips every inherited CODOR_ variable before spawning
+        the tests; HOME isolation is added alongside it without weakening the
+        CODOR_ stripping obligation.
+    - id: cli-observability-uses-scoped-rest
+      outcome: unchanged
+      reason: fetchJson/postJson still make scoped bearer REST calls; the only change
+        is that the bearer now falls back to the installed token file ONLY when
+        the target is the local service, so the installed credential never rides
+        to a remote --url. The scoped-REST contract itself is unchanged.
+anchors:
+  short-pairing-code-grant-exchange:
+    pairing-code-grant-source:
+      action: change
+      reason: Add issueForCode beside issue() inside the grant-source region, wrapped
+        in a nested universal-pairing-code-dual-door anchor.
+  universal-pairing-code-dual-door:
+    issue-for-code:
+      action: change
+      reason: New nested anchor around issueForCode - the caller-supplied-code grant
+        registration.
+  relay-pairing-host:
+    relay-pairing-host:
+      action: remove
+      reason: The relay-pairing-host assumption is retired; its anchor comment is
+        repointed to the successor assumption.
+  relay-pairing-host-universal-mint:
+    relay-pairing-host-universal:
+      action: change
+      reason: Rework pair() into the universal mint (issueForCode at reservation) and
+        make the session reuse the pre-minted token instead of calling issue()
+        at claim time.
+  pairing-code-enrollment-surfaces:
+    pair-code-command:
+      action: change
+      reason: codor pair delegates to the daemon universal mint when the relay is
+        enabled, so the printed code opens both doors.
+  terminal-pairing-qr-matches-plain-url:
+    pair-qr-command:
+      action: change
+      reason: The enclosing pair-command action branches on relay-enabled before
+        issuing; URL and QR output are preserved.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Thread the endpoint through the relay admin pair closure so the closure
+        forwards its endpoint argument to RelayPairingHost.pair, instead of the
+        zero-arg closure that silently dropped the argument the server threads.
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-terminology:
+      action: change
+      reason: codor relay pair reads the offer's doors and labels a degraded
+        local-only code honestly; the edit sits directly inside this broad
+        region with no nested anchor of its own.
+  cli-help-never-renders-selected-bearer:
+    redacted-token-option-default:
+      action: change
+      reason: Append an installed-service token-file fallback to the token option's
+        default value after the env sources; the redacted help display is kept.
+  windows-setup-installs-private-task-service:
+    windows-setup-runtime:
+      action: change
+      reason: runSetup derives configDir/tokenPath from the new shared exported helper
+        (operatorConfigDir/operatorTokenPath) instead of inline joins.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: Same shared-helper refactor of the config-dir and token-path derivation
+        inside runSetup; behavior and locations unchanged.
+  cli-tests-delete-inherited-codor-environment:
+    cli-test-environment-wrapper:
+      action: change
+      reason: Add HOME isolation inside the wrapper region alongside the existing
+        CODOR_ stripping, in a nested cli-test-home-isolation anchor.
+  cli-tests-isolate-operator-home:
+    cli-test-home-isolation:
+      action: change
+      reason: New nested anchor - point HOME at a throwaway dir before spawning tests.
+  cli-observability-uses-scoped-rest:
+    scoped-rest-client:
+      action: change
+      reason: fetchJson resolves its bearer through a shared helper that adds the
+        local-service-only token-file fallback (N3), gated on the resolved
+        --url.
+files:
+  - packages/switchboard/src/crypto/pairing.ts
+  - packages/switchboard/src/crypto/crypto.spec.ts
+  - packages/switchboard/src/relay/pairing-host.ts
+  - packages/switchboard/src/relay/pairing-host.spec.ts
+  - packages/switchboard/src/relay/integration.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/up.ts
+  - packages/cli/src/setup.ts
+  - scripts/test-env.mjs
+  - packages/cli/src/index.spec.ts
+  - packages/cli/src/pair-universal.spec.ts
+applied:
+  applied_at: 2026-07-30T13:57:30.138Z

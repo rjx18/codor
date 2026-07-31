@@ -1,0 +1,19 @@
+id: relay-store-caches-reachable-dial-url
+hash: a-86e53a883af5
+title: The relay store bakes the alias and caches the reachable dial URL, scoped
+  to the default
+state: active
+statement: "The switchboard relay store
+  (packages/switchboard/src/relay/store.ts) must expose a workers.dev alias
+  constant (DEFAULT_RELAY_ALIAS = https://codor-relay.junweixiong.workers.dev)
+  beside DEFAULT_RELAY_URL, and persist in relay.json (0600, back-compatible: an
+  absent field means dial the configured URL) the last dial URL that established
+  a relay session — the \"winner\" — among the default-canonical URL and that
+  alias. The store must serve a cached winner ONLY while the configured
+  relay_url is exactly DEFAULT_RELAY_URL; for any custom relay_url it must
+  return no winner and drop a stale one, so an operator who later sets a custom
+  URL can never inherit an alias winner. The winner accessor and setter are the
+  store's contract."
+depends_on:
+  - relay-store-persistence
+created_by: relay-onboard-p6b-relay-default

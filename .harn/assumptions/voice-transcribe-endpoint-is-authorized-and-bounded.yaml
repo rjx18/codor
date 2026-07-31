@@ -1,0 +1,22 @@
+id: voice-transcribe-endpoint-is-authorized-and-bounded
+hash: a-a3ef4258720a
+title: The transcribe endpoint is authed, size-capped, single-in-flight,
+  time-bounded, and memory-only
+state: active
+statement: POST /api/voice/transcribe accepts raw audio bytes only from an
+  authed non-agent principal with global post capability. It refuses an
+  oversized declared content-length up front and counts streamed bytes against
+  the same hard cap, allows only one transcription in flight per server (a
+  concurrent request gets a clean 429), and bounds the provider call with a
+  request timeout. It resolves only the operator-selected provider and returns
+  200 with the transcript text, or a mapped error status with a descriptive body
+  - malformed or too-short audio 400, oversized 413, concurrent 429, upstream
+  failure 502 with the upstream body preserved, timeout 504 - and refuses
+  cleanly when dictation is disabled or the provider is unavailable. Audio bytes
+  live only in process memory for the duration of the request and are never
+  written to disk or persisted host-side.
+depends_on:
+  - voice-provider-catalog-is-named-and-safe
+  - voice-transcription-provider-contract
+  - server-token-required
+created_by: codor-voice-phase2-endpoint-and-catalog

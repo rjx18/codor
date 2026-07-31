@@ -8,6 +8,7 @@ const repositoryUrl = process.env.CODOR_REPOSITORY_URL?.replace(/\/+$/, '');
 
 const reference = [
   { text: 'Protocol', link: '/docs/PROTOCOL' },
+  { text: 'Relay protocol', link: '/docs/RELAY-PROTOCOL' },
   { text: 'Architecture', link: '/docs/ARCHITECTURE' },
   { text: 'Privacy', link: '/docs/PRIVACY' },
   { text: 'Roadmap', link: '/docs/ROADMAP' },

@@ -1,0 +1,22 @@
+{
+  "name": "@codor/relay-worker",
+  "version": "0.10.4",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@codor/tunnel": "workspace:*",
+    "@cloudflare/vitest-pool-workers": "^0.12.21",
+    "@cloudflare/workers-types": "^4.20250129.0",
+    "typescript": "^5.5.4",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.114.0"
+  }
+}

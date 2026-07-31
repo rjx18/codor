@@ -1,0 +1,18 @@
+id: voice-provider-catalog-is-named-and-safe
+hash: a-372ae3e7ce79
+title: Voice providers are a curated named catalog projecting only safe public
+  metadata
+state: active
+statement: The switchboard owns a curated voice provider registry whose only
+  initial definition is codex. Availability is detected at request time from the
+  presence of usable signed-in codex credentials via the codex adapter's own
+  status helper - detection never invokes a binary, never mints tokens, and
+  never persists state. Everything projected across an API boundary is safe
+  public metadata - id, label, availability, and an optional human-readable
+  reason - never tokens, credential material, or filesystem paths. GET
+  /api/voice/providers requires bearer auth with global read capability and
+  reports the catalog plus the operator-selected provider id and enabled state.
+depends_on:
+  - voice-transcription-provider-contract
+  - codex-voice-transcription-reuses-signed-in-codex-identity
+created_by: codor-voice-phase2-endpoint-and-catalog

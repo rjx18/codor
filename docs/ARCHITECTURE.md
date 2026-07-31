@@ -136,7 +136,8 @@ Same member, same context, custody moving freely between channel and terminal �
 - **Web** (`@codor/web-next`): React + Vite PWA served by the switchboard itself — there is no
   hosted web app; the "server side" of the web surface *is* your box. Channel list, timeline with
   collapsible runs, composer with @/# autocomplete + implied-recipient indicator, member rail
-  (state, policy chip, spend), ask/approval cards, budget banner. No SSR, no framework ceremony.
+  (state, policy chip, spend), ask/approval cards, budget banner; push-to-talk dictation transcribes
+  mic audio host-side through the `VoiceProvider` registry (PRIVACY §voice). No SSR, no framework ceremony.
   Access paths: `tailscale serve` is the zero-config baseline (`https://desk.<tailnet>.ts.net`,
   automatic TLS); for teams that want a memorable custom domain with centralized ACL control,
   the documented setup is a **Tailscale app connector** (policy-file grants + a connector node
@@ -247,7 +248,7 @@ verified in M0 before any code lands (unverified entries marked ⚠).
 | Ledger format | Obsidian vault conventions (markdown + `[[wikilinks]]`) | pattern/format | files are the store; Obsidian itself becomes a free graph-view client |
 | Ledger graph queries | Graphiti (temporal knowledge graph) ⚠ | optional depend, post-MVP | indexes the vault; never owns the data |
 | Web UI | React + Vite; chat primitives from an MIT kit if one fits | depend | timeline/composer are commodity; run-message rendering is ours. Paseo's client is ruled out for code reuse (AGPL + RN-web); a desktop "app" is the PWA, or later a thin Tauri wrapper of our own SPA |
-| Voice | Apple SFSpeechRecognizer / watch dictation | platform | on-device toggle, PRIVACY §voice |
+| Voice | Apple SFSpeechRecognizer / watch dictation (native, on-device); web dictation via the `VoiceProvider` registry (codex default) | platform / depend | native on-device toggle; web cloud path host-side + disclosed, PRIVACY §voice |
 
 What we actually write: **the router, the member/lifecycle model, two thin adapters, the run
 journal, and the surfaces' channel-rendering.** Everything else is glue around the table above.

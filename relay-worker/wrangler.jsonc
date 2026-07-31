@@ -1,0 +1,32 @@
+{
+  // Codor blind relay Worker. Two SQLite-backed Durable Objects; no logging,
+  // no observability sink — the relay must never retain traffic (PLAN §4.1, §5).
+  "name": "codor-relay",
+  "main": "src/index.ts",
+  // PRODUCTION compatibility date — current workerd on real deploy. Every DO API
+  // used (SQLite classes, hibernation, auto-response) long predates it. The
+  // vitest-pool-workers test runtime bundles an older workerd that rejects a
+  // future date, so it is pinned to 2026-03-01 via a miniflare override in
+  // vitest.config.ts rather than by reading this field.
+  "compatibility_date": "2026-07-01",
+  // The blind relay is served at this hostname; the zone must exist in the
+  // Cloudflare account before deploy (Phase 7 Track B).
+  "routes": [
+    { "pattern": "relay.codor.app", "custom_domain": true }
+  ],
+  // Keep the workers.dev alias (codor-relay.<subdomain>.workers.dev) ON. It is
+  // the shipping relay URL for SNI-filtered networks — including the switchboard
+  // host — which cannot reach relay.codor.app directly. wrangler DEFAULTS this
+  // off and a routine `wrangler deploy` silently disables it otherwise, breaking
+  // every browser and host that uses the alias; pin it so config matches reality.
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [
+      { "name": "PAIRING_ROOM", "class_name": "PairingRoom" },
+      { "name": "SESSION_RELAY", "class_name": "SessionRelay" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PairingRoom", "SessionRelay"] }
+  ]
+}

@@ -378,6 +378,40 @@ describe('message id allocation', () => {
   });
 });
 
+// harn:assume voice-message-metadata-is-bounded-and-additive ref=voice-message-storage-regression
+describe('voice message metadata storage', () => {
+  it('persists and hydrates voice metadata verbatim, absent by default', () => {
+    const { owner } = openRoom(store);
+    const plain = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'typed message' });
+    expect(store.getMessage('eng', plain.id)?.voice).toBeUndefined();
+
+    const voice = { duration_seconds: 4.5, levels: [0, 33, 66, 100] };
+    const dictated = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'dictated words', voice });
+    expect(dictated.voice).toEqual(voice);
+
+    store.close(); // read back from disk, not memory
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getMessage('eng', dictated.id)?.voice).toEqual(voice);
+    expect(store.getMessage('eng', plain.id)?.voice).toBeUndefined();
+  });
+
+  it('additively re-adds the voice column to a pre-existing database', () => {
+    const { owner } = openRoom(store);
+    store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'before migration' });
+    store.close();
+
+    const legacy = new Database(join(dir, 'test.sqlite'));
+    legacy.exec('ALTER TABLE messages DROP COLUMN voice');
+    legacy.close();
+
+    store = new Store(join(dir, 'test.sqlite')); // migration re-adds the column
+    const voice = { duration_seconds: 2, levels: [10, 20] };
+    const dictated = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'after migration', voice });
+    expect(store.getMessage('eng', dictated.id)?.voice).toEqual(voice);
+  });
+});
+// harn:end voice-message-metadata-is-bounded-and-additive
+
 describe('bridge origin persistence', () => {
   it('deduplicates retries by bridge member, platform, and external id', () => {
     openRoom(store);

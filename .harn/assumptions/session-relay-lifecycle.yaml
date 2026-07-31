@@ -1,0 +1,23 @@
+id: session-relay-lifecycle
+hash: a-4b350b1ca67f
+title: The SessionRelay Durable Object multiplexes host and clients blindly
+state: active
+statement: relay-worker/src/session-relay.ts must implement the SessionRelay
+  Durable Object per PLAN §4.1 - a SQLite-backed, hibernatable rendezvous that
+  keeps one host (a new host supersedes the old, closed 4001) and up to 16
+  client connections (a 17th is closed 4004), assigning each client a u32 connId
+  from a persisted next_conn_id counter so ids stay unique across hibernation;
+  it routes a client's binary to the host prefixed with its connId (4 bytes
+  big-endian) and routes the host's binary to the client named by the leading
+  connId after stripping it (dropping unknown connIds with an unknown-conn
+  notice to the host), forwarding payloads verbatim without inspecting them; it
+  emits presence notices (host-connected/host-disconnected to clients on host
+  change and on client connect, client-connected/client-disconnected to the
+  host, re-announcing every existing client to a freshly connected host); it
+  answers idle codor-ping keepalives via setWebSocketAutoResponse without waking
+  the object; it echoes a valid close code on webSocketClose to complete the
+  handshake under the pinned compatibility date; and it holds no alarm and no
+  expiry because possession of the session id is the only capability.
+depends_on:
+  - relay-control-vocabulary-is-canonical
+created_by: relay-p4-session-relay

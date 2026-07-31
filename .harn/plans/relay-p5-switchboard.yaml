@@ -1,0 +1,183 @@
+id: relay-p5-switchboard
+title: Relay Phase 5 - shared stream mux, switchboard RelayLink, pairing host, CLI
+assumptions:
+  create:
+    - id: tunnel-stream-mux
+      title: The tunnel stream mux is a single shared windowed multiplexer
+      statement: packages/tunnel/src/mux.ts must implement the PLAN §4.4 stream
+        multiplexer as one transport-agnostic StreamMux used identically by both
+        endpoints - streams identified by client-odd / host-even ids over the
+        frame codec, with per-stream per-direction windowed flow control (512
+        KiB default, 4 MiB for app-WS streams) where DATA consumes credit,
+        WINDOW replenishes it, and a sender stalls at zero; OPEN/DATA/END/RESET
+        drive stream open, half-close, and abort; stream lifecycle and inbound
+        data are surfaced via callbacks; and outbound frames are emitted through
+        the coalescer - so credit accounting and stream state can never diverge
+        between the browser and switchboard.
+      reason: Duplicating symmetric windowed flow control on two sides is a
+        deadlock-and-divergence risk (one byte of credit drift hangs the browser
+        in a way only e2e catches); one shared implementation keeps both halves
+        harn-governed and unit-testable back-to-back.
+      depends_on:
+        - tunnel-mux-frame-wire-format
+    - id: relay-store-persistence
+      title: The switchboard relay record is a sealed local store
+      statement: packages/switchboard/src/relay/store.ts must persist the switchboard
+        relay record to <dataDir>/crypto/relay.json via privateJsonWrite (0600)
+        - {version, enabled, relay_url, session_id, host_static:{pub,priv},
+        devices:[{device_id, kid, client_static_pub, label, enrolled_at}]} -
+        generating session_id (32 random bytes as 64-hex) and the host_static
+        X25519 keypair once on first enable, tolerating an absent file on load,
+        and replacing session_id on rotate (existing devices must re-pair).
+      reason: This is the durable capability material for the relay tier; it must be
+        0600-sealed like the other crypto state, and session_id/host_static must
+        be stable across restarts so paired devices keep connecting.
+      depends_on: []
+    - id: relay-link-lifecycle
+      title: RelayLink maintains the blind outbound session and bridges to loopback
+      statement: packages/switchboard/src/relay/link.ts must implement RelayLink -
+        when the store is enabled it maintains an outbound session WebSocket to
+        the relay's /v1/session/:id/ws?role=host with exponential backoff (1s to
+        60s) plus jitter, runs one tunnel SessionResponder per client connId
+        (looking up the device static key by kid and refusing unknown or revoked
+        devices), drives the host side of the shared stream mux, and bridges
+        app-WS streams to a loopback ws://127.0.0.1:<port>/ws?token client and
+        HTTP streams to a loopback fetch against 127.0.0.1:<port>, tearing
+        everything down on shutdown and dropping a device's connections when it
+        is revoked.
+      reason: RelayLink is the switchboard half of the tunnel; the backoff, per-conn
+        handshake, revocation refusal, and loopback bridging are what make the
+        hosted browser reach the existing /ws and /api stack unchanged while the
+        relay stays blind.
+      depends_on:
+        - tunnel-session-handshake-kk
+        - tunnel-stream-mux
+        - relay-store-persistence
+    - id: relay-pairing-host
+      title: Relay pairing terminates in the existing PairingService enrollment
+      statement: packages/switchboard/src/relay/pairing-host.ts must drive the host
+        side of relay pairing - reserve a room, connect the pairing-room WS as
+        host, run a fresh PakeHost per claimant with attempt and reset handling,
+        and over the pairing AEAD channel send hello (carrying a pairing_token
+        minted by the existing PairingService.issue and the host static key +
+        session id), verify the echoed token, call PairingService.complete to
+        enroll the device into the existing PairingResult, persist {device_id,
+        kid, client_static_pub} to the relay store, deliver the enrolled result,
+        and signal success to burn the room.
+      reason: Requirement 7 makes relay pairing terminate in the same enrollment as
+        local pairing; reusing issue()/complete() unmodified keeps one identity
+        system, and a fresh PakeHost per claimant with attempt accounting
+        preserves the online-guess bound.
+      depends_on:
+        - tunnel-pake-cpace
+        - tunnel-pairing-channel-payloads
+        - relay-store-persistence
+  reviewed:
+    - id: tunnel-pake-cpace
+      outcome: unchanged
+      reason: PakeHost/PakeClaimant gain one-shot guards so start()/receiveMsgB and
+        receiveMsgA cannot be re-driven after establishment; the CPace
+        construction, labels, byte layouts, and channel gating are unchanged.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Wiring RelayLink into the CLI composition (up.ts) and adding the relay
+        subcommands, the --tunnel-url/CODOR_TUNNEL_URL option, and a POST admin
+        helper (program.ts) add no adapter or harness source; the registry
+        remains the sole harness source.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The new `codor relay` subcommand group speaks pairing/relay terminology
+        and does not reintroduce "room" naming into the human-facing CLI
+        surface.
+    - id: unix-socket-parent-private-before-listen
+      outcome: unchanged
+      reason: Adding a relay handle to ServerOptions and registering the loopback
+        /api/relay routes does not change the unix-socket parent-directory
+        privacy precondition established before listen.
+    - id: browser-protocol-epoch-blocks-only-stale-browser-ui
+      outcome: unchanged
+      reason: Passing the relay admin handle into the startServer options object in
+        up.ts adds one field alongside the existing options; it does not change
+        the browser-protocol epoch gating established there.
+    - id: artifact-build-runs-from-clean-source
+      outcome: unchanged
+      reason: switchboard now depends on @codor/tunnel at runtime, so the recursive
+        CLI artifact closure grows from eleven to twelve packages; the
+        clean-source build and complete-runtime bundling contract is unchanged -
+        the expected-closure fixture just gains @codor/tunnel.
+anchors:
+  tunnel-stream-mux:
+    mux-stream-state:
+      action: change
+      reason: Implement the shared StreamMux (stream state machine, windowed flow
+        control, OPEN/DATA/END/RESET/WINDOW, coalesced output, callbacks).
+  relay-store-persistence:
+    relay-store:
+      action: change
+      reason: Implement the 0600 relay.json store with session_id/host_static
+        generation, device records, load tolerance, and rotate.
+  relay-link-lifecycle:
+    relay-link:
+      action: change
+      reason: Implement RelayLink backoff session connection, per-conn
+        SessionResponder with revoked-kid refusal, host-side mux, and loopback
+        app-WS/HTTP bridges.
+  relay-pairing-host:
+    relay-pairing-host:
+      action: change
+      reason: Implement the pairing-room host driver bridging PakeHost and the
+        issue()/complete() enrollment over the pairing channel.
+  tunnel-pake-cpace:
+    pake-cpace:
+      action: change
+      reason: Add one-shot transition guards to PakeHost/PakeClaimant without changing
+        the construction.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Add the RelayLink import + composition in up.ts and the relay import,
+        --tunnel-url option, and admin POST helper in program.ts.
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-terminology:
+      action: change
+      reason: Add the `codor relay pair|status|enable|disable|rotate` subcommand group.
+    cli-channel-regression:
+      action: change
+      reason: Add `relay` to the asserted M1 command surface in index.spec.ts.
+  artifact-build-runs-from-clean-source:
+    artifact-build-command:
+      action: change
+      reason: Add @codor/tunnel to the expected runtime-closure fixture (twelve
+        packages).
+  unix-socket-parent-private-before-listen:
+    unix-socket-parent-precondition:
+      action: change
+      reason: Add the optional relay handle to ServerOptions and the loopback
+        /api/relay admin routes (import + options field near the top of
+        server.ts).
+  browser-protocol-epoch-blocks-only-stale-browser-ui:
+    production-browser-protocol-minimum:
+      action: change
+      reason: Pass the relay admin handle into the startServer options object in up.ts.
+files:
+  - packages/tunnel/src/mux.ts
+  - packages/tunnel/src/mux.spec.ts
+  - packages/tunnel/src/index.ts
+  - packages/tunnel/src/pake.ts
+  - packages/tunnel/src/pake.spec.ts
+  - packages/switchboard/src/relay/store.ts
+  - packages/switchboard/src/relay/link.ts
+  - packages/switchboard/src/relay/pairing-host.ts
+  - packages/switchboard/src/relay/store.spec.ts
+  - packages/switchboard/src/relay/link.spec.ts
+  - packages/switchboard/src/relay/pairing-host.spec.ts
+  - packages/switchboard/src/relay/integration.spec.ts
+  - packages/switchboard/src/index.ts
+  - packages/switchboard/package.json
+  - packages/cli/src/artifact.spec.ts
+  - packages/cli/src/index.spec.ts
+  - packages/cli/src/up.ts
+  - packages/cli/src/program.ts
+  - packages/switchboard/src/server.ts
+applied:
+  applied_at: 2026-07-27T13:46:07.415Z

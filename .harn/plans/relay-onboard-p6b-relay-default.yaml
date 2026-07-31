@@ -1,0 +1,130 @@
+id: relay-onboard-p6b-relay-default
+title: relay-onboard P6b - relay on by default with a reachability-robust dial
+assumptions:
+  create:
+    - id: relay-store-caches-reachable-dial-url
+      title: The relay store bakes the alias and caches the reachable dial URL, scoped
+        to the default
+      statement: "The switchboard relay store
+        (packages/switchboard/src/relay/store.ts) must expose a workers.dev
+        alias constant (DEFAULT_RELAY_ALIAS =
+        https://codor-relay.junweixiong.workers.dev) beside DEFAULT_RELAY_URL,
+        and persist in relay.json (0600, back-compatible: an absent field means
+        dial the configured URL) the last dial URL that established a relay
+        session — the \"winner\" — among the default-canonical URL and that
+        alias. The store must serve a cached winner ONLY while the configured
+        relay_url is exactly DEFAULT_RELAY_URL; for any custom relay_url it must
+        return no winner and drop a stale one, so an operator who later sets a
+        custom URL can never inherit an alias winner. The winner accessor and
+        setter are the store's contract."
+      reason: Node-side TLS to relay.codor.app is reset on SNI-filtering networks (its
+        SNI is exposed, unlike a browser's ECH), so a fresh switchboard must be
+        able to reach the relay via the not-filtered workers.dev alias without
+        manual URL config; caching the winner avoids re-probing on every
+        connect. Scoping the winner to the default-canonical configuration in
+        the STORE (not the caller) makes it structurally impossible to serve an
+        alias winner for an operator's custom relay, which would silently
+        redirect their traffic to our alias.
+      depends_on:
+        - relay-store-persistence
+    - id: relay-link-dials-with-alias-fallback
+      title: RelayLink dials the cached winner and symmetrically fails over between
+        canonical and alias
+      statement: "RelayLink (packages/switchboard/src/relay/link.ts) must dial the
+        store's cached winner when present, otherwise the configured relay_url;
+        and on a TLS/connect failure it must, ONLY when the configured relay_url
+        is DEFAULT_RELAY_URL, retry the OTHER member of the {DEFAULT_RELAY_URL,
+        DEFAULT_RELAY_ALIAS} pair and persist whichever member establishes the
+        session as the store's winner. The failover is symmetric: dialing the
+        cached winner first, a cached-winner failure is never terminal while the
+        other member works, so a cached-alias host whose network stops filtering
+        can return to canonical and vice-versa. A custom relay_url never falls
+        back to the alias."
+      reason: A fresh or relocated switchboard must find the reachable relay endpoint
+        on its own across networks that filter one hostname but not the other; a
+        fixed canonical-then-alias order would strand a cached-alias host after
+        its network heals, and a non-symmetric retry would make a cached-winner
+        outage terminal even when the sibling endpoint is up. Restricting
+        fallback to the default URL keeps a custom relay authoritative.
+      depends_on:
+        - relay-store-caches-reachable-dial-url
+        - relay-link-lifecycle
+    - id: setup-enables-relay-for-universal-first-code
+      title: Setup enables the relay by default and mints its first code universally
+        through the daemon
+      statement: On a build whose baked relay URL is present, codor setup must, unless
+        --no-relay is passed, enable the relay (default-on is a deliberate
+        product decision, Richard's locked Q3) before minting the first pairing
+        code, and mint that first code through the running daemon's
+        /api/pairing/offers API — the single universal mint path that codor pair
+        uses — so the printed code opens BOTH codor.app and the local door;
+        setup must NOT reserve relay rooms via a second in-process mint path.
+        When the relay is disabled (--no-relay, or a self-hosted build with no
+        baked relay URL) or unreachable at mint time, setup degrades to a
+        clearly-labelled local-only code (works on your network, not codor.app)
+        rather than failing, and setup prints one operator-visible line stating
+        whether the code works at codor.app. This is the auditable home of the
+        relay-default exposure policy and its --no-relay opt-out.
+      reason: A fresh setup today mints a local-only code, so codor.app cannot pair
+        with it (the observed "this code isn't working" symptom); enabling the
+        relay before the first mint and routing through the one daemon offers
+        API makes the out-of-the-box code universal without a parallel mint that
+        could fork the grant (the duplicate-implementation class). Default-on
+        with an explicit --no-relay opt-out and a visible report line keeps the
+        exposure decision honest and reversible.
+      depends_on:
+        - relay-store-caches-reachable-dial-url
+        - setup-verifies-codor-before-creating-pairing-code
+        - relay-pairing-host-universal-mint
+anchors:
+  relay-store-persistence:
+    relay-store:
+      action: change
+      reason: The record gains a back-compatible cached-winner field and the store
+        gains the alias constant plus winner accessor/setter scoped to the
+        default-canonical configuration.
+  relay-link-lifecycle:
+    relay-link:
+      action: change
+      reason: connect()/sessionUrl() dial the cached winner else configured URL, and
+        fail over symmetrically between canonical and alias (default-URL only),
+        caching the winner.
+  setup-unattended-mutation-requires-explicit-intent:
+    setup-command-surface:
+      action: change
+      reason: The install command (program.ts) gains the --no-relay opt-out option;
+        the statement stays verbatim-true (it governs the --yes/--access gate
+        and tailnet exposure — a different axis), and the new relay-default
+        exposure policy lives in setup-enables-relay-for-universal-first-code.
+  public-install-is-the-primary-command-with-setup-alias:
+    install-command-alias:
+      action: change
+      reason: The same install/setup command region gains the --no-relay option;
+        install stays the primary command with the setup alias, so the statement
+        is unchanged.
+  setup-preserves-private-platform-service:
+    setup-platform-service-runtime:
+      action: change
+      reason: This anchor wraps all of runSetup; its body gains the relay-offer wiring
+        const and awaits the now-async pairStep at its call sites. The private
+        platform-service install/preserve behavior itself is unchanged.
+  setup-enables-relay-for-universal-first-code:
+    setup-relay-enable:
+      action: change
+      reason: New nested anchor around the relay-enable in prepareStep (the create
+        assumption's anchor, introduced inside setup-platform-service-runtime).
+    setup-universal-mint:
+      action: change
+      reason: New nested anchor around the universal daemon mint in pairStep (the
+        create assumption's second anchor, introduced inside
+        setup-platform-service-runtime).
+files:
+  - packages/switchboard/src/relay/store.ts
+  - packages/switchboard/src/relay/store.spec.ts
+  - packages/switchboard/src/relay/link.ts
+  - packages/switchboard/src/relay/link.spec.ts
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-flow.spec.ts
+  - packages/cli/src/program.ts
+applied:
+  applied_at: 2026-07-31T12:02:16.992Z

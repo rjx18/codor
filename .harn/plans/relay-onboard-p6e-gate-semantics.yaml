@@ -1,0 +1,34 @@
+id: relay-onboard-p6e-gate-semantics
+title: relay-onboard P6e - align two gate fixes to fable's revised semantics
+anchors:
+  relay-link-lifecycle:
+    relay-link:
+      action: change
+      reason: Replace alternate-on-every-death with fable's early-death counter — a
+        session that opens but dies before proving healthy (before any inbound
+        activity) increments a counter; a pre-open connect failure alternates at
+        once; after 2 consecutive early deaths the next reconnect alternates; a
+        healthy session (received activity) resets the counter and stays on its
+        winner, so a transient drop no longer ping-pongs endpoints (Codex
+  setup-enables-relay-for-universal-first-code:
+    setup-relay-enable:
+      action: change
+      reason: The sticky marker is the relay.json FILE, not session material.
+        Auto-enable ONLY when relay.json does not exist; any existing record
+        (enabled, or disabled by `codor relay disable`/prior `--no-relay`) is
+        respected verbatim on a default re-run; --no-relay PERSISTS
+        enabled:false (writes the file even on a fresh machine) so it is a
+        durable opt-out (fable-revised item 3).
+  setup-dry-run-reports-without-mutation-or-secret:
+    setup-dry-run-runtime:
+      action: change
+      reason: The dry-run relay preview uses the same file-presence rule as the real
+        run (relay.json existence), so the preview matches the
+        enable/stay-off/opt-out decision it describes.
+files:
+  - packages/switchboard/src/relay/link.ts
+  - packages/switchboard/src/relay/link.spec.ts
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-flow.spec.ts
+applied:
+  applied_at: 2026-07-31T12:48:29.810Z

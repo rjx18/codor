@@ -1,7 +1,9 @@
 import { Check, Copy, Laptop, LockKeyhole, Network, Pause, Play, Terminal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
-import { exchangeBrowserPairingCode, tryTrustedBrowserPairing } from '@runtime/crypto.js';
+import { PAIRING_TIME_COPY, SESSION_COPY } from '../app/connection-state.js';
+import { exchangeBrowserPairingCode, pairThroughRelay, tryTrustedBrowserPairing } from '@runtime/crypto.js';
+import { relayUrlConfigured } from '@runtime/relay-mode.js';
 
 import { Button } from '../primitives/primitives.js';
 import { PairingCodeInput } from './PairingCodeInput.js';
@@ -85,6 +87,10 @@ export function LandingPage() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    // Trusted same-origin enrollment only makes sense on a self-hosted,
+    // switchboard-served SPA. The hosted app's origin is the relay (no switchboard
+    // to trust), so skip the probe there rather than fire a cross-purpose request.
+    if (relayUrlConfigured()) return undefined;
     let current = true;
     void tryTrustedBrowserPairing().then(
       (paired) => { if (current && paired) window.location.replace('/'); },
@@ -108,7 +114,8 @@ export function LandingPage() {
           <p className="nx-landing-kicker">Your coding agents, one shared channel</p>
           <h1 id="landing-title">Make every agent part of the same conversation.</h1>
           <p className="nx-landing-lede">
-            Run Codor on this computer. Use it on localhost, or reach the same private host through your Tailscale network.
+            Run Codor on this computer. Use it on localhost, reach the same private host across your Tailscale network,
+            or open it from anywhere through the hosted app at codor.app — a relay that holds no keys and cannot read your channels, forwarding only encrypted payloads and their routing metadata.
           </p>
           <div className="nx-tool-row" aria-label="Supported coding harnesses">
             <span>Claude Code</span><span>Codex</span><span>Cursor</span><span>Gemini CLI</span>
@@ -150,15 +157,34 @@ export function LandingPage() {
                 busy={pairing}
                 error={failure}
                 onSubmit={(code) => {
+                  // A device-network problem must never be blamed on the code.
+                  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+                    setFailure(SESSION_COPY['device-offline'].body);
+                    return;
+                  }
                   setPairing(true);
                   setFailure(undefined);
-                  void exchangeBrowserPairingCode(code).then(
-                    (url) => window.location.assign(url.toString()),
-                    () => {
-                      setPairing(false);
-                      setFailure('Pairing code not found. Run setup again for a fresh code.');
-                    },
-                  );
+                  const relayUrl = relayUrlConfigured();
+                  // pairThroughRelay carries its own abortable deadline, so a dead
+                  // room (host never joins) rejects here instead of hanging forever.
+                  const flow = relayUrl
+                    ? pairThroughRelay(code, relayUrl).then(() => window.location.replace('/'))
+                    : exchangeBrowserPairingCode(code).then((url) => window.location.assign(url.toString()));
+                  void flow.catch(() => {
+                    setPairing(false);
+                    // Offline AT rejection time is a device problem, not a bad code.
+                    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+                      setFailure(SESSION_COPY['device-offline'].body);
+                      return;
+                    }
+                    setFailure(
+                      relayUrl
+                        // Pairing-time host-never-joins/code-bad (incl. the dead-room
+                        // case): a fresh code, not re-pair. Single-sourced copy.
+                        ? PAIRING_TIME_COPY['code-bad'].body
+                        : 'Pairing code not found. Run setup again for a fresh code.',
+                    );
+                  });
                 }}
               />
               <a className="nx-pair-link" href="/pair">Have a full pairing link?</a>
@@ -171,7 +197,7 @@ export function LandingPage() {
 
       <section className="nx-landing-proof" aria-label="How Codor stays private">
         <article><Laptop aria-hidden="true" /><h2>Your computer is the host</h2><p>History, keys, and repositories remain on the machine you chose.</p></article>
-        <article><Network aria-hidden="true" /><h2>Local or private-network access</h2><p>Open the local address directly, or use Tailscale for your own devices.</p></article>
+        <article><Network aria-hidden="true" /><h2>Local, private, or hosted access</h2><p>Open the local address, use Tailscale for your own devices, or reach your machine from anywhere through codor.app — the relay in between holds no keys and cannot read your channels, seeing only encrypted payloads and routing metadata.</p></article>
         <article><LockKeyhole aria-hidden="true" /><h2>No account required</h2><p>Each browser receives its own revocable device authority during pairing.</p></article>
       </section>
 

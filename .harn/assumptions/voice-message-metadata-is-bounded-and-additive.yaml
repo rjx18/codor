@@ -1,0 +1,17 @@
+id: voice-message-metadata-is-bounded-and-additive
+hash: a-c88e479e6bde
+title: A chat message may carry bounded voice metadata; bodies stay plain
+  transcript text
+state: active
+statement: A chat message may carry optional additive voice metadata submitted
+  only through the human WS post path - duration_seconds (positive, at most 600)
+  and levels (at most 48 integers 0..100, the recorded waveform envelope) -
+  validated by Zod bounds at the protocol boundary, persisted verbatim in a
+  nullable messages.voice JSON column via an additive migration, hydrated back
+  onto the Message, and fanned out in the same message frames every surface
+  already consumes. Absent means a typed message; agent and bridge post paths
+  carry no voice field; and the body remains the plain transcript plus mention
+  so non-web surfaces render clean text with no marker glyphs.
+depends_on:
+  - voice-transcribe-endpoint-is-authorized-and-bounded
+created_by: codor-voice-c1-voice-message-metadata

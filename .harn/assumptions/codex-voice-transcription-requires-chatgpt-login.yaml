@@ -1,0 +1,14 @@
+id: codex-voice-transcription-requires-chatgpt-login
+hash: a-3d686095364c
+title: Only ChatGPT-login codex auth may transcribe; 401 says re-authenticate
+state: active
+statement: Mirroring upstream validate_transcription_auth, CodexVoiceProvider
+  refuses to upload when auth.json is missing or unreadable or when it
+  represents api-key or personal-access-token auth, each rejection carrying a
+  mode-specific message naming the fix; only ChatGPT login credentials proceed
+  to upload. An HTTP 401 from the endpoint surfaces a clear
+  re-authenticate-with-codex error and v1 performs no OAuth token refresh
+  (documented follow-up).
+depends_on:
+  - codex-voice-transcription-reuses-signed-in-codex-identity
+created_by: codor-voice-phase1-provider-contract

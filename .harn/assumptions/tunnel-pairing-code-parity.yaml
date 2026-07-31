@@ -1,0 +1,12 @@
+id: tunnel-pairing-code-parity
+hash: a-dfdb48806aff
+title: Tunnel code helpers stay parity-locked with switchboard pairing codes
+state: active
+statement: packages/tunnel/src/codes.ts must use the same 32-symbol alphabet
+  (23456789ABCDEFGHJKLMNPQRSTUVWXYZ) as switchboard pairing.ts, and its
+  normalize, format, split, and generate helpers must produce results consistent
+  with normalizePairingCode and randomPairingCode over the shared 8-character
+  space (2-char nameplate + 6-char secret), because the browser and switchboard
+  must agree on code handling without sharing the sodium-bound pairing module.
+depends_on: []
+created_by: relay-p1-scaffold

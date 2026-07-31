@@ -26,7 +26,7 @@ import {
   MessageSchema,
   parseRunItemPayload,
   PendingInteractionSchema,
-  PolicySchema,
+  PolicySchema, PostFrameSchema, VoiceNoteSchema,
   ReasoningSummaryPayloadSchema,
   RoomIdSchema,
   RoomConfigSchema,
@@ -1666,3 +1666,32 @@ describe('AgentTask schemas', () => {
   });
 });
 // harn:end normalized-agent-task-updates-are-bounded-and-authoritative
+
+// harn:assume voice-message-metadata-is-bounded-and-additive ref=voice-note-schema-regression
+describe('voice note metadata', () => {
+  const voice = { duration_seconds: 3.2, levels: [0, 50, 100, 12] };
+
+  it('is an additive optional field on a message and a post frame', () => {
+    expect(MessageSchema.parse(chatMessage).voice).toBeUndefined();
+    expect(MessageSchema.parse({ ...chatMessage, voice }).voice).toEqual(voice);
+    const frame = { type: 'post', room: 'traderjoe-eng', body: 'hi' } as const;
+    expect(PostFrameSchema.parse(frame).voice).toBeUndefined();
+    expect(PostFrameSchema.parse({ ...frame, voice }).voice).toEqual(voice);
+  });
+
+  it('bounds the duration to a positive value at most 600s', () => {
+    expect(VoiceNoteSchema.safeParse({ duration_seconds: 0, levels: [] }).success).toBe(false);
+    expect(VoiceNoteSchema.safeParse({ duration_seconds: -1, levels: [] }).success).toBe(false);
+    expect(VoiceNoteSchema.safeParse({ duration_seconds: 600, levels: [] }).success).toBe(true);
+    expect(VoiceNoteSchema.safeParse({ duration_seconds: 600.1, levels: [] }).success).toBe(false);
+  });
+
+  it('caps the level envelope at 48 integers in 0..100', () => {
+    expect(VoiceNoteSchema.safeParse({ duration_seconds: 1, levels: Array(48).fill(50) }).success).toBe(true);
+    expect(VoiceNoteSchema.safeParse({ duration_seconds: 1, levels: Array(49).fill(50) }).success).toBe(false);
+    expect(VoiceNoteSchema.safeParse({ duration_seconds: 1, levels: [101] }).success).toBe(false);
+    expect(VoiceNoteSchema.safeParse({ duration_seconds: 1, levels: [-1] }).success).toBe(false);
+    expect(VoiceNoteSchema.safeParse({ duration_seconds: 1, levels: [12.5] }).success).toBe(false);
+  });
+});
+// harn:end voice-message-metadata-is-bounded-and-additive

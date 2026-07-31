@@ -1,7 +1,7 @@
 id: unpaired-root-offers-two-step-local-setup
 hash: a-e85ca413844f
 title: The unpaired root explains the complete local setup in two truthful steps
-state: active
+state: retired
 statement: An unpaired visit to / must present exactly two primary setup
   steps—run npx @richhardry/codor setup, then enter the single-use
   eight-character pairing code—while naming localhost and private Tailscale as
@@ -15,3 +15,4 @@ depends_on:
   - pairing-codes-are-short-single-use-grants
   - brand-wordmark-uses-self-hosted-bitcount
 created_by: codor-local-landing
+retired_by: relay-p7-landing

@@ -1,0 +1,17 @@
+id: setup-installs-user-launcher-shim
+hash: a-1ad4d632fd4a
+title: Setup's Install step writes an idempotent codor launcher to ~/.local/bin
+state: active
+statement: The CLI setup Install step must, after making the runtime durable,
+  write an executable launcher at ~/.local/bin/codor that exec's the durable
+  install's CLI entrypoint (the dist/index.js under installedCliRoot(location),
+  or the in-place runtime's CLI for a source checkout) with the SAME Node
+  interpreter the platform service is configured to run under (one machine, one
+  Node story), creating ~/.local/bin (mode 700) when absent. The launcher
+  content must be deterministic and rewritten idempotently on every
+  ensure/update/reinstall so a re-run or version change refreshes it (and its
+  pinned Node path) in place without duplication or a stale entrypoint, and the
+  step must report the launcher path it wrote.
+depends_on:
+  - setup-installs-durable-per-user-runtime-atomically
+created_by: relay-onboard-p6a-launcher

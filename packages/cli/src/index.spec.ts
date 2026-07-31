@@ -164,6 +164,7 @@ describe('@codor/cli', () => {
       'peers',
       'revoke',
       'ledger',
+      'relay',
     ]);
     const program = createProgram();
     expect(program.commands.find((command) => command.name() === 'spawn')?.options.map((option) => option.long))
@@ -308,6 +309,7 @@ describe('@codor/cli', () => {
     expect(output.join('\n').replaceAll(repoRoot, '<repo>')).toMatchInlineSnapshot(`
       "[dry-run] use the Codor runtime in place at <repo>
       [dry-run] create /home/setup-test/.config/codor and /home/setup-test/.codor mode 700; create /home/setup-test/.config/codor/token mode 600 if absent
+      [dry-run] install codor launcher -> /home/setup-test/.local/bin/codor (exec /home/setup-test/.nvm/versions/node/v22.8.0/bin/node <repo>/packages/cli/dist/index.js)
       [dry-run] install <repo>/packaging/systemd/codor.service -> /home/setup-test/.config/systemd/user/codor.service mode 600
       [dry-run] unit content:
       [Unit]
@@ -320,7 +322,7 @@ describe('@codor/cli', () => {
       # harn:assume codor-runtime-identity-is-a-clean-break ref=systemd-runtime-identity
       # harn:assume fresh-clone-install-proven-by-script ref=systemd-service
       # harn:assume operator-launches-serve-web-next ref=systemd-current-web-client
-      ExecStart=\"/home/setup-test/.nvm/versions/node/v22.8.0/bin/node\" \"<repo>/packages/cli/dist/index.js\" \"--data-dir\" \"/home/setup-test/.codor\" \"up\" \"--static-root\" \"<repo>/packages/web-next/dist\" \"--channel\" \"desk\" \"--channel-name\" \"Desk\"
+      ExecStart="/home/setup-test/.nvm/versions/node/v22.8.0/bin/node" "<repo>/packages/cli/dist/index.js" "--data-dir" "/home/setup-test/.codor" "up" "--static-root" "<repo>/packages/web-next/dist" "--channel" "desk" "--channel-name" "Desk"
       # harn:end operator-launches-serve-web-next
       # harn:end fresh-clone-install-proven-by-script
       # harn:end codor-runtime-identity-is-a-clean-break
@@ -337,6 +339,7 @@ describe('@codor/cli', () => {
       [dry-run] systemctl --user daemon-reload
       [dry-run] systemctl --user enable --now codor.service
       [dry-run] access localhost; skip Tailscale Serve
+      [dry-run] enable the relay; first code works at codor.app and on your network
       [dry-run] wait for Codor pairing status, then generate a ten-minute QR, URL, and pairing code"
     `);
     expect(existsSync(join(home, '.config', 'codor'))).toBe(false);

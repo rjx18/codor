@@ -1,0 +1,15 @@
+id: voice-provider-selection-is-operator-config
+hash: a-5824231988f2
+title: The active voice provider is operator configuration the browser can never
+  override
+state: active
+statement: The active voice provider is exclusively operator configuration - a
+  startCodor voiceProvider option threaded from the CLI up flag
+  --voice-provider, defaulting to codex, where the value none disables dictation
+  entirely. A browser request never chooses, names, or overrides the provider;
+  transcription always resolves the server-configured id. When dictation is
+  disabled or the selected provider is unavailable, the catalog projection
+  reports it and the transcribe endpoint refuses with a clear error.
+depends_on:
+  - voice-provider-catalog-is-named-and-safe
+created_by: codor-voice-phase2-endpoint-and-catalog

@@ -1,0 +1,22 @@
+id: setup-enables-relay-for-universal-first-code
+hash: a-ffbd1cb8dbf8
+title: Setup enables the relay by default and mints its first code universally
+  through the daemon
+state: active
+statement: On a build whose baked relay URL is present, codor setup must, unless
+  --no-relay is passed, enable the relay (default-on is a deliberate product
+  decision, Richard's locked Q3) before minting the first pairing code, and mint
+  that first code through the running daemon's /api/pairing/offers API — the
+  single universal mint path that codor pair uses — so the printed code opens
+  BOTH codor.app and the local door; setup must NOT reserve relay rooms via a
+  second in-process mint path. When the relay is disabled (--no-relay, or a
+  self-hosted build with no baked relay URL) or unreachable at mint time, setup
+  degrades to a clearly-labelled local-only code (works on your network, not
+  codor.app) rather than failing, and setup prints one operator-visible line
+  stating whether the code works at codor.app. This is the auditable home of the
+  relay-default exposure policy and its --no-relay opt-out.
+depends_on:
+  - relay-store-caches-reachable-dial-url
+  - setup-verifies-codor-before-creating-pairing-code
+  - relay-pairing-host-universal-mint
+created_by: relay-onboard-p6b-relay-default

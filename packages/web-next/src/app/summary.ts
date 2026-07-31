@@ -2,6 +2,7 @@ import type { RoomSummary } from '@codor/protocol';
 import { useEffect, useMemo, useState } from 'react';
 
 import { fetchRooms } from '@runtime/api.js';
+import { relayFetch } from '@runtime/relay-transport.js';
 
 import { useClientStore } from './store.js';
 
@@ -15,7 +16,7 @@ export function primeRoomSummaries(summaries: RoomSummary[]): void {
 }
 
 export async function fetchSummaries(token: string): Promise<RoomSummary[]> {
-  const response = await fetch('/api/rooms/summary?read_state=durable', {
+  const response = await relayFetch('/api/rooms/summary?read_state=durable', {
     headers: { authorization: `Bearer ${token}` },
   });
   if (!response.ok) throw new Error(`summary failed: ${response.status}`);

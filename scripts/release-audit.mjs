@@ -93,13 +93,20 @@ const landingSource = await readFile(new URL('../packages/web-next/src/surfaces/
 const firstChannelSource = await readFile(new URL('../packages/web-next/src/surfaces/NoChannels.tsx', import.meta.url), 'utf8');
 const agentControlsSource = await readFile(new URL('../packages/web-next/src/room/AgentControls.tsx', import.meta.url), 'utf8');
 
-// harn:assume unpaired-root-offers-two-step-local-setup ref=landing-setup-truth-audit
+// harn:assume unpaired-root-explains-local-and-hosted-access ref=landing-access-truth-audit
 assert.equal((landingSource.match(/className="nx-setup-step"/g) ?? []).length, 2, 'landing setup must have exactly two steps');
 assert.match(landingSource, /npx @richhardry\/codor setup/);
 assert.match(landingSource, /localhost/);
 assert.match(landingSource, /Tailscale/);
-assert.doesNotMatch(landingSource, /relay|cloudflare|hosted[ -]cloud/i);
-// harn:end unpaired-root-offers-two-step-local-setup
+// The blind relay is implemented, so the landing must name the hosted third
+// access path (browser at codor.app -> self-hosted switchboard) AND describe the
+// relay's limits truthfully per PLAN §2.2: it holds no keys and cannot read
+// channel content, forwarding encrypted payloads and only routing metadata. The
+// paired asserts fail if the honest explanation is deleted while a codor.app link survives.
+assert.match(landingSource, /codor\.app/, 'landing must name the hosted codor.app access path');
+assert.match(landingSource, /holds no keys/, 'landing must state the relay holds no keys');
+assert.match(landingSource, /cannot read/, 'landing must state the relay cannot read channel content');
+// harn:end unpaired-root-explains-local-and-hosted-access
 
 // harn:assume landing-demo-plays-once-and-settles ref=landing-motion-release-audit
 assert.match(landingSource, /prefers-reduced-motion: reduce/);

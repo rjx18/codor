@@ -1,0 +1,14 @@
+id: pairing-nameplate-reservation
+hash: a-ed70b7503ee5
+title: The Worker reserves nameplates and upgrades pairing sockets
+state: active
+statement: relay-worker/src/index.ts must serve POST /v1/pair/rooms by choosing
+  a random 2-character nameplate from the 32-symbol pairing alphabet and
+  reserving it through the PairingRoom DO's /reserve, retrying up to 5 distinct
+  nameplates on a busy collision and returning {nameplate} on success or 503
+  {error:"exhausted"} when every tried nameplate is busy; and it must upgrade
+  GET /v1/pair/:nameplate/ws?role=host|claim to the PairingRoom DO addressed by
+  idFromName(nameplate), rejecting a missing/invalid role, without reading
+  request bodies.
+depends_on: []
+created_by: relay-p3-pairing-room

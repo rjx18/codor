@@ -4,7 +4,10 @@ import { setActiveBrowserAccessToken } from './crypto.js';
 import { HISTORY_PAGE_SIZE, useRoomStore } from './state.js';
 
 export interface Connection {
-  post(body: string, opts?: { replyTo?: number; attachments?: string[] }): void;
+  post(
+    body: string,
+    opts?: { replyTo?: number; attachments?: string[]; voice?: { duration_seconds: number; levels: number[] } },
+  ): void;
   act(act: Act): void;
   disconnect(): void;
   reconnect(): void;
@@ -17,6 +20,13 @@ export interface ConnectOptions {
   origin?: string;
   /** Re-authenticates a paired browser after a server restart invalidates its page session. */
   refreshToken?: () => Promise<string>;
+  /**
+   * Socket constructor seam (relay tunnel). Re-invoked on EVERY (re)connect, so
+   * when the tunnel session drops and closes the app-WS socket, this reconnect
+   * builds a fresh app-WS stream on the NEW session — never reuses a dead socket
+   * or a stale session. Defaults to the direct browser WebSocket.
+   */
+  socketFactory?: (url: string) => WebSocket;
 }
 
 // harn:assume client-syncs-by-seq ref=ws-resubscribe-cursor
@@ -41,10 +51,11 @@ export function connect(options: ConnectOptions): Connection {
   let manuallyClosed = false;
   let retryMs = 500;
   let token = options.token;
+  const makeSocket = options.socketFactory ?? ((url: string) => new WebSocket(url));
 
   const open = (): void => {
     manuallyClosed = false;
-    socket = new WebSocket(`${origin}/ws?token=${encodeURIComponent(token)}`);
+    socket = makeSocket(`${origin}/ws?token=${encodeURIComponent(token)}`);
     socket.onopen = () => {
       retryMs = 500;
       setConnected(true);
@@ -99,6 +110,7 @@ export function connect(options: ConnectOptions): Connection {
         body,
         ...(opts?.replyTo !== undefined && { reply_to: opts.replyTo }),
         ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
+        ...(opts?.voice !== undefined && { voice: opts.voice }),
       }),
     act: (act) => send({ type: 'act', room: options.room, act }),
     disconnect: () => {

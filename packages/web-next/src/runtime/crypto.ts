@@ -1,4 +1,27 @@
 import sodium from 'libsodium-wrappers';
+import {
+  PairingChannel,
+  PakeClaimant,
+  decodePairingMessage,
+  generateTunnelKeypair,
+  normalizeCode,
+  splitCode,
+  type PairingMessage,
+} from '@codor/tunnel';
+import { relayDialCandidates } from './relay-dial.js';
+import { relayFetch } from './relay-transport.js';
+import { type RelayComputer, selectActiveComputer } from './relay-records.js';
+import {
+  type Kv,
+  type RelayMaterial,
+  forgetComputerStore,
+  hydrateActive,
+  listComputers,
+  migrateIfNeeded,
+  recordPairedComputer,
+  renameComputer,
+  switchToComputer,
+} from './relay-store.js';
 
 export interface BrowserPublicIdentity {
   device_id: string;
@@ -124,6 +147,20 @@ async function writeState(key: string, value: unknown): Promise<void> {
   }
 }
 
+async function deleteState(key: string): Promise<void> {
+  const database = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(STORE, 'readwrite');
+      transaction.objectStore(STORE).delete(key);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB delete failed'));
+    });
+  } finally {
+    database.close();
+  }
+}
+
 async function readAllState(): Promise<unknown[]> {
   const database = await openDatabase();
   try {
@@ -136,6 +173,33 @@ async function readAllState(): Promise<unknown[]> {
     database.close();
   }
 }
+
+async function listStateKeys(): Promise<string[]> {
+  const database = await openDatabase();
+  try {
+    return await new Promise<string[]>((resolve, reject) => {
+      const request = database.transaction(STORE).objectStore(STORE).getAllKeys();
+      request.onsuccess = () => resolve(request.result as string[]);
+      request.onerror = () => reject(request.error ?? new Error('IndexedDB read failed'));
+    });
+  } finally {
+    database.close();
+  }
+}
+
+/** The IndexedDB `state` store as the KV seam the multi-computer store runs over.
+ *  `lock` serializes every index mutation and the boot hydrate across tabs via the
+ *  Web Locks API (a single named lock) so two tabs on one IndexedDB can't race an
+ *  index read-modify-write; absent the API, it degrades to a straight pass-through. */
+const browserKv: Kv = {
+  get: (key) => readState(key),
+  put: writeState,
+  delete: deleteState,
+  keys: listStateKeys,
+  lock: <T,>(fn: () => Promise<T>): Promise<T> => (typeof navigator !== 'undefined' && navigator.locks
+    ? (navigator.locks.request('codor-relay-store', fn) as Promise<T>)
+    : fn()),
+};
 
 // harn:assume single-crypto-suite-libsodium ref=browser-libsodium-suite
 export async function ensureBrowserIdentity(): Promise<BrowserPublicIdentity> {
@@ -182,6 +246,278 @@ async function persistBrowserPairing(result: PairingResult, origin: string): Pro
     } satisfies StoredBrowserRoomKey);
   }
   await storeBrowserAccess({ origin: new URL(origin).origin, authority: 'device' });
+}
+
+/**
+ * Build a paired computer's complete archive material DIRECTLY from the enrolled
+ * pairing result (fable) — the same key-set persistBrowserPairing would write to
+ * the globals, but returned as data so the add path archives it WITHOUT ever
+ * touching the shared global cache. Room keys are unsealed here, as in persist.
+ */
+async function relayMaterial(
+  result: PairingResult,
+  relay: StoredRelayRecord,
+  origin: string,
+): Promise<RelayMaterial> {
+  const rooms: RelayMaterial['rooms'] = [];
+  for (const sealed of result.room_keys) {
+    rooms.push({
+      room: sealed.room,
+      value: {
+        room: sealed.room,
+        generation: sealed.generation,
+        key: encode(await openForBrowser(sealed.sealed_key)),
+      } satisfies StoredBrowserRoomKey,
+    });
+  }
+  return {
+    relay,
+    peer: { ...result.switchboard, kind: 'switchboard' } satisfies BrowserPeer,
+    access: { origin: new URL(origin).origin, authority: 'device' } satisfies StoredBrowserAccess,
+    rooms,
+  };
+}
+
+/** Browser-side relay tunnel record (PLAN §4.5). */
+export interface StoredRelayRecord {
+  relay_url: string;
+  session_id: string; // 64-hex
+  client_static: { pub: string; priv: string }; // base64url
+  host_static_pub: string; // base64url
+  /** The {primary, alias} member that actually reached the relay at pairing
+   *  time (P7). Absent when the primary won. Sessions dial it first; relay_url
+   *  stays the identity/keying origin so stored access is never re-keyed. */
+  dial_url?: string;
+}
+
+export async function storedRelayRecord(): Promise<StoredRelayRecord | undefined> {
+  return readState<StoredRelayRecord>('relay');
+}
+
+/**
+ * Boot: migrate a legacy single-record install into the v2 index (idempotent),
+ * then re-hydrate the global slots from the ACTIVE computer's archive (archive is
+ * the truth). Returns the active relay record, or undefined when unpaired. Called
+ * by initRelayMode before it builds the tunnel.
+ */
+export async function hydrateActiveRelay(): Promise<StoredRelayRecord | undefined> {
+  const legacyPeer = await readState<BrowserPeer>('peer:switchboard');
+  await migrateIfNeeded(browserKv, {
+    id: legacyPeer?.device_id ?? 'legacy',
+    label: 'Computer 1',
+    paired_at: new Date().toISOString(),
+  });
+  await hydrateActive(browserKv);
+  return readState<StoredRelayRecord>('relay');
+}
+
+/** The paired computers + the active id, for the switcher UI. */
+export async function listPairedComputers(): Promise<{ computers: RelayComputer[]; active_id?: string }> {
+  const index = await listComputers(browserKv);
+  return { computers: index.computers, active_id: index.active_id };
+}
+
+/** Switch the active computer (caller reloads afterward). */
+export async function switchComputer(id: string): Promise<void> {
+  await switchToComputer(browserKv, id);
+}
+
+/** Rename a paired computer's label in place. */
+export async function renamePairedComputer(id: string, label: string): Promise<void> {
+  await renameComputer(browserKv, id, label);
+}
+
+/** Forget one specific paired computer (per-computer Forget in the switcher). */
+export async function forgetPairedComputer(id: string): Promise<void> {
+  await forgetComputerStore(browserKv, id);
+}
+
+/**
+ * Forget the ACTIVE relay pairing (the recovery surface's / Settings' "Re-pair
+ * this browser") — WITHOUT the nuclear unpairBrowser(). With multiple computers
+ * this falls back to the next paired computer; with one it clears the globals and
+ * drops to code entry. A subsequent pairThroughRelay records a fresh computer.
+ */
+export async function forgetRelayPairing(): Promise<void> {
+  const active = selectActiveComputer(await listComputers(browserKv));
+  if (active) {
+    await forgetComputerStore(browserKv, active.id);
+  } else {
+    await deleteState('relay');
+    await deleteState('access:switchboard');
+  }
+  setActiveBrowserAccessToken('');
+}
+
+/** The stable access origin used to key relay-paired switchboard access. */
+export function relayAccessOrigin(relayUrl: string): string {
+  return new URL(relayUrl.replace(/^ws/, 'http')).origin;
+}
+
+/**
+ * Pair a browser through the blind relay (PLAN §4.2). Runs the real CPace PAKE
+ * over the pairing room, enrolls into the SAME PairingService result as local
+ * pairing, and persists the relay tunnel record. Real browser WebCrypto (noble
+ * + libsodium) runs throughout.
+ */
+export async function pairThroughRelay(
+  code: string,
+  relayUrl: string,
+  deadlineMs = (typeof window !== 'undefined' && window.__CODOR_PAIR_DEADLINE_MS) || 20_000,
+): Promise<void> {
+  const normalized = normalizeCode(code);
+  if (!normalized) throw new Error('invalid pairing code');
+  const { nameplate, secret } = splitCode(normalized);
+  const identity = await ensureBrowserIdentity();
+  // P7: some networks kill connections that openly name the canonical relay
+  // host. Try each member of the dial pair, moving on ONLY when the room was
+  // never contacted (a connect-level failure says nothing about the code); the
+  // winner lands in the stored record's dial_url so sessions dial it directly.
+  const candidates = relayDialCandidates(relayUrl);
+  let lastError: unknown;
+  for (const [index, dialUrl] of candidates.entries()) {
+    try {
+      await claimThroughRoom({
+        nameplate,
+        secret,
+        identity,
+        relayUrl,
+        dialUrl,
+        deadlineMs,
+        // Bound a silently-blackholed connect only while another candidate remains.
+        contactTimeoutMs: index < candidates.length - 1 ? 5_000 : undefined,
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!(error instanceof RelayNeverContacted)) throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+/** A claim attempt that failed before the pairing room ever answered — the
+ *  signal to try the other dial-pair member; never a verdict on the code. */
+class RelayNeverContacted extends Error {}
+
+async function claimThroughRoom(args: {
+  nameplate: string;
+  secret: string;
+  identity: BrowserPublicIdentity;
+  /** The identity/keying URL the stored record carries. */
+  relayUrl: string;
+  /** The URL actually dialed (a member of the {primary, alias} pair). */
+  dialUrl: string;
+  deadlineMs: number;
+  /** When set, a connect that has not heard from the room by then fails as
+   *  RelayNeverContacted instead of eating the whole deadline. */
+  contactTimeoutMs?: number;
+}): Promise<void> {
+  const { nameplate, secret, identity, relayUrl, dialUrl, deadlineMs } = args;
+  const clientStatic = generateTunnelKeypair();
+  const claimant = new PakeClaimant({ nameplate, secret });
+
+  const wsBase = dialUrl.replace(/\/$/, '').replace(/^http/, 'ws');
+  const socket = new WebSocket(`${wsBase}/v1/pair/${nameplate}/ws?role=claim`);
+  socket.binaryType = 'arraybuffer';
+  let channel: PairingChannel | undefined;
+  let hello: { session_id: string; host_static_pub: string } | undefined;
+  let settled = false;
+  let contacted = false;
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      let contactTimer: ReturnType<typeof setTimeout> | undefined;
+      const fail = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        if (deadline) clearTimeout(deadline);
+        if (contactTimer) clearTimeout(contactTimer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      // A dead room (host never joins) would otherwise leave this pending forever.
+      deadline = setTimeout(() => fail(new Error('relay pairing timed out — the host never joined the room')), deadlineMs);
+      if (args.contactTimeoutMs !== undefined) {
+        contactTimer = setTimeout(() => {
+          if (!contacted) fail(new RelayNeverContacted('relay unreachable (connect timed out)'));
+        }, args.contactTimeoutMs);
+      }
+      // A completed upgrade proves the room answered — connect-level failure is
+      // only ever BEFORE open, so a reserved-but-silent room (host missing)
+      // still gets the honest dead-room deadline instead of a failover.
+      socket.onopen = () => {
+        contacted = true;
+      };
+      socket.onerror = () => fail(contacted
+        ? new Error('relay pairing connection failed')
+        : new RelayNeverContacted('relay pairing connection failed'));
+      socket.onclose = () => fail(contacted
+        ? new Error('relay pairing closed before completion')
+        : new RelayNeverContacted('relay pairing closed before completion'));
+      socket.onmessage = (event) => {
+        void (async () => {
+          try {
+            const bytes = new Uint8Array(event.data as ArrayBuffer);
+            if (!channel) {
+              if (bytes.length === 48) {
+                const { msgB, tagC } = claimant.receiveMsgA(bytes);
+                socket.send(msgB);
+                socket.send(tagC);
+              } else if (bytes.length === 32) {
+                claimant.receiveHostConfirmation(bytes);
+                channel = new PairingChannel(claimant.channel());
+              }
+              return;
+            }
+            const message = decodePairingMessage(claimant.channel().open(bytes));
+            if (message.type === 'hello') {
+              hello = { session_id: message.session_id, host_static_pub: message.host_static_pub };
+              const enroll: PairingMessage = {
+                type: 'enroll',
+                request: { ...identity, kind: 'device', label: navigator.userAgent },
+                client_static_pub: encode(clientStatic.publicKey),
+                pairing_token: message.pairing_token,
+              };
+              socket.send(channel.seal(enroll));
+            } else if (message.type === 'enrolled') {
+              const result = message.result as PairingResult;
+              const relay: StoredRelayRecord = {
+                relay_url: relayUrl,
+                session_id: hello!.session_id,
+                client_static: { pub: encode(clientStatic.publicKey), priv: encode(clientStatic.secretKey) },
+                host_static_pub: hello!.host_static_pub,
+                // Remember which pair member actually reached the relay so the
+                // session tunnel dials it first; relay_url stays the keying origin.
+                ...(dialUrl !== relayUrl ? { dial_url: dialUrl } : {}),
+              };
+              // Archive this computer's generation DIRECTLY from the pairing result
+              // — never by snapshotting the shared globals — so a concurrent active
+              // session in another tab can't contaminate it and this pairing can't
+              // clobber another computer's rooms. No global slots are touched here;
+              // the post-pairing reload's boot hydrate populates them from the
+              // now-active generation. Label defaults to "Computer N" (a re-pair of
+              // the same switchboard keeps its label).
+              const material = await relayMaterial(result, relay, relayAccessOrigin(relayUrl));
+              const existing = await listComputers(browserKv);
+              const id = result.switchboard.device_id;
+              const label = existing.computers.find((c) => c.id === id)?.label
+                ?? `Computer ${existing.computers.length + 1}`;
+              await recordPairedComputer(browserKv, { id, label, paired_at: new Date().toISOString() }, material);
+              socket.send(channel.seal({ type: 'done' }));
+              settled = true;
+              if (deadline) clearTimeout(deadline);
+              resolve();
+            }
+          } catch (error) {
+            fail(error);
+          }
+        })();
+      };
+    });
+  } finally {
+    socket.close();
+  }
 }
 
 export async function completeBrowserPairing(url: URL): Promise<PairingResult> {
@@ -238,7 +574,7 @@ export async function openBrowserDeviceSession(origin = window.location.origin):
   const switchboard = await readState<BrowserPeer>('peer:switchboard');
   if (switchboard?.kind !== 'switchboard') return undefined;
   const identity = await requiredIdentity();
-  const challengeResponse = await fetch(`${origin}/api/auth/challenge`, {
+  const challengeResponse = await relayFetch(`${origin}/api/auth/challenge`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ device_id: identity.device_id }),
@@ -273,7 +609,7 @@ export async function openBrowserDeviceSession(origin = window.location.origin):
     challengeBytes(challenge),
     decode(identity.sign_secret_key),
   ));
-  const sessionResponse = await fetch(`${origin}/api/auth/session`, {
+  const sessionResponse = await relayFetch(`${origin}/api/auth/session`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ challenge_id: challenge.challenge_id, signature }),
@@ -316,13 +652,13 @@ export async function storedBrowserRoomKey(room: string): Promise<StoredBrowserR
 }
 
 export async function storedBrowserRoomKeys(): Promise<StoredBrowserRoomKey[]> {
-  return (await readAllState()).filter((value): value is StoredBrowserRoomKey => {
-    if (typeof value !== 'object' || value === null) return false;
-    const candidate = value as Partial<StoredBrowserRoomKey>;
-    return typeof candidate.room === 'string' &&
-      typeof candidate.generation === 'number' &&
-      typeof candidate.key === 'string';
-  });
+  // Filter by KEY PREFIX, never by value shape — the per-computer archives
+  // (`computer:<id>:<gen>:room:*`) hold identically-shaped values, and must stay
+  // invisible to every legacy reader. Only the active computer's global `room:*`
+  // keys count.
+  const keys = (await listStateKeys()).filter((k) => k.startsWith('room:'));
+  const values = await Promise.all(keys.map((k) => readState<StoredBrowserRoomKey>(k)));
+  return values.filter((value): value is StoredBrowserRoomKey => value !== undefined);
 }
 
 export async function persistBrowserRoomKey(
@@ -355,6 +691,17 @@ export async function storeBrowserAccess(access: StoredBrowserAccess): Promise<v
 
 export async function storedBrowserAccess(): Promise<StoredBrowserAccess | undefined> {
   return readState<StoredBrowserAccess>('access:switchboard');
+}
+
+/**
+ * Pure storage-presence check — is there a persisted access record for this origin?
+ * NO network, NO challenge. Boot uses it to tell a paired browser (direct device OR
+ * operator `?token=` cold-launch) apart from a genuinely-unpaired one, so a failed
+ * token resolution shows the recovery card instead of the "never paired" landing.
+ */
+export async function hasStoredBrowserAccess(origin: string): Promise<boolean> {
+  const stored = await storedBrowserAccess();
+  return stored !== undefined && stored.origin === new URL(origin).origin;
 }
 
 // harn:assume unpair-purges-all-browser-state ref=browser-unpair-purge

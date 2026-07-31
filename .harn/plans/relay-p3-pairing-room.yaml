@@ -1,0 +1,75 @@
+id: relay-p3-pairing-room
+title: Relay Phase 3 - PairingRoom Durable Object and pairing routes
+assumptions:
+  create:
+    - id: pairing-room-lifecycle
+      title: The PairingRoom Durable Object enforces the pairing rendezvous lifecycle
+      statement: relay-worker/src/pairing-room.ts must implement the PairingRoom
+        Durable Object per PLAN §4.1 - a SQLite-backed room that /reserve marks
+        reserved (409 if already reserved) and arms with a 10-minute alarm; it
+        accepts hibernatable host and claimant WebSockets tagged by role, keeps
+        exactly one host (a new host supersedes the old, closed with 4001) and
+        at most one claimant (a second concurrent claimant is closed with 4002),
+        increments a persisted churn counter per accepted claimant and burns at
+        churn greater than 10, forwards binary messages verbatim between the two
+        roles without inspecting them (dropping with a no-peer notice when the
+        peer is absent), accepts fail/success text only from the host (fail
+        increments a persisted attempts counter and closes the claimant 4003,
+        burning at attempts of 3 or more; success burns), notifies peers of
+        join/leave, and burns on the alarm as expired; a burn notifies peers,
+        closes sockets (1000 for paired, else 4000), and deletes all storage so
+        the nameplate is reusable.
+      reason: This DO is the entire enforcement point for the 10-minute lifetime, the
+        3-attempt and 10-churn abuse bounds, and the burn-after-use guarantee;
+        forwarding binary verbatim keeps the relay blind, and any lapse would
+        weaken the online-guess bound or leak/keep pairing traffic.
+      depends_on:
+        - relay-control-vocabulary-is-canonical
+    - id: pairing-nameplate-reservation
+      title: The Worker reserves nameplates and upgrades pairing sockets
+      statement: relay-worker/src/index.ts must serve POST /v1/pair/rooms by choosing
+        a random 2-character nameplate from the 32-symbol pairing alphabet and
+        reserving it through the PairingRoom DO's /reserve, retrying up to 5
+        distinct nameplates on a busy collision and returning {nameplate} on
+        success or 503 {error:"exhausted"} when every tried nameplate is busy;
+        and it must upgrade GET /v1/pair/:nameplate/ws?role=host|claim to the
+        PairingRoom DO addressed by idFromName(nameplate), rejecting a
+        missing/invalid role, without reading request bodies.
+      reason: Nameplate assignment is the relay's only routing input to pairing; the
+        retry-and-exhaust behavior bounds concurrent rooms to the nameplate
+        space and the role-gated upgrade is what connects the two endpoints to
+        the right room.
+      depends_on: []
+  reviewed:
+    - id: relay-worker-stays-blind
+      outcome: unchanged
+      reason: The new pairing routes and DO forwarding preserve blindness - POST
+        /v1/pair/rooms reads no request body (it only picks a nameplate), the WS
+        routes forward the upgrade unmodified, and the PairingRoom forwards
+        binary payloads verbatim without inspecting them; only relay control
+        text (fail/success and the generated notices) is parsed.
+anchors:
+  pairing-room-lifecycle:
+    pairing-room-behavior:
+      action: change
+      reason: Implement the full PairingRoom DO (reserve, roles, verbatim forwarding,
+        attempts/churn, alarm, burn, close codes) replacing the Phase 1 stub.
+  pairing-nameplate-reservation:
+    nameplate-reservation:
+      action: change
+      reason: Add the nameplate selection/retry reservation helper and the pairing WS
+        upgrade routing.
+  relay-worker-stays-blind:
+    blind-router:
+      action: change
+      reason: Wire the pairing routes into the path-only router, still without reading
+        or logging request/response bodies.
+files:
+  - relay-worker/src/index.ts
+  - relay-worker/src/pairing-room.ts
+  - relay-worker/package.json
+  - relay-worker/vitest.config.ts
+  - relay-worker/test/pairing-room.spec.ts
+  - relay-worker/test/healthz.spec.ts
+applied:
+  applied_at: 2026-07-27T09:59:40.828Z

@@ -1,0 +1,146 @@
+id: codor-voice-c1-voice-message-metadata
+title: Bounded additive voice metadata on chat messages
+notes: Phase C1 of the approved voice UX v2.1 plan (tmp/voice-ux-v2/PLAN.md item
+  6, approved codor-voice message 77). Messages gain optional additive voice
+  metadata so the web timeline can render dictated messages as designed cards
+  from real recording data - no emoji markers in bodies. VoiceNoteSchema
+  (duration_seconds positive <= 600; levels <= 48 integers 0..100) joins
+  MessageSchema and the WS PostFrameSchema; the server's human WS post path
+  passes it through daemon.postHumanMessage/postChatMessage into a nullable
+  messages.voice JSON column (additive migration, attachments precedent),
+  hydrated back and fanned out on the Message shape automatically. The agent
+  post path carries no voice field, structurally. Insertion points in message.ts
+  and ws.ts are anchor-free; the store schema column, store insert, daemon
+  passthrough, and server WS dispatch land inside existing anchored regions
+  declared below as mechanical crossings (phase-6 member-column precedent).
+  Import-line attributions in ws.ts and daemon.ts declared defensively
+  (top-of-file import edits attribute to each file's first column-0 anchor).
+assumptions:
+  create:
+    - id: voice-message-metadata-is-bounded-and-additive
+      title: A chat message may carry bounded voice metadata; bodies stay plain
+        transcript text
+      statement: A chat message may carry optional additive voice metadata submitted
+        only through the human WS post path - duration_seconds (positive, at
+        most 600) and levels (at most 48 integers 0..100, the recorded waveform
+        envelope) - validated by Zod bounds at the protocol boundary, persisted
+        verbatim in a nullable messages.voice JSON column via an additive
+        migration, hydrated back onto the Message, and fanned out in the same
+        message frames every surface already consumes. Absent means a typed
+        message; agent and bridge post paths carry no voice field; and the body
+        remains the plain transcript plus mention so non-web surfaces render
+        clean text with no marker glyphs.
+      reason: The web timeline renders dictated messages as designed voice cards drawn
+        from real recording data; unbounded or free-form metadata would bloat
+        rows and fanout frames, and a body-level marker would litter every other
+        surface.
+      depends_on:
+        - voice-transcribe-endpoint-is-authorized-and-bounded
+  reviewed:
+    - id: run-journals-own-evidence-across-output-messages
+      outcome: unchanged
+      reason: The messages voice column is bounded metadata, never run evidence; the
+        SCHEMA edit mechanically crosses the enclosing region.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: Mechanical enclosing SCHEMA crossing only; custody is unchanged.
+    - id: collaboration-groups-are-durable-state
+      outcome: unchanged
+      reason: Mechanical enclosing SCHEMA crossing only; collaboration storage is
+        unchanged.
+    - id: substantive-output-messages-drive-unread
+      outcome: unchanged
+      reason: The voice column joins the message row and insert; unread/activity
+        semantics are untouched.
+    - id: message-id-txn-allocation
+      outcome: unchanged
+      reason: The insert gains one column inside the allocation region; id/txn
+        behavior is unchanged.
+    - id: eligible-multi-agent-routing-starts-one-group
+      outcome: unchanged
+      reason: postChatMessage threads one optional field through the enclosing ingress
+        region; routing and group semantics are unchanged.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: The WS post dispatch passes the validated frame field through inside the
+        enclosing listener region; socket/protocol parity is unchanged.
+    - id: resolved-run-cost-estimates-are-finalization-snapshots
+      outcome: unchanged
+      reason: Defensive - a daemon import-line extension attributes to this first
+        column-0 region; estimate semantics are untouched.
+    - id: browser-protocol-epoch-blocks-only-stale-browser-ui
+      outcome: unchanged
+      reason: Defensive - a ws.ts import-line extension attributes to this first
+        column-0 region; epoch gating is untouched.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: Harn attribution artifact - the ref continuation-segmentation-regression
+        is duplicated across continuation.spec.ts and schemas.spec.ts, and
+        adding any new anchored region to schemas.spec.ts re-attributes the
+        duplicate as changed even though the region is byte-identical and
+        unshifted (proven). Continuation segmentation semantics are untouched;
+        follow-up queued to rename one duplicate ref.
+anchors:
+  voice-message-metadata-is-bounded-and-additive:
+    voice-note-schema:
+      action: change
+      reason: VoiceNoteSchema bounds plus the additive Message.voice field beside
+        attachments.
+    voice-post-frame:
+      action: change
+      reason: PostFrameSchema gains the optional bounded voice field.
+    voice-note-schema-regression:
+      action: change
+      reason: Prove bounds (duration cap, level count/range/int, absence valid) at the
+        protocol boundary.
+    voice-message-storage:
+      action: change
+      reason: Additive migration plus row hydration of the voice JSON column
+        (unanchored store regions get this new anchor).
+    voice-message-storage-regression:
+      action: change
+      reason: Prove persist/hydrate round-trip, migration on an existing database, and
+        absent-by-default.
+    voice-post-regression:
+      action: change
+      reason: Prove the WS human post carries voice into the fanned-out message,
+        bounds are enforced, and the agent path cannot carry it.
+  eligible-multi-agent-routing-starts-one-group:
+    multi-agent-group-ingress:
+      action: change
+      reason: Mechanical crossing - the optional voice field threads through the
+        message object inside this region; routing semantics unchanged.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Mechanical crossing - the validated frame field passes through the WS
+        post dispatch inside this region; protocol parity unchanged.
+  message-id-txn-allocation:
+    message-id-allocation:
+      action: change
+      reason: Mechanical crossing - the INSERT gains the voice column inside this
+        region; id/txn allocation unchanged.
+  continuation-writer-follows-journaled-output-ownership:
+    continuation-segmentation-regression:
+      action: change
+      reason: Duplicate-ref attribution artifact only - region proven byte-identical
+        and unshifted; declared so the gate reflects harn's attribution
+        honestly.
+files:
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/daemon.ts
+verification: Protocol spec proves VoiceNote bounds and PostFrame acceptance;
+  store spec proves the additive migration on a pre-existing database file, the
+  persist/hydrate round-trip, and voice-absent default; server spec proves a
+  human WS post with voice fans out a message carrying it verbatim, an
+  out-of-bounds voice frame is refused, and the agent post path has no voice
+  field. pnpm -r build and the protocol plus switchboard suites pass by exit
+  code; harn unstaged/staged/apply gates pass.
+applied:
+  applied_at: 2026-07-27T07:55:51.865Z

@@ -10,6 +10,7 @@ import type {
 } from '@codor/protocol';
 
 import { openForBrowser, persistBrowserRoomKey } from './crypto.js';
+import { relayFetch } from './relay-transport.js';
 
 export interface ApiOptions {
   token: string;
@@ -113,6 +114,13 @@ export interface PairingOffer {
   pairing_code: string;
   expires_at: string;
   switchboard_sign_pub: string;
+  /**
+   * Which doors this code opens: 'both' (works at codor.app AND locally) when the
+   * relay reserved a room, or 'local' when the relay was unreachable and the mint
+   * degraded to a local-only code. Absent on older switchboards → treat as 'both'
+   * to preserve today's copy. Surfaced honestly in Settings.
+   */
+  doors?: 'both' | 'local';
 }
 
 // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=actionable-rest-errors
@@ -128,8 +136,9 @@ async function requestError(response: Response): Promise<Error> {
 // harn:end starting-agent-name-derives-one-valid-identity-v6
 
 async function fetchJson<T>(path: string, options: ApiOptions): Promise<T> {
+  // relayFetch tunnels this to the relay in relay mode (page origin or not).
   const origin = options.origin ?? window.location.origin;
-  const res = await fetch(`${origin}${path}`, {
+  const res = await relayFetch(`${origin}${path}`, {
     headers: { authorization: `Bearer ${options.token}` },
   });
   if (!res.ok) throw await requestError(res);
@@ -142,8 +151,9 @@ async function sendJson<T>(
   body: unknown,
   options: ApiOptions,
 ): Promise<T> {
+  // relayFetch tunnels this to the relay in relay mode (page origin or not).
   const origin = options.origin ?? window.location.origin;
-  const response = await fetch(`${origin}${path}`, {
+  const response = await relayFetch(`${origin}${path}`, {
     method,
     headers: {
       authorization: `Bearer ${options.token}`,
@@ -257,6 +267,15 @@ export async function fetchLocalDirectories(
 
 export async function fetchDevices(options: ApiOptions): Promise<DeviceSummary[]> {
   return (await fetchJson<{ devices: DeviceSummary[] }>('/api/devices', options)).devices;
+}
+
+/**
+ * Whether the switchboard's blind relay is enabled. Lets Settings tell a NORMAL
+ * relay-disabled local code (doors:'local', no warning) apart from a DEGRADED
+ * relay-unreachable one (relay enabled but the mint couldn't reserve a room).
+ */
+export async function fetchRelayStatus(options: ApiOptions): Promise<{ enabled: boolean }> {
+  return fetchJson<{ enabled: boolean }>('/api/relay/status', options);
 }
 
 // harn:assume pairing-code-enrollment-surfaces ref=pairing-code-client-api

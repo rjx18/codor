@@ -1,0 +1,20 @@
+id: universal-pairing-code-dual-door
+hash: a-bb0db41ff234
+title: One relay-enabled mint registers a single code at both pairing doors
+state: active
+statement: PairingService.issueForCode must register a caller-supplied
+  eight-character code (normalized from the 32-symbol pairing alphabet,
+  displayed XXXX-XXXX) as a local pairing grant with the same ten-minute expiry
+  and single-use burn semantics as issue(), and when the relay is enabled the
+  single mint path must reserve a relay room and register that room's
+  nameplate+secret code through issueForCode so the one code enrolls a device at
+  BOTH the relay PAKE door and the local /api/pairing/exchange door as one
+  shared grant - consuming either door (relay PairingService.complete or local
+  exchange) invalidates the other - while a relay-disabled mint stays local-only
+  via issue(), because the operator must never be shown or hand out a code that
+  opens only one door while the relay is enabled.
+depends_on:
+  - short-pairing-code-grant-exchange
+  - relay-store-persistence
+  - relay-pairing-host-universal-mint
+created_by: relay-ux-p1-universal-code

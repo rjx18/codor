@@ -1,0 +1,21 @@
+id: unpaired-root-explains-local-and-hosted-access
+hash: a-8be099670993
+title: The unpaired root explains local and hosted access in two truthful steps
+state: active
+statement: An unpaired visit to / must present exactly two primary setup
+  steps—run npx @richhardry/codor setup, then enter the single-use
+  eight-character pairing code—and describe access truthfully, naming localhost
+  and private Tailscale as the self-hosted paths plus the hosted path where the
+  browser at codor.app reaches the self-hosted switchboard through the blind
+  relay that holds no keys and cannot read channel content (it forwards
+  encrypted payloads and sees only routing metadata); the code control must
+  support paste, arrows, backspace, ?code= prefill, busy/error feedback, and
+  phone widths, and compatibility labels stay text-only, because this page is
+  the first product contact and must name every real access path without asking
+  a new operator to infer setup order or trust an unimplemented boundary.
+depends_on:
+  - pairing-code-enrollment-surfaces
+  - pairing-codes-are-short-single-use-grants
+  - brand-wordmark-uses-self-hosted-bitcount
+  - relay-worker-stays-blind
+created_by: relay-p7-landing

@@ -1,0 +1,14 @@
+id: tunnel-mux-frame-wire-format
+hash: a-477858700733
+title: The tunnel stream-mux frame codec is byte-exact
+state: active
+statement: packages/tunnel/src/frames.ts must encode and decode the stream-mux
+  wire format exactly as specified - a frame is type(1) then streamId(4
+  big-endian) then payload, a packet is one or more frames each prefixed by a
+  u32 big-endian length, and the coalescer flushes buffered frames at 16 ms or
+  64 KiB whichever comes first - and it must reject truncated or
+  length-overflowing input rather than returning partial frames, because the
+  browser and switchboard depend on byte-for-byte agreement over the opaque
+  relay.
+depends_on: []
+created_by: relay-p1-scaffold

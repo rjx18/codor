@@ -20,3 +20,5 @@ export type {
   TurnTranslator,
 } from './translate.js';
 export { peekCodexContextUsage } from './peek.js';
+export { CodexVoiceProvider, codexVoiceStatus } from './transcribe.js';
+export type { CodexVoiceProviderOptions } from './transcribe.js';

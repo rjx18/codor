@@ -38,6 +38,9 @@ export interface RoomSlice {
 
 interface ClientState {
   connected: boolean;
+  /** The connector parked on a device-auth refusal (app-WS 4403): positive
+   *  pairing-dead evidence for the recovery surface. Cleared on (re)connect. */
+  authRefused: boolean;
   activeRoom: string;
   rooms: Record<string, RoomSlice>;
   roomList: Room[];
@@ -45,6 +48,7 @@ interface ClientState {
   mergeHistoryPage(room: string, messages: Message[]): void;
   setActiveRoom(room: string): void;
   setConnected(connected: boolean): void;
+  setAuthRefused(authRefused: boolean): void;
   reset(): void;
 }
 
@@ -149,6 +153,7 @@ function rollingTail(messages: Record<number, Message>, next: Message): Record<n
 
 export const useClientStore = create<ClientState>((set, get) => ({
   connected: false,
+  authRefused: false,
   activeRoom: '',
   rooms: {},
   roomList: [],
@@ -358,10 +363,11 @@ export const useClientStore = create<ClientState>((set, get) => ({
     });
   },
 
-  setConnected: (connected) => set({ connected }),
+  setConnected: (connected) => set(connected ? { connected, authRefused: false } : { connected }),
+  setAuthRefused: (authRefused) => set({ authRefused }),
   reset: () => {
     staging.clear();
-    set({ connected: false, activeRoom: '', rooms: {}, roomList: [] });
+    set({ connected: false, authRefused: false, activeRoom: '', rooms: {}, roomList: [] });
   },
 }));
 

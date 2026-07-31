@@ -295,6 +295,101 @@ Screen install, APNs-backed Web Push, cold delivery, and notification navigation
    the revoked device must receive or decrypt nothing. This checks the device-sealed key refresh
    on a real push provider rather than only the automated worker simulation.
 
+## Blind tunnel relay (codor.app hosted access)
+
+Status: **not run — blocked on the Cloudflare account** (Phase 7 Track B: an account, the `codor.app`
+zone on Cloudflare nameservers, and `wrangler login`). This is the production smoke for the blind
+*tunnel* relay that lets the hosted browser at codor.app reach a NAT'd self-hosted switchboard. It is
+distinct from the [Public Web Push relay](#public-web-push-relay) below: the tunnel relay is the
+Cloudflare Worker in `relay-worker/`, configured with `CODOR_TUNNEL_URL` / `codor relay …`, whereas
+the push relay is the sealed Web Push forwarder configured with `CODOR_RELAY_URL`.
+
+**Canonical hostname — a correction learned in deployment.** A *page load* to
+`https://relay.codor.app` uses Encrypted Client Hello, so its SNI is hidden and `/healthz` loads even
+from an SNI-filtering network. A browser **WebSocket upgrade does NOT get ECH**, so
+`wss://relay.codor.app` is reset mid-handshake on those same networks *despite* `/healthz` working —
+the failure is invisible to a plain reachability check. The shipping relay URL is therefore the
+workers.dev alias (`wss://codor-relay.<subdomain>.workers.dev`), which is not SNI-filtered; it is what
+codor.app bakes in (`VITE_CODOR_RELAY_URL`) and what the switchboard host uses (`CODOR_TUNNEL_URL`),
+and `"workers_dev": true` is pinned in `wrangler.jsonc` so a deploy cannot silently disable it. Both
+hostnames terminate at the same Worker and Durable Objects, so a host on the alias and a browser on
+either name meet in the same rooms/sessions.
+
+Pre-launch check: **browser WS upgrade on the canonical hostname verified from an unfiltered
+network** — confirm a real browser (not curl/Node, which expose SNI and get reset) completes the
+`wss://` session handshake on the baked relay URL from a network that is NOT SNI-filtered, since a
+filtered network hides this failure behind a working page load.
+
+1. Deploy the Worker to `relay.codor.app` (`wrangler deploy`) and confirm it is reachable: `wrangler
+   tail` shows Worker invocations with request metadata only — method, path, and status such as
+   `101`/`200` on `/v1/pair/rooms`, `/v1/pair/:np/ws`, and `/v1/session/:id/ws`. That is all
+   Cloudflare exposes to `tail`; it does not — and cannot — surface WebSocket frame contents, so this
+   step proves reachability and absence of application logging, not blindness (see step 4).
+2. On the switchboard host (behind NAT, no port forwarding), run `codor relay enable` then
+   `codor relay pair`. From a phone on **cellular** (not the home network), open codor.app, enter the
+   code, and confirm the channel loads and a posted message round-trips — proving the browser reached
+   the switchboard purely through the relay.
+3. Confirm the pairing code is refused after ten minutes (expiry) and that a used code cannot pair a
+   second browser (burn-after-success).
+4. Confirm the relay is blind two ways. (a) By construction: review `relay-worker/` for zero
+   third-party dependencies and no logging of frame or body bytes (only invocation metadata), and
+   confirm `wrangler tail` never surfaces frame contents. (b) At the endpoints: in browser devtools,
+   inspect the session WebSocket frames — encryption happens in page JS before send, so the wire
+   bytes shown there are opaque binary; that the switchboard and browser each decrypt successfully
+   while holding the only keys is itself proof the relay never had them. No room or channel names
+   appear on any relay-visible surface.
+5. Kill the switchboard's agent/host process; confirm the browser visibly drops the connection and
+   then recovers on a fresh session when the host returns.
+6. Over one day of normal use, sanity-check the relay's request count against the `PLAN` §5 budget
+   (idle heartbeat plus session frames) to confirm there is no runaway polling.
+
+## Universal pairing code and multi-computer switcher
+
+Status: **not run — pair this with the blind tunnel relay check above** (needs a real relay-reachable
+switchboard for the relay door, plus a LAN/Tailscale reach for the local door). Verifies the P1
+universal code (one code, both doors) and the P3 hosted multi-computer switcher end to end. See
+[docs/RELAY-PROTOCOL.md](docs/RELAY-PROTOCOL.md) §8–§9 for the contract.
+
+1. **One code, both doors are alternates.** Run `codor pair` once. Paste the single code into the
+   hosted app at codor.app (relay door) and confirm it pairs. Run `codor pair` again for a fresh code;
+   this time paste it into a browser opened directly on the LAN/Tailscale origin (local door) and
+   confirm it pairs. Then prove exclusivity: mint one code, consume it at one door, and confirm the
+   *same* code is refused at the other door (one grant, one burn) and after ten minutes (expiry).
+2. **Relay-unreachable degrade.** With the relay disabled/unreachable, run `codor pair` and confirm it
+   still prints a code that pairs a browser on the LAN/Tailscale origin (local-only degrade), rather
+   than failing.
+3. **Add a second computer.** In the hosted app, pair computer A. On a second machine run `codor pair`
+   and use the switcher's "Add a computer" to paste B's code. Confirm B becomes the active computer
+   (last-paired default), a message round-trips over B's tunnel, and the switcher lists both.
+4. **Switch and isolate.** Switch back to A, post a message, and confirm it round-trips over A's own
+   tunnel — not B's. Confirm each computer shows its own channels; neither inherits the other's.
+5. **Rename and forget.** Rename a computer inline and confirm the label persists across a reload.
+   Forget B and confirm it disappears while A stays active; forget the last computer and confirm the
+   app drops to the pairing screen.
+6. **Direct pairing survives a reboot.** On a self-hosted, switchboard-served browser (direct path,
+   no relay), pair once, then fully reload. Confirm the browser is still paired (it authenticates and
+   reaches its channel, never dropping to the pairing screen) and that no computer switcher renders.
+
+## Relay-onboard: `codor` command and universal code out of the box
+
+Status: **not run** — verifies the P6 relay-onboard round on a fresh machine (macOS is
+the live case). Pairs with the blind-relay check above.
+
+1. **Launcher + PATH.** On a fresh machine, `npx @richhardry/codor install`. In a NEW
+   terminal, confirm `codor --help` runs (macOS: only after opening a new terminal, since
+   setup added `~/.local/bin` to `~/.zprofile`). Re-run install and confirm the launcher +
+   PATH block are refreshed idempotently, not duplicated.
+2. **Universal first code by default.** Confirm setup prints that the code works at
+   codor.app, then pair a phone at codor.app with that code over cellular (not the home
+   network) and confirm the channel loads — no manual `codor relay enable` needed.
+3. **SNI-filtered reachability.** On a network that resets `relay.codor.app` for non-browser
+   TLS, confirm the switchboard still connects (it falls back to the `workers.dev` alias and
+   caches the winner in `relay.json`); confirm a later `codor relay status` reflects it.
+4. **Opt-out + degrade.** `codor install --no-relay` mints a local-only code and leaves the
+   relay off; `codor pair` with the relay off prints the "works on your network only" notice
+   and the `codor relay enable` hint. With the relay enabled but unreachable, setup degrades
+   to a labelled local-only code rather than failing.
+
 ## Public Web Push relay
 
 Status on 2026-07-11: **not run**, by the M3 operator directive. This verifies the self-hosted

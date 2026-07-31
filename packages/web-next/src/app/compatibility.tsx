@@ -3,6 +3,8 @@ import { useState, useSyncExternalStore, type ReactNode } from 'react';
 
 import { BROWSER_PROTOCOL_EPOCH, type ServerFrame } from '@codor/protocol';
 
+import { relayFetch } from '@runtime/relay-transport.js';
+
 export interface BrowserUpgrade {
   minimum: number;
   current: number;
@@ -36,7 +38,7 @@ export async function checkBrowserCompatibility(token: string): Promise<void> {
     client_kind: 'browser',
   });
   try {
-    const response = await fetch(`/api/client-compatibility?${query.toString()}`, {
+    const response = await relayFetch(`/api/client-compatibility?${query.toString()}`, {
       cache: 'no-store',
       headers: { authorization: `Bearer ${token}` },
     });

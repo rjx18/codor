@@ -1,0 +1,48 @@
+id: relay-onboard-p6d-gate-fixes
+title: relay-onboard P6d - gate fixes (pairing dial, opt-out, post-open
+  failover, dry-run)
+anchors:
+  relay-pairing-host-universal-mint:
+    relay-pairing-host-universal:
+      action: change
+      reason: pair() reserves AND dials the pairing room through the store's reachable
+        dial URL with a canonical<->alias failover (default only), caching the
+        winner, so the first-code mint reaches the relay on SNI-filtered
+        networks — the exact case P6 targets, which store.relayUrl bypassed
+        (Codex
+  relay-link-lifecycle:
+    relay-link:
+      action: change
+      reason: handleSocketDown alternates to the other {canonical,alias} member after
+        ANY session death (not only pre-open), so a winner that opens then
+        blackholes fails over instead of looping forever; a stable session still
+        caches its endpoint on open (Codex
+  setup-enables-relay-for-universal-first-code:
+    setup-relay-enable:
+      action: change
+      reason: --no-relay now DISABLES an already-enabled relay (not merely skips
+        enabling), and auto-enable fires ONLY for a never-configured relay
+        (empty session_id); a record disabled-with-material stays off with a
+        printed notice, honoring the locked "explicit disables respected"
+        requirement (Codex
+  setup-dry-run-reports-without-mutation-or-secret:
+    setup-dry-run-runtime:
+      action: change
+      reason: dry-run now reports the launcher write, the macOS PATH edit, the relay
+        enable/stay-off decision, and the universal-vs-local first-code
+        behavior, so the preview covers P6's new mutations and the exposure
+        default (Codex
+    setup-dry-run-regression:
+      action: change
+      reason: The inline dry-run snapshot (index.spec.ts) now includes the launcher,
+        PATH edit, and relay/first-code lines.
+files:
+  - packages/switchboard/src/relay/pairing-host.ts
+  - packages/switchboard/src/relay/pairing-host.spec.ts
+  - packages/switchboard/src/relay/link.ts
+  - packages/switchboard/src/relay/link.spec.ts
+  - packages/cli/src/setup.ts
+  - packages/cli/src/setup-flow.spec.ts
+  - packages/cli/src/index.spec.ts
+applied:
+  applied_at: 2026-07-31T12:39:34.474Z

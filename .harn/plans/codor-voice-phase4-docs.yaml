@@ -1,0 +1,78 @@
+id: codor-voice-phase4-docs
+title: Docs for web dictation - privacy stance reversal, architecture, roadmap,
+  extension point
+notes: Phase 4 of the approved dictation plan (tmp/codor-voice/PLAN.md).
+  Reverses the documented "no web dictation" privacy posture per operator
+  decision D1 (2026-07-27) - docs/PRIVACY.md section Voice currently states the
+  web/PWA surface has no dictation; it now documents the shipped
+  operator-configurable web dictation with cloud transcription, the codex
+  provider's ~30-day server-side audio retention (asset_ttl 30d verified live),
+  host-side-only credentials, memory-only audio handling, and the
+  --voice-provider none off switch. ARCHITECTURE.md gains a dictation line
+  inside the anchored Web surface bullet (declared crossing) and an updated
+  Voice table row (unanchored, line ~243). ROADMAP.md line ~85 marks browser
+  dictation shipped. New docs/VOICE.md documents the VoiceProvider extension
+  point in the ADAPTERS.md style. No code changes in this phase.
+assumptions:
+  create:
+    - id: web-dictation-privacy-disclosure-matches-runtime
+      title: The privacy doc discloses web dictation's real data flow and retention
+      statement: docs/PRIVACY.md section Voice states that the web surface offers
+        dictation as an operator-configured feature. It discloses the real flow
+        - browser microphone audio goes only to the operator's own switchboard,
+        is held in process memory only and never stored host-side, and is
+        forwarded to the operator-selected provider; the default codex provider
+        processes audio on OpenAI servers under the operator's own ChatGPT login
+        and retains uploaded audio server-side for about 30 days. It states that
+        provider credentials never reach the browser and that the operator
+        disables dictation with --voice-provider none, which also hides the
+        browser control. This disclosure must track the transcribe endpoint and
+        provider behavior whenever they change.
+      reason: The privacy doc is the operator's contract; after shipping web
+        dictation, a stale native-only-voice claim would misstate where
+        microphone audio goes. This deliberately reverses the prior documented
+        posture per operator decision D1.
+      depends_on:
+        - voice-transcribe-endpoint-is-authorized-and-bounded
+        - codex-voice-transcription-reuses-signed-in-codex-identity
+        - voice-provider-selection-is-operator-config
+  reviewed:
+    - id: voice-transcription-provider-contract
+      outcome: unchanged
+      reason: A new extension-point doc describes the existing VoiceProvider seam for
+        contributors; the contract itself is untouched.
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The anchored Web surface bullet gains one dictation feature line - a
+        mechanical crossing; serving and access-path truth are untouched.
+anchors:
+  web-dictation-privacy-disclosure-matches-runtime:
+    privacy-voice-disclosure:
+      action: change
+      reason: The PRIVACY.md Voice section is rewritten from no-web-dictation to the
+        shipped disclosure and anchored so future voice changes review it.
+  voice-transcription-provider-contract:
+    voice-provider-extension-doc:
+      action: change
+      reason: New docs/VOICE.md documents the interface, registry, endpoint statuses,
+        and how to add a provider.
+  operator-launches-serve-web-next:
+    architecture-current-web-client:
+      action: change
+      reason: One dictation line added inside the anchored Web bullet; no other
+        content changes.
+files:
+  - docs/PRIVACY.md
+  - docs/ARCHITECTURE.md
+  - docs/ROADMAP.md
+  - docs/VOICE.md
+verification: Docs-only phase. Review checks - PRIVACY.md section Voice matches
+  the real runtime behavior shipped in Phases 1-3 (memory-only host handling,
+  codex 30-day retention, none-disables); ARCHITECTURE.md Web bullet and Voice
+  table row mention web dictation via the VoiceProvider registry; ROADMAP.md web
+  bullet marks it shipped; docs/VOICE.md accurately documents the VoiceProvider
+  interface, error codes, catalog endpoint, and provider addition steps. pnpm -r
+  build stays green (no code paths touched); harn unstaged/staged/apply gates
+  pass.
+applied:
+  applied_at: 2026-07-27T04:10:22.159Z

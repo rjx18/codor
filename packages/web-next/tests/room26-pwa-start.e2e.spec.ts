@@ -166,9 +166,13 @@ test.describe('pwa startup room', () => {
     await page.route('**/api/rooms', async (route) => await route.abort());
 
     await launch(page, `/?token=${TOKEN}`);
-    await expect(page.getByTestId('startup-unavailable')).toBeVisible();
+    // Unknown state renders the honest recovery card (host-absent) with a working
+    // Retry — never a "no channels" claim. (Direct/PWA path: relayActive() is false,
+    // so it offers Retry only, no re-pair.)
+    await expect(page.getByTestId('recovery')).toBeVisible();
+    await expect(page.getByTestId('recovery')).toHaveAttribute('data-recovery-state', 'agent-offline-extended');
     await expect(page.getByTestId('no-channels')).toHaveCount(0);
-    await expect(page.getByTestId('startup-retry')).toBeVisible();
+    await expect(page.getByTestId('recovery-retry')).toBeVisible();
     expect(subscribed).toEqual([]);
   });
 
@@ -184,7 +188,7 @@ test.describe('pwa startup room', () => {
     await expect(page).toHaveURL(/room=design/);
     expect(await page.evaluate(() => window.localStorage.getItem('codor:web-next:room')))
       .toBe('design');
-    await expect(page.getByTestId('startup-unavailable')).toHaveCount(0);
+    await expect(page.getByTestId('recovery')).toHaveCount(0);
   });
 
   test('an account with no channels sees first-channel onboarding and opens nothing', async ({ page }) => {

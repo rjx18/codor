@@ -1,0 +1,21 @@
+id: pairing-room-lifecycle
+hash: a-e49b828174d6
+title: The PairingRoom Durable Object enforces the pairing rendezvous lifecycle
+state: active
+statement: relay-worker/src/pairing-room.ts must implement the PairingRoom
+  Durable Object per PLAN §4.1 - a SQLite-backed room that /reserve marks
+  reserved (409 if already reserved) and arms with a 10-minute alarm; it accepts
+  hibernatable host and claimant WebSockets tagged by role, keeps exactly one
+  host (a new host supersedes the old, closed with 4001) and at most one
+  claimant (a second concurrent claimant is closed with 4002), increments a
+  persisted churn counter per accepted claimant and burns at churn greater than
+  10, forwards binary messages verbatim between the two roles without inspecting
+  them (dropping with a no-peer notice when the peer is absent), accepts
+  fail/success text only from the host (fail increments a persisted attempts
+  counter and closes the claimant 4003, burning at attempts of 3 or more;
+  success burns), notifies peers of join/leave, and burns on the alarm as
+  expired; a burn notifies peers, closes sockets (1000 for paired, else 4000),
+  and deletes all storage so the nameplate is reusable.
+depends_on:
+  - relay-control-vocabulary-is-canonical
+created_by: relay-p3-pairing-room

@@ -17,6 +17,7 @@ import {
   storeBrowserAccess,
 } from '@runtime/crypto.js';
 import { connect, type Connection } from '@runtime/ws.js';
+import { relayAccessOriginActive, relayConnectExtras } from '@runtime/relay-mode.js';
 import type { Room } from '@codor/protocol';
 
 import { roomSlice, useClientStore } from './store.js';
@@ -52,8 +53,11 @@ export async function resolveAccessToken(): Promise<string> {
     }
     return setActiveBrowserAccessToken(explicit);
   }
+  // Relay mode restores/authenticates against the relay origin (over the tunnel);
+  // direct mode uses the page origin unchanged.
+  const accessOrigin = relayAccessOriginActive() ?? window.location.origin;
   try {
-    return setActiveBrowserAccessToken(await restoreBrowserAccess(window.location.origin));
+    return setActiveBrowserAccessToken(await restoreBrowserAccess(accessOrigin));
   } catch {
     return setActiveBrowserAccessToken('');
   }
@@ -62,7 +66,7 @@ export async function resolveAccessToken(): Promise<string> {
 export function useConnection(room: string, token: string, refreshToken?: () => Promise<string>): Connection {
   const ref = useRef<Connection | null>(null);
   if (ref.current === null) {
-    ref.current = connect({ room, token, refreshToken });
+    ref.current = connect({ room, token, refreshToken, ...relayConnectExtras() });
   }
   return ref.current;
 }

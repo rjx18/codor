@@ -1,0 +1,18 @@
+id: relay-link-lifecycle
+hash: a-b796981d475f
+title: RelayLink maintains the blind outbound session and bridges to loopback
+state: active
+statement: packages/switchboard/src/relay/link.ts must implement RelayLink -
+  when the store is enabled it maintains an outbound session WebSocket to the
+  relay's /v1/session/:id/ws?role=host with exponential backoff (1s to 60s) plus
+  jitter, runs one tunnel SessionResponder per client connId (looking up the
+  device static key by kid and refusing unknown or revoked devices), drives the
+  host side of the shared stream mux, and bridges app-WS streams to a loopback
+  ws://127.0.0.1:<port>/ws?token client and HTTP streams to a loopback fetch
+  against 127.0.0.1:<port>, tearing everything down on shutdown and dropping a
+  device's connections when it is revoked.
+depends_on:
+  - tunnel-session-handshake-kk
+  - tunnel-stream-mux
+  - relay-store-persistence
+created_by: relay-p5-switchboard

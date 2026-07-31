@@ -1,5 +1,5 @@
 import type { Attachment, Delivery, Member, Message, RunItemDiff, WireEvent } from '@codor/protocol';
-import { ArrowDown, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Paperclip, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
+import { ArrowDown, AudioLines, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Paperclip, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
@@ -7,6 +7,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import type { Connection } from '@runtime/ws.js';
 
 import { fetchMessageHistory } from '@runtime/api.js';
+import { relayFetch } from '@runtime/relay-transport.js';
 import {
   compactRunRow,
   diffStat,
@@ -30,6 +31,8 @@ import {
   useRunJournalVersion,
 } from './run-journals.js';
 import { attachmentUrl, formatAttachmentSize, isImageAttachment } from './attachments.js';
+import { MiniWaveform } from './MiniWaveform.js';
+import { formatElapsed } from './voice.js';
 import { presentRunTimeline, type CompactionRunTimelineItem } from './run-timeline.js';
 import { continuationFloor, transcriptMessages, transcriptTime } from './transcript-order.js';
 import { MemberChip } from './MemberChip.js';
@@ -148,7 +151,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
   useEffect(() => {
     let live = true;
     setHydratedPins([]);
-    void fetch(`/api/rooms/${encodeURIComponent(props.room)}/messages?pinned=1`, {
+    void relayFetch(`/api/rooms/${encodeURIComponent(props.room)}/messages?pinned=1`, {
       headers: { authorization: `Bearer ${props.token()}` },
     })
       .then((res) => (res.ok ? res.json() as Promise<{ messages: Message[] }> : { messages: [] }))
@@ -835,7 +838,9 @@ function TurnBlock(props: {
           ? <RunContent message={message} room={props.room} token={props.token} />
           : message.kind === 'ask' || message.kind === 'approval'
             ? <AskCardView message={message} connection={props.connection} />
-            : <MessageProse body={message.body} highlightHandle={mentionsMe ? props.viewerHandle : undefined} />}
+            : message.voice !== undefined
+              ? <VoiceCard voice={message.voice} messageId={message.id} body={message.body} highlightHandle={mentionsMe ? props.viewerHandle : undefined} />
+              : <MessageProse body={message.body} highlightHandle={mentionsMe ? props.viewerHandle : undefined} />}
         {message.attachments !== undefined && message.attachments.length > 0 && (
           <MessageAttachments room={props.room} token={props.token} attachments={message.attachments} />
         )}
@@ -1002,6 +1007,26 @@ function MessageProse(props: { body: string; highlightHandle?: string }) {
       : boldSelfMention(rendered, props.highlightHandle);
   }, [props.body, props.highlightHandle]);
   return <div className="nx-prose" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+/** A dictated message: a voice header (icon + static waveform + duration) above
+ *  the transcript, drawn from the message's real recording metadata. */
+function VoiceCard(props: {
+  voice: { duration_seconds: number; levels: number[] };
+  messageId: number;
+  body: string;
+  highlightHandle?: string;
+}) {
+  return (
+    <div className="nx-voice-card" data-testid={`voice-card-${String(props.messageId)}`}>
+      <div className="nx-voice-card-head">
+        <AudioLines size={16} className="nx-voice-card-icon" aria-hidden="true" />
+        <MiniWaveform levels={props.voice.levels} className="nx-voice-card-wave" />
+        <span className="nx-voice-card-duration">{formatElapsed(Math.round(props.voice.duration_seconds))}</span>
+      </div>
+      <MessageProse body={props.body} highlightHandle={props.highlightHandle} />
+    </div>
+  );
 }
 
 // ── Run rendering (transcript model per Richard #298): run prose flows as

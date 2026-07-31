@@ -1,0 +1,12 @@
+id: cli-tests-isolate-operator-home
+hash: a-d99081ba0b0c
+title: CLI tests run under an isolated throwaway HOME
+state: active
+statement: scripts/test-env.mjs must point HOME at a fresh throwaway directory
+  before spawning the CLI test process, so CLI tests never read the operator's
+  real ~/.config/codor (in particular the installed service token file), which
+  would otherwise let a test resolve a real bearer and reach the operator's live
+  service instead of its own fixtures.
+depends_on:
+  - cli-tests-delete-inherited-codor-environment
+created_by: relay-ux-p1-universal-code

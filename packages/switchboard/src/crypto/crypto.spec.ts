@@ -146,6 +146,84 @@ describe('device identity, pairing, challenge auth, and room keys', () => {
   });
   // harn:end short-pairing-code-grant-exchange
 
+  it('issueForCode registers a caller-supplied code that exchanges like issue()', () => {
+    const home = vault('issue-for-code-home');
+    const device = vault('issue-for-code-device');
+    try {
+      home.roomKeys.ensureRoom('eng');
+      const offer = home.pairing.issueForCode('AB23CD45', 'http://localhost:8137');
+      expect(offer.pairing_code).toBe('AB23-CD45');
+      expect(offer.doors).toBe('local'); // a bare grant opens only the local door
+      expect(home.pairing.issue('http://localhost:8137').doors).toBe('local'); // as does issue()
+      // The supplied code exchanges at the local door (case- and hyphen-insensitive)
+      // and burns after a single success, exactly like an issue() code.
+      const exchanged = home.pairing.exchange('ab23-cd45');
+      expect(exchanged.pairing_token).not.toBe(offer.pairing_token);
+      expect(() => home.pairing.exchange('AB23CD45')).toThrow('not found');
+      expect(home.pairing.complete(exchanged.pairing_token, {
+        ...device.keys.publicIdentity(),
+        kind: 'device',
+      }).room_keys).toHaveLength(1);
+    } finally {
+      home.close();
+      device.close();
+    }
+  });
+
+  it('issueForCode shares one grant: the link token dies once the code is exchanged', () => {
+    const home = vault('issue-for-code-shared');
+    const device = vault('issue-for-code-shared-device');
+    try {
+      const offer = home.pairing.issueForCode('MN67PQ89', 'http://localhost:8137');
+      // Consuming the code (local door) rotates the token, so the ORIGINAL link
+      // token can no longer complete — one code, one shared grant, dies at both.
+      home.pairing.exchange(offer.pairing_code);
+      expect(() => home.pairing.complete(offer.pairing_token, {
+        ...device.keys.publicIdentity(),
+        kind: 'device',
+      })).toThrow('already-used');
+    } finally {
+      home.close();
+      device.close();
+    }
+  });
+
+  it('issueForCode rejects a code outside the pairing alphabet', () => {
+    const home = vault('issue-for-code-invalid');
+    try {
+      expect(() => home.pairing.issueForCode('nothex!!', 'http://localhost:8137'))
+        .toThrow('invalid pairing code');
+    } finally {
+      home.close();
+    }
+  });
+
+  it('complete() enrolls before burning: a failed enrollment leaves the grant for a retry', () => {
+    const home = vault('burn-after-home');
+    const device = vault('burn-after-device');
+    try {
+      home.roomKeys.ensureRoom('eng');
+      const offer = home.pairing.issue('http://localhost:8137');
+      const grant = home.pairing.exchange(offer.pairing_code);
+      // A malformed request throws in enrollPeer (which validates before it
+      // persists) — the grant must NOT be burned, so a valid retry still works.
+      expect(() => home.pairing.complete(grant.pairing_token, { device_id: 'x', kind: 'device' } as never))
+        .toThrow();
+      expect(home.pairing.complete(grant.pairing_token, {
+        ...device.keys.publicIdentity(),
+        kind: 'device',
+      }).room_keys).toHaveLength(1);
+      // ...and once a real enrollment succeeds, the grant IS burned (dies at both).
+      expect(() => home.pairing.complete(grant.pairing_token, {
+        ...device.keys.publicIdentity(),
+        kind: 'device',
+      })).toThrow('already-used');
+    } finally {
+      home.close();
+      device.close();
+    }
+  });
+
   it('trusted device enrollment reuses ordinary peer and room-key enrollment', () => {
     const home = vault('trusted-home');
     const device = vault('trusted-device');

@@ -1,0 +1,18 @@
+id: relay-link-dials-with-alias-fallback
+hash: a-8b7ee464c058
+title: RelayLink dials the cached winner and symmetrically fails over between
+  canonical and alias
+state: active
+statement: "RelayLink (packages/switchboard/src/relay/link.ts) must dial the
+  store's cached winner when present, otherwise the configured relay_url; and on
+  a TLS/connect failure it must, ONLY when the configured relay_url is
+  DEFAULT_RELAY_URL, retry the OTHER member of the {DEFAULT_RELAY_URL,
+  DEFAULT_RELAY_ALIAS} pair and persist whichever member establishes the session
+  as the store's winner. The failover is symmetric: dialing the cached winner
+  first, a cached-winner failure is never terminal while the other member works,
+  so a cached-alias host whose network stops filtering can return to canonical
+  and vice-versa. A custom relay_url never falls back to the alias."
+depends_on:
+  - relay-store-caches-reachable-dial-url
+  - relay-link-lifecycle
+created_by: relay-onboard-p6b-relay-default

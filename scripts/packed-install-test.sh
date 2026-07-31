@@ -137,6 +137,20 @@ docker run --rm --network none \
       exit 1
     fi
 
+    # The user-facing launcher: a real unattended install writes an executable
+    # ~/.local/bin/codor. The Install step runs before the service Start that this
+    # offline container cannot complete, so the install exits non-zero yet the launcher
+    # is already on disk — and it runs the packaged CLI end to end.
+    set +e
+    "$BIN" install --yes --access localhost >/proof/launcher-setup.log 2>&1
+    set -e
+    if [[ ! -x "$HOME/.local/bin/codor" ]]; then
+      printf "packed install did not write an executable ~/.local/bin/codor launcher\n" >&2
+      cat /proof/launcher-setup.log >&2 || true
+      exit 1
+    fi
+    "$HOME/.local/bin/codor" --help | grep -Fq "Usage: codor"
+
     CODOR_TOKEN="$PROOF_TOKEN" "$BIN" --data-dir "$DATA" up \
       --host 127.0.0.1 --port "$PORT" \
       --adapter housecat=/proof/third-party-adapter.mjs \

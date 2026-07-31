@@ -1,0 +1,68 @@
+id: relay-onboard-p6a-launcher
+title: relay-onboard P6a - setup installs a user-facing codor launcher
+assumptions:
+  create:
+    - id: setup-installs-user-launcher-shim
+      title: Setup's Install step writes an idempotent codor launcher to ~/.local/bin
+      statement: The CLI setup Install step must, after making the runtime durable,
+        write an executable launcher at ~/.local/bin/codor that exec's the
+        durable install's CLI entrypoint (the dist/index.js under
+        installedCliRoot(location), or the in-place runtime's CLI for a source
+        checkout) with the SAME Node interpreter the platform service is
+        configured to run under (one machine, one Node story), creating
+        ~/.local/bin (mode 700) when absent. The launcher content must be
+        deterministic and rewritten idempotently on every
+        ensure/update/reinstall so a re-run or version change refreshes it (and
+        its pinned Node path) in place without duplication or a stale
+        entrypoint, and the step must report the launcher path it wrote.
+      reason: Setup copies a durable runtime for the platform service but installs no
+        user-facing command, so `codor` is not runnable in a fresh shell after
+        setup (only the single npx invocation provided it). Writing the shim at
+        install time is what makes `codor <cmd>` work afterward; an idempotent
+        rewrite keeps it pointing at the current runtime across updates instead
+        of a stale copy.
+      depends_on:
+        - setup-installs-durable-per-user-runtime-atomically
+    - id: setup-macos-ensures-local-bin-on-path
+      title: macOS setup adds ~/.local/bin to PATH via a marked idempotent zprofile
+        block
+      statement: On macOS, when ~/.local/bin is not already on PATH, the CLI setup
+        Install step must append a single marked, idempotent block to
+        ~/.zprofile that prepends ~/.local/bin to PATH, and print that it did so
+        and that a new terminal is needed; a marker guard must make a re-run a
+        no-op that never writes a second block. On Linux the step must not edit
+        shell profiles (mainstream distros put ~/.local/bin on PATH) and prints
+        guidance only when it is absent. Windows PATH handling is out of scope
+        this round.
+      reason: macOS zsh does not include ~/.local/bin on PATH by default, so the
+        launcher shim alone leaves `codor` unresolved in a new shell. A marked,
+        idempotent PATH block (rather than a blind profile edit) makes the
+        command resolve after setup while staying safe to re-run; restricting
+        the edit to macOS avoids mutating profiles where PATH is already
+        correct.
+      depends_on:
+        - setup-installs-user-launcher-shim
+anchors:
+  setup-installs-durable-per-user-runtime-atomically:
+    setup-install-runtime-wiring:
+      action: change
+      reason: The Install step (installStep) gains the launcher-install + macOS
+        PATH-ensure call after the runtime is made durable, using the resolved
+        install location and runtime.
+    durable-runtime-install:
+      action: keep
+      reason: The durable-copy logic in runtime-install.ts is unchanged; the launcher
+        install lives in its own module and the setup wiring.
+  packed-release-proof-runs-install-runtime:
+    packed-install-script:
+      action: change
+      reason: The packed-install proof gains an assertion that setup installs an
+        executable ~/.local/bin/codor launcher and that it runs, proving the
+        launcher ships and works end-to-end from the tarball.
+files:
+  - packages/cli/src/launcher-install.ts
+  - packages/cli/src/launcher-install.spec.ts
+  - packages/cli/src/setup.ts
+  - scripts/packed-install-test.sh
+applied:
+  applied_at: 2026-07-31T11:13:40.972Z

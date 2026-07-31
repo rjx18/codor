@@ -59,6 +59,11 @@ export { REDACTED, redactText, redactValue } from './redact.js';
 export { startServer } from './server.js';
 export type { RunningServer, ServerOptions } from './server.js';
 export { isPipePath, localSocketPath } from './local-socket.js';
+export { RelayStore, DEFAULT_RELAY_URL } from './relay/store.js';
+export type { RelayRecord, RelayDeviceRecord } from './relay/store.js';
+export { RelayLink } from './relay/link.js';
+export type { RelaySocket, RelayLinkDeps } from './relay/link.js';
+export { RelayPairingHost } from './relay/pairing-host.js';
 export {
   DeviceKeyStore,
   generateIdentity,

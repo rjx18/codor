@@ -1,0 +1,80 @@
+id: relay-p7-landing
+title: Relay Phase 7 - supersede the no-relay-claims landing constraint with the
+  truthful hosted path
+notes: >
+  Track A item 2 (fable #84, #90). The blind relay is now implemented, so the
+  landing surface may describe the hosted access path truthfully. Retire the
+  no-relay-claims constraint and replace it with a successor that keeps the
+  two-step local install plus localhost and private Tailscale as the primary
+  self-hosted truths AND adds the hosted third path: the browser at codor.app
+  reaches the self-hosted switchboard through the blind relay (relay.codor.app),
+  which holds no keys and cannot read channel content—it forwards encrypted
+  payloads and sees only routing metadata (addresses, timing, sizes, connection
+  and room identifiers), per the PLAN §2.2 threat model. The landing audit flips
+  from forbidding relay/cloudflare/hosted claims to REQUIRING the truthful trio
+  (localhost, Tailscale, codor.app). Add a blind tunnel-relay setup subsection
+  to the self-host guide, and a blind tunnel-relay production-smoke section to
+  MANUAL-VERIFY (kept separate from the existing push-relay CODOR_RELAY_URL
+  section per the #33 naming ruling; the tunnel relay uses CODOR_TUNNEL_URL).
+  Truthfulness is preserved by sequencing: the feat commit is held (fable) until
+  relay.codor.app is deployed and the production smoke passes, so nothing
+  publishes a hosted claim before the boundary answers.
+assumptions:
+  retire:
+    - id: unpaired-root-offers-two-step-local-setup
+      reason: Its central invariant forbade relay/Cloudflare/hosted-cloud claims
+        because the relay was an unimplemented boundary; the boundary is now
+        implemented, so the constraint is replaced by a successor that states
+        the hosted path truthfully rather than refusing it.
+  create:
+    - id: unpaired-root-explains-local-and-hosted-access
+      title: The unpaired root explains local and hosted access in two truthful steps
+      statement: An unpaired visit to / must present exactly two primary setup
+        steps—run npx @richhardry/codor setup, then enter the single-use
+        eight-character pairing code—and describe access truthfully, naming
+        localhost and private Tailscale as the self-hosted paths plus the hosted
+        path where the browser at codor.app reaches the self-hosted switchboard
+        through the blind relay that holds no keys and cannot read channel
+        content (it forwards encrypted payloads and sees only routing metadata);
+        the code control must support paste, arrows, backspace, ?code= prefill,
+        busy/error feedback, and phone widths, and compatibility labels stay
+        text-only, because this page is the first product contact and must name
+        every real access path without asking a new operator to infer setup
+        order or trust an unimplemented boundary.
+      reason: The relay tier is implemented, so the first-contact page should state
+        the hosted path as a real option; the review obligation is that this
+        copy stays truthful (only implemented paths, blind relay described
+        honestly), which is exactly what the flipped release audit now enforces.
+      depends_on:
+        - pairing-code-enrollment-surfaces
+        - pairing-codes-are-short-single-use-grants
+        - brand-wordmark-uses-self-hosted-bitcount
+        - relay-worker-stays-blind
+  reviewed:
+    - id: fresh-clone-install-proven-by-script
+      outcome: unchanged
+      reason: The self-host guide gains a blind tunnel-relay setup subsection; the
+        install-proven-by-script invariant it governs is untouched.
+files:
+  - scripts/release-audit.mjs
+  - packages/web-next/src/surfaces/LandingPage.tsx
+  - docs/SELF-HOST.md
+  - MANUAL-VERIFY.md
+anchors:
+  unpaired-root-offers-two-step-local-setup:
+    landing-setup-truth-audit:
+      action: remove
+      reason: The no-relay-claims audit region is retired with its assumption.
+  unpaired-root-explains-local-and-hosted-access:
+    landing-access-truth-audit:
+      action: change
+      reason: New audit requires the truthful trio—localhost, Tailscale, and the
+        hosted codor.app path—while keeping the two-step and setup-command
+        asserts.
+  fresh-clone-install-proven-by-script:
+    selfhost-guide:
+      action: change
+      reason: Add the blind tunnel-relay setup subsection inside the self-host guide;
+        the wrapping install-proven invariant is unchanged.
+applied:
+  applied_at: 2026-07-30T07:43:10.433Z

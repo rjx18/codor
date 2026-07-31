@@ -10,7 +10,7 @@ import {
 import { homedir, release } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-import { CryptoVault, pairingUrl } from '@codor/switchboard';
+import { CryptoVault, RelayStore, pairingUrl, type PairingOffer } from '@codor/switchboard';
 
 import { packageRuntimePaths, resolveRuntimePaths, type RuntimePaths } from './runtime-paths.js';
 import {
@@ -32,9 +32,24 @@ import {
 import { SETUP_STAGE_TITLES, renderPairingCard, type SetupAccessOption } from './setup-ui.js';
 import { renderTerminalQr } from './terminal-qr.js';
 import { copyToClipboard } from './clipboard.js';
+import { defaultLauncherIo, installLauncher, type LauncherIo } from './launcher-install.js';
 
 const HARNESSES = ['claude', 'codex', 'opencode', 'gemini', 'copilot', 'cursor-agent', 'agy'] as const;
 const LAUNCH_AGENT_LABEL = 'app.codor.switchboard';
+
+/**
+ * Canonical operator config directory (~/.config/codor). The SINGLE source for
+ * the installed-service paths — setup and any CLI command that reads them must
+ * derive from here so the two can never drift.
+ */
+export function operatorConfigDir(home: string = homedir()): string {
+  return join(home, '.config', 'codor');
+}
+
+/** Canonical operator token file (mode-0600, written by setup). */
+export function operatorTokenPath(home: string = homedir()): string {
+  return join(operatorConfigDir(home), 'token');
+}
 
 export interface SetupOverrides {
   exec?(command: string, args: string[]): string;
@@ -49,6 +64,10 @@ export interface SetupOverrides {
   probe?(endpoint: string): Promise<boolean>;
   runtime?: RuntimePaths;
   installIo?: InstallIo;
+  launcherIo?: LauncherIo;
+  /** Mint the first code universally through the running daemon's offers API;
+   *  resolves undefined to degrade to a local-only code. Injectable for tests. */
+  relayOffer?(args: { localEndpoint: string; endpoint: string; token: string }): Promise<PairingOffer | undefined>;
   sleep?(milliseconds: number): Promise<void>;
   streams?: SetupSessionStreams;
   uid?: number;
@@ -62,6 +81,8 @@ export interface SetupOptions {
   access?: SetupAccess;
   dryRun: boolean;
   env: NodeJS.ProcessEnv;
+  /** Opt out of relay-on-by-default: mint a local-only code and leave the relay off. */
+  noRelay?: boolean;
   out(line: string): void;
   overrides?: SetupOverrides;
   yes?: boolean;
@@ -80,6 +101,25 @@ const defaultWhich = (command: string): string | undefined => {
     return undefined;
   }
 };
+
+/** Mint the first code universally through the running daemon — the ONE mint path
+ *  `codor pair` uses (relay-status gate → offers). Returns undefined to degrade to a
+ *  local-only code (relay off/unreachable), which the caller then mints locally. */
+async function defaultRelayOffer(args: { localEndpoint: string; endpoint: string; token: string }): Promise<PairingOffer | undefined> {
+  const auth = { authorization: `Bearer ${args.token}` };
+  try {
+    const status = await fetch(`${args.localEndpoint}/api/relay/status`, { headers: auth });
+    if (!status.ok || ((await status.json()) as { enabled?: boolean }).enabled !== true) return undefined;
+    const offer = await fetch(`${args.localEndpoint}/api/pairing/offers`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint: args.endpoint }),
+    });
+    return offer.ok ? ((await offer.json()) as PairingOffer) : undefined;
+  } catch {
+    return undefined; // any failure degrades to a local-only code, never a hard failure
+  }
+}
 
 function uniquePath(parts: Array<string | undefined>, delimiter = ':'): string {
   return [...new Set(parts.flatMap((part) => part?.split(delimiter) ?? []).filter(Boolean))]
@@ -648,9 +688,9 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const renderQr = overrides.renderQr ?? renderTerminalQr;
   const probe = overrides.probe ?? probeCodorStatus;
   const sleep = overrides.sleep ?? defaultSleep;
-  const configDir = join(home, '.config', 'codor');
+  const configDir = operatorConfigDir(home);
   const dataDir = join(home, '.codor');
-  const tokenPath = join(configDir, 'token');
+  const tokenPath = operatorTokenPath(home);
   const envPath = join(configDir, 'env');
   const userUnitDir = join(home, '.config', 'systemd', 'user');
   const userUnitPath = join(userUnitDir, 'codor.service');
@@ -663,6 +703,9 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   // still read from the source runtime, which exists now.
   const version = overrides.version ?? runtimeVersion(runtime);
   const installIo = overrides.installIo ?? defaultInstallIo;
+  const launcherIo = overrides.launcherIo ?? defaultLauncherIo;
+  const relayOffer = overrides.relayOffer ?? defaultRelayOffer;
+  const pathEntries = (options.env.PATH ?? '').split(platform === 'win32' ? ';' : ':').filter((entry) => entry !== '');
   const installSource = resolveInstallSource(runtime);
   const serviceLocation = installSource.durable ? installSource.installRoot : durableRuntimeLocation(dataDir);
   const serviceRuntime = installSource.durable ? runtime : packageRuntimePaths(installedCliRoot(serviceLocation));
@@ -743,6 +786,12 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       ? `[dry-run] use the Codor runtime in place at ${serviceLocation}`
       : `[dry-run] install a durable Codor runtime -> ${serviceLocation}`);
     options.out(`[dry-run] create ${configDir} and ${dataDir} mode 700; create ${tokenPath} mode 600 if absent`);
+    if (platform !== 'win32') {
+      options.out(`[dry-run] install codor launcher -> ${join(home, '.local', 'bin', 'codor')} (exec ${nodePath} ${serviceRuntime.cliEntrypoint})`);
+      if (platform === 'darwin') {
+        options.out(`[dry-run] add ${join(home, '.local', 'bin')} to PATH in ${join(home, '.zprofile')} if absent`);
+      }
+    }
     if (platform === 'linux') {
       options.out(`[dry-run] install ${runtime.serviceTemplate} -> ${userUnitPath} mode 600`);
       options.out('[dry-run] unit content:');
@@ -780,6 +829,22 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       options.out('[dry-run] tailscale serve status');
     } else {
       options.out('[dry-run] access localhost; skip Tailscale Serve');
+    }
+    // Report the relay enable/stay-off decision and the resulting first-code exposure —
+    // the most security-relevant new default. Uses the SAME file-presence rule as the
+    // real run (RelayStore's constructor only reads; existsSync does not mutate).
+    const relayExisted = existsSync(join(dataDir, 'crypto', 'relay.json'));
+    const relayPreview = new RelayStore(dataDir);
+    if (options.noRelay) {
+      options.out(relayPreview.enabled
+        ? '[dry-run] disable the relay (--no-relay); first code works on your network only'
+        : '[dry-run] relay stays off (--no-relay); first code works on your network only');
+    } else if (!relayExisted) {
+      options.out('[dry-run] enable the relay; first code works at codor.app and on your network');
+    } else if (relayPreview.enabled) {
+      options.out('[dry-run] relay already enabled; first code works at codor.app and on your network');
+    } else {
+      options.out('[dry-run] relay stays off (you disabled it); first code works on your network only');
     }
     options.out('[dry-run] wait for Codor pairing status, then generate a ten-minute QR, URL, and pairing code');
     return;
@@ -824,6 +889,31 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       chmodSync(dataDir, 0o700);
       chmodSync(tokenPath, 0o600);
     }
+    // harn:assume setup-enables-relay-for-universal-first-code ref=setup-relay-enable
+    // Relay-on-by-default (Richard's locked Q3) so the first code is universal, before
+    // the service starts so the daemon boots relay-connected — but honor explicit
+    // choices. The STICKY marker is the relay.json FILE: auto-enable ONLY when it does
+    // not exist (never configured). Any existing record — enabled, or disabled by
+    // `codor relay disable` or a prior --no-relay — is respected verbatim on a default
+    // re-run. --no-relay PERSISTS enabled:false (writing the file even on a fresh
+    // machine) so the opt-out is durable across later default runs.
+    {
+      const relayExisted = existsSync(join(dataDir, 'crypto', 'relay.json'));
+      const relay = new RelayStore(dataDir);
+      if (options.noRelay) {
+        const wasEnabled = relay.enabled;
+        if (wasEnabled || !relayExisted) relay.disable(); // persist the sticky opt-out marker
+        log(wasEnabled
+          ? 'relay disabled (--no-relay) — pairing codes will work on your network only'
+          : 'relay stays off (--no-relay) — pairing codes will work on your network only');
+      } else if (!relayExisted) {
+        relay.enable();
+        log('relay enabled — your pairing code will work at codor.app');
+      } else if (!relay.enabled) {
+        log('relay stays off (you disabled it) — run `codor relay enable` for codor.app codes');
+      }
+    }
+    // harn:end setup-enables-relay-for-universal-first-code
     log('private configuration and data are ready');
     return 'config and mode-600 token ready';
   };
@@ -837,6 +927,17 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       ? `using the Codor runtime in place at ${result.location}`
       : `${result.action} the Codor ${result.version} runtime at ${result.location}`);
     prepareStep(log);
+    // Install the user-facing `codor` launcher pinned to the SAME Node + CLI the
+    // service runs, and make ~/.local/bin resolvable, so `codor` works in a new shell
+    // after setup. POSIX only — Windows launcher/PATH handling is out of scope.
+    if (platform !== 'win32') {
+      const launcher = installLauncher({
+        home, nodePath, cliEntrypoint: serviceRuntime.cliEntrypoint, platform, pathEntries, log, io: launcherIo,
+      });
+      log(launcher.action === 'unchanged'
+        ? `codor launcher up to date at ${launcher.path}`
+        : `${launcher.action} the codor launcher at ${launcher.path}`);
+    }
     return `Codor ${result.version} at ${result.location}`;
   };
   // harn:end setup-installs-durable-per-user-runtime-atomically
@@ -934,16 +1035,32 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     return 'service enabled and answering';
   };
 
-  const pairStep = (log: (message: string) => void): string => {
+  const pairStep = async (log: (message: string) => void): Promise<string> => {
     if (pairing === undefined) {
-      const crypto = new CryptoVault(dataDir);
-      try {
-        const offer = crypto.pairing.issue(endpoint);
-        const url = pairingUrl(offer);
-        pairing = { code: offer.pairing_code, expires: offer.expires_at, qr: renderQr(url), url };
-      } finally {
-        crypto.close();
+      // harn:assume setup-enables-relay-for-universal-first-code ref=setup-universal-mint
+      // Mint the first code through the daemon's offers API when the relay is enabled —
+      // the ONE universal mint path codor pair uses — so it opens BOTH codor.app and
+      // the local door. Degrade to a labelled local-only code (never a hard failure)
+      // when the relay is off (--no-relay) or unreachable, and report which doors open.
+      let offer: PairingOffer | undefined;
+      if (!options.noRelay) {
+        const token = readFileSync(tokenPath, 'utf8').trim();
+        offer = await relayOffer({ localEndpoint, endpoint, token });
       }
+      if (offer === undefined) {
+        const crypto = new CryptoVault(dataDir);
+        try {
+          offer = crypto.pairing.issue(endpoint);
+        } finally {
+          crypto.close();
+        }
+      }
+      const url = pairingUrl(offer);
+      pairing = { code: offer.pairing_code, expires: offer.expires_at, qr: renderQr(url), url };
+      log(offer.doors === 'both'
+        ? 'this code works at codor.app and on your network'
+        : 'this code works on your network only — run `codor relay enable` for codor.app');
+      // harn:end setup-enables-relay-for-universal-first-code
       // harn:assume setup-copies-pairing-link-once-via-clipboard ref=pairing-clipboard-copy
       // Copy the complete link once, when the offer is first minted (Retry reuses
       // the memoized offer and does not re-copy). The URL travels on stdin, so the
@@ -1053,7 +1170,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
         },
         run: async ({ log, choice, presentResult }) => {
           if (choice !== 'create') return { skip: true, summary: '(run codor pair later)' };
-          const summary = pairStep(log);
+          const summary = await pairStep(log);
           // Replace the question in-frame with the QR/code result card, so it is
           // visible before Finish closes the installer.
           presentResult(renderPairingCard({
@@ -1087,7 +1204,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     options.out(`[2/5] ${stepTitles[1]}`); installStep(linear(1));
     options.out(`[3/5] ${stepTitles[2]}`); chooseStep(linear(2), options.access);
     options.out(`[4/5] ${stepTitles[3]}`); await startStep(linear(3));
-    options.out(`[5/5] ${stepTitles[4]}`); pairStep(linear(4));
+    options.out(`[5/5] ${stepTitles[4]}`); await pairStep(linear(4));
     emitPairing();
   }
 }

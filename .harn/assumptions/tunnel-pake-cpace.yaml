@@ -1,0 +1,21 @@
+id: tunnel-pake-cpace
+hash: a-ca3342a3a145
+title: The pairing PAKE follows the revised CPace-style construction exactly
+state: active
+statement: packages/tunnel/src/pake.ts must implement the PLAN §4.2 (revised
+  2026-07-27) CPace-style PAKE as PakeHost and PakeClaimant state machines over
+  ristretto255 - deriving the generator g via
+  ristretto255_hasher.hashToCurve(lv(secret) ‖ lv("nameplate:"+nameplate) ‖
+  lv(sid)) with DST "codor-relay/v1/cpace", using sid = 16 random bytes, MSG_A =
+  sid(16) ‖ Ya(32), MSG_B = Yb(32), rejecting any K equal to the identity
+  element or any point that fails ristretto decoding as a failed attempt,
+  computing ISK = SHA-512(lv("codor-relay/v1/isk") ‖ lv(sid) ‖ lv(K) ‖ lv(Ya) ‖
+  lv(Yb))[0..32], confirming with HMAC-SHA256(ISK, "confirm-claimant") then
+  HMAC-SHA256(ISK, "confirm-host") verified in constant time, and deriving the
+  channel keys k_h2c/k_c2h via HKDF-SHA256(ikm=ISK, salt=sid,
+  info="codor-relay/v1/pair/h2c"|"…/c2h") - so that the browser and switchboard
+  agree on the shared key without ever transmitting the code.
+depends_on:
+  - tunnel-aead-counter-channel
+  - tunnel-pairing-code-parity
+created_by: relay-p2-crypto-core

@@ -120,6 +120,7 @@ CREATE TABLE IF NOT EXISTS messages (
   ask TEXT,                    -- AskCard JSON
   origin TEXT,                 -- BridgeOrigin JSON
   attachments TEXT,            -- Attachment[] JSON (metadata; files live under the data dir)
+  voice TEXT,                  -- VoiceNote JSON (bounded dictation metadata); NULL for typed messages
   ack INTEGER NOT NULL DEFAULT 0,
   pinned INTEGER NOT NULL DEFAULT 0,
   deleted INTEGER NOT NULL DEFAULT 0,
@@ -528,6 +529,15 @@ function migrateMessageAttachments(db: Database.Database): void {
     db.exec('ALTER TABLE messages ADD COLUMN attachments TEXT');
   }
 }
+
+// harn:assume voice-message-metadata-is-bounded-and-additive ref=voice-message-storage
+function migrateMessageVoice(db: Database.Database): void {
+  const columns = db.pragma('table_info(messages)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'voice')) {
+    db.exec('ALTER TABLE messages ADD COLUMN voice TEXT');
+  }
+}
+// harn:end voice-message-metadata-is-bounded-and-additive
 
   // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-message-storage
 function migrateMessageContinuations(db: Database.Database): void {
@@ -1025,6 +1035,9 @@ interface MessageRow {
   ask: string | null;
   origin: string | null;
   attachments: string | null;
+  // harn:assume voice-message-metadata-is-bounded-and-additive ref=voice-message-storage
+  voice: string | null;
+  // harn:end voice-message-metadata-is-bounded-and-additive
   ack: number;
   pinned: number;
   deleted: number;
@@ -1224,6 +1237,9 @@ function messageFromRow(row: MessageRow): Message {
     pinned: toBool(row.pinned) ? true : undefined,
     deleted: toBool(row.deleted) ? true : undefined,
     attachments: row.attachments ? JSON.parse(row.attachments) : undefined,
+    // harn:assume voice-message-metadata-is-bounded-and-additive ref=voice-message-storage
+    voice: row.voice ? JSON.parse(row.voice) : undefined,
+    // harn:end voice-message-metadata-is-bounded-and-additive
     ts: row.ts,
     seq: row.seq,
   });
@@ -1354,6 +1370,7 @@ export interface NewMessage {
   origin?: Message['origin'];
   ack?: boolean;
   attachments?: Attachment[];
+  voice?: Message['voice'];
 }
 
 export interface SyncResult {
@@ -1473,6 +1490,7 @@ export class Store {
       migrateMessagePinned(this.db);
       migrateMessageDeleted(this.db);
       migrateMessageAttachments(this.db);
+      migrateMessageVoice(this.db);
       migrateMessageContinuations(this.db);
       migrateMessageActivity(this.db);
       migrateRoomReadCursors(this.db);
@@ -2196,6 +2214,7 @@ export class Store {
         origin: message.origin,
         ack: message.ack,
         attachments: message.attachments,
+        voice: message.voice,
         ts: new Date().toISOString(),
         seq,
       });
@@ -2204,8 +2223,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO messages (room, id, author, kind, body, mentions, refs, ledger_refs,
-             reply_to, run, run_parent_id, ask, origin, attachments, ack, pinned, deleted, ts, seq, activity_seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             reply_to, run, run_parent_id, ask, origin, attachments, voice, ack, pinned, deleted, ts, seq, activity_seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           room,
@@ -2222,6 +2241,7 @@ export class Store {
           jsonOrNull(validated.ask),
           jsonOrNull(validated.origin),
           jsonOrNull(validated.attachments),
+          jsonOrNull(validated.voice),
           fromBool(validated.ack === true),
           fromBool(validated.pinned === true),
           fromBool(validated.deleted === true),

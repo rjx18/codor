@@ -61,6 +61,21 @@ body {
 
 .nx-upgrade-card h1 { margin: 0; font: var(--t-heading); letter-spacing: -0.025em; }
 .nx-upgrade-card > p { margin: 0; color: var(--c-secondary); line-height: 1.6; }
+
+/* The recovery card is a true overlay: it floats above the still-mounted app
+ * (whose connector keeps reconnecting beneath it) rather than replacing it. */
+.nx-recovery-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-4, 24px);
+  background: color-mix(in srgb, var(--c-canvas) 78%, transparent);
+  backdrop-filter: blur(3px);
+}
+.nx-recovery-actions { display: flex; gap: var(--sp-2, 12px); flex-wrap: wrap; }
+.nx-recovery-auto { margin: 0; color: var(--c-secondary); }
 .nx-upgrade-action { min-height: 42px; margin-top: var(--sp-2); gap: var(--sp-2); }
 .nx-upgrade-version { font: var(--t-mono-small); }
 

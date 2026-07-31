@@ -1,0 +1,13 @@
+id: session-capability-addressing
+hash: a-3c798fbb2dc3
+title: Session sockets are addressed by an unguessable id with no reservation
+state: active
+statement: relay-worker/src/index.ts must upgrade GET
+  /v1/session/:sessionId/ws?role=host|client to the SessionRelay DO addressed by
+  idFromName(sessionId) only when sessionId is exactly 64 lowercase hex
+  characters and the role is host or client, rejecting anything else with 400;
+  there is deliberately no reservation step - possession of the unguessable
+  256-bit session id is the sole capability, and content security lives entirely
+  in the E2E handshake.
+depends_on: []
+created_by: relay-p4-session-relay

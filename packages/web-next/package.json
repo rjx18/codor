@@ -1,6 +1,6 @@
 {
   "name": "@codor/web-next",
-  "version": "0.10.4",
+  "version": "0.10.7",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@codor/protocol": "workspace:*",
+    "@codor/tunnel": "workspace:*",
     "culori": "^4.0.2",
     "d3-force": "^3.0.0",
     "dompurify": "^3.4.12",
@@ -29,6 +30,7 @@
     "@axe-core/playwright": "^4.12.1",
     "@codor/switchboard": "workspace:*",
     "@playwright/test": "^1.49.0",
+    "ws": "^8.21.0",
     "@types/culori": "^4.0.0",
     "@types/d3-force": "^3.0.10",
     "@types/libsodium-wrappers": "^0.7.14",

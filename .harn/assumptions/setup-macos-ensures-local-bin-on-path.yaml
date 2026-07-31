@@ -1,0 +1,14 @@
+id: setup-macos-ensures-local-bin-on-path
+hash: a-2168bfa080dc
+title: macOS setup adds ~/.local/bin to PATH via a marked idempotent zprofile block
+state: active
+statement: On macOS, when ~/.local/bin is not already on PATH, the CLI setup
+  Install step must append a single marked, idempotent block to ~/.zprofile that
+  prepends ~/.local/bin to PATH, and print that it did so and that a new
+  terminal is needed; a marker guard must make a re-run a no-op that never
+  writes a second block. On Linux the step must not edit shell profiles
+  (mainstream distros put ~/.local/bin on PATH) and prints guidance only when it
+  is absent. Windows PATH handling is out of scope this round.
+depends_on:
+  - setup-installs-user-launcher-shim
+created_by: relay-onboard-p6a-launcher

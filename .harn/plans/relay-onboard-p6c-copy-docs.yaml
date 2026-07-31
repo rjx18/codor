@@ -1,0 +1,7 @@
+id: relay-onboard-p6c-copy-docs
+title: relay-onboard P6c - copy and docs polish
+files:
+  - docs/SELF-HOST.md
+  - MANUAL-VERIFY.md
+applied:
+  applied_at: 2026-07-31T12:15:09.771Z

@@ -1,0 +1,19 @@
+id: web-dictation-privacy-disclosure-matches-runtime
+hash: a-efa105401252
+title: The privacy doc discloses web dictation's real data flow and retention
+state: active
+statement: docs/PRIVACY.md section Voice states that the web surface offers
+  dictation as an operator-configured feature. It discloses the real flow -
+  browser microphone audio goes only to the operator's own switchboard, is held
+  in process memory only and never stored host-side, and is forwarded to the
+  operator-selected provider; the default codex provider processes audio on
+  OpenAI servers under the operator's own ChatGPT login and retains uploaded
+  audio server-side for about 30 days. It states that provider credentials never
+  reach the browser and that the operator disables dictation with
+  --voice-provider none, which also hides the browser control. This disclosure
+  must track the transcribe endpoint and provider behavior whenever they change.
+depends_on:
+  - voice-transcribe-endpoint-is-authorized-and-bounded
+  - codex-voice-transcription-reuses-signed-in-codex-identity
+  - voice-provider-selection-is-operator-config
+created_by: codor-voice-phase4-docs

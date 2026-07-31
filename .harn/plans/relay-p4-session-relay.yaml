@@ -1,0 +1,74 @@
+id: relay-p4-session-relay
+title: Relay Phase 4 - SessionRelay Durable Object and session routing
+assumptions:
+  create:
+    - id: session-relay-lifecycle
+      title: The SessionRelay Durable Object multiplexes host and clients blindly
+      statement: relay-worker/src/session-relay.ts must implement the SessionRelay
+        Durable Object per PLAN §4.1 - a SQLite-backed, hibernatable rendezvous
+        that keeps one host (a new host supersedes the old, closed 4001) and up
+        to 16 client connections (a 17th is closed 4004), assigning each client
+        a u32 connId from a persisted next_conn_id counter so ids stay unique
+        across hibernation; it routes a client's binary to the host prefixed
+        with its connId (4 bytes big-endian) and routes the host's binary to the
+        client named by the leading connId after stripping it (dropping unknown
+        connIds with an unknown-conn notice to the host), forwarding payloads
+        verbatim without inspecting them; it emits presence notices
+        (host-connected/host-disconnected to clients on host change and on
+        client connect, client-connected/client-disconnected to the host,
+        re-announcing every existing client to a freshly connected host); it
+        answers idle codor-ping keepalives via setWebSocketAutoResponse without
+        waking the object; it echoes a valid close code on webSocketClose to
+        complete the handshake under the pinned compatibility date; and it holds
+        no alarm and no expiry because possession of the session id is the only
+        capability.
+      reason: This DO is the durable per-switchboard channel every browser connection
+        rides; connId persistence and prefix routing are what let one host
+        multiplex many clients, and any lapse would misroute or leak session
+        traffic, break reconnect, or (via storage I/O on the message path)
+        inflate billing.
+      depends_on:
+        - relay-control-vocabulary-is-canonical
+    - id: session-capability-addressing
+      title: Session sockets are addressed by an unguessable id with no reservation
+      statement: relay-worker/src/index.ts must upgrade GET
+        /v1/session/:sessionId/ws?role=host|client to the SessionRelay DO
+        addressed by idFromName(sessionId) only when sessionId is exactly 64
+        lowercase hex characters and the role is host or client, rejecting
+        anything else with 400; there is deliberately no reservation step -
+        possession of the unguessable 256-bit session id is the sole capability,
+        and content security lives entirely in the E2E handshake.
+      reason: Unlike pairing rooms, sessions are capability-addressed; the only gate
+        the blind relay can apply is strict id-format validation, and inventing
+        a reservation would add state the relay must not hold.
+      depends_on: []
+  reviewed:
+    - id: relay-worker-stays-blind
+      outcome: unchanged
+      reason: The session route reads no request body (only the path id and role
+        query), forwards the WS upgrade unmodified, and the SessionRelay
+        adds/strips only the 4-byte connId routing prefix while forwarding
+        payloads verbatim - the relay still never inspects ciphertext.
+anchors:
+  session-relay-lifecycle:
+    session-relay-behavior:
+      action: change
+      reason: Implement the full SessionRelay DO (host/client roles, connId
+        assignment/persistence, prefix routing, presence notices, cap, keepalive
+        auto-response, close echo) replacing the Phase 1 stub.
+  session-capability-addressing:
+    session-id-gate:
+      action: change
+      reason: Add the 64-hex session-id validator used by the session upgrade route.
+  relay-worker-stays-blind:
+    blind-router:
+      action: change
+      reason: Wire the session WS upgrade route into the path-only router, still
+        without reading or logging request/response bodies.
+files:
+  - relay-worker/src/session-relay.ts
+  - relay-worker/src/index.ts
+  - relay-worker/test/session-relay.spec.ts
+  - relay-worker/test/healthz.spec.ts
+applied:
+  applied_at: 2026-07-27T10:22:36.958Z

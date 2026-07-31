@@ -5,9 +5,17 @@ import { connect as netConnect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { BROWSER_PROTOCOL_EPOCH, type Member, type ServerFrame, type Session, type SpawnOpts } from '@codor/protocol';
+import {
+  BROWSER_PROTOCOL_EPOCH,
+  VoiceTranscribeError,
+  type Member,
+  type ServerFrame,
+  type Session,
+  type SpawnOpts,
+} from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
+import type { VoiceProviderDefinition } from './voice-providers.js';
 
 import { Daemon, MAX_ATTACHMENT_BYTES } from './daemon.js';
 import { BlobStore } from './blobs.js';
@@ -3007,6 +3015,230 @@ describe('produced-artifact endpoints (descriptor-safe-durable-inert-snapshots-o
 });
 // harn:end descriptor-safe-durable-inert-snapshots-of-successful-output
 
+interface StubVoiceOpts {
+  available?: boolean;
+  reason?: string;
+  transcribe?: (input: { audio: Uint8Array; mimeType: string }) => Promise<{ text: string }>;
+  onCreate?: () => void;
+}
+
+const stubVoice = (id: string, opts: StubVoiceOpts = {}): VoiceProviderDefinition => ({
+  id,
+  label: `${id} label`,
+  status: async () => ({ available: opts.available ?? true, ...(opts.reason ? { reason: opts.reason } : {}) }),
+  create: () => {
+    opts.onCreate?.();
+    return { id, label: id, transcribe: opts.transcribe ?? (async () => ({ text: 'stub transcript' })) };
+  },
+});
+
+const restartVoice = async (opts: {
+  voiceProvider?: string;
+  voiceProviders?: VoiceProviderDefinition[];
+  voiceTimeoutMs?: number;
+}) => {
+  await server.close();
+  server = await startServer({ daemon, token: TOKEN, crypto, pushSubscriptions, homeDir: dir, ...opts });
+  base = `http://127.0.0.1:${server.port}`;
+};
+
+const postAudio = (body: BodyInit, headers: Record<string, string> = {}) => {
+  const init = {
+    method: 'POST',
+    headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'audio/wav', ...headers },
+    body,
+    duplex: 'half',
+  } as RequestInit & { duplex: 'half' };
+  return fetch(`${base}/api/voice/transcribe`, init);
+};
+
+const oversizedStream = (): ReadableStream<Uint8Array> => {
+  let sent = 0;
+  const total = 9 * 1024 * 1024;
+  return new ReadableStream({
+    pull(controller) {
+      if (sent >= total) return controller.close();
+      const chunk = new Uint8Array(128 * 1024);
+      sent += chunk.length;
+      controller.enqueue(chunk);
+    },
+  });
+};
+
+// harn:assume voice-provider-catalog-is-named-and-safe ref=voice-catalog-rest-regression
+describe('GET /api/voice/providers', () => {
+  it('requires bearer auth', async () => {
+    await restartVoice({ voiceProviders: [stubVoice('codex', { available: true })] });
+    const res = await fetch(`${base}/api/voice/providers`);
+    expect(res.status).toBe(401);
+  });
+
+  it('projects only safe metadata plus enabled/selected', async () => {
+    await restartVoice({
+      voiceProvider: 'codex',
+      voiceProviders: [stubVoice('codex', { available: false, reason: 'run `codex login`' })],
+    });
+    const res = await fetch(`${base}/api/voice/providers`, { headers: { authorization: `Bearer ${TOKEN}` } });
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      enabled: boolean; selected: string; providers: Record<string, unknown>[];
+    };
+    expect(body.enabled).toBe(true);
+    expect(body.selected).toBe('codex');
+    expect(body.providers).toEqual([
+      { id: 'codex', label: 'codex label', available: false, reason: 'run `codex login`' },
+    ]);
+    expect(Object.keys(body.providers[0]!).sort()).toEqual(['available', 'id', 'label', 'reason']);
+  });
+});
+// harn:end voice-provider-catalog-is-named-and-safe
+
+// harn:assume voice-transcribe-endpoint-is-authorized-and-bounded ref=voice-transcribe-rest-regression
+describe('POST /api/voice/transcribe', () => {
+  it('returns the provider transcript for authed audio', async () => {
+    await restartVoice({ voiceProviders: [stubVoice('codex', { transcribe: async () => ({ text: 'hello there' }) })] });
+    const res = await postAudio(new Uint8Array([1, 2, 3, 4]));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ text: 'hello there' });
+  });
+
+  it('refuses without bearer auth', async () => {
+    await restartVoice({ voiceProviders: [stubVoice('codex')] });
+    const res = await fetch(`${base}/api/voice/transcribe`, {
+      method: 'POST', headers: { 'content-type': 'audio/wav' }, body: new Uint8Array([1]),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects an oversized declared content-length with 413', async () => {
+    await restartVoice({ voiceProviders: [stubVoice('codex')] });
+    const res = await postAudio(Buffer.alloc(9 * 1024 * 1024));
+    expect(res.status).toBe(413);
+  });
+
+  it('rejects an oversized streamed body with 413', async () => {
+    await restartVoice({ voiceProviders: [stubVoice('codex')] });
+    const res = await postAudio(oversizedStream());
+    expect(res.status).toBe(413);
+  });
+
+  it('maps an input-coded provider error to 400', async () => {
+    await restartVoice({
+      voiceProviders: [stubVoice('codex', {
+        transcribe: async () => { throw new VoiceTranscribeError('input', 'too short'); },
+      })],
+    });
+    const res = await postAudio(new Uint8Array([1, 2, 3]));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'too short' });
+  });
+
+  it('maps an upstream-coded error to 502 preserving the body', async () => {
+    await restartVoice({
+      voiceProviders: [stubVoice('codex', {
+        transcribe: async () => { throw new VoiceTranscribeError('upstream', 'endpoint said boom'); },
+      })],
+    });
+    const res = await postAudio(new Uint8Array([1, 2, 3]));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'endpoint said boom' });
+  });
+
+  it('rejects a concurrent second transcription with 429', async () => {
+    await restartVoice({
+      voiceProviders: [stubVoice('codex', {
+        transcribe: () => new Promise((r) => setTimeout(() => r({ text: 'slow' }), 300)),
+      })],
+    });
+    const first = postAudio(new Uint8Array([1, 2, 3]));
+    await new Promise((r) => setTimeout(r, 40));
+    const second = await postAudio(new Uint8Array([1, 2, 3]));
+    expect(second.status).toBe(429);
+    expect((await first).status).toBe(200);
+  });
+
+  it('times out a slow provider with 504', async () => {
+    await restartVoice({
+      voiceTimeoutMs: 20,
+      voiceProviders: [stubVoice('codex', { transcribe: () => new Promise<never>(() => {}) })],
+    });
+    const res = await postAudio(new Uint8Array([1, 2, 3]));
+    expect(res.status).toBe(504);
+  });
+});
+// harn:end voice-transcribe-endpoint-is-authorized-and-bounded
+
+// harn:assume voice-provider-selection-is-operator-config ref=voice-selection-regression
+describe('voice provider selection is operator config', () => {
+  it('disables the catalog and endpoint when set to none', async () => {
+    await restartVoice({ voiceProvider: 'none', voiceProviders: [stubVoice('codex')] });
+    const post = await postAudio(new Uint8Array([1, 2, 3]));
+    expect(post.status).toBe(404);
+    const catalog = await fetch(`${base}/api/voice/providers`, { headers: { authorization: `Bearer ${TOKEN}` } });
+    expect((await catalog.json() as { enabled: boolean }).enabled).toBe(false);
+  });
+
+  it('resolves only the configured provider; a non-selected one is never created', async () => {
+    let secondaryCreated = false;
+    await restartVoice({
+      voiceProvider: 'primary',
+      voiceProviders: [
+        stubVoice('primary', { transcribe: async () => ({ text: 'from primary' }) }),
+        stubVoice('secondary', { onCreate: () => { secondaryCreated = true; } }),
+      ],
+    });
+    const res = await postAudio(new Uint8Array([1, 2, 3]));
+    expect(await res.json()).toEqual({ text: 'from primary' });
+    expect(secondaryCreated).toBe(false);
+  });
+});
+// harn:end voice-provider-selection-is-operator-config
+
+// harn:assume voice-message-metadata-is-bounded-and-additive ref=voice-post-regression
+describe('voice message post', () => {
+  it('fans out bounded voice metadata verbatim on a human post', async () => {
+    const client = await connect(); // owner
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'self');
+
+    const voice = { duration_seconds: 3.5, levels: [0, 40, 80, 100] };
+    client.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: '🎤 "hi there"', voice }));
+    const posted = await client.next((frame) =>
+      frame.type === 'message' && frame.message.kind === 'chat' && frame.message.body === '🎤 "hi there"');
+    expect(posted.type === 'message' && posted.message.voice).toEqual(voice);
+    client.ws.close();
+  });
+
+  it('refuses an out-of-bounds voice frame with a clean error', async () => {
+    const client = await connect();
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'self');
+
+    client.ws.send(JSON.stringify({
+      type: 'post', room: 'eng', body: 'x', voice: { duration_seconds: 999, levels: [] },
+    }));
+    const error = await client.next((frame) => frame.type === 'error');
+    expect(error.type === 'error' && error.message).toMatch(/invalid frame/);
+    client.ws.close();
+  });
+
+  it('carries no voice on the agent post path even when the frame includes it', async () => {
+    const { agent, token } = spawnAgentWithToken('voicer');
+    const client = await connectAs(token);
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'self');
+
+    client.ws.send(JSON.stringify({
+      type: 'post', room: 'eng', body: '@richard update', voice: { duration_seconds: 2, levels: [1, 2] },
+    }));
+    const posted = await client.next((frame) =>
+      frame.type === 'message' && frame.message.author === agent.id);
+    expect(posted.type === 'message' && posted.message.voice).toBeUndefined();
+    client.ws.close();
+  });
+});
+// harn:end voice-message-metadata-is-bounded-and-additive
+
 describe('named ACP providers over REST', () => {
   let dir: string;
   let daemon: Daemon;
@@ -3097,4 +3329,59 @@ describe('named ACP providers over REST', () => {
     expect(daemon.store.listMembers('eng').map((m) => m.handle)).not.toContain('staly');
   });
   // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
+});
+
+describe('universal pairing mint (relay-enabled routes)', () => {
+  it('serves the dual-door offer from /api/pairing/offers and maps /api/relay/pair to the code line', async () => {
+    const canned = {
+      endpoint: 'wss://relay.test',
+      pairing_token: 'universal-token',
+      pairing_code: 'AB23-CD45',
+      expires_at: new Date(Date.now() + 600_000).toISOString(),
+      switchboard_sign_pub: 'sign-pub',
+      doors: 'both' as const,
+    };
+    let pairCalls = 0;
+    let lastEndpoint: string | undefined;
+    const relay = {
+      status: () => ({ enabled: true, relay_url: 'wss://relay.test', session_id: 's', devices: 0 }),
+      enable: () => {},
+      disable: () => {},
+      rotate: () => 's',
+      pair: async (endpoint?: string) => {
+        pairCalls += 1;
+        lastEndpoint = endpoint;
+        return canned;
+      },
+    };
+    const relayServer = await startServer({ daemon, token: TOKEN, crypto, relay, port: 0 });
+    const rbase = `http://127.0.0.1:${relayServer.port}`;
+    try {
+      // Settings' mint endpoint returns the FULL universal offer (both doors).
+      const offersRes = await fetch(`${rbase}/api/pairing/offers`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ endpoint: rbase }),
+      });
+      expect(offersRes.status).toBe(200);
+      expect(await offersRes.json()).toMatchObject({
+        pairing_code: 'AB23-CD45',
+        pairing_token: 'universal-token',
+        doors: 'both',
+      });
+      expect(lastEndpoint).toBe(rbase); // Settings' endpoint is threaded to the mint
+
+      // The relay CLI endpoint maps the same universal offer down to a code line.
+      const pairRes = await fetch(`${rbase}/api/relay/pair`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(pairRes.status).toBe(200);
+      expect(await pairRes.json()).toEqual({ code: 'AB23-CD45', expires_at: canned.expires_at, doors: 'both' });
+
+      expect(pairCalls).toBe(2); // both surfaces funnel through the one mint
+    } finally {
+      await relayServer.close();
+    }
+  });
 });

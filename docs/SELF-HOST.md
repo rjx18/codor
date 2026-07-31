@@ -293,6 +293,31 @@ prefer Serve; it has fewer moving parts and does not require a public origin.
 [Tailscale's app-connector guide](https://tailscale.com/docs/features/app-connectors/how-to/setup)
 is the authority for current platform requirements and policy syntax.
 
+## Hosted access through the blind relay
+
+For access from anywhere without a VPN, the hosted browser app at codor.app can reach your
+self-hosted switchboard through the Codor blind relay. The relay is a Cloudflare Worker that holds no
+keys and cannot read pairing traffic, session traffic, or your channels; it forwards encrypted
+payloads and sees only routing metadata — addresses, timing, sizes, and connection/room identifiers
+(see `PLAN` §2.2, §4.1). It never replaces localhost or Tailscale; it is an additional path you opt
+into, and each browser stays individually revocable.
+
+Enable it on the switchboard host and pair one browser:
+
+```sh
+codor relay enable                 # targets relay.codor.app; override with a URL or CODOR_TUNNEL_URL
+codor relay pair                   # prints a single-use code (ten-minute expiry)
+codor relay status                 # enabled state, session id, and paired-device count
+```
+
+Open codor.app in the browser you want to enroll and enter the code. That browser runs the CPace
+pairing and the session handshake with its own WebCrypto keys, so the relay never holds a key that
+could open those frames — which is why using the shared `relay.codor.app` is safe even though you do
+not operate it.
+`codor relay rotate` issues a new session id (every paired browser must pair again) and
+`codor relay disable` turns the path off. To avoid the shared relay entirely, deploy the MIT-licensed
+Worker in `relay-worker/` to your own Cloudflare account and point `CODOR_TUNNEL_URL` at it.
+
 ## Private DHT lines
 
 The channel home can accept resident agents from other machines over a shared Hyperswarm line. Create
@@ -421,3 +446,60 @@ The switchboard accepts at most five exchange attempts per client connection
 identity in a rolling minute. Treat the displayed code as a secret until the
 new browser finishes pairing.
 <!-- harn:end pairing-codes-redacted-from-content -->
+
+## One code, every door
+
+The code from `codor pair` is universal: the **same** `XXXX-XXXX` pairs a browser
+whether it reaches this switchboard directly (localhost, or across your Tailscale
+network) or through the hosted app at codor.app over the blind relay. You do not pick
+a "relay code" versus a "local code" — you paste one code into whichever browser you
+are pairing, and it works.
+
+Under the hood the code is a single pairing grant registered at both doors; consuming
+either door burns it, so a code can pair exactly one browser once. If the relay is
+unreachable when you run `codor pair`, the code degrades to local-only (LAN/Tailscale)
+rather than failing — it still pairs a browser on your private network. The wire
+mechanics are documented in the [relay protocol reference](RELAY-PROTOCOL.md).
+
+## Multiple computers (hosted app)
+
+When you use the hosted app at codor.app, it remembers **every** computer you have
+paired, not just the last one. Each computer is its own switchboard reached over its
+own tunnel; the app keeps their keys in separate namespaces and shows a switcher in
+the channel rail:
+
+- **Add a computer** — run `codor pair` on the other machine and paste its code into
+  "Add a computer". The newly paired computer becomes active; the app reloads into it.
+- **Switch** — pick a computer from the switcher to reload into its session and tunnel.
+  The most recently paired computer is the default on a fresh load.
+- **Rename** — double-click a computer's name to give it a label (it defaults to
+  "Computer 1", "Computer 2", …).
+- **Forget** — remove a computer; the app falls back to the next one, or to the pairing
+  screen when the last is forgotten.
+
+Every switch and pairing is crash-safe: the app never presents one computer's identity
+with another's channel keys, and switching between tabs cannot corrupt the stored set
+(see the [relay protocol reference](RELAY-PROTOCOL.md)).
+A self-hosted, switchboard-served browser (the direct path) pairs to one switchboard
+and shows no switcher.
+
+## Out of the box: `codor` on PATH and a universal first code
+
+`npx @richhardry/codor install` sets both of these up for you, so a fresh machine is
+ready without extra steps:
+
+- **A `codor` command in your next shell.** Setup writes an executable launcher to
+  `~/.local/bin/codor` pinned to the same Node the service runs. On macOS, where zsh
+  omits `~/.local/bin` from PATH, setup appends a marked, idempotent block to
+  `~/.zprofile` and tells you to open a new terminal; on Linux `~/.local/bin` is
+  already on PATH. (Windows: add `~/.local/bin` to PATH yourself for now.)
+- **A universal first code, by default.** Setup enables the blind relay before minting
+  your first pairing code and mints it through the running daemon, so the printed code
+  works at **codor.app** *and* on your network. If the relay is unreachable it degrades
+  to a clearly-labelled local-only code rather than failing. Opt out with
+  `codor install --no-relay` (or `codor relay disable` later) for a local-only setup;
+  a `codor pair` run with the relay off says the code is local-only and how to enable it.
+
+Node reaches the relay even on networks that reset the `relay.codor.app` name for
+non-browser TLS: the switchboard automatically falls back to the `workers.dev` alias
+and remembers whichever endpoint worked (see the [relay protocol reference](RELAY-PROTOCOL.md)).

@@ -108,6 +108,7 @@ device fetches content over tier 0/1 when opened.
 | Location | Data | Protection |
 | --- | --- | --- |
 | Switchboard host | full plaintext history (SQLite + run JSONL + ledger vault) | your disk + OS full-disk encryption (the supported at-rest story; app-level DB encryption is deferred — it would cover only the DB, not blobs/ledger, and mislead); filesystem perms |
+| Voice audio (web dictation) | nothing at rest on the host — held in process memory only during a transcribe request | never written to disk; the `codex` provider forwards it to OpenAI, which retains uploaded audio ~30 d server-side (§voice) |
 | iPhone/Watch | decrypted cache of recent messages | OS sandbox + device encryption; wipe on unpair |
 | Browser (web) | identity, sealed channel keys, and pairing marker in origin-scoped IndexedDB; current channel state and device access session in page memory; an operator bearer is stored only when explicitly supplied | origin sandbox; all Codor IndexedDB, CacheStorage, localStorage, service workers, and push state cleared on unpair |
 | Push relay | nothing at rest | memory-only forwarding |
@@ -126,11 +127,26 @@ shouldn't hold.
 
 ## Voice
 
+<!-- harn:assume web-dictation-privacy-disclosure-matches-runtime ref=privacy-voice-disclosure -->
 Watch/phone dictation uses Apple speech recognition. Setting `voice: on-device only` (default)
 restricts to `SFSpeechRecognizer.supportsOnDeviceRecognition` paths — audio never leaves the
 device; where on-device isn't available the mic button says so rather than silently uploading.
-The **web/PWA surface has no dictation feature**: browser speech APIs cannot guarantee
-on-device processing, so voice is native-app-only rather than silently cloud-processed.
+
+The **web/PWA surface has opt-out cloud dictation** (shipped 0.10.5). Push-to-talk in the composer
+captures mic audio, encodes it to a 24 kHz mono WAV in the browser, and POSTs it to `/api/voice/transcribe`
+on **your own switchboard** — the same box that already holds your history, reached with your operator
+bearer. The host keeps that audio in process memory for the one request only: it is never written to
+disk, journaled, or otherwise persisted (8 MB cap, one transcription in flight, 60 s timeout). The
+switchboard then forwards it to the operator-selected `VoiceProvider`; provider credentials stay
+host-side and never reach the browser.
+
+The default provider, `codex`, reuses your existing ChatGPT login (`~/.codex/auth.json`, host-side)
+and uploads the audio to OpenAI's transcription endpoint, where **OpenAI retains the uploaded audio
+server-side for ~30 days**. That is genuine cloud processing of your voice — disclosed here rather
+than done silently, and the one provider path where audio leaves your machine. Run
+`codor up --voice-provider none` to disable dictation entirely: the endpoint returns 404 and the
+composer shows no mic.
+<!-- harn:end web-dictation-privacy-disclosure-matches-runtime -->
 
 ## Secrets hygiene inside channels
 

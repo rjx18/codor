@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -31,7 +32,8 @@ import {
 import { ProtocolClient, type ProtocolClientOptions } from './connection.js';
 import { detectSession } from './detect.js';
 import { parseMirrorHook } from './mirror.js';
-import { runSetup, type SetupAccess, type SetupOverrides } from './setup.js';
+import { operatorTokenPath, runSetup, type SetupAccess, type SetupOverrides } from './setup.js';
+import { renderPairingCard } from './setup-ui.js';
 import { renderTerminalQr } from './terminal-qr.js';
 import { parseLine, startOutpost, startCodor, waitForShutdown } from './up.js';
 
@@ -44,6 +46,8 @@ export interface CliContext {
   attachHeartbeatMs?: number;
   renderQr?(payload: string): string;
   setup?: SetupOverrides;
+  /** Overrides the TTY probe that picks `codor pair`'s card vs plain output. */
+  isTTY?: boolean;
 }
 
 interface GlobalOptions {
@@ -58,6 +62,24 @@ interface ChannelOptions {
 
 interface OptionalChannelOptions {
   channel?: string;
+}
+
+/**
+ * Last-resort bearer source: the installed service's operator token file
+ * (mode-0600, written by setup). Used only when neither --token nor a CODOR_*
+ * env var supplies one — the common case for a systemd/launchd install where the
+ * token lives in the service env, not the operator's interactive shell. Home is
+ * taken from env so tests can point it at an isolated directory; a missing or
+ * unreadable file falls through to today's tokenless behavior.
+ */
+function readOperatorTokenFile(env: NodeJS.ProcessEnv): string | undefined {
+  try {
+    const path = operatorTokenPath(env.HOME ?? homedir());
+    if (!existsSync(path)) return undefined;
+    return readFileSync(path, 'utf8').trim() || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition
@@ -354,6 +376,26 @@ export function createProgram(context: CliContext = {}): Command {
     return room;
   };
 
+  // The installed operator token file is a LOCAL-service credential: fall back to
+  // it ONLY when the target is the local daemon, never when an explicit remote
+  // --url (or CODOR_URL) is set — so the installed bearer can never ride to an
+  // arbitrary origin.
+  const targetsLocalService = (): boolean => {
+    const raw = program.opts<GlobalOptions>().url ?? env.CODOR_URL;
+    if (!raw) return true; // default endpoint is loopback
+    try {
+      // WHATWG URL keeps IPv6 brackets on hostname ([::1]); strip them so the
+      // bracketed loopback form is recognized as local, not silently "remote".
+      const host = new URL(raw.replace(/^ws/, 'http')).hostname.replace(/^\[|\]$/g, '');
+      return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+    } catch {
+      return false;
+    }
+  };
+  const bearer = (): string | undefined =>
+    program.opts<GlobalOptions>().token
+    ?? (targetsLocalService() ? readOperatorTokenFile(env) : undefined);
+
   // harn:assume cli-observability-uses-scoped-rest ref=scoped-rest-client
   const restUrl = (path: string): URL => {
     const globals = program.opts<GlobalOptions>();
@@ -368,7 +410,7 @@ export function createProgram(context: CliContext = {}): Command {
   };
 
   const fetchJson = async (url: URL): Promise<unknown> => {
-    const token = program.opts<GlobalOptions>().token;
+    const token = bearer();
     if (!token) throw new Error('--token, CODOR_TOKEN, or CODOR_MEMBER_TOKEN is required');
     const response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
     const value = await response.json() as unknown;
@@ -381,6 +423,25 @@ export function createProgram(context: CliContext = {}): Command {
     return value;
   };
   // harn:end cli-observability-uses-scoped-rest
+
+  const postJson = async (path: string, body?: unknown): Promise<unknown> => {
+    const token = bearer();
+    if (!token) throw new Error('--token, CODOR_TOKEN, or CODOR_MEMBER_TOKEN is required');
+    const response = await fetch(restUrl(path), {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const value = (await response.json()) as unknown;
+    if (!response.ok) {
+      const detail =
+        typeof value === 'object' && value !== null && 'error' in value
+          ? String((value as { error: unknown }).error)
+          : `${response.status} ${response.statusText}`;
+      throw new Error(detail);
+    }
+    return value;
+  };
 
   const withCrypto = <T>(fn: (crypto: CryptoVault) => T): T => {
     const crypto = new CryptoVault(program.opts<GlobalOptions>().dataDir);
@@ -401,6 +462,7 @@ export function createProgram(context: CliContext = {}): Command {
     .option('--channel-name <name>', 'initial channel name', 'Default')
     .option('--owner <handle>', 'initial owner handle')
     .option('--relay-url <url>', 'optional sealed push relay URL', env.CODOR_RELAY_URL)
+    .addOption(new Option('--tunnel-url <url>', 'tunnel (blind) relay URL override').default(env.CODOR_TUNNEL_URL).hideHelp())
     .option('--push-vapid-public-key <key>', 'Web Push VAPID public key', env.CODOR_VAPID_PUBLIC_KEY)
     .option('--join <line>', 'join a private home/outpost line as name:secret')
     // harn:assume tailnet-auto-pairing-explicit-trust ref=trusted-tailnet-up-option
@@ -411,6 +473,9 @@ export function createProgram(context: CliContext = {}): Command {
     )
     // harn:end tailnet-auto-pairing-explicit-trust
     .option('--adapter <name=module>', 'trusted adapter module (repeatable)', collectAdapter, [])
+    // harn:assume voice-provider-selection-is-operator-config ref=voice-selection-cli-option
+    .option('--voice-provider <id>', 'web dictation provider (none disables)', 'codex')
+    // harn:end voice-provider-selection-is-operator-config
     .action(async (options: {
       host: string;
       port: number;
@@ -419,10 +484,12 @@ export function createProgram(context: CliContext = {}): Command {
       channelName: string;
       owner?: string;
       relayUrl?: string;
+      tunnelUrl?: string;
       pushVapidPublicKey?: string;
       join?: string;
       trustTailscaleServe: boolean;
       adapter: string[];
+      voiceProvider: string;
     }) => {
       const globals = program.opts<GlobalOptions>();
       const running = await startCodor({
@@ -435,10 +502,12 @@ export function createProgram(context: CliContext = {}): Command {
         roomName: options.channelName,
         owner: options.owner,
         relayUrl: options.relayUrl,
+        tunnelUrl: options.tunnelUrl,
         pushVapidPublicKey: options.pushVapidPublicKey,
         line: options.join ? parseLine(options.join) : undefined,
         trustTailscaleServe: options.trustTailscaleServe,
         adapters: parseAdapterModules(options.adapter),
+        voiceProvider: options.voiceProvider,
       });
       out(`codor http://localhost:${running.server.port}`);
       out(`socket ${running.server.socketPath}`);
@@ -482,12 +551,15 @@ export function createProgram(context: CliContext = {}): Command {
     .description('install and start the local switchboard service, then pair your first browser')
     .option('--dry-run', 'print every action and generated service content without changing the host')
     .option('--yes', 'approve every setup mutation for unattended use')
+    .option('--no-relay', 'keep the blind relay off; mint a local-only first code (works on your network only)')
     .addOption(new Option('--access <method>', 'browser access method').choices(['localhost', 'tailscale']))
-    .action(async (options: { access?: SetupAccess; dryRun?: boolean; yes?: boolean }) => {
+    .action(async (options: { access?: SetupAccess; dryRun?: boolean; yes?: boolean; relay?: boolean }) => {
       await runSetup({
         access: options.access,
         dryRun: options.dryRun === true,
         env,
+        // Commander maps --no-relay to `relay === false`; default (flag absent) is undefined → relay on.
+        noRelay: options.relay === false,
         out,
         overrides: {
           ...context.setup,
@@ -1083,9 +1155,16 @@ export function createProgram(context: CliContext = {}): Command {
     .description('create a ten-minute browser or peer pairing link')
     .option('--endpoint <url>', 'switchboard browser endpoint', 'http://127.0.0.1:8137')
     .option('--no-qr', 'print the plain pairing URL without a terminal QR')
-    .action((options: { endpoint: string; qr: boolean }) => {
-      withCrypto((crypto) => {
-        const offer = crypto.pairing.issue(options.endpoint);
+    .action(async (options: { endpoint: string; qr: boolean }) => {
+      type PairOffer = {
+        endpoint: string;
+        pairing_token: string;
+        pairing_code: string;
+        expires_at: string;
+        switchboard_sign_pub: string;
+        doors?: 'both' | 'local';
+      };
+      const emit = (offer: PairOffer): void => {
         const url = pairingUrl(offer);
         if (options.qr) out((context.renderQr ?? renderTerminalQr)(url));
         out(url);
@@ -1093,7 +1172,44 @@ export function createProgram(context: CliContext = {}): Command {
         out(`code: ${offer.pairing_code}`);
         // harn:end pairing-code-enrollment-surfaces
         out(`expires ${offer.expires_at}`);
-      });
+      };
+      // On a TTY, present the offer as the SAME bordered card the setup flow
+      // ends on (code, clickable link, expiry, QR), with an instruction naming
+      // which doors the code opens. Piped/non-TTY output keeps the plain lines
+      // above, so scripts and tests see an unchanged surface.
+      const tty = context.isTTY ?? process.stdout.isTTY === true;
+      const present = (offer: PairOffer): void => {
+        if (!tty) {
+          emit(offer);
+          return;
+        }
+        const url = pairingUrl(offer);
+        out(renderPairingCard({
+          code: offer.pairing_code,
+          url,
+          expires: offer.expires_at,
+          qr: options.qr ? (context.renderQr ?? renderTerminalQr)(url) : '',
+          instruction: offer.doors === 'both'
+            ? 'This code works at codor.app and on your network. Scan the QR or enter the code in your browser to finish pairing.'
+            : 'This code works on your network only (run `codor relay enable` for codor.app codes). Scan the QR or enter the code in your browser to finish pairing.',
+        }, process.stdout.columns ?? 80));
+      };
+      // When the relay is enabled, delegate to the daemon's universal mint so the
+      // printed code opens BOTH codor.app and the local door. If the daemon is
+      // unreachable (or the relay is off), mint locally exactly as before.
+      let relayEnabled = false;
+      try {
+        relayEnabled = ((await fetchJson(restUrl('/api/relay/status'))) as { enabled?: boolean }).enabled === true;
+      } catch {
+        relayEnabled = false;
+      }
+      if (relayEnabled) {
+        present((await postJson('/api/pairing/offers', { endpoint: options.endpoint })) as PairOffer);
+        return;
+      }
+      // NOTE (ledger): a daemon-off local mint can't know whether a relay is
+      // configured, so its card uses the local-only instruction (doors absent).
+      withCrypto((crypto) => present(crypto.pairing.issue(options.endpoint)));
     });
   // harn:end terminal-pairing-qr-matches-plain-url
 
@@ -1183,6 +1299,53 @@ export function createProgram(context: CliContext = {}): Command {
       out(new LedgerVault(program.opts<GlobalOptions>().dataDir, options.channel).pull(options.destination));
     });
 
+  const relay = program.command('relay').description('manage the codor.app tunnel relay');
+  relay
+    .command('status')
+    .description('show tunnel relay status')
+    .action(async () => {
+      out(JSON.stringify(await fetchJson(restUrl('/api/relay/status')), null, 2));
+    });
+  relay
+    .command('pair')
+    .description('pair a browser through the tunnel relay')
+    .action(async () => {
+      // The body must be `{}`: postJson always sends a JSON content-type, and
+      // fastify 400s a bodyless POST that declares one.
+      const result = (await postJson('/api/relay/pair', {})) as {
+        code: string;
+        expires_at: string;
+        doors?: 'both' | 'local';
+      };
+      // Label a degraded code honestly: the relay was unreachable, so this code
+      // opens the local/tailnet door only — not codor.app — until the relay is back.
+      const label = result.doors === 'local'
+        ? 'local-only pairing code (relay unreachable; works on your network, not codor.app)'
+        : 'pairing code';
+      out(`${label} ${result.code} (expires ${result.expires_at})`);
+    });
+  relay
+    .command('enable')
+    .description('enable the tunnel relay')
+    .argument('[url]', 'relay URL override')
+    .action(async (url?: string) => {
+      await postJson('/api/relay/enable', url ? { url } : {});
+      out('tunnel relay enabled');
+    });
+  relay
+    .command('disable')
+    .description('disable the tunnel relay')
+    .action(async () => {
+      await postJson('/api/relay/disable');
+      out('tunnel relay disabled');
+    });
+  relay
+    .command('rotate')
+    .description('rotate the tunnel session id (paired devices must re-pair)')
+    .action(async () => {
+      const result = (await postJson('/api/relay/rotate')) as { session_id: string };
+      out(`rotated; new session ${result.session_id}`);
+    });
   // harn:end human-facing-surfaces-call-rooms-channels
   return program;
 }

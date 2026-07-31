@@ -39,6 +39,13 @@ export interface PairingPayload {
 
 export interface PairingOffer extends PairingPayload {
   pairing_code: string;
+  /**
+   * Which doors this code opens. 'both' when a relay room was reserved at mint
+   * (works at codor.app AND locally); 'local' for a relay-disabled mint or a
+   * graceful degrade when the relay was unreachable — a local code ALWAYS works,
+   * so local pairing never hard-depends on relay health.
+   */
+  doors: 'both' | 'local';
 }
 
 export interface PairingRequest extends PublicIdentity {
@@ -107,16 +114,29 @@ export class PairingService {
 
   // harn:assume short-pairing-code-grant-exchange ref=pairing-code-grant-source
   issue(endpoint: string): PairingOffer {
+    return this.issueForCode(randomPairingCode(), endpoint);
+  }
+
+  // harn:assume universal-pairing-code-dual-door ref=issue-for-code
+  /**
+   * Register a caller-supplied code as a local pairing grant, sharing issue()'s
+   * ten-minute expiry and single-use burn. The relay universal mint calls this
+   * with the room's own nameplate+secret code so ONE code is valid at both the
+   * relay PAKE door and the local exchange door as a single shared grant:
+   * consuming either door removes/rotates this entry, killing the other.
+   */
+  issueForCode(code: string, endpoint: string): PairingOffer {
+    const normalizedCode = normalizePairingCode(code);
+    if (!normalizedCode) throw new Error('invalid pairing code');
     const normalized = new URL(endpoint).toString().replace(/\/$/, '');
     const token = randomToken();
-    const code = randomPairingCode();
     const expiresAt = new Date(this.now() + PAIRING_TTL_MS).toISOString();
     const state = this.read();
     state.tokens = state.tokens
       .filter((entry) => Date.parse(entry.expires_at) >= this.now())
       .concat({
         token_hash: hashToken(token),
-        code_hash: hashToken(code),
+        code_hash: hashToken(normalizedCode),
         endpoint: normalized,
         expires_at: expiresAt,
       });
@@ -124,11 +144,15 @@ export class PairingService {
     return {
       endpoint: normalized,
       pairing_token: token,
-      pairing_code: formatPairingCode(code),
+      pairing_code: formatPairingCode(normalizedCode),
       expires_at: expiresAt,
       switchboard_sign_pub: this.keys.identity.sign_public_key,
+      // A bare local grant. The relay mint overrides this to 'both' once its
+      // room is reserved; on its own, issueForCode only opens the local door.
+      doors: 'local',
     };
   }
+  // harn:end universal-pairing-code-dual-door
 
   exchange(code: string): PairingPayload {
     const normalized = normalizePairingCode(code);
@@ -162,11 +186,16 @@ export class PairingService {
     for (const entry of state.tokens) {
       if (constantTimeEqual(entry.token_hash, digest)) match = entry;
     }
-    state.tokens = state.tokens.filter((entry) => !constantTimeEqual(entry.token_hash, digest));
-    this.write(state);
     if (!match) throw new Error('invalid or already-used pairing token');
     if (this.now() > Date.parse(match.expires_at)) throw new Error('pairing token expired');
-    return this.enroll(request);
+    // Enroll BEFORE burning the grant. enrollPeer validates before it persists, so
+    // a malformed request throws here with the grant still intact — a retry at
+    // EITHER door can then succeed, instead of a bad enrollment killing both doors
+    // for nobody. A successful enroll burns the shared grant (dies at both).
+    const result = this.enroll(request);
+    state.tokens = state.tokens.filter((entry) => !constantTimeEqual(entry.token_hash, digest));
+    this.write(state);
+    return result;
   }
   // harn:end short-pairing-code-grant-exchange
 

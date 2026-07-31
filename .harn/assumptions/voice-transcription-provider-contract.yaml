@@ -1,0 +1,14 @@
+id: voice-transcription-provider-contract
+hash: a-ec4526922cf2
+title: One VoiceProvider contract turns named audio input into transcript text
+state: active
+statement: The protocol package owns the voice transcription seam. A
+  VoiceProvider exposes transcribe(input) where input carries audio bytes, a
+  mimeType, and optional sampleRate/channels metadata, and resolves to a result
+  carrying the transcript text. Provider ids are bounded lowercase slugs
+  validated by a Zod VoiceProviderIdSchema, and the contract is barrel-exported
+  from the protocol index so switchboard, adapters, and future providers share
+  exactly one shape. Failures reject with descriptive errors that preserve any
+  non-success response body; errors are never encoded into the success result.
+depends_on: []
+created_by: codor-voice-phase1-provider-contract

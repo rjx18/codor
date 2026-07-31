@@ -1,0 +1,24 @@
+id: relay-p7-deploy
+title: Relay Phase 7 - production compatibility date and custom-domain route
+notes: >
+  Track A item 1 (fable #84). Bump the blind Worker's production
+  compatibility_date to 2026-07-01 and declare the relay.codor.app custom-domain
+  route so the real deploy targets a current workerd on the intended hostname.
+  The vitest-pool-workers test runtime bundles an older workerd (~2026-03) that
+  rejects a future compatibility_date read from wrangler.jsonc, so pin the test
+  runtime to 2026-03-01 via a miniflare compatibilityDate override in
+  vitest.config.ts (moving the existing pinned-date comment there). Config only:
+  no Worker source or anchored region changes; the relay stays blind and every
+  DO API in use long predates both dates.
+assumptions:
+  reviewed:
+    - id: relay-worker-stays-blind
+      outcome: unchanged
+      reason: The change is deploy configuration only (compatibility_date bump plus a
+        custom-domain route); no routing, logging, observability, or retention
+        behavior changes, so the blind-router invariant is untouched.
+files:
+  - relay-worker/wrangler.jsonc
+  - relay-worker/vitest.config.ts
+applied:
+  applied_at: 2026-07-27T15:53:55.680Z

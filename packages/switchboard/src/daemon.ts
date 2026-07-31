@@ -30,6 +30,7 @@ import type {
   RunSearchHit,
   ServerFrame,
   Session,
+  VoiceNote,
   WireEvent,
   CreateRoomRequest,
 } from '@codor/protocol';
@@ -2416,6 +2417,7 @@ export class Daemon {
     awaitingReply = false,
     interim = false,
     attachments?: Attachment[],
+    voice?: VoiceNote,
   ): Message {
     const parsed = parseBody(body, this.store.listMembers(room));
     // harn:assume eligible-multi-agent-routing-starts-one-group ref=multi-agent-group-ingress
@@ -2429,6 +2431,7 @@ export class Daemon {
         ledger_refs: parsed.ledger_refs,
         reply_to: replyTo,
         ...(attachments !== undefined && attachments.length > 0 && { attachments }),
+        ...(voice !== undefined && { voice }),
       },
       plan: (message) => this.planRoutedMessage(
         room,
@@ -2448,12 +2451,14 @@ export class Daemon {
   postHumanMessage(
     room: string,
     body: string,
-    opts: { author?: string; reply_to?: number; attachments?: Attachment[] } = {},
+    opts: { author?: string; reply_to?: number; attachments?: Attachment[]; voice?: VoiceNote } = {},
   ): Message {
     const authorId = opts.author ?? this.ownerOf(room).id;
     const author = this.store.getMember(room, authorId);
     if (author?.kind !== 'human') throw new Error(`no such human author: ${authorId}`);
-    return this.postChatMessage(room, body, authorId, opts.reply_to, false, false, opts.attachments);
+    return this.postChatMessage(
+      room, body, authorId, opts.reply_to, false, false, opts.attachments, opts.voice,
+    );
   }
 
   // harn:assume agent-network-authority-is-narrow ref=agent-interim-post-ingress

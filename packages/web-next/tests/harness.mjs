@@ -6,9 +6,9 @@
 // serves) at it.
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -16,8 +16,13 @@ import {
   Daemon,
   FakeAdapter,
   LedgerManager,
+  RelayLink,
+  RelayPairingHost,
+  RelayStore,
   startServer,
 } from '@codor/switchboard';
+
+import { startMockRelay } from './mock-relay.mjs';
 
 const readPort = (name, fallback) => {
   const value = Number(process.env[name] ?? fallback);
@@ -27,7 +32,13 @@ const readPort = (name, fallback) => {
   return value;
 };
 const API_PORT = readPort('CODOR_NEXT_E2E_API_PORT', 28_137);
+const API_PORT_B = readPort('CODOR_NEXT_E2E_API_PORT_B', 28_237);
 const CONTROL_PORT = readPort('CODOR_NEXT_E2E_CONTROL_PORT', 28_138);
+// A SEPARATE origin serving the SPA, distinct from the switchboard — the
+// production topology (codor.app on Pages vs a self-hosted switchboard). Every
+// other test serves the SPA from the switchboard itself, which masks bugs where
+// a REST call must go through the tunnel rather than the page origin.
+const SPA_PORT = readPort('CODOR_NEXT_E2E_SPA_PORT', 28_139);
 const TOKEN = 'next-e2e-token';
 
 const dir = mkdtempSync(join(tmpdir(), 'codor-next-e2e-'));
@@ -1158,6 +1169,17 @@ daemon.store.postMessage('eng', {
   body: 'chronology probe posted after the running turn started',
 });
 
+// ── Relay tunnel: a faithful in-process §4.1 mock relay + the switchboard's
+// RelayLink, so the relay journey e2e drives real browser webcrypto end to end.
+let mockRelay;
+let relayStore;
+let relayLink;
+// P3: a SECOND switchboard ("computer B") sharing the one mock relay (multiplexed
+// by session_id), so the browser can pair two computers and drive the switcher.
+let cryptoB;
+let relayStoreB;
+let relayLinkB;
+
 // ── Control endpoint: tests script upcoming fake turns just-in-time ──────
 createServer((req, res) => {
   let raw = '';
@@ -1301,6 +1323,30 @@ createServer((req, res) => {
         const roomId = String(body.room ?? 'eng');
         payload = daemon.store.roomSupport(roomId, daemon.ownerOf(roomId).id);
       }
+      if (url.pathname === '/relay-pair') {
+        const host = new RelayPairingHost({ store: relayStore, pairing: crypto.pairing, identity: crypto.keys.publicIdentity() });
+        const offer = await host.pair(`http://127.0.0.1:${API_PORT}`);
+        // The universal mint renamed `code` → `pairing_code`; expose `code` for the
+        // control-endpoint spec, and thread a real switchboard endpoint (not the
+        // relay URL) so a locally-exchanged code resolves to a real pairing page.
+        payload = { ...offer, code: offer.pairing_code, relayUrl: mockRelay.url };
+      }
+      if (url.pathname === '/relay-down') {
+        relayLink.stop();
+        mockRelay.dropHosts();
+        payload = { ok: true };
+      }
+      if (url.pathname === '/relay-up') {
+        relayLink.start();
+        payload = { ok: true };
+      }
+      if (url.pathname === '/relay-pair-b') {
+        const host = new RelayPairingHost({ store: relayStoreB, pairing: cryptoB.pairing, identity: cryptoB.keys.publicIdentity() });
+        const offer = await host.pair(`http://127.0.0.1:${API_PORT_B}`);
+        payload = { ...offer, code: offer.pairing_code, relayUrl: mockRelay.url };
+      }
+      if (url.pathname === '/relay-down-b') { relayLinkB.stop(); payload = { ok: true }; }
+      if (url.pathname === '/relay-up-b') { relayLinkB.start(); payload = { ok: true }; }
       if (url.pathname === '/fixture-ids') {
         payload = {
           oldInboxMention: oldInboxMention.id,
@@ -1485,17 +1531,128 @@ createServer((req, res) => {
 
 // ── Serve: built SPA + API on one isolated port ──────────────────────────
 const staticRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+// Bring up the blind relay + the switchboard's RelayLink before the server
+// listens, so the relay journey is ready the moment Playwright sees the port.
+mockRelay = await startMockRelay();
+relayStore = new RelayStore(dir);
+relayStore.enable(mockRelay.url);
+relayLink = new RelayLink({
+  store: relayStore,
+  loopbackPort: API_PORT,
+  isDeviceActive: (deviceId) => crypto.keys.getPeer(deviceId) !== undefined,
+});
+crypto.keys.onPeerRevoked((deviceId) => {
+  relayLink.dropDevice(deviceId);
+  relayStore.removeDevice(deviceId);
+});
+relayLink.start();
+
+// ── Computer B: a second switchboard (own loopback + relay session) ──────────
+const dirB = mkdtempSync(join(tmpdir(), 'codor-next-e2e-b-'));
+cryptoB = new CryptoVault(dirB);
+const daemonB = new Daemon({
+  dbPath: join(dirB, 'db.sqlite'),
+  blobRoot: join(dirB, 'blobs'),
+  adapters: [new FakeAdapter('fake')],
+  ledger: new LedgerManager({ dataDir: dirB }),
+});
+// A room id host A does NOT have, so the two-host e2e proves each computer's
+// archive holds only its own rooms — never another computer's.
+daemonB.createRoom({ id: 'switcher-b', name: 'Host B', owner: { handle: 'richard', display_name: 'Richard' } });
+cryptoB.roomKeys.ensureRoom('switcher-b');
+relayStoreB = new RelayStore(dirB);
+relayStoreB.enable(mockRelay.url);
+relayLinkB = new RelayLink({
+  store: relayStoreB,
+  loopbackPort: API_PORT_B,
+  isDeviceActive: (deviceId) => cryptoB.keys.getPeer(deviceId) !== undefined,
+});
+cryptoB.keys.onPeerRevoked((deviceId) => { relayLinkB.dropDevice(deviceId); relayStoreB.removeDevice(deviceId); });
+relayLinkB.start();
+await startServer({
+  daemon: daemonB,
+  token: TOKEN,
+  port: API_PORT_B,
+  crypto: cryptoB,
+  relay: {
+    status: () => ({ enabled: relayStoreB.enabled, relay_url: relayStoreB.relayUrl, session_id: relayStoreB.sessionId, devices: relayStoreB.listDevices().length }),
+    enable: (u) => { relayStoreB.enable(u); relayLinkB.restart(); },
+    disable: () => { relayStoreB.disable(); relayLinkB.restart(); },
+    rotate: () => { const id = relayStoreB.rotate(); relayLinkB.restart(); return id; },
+    pair: (endpoint) => new RelayPairingHost({ store: relayStoreB, pairing: cryptoB.pairing, identity: cryptoB.keys.publicIdentity() }).pair(endpoint),
+  },
+});
+
+// A stub voice provider: the real /api/voice/transcribe endpoint, but a
+// distinct counter-suffixed transcript per call (so multi-segment assertions are
+// real) with a small delay (so the "waiting for transcription" state is
+// observable) instead of any paid upstream call.
+let voiceCall = 0;
+const voiceProviders = [{
+  id: 'codex',
+  label: 'Codex (ChatGPT login)',
+  status: async () => ({ available: true }),
+  create: () => ({
+    id: 'codex',
+    label: 'Codex (ChatGPT login)',
+    transcribe: async () => {
+      const nth = (voiceCall += 1);
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      return { text: `dictation ${String(nth)}` };
+    },
+  }),
+}];
 await startServer({
   daemon,
   token: TOKEN,
   port: API_PORT,
   staticRoot,
   crypto,
+  relay: {
+    status: () => ({ enabled: relayStore.enabled, relay_url: relayStore.relayUrl, session_id: relayStore.sessionId, devices: relayStore.listDevices().length }),
+    enable: (url) => { relayStore.enable(url); relayLink.restart(); },
+    disable: () => { relayStore.disable(); relayLink.restart(); },
+    rotate: () => { const id = relayStore.rotate(); relayLink.restart(); return id; },
+    pair: (endpoint) => new RelayPairingHost({ store: relayStore, pairing: crypto.pairing, identity: crypto.keys.publicIdentity() }).pair(endpoint),
+  },
   principals: [
     { token: VIEWER_TOKEN, member_id: viewer.id },
     { token: RECOVERY_VIEWER_TOKEN, member_id: onlooker.id },
   ],
+  voiceProvider: 'codex',
+  voiceProviders,
 });
+console.log(`  relay:  ${mockRelay.url}`);
+
+// Separate SPA origin: serve dist/ files, and fall back to index.html for every
+// other path (Cloudflare Pages' `/* /index.html 200`). A direct /api/* fetch here
+// therefore returns HTML 200, exactly like production — so the relay journey run
+// against this origin proves REST actually tunnels rather than accidentally
+// succeeding against a same-origin switchboard.
+const SPA_MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.webmanifest': 'application/manifest+json',
+};
+createServer((req, res) => {
+  const urlPath = new URL(req.url, 'http://x').pathname;
+  const filePath = join(staticRoot, urlPath);
+  if (urlPath !== '/' && filePath.startsWith(staticRoot) && existsSync(filePath) && statSync(filePath).isFile()) {
+    res.writeHead(200, { 'content-type': SPA_MIME[extname(filePath)] ?? 'application/octet-stream' });
+    res.end(readFileSync(filePath));
+    return;
+  }
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  res.end(readFileSync(join(staticRoot, 'index.html')));
+}).listen(SPA_PORT, '127.0.0.1');
+console.log(`  spa-origin: http://127.0.0.1:${SPA_PORT} (separate from the switchboard)`);
 
 console.log(`web-next harness ready
   data:   ${dir}

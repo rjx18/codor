@@ -1,0 +1,11 @@
+id: relay-worker-stays-blind
+hash: a-ca52f4388891
+title: The relay Worker is blind by construction
+state: active
+statement: The @codor/relay-worker package must declare zero runtime
+  dependencies and contain no cryptographic or key-handling code, and its Worker
+  router must route by path only without parsing or logging request or response
+  bodies, so the relay can forward opaque ciphertext and can never hold user key
+  material or plaintext.
+depends_on: []
+created_by: relay-p1-scaffold

@@ -1,0 +1,14 @@
+id: codex-voice-upload-is-24khz-mono-pcm16-wav
+hash: a-669e0e0a1e4d
+title: The codex transcription upload is exactly one 24 kHz mono PCM16 WAV
+  multipart part
+state: active
+statement: CodexVoiceProvider uploads exactly one multipart/form-data field
+  named file with filename codex.wav and part content-type audio/wav whose bytes
+  are a valid RIFF/WAVE PCM16 payload at 24000 Hz mono. PCM input at other
+  sample rates or channel counts is downmixed and linearly resampled host-side
+  in pure TypeScript - no ffmpeg or native media dependency - and audio shorter
+  than about one second is rejected before upload.
+depends_on:
+  - voice-transcription-provider-contract
+created_by: codor-voice-phase1-provider-contract

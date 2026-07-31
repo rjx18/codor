@@ -86,6 +86,16 @@ export const AttachmentSchema = z.object({
 });
 export type Attachment = z.infer<typeof AttachmentSchema>;
 
+// harn:assume voice-message-metadata-is-bounded-and-additive ref=voice-note-schema
+/** Bounded recording metadata for a dictated message; the body stays plain
+ *  transcript text. `levels` is the 0..100 waveform envelope for the voice card. */
+export const VoiceNoteSchema = z.object({
+  duration_seconds: z.number().positive().max(600),
+  levels: z.array(z.number().int().min(0).max(100)).max(48),
+});
+export type VoiceNote = z.infer<typeof VoiceNoteSchema>;
+// harn:end voice-message-metadata-is-bounded-and-additive
+
 export const MessageSchema = z.object({
   id: MessageIdSchema,
   room: RoomIdSchema,
@@ -109,6 +119,9 @@ export const MessageSchema = z.object({
   pinned: z.boolean().optional(), // durable owner/admin marker; absent is the additive default
   deleted: z.boolean().optional(), // purged tombstone marker; absent is the additive live default
   attachments: z.array(AttachmentSchema).optional(), // uploaded files; absent is the additive default
+  // harn:assume voice-message-metadata-is-bounded-and-additive ref=voice-note-schema
+  voice: VoiceNoteSchema.optional(), // dictated-message recording metadata; absent means a typed message
+  // harn:end voice-message-metadata-is-bounded-and-additive
   ts: TimestampSchema,
   seq: SeqSchema, // room change-sequence at last insert/update
 });

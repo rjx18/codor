@@ -1,0 +1,13 @@
+id: tunnel-aead-counter-channel
+hash: a-802daefec59b
+title: The tunnel AEAD channel uses deterministic per-direction counter nonces
+state: active
+statement: packages/tunnel/src/aead.ts must implement an XChaCha20-Poly1305
+  channel whose 24-byte nonce is an unsigned little-endian 64-bit per-direction
+  counter starting at 0 followed by 16 zero bytes, with empty AAD,
+  encrypting/decrypting one message per counter value; it must refuse to reuse
+  or skip a counter and must throw rather than wrap when the counter would
+  overflow, because nonce reuse under a fixed key is a total break of
+  confidentiality and integrity.
+depends_on: []
+created_by: relay-p2-crypto-core

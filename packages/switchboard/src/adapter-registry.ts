@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { AntigravityAdapter } from '@codor/adapter-antigravity';
 import { AcpAdapter } from '@codor/adapter-acp';
 import { ClaudeCodeAdapter } from '@codor/adapter-claude-code';
-import { CodexAdapter } from '@codor/adapter-codex';
+import { CodexAdapter, CodexVoiceProvider, codexVoiceStatus } from '@codor/adapter-codex';
 import { CopilotAdapter } from '@codor/adapter-copilot';
 import { CursorAdapter } from '@codor/adapter-cursor';
 import { GeminiAdapter } from '@codor/adapter-gemini';
@@ -19,6 +19,10 @@ import {
   type SpawnOpts,
   ThinkingLevelSchema,
 } from '@codor/protocol';
+
+// The sole registry is also the single import site for adapter packages, so the
+// codex voice provider is re-exported here for switchboard's voice registry.
+export { CodexVoiceProvider, codexVoiceStatus };
 
 export type AdapterModuleConfig = Record<string, string>;
 

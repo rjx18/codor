@@ -1,0 +1,23 @@
+id: release-0-10-6-version-bump
+title: release 0.10.6 - version bump so same-version reissues reinstall
+files:
+  - package.json
+  - packages/adapters/acp/package.json
+  - packages/adapters/antigravity/package.json
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/codex/package.json
+  - packages/adapters/copilot/package.json
+  - packages/adapters/cursor/package.json
+  - packages/adapters/gemini/package.json
+  - packages/adapters/opencode/package.json
+  - packages/bridges/core/package.json
+  - packages/bridges/slack/package.json
+  - packages/bridges/telegram/package.json
+  - packages/cli/package.json
+  - packages/protocol/package.json
+  - packages/switchboard/package.json
+  - packages/web-next/package.json
+  - relay/package.json
+  - website/package.json
+applied:
+  applied_at: 2026-07-31T17:53:52.344Z

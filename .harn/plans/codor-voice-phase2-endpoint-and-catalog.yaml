@@ -1,0 +1,241 @@
+id: codor-voice-phase2-endpoint-and-catalog
+title: Voice provider catalog, authorized transcribe endpoint, and operator
+  provider selection
+notes: "Phase 2 of the approved dictation plan (tmp/codor-voice/PLAN.md).
+  Switchboard gains a curated voice provider registry (voice-providers.ts,
+  codex-only initially) with request-time availability detection through a new
+  status helper exported from the codex adapter's transcribe module (reusing the
+  Phase 1 credentials reader - no duplicate auth.json logic). server.ts gains
+  GET /api/voice/providers (safe public metadata) and POST /api/voice/transcribe
+  (authed, size-capped, in-memory only, single-in-flight, timeout), both in a
+  new self-anchored region between existing anchored regions - server.ts has no
+  column-0 anchors so new imports attribute nowhere. Provider selection is
+  operator-only config threaded --voice-provider (CLI up flag) ->
+  UpOptions.voiceProvider -> ServerOptions; the value none disables dictation.
+  Deviation from the PLAN.md architecture sketch, coordinator-approved: the
+  catalog is server-owned with request-time detection instead of daemon-owned
+  startup/refresh state - voice providers need no lifecycle, spawn preflight, or
+  refresh hooks, and this keeps daemon.ts (146 anchors) untouched.
+  UpOptions/startCodor edits sit inside the registry-cli-composition anchor
+  region, declared as a mechanical crossing. Error-status mapping is typed, not
+  string-matched - protocol voice.ts additively gains VoiceTranscribeError with
+  a code (input | auth | upstream); the codex provider classifies its existing
+  throws with those codes (additive, no message or meaning changes), and the
+  endpoint maps code input to 400 and auth/upstream to 502. Amended after
+  implementation surfaced two wiring realities - (1) the sole-registry guard
+  (hardcoded-list-guard) requires every @codor/adapter-* specifier to live in
+  adapter-registry.ts, so the registry's existing codex import line is extended
+  to also pull CodexVoiceProvider and codexVoiceStatus (still one specifier
+  occurrence) and re-export them for voice-providers.ts to consume from
+  ./adapter-registry.js; (2) the whole up command in program.ts sits inside the
+  cli-channel-terminology anchored region, so the --voice-provider threading is
+  a declared mechanical crossing of that region."
+assumptions:
+  create:
+    - id: voice-provider-catalog-is-named-and-safe
+      title: Voice providers are a curated named catalog projecting only safe public
+        metadata
+      statement: The switchboard owns a curated voice provider registry whose only
+        initial definition is codex. Availability is detected at request time
+        from the presence of usable signed-in codex credentials via the codex
+        adapter's own status helper - detection never invokes a binary, never
+        mints tokens, and never persists state. Everything projected across an
+        API boundary is safe public metadata - id, label, availability, and an
+        optional human-readable reason - never tokens, credential material, or
+        filesystem paths. GET /api/voice/providers requires bearer auth with
+        global read capability and reports the catalog plus the
+        operator-selected provider id and enabled state.
+      reason: Browsers must discover whether dictation is offered without the catalog
+        becoming a credential or filesystem oracle.
+      depends_on:
+        - voice-transcription-provider-contract
+        - codex-voice-transcription-reuses-signed-in-codex-identity
+    - id: voice-transcribe-endpoint-is-authorized-and-bounded
+      title: The transcribe endpoint is authed, size-capped, single-in-flight,
+        time-bounded, and memory-only
+      statement: POST /api/voice/transcribe accepts raw audio bytes only from an
+        authed non-agent principal with global post capability. It refuses an
+        oversized declared content-length up front and counts streamed bytes
+        against the same hard cap, allows only one transcription in flight per
+        server (a concurrent request gets a clean 429), and bounds the provider
+        call with a request timeout. It resolves only the operator-selected
+        provider and returns 200 with the transcript text, or a mapped error
+        status with a descriptive body - malformed or too-short audio 400,
+        oversized 413, concurrent 429, upstream failure 502 with the upstream
+        body preserved, timeout 504 - and refuses cleanly when dictation is
+        disabled or the provider is unavailable. Audio bytes live only in
+        process memory for the duration of the request and are never written to
+        disk or persisted host-side.
+      reason: The endpoint spends the operator's paid transcription quota and carries
+        live microphone audio, so it must be impossible to hit anonymously,
+        flood, or turn into a storage surface.
+      depends_on:
+        - voice-provider-catalog-is-named-and-safe
+        - voice-transcription-provider-contract
+        - server-token-required
+    - id: voice-provider-selection-is-operator-config
+      title: The active voice provider is operator configuration the browser can never
+        override
+      statement: The active voice provider is exclusively operator configuration - a
+        startCodor voiceProvider option threaded from the CLI up flag
+        --voice-provider, defaulting to codex, where the value none disables
+        dictation entirely. A browser request never chooses, names, or overrides
+        the provider; transcription always resolves the server-configured id.
+        When dictation is disabled or the selected provider is unavailable, the
+        catalog projection reports it and the transcribe endpoint refuses with a
+        clear error.
+      reason: Which cloud backend receives microphone audio is a privacy decision the
+        operator makes once, host-side; a client must not be able to redirect
+        audio elsewhere.
+      depends_on:
+        - voice-provider-catalog-is-named-and-safe
+  reviewed:
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: UpOptions and the startCodor-to-startServer passthrough gain one
+        voiceProvider option inside the enclosing registry-cli-composition
+        region - a mechanical crossing; adapter registry semantics are
+        untouched.
+    - id: codex-voice-transcription-reuses-signed-in-codex-identity
+      outcome: unchanged
+      reason: The transcribe module additionally exports a credentials-presence status
+        helper built on the same reader; identity, headers, and
+        credential-privacy semantics are unchanged.
+    - id: voice-transcription-provider-contract
+      outcome: unchanged
+      reason: The contract additively gains VoiceTranscribeError carrying a bounded
+        error code so callers can map failures to HTTP statuses; the existing
+        reject-with-descriptive-error semantics are unchanged.
+    - id: codex-voice-upload-is-24khz-mono-pcm16-wav
+      outcome: unchanged
+      reason: Existing WAV-shape and min-duration throws additionally carry code
+        input; format, resample, and rejection behavior are unchanged.
+    - id: codex-voice-transcription-requires-chatgpt-login
+      outcome: unchanged
+      reason: Existing auth-matrix and 401 throws additionally carry codes auth and
+        upstream; messages and gating behavior are unchanged.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The --voice-provider option and its threading land inside the
+        cli-channel-terminology region that encloses the whole up command - a
+        mechanical crossing; user-facing terminology is untouched.
+anchors:
+  voice-provider-catalog-is-named-and-safe:
+    voice-provider-registry:
+      action: change
+      reason: New registry module - codex definition, request-time availability via
+        the adapter status helper, safe metadata projection, provider
+        resolution.
+    voice-provider-registry-regression:
+      action: change
+      reason: Prove codex-only catalog, availability truth from injected credentials
+        state, and that projections carry no credential or path material.
+    voice-catalog-rest:
+      action: change
+      reason: GET /api/voice/providers - authed read-capability projection of catalog,
+        selected id, and enabled state.
+    voice-catalog-rest-regression:
+      action: change
+      reason: Prove auth requirement and safe response shape over the running server.
+  voice-transcribe-endpoint-is-authorized-and-bounded:
+    voice-transcribe-rest:
+      action: change
+      reason: POST /api/voice/transcribe - auth guard, declared-length and streamed
+        size caps, single-in-flight, timeout, provider dispatch, status mapping,
+        memory-only audio.
+    voice-transcribe-rest-regression:
+      action: change
+      reason: Prove success text, no-auth refusal, oversized 413, short-audio 400,
+        concurrent 429, timeout 504, upstream-body preservation, and disabled
+        refusal with a mocked provider.
+  voice-provider-selection-is-operator-config:
+    voice-selection-server-option:
+      action: change
+      reason: ServerOptions voiceProvider knob and registry construction from it -
+        default codex, none disables.
+    voice-selection-up-option:
+      action: change
+      reason: UpOptions.voiceProvider threaded into startServer (nested inside
+        registry-cli-composition).
+    voice-selection-cli-option:
+      action: change
+      reason: codor up --voice-provider flag threaded into startCodor.
+    voice-selection-regression:
+      action: change
+      reason: Prove the endpoint uses the configured provider, the browser cannot
+        override it, and none disables catalog and endpoint.
+  adapter-registry-sole-harness-source:
+    registry-cli-composition:
+      action: change
+      reason: Mechanical crossing - one option added inside the enclosing region;
+        registry composition semantics unchanged.
+    configured-adapter-registry:
+      action: change
+      reason: The existing codex import line is extended to funnel the two voice
+        symbols (top-of-file import edits attribute to this first column-0
+        region); the specifier count and registry semantics are unchanged.
+  codex-voice-transcription-reuses-signed-in-codex-identity:
+    codex-transcribe-credentials:
+      action: change
+      reason: Export an availability status helper reusing the existing read-time
+        credentials reader.
+    codex-transcribe-identity-regression:
+      action: change
+      reason: Regression coverage for the status helper beside the existing identity
+        proofs.
+  voice-transcription-provider-contract:
+    voice-provider-contract:
+      action: change
+      reason: Additive VoiceTranscribeError with a bounded code (input, auth,
+        upstream) beside the existing contract types.
+    voice-provider-contract-regression:
+      action: change
+      reason: Cover the error class and code bounds.
+  codex-voice-upload-is-24khz-mono-pcm16-wav:
+    codex-transcribe-wav-format:
+      action: change
+      reason: Existing WAV-shape and min-duration throws become VoiceTranscribeError
+        code input; behavior and messages unchanged.
+    codex-transcribe-wav-regression:
+      action: change
+      reason: Assert code input on the existing rejection proofs.
+  codex-voice-transcription-requires-chatgpt-login:
+    codex-transcribe-auth-matrix:
+      action: change
+      reason: Existing auth-matrix throws become VoiceTranscribeError code auth (401
+        and non-success map to upstream); messages unchanged.
+    codex-transcribe-auth-regression:
+      action: change
+      reason: Assert codes on the existing matrix and 401 proofs.
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-terminology:
+      action: change
+      reason: Mechanical crossing - the up command's option list and action gain the
+        voice-provider threading inside this whole-file region;
+        rooms-are-called-channels terminology is untouched.
+files:
+  - packages/switchboard/src/voice-providers.ts
+  - packages/switchboard/src/voice-providers.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/protocol/src/voice.ts
+  - packages/protocol/src/voice.spec.ts
+  - packages/adapters/codex/src/transcribe.ts
+  - packages/adapters/codex/src/transcribe.spec.ts
+  - packages/adapters/codex/src/index.ts
+  - packages/cli/src/up.ts
+  - packages/cli/src/program.ts
+verification: "Vitest proves the registry projects codex-only safe metadata with
+  availability from injected credentials state; server integration specs prove
+  catalog auth and shape, transcribe success text with a stubbed provider,
+  refusals (no auth, oversized, short audio, concurrent, timeout, disabled) with
+  correct statuses, upstream-body preservation, and that selection follows
+  server config with no client override. CLI/up threading compiles and is
+  exercised by the server option specs. Curl smoke against a running switchboard
+  once: real WAV with the operator token returns 200 and a transcript; a wrong
+  bearer gets a clean 401/403; an oversized body gets 413. pnpm -r build and -r
+  test gate on exit codes (known pre-existing acp cancellation flake noted
+  separately); harn unstaged/staged/apply gates pass."
+applied:
+  applied_at: 2026-07-27T03:36:28.682Z

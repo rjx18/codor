@@ -1,6 +1,6 @@
 {
   "name": "@codor/bridge-slack",
-  "version": "0.10.4",
+  "version": "0.10.7",
   "license": "MIT",
   "private": true,
   "type": "module",

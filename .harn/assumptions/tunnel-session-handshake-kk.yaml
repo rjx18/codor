@@ -1,0 +1,18 @@
+id: tunnel-session-handshake-kk
+hash: a-0f2fc907b29f
+title: The per-connection session handshake is a mutually authenticated KK exchange
+state: active
+statement: packages/tunnel/src/handshake.ts must implement the PLAN §4.3
+  KK-style handshake as SessionInitiator (client) and SessionResponder (host)
+  using X25519 - kid = SHA-256(client_static_pub)[0..8], msg1 = kid(8) ‖
+  Ec_pub(32), msg2 = Eh_pub(32) ‖ HMAC(K_conf,"host"), msg3 =
+  HMAC(K_conf,"client") - binding transcript = SHA-256(lv("codor-relay/v1/kk") ‖
+  lv(session_id) ‖ lv(kid) ‖ lv(Ec_pub) ‖ lv(Eh_pub) ‖ lv(S_c_pub) ‖
+  lv(S_h_pub)), mixing master = HKDF-Extract(salt=transcript, ikm = dh_ee ‖
+  dh_es ‖ dh_se ‖ dh_ss) and expanding K_conf/k_c2h/k_h2c via
+  HKDF-Expand(master, "confirm"|"c2h"|"h2c", 32), and verifying both
+  confirmation tags in constant time before any application data, so an impostor
+  lacking a static key cannot complete the handshake.
+depends_on:
+  - tunnel-aead-counter-channel
+created_by: relay-p2-crypto-core
