@@ -188,7 +188,9 @@ test.describe('multiplexed room state', () => {
     await expect(page.getByTestId('channels-home')).toBeVisible();
     await expect(page.getByTestId('room-link-ops')).toHaveCount(0);
     await expect(page.getByTestId('home-restore-room-ops')).toHaveCount(0);
-    await page.locator('.nx-channel-home .nx-project-group.is-archive[data-project="PersonalOS"] > .nx-project-head > button').click();
+    const archivedProject = page.locator('.nx-channel-home .nx-project-group.is-archive[data-project="PersonalOS"]');
+    await expect(archivedProject.locator('.nx-project-status')).toHaveText('Fully archived');
+    await archivedProject.locator('> .nx-project-head > button').click();
     await expect(page.getByTestId('home-restore-room-ops')).toBeVisible();
 
     await page.getByTestId('home-restore-room-ops').click();

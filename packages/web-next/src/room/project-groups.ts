@@ -3,6 +3,8 @@ export interface ProjectGroup<T> {
   items: T[];
 }
 
+export type ProjectArchiveStatus = 'still-active' | 'fully-archived';
+
 /** Groups stay name-addressable because Codor intentionally has no empty project records. */
 export function groupByProject<T extends { project?: string }>(items: T[]): ProjectGroup<T>[] {
   const byProject = new Map<string | undefined, T[]>();
@@ -18,4 +20,11 @@ export function groupByProject<T extends { project?: string }>(items: T[]): Proj
       if (right.project === undefined) return -1;
       return left.project.localeCompare(right.project);
     });
+}
+
+export function projectArchiveStatus<T extends { project?: string }>(
+  project: string,
+  activeItems: T[],
+): ProjectArchiveStatus {
+  return activeItems.some((item) => item.project === project) ? 'still-active' : 'fully-archived';
 }

@@ -190,7 +190,11 @@ export function NoChannels(props: { token: string }) {
           </div>
           {archivedProjectGroups.map((group) => (
             <details className="nx-onboarding-project" key={group.project ?? '__ungrouped'}>
-              <summary>{group.project ?? 'No project'} <span>{group.items.length}</span></summary>
+              <summary>
+                {group.project ?? 'No project'}
+                <span>{group.items.length}</span>
+                {group.project !== undefined && <em>Fully archived</em>}
+              </summary>
               <ul>
             {group.items.map((archived) => (
               <li key={archived.id}>

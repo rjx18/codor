@@ -121,6 +121,15 @@
 .nx-project-head > button:first-child[aria-expanded='false'] svg { transform: rotate(-90deg); }
 .nx-project-head > button:first-child span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nx-project-head > button:first-child small { margin-left: auto; color: var(--c-faded); font: var(--t-caption); }
+.nx-project-head .nx-project-status {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  font: var(--t-caption-strong);
+  white-space: nowrap;
+}
+.nx-project-status.is-still-active { color: var(--c-live-text); background: var(--c-live-tint); }
+.nx-project-status.is-fully-archived { color: var(--c-secondary); background: var(--c-muted); }
 .nx-project-actions { position: relative; flex: none; }
 .nx-project-actions .nx-menu { top: 30px; right: 0; min-width: 190px; }
 .nx-project-list { margin: 0; padding: 0; list-style: none; }

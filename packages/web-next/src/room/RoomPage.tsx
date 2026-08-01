@@ -26,7 +26,11 @@ import { CreateChannelDialog } from './CreateChannel.js';
 import { HoldBanner, InboxControl, SearchOverlay } from './panels.js';
 import { Transcript } from './Transcript.js';
 import { costProvenanceLabel } from './spend-label.js';
-import { groupByProject } from './project-groups.js';
+import {
+  groupByProject,
+  projectArchiveStatus,
+  type ProjectArchiveStatus,
+} from './project-groups.js';
 
 export function RoomPage(props: {
   room: string;
@@ -227,6 +231,7 @@ function ProjectGroupSection(props: {
   count: number;
   defaultOpen: boolean;
   forceOpen?: boolean;
+  archiveStatus?: ProjectArchiveStatus;
   variant: 'rail' | 'home' | 'archive';
   actions?: ReactNode;
   children: ReactNode;
@@ -245,6 +250,11 @@ function ProjectGroupSection(props: {
           <ChevronDown size={14} aria-hidden="true" />
           <span>{label}</span>
           <small>{props.count}</small>
+          {props.archiveStatus !== undefined && (
+            <span className={`nx-project-status is-${props.archiveStatus}`}>
+              {props.archiveStatus === 'still-active' ? 'Still active' : 'Fully archived'}
+            </span>
+          )}
         </button>
         {props.actions}
       </div>
@@ -609,6 +619,9 @@ function ChannelRail(props: {
                   count={group.items.length}
                   defaultOpen={false}
                   forceOpen={query.trim() !== ''}
+                  archiveStatus={group.project === undefined
+                    ? undefined
+                    : projectArchiveStatus(group.project, entries)}
                   variant="archive"
                 >
                 <ul className="nx-project-list">
@@ -1055,6 +1068,9 @@ function ChannelsHome(props: {
               count={group.items.length}
               defaultOpen={false}
               forceOpen={needle !== ''}
+              archiveStatus={group.project === undefined
+                ? undefined
+                : projectArchiveStatus(group.project, summaries)}
               variant="archive"
             >
             <ul className="nx-channel-grid is-archived">
