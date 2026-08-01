@@ -170,21 +170,31 @@ test.describe('multiplexed room state', () => {
     ).toBe(0);
   });
 
-  test('archives the current channel and restores it from the channel rail', async ({ page }) => {
+  test('groups channels by project and preserves the group through archive and restore', async ({ page }) => {
     await open(page, 'ops');
     await page.getByTestId('room-actions-ops').click();
-    await page.getByRole('menu', { name: 'Ops actions' }).getByRole('menuitem').click();
+    await page.getByRole('menu', { name: 'Ops actions' }).getByRole('menuitem', { name: 'Move to project…' }).click();
+    const move = page.getByRole('dialog', { name: 'Move channel' });
+    await move.getByRole('textbox', { name: 'Project name' }).fill('PersonalOS');
+    await move.getByRole('button', { name: 'Save' }).click();
+    await expect(page.locator('.nx-project-group.is-rail[data-project="PersonalOS"]')).toContainText('Ops');
+
+    await page.getByTestId('room-actions-ops').click();
+    await page.getByRole('menu', { name: 'Ops actions' }).getByRole('menuitem', { name: 'Archive channel…' }).click();
     const dialog = page.getByTestId('archive-room-dialog');
     await expect(dialog).toContainText('Messages and participants will be preserved');
     await dialog.getByTestId('archive-room-confirm').click();
 
     await expect(page.getByTestId('channels-home')).toBeVisible();
     await expect(page.getByTestId('room-link-ops')).toHaveCount(0);
+    await expect(page.getByTestId('home-restore-room-ops')).toHaveCount(0);
+    await page.locator('.nx-channel-home .nx-project-group.is-archive[data-project="PersonalOS"] > .nx-project-head > button').click();
     await expect(page.getByTestId('home-restore-room-ops')).toBeVisible();
 
     await page.getByTestId('home-restore-room-ops').click();
     await expect(page.locator('.nx-chat-title h1')).toHaveText('Ops');
     await expect(page.getByTestId('room-link-ops')).toBeVisible();
+    await expect(page.locator('.nx-project-group.is-rail[data-project="PersonalOS"]')).toContainText('Ops');
   });
 });
 

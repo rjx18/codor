@@ -40,6 +40,7 @@ export type RoomConfig = z.infer<typeof RoomConfigSchema>;
 export const RoomSchema = z.object({
   id: RoomIdSchema,
   name: z.string().min(1),
+  project: z.string().trim().min(1).max(80).optional(),
   created_ts: TimestampSchema,
   archived_ts: TimestampSchema.optional(),
   config: RoomConfigSchema.prefault({}),
@@ -61,6 +62,7 @@ export type RoomSummaryLatest = z.infer<typeof RoomSummaryLatestSchema>;
 export const RoomSummarySchema = z.object({
   id: RoomIdSchema,
   name: z.string().min(1),
+  project: z.string().trim().min(1).max(80).optional(),
   created_ts: TimestampSchema,
   color: z.string().min(1).optional(),
   working: z.boolean(),
@@ -159,6 +161,7 @@ export type StartingSession = z.infer<typeof StartingSessionSchema>;
 export const CreateRoomRequestSchema = z.object({
   id: RoomIdSchema.optional(),
   name: z.string().min(1),
+  project: z.string().trim().min(1).max(80).optional(),
   owner: z.object({
     handle: AssignableHandleSchema,
     display_name: z.string(),
@@ -177,6 +180,20 @@ export const CreateRoomRequestSchema = z.object({
   }
 });
 export type CreateRoomRequest = z.infer<typeof CreateRoomRequestSchema>;
+
+export const UpdateRoomProjectRequestSchema = z.object({
+  project: z.string().trim().min(1).max(80).nullable(),
+});
+export type UpdateRoomProjectRequest = z.infer<typeof UpdateRoomProjectRequestSchema>;
+
+export const RenameRoomProjectRequestSchema = z.object({
+  from: z.string().trim().min(1).max(80),
+  to: z.string().trim().min(1).max(80),
+}).refine((request) => request.from !== request.to, {
+  message: 'the new project name must be different',
+  path: ['to'],
+});
+export type RenameRoomProjectRequest = z.infer<typeof RenameRoomProjectRequestSchema>;
 // harn:end channel-create-request-contract
 
 /** Daily per-room spend meter (always on, never blocking). */

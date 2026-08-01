@@ -28,10 +28,12 @@ import {
   PendingInteractionSchema,
   PolicySchema, PostFrameSchema, VoiceNoteSchema,
   ReasoningSummaryPayloadSchema,
+  RenameRoomProjectRequestSchema,
   RoomIdSchema,
   RoomConfigSchema,
   RoomMeterSchema,
   RoomSchema,
+  UpdateRoomProjectRequestSchema,
   RunSearchHitSchema,
   ServerFrameSchema,
   TextDeltaPayloadSchema,
@@ -618,6 +620,22 @@ describe('room config', () => {
     });
     expect(active.archived_ts).toBeUndefined();
     expect(archived.archived_ts).toBe('2026-07-30T12:00:00.000Z');
+  });
+
+  it('validates durable project names for channel creation, moves, and renames', () => {
+    expect(CreateRoomRequestSchema.parse({
+      name: 'Hooks',
+      project: ' PersonalOS ',
+      owner: { handle: 'emanuel', display_name: 'Emanuel' },
+    }).project).toBe('PersonalOS');
+    expect(UpdateRoomProjectRequestSchema.parse({ project: null }).project).toBeNull();
+    expect(UpdateRoomProjectRequestSchema.parse({ project: ' Codor ' }).project).toBe('Codor');
+    expect(RenameRoomProjectRequestSchema.parse({ from: 'Old', to: 'New' }))
+      .toEqual({ from: 'Old', to: 'New' });
+    expect(RenameRoomProjectRequestSchema.safeParse({ from: 'Same', to: 'Same' }).success)
+      .toBe(false);
+    expect(UpdateRoomProjectRequestSchema.safeParse({ project: ' '.repeat(3) }).success)
+      .toBe(false);
   });
 
   it('meters carry per-day turns, cost, and tokens', () => {

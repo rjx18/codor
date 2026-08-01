@@ -1,9 +1,9 @@
 import type { Member, Room } from '@codor/protocol';
-import { Archive, ArchiveRestore, ChevronDown, ChevronLeft, MoreVertical, Plus, Search, Settings, Share2, Square, Users, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Archive, ArchiveRestore, ChevronDown, ChevronLeft, FolderInput, MoreVertical, Pencil, Plus, Search, Settings, Share2, Square, Users, X } from 'lucide-react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
-import { archiveRoom, fetchArchivedRooms, restoreRoom } from '@runtime/api.js';
+import { archiveRoom, fetchArchivedRooms, renameRoomProject, restoreRoom, updateRoomProject } from '@runtime/api.js';
 
 import { createConnector, type RoomConnector } from '../app/connector.js';
 import { rememberRoom } from '../app/startup.js';
@@ -26,6 +26,7 @@ import { CreateChannelDialog } from './CreateChannel.js';
 import { HoldBanner, InboxControl, SearchOverlay } from './panels.js';
 import { Transcript } from './Transcript.js';
 import { costProvenanceLabel } from './spend-label.js';
+import { groupByProject } from './project-groups.js';
 
 export function RoomPage(props: {
   room: string;
@@ -221,6 +222,155 @@ export function RoomPage(props: {
 
 // ── Channel rail ─────────────────────────────────────────────────────────
 
+function ProjectGroupSection(props: {
+  project?: string;
+  count: number;
+  defaultOpen: boolean;
+  forceOpen?: boolean;
+  variant: 'rail' | 'home' | 'archive';
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(props.defaultOpen);
+  const open = props.forceOpen === true || expanded;
+  const label = props.project ?? 'No project';
+  return (
+    <section className={`nx-project-group is-${props.variant}`} data-project={props.project ?? ''}>
+      <div className="nx-project-head">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setExpanded((shown) => !shown)}
+        >
+          <ChevronDown size={14} aria-hidden="true" />
+          <span>{label}</span>
+          <small>{props.count}</small>
+        </button>
+        {props.actions}
+      </div>
+      {open && props.children}
+    </section>
+  );
+}
+
+function ProjectNameDialog(props: {
+  title: string;
+  description: string;
+  value?: string;
+  projects?: string[];
+  allowEmpty?: boolean;
+  busy: boolean;
+  error?: string;
+  onClose: () => void;
+  onSave: (project: string | undefined) => void;
+}) {
+  const [value, setValue] = useState(props.value ?? '');
+  const trimmed = value.trim();
+  return (
+    <Modal label={props.title} onClose={props.onClose} structured>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        if (trimmed === '' && !props.allowEmpty) return;
+        props.onSave(trimmed === '' ? undefined : trimmed);
+      }}>
+        <div className="nx-dialog-head">
+          <div className="nx-dialog-headings">
+            <span className="nx-dialog-icon" aria-hidden="true"><FolderInput size={19} /></span>
+            <div><h2 className="nx-dialog-title">{props.title}</h2><p className="nx-dialog-sub">{props.description}</p></div>
+          </div>
+          <button type="button" className="nx-dialog-close" aria-label={`Close ${props.title}`} onClick={props.onClose}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="nx-dialog-body">
+          <label className="nx-field">
+            <span className="nx-label">Project name</span>
+            <input
+              autoFocus
+              value={value}
+              maxLength={80}
+              list="codor-project-names"
+              placeholder={props.allowEmpty ? 'Leave empty for no project' : 'e.g. PersonalOS'}
+              onChange={(event) => setValue(event.target.value)}
+            />
+            <datalist id="codor-project-names">
+              {props.projects?.map((project) => <option key={project} value={project} />)}
+            </datalist>
+          </label>
+          {props.error !== undefined && <p className="nx-field-note is-error" role="alert">{props.error}</p>}
+        </div>
+        <div className="nx-dialog-actions">
+          <button type="button" className="nx-btn is-quiet" disabled={props.busy} onClick={props.onClose}>Cancel</button>
+          <button type="submit" className="nx-btn is-primary" disabled={props.busy || (trimmed === '' && !props.allowEmpty)}>
+            {props.busy ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ProjectActionsMenu(props: {
+  project: string;
+  token: () => string;
+  onRenamed: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent): void => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [open]);
+
+  return (
+    <>
+      <div className="nx-project-actions" ref={ref}>
+        <IconButton icon={MoreVertical} label={`Actions for ${props.project}`} size="sm" variant="quiet" onClick={() => setOpen((shown) => !shown)} />
+        {open && (
+          <div className="nx-menu" role="menu" aria-label={`${props.project} actions`}>
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); setRenaming(true); }}>
+              <Pencil size={13} aria-hidden="true" /> Rename project…
+            </button>
+          </div>
+        )}
+      </div>
+      {renaming && (
+        <ProjectNameDialog
+          title="Rename project"
+          description="Every active and archived channel in this project will move together."
+          value={props.project}
+          busy={busy}
+          error={error}
+          onClose={() => { if (!busy) setRenaming(false); }}
+          onSave={(project) => {
+            if (project === undefined || project === props.project) {
+              setRenaming(false);
+              return;
+            }
+            setBusy(true);
+            setError(undefined);
+            void renameRoomProject(props.project, project, { token: props.token() }).then(
+              props.onRenamed,
+              (failure: unknown) => {
+                setError(failure instanceof Error ? failure.message : String(failure));
+                setBusy(false);
+              },
+            );
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 function ChannelRail(props: {
   activeRoom: string;
   token: () => string;
@@ -274,7 +424,7 @@ function ChannelRail(props: {
     const list: RoomSummary[] = summaries.length > 0
       ? [...summaries]
       : room !== undefined
-        ? [{ id: room.id, name: room.name, created_ts: room.created_ts, working: false, attention: false, unread: 0 }]
+        ? [{ id: room.id, name: room.name, project: room.project, created_ts: room.created_ts, working: false, attention: false, unread: 0 }]
         : [];
     const lastActivity = (entry: RoomSummary): number =>
       Date.parse(entry.latest?.ts ?? entry.created_ts) || 0;
@@ -291,9 +441,22 @@ function ChannelRail(props: {
     const needle = query.trim().toLocaleLowerCase();
     if (needle === '') return entries;
     return entries.filter((entry) =>
-      [entry.name, entry.id, summaryPreview(entry)]
+      [entry.name, entry.id, entry.project ?? '', summaryPreview(entry)]
         .some((value) => value.toLocaleLowerCase().includes(needle)));
   }, [entries, query]);
+  const visibleArchivedRooms = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    if (needle === '') return archivedRooms;
+    return archivedRooms.filter((candidate) =>
+      [candidate.name, candidate.id, candidate.project ?? '']
+        .some((value) => value.toLocaleLowerCase().includes(needle)));
+  }, [archivedRooms, query]);
+  const activeProjectGroups = useMemo(() => groupByProject(visibleEntries), [visibleEntries]);
+  const archivedProjectGroups = useMemo(() => groupByProject(visibleArchivedRooms), [visibleArchivedRooms]);
+  const projects = useMemo(() => [...new Set(
+    [...entries, ...archivedRooms]
+      .flatMap((candidate) => candidate.project === undefined ? [] : [candidate.project]),
+  )].sort((left, right) => left.localeCompare(right)), [entries, archivedRooms]);
 
   return (
     <nav className="nx-rail" aria-label="Channels">
@@ -332,8 +495,21 @@ function ChannelRail(props: {
           onClick={() => setCreating(true)}
         />
       </div>
-      <ul className="nx-rail-list">
-        {visibleEntries.map((entry) => {
+      <div className="nx-rail-list">
+        {activeProjectGroups.map((group) => (
+          <ProjectGroupSection
+            key={group.project ?? '__ungrouped'}
+            project={group.project}
+            count={group.items.length}
+            defaultOpen
+            forceOpen={query.trim() !== ''}
+            variant="rail"
+            actions={group.project !== undefined ? (
+              <ProjectActionsMenu project={group.project} token={props.token} onRenamed={() => window.location.reload()} />
+            ) : undefined}
+          >
+          <ul className="nx-project-list">
+        {group.items.map((entry) => {
           const active = entry.id === props.activeRoom;
           const workingAgents = workingByRoom[entry.id] ?? [];
           const fallbackWorking = roomStates[entry.id]?.room === undefined && entry.working;
@@ -397,14 +573,20 @@ function ChannelRail(props: {
               <ChannelActionsMenu
                 room={entry.id}
                 roomName={entry.name}
+                project={entry.project}
+                projects={projects}
                 token={props.token}
                 working={isWorking}
                 onArchived={() => { window.location.assign('/channels'); }}
+                onProjectChanged={() => window.location.reload()}
               />
             </li>
           );
         })}
-      </ul>
+          </ul>
+          </ProjectGroupSection>
+        ))}
+      </div>
       {archivedRooms.length > 0 && (
         <div className="nx-archived-rooms">
           <button
@@ -419,8 +601,18 @@ function ChannelRail(props: {
             <span>{archivedRooms.length}</span>
           </button>
           {showArchived && (
-            <ul className="nx-archived-list">
-              {archivedRooms.map((archived) => (
+            <div className="nx-archived-list">
+              {archivedProjectGroups.map((group) => (
+                <ProjectGroupSection
+                  key={group.project ?? '__ungrouped'}
+                  project={group.project}
+                  count={group.items.length}
+                  defaultOpen={false}
+                  forceOpen={query.trim() !== ''}
+                  variant="archive"
+                >
+                <ul className="nx-project-list">
+              {group.items.map((archived) => (
                 <li className="nx-archived-row" key={archived.id} data-testid={`archived-room-${archived.id}`}>
                   <span>{archived.name}</span>
                   <button
@@ -446,7 +638,10 @@ function ChannelRail(props: {
                   </button>
                 </li>
               ))}
-            </ul>
+                </ul>
+                </ProjectGroupSection>
+              ))}
+            </div>
           )}
           {archivedError !== undefined && (
             <p className="nx-archived-error" role="alert">{archivedError}</p>
@@ -581,14 +776,20 @@ function ChannelWorkControl(props: {
 function ChannelActionsMenu(props: {
   room: string;
   roomName: string;
+  project?: string;
+  projects: string[];
   token: () => string;
   working: boolean;
   onArchived: () => void;
+  onProjectChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState<string>();
+  const [moving, setMoving] = useState(false);
+  const [moveBusy, setMoveBusy] = useState(false);
+  const [moveError, setMoveError] = useState<string>();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -623,6 +824,18 @@ function ChannelActionsMenu(props: {
             <button
               type="button"
               role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                setMoveError(undefined);
+                setMoving(true);
+              }}
+            >
+              <FolderInput size={13} aria-hidden="true" />
+              Move to project…
+            </button>
+            <button
+              type="button"
+              role="menuitem"
               disabled={props.working}
               title={props.working ? 'Stop or cancel the active agents before archiving.' : undefined}
               onClick={() => {
@@ -637,6 +850,33 @@ function ChannelActionsMenu(props: {
           </div>
         )}
       </div>
+      {moving && (
+        <ProjectNameDialog
+          title="Move channel"
+          description="Choose an existing project, enter a new one, or leave this channel ungrouped."
+          value={props.project}
+          projects={props.projects}
+          allowEmpty
+          busy={moveBusy}
+          error={moveError}
+          onClose={() => { if (!moveBusy) setMoving(false); }}
+          onSave={(project) => {
+            if (project === props.project) {
+              setMoving(false);
+              return;
+            }
+            setMoveBusy(true);
+            setMoveError(undefined);
+            void updateRoomProject(props.room, project, { token: props.token() }).then(
+              props.onProjectChanged,
+              (failure: unknown) => {
+                setMoveError(failure instanceof Error ? failure.message : String(failure));
+                setMoveBusy(false);
+              },
+            );
+          }}
+        />
+      )}
       {archiving && (
         <ArchiveChannelDialog
           roomName={props.roomName}
@@ -699,11 +939,17 @@ function ChannelsHome(props: {
   const needle = query.trim().toLocaleLowerCase();
   const visible = summaries.filter((entry) =>
     needle === '' ||
-    [entry.name, entry.id, summaryPreview(entry)]
+    [entry.name, entry.id, entry.project ?? '', summaryPreview(entry)]
       .some((value) => value.toLocaleLowerCase().includes(needle)));
   const visibleArchived = archivedRooms.filter((room) =>
     needle === '' ||
-    [room.name, room.id].some((value) => value.toLocaleLowerCase().includes(needle)));
+    [room.name, room.id, room.project ?? ''].some((value) => value.toLocaleLowerCase().includes(needle)));
+  const activeProjectGroups = groupByProject(visible);
+  const archivedProjectGroups = groupByProject(visibleArchived);
+  const projects = [...new Set(
+    [...summaries, ...archivedRooms]
+      .flatMap((candidate) => candidate.project === undefined ? [] : [candidate.project]),
+  )].sort((left, right) => left.localeCompare(right));
 
   return (
     <main className="nx-channel-home" data-testid="channels-home">
@@ -735,8 +981,20 @@ function ChannelsHome(props: {
           <h2 id="active-channels-title">Active</h2>
           <span>{visible.length}</span>
         </div>
-        <ul className="nx-channel-grid">
-          {visible.map((entry) => {
+        {activeProjectGroups.map((group) => (
+          <ProjectGroupSection
+            key={group.project ?? '__ungrouped'}
+            project={group.project}
+            count={group.items.length}
+            defaultOpen
+            forceOpen={needle !== ''}
+            variant="home"
+            actions={group.project !== undefined ? (
+              <ProjectActionsMenu project={group.project} token={props.token} onRenamed={() => window.location.reload()} />
+            ) : undefined}
+          >
+          <ul className="nx-channel-grid">
+          {group.items.map((entry) => {
             const agents = workingByRoom[entry.id] ?? [];
             const fallbackWorking = roomStates[entry.id]?.room === undefined && entry.working;
             const working = agents.length > 0 || fallbackWorking;
@@ -769,14 +1027,19 @@ function ChannelsHome(props: {
                 <ChannelActionsMenu
                   room={entry.id}
                   roomName={entry.name}
+                  project={entry.project}
+                  projects={projects}
                   token={props.token}
                   working={working}
                   onArchived={() => { window.location.reload(); }}
+                  onProjectChanged={() => window.location.reload()}
                 />
               </li>
             );
           })}
-        </ul>
+          </ul>
+          </ProjectGroupSection>
+        ))}
         {visible.length === 0 && <p className="nx-channel-home-empty">No active channels match that search.</p>}
       </section>
       {(visibleArchived.length > 0 || archivedRooms.length > 0) && (
@@ -785,8 +1048,17 @@ function ChannelsHome(props: {
             <h2 id="archived-channels-title">Archived</h2>
             <span>{visibleArchived.length}</span>
           </div>
-          <ul className="nx-channel-grid is-archived">
-            {visibleArchived.map((room) => (
+          {archivedProjectGroups.map((group) => (
+            <ProjectGroupSection
+              key={group.project ?? '__ungrouped'}
+              project={group.project}
+              count={group.items.length}
+              defaultOpen={false}
+              forceOpen={needle !== ''}
+              variant="archive"
+            >
+            <ul className="nx-channel-grid is-archived">
+            {group.items.map((room) => (
               <li className="nx-channel-card" key={room.id}>
                 <span className="nx-channel-card-archived">
                   <Chip name={room.name} accent="violet" size={42} />
@@ -814,7 +1086,9 @@ function ChannelsHome(props: {
                 </button>
               </li>
             ))}
-          </ul>
+            </ul>
+            </ProjectGroupSection>
+          ))}
         </section>
       )}
       {creating && (

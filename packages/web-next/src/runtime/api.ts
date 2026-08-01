@@ -227,6 +227,34 @@ export async function restoreRoom(room: string, options: ApiOptions): Promise<Ro
   return body.room;
 }
 
+export async function updateRoomProject(
+  room: string,
+  project: string | undefined,
+  options: ApiOptions,
+): Promise<Room> {
+  const body = await sendJson<{ room: Room }>(
+    `/api/rooms/${encodeURIComponent(room)}/project`,
+    'POST',
+    { project: project ?? null },
+    options,
+  );
+  return body.room;
+}
+
+export async function renameRoomProject(
+  from: string,
+  to: string,
+  options: ApiOptions,
+): Promise<Room[]> {
+  const body = await sendJson<{ rooms: Room[] }>(
+    '/api/projects/rename',
+    'POST',
+    { from, to },
+    options,
+  );
+  return body.rooms;
+}
+
 // harn:assume web-room-rail-creates-owner-room ref=authenticated-room-create-client
 // harn:assume channel-accent-projects-accessibly-across-themes ref=authoritative-channel-client
 export async function createRoom(

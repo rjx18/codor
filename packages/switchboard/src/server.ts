@@ -14,6 +14,8 @@ import {
   AcpProviderIdSchema,
   ClientFrameSchema,
   CreateRoomRequestSchema,
+  RenameRoomProjectRequestSchema,
+  UpdateRoomProjectRequestSchema,
   type BridgeOrigin,
   type Member,
   type Policy,
@@ -699,6 +701,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         return {
           id: room.id,
           name: room.name,
+          project: room.project,
           created_ts: room.created_ts,
           color: room.config.color,
           working,
@@ -831,6 +834,33 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return reply.code(404).send({ error: `no such room ${room}` });
     }
     return reply.send({ room: daemon.store.restoreRoom(room) });
+  });
+
+  app.post('/api/rooms/:room/project', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_rooms', reply)) return;
+    const { room } = req.params as { room: string };
+    if (!daemon.store.getRoom(room)) {
+      return reply.code(404).send({ error: `no such room ${room}` });
+    }
+    try {
+      const body = UpdateRoomProjectRequestSchema.parse(req.body);
+      return reply.send({ room: daemon.store.updateRoomProject(room, body.project ?? undefined) });
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+
+  app.post('/api/projects/rename', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_rooms', reply)) return;
+    try {
+      const body = RenameRoomProjectRequestSchema.parse(req.body);
+      return reply.send({ rooms: daemon.store.renameRoomProject(body.from, body.to) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(message.includes('no such project') ? 404 : 400).send({ error: message });
+    }
   });
   // harn:end channel-creation-derived-and-seeded
 

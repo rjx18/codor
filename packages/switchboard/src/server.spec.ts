@@ -2211,9 +2211,19 @@ describe('room archive endpoints', () => {
   const ownerHeaders = {
     authorization: `Bearer ${TOKEN}`,
   };
+  const ownerJsonHeaders = {
+    ...ownerHeaders,
+    'content-type': 'application/json',
+  };
 
   it('separates active and archived lists and restores a preserved channel', async () => {
     daemon.postHumanMessage('eng', 'Keep this message');
+    const assign = await fetch(`${base}/api/rooms/eng/project`, {
+      method: 'POST',
+      headers: ownerJsonHeaders,
+      body: JSON.stringify({ project: 'PersonalOS' }),
+    });
+    expect(assign.status).toBe(200);
 
     const archive = await fetch(`${base}/api/rooms/eng/archive`, {
       method: 'POST',
@@ -2226,8 +2236,8 @@ describe('room archive endpoints', () => {
     const active = await fetch(`${base}/api/rooms`, { headers: ownerHeaders });
     expect((await active.json() as { rooms: { id: string }[] }).rooms).toEqual([]);
     const archived = await fetch(`${base}/api/rooms?archived=1`, { headers: ownerHeaders });
-    expect((await archived.json() as { rooms: { id: string }[] }).rooms.map((room) => room.id))
-      .toEqual(['eng']);
+    expect((await archived.json() as { rooms: { id: string; project?: string }[] }).rooms)
+      .toEqual([expect.objectContaining({ id: 'eng', project: 'PersonalOS' })]);
     const summaries = await fetch(`${base}/api/rooms/summary`, { headers: ownerHeaders });
     expect((await summaries.json() as { rooms: { id: string }[] }).rooms).toEqual([]);
     expect(() => daemon.postHumanMessage('eng', 'Blocked')).toThrow('room eng is archived');
@@ -2237,10 +2247,35 @@ describe('room archive endpoints', () => {
       headers: ownerHeaders,
     });
     expect(restore.status).toBe(200);
-    expect((await restore.json() as { room: { archived_ts?: string } }).room.archived_ts)
-      .toBeUndefined();
+    const restoredRoom = (await restore.json() as {
+      room: { archived_ts?: string; project?: string };
+    }).room;
+    expect(restoredRoom.archived_ts).toBeUndefined();
+    expect(restoredRoom.project).toBe('PersonalOS');
     expect(daemon.store.listMessages('eng').map((message) => message.body))
       .toEqual(['Keep this message']);
+  });
+
+  it('renames a project across active and archived channels', async () => {
+    daemon.store.updateRoomProject('eng', 'Before');
+    daemon.store.createRoom({
+      id: 'archived-project-room',
+      name: 'Archived project room',
+      project: 'Before',
+      owner: { handle: 'emanuel', display_name: 'Emanuel' },
+    });
+    daemon.store.archiveRoom('archived-project-room');
+
+    const rename = await fetch(`${base}/api/projects/rename`, {
+      method: 'POST',
+      headers: ownerJsonHeaders,
+      body: JSON.stringify({ from: 'Before', to: 'After' }),
+    });
+    expect(rename.status).toBe(200);
+    expect((await rename.json() as { rooms: { id: string; project?: string }[] }).rooms)
+      .toHaveLength(2);
+    expect(daemon.store.getRoom('eng')?.project).toBe('After');
+    expect(daemon.store.getRoom('archived-project-room')?.project).toBe('After');
   });
 
   it('refuses archive while an agent is running and forbids non-managers', async () => {

@@ -250,6 +250,7 @@ describe('room seeding', () => {
 describe('room archiving', () => {
   it('preserves history, blocks new messages, and restores the channel', () => {
     const { owner } = openRoom(store);
+    store.updateRoomProject('eng', 'PersonalOS');
     const first = store.postMessage('eng', {
       author: owner.id,
       kind: 'chat',
@@ -267,11 +268,41 @@ describe('room archiving', () => {
 
     const restored = store.restoreRoom('eng');
     expect(restored.archived_ts).toBeUndefined();
+    expect(restored.project).toBe('PersonalOS');
     expect(store.postMessage('eng', {
       author: owner.id,
       kind: 'chat',
       body: 'Allowed after restore',
     }).id).toBe(2);
+  });
+
+  it('moves channels between projects and renames active and archived groups together', () => {
+    openRoom(store);
+    store.createRoom({
+      id: 'docs',
+      name: 'Docs',
+      project: 'PersonalOS',
+      owner: { handle: 'emanuel', display_name: 'Emanuel' },
+    });
+    store.updateRoomProject('eng', 'PersonalOS');
+    store.archiveRoom('docs');
+
+    expect(store.renameRoomProject('PersonalOS', 'Platform').map((room) => room.id).sort())
+      .toEqual(['docs', 'eng']);
+    expect(store.getRoom('eng')?.project).toBe('Platform');
+    expect(store.getRoom('docs')).toMatchObject({ project: 'Platform' });
+    expect(store.updateRoomProject('eng', undefined).project).toBeUndefined();
+    expect(() => store.renameRoomProject('Missing', 'New')).toThrow('no such project');
+  });
+
+  it('rejects an invalid project before creating the channel', () => {
+    expect(() => store.createRoom({
+      id: 'invalid-project',
+      name: 'Invalid project',
+      project: '   ',
+      owner: { handle: 'emanuel', display_name: 'Emanuel' },
+    })).toThrow();
+    expect(store.getRoom('invalid-project')).toBeUndefined();
   });
 
   it('refuses to archive a channel while an agent is working', () => {
@@ -297,6 +328,18 @@ describe('room archiving', () => {
     expect(store.getRoom('eng')?.id).toBe('eng');
     expect(store.getRoom('eng')?.archived_ts).toBeUndefined();
     expect(store.archiveRoom('eng').archived_ts).toBeDefined();
+  });
+
+  it('adds project support when reopening an older database', () => {
+    openRoom(store);
+    store.close();
+    const legacy = new Database(join(dir, 'test.sqlite'));
+    legacy.exec('ALTER TABLE rooms DROP COLUMN project');
+    legacy.close();
+
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getRoom('eng')?.project).toBeUndefined();
+    expect(store.updateRoomProject('eng', 'Migrated').project).toBe('Migrated');
   });
 });
 

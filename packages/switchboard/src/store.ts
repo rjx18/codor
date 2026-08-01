@@ -66,6 +66,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  project TEXT,
   created_ts TEXT NOT NULL,
   archived_ts TEXT,
   config TEXT NOT NULL,        -- RoomConfig JSON
@@ -293,6 +294,13 @@ function migrateRoomArchive(db: Database.Database): void {
   const columns = db.pragma('table_info(rooms)') as { name: string }[];
   if (!columns.some((column) => column.name === 'archived_ts')) {
     db.exec('ALTER TABLE rooms ADD COLUMN archived_ts TEXT');
+  }
+}
+
+function migrateRoomProject(db: Database.Database): void {
+  const columns = db.pragma('table_info(rooms)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'project')) {
+    db.exec('ALTER TABLE rooms ADD COLUMN project TEXT');
   }
 }
 
@@ -1123,6 +1131,7 @@ interface InteractionRow {
 interface RoomRow {
   id: string;
   name: string;
+  project: string | null;
   created_ts: string;
   archived_ts: string | null;
   config: string;
@@ -1312,6 +1321,7 @@ function roomFromRow(row: RoomRow): Room {
   return RoomSchema.parse({
     id: row.id,
     name: row.name,
+    project: row.project ?? undefined,
     created_ts: row.created_ts,
     archived_ts: row.archived_ts ?? undefined,
     // Channels the CLI made (the boot-seeded unit among them) carry no colour.
@@ -1472,6 +1482,7 @@ export class Store {
       this.db.pragma('foreign_keys = ON');
       this.db.exec(SCHEMA);
       migrateRoomArchive(this.db);
+      migrateRoomProject(this.db);
       migrateDeliveryPayloadSnapshot(this.db);
       migrateMemberCustody(this.db);
       migrateMemberLifecycle(this.db);
@@ -1546,6 +1557,7 @@ export class Store {
   createRoom(opts: {
     id: string;
     name: string;
+    project?: string;
     owner: { handle: string; display_name: string; color_hue?: number };
     config?: Partial<RoomConfig>;
     bootstrapWelcome?: {
@@ -1557,11 +1569,12 @@ export class Store {
       ...opts.config,
       color: opts.config?.color ?? deriveRoomColor(opts.id),
     });
+    const project = RoomSchema.shape.project.parse(opts.project);
     const ts = new Date().toISOString();
     const result = this.db.transaction(() => {
       this.db
-        .prepare('INSERT INTO rooms (id, name, created_ts, config, seq) VALUES (?, ?, ?, ?, 0)')
-        .run(opts.id, opts.name, ts, JSON.stringify(config));
+        .prepare('INSERT INTO rooms (id, name, project, created_ts, config, seq) VALUES (?, ?, ?, ?, ?, 0)')
+        .run(opts.id, opts.name, project ?? null, ts, JSON.stringify(config));
       this.appendChange(opts.id, 'room', opts.id);
       const owner = this.insertMember(opts.id, {
         kind: 'human',
@@ -1630,6 +1643,31 @@ export class Store {
       this.db.prepare('UPDATE rooms SET archived_ts = NULL WHERE id = ?').run(room);
       this.appendChange(room, 'room', room);
       return this.getRoom(room)!;
+    })();
+  }
+
+  updateRoomProject(room: string, project: string | undefined): Room {
+    return this.db.transaction(() => {
+      const current = this.getRoom(room);
+      if (!current) throw new Error(`no such room: ${room}`);
+      const validated = RoomSchema.parse({ ...current, project });
+      this.db.prepare('UPDATE rooms SET project = ? WHERE id = ?')
+        .run(validated.project ?? null, room);
+      this.appendChange(room, 'room', room);
+      return this.getRoom(room)!;
+    })();
+  }
+
+  renameRoomProject(from: string, to: string): Room[] {
+    return this.db.transaction(() => {
+      const rooms = this.listRooms().filter((room) => room.project === from);
+      if (rooms.length === 0) throw new Error(`no such project: ${from}`);
+      const renamed = rooms.map((room) => RoomSchema.parse({ ...room, project: to }));
+      for (const room of renamed) {
+        this.db.prepare('UPDATE rooms SET project = ? WHERE id = ?').run(to, room.id);
+        this.appendChange(room.id, 'room', room.id);
+      }
+      return renamed.map((room) => this.getRoom(room.id)!);
     })();
   }
 
@@ -2730,6 +2768,7 @@ export class Store {
       summary: {
         id: roomRow.id,
         name: roomRow.name,
+        project: roomRow.project,
         created_ts: roomRow.created_ts,
         color: roomRow.config.color,
         working,

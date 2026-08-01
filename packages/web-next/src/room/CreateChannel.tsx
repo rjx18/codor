@@ -30,6 +30,7 @@ export function CreateChannelDialog(props: {
   const adapters = adapterCatalog.installed;
   const advanced = adapterCatalog.advanced;
   const [name, setName] = useState('');
+  const [project, setProject] = useState('');
   const [cwd, setCwd] = useState('');
   const [startingParticipant, setStartingParticipant] = useState<StartingParticipantSelection>({
     mode: 'none',
@@ -52,6 +53,7 @@ export function CreateChannelDialog(props: {
     setAgentError(undefined);
     void createRoom({
       name: name.trim(),
+      ...(project.trim() !== '' && { project: project.trim() }),
       owner: { handle: owner.handle, display_name: owner.display_name },
       cwd: cwd.trim(),
       ...(startingParticipant.starting_agent !== undefined
@@ -101,6 +103,17 @@ export function CreateChannelDialog(props: {
           // The derived id is what everything else addresses this channel by.
           <span className="nx-field-note">id: <Code>{deriveRoomId(name)}</Code></span>
         )}
+      </label>
+      <label className="nx-field">
+        <span className="nx-label">Project <span className="nx-req">· optional</span></span>
+        <input
+          value={project}
+          maxLength={80}
+          onChange={(event) => setProject(event.target.value)}
+          placeholder="e.g. PersonalOS"
+          data-testid="create-project"
+        />
+        <span className="nx-field-note">Channels with the same project appear together.</span>
       </label>
       <div className="nx-field">
         <span className="nx-label">Working folder <span className="nx-req">· required</span></span>

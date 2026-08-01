@@ -996,6 +996,7 @@ export class Daemon {
     const created = this.store.createRoom({
       id,
       name: opts.name,
+      project: opts.project,
       owner: {
         ...opts.owner,
         // A manually selected green belongs to the new agent; move the owner's

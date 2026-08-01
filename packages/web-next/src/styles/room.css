@@ -96,6 +96,39 @@
   overflow-y: auto;
 }
 
+.nx-project-group { min-width: 0; }
+.nx-project-group + .nx-project-group { margin-top: var(--sp-2); }
+.nx-project-head {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.nx-project-head > button:first-child {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px var(--sp-2);
+  border: 0;
+  background: transparent;
+  color: var(--c-secondary);
+  font: var(--t-caption-strong);
+  text-align: left;
+  cursor: pointer;
+}
+.nx-project-head > button:first-child svg { flex: none; transition: transform var(--m-fast) var(--m-ease); }
+.nx-project-head > button:first-child[aria-expanded='false'] svg { transform: rotate(-90deg); }
+.nx-project-head > button:first-child span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-project-head > button:first-child small { margin-left: auto; color: var(--c-faded); font: var(--t-caption); }
+.nx-project-actions { position: relative; flex: none; }
+.nx-project-actions .nx-menu { top: 30px; right: 0; min-width: 190px; }
+.nx-project-list { margin: 0; padding: 0; list-style: none; }
+.nx-project-group.is-rail .nx-project-head { padding-left: var(--sp-2); }
+.nx-project-group.is-rail .nx-project-actions { margin-right: 3px; }
+.nx-project-group.is-archive { padding: 0 var(--sp-1); }
+.nx-project-group.is-archive .nx-project-head > button:first-child { padding-block: 6px; }
+
 .nx-row-shell {
   position: relative;
   border-radius: var(--r-card);
@@ -366,6 +399,14 @@
 .nx-channel-home-section {
   max-width: 980px;
   margin: 0 auto var(--sp-6);
+}
+.nx-channel-home-section > .nx-project-group { margin-bottom: var(--sp-4); }
+.nx-project-group.is-home .nx-project-head,
+.nx-project-group.is-archive .nx-project-head { margin-bottom: var(--sp-2); }
+.nx-project-group.is-home .nx-project-head > button:first-child,
+.nx-channel-home-section > .nx-project-group.is-archive .nx-project-head > button:first-child {
+  font: var(--t-ui-strong);
+  color: var(--c-ink);
 }
 .nx-channel-home-label {
   display: flex;

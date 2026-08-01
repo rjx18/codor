@@ -50,6 +50,7 @@ export function useRoomSummaries(token: () => string): RoomSummary[] {
             setCold(items.map((room) => ({
               id: room.id,
               name: room.name,
+              project: room.project,
               created_ts: room.created_ts,
               color: room.config.color,
               working: false,
@@ -71,6 +72,7 @@ export function useRoomSummaries(token: () => string): RoomSummary[] {
         byId.set(slice.room.id, {
           id: slice.room.id,
           name: slice.room.name,
+          project: slice.room.project,
           created_ts: slice.room.created_ts,
           color: slice.room.config.color,
           working: false,

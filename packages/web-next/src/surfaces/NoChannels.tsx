@@ -12,6 +12,7 @@ import {
   type StartingParticipantSelection,
 } from '../room/StartingParticipant.js';
 import { useAdapterCatalog } from '../app/session.js';
+import { groupByProject } from '../room/project-groups.js';
 
 export function suggestedChannelName(path: string): string {
   const normalized = path.trim().replace(/[\\/]+$/, '');
@@ -26,6 +27,7 @@ export function NoChannels(props: { token: string }) {
   const adapters = adapterCatalog.installed;
   const advanced = adapterCatalog.advanced;
   const [name, setName] = useState('');
+  const [project, setProject] = useState('');
   const [nameEdited, setNameEdited] = useState(false);
   const [cwd, setCwd] = useState('');
   const [ownerName, setOwnerName] = useState('You');
@@ -58,6 +60,7 @@ export function NoChannels(props: { token: string }) {
   );
   const canCreate = name.trim() !== '' && cwd.trim() !== '' && ownerHandle !== undefined && !busy
     && startingParticipant.valid;
+  const archivedProjectGroups = groupByProject(archivedRooms);
 
   const chooseFolder = (path: string): void => {
     setCwd(path);
@@ -72,6 +75,7 @@ export function NoChannels(props: { token: string }) {
     setError(undefined);
     void createRoom({
       name: name.trim(),
+      ...(project.trim() !== '' && { project: project.trim() }),
       owner: { handle: ownerHandle, display_name: ownerName.trim() },
       cwd: cwd.trim(),
       ...(startingParticipant.starting_agent !== undefined
@@ -116,6 +120,18 @@ export function NoChannels(props: { token: string }) {
               }}
             />
             {name.trim() !== '' && <span className="nx-field-note">id: <Code>{deriveRoomId(name)}</Code></span>}
+          </label>
+
+          <label className="nx-field">
+            <span className="nx-label">Project <span className="nx-req">· optional</span></span>
+            <input
+              value={project}
+              maxLength={80}
+              placeholder="e.g. PersonalOS"
+              data-testid="first-channel-project"
+              onChange={(event) => setProject(event.target.value)}
+            />
+            <span className="nx-field-note">Channels with the same project appear together.</span>
           </label>
 
           <label className="nx-field">
@@ -172,8 +188,11 @@ export function NoChannels(props: { token: string }) {
             <p className="nx-eyebrow">Preserved work</p>
             <h2 id="archived-channels-title">Archived channels</h2>
           </div>
-          <ul>
-            {archivedRooms.map((archived) => (
+          {archivedProjectGroups.map((group) => (
+            <details className="nx-onboarding-project" key={group.project ?? '__ungrouped'}>
+              <summary>{group.project ?? 'No project'} <span>{group.items.length}</span></summary>
+              <ul>
+            {group.items.map((archived) => (
               <li key={archived.id}>
                 <span>{archived.name}</span>
                 <Button
@@ -199,7 +218,9 @@ export function NoChannels(props: { token: string }) {
                 </Button>
               </li>
             ))}
-          </ul>
+              </ul>
+            </details>
+          ))}
           {restoreError !== undefined && (
             <p className="nx-field-note is-error" role="alert">{restoreError}</p>
           )}
