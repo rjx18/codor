@@ -77,8 +77,8 @@ describe('registered worktree store lifecycle', () => {
       .toBe('eng');
     expect(store.getRoom(first.worktree.conversation_id)).toBeDefined();
     expect(store.listPublicRooms().map((room) => room.id)).toEqual(['eng']);
-    expect(store.listMembers(first.worktree.conversation_id).map((member) => member.kind))
-      .toEqual(['human', 'system']);
+    expect(store.listMembers(first.worktree.conversation_id).map((member) => member.kind).sort())
+      .toEqual(['human', 'system'].sort());
     expect(store.listRegisteredWorktrees('eng')).toHaveLength(2);
     expect(store.currentSeq('eng')).toBe(beforeSeq);
 
@@ -245,6 +245,7 @@ describe('worktree conversation migration and identity', () => {
   });
 });
 // harn:end registered-worktrees-materialize-stable-conversations
+// harn:end registered-worktrees-materialize-stable-conversations
 
 // harn:assume child-conversation-state-is-room-isolated ref=conversation-room-state-regression
 // harn:assume child-conversation-state-is-room-isolated ref=conversation-read-cursor-seeding
@@ -282,7 +283,7 @@ describe('child conversation inherited identities and cursors', () => {
       .toBe('Richard Renamed');
   });
 });
-// harn:end human-room-read-cursors-are-durable-and-monotonic
+// harn:end child-conversation-state-is-room-isolated
 // harn:end child-conversation-state-is-room-isolated
 
 beforeEach(() => {

@@ -549,7 +549,7 @@ describe('native worktree REST authorization and lifecycle', () => {
       .toContain('feature/owner-created');
   });
 });
-// harn:end registered-worktrees-materialize-stable-conversations
+// harn:end main-and-direct-conversations-stay-compatible
 // harn:end agent-network-authority-is-narrow
 // harn:end worktree-management-is-human-admin-only
 
@@ -620,7 +620,7 @@ describe('child conversation REST and WebSocket isolation', () => {
     mainClient.ws.close();
   });
 });
-// harn:end agent-network-authority-is-narrow
+// harn:end child-members-own-isolated-runtime
 // harn:end child-conversation-state-is-room-isolated
 
 afterEach(async () => {
@@ -2161,6 +2161,7 @@ describe('Phase 3 REST boundaries', () => {
     const fixture = join(dir, 'worktree browser fixture');
     const primary = join(fixture, 'primary');
     const secondary = join(fixture, 'secondary');
+    const browserCreatedSecondary = join(fixture, 'browser created secondary');
     const operatorSecondary = join(fixture, 'operator secondary');
     mkdirSync(primary, { recursive: true });
     fixtureGit(primary, ['init', '-q', '-b', 'main']);
@@ -2188,6 +2189,28 @@ describe('Phase 3 REST boundaries', () => {
     const childKey = openSealedBox(adoptedBody.room_key.sealed_key, browser.keys.identity);
     expect(childKey).toEqual(crypto.roomKeys.roomKey(adoptedBody.worktree.conversation_id));
     expect(childKey).not.toEqual(crypto.roomKeys.roomKey('eng'));
+
+    const browserCreated = await fetch(`${base}/api/rooms/eng/worktrees`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${browserToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        alias: 'browser-created-child',
+        branch: 'feature/browser-created-child',
+        path: browserCreatedSecondary,
+      }),
+    });
+    expect(browserCreated.status).toBe(201);
+    const browserCreatedBody = await browserCreated.json() as {
+      worktree: { conversation_id: string };
+      room_key: { room: string; generation: number; sealed_key: string };
+    };
+    expect(browserCreatedBody.room_key).toMatchObject({
+      room: browserCreatedBody.worktree.conversation_id, generation: 1,
+    });
+    expect(openSealedBox(browserCreatedBody.room_key.sealed_key, browser.keys.identity))
+      .toEqual(crypto.roomKeys.roomKey(browserCreatedBody.worktree.conversation_id));
+    expect(browserCreatedBody.worktree.conversation_id)
+      .not.toBe(adoptedBody.worktree.conversation_id);
 
     const operatorCreated = await fetch(`${base}/api/rooms/eng/worktrees/create`, {
       method: 'POST',

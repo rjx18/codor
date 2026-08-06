@@ -1068,7 +1068,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         path: body.path ?? body.target,
       });
       const { cwd } = req.query as { cwd?: string };
-      return void reply.code(201).send(await daemon.createWorktree(room, input, cwd));
+      const result = await daemon.createWorktree(room, input, cwd);
+      return void reply.code(201).send(worktreeLifecycleResponse(principal, result));
     } catch (error) {
       return void reply.code(400).send({ error: String(error) });
     }

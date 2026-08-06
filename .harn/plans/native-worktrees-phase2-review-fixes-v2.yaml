@@ -13,13 +13,13 @@ notes: >-
   lifecycle-response helper as adoption so successful creation ensures the child
   room key, a paired browser receives only that child's sealed key, and operator
   responses remain keyless. Add a browser-create regression using only its own
-  temporary Git repository/worktrees. Make the child-roster assertion independent
-  of random ULID lexical order. Repair only the malformed or missing Phase 2 Harn
-  test delimiters for migration, store/server isolation, main compatibility,
-  child authorization, roster neutrality, and residency. Do not alter conversation
-  identity/persistence, routing, runtime behavior, filesystem lifecycle, relay
-  protocols, UI, presets, or any Phase 3 behavior. Never mutate a real user
-  worktree.
+  temporary Git repository/worktrees. Make the child-roster assertion
+  independent of random ULID lexical order. Repair only the malformed or missing
+  Phase 2 Harn test delimiters for migration, store/server isolation, main
+  compatibility, child authorization, roster neutrality, and residency. Do not
+  alter conversation identity/persistence, routing, runtime behavior, filesystem
+  lifecycle, relay protocols, UI, presets, or any Phase 3 behavior. Never mutate
+  a real user worktree.
 assumptions:
   reviewed:
     - id: child-files-voice-and-keys-are-isolated
@@ -57,7 +57,8 @@ assumptions:
     - id: registered-worktree-identities-are-durable
       outcome: unchanged
       reason: Lifecycle and schema behavior stay unchanged; the test assertion becomes
-        order-independent and both duplicate Harn anchor identities are accounted.
+        order-independent and both duplicate Harn anchor identities are
+        accounted.
     - id: agent-network-authority-is-narrow
       outcome: unchanged
       reason: Authorization behavior stays unchanged while test delimiters are fixed.
@@ -145,15 +146,17 @@ files:
   - packages/switchboard/src/worktrees.spec.ts
   - packages/switchboard/src/residency.spec.ts
 verification: Verify the preserved implementation patch SHA-256 is
-  26df7a21c63aa48a385d63070c023063d26b1a91cced58c75294772374b7c9f8 and
-  applies only to the five declared files. Run harn find --plan
+  26df7a21c63aa48a385d63070c023063d26b1a91cced58c75294772374b7c9f8 and applies
+  only to the five declared files. Run harn find --plan
   native-worktrees-phase2-review-fixes-v2, harn plan check
   native-worktrees-phase2-review-fixes-v2, and harn check
-  native-worktrees-phase2-review-fixes-v2. Run pnpm --filter
-  @codor/switchboard test twice to prove the former random-order failure is
-  deterministic, then pnpm --filter '@codor/switchboard...' build and harn check
-  --staged. Compare git worktree list --porcelain before and after. Every Git
-  lifecycle regression must use only its own mkdtemp repository/worktrees; no real
-  user worktree may be created, removed, renamed, or modified. Stage only the
-  applied replacement plan and its five declared files and create exactly one
-  review-fix implementation commit.
+  native-worktrees-phase2-review-fixes-v2. Run pnpm --filter @codor/switchboard
+  test twice to prove the former random-order failure is deterministic, then
+  pnpm --filter '@codor/switchboard...' build and harn check --staged. Compare
+  git worktree list --porcelain before and after. Every Git lifecycle regression
+  must use only its own mkdtemp repository/worktrees; no real user worktree may
+  be created, removed, renamed, or modified. Stage only the applied replacement
+  plan and its five declared files and create exactly one review-fix
+  implementation commit.
+applied:
+  applied_at: 2026-08-06T09:33:29.979Z

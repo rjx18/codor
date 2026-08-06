@@ -394,6 +394,7 @@ describe('multi-box member residency over hyperdht/testnet', () => {
       `${fixture.homeVault.keys.identity.device_id}:eng:${String(run.id)}`,
     )).toBeUndefined();
   }, 20_000);
+  // harn:end child-home-authority-survives-residency
 
   it('holds the home FIFO while unreachable and drains it after an outpost restart before RPC', async () => {
     const fixture = await setup();

@@ -383,7 +383,6 @@ describe('safe creation and conservative removal', () => {
 // harn:end worktree-git-execution-is-argument-safe
 
 // harn:assume worktree-lifecycle-is-roster-neutral ref=worktree-roster-neutrality-regression
-// harn:assume worktree-lifecycle-is-roster-neutral ref=worktree-roster-neutrality-regression
 describe('registry storage neutrality', () => {
   it('does not rewrite room, roster, transcript, or delivery state across lifecycle operations', async () => {
     const snapshot = () => JSON.stringify({
@@ -412,7 +411,6 @@ describe('registry storage neutrality', () => {
     }
   });
 });
-// harn:end registered-worktrees-materialize-stable-conversations
 // harn:end worktree-lifecycle-is-roster-neutral
 
 function adoptedId(current: Store, alias: string): string {
