@@ -1,0 +1,111 @@
+id: native-worktrees-phase1-review-fixes
+title: Native worktrees Phase 1 review fixes - refuse stale moved paths and close lifecycle regressions
+notes: >-
+  Close only the independent-review findings in the applied Phase 1 repository
+  and registered-worktree lifecycle foundation. Before filesystem removal, compare
+  the active registered secondary's stored canonical path and Git administrative
+  identity directly with the fresh Git observation. Refuse a moved or otherwise
+  mismatched target before refreshing durable observation metadata, checking the
+  target status, or invoking Git removal. A separate explicit read-only discovery
+  may reconcile an already-registered identity to its new path; only a later
+  removal request may then operate on that current registered path. Preserve the
+  existing non-force git worktree remove, dirty/locked/missing/main/unregistered
+  refusals, tombstone-after-success ordering, and branch preservation.
+
+  Add the missing disposable-fixture proofs required by the locked Phase 1 plan:
+  detached primary and secondary heads remain correlated to stable repository and
+  worktree ids across refresh and store reopen; a second temporary repository
+  cannot be adopted into or used to create through a room already registered to
+  the first repository and neither its registry nor Git refs/filesystem are
+  mutated; direct removal after git worktree move is refused with both path and
+  branch preserved, while an explicit discovery reconciles the path before any
+  retry; and the REST lifecycle regression explicitly proves anonymous,
+  observer, member, wrong-room human, and room-agent denial before delegation as
+  well as admin and owner mutation success.
+
+  Do not change protocol schemas, store schema or lifecycle semantics, daemon
+  delegation, authorization capabilities, API routes, ordinary-channel behavior,
+  roster/runtime state, group conversations, qualified routing, UI, presets,
+  relay/cloud behavior, branch deletion, or multi-repository support. Every new
+  lifecycle test must create repositories and worktrees only below its own
+  mkdtemp fixture root, clean up only that root, and never create, move, rename,
+  dirty, unregister, remove, or otherwise modify a real user worktree.
+assumptions:
+  reviewed:
+    - id: repository-primary-identity-is-git-derived
+      outcome: unchanged
+      reason: The implementation remains Git-metadata-derived; the fixture suite
+        gains the missing detached-head and reopen proof without changing the
+        repository or identity contract.
+    - id: worktree-creation-registers-only-a-new-secondary
+      outcome: unchanged
+      reason: Existing one-repository creation and adoption guards remain unchanged;
+        a second disposable repository now proves cross-repository requests cannot
+        mutate Git or registration state.
+    - id: worktree-removal-is-clean-and-branch-preserving
+      outcome: unchanged
+      reason: Removal already requires a fresh identity and canonical-path match;
+        the fix restores the intended comparison ordering so a stale moved path is
+        refused before observation refresh or filesystem mutation.
+    - id: worktree-git-execution-is-argument-safe
+      outcome: unchanged
+      reason: The centralized bounded execFile-style Git runner and argument-array
+        boundary remain unchanged and are reused by the strengthened fixtures.
+    - id: worktree-management-is-human-admin-only
+      outcome: unchanged
+      reason: REST authorization behavior remains unchanged; the regression is
+        completed for wrong-room human denial and explicit owner success.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Agent authority remains unchanged and the route-level denial proof
+        continues to assert no worktree delegation occurs.
+anchors:
+  repository-primary-identity-is-git-derived:
+    git-repository-fixtures:
+      action: change
+      reason: Add detached primary/secondary observations and stable-id reopen
+        coverage using only a disposable repository.
+  worktree-creation-registers-only-a-new-secondary:
+    worktree-create-regression:
+      action: change
+      reason: Add a disposable second-repository refusal proof for adoption and
+        creation, including unchanged registry, filesystem, and refs.
+  worktree-removal-is-clean-and-branch-preserving:
+    worktree-remove-contract:
+      action: change
+      reason: Compare the stored active record to the fresh Git observation before
+        any durable observation refresh or filesystem operation.
+    worktree-remove-regression:
+      action: change
+      reason: Prove a direct moved-path removal is refused and branch/path survive,
+        then prove explicit discovery reconciliation is the separate prerequisite
+        for any retry.
+  worktree-git-execution-is-argument-safe:
+    worktree-git-runner-regression:
+      action: change
+      reason: The enclosing fixture block gains cross-repository and removal safety
+        cases while every Git call remains argv-based and fixture-local.
+  worktree-management-is-human-admin-only:
+    worktree-lifecycle-authorization-regression:
+      action: change
+      reason: Add explicit wrong-room human denial before delegation and owner
+        mutation success alongside the existing anonymous/observer/member/admin
+        matrix.
+  agent-network-authority-is-narrow:
+    agent-authz-regression:
+      action: change
+      reason: Retain the explicit room-agent REST denial and no-delegation proof
+        while completing the enclosing worktree route matrix.
+files:
+  - packages/switchboard/src/worktrees.ts
+  - packages/switchboard/src/worktrees.spec.ts
+  - packages/switchboard/src/server.spec.ts
+verification: Run harn find --plan native-worktrees-phase1-review-fixes and harn
+  check native-worktrees-phase1-review-fixes; run pnpm --filter
+  @codor/switchboard test and pnpm --filter '@codor/switchboard...' build. Every
+  lifecycle test must use only per-test mkdtemp repositories and worktrees below
+  its own temporary root, assert path/filesystem and branch survival on refusal,
+  and clean up only that root. Stage only the locked plan and its three declared
+  source/test files, run harn check --staged, let the Harn hook apply the plan,
+  and create exactly one review-fix implementation commit containing the fix,
+  tests, applied plan, and any generated Harn truth updates.
