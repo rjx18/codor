@@ -1091,3 +1091,316 @@ describe('default roster create REST boundary', () => {
 // harn:end roles-gate-human-acts-not-agents
 // harn:end channel-creation-derived-and-seeded
 // harn:end default-roster-channel-selection-is-exclusive-and-preflighted
+
+// harn:assume preset-derived-members-are-isolated-durable-snapshots ref=preset-derived-runtime-isolation-regression
+describe('preset-derived member restart isolation', () => {
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'codor-agent-presets-restart-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('keeps Add-agent and repeated roster snapshots isolated through restart', async () => {
+    const firstInput: AgentPresetInput = {
+      ...nativeInput,
+      label: 'Phase 5 North',
+      handle: 'phase5-north',
+      display_name: 'Phase 5 North Display',
+      model: 'phase5-north-model',
+      thinking: 'high',
+    };
+    const secondInput: AgentPresetInput = {
+      ...nativeInput,
+      label: 'Phase 5 South',
+      handle: 'phase5-south',
+      display_name: 'Phase 5 South Display',
+      model: 'phase5-south-model',
+      thinking: 'low',
+    };
+    const dbPath = join(dir, 'switchboard.sqlite');
+    const blobRoot = join(dir, 'blobs');
+    const fake = new FakeAdapter('fake', {
+      thinking: true,
+      thinking_levels: ['low', 'medium', 'high'],
+    });
+    const spawned: ReturnType<FakeAdapter['spawn']>[] = [];
+    const originalSpawn = fake.spawn.bind(fake);
+    vi.spyOn(fake, 'spawn').mockImplementation((opts) => {
+      const session = originalSpawn(opts);
+      spawned.push(session);
+      return session;
+    });
+    let daemon: Daemon | undefined;
+    let reopened: Daemon | undefined;
+
+    const memberState = (member: NonNullable<ReturnType<Store['getMember']>>) => ({
+      id: member.id,
+      kind: member.kind,
+      handle: member.handle,
+      display_name: member.display_name,
+      harness: member.harness,
+      cwd: member.cwd,
+      model: member.model,
+      thinking: member.thinking,
+      policy: member.policy,
+      state: member.state,
+      session_ref: member.session_ref,
+      tasks: member.tasks,
+    });
+
+    try {
+      daemon = new Daemon({
+        dbPath,
+        blobRoot,
+        adapters: [fake],
+        homeDir: dir,
+        discoverModels: false,
+        executableOnPath: () => true,
+      });
+      const first = daemon.createAgentPreset(firstInput);
+      const second = daemon.createAgentPreset(secondInput);
+      daemon.replaceDefaultRoster({ preset_ids: [first.id, second.id] });
+
+      const spawnFromPreset = (room: string, input: AgentPresetInput): ReturnType<Daemon['spawnMember']> =>
+        daemon!.spawnMember(room, {
+          harness: input.harness,
+          handle: input.handle,
+          display_name: input.display_name,
+          cwd: dir,
+          policy: input.policy,
+          model: input.model,
+          thinking: input.thinking,
+        });
+
+      daemon.createRoom({
+        id: 'phase5-add', name: 'Phase 5 Add agent',
+        owner: { handle: 'phase5-add-owner', display_name: 'Add Owner' }, cwd: dir,
+      });
+      const addFirst = spawnFromPreset('phase5-add', firstInput);
+      const addSecond = spawnFromPreset('phase5-add', secondInput);
+      const rosterOne = daemon.createRoom({
+        id: 'phase5-roster-one', name: 'Phase 5 Roster One',
+        owner: { handle: 'phase5-roster-one-owner', display_name: 'Roster One Owner' },
+        cwd: dir, default_roster: true,
+      });
+      const rosterTwo = daemon.createRoom({
+        id: 'phase5-roster-two', name: 'Phase 5 Roster Two',
+        owner: { handle: 'phase5-roster-two-owner', display_name: 'Roster Two Owner' },
+        cwd: dir, default_roster: true,
+      });
+      const entries = [
+        { key: 'add-north', room: 'phase5-add', member: addFirst, session: spawned[0]! },
+        { key: 'add-south', room: 'phase5-add', member: addSecond, session: spawned[1]! },
+        { key: 'roster-one-north', room: 'phase5-roster-one', member: rosterOne.initialAgents[0]!, session: spawned[2]! },
+        { key: 'roster-one-south', room: 'phase5-roster-one', member: rosterOne.initialAgents[1]!, session: spawned[3]! },
+        { key: 'roster-two-north', room: 'phase5-roster-two', member: rosterTwo.initialAgents[0]!, session: spawned[4]! },
+        { key: 'roster-two-south', room: 'phase5-roster-two', member: rosterTwo.initialAgents[1]!, session: spawned[5]! },
+      ] as const;
+      expect(entries.every((entry) => entry.session !== undefined)).toBe(true);
+      expect(new Set(entries.map((entry) => entry.member.id)).size).toBe(entries.length);
+      expect(new Set(entries.map((entry) => entry.session)).size).toBe(entries.length);
+
+      const driveTurn = async (
+        target: Daemon,
+        adapter: FakeAdapter,
+        entry: (typeof entries)[number],
+        suffix: string,
+      ): Promise<void> => {
+        const taskId = `task-${entry.key}-${suffix}`;
+        adapter.enqueue({
+          kind: 'complete',
+          final_text: `final ${entry.key} ${suffix}`,
+          usage: { input_tokens: 11, output_tokens: 7, cost_usd: 0.01 },
+          agent_usage: {
+            inputTokens: 11,
+            outputTokens: 7,
+            totalCostUsd: 0.01,
+            contextWindowMaxTokens: 200_000,
+            contextWindowUsedTokens: 11,
+          },
+          items: [{
+            type: 'run.tasks',
+            update: {
+              op: 'replace',
+              items: [{ id: taskId, content: `Task ${entry.key} ${suffix}`, status: 'completed' }],
+            },
+          }],
+        });
+        target.postHumanMessage(entry.room, `@${entry.member.handle} prove ${entry.key} ${suffix}`);
+        await target.settle();
+      };
+
+      for (const entry of entries) await driveTurn(daemon, fake, entry, 'before-restart');
+      expect(new Set(entries.map((entry) => entry.session.session_ref)).size).toBe(entries.length);
+
+      const before = new Map(entries.map((entry) => {
+        const member = daemon!.store.getMember(entry.room, entry.member.id)!;
+        const token = entry.session.env?.CODOR_MEMBER_TOKEN;
+        expect(token).toEqual(expect.any(String));
+        expect(entry.session.env).toMatchObject({
+          CODOR_CHANNEL: entry.room,
+          CODOR_MEMBER_ID: entry.member.id,
+          CODOR_MEMBER_TOKEN: token,
+        });
+        expect(daemon!.authenticateAgentToken(token!)).toMatchObject({
+          room: entry.room, member: { id: entry.member.id },
+        });
+        expect(daemon!.store.getAgentRuntimeConfig(entry.room, entry.member.id)).toEqual({});
+        const publicText = JSON.stringify([
+          daemon!.store.listMembers(entry.room),
+          daemon!.memberDetails(entry.room),
+          daemon!.store.listMessages(entry.room, { limit: Number.MAX_SAFE_INTEGER }),
+        ]);
+        expect(publicText).not.toContain(token!);
+        return [entry.key, {
+          member: memberState(member),
+          token: token!,
+          session: entry.session,
+          sessionRef: entry.session.session_ref!,
+          finalText: `final ${entry.key} before-restart`,
+          taskId: `task-${entry.key}-before-restart`,
+          roomMessages: daemon!.store.listMessages(entry.room, { limit: Number.MAX_SAFE_INTEGER }),
+          meter: daemon!.store.getMeter(entry.room, new Date().toISOString().slice(0, 10)),
+        }] as const;
+      }));
+      const oldTokens = [...before.values()].map((snapshot) => snapshot.token);
+      expect(new Set(oldTokens).size).toBe(entries.length);
+
+      for (const entry of entries) {
+        const roomMessages = daemon.store.listMessages(entry.room, { limit: Number.MAX_SAFE_INTEGER });
+        expect(roomMessages.some((message) => message.body === `final ${entry.key} before-restart`)).toBe(true);
+        for (const other of entries) {
+          if (other.room === entry.room || other.key === entry.key) continue;
+          expect(roomMessages.some((message) => message.body === `final ${other.key} before-restart`)).toBe(false);
+        }
+        expect(daemon.store.getMember(entry.room, entry.member.id)?.tasks?.items[0]?.id)
+          .toBe(`task-${entry.key}-before-restart`);
+      }
+
+      daemon.updateAgentPreset(first.id, {
+        ...firstInput,
+        label: 'Phase 5 North edited', handle: 'phase5-north-edited',
+        display_name: 'Phase 5 North Edited', policy: 'full-access',
+        model: 'phase5-north-edited-model', thinking: 'low',
+      });
+      daemon.updateAgentPreset(second.id, {
+        ...secondInput,
+        label: 'Phase 5 South edited', handle: 'phase5-south-edited',
+        display_name: 'Phase 5 South Edited', policy: 'read-only',
+        model: 'phase5-south-edited-model', thinking: 'high',
+      });
+      daemon.replaceDefaultRoster({ preset_ids: [second.id, first.id] });
+      expect(daemon.getDefaultRoster().preset_ids).toEqual([second.id, first.id]);
+
+      for (const entry of entries) {
+        expect(memberState(daemon.store.getMember(entry.room, entry.member.id)!))
+          .toEqual(before.get(entry.key)!.member);
+      }
+      await daemon.close();
+      daemon = undefined;
+
+      const restartedFake = new FakeAdapter('fake', {
+        thinking: true,
+        thinking_levels: ['low', 'medium', 'high'],
+      });
+      const attached: ReturnType<FakeAdapter['attach']>[] = [];
+      const originalAttach = restartedFake.attach.bind(restartedFake);
+      vi.spyOn(restartedFake, 'attach').mockImplementation((sessionRef) => {
+        const session = originalAttach(sessionRef);
+        attached.push(session);
+        return session;
+      });
+      reopened = new Daemon({
+        dbPath,
+        blobRoot,
+        adapters: [restartedFake],
+        homeDir: dir,
+        discoverModels: false,
+        executableOnPath: () => true,
+      });
+      expect(reopened.listAgentPresets().map((preset) => preset.label).sort()).toEqual([
+        'Phase 5 North edited', 'Phase 5 South edited',
+      ].sort());
+      expect(reopened.getDefaultRoster().preset_ids).toEqual([second.id, first.id]);
+      for (const entry of entries) {
+        expect(memberState(reopened.store.getMember(entry.room, entry.member.id)!))
+          .toEqual(before.get(entry.key)!.member);
+      }
+
+      const freshTokens = new Map<string, string>();
+      for (const entry of entries) {
+        const beforePeerMembers = new Map(entries.map((peer) => [
+          peer.key,
+          memberState(reopened!.store.getMember(peer.room, peer.member.id)!),
+        ]));
+        const beforePeerRooms = new Map([...new Set(entries.map((peer) => peer.room))].map((room) => [room, {
+          members: reopened!.store.listMembers(room).map(memberState),
+          messages: reopened!.store.listMessages(room, { limit: Number.MAX_SAFE_INTEGER }),
+          meter: reopened!.store.getMeter(room, new Date().toISOString().slice(0, 10)),
+        }]));
+        await driveTurn(reopened, restartedFake, entry, 'after-restart');
+        const session = attached.find((candidate) => candidate.env?.CODOR_MEMBER_ID === entry.member.id);
+        expect(session).toBeDefined();
+        expect(session).not.toBe(before.get(entry.key)!.session);
+        expect(session!.session_ref).toBe(before.get(entry.key)!.sessionRef);
+        expect(restartedFake.wasAttached(before.get(entry.key)!.sessionRef)).toBe(true);
+        expect(new Set(attached).size).toBe(attached.length);
+        const token = session!.env?.CODOR_MEMBER_TOKEN;
+        expect(token).toEqual(expect.any(String));
+        expect(token).not.toBe(before.get(entry.key)!.token);
+        expect(session!.env).toMatchObject({
+          CODOR_CHANNEL: entry.room,
+          CODOR_MEMBER_ID: entry.member.id,
+          CODOR_MEMBER_TOKEN: token,
+        });
+        freshTokens.set(entry.key, token!);
+        expect(reopened.authenticateAgentToken(token!)).toMatchObject({
+          room: entry.room, member: { id: entry.member.id },
+        });
+        expect(reopened.authenticateAgentToken(before.get(entry.key)!.token)).toBeUndefined();
+        const current = reopened.store.getMember(entry.room, entry.member.id)!;
+        expect(current.handle).toBe(before.get(entry.key)!.member.handle);
+        expect(current.display_name).toBe(before.get(entry.key)!.member.display_name);
+        expect(current.model).toBe(before.get(entry.key)!.member.model);
+        expect(current.thinking).toBe(before.get(entry.key)!.member.thinking);
+        expect(current.policy).toBe(before.get(entry.key)!.member.policy);
+        expect(current.tasks?.items[0]?.id).toBe(`task-${entry.key}-after-restart`);
+        const publicText = JSON.stringify([
+          reopened.store.listMembers(entry.room),
+          reopened.memberDetails(entry.room),
+          reopened.store.listMessages(entry.room, { limit: Number.MAX_SAFE_INTEGER }),
+        ]);
+        expect(publicText).not.toContain(token!);
+
+        for (const peer of entries) {
+          if (peer.key === entry.key) continue;
+          expect(memberState(reopened.store.getMember(peer.room, peer.member.id)!))
+            .toEqual(beforePeerMembers.get(peer.key));
+          if (peer.room !== entry.room) {
+            expect(reopened.store.listMessages(peer.room, { limit: Number.MAX_SAFE_INTEGER }))
+              .toEqual(beforePeerRooms.get(peer.room)!.messages);
+            expect(reopened.store.getMeter(peer.room, new Date().toISOString().slice(0, 10)))
+              .toEqual(beforePeerRooms.get(peer.room)!.meter);
+          }
+        }
+      }
+      expect(new Set([...freshTokens.values()]).size).toBe(entries.length);
+      for (const token of oldTokens) expect(reopened.authenticateAgentToken(token)).toBeUndefined();
+
+      reopened.replaceDefaultRoster({ preset_ids: [] });
+      reopened.deleteAgentPreset(first.id);
+      reopened.deleteAgentPreset(second.id);
+      expect(reopened.listAgentPresets()).toEqual([]);
+      for (const entry of entries) {
+        expect(reopened.store.getMemberByHandle(entry.room, entry.member.handle)?.id)
+          .toBe(entry.member.id);
+      }
+    } finally {
+      if (reopened !== undefined) await reopened.close();
+      if (daemon !== undefined) await daemon.close();
+    }
+  });
+});
+// harn:end preset-derived-members-are-isolated-durable-snapshots

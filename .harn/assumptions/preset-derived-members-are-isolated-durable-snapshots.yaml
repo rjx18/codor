@@ -1,0 +1,23 @@
+id: preset-derived-members-are-isolated-durable-snapshots
+hash: a-c2304bb35c68
+title: Preset-derived members remain isolated durable snapshots across restart
+state: active
+statement: Reusing the same individual presets through ordinary Add agent and
+  repeated default-roster channel creation must produce fresh member ids,
+  in-memory Sessions, native session references, room/member-bound credentials,
+  and member-scoped runtime state for every concrete agent; later preset edits,
+  roster replacement, source deletion, and switchboard restart must preserve
+  each member's copied configuration, private runtime data, established native
+  reference, tasks, runs, and room isolation, while lazy reconstruction resumes
+  only that member's reference in a new Session and rotates its credential,
+  because reusable configuration is never shared membership, authority, or
+  runtime identity.
+depends_on:
+  - individual-agent-preset-selection-snapshots-one-ordinary-spawn
+  - default-roster-channel-members-are-detached-ordered-snapshots
+  - initial-roster-runtime-failures-are-member-local-and-actionable
+  - individual-agent-presets-are-versioned-local-state
+  - default-roster-is-one-versioned-ordered-preset-reference-group
+  - durable-agent-runtime-configuration
+  - agent-member-credentials-stay-secret
+created_by: agent-presets-p5-integration-hardening
