@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createAgentPreset,
   deleteAgentPreset,
+  fetchAgentPreset,
   fetchAgentPresets,
   fetchDefaultRoster,
   replaceDefaultRoster,
@@ -29,7 +30,10 @@ type EditorDraft = {
   label: string;
   handle: string;
   config: AgentConfig;
+  originalLaunch?: AgentPreset['acp_launch'];
 };
+
+type EditError = { id: string; message: string };
 
 const errorMessage = (failure: unknown): string =>
   failure instanceof Error ? failure.message : String(failure);
@@ -88,18 +92,29 @@ export function AgentPresetSettings(props: { token: () => string }) {
   const [editor, setEditor] = useState<EditorDraft>();
   const [editorError, setEditorError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const [editPendingId, setEditPendingId] = useState<string>();
+  const [editError, setEditError] = useState<EditError>();
   const [deleteTarget, setDeleteTarget] = useState<AgentPreset>();
   const [deleteError, setDeleteError] = useState<string>();
   const [deleting, setDeleting] = useState(false);
   const generation = useRef(0);
+  const editGeneration = useRef(0);
+  const saveGeneration = useRef(0);
   const alive = useRef(true);
 
   useEffect(() => {
     alive.current = true;
-    return () => { alive.current = false; };
+    return () => {
+      alive.current = false;
+      editGeneration.current += 1;
+      saveGeneration.current += 1;
+    };
   }, []);
 
   const refresh = useCallback((): void => {
+    editGeneration.current += 1;
+    setEditPendingId(undefined);
+    setEditError(undefined);
     const current = ++generation.current;
     setLoading(true);
     setRefreshError(undefined);
@@ -120,6 +135,9 @@ export function AgentPresetSettings(props: { token: () => string }) {
   useEffect(() => { refresh(); }, [refresh]);
 
   const openCreate = (): void => {
+    editGeneration.current += 1;
+    setEditPendingId(undefined);
+    setEditError(undefined);
     setEditor({
       label: '', handle: '',
       config: blankConfig(catalog.installed[0]?.id ?? ''),
@@ -128,12 +146,35 @@ export function AgentPresetSettings(props: { token: () => string }) {
   };
 
   const openEdit = (preset: AgentPreset): void => {
-    setEditor({ id: preset.id, label: preset.label, handle: preset.handle, config: agentPresetToConfig(preset) });
+    const current = ++editGeneration.current;
+    setEditor(undefined);
     setEditorError(undefined);
+    setEditError(undefined);
+    setEditPendingId(preset.id);
+    void fetchAgentPreset(preset.id, { token: props.token() }).then((fresh) => {
+      if (!alive.current || current !== editGeneration.current) return;
+      setEditor({
+        id: fresh.id,
+        label: fresh.label,
+        handle: fresh.handle,
+        config: agentPresetToConfig(fresh),
+        originalLaunch: fresh.acp_launch,
+      });
+    }).catch((failure: unknown) => {
+      if (alive.current && current === editGeneration.current) {
+        setEditError({ id: preset.id, message: errorMessage(failure) });
+      }
+    }).finally(() => {
+      if (alive.current && current === editGeneration.current) setEditPendingId(undefined);
+    });
   };
 
   const closeEditor = (): void => {
-    if (!saving) setEditor(undefined);
+    if (!saving) {
+      editGeneration.current += 1;
+      setEditor(undefined);
+      setEditorError(undefined);
+    }
   };
 
   const saveEditor = (): void => {
@@ -150,18 +191,24 @@ export function AgentPresetSettings(props: { token: () => string }) {
         handle: editor.handle,
         config: editor.config,
         adapters,
+        originalLaunch: editor.originalLaunch,
       });
     } catch (failure) {
       setEditorError(errorMessage(failure));
       return;
     }
     const editingId = editor.id;
+    const current = ++saveGeneration.current;
     setSaving(true);
     setEditorError(undefined);
     void (editingId === undefined
       ? createAgentPreset(input, { token: props.token() })
       : updateAgentPreset(editingId, input, { token: props.token() })
     ).then((saved) => {
+      if (!alive.current || current !== saveGeneration.current) return;
+      if (editingId !== undefined && saved.id !== editingId) {
+        throw new Error(`saved preset id ${saved.id} did not match edited preset ${editingId}`);
+      }
       setPresets((current) => {
         if (current === undefined) return [saved];
         return editingId === undefined
@@ -170,8 +217,10 @@ export function AgentPresetSettings(props: { token: () => string }) {
       });
       setEditor(undefined);
     }).catch((failure: unknown) => {
-      setEditorError(errorMessage(failure));
-    }).finally(() => setSaving(false));
+      if (alive.current && current === saveGeneration.current) setEditorError(errorMessage(failure));
+    }).finally(() => {
+      if (alive.current && current === saveGeneration.current) setSaving(false);
+    });
   };
 
   const confirmDelete = (): void => {
@@ -179,6 +228,9 @@ export function AgentPresetSettings(props: { token: () => string }) {
     const target = deleteTarget;
     setDeleting(true);
     setDeleteError(undefined);
+    editGeneration.current += 1;
+    setEditPendingId(undefined);
+    setEditError(undefined);
     void deleteAgentPreset(target.id, { token: props.token() }).then(() => {
       setPresets((current) => current?.filter((preset) => preset.id !== target.id));
       setDeleteTarget(undefined);
@@ -195,7 +247,7 @@ export function AgentPresetSettings(props: { token: () => string }) {
             <h2 id="s-agent-presets">Agent presets</h2>
             <p className="nx-settings-sub">Reusable individual configurations for Add agent and future channels.</p>
           </div>
-          <Button variant="primary" data-testid="preset-add" onClick={openCreate}>
+          <Button variant="primary" data-testid="preset-add" disabled={saving || deleting} onClick={openCreate}>
             <Plus size={15} aria-hidden="true" /> Add preset
           </Button>
         </div>
@@ -203,7 +255,7 @@ export function AgentPresetSettings(props: { token: () => string }) {
         {refreshError !== undefined && (
           <div className="nx-settings-error" role="alert" data-testid="preset-list-error">
             <span>Couldn’t load agent presets: {refreshError}</span>
-            <Button variant="quiet" data-testid="preset-list-retry" onClick={refresh}>Retry</Button>
+            <Button variant="quiet" data-testid="preset-list-retry" disabled={saving || deleting} onClick={refresh}>Retry</Button>
           </div>
         )}
         {presets !== undefined && (
@@ -217,9 +269,42 @@ export function AgentPresetSettings(props: { token: () => string }) {
                   <small>{harnessSummary(preset)}</small>
                 </div>
                 <div className="nx-preset-actions">
-                  <Button variant="quiet" data-testid={`preset-edit-${preset.id}`} onClick={() => openEdit(preset)}>Edit</Button>
-                  <Button variant="danger" data-testid={`preset-delete-${preset.id}`} onClick={() => { setDeleteTarget(preset); setDeleteError(undefined); }}>Delete</Button>
+                  <Button
+                    variant="quiet"
+                    data-testid={`preset-edit-${preset.id}`}
+                    disabled={saving || deleting || editPendingId === preset.id}
+                    onClick={() => openEdit(preset)}
+                  >
+                    {editPendingId === preset.id ? 'Loading…' : 'Edit'}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    data-testid={`preset-delete-${preset.id}`}
+                    disabled={saving || deleting}
+                    onClick={() => {
+                      editGeneration.current += 1;
+                      setEditPendingId(undefined);
+                      setEditError(undefined);
+                      setDeleteTarget(preset);
+                      setDeleteError(undefined);
+                    }}
+                  >
+                    Delete
+                  </Button>
                 </div>
+                {editError?.id === preset.id && (
+                  <div className="nx-preset-row-error" role="alert" data-testid={`preset-edit-error-${preset.id}`}>
+                    <span>{editError?.message}</span>
+                    <Button
+                      variant="quiet"
+                      data-testid={`preset-edit-retry-${preset.id}`}
+                      disabled={saving || deleting || editPendingId === preset.id}
+                      onClick={() => openEdit(preset)}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -228,7 +313,7 @@ export function AgentPresetSettings(props: { token: () => string }) {
           <p className="nx-field-note is-error" role="alert">{deleteError}</p>
         )}
         <div className="nx-settings-actions">
-          <Button variant="quiet" data-testid="preset-refresh" disabled={loading} onClick={refresh}>
+            <Button variant="quiet" data-testid="preset-refresh" disabled={loading || saving || deleting} onClick={refresh}>
             <RefreshCw size={14} aria-hidden="true" /> Reload presets
           </Button>
         </div>
@@ -307,7 +392,8 @@ function PresetEditorModal(props: {
             <X size={16} aria-hidden="true" />
           </button>
         </header>
-        <div className="nx-dialog-body">
+        <div className="nx-dialog-body" aria-busy={props.saving}>
+          <fieldset disabled={props.saving}>
           <label className="nx-field">
             <span className="nx-label">Preset label</span>
             <input ref={labelRef} value={props.draft.label} maxLength={80} required data-testid="preset-label" onChange={(event) => props.onChange({ ...props.draft, label: event.target.value })} />
@@ -342,6 +428,7 @@ function PresetEditorModal(props: {
           />
           {issue !== undefined && <p className="nx-field-note is-error" role="alert" data-testid="preset-editor-validation">{issue}</p>}
           {props.error !== undefined && <p className="nx-field-note is-error" role="alert" data-testid="preset-editor-error">{props.error}</p>}
+          </fieldset>
         </div>
         <footer className="nx-dialog-actions">
           <Button variant="quiet" type="button" disabled={props.saving} data-testid="preset-editor-cancel" onClick={props.onClose}>Cancel</Button>
@@ -367,39 +454,58 @@ function DefaultRosterEditor(props: {
   const [addId, setAddId] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  const alive = useRef(true);
+  const rosterGeneration = useRef(0);
+  const appliedRoster = useRef<string>();
+
+  useEffect(() => () => {
+    alive.current = false;
+    rosterGeneration.current += 1;
+  }, []);
+
   useEffect(() => {
-    if (props.roster !== undefined) {
+    if (props.roster !== undefined && !saving) {
+      const serialized = JSON.stringify(props.roster);
+      if (serialized === appliedRoster.current) return;
+      appliedRoster.current = serialized;
       setDraftIds([...props.roster.preset_ids]);
       setError(undefined);
     }
-  }, [props.roster]);
+  }, [props.roster, saving]);
 
   const authoritative = props.roster?.preset_ids ?? [];
   const dirty = JSON.stringify(draftIds) !== JSON.stringify(authoritative);
   const byId = useMemo(() => new Map(props.presets.map((preset) => [preset.id, preset])), [props.presets]);
   const available = props.presets.filter((preset) => !draftIds.includes(preset.id));
   const add = (): void => {
-    if (addId === '' || draftIds.includes(addId)) return;
+    if (saving || addId === '' || draftIds.includes(addId)) return;
     setDraftIds((ids) => [...ids, addId]);
     setAddId('');
   };
   const save = (): void => {
     if (!dirty || saving) return;
+    const submittedIds = [...draftIds];
+    const current = ++rosterGeneration.current;
     setSaving(true);
     setError(undefined);
-    void replaceDefaultRoster({ preset_ids: draftIds }, { token: props.token() }).then((saved) => {
+    void replaceDefaultRoster({ preset_ids: submittedIds }, { token: props.token() }).then((saved) => {
+      if (!alive.current || current !== rosterGeneration.current) return;
       props.onSaved(saved);
-    }).catch((failure: unknown) => setError(errorMessage(failure))).finally(() => setSaving(false));
+    }).catch((failure: unknown) => {
+      if (alive.current && current === rosterGeneration.current) setError(errorMessage(failure));
+    }).finally(() => {
+      if (alive.current && current === rosterGeneration.current) setSaving(false);
+    });
   };
 
   return (
-    <section className="nx-settings-card nx-roster-settings" aria-labelledby="s-default-roster" data-testid="default-roster-settings">
+    <section className="nx-settings-card nx-roster-settings" aria-labelledby="s-default-roster" aria-busy={saving} data-testid="default-roster-settings">
       <div className="nx-settings-card-head">
         <div>
           <h2 id="s-default-roster">Default roster</h2>
           <p className="nx-settings-sub">One ordered group of preset references used by new channels.</p>
         </div>
-        <Button variant="quiet" data-testid="roster-refresh" disabled={props.loading} onClick={props.onRefresh}>
+        <Button variant="quiet" data-testid="roster-refresh" disabled={props.loading || saving} onClick={props.onRefresh}>
           <RefreshCw size={14} aria-hidden="true" /> Reload
         </Button>
       </div>
@@ -407,6 +513,7 @@ function DefaultRosterEditor(props: {
       {props.error !== undefined && <p className="nx-field-note is-error" role="alert" data-testid="roster-load-error">Couldn’t load the roster. Your draft remains unchanged.</p>}
       {props.roster !== undefined && (
         <>
+          <fieldset className="nx-roster-draft" disabled={saving}>
           <ol className="nx-roster-list" data-testid="roster-list">
             {draftIds.length === 0 && <li className="nx-field-note">Empty roster — new channels can start without agents.</li>}
             {draftIds.map((id, index) => {
@@ -419,9 +526,9 @@ function DefaultRosterEditor(props: {
                     <span>{preset === undefined ? <Code>{id}</Code> : <><Code>@{preset.handle}</Code>{preset.display_name ? ` · ${preset.display_name}` : ''}</>}</span>
                   </span>
                   <span className="nx-roster-actions">
-                    <IconButton icon={ArrowUp} label={`Move ${preset?.label ?? 'missing preset'} up`} variant="quiet" size="sm" disabled={index === 0} data-testid={`roster-up-${id}`} onClick={() => setDraftIds((ids) => ids.map((item, itemIndex) => itemIndex === index - 1 ? ids[index]! : itemIndex === index ? ids[index - 1]! : item))} />
-                    <IconButton icon={ArrowDown} label={`Move ${preset?.label ?? 'missing preset'} down`} variant="quiet" size="sm" disabled={index === draftIds.length - 1} data-testid={`roster-down-${id}`} onClick={() => setDraftIds((ids) => ids.map((item, itemIndex) => itemIndex === index ? ids[index + 1]! : itemIndex === index + 1 ? ids[index]! : item))} />
-                    <IconButton icon={Trash2} label={`Remove ${preset?.label ?? 'missing preset'}`} variant="quiet" size="sm" data-testid={`roster-remove-${id}`} onClick={() => setDraftIds((ids) => ids.filter((_, itemIndex) => itemIndex !== index))} />
+                    <IconButton icon={ArrowUp} label={`Move ${preset?.label ?? 'missing preset'} up`} variant="quiet" size="sm" disabled={saving || index === 0} data-testid={`roster-up-${id}`} onClick={() => setDraftIds((ids) => ids.map((item, itemIndex) => itemIndex === index - 1 ? ids[index]! : itemIndex === index ? ids[index - 1]! : item))} />
+                    <IconButton icon={ArrowDown} label={`Move ${preset?.label ?? 'missing preset'} down`} variant="quiet" size="sm" disabled={saving || index === draftIds.length - 1} data-testid={`roster-down-${id}`} onClick={() => setDraftIds((ids) => ids.map((item, itemIndex) => itemIndex === index ? ids[index + 1]! : itemIndex === index + 1 ? ids[index]! : item))} />
+                    <IconButton icon={Trash2} label={`Remove ${preset?.label ?? 'missing preset'}`} variant="quiet" size="sm" disabled={saving} data-testid={`roster-remove-${id}`} onClick={() => setDraftIds((ids) => ids.filter((_, itemIndex) => itemIndex !== index))} />
                   </span>
                 </li>
               );
@@ -435,8 +542,9 @@ function DefaultRosterEditor(props: {
                 {available.map((preset) => <option key={preset.id} value={preset.id}>{preset.label} · @{preset.handle}</option>)}
               </select>
             </label>
-            <Button variant="secondary" data-testid="roster-add" disabled={addId === ''} onClick={add}><Plus size={15} aria-hidden="true" /> Add</Button>
+            <Button variant="secondary" data-testid="roster-add" disabled={saving || addId === ''} onClick={add}><Plus size={15} aria-hidden="true" /> Add</Button>
           </div>
+          </fieldset>
           {error !== undefined && <p className="nx-field-note is-error" role="alert" data-testid="roster-save-error">{error}</p>}
           <div className="nx-settings-actions">
             <Button variant="primary" data-testid="roster-save" disabled={!dirty || saving} onClick={save}>

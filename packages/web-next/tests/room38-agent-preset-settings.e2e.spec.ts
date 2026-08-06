@@ -193,6 +193,9 @@ test.describe('Phase 4 Settings and default-roster UI', () => {
     await page.getByTestId('preset-label').fill('P4 delayed saved');
     await page.getByTestId('preset-save').click();
     await expect(page.getByTestId('preset-save')).toBeDisabled();
+    await expect(page.getByTestId('preset-label')).toBeDisabled();
+    await expect(page.getByTestId('preset-harness-fake')).toBeDisabled();
+    await expect(page.getByTestId('preset-refresh')).toBeDisabled();
     release();
     await expect(page.getByTestId(`preset-row-${id}`)).toContainText('P4 delayed saved');
     await page.unroute(`${API}/api/agent-presets/${id}`);
@@ -206,6 +209,51 @@ test.describe('Phase 4 Settings and default-roster UI', () => {
     await page.getByTestId(`preset-delete-${id}`).click();
     await page.getByTestId('preset-delete-confirm').click();
     await expect(page.getByTestId(`preset-row-${id}`)).toHaveCount(0);
+  });
+
+  test('Edit uses a fresh addressed read and a superseded read cannot reopen the editor', async ({ page }) => {
+    const id = await createPreset({ label: `P4 addressed ${Date.now()}`, handle: 'p4-addressed', harness: 'fake' });
+    const listed = await api<{ preset: Record<string, unknown> }>(`/api/agent-presets/${id}`);
+    await openSettings(page);
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route(`${API}/api/agent-presets/${id}`, async (route) => {
+      if (route.request().method() !== 'GET') {
+        await route.continue();
+        return;
+      }
+      await gate;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ preset: { ...listed.body.preset, label: 'P4 fresh addressed value' } }),
+      });
+    });
+    await page.getByTestId(`preset-edit-${id}`).click();
+    await expect(page.getByTestId('preset-editor-dialog')).toHaveCount(0);
+    await page.getByTestId('preset-add').click();
+    await expect(page.getByTestId('preset-editor-dialog')).toBeVisible();
+    await expect(page.getByTestId('preset-label')).toHaveValue('');
+    release();
+    await expect(page.getByTestId('preset-label')).toHaveValue('');
+    await page.unroute(`${API}/api/agent-presets/${id}`);
+
+    await page.getByTestId('preset-editor-cancel').click();
+    await page.route(`${API}/api/agent-presets/${id}`, async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'preset disappeared' }) });
+        return;
+      }
+      await route.continue();
+    });
+    await page.getByTestId(`preset-edit-${id}`).click();
+    await expect(page.getByTestId(`preset-edit-error-${id}`)).toContainText(/preset disappeared/i);
+    await expect(page.getByTestId('preset-editor-dialog')).toHaveCount(0);
+    await page.unroute(`${API}/api/agent-presets/${id}`);
+    await page.getByTestId(`preset-edit-retry-${id}`).click();
+    await expect(page.getByTestId('preset-editor-dialog')).toBeVisible();
+    await page.getByTestId('preset-editor-cancel').click();
   });
 
   test('Settings retries reads and preserves a dirty roster through failed save and reload', async ({ page }) => {
@@ -244,6 +292,34 @@ test.describe('Phase 4 Settings and default-roster UI', () => {
     await expect(page.getByTestId(`roster-row-${first}`)).toBeVisible();
   });
 
+  test('a pending roster replacement freezes its submitted order and controls', async ({ page }) => {
+    const first = await createPreset({ label: `P4 pending first ${Date.now()}`, handle: 'p4-pending-first', harness: 'fake' });
+    const second = await createPreset({ label: `P4 pending second ${Date.now()}`, handle: 'p4-pending-second', harness: 'fake' });
+    await setRoster([first]);
+    await openSettings(page);
+    await page.getByTestId('roster-add-select').selectOption(second);
+    await page.getByTestId('roster-add').click();
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route(`${API}/api/default-roster`, async (route) => {
+      if (route.request().method() === 'PUT') {
+        await gate;
+        await route.continue();
+        return;
+      }
+      await route.continue();
+    });
+    await page.getByTestId('roster-save').click();
+    await expect(page.getByTestId('roster-save')).toBeDisabled();
+    await expect(page.getByTestId('roster-add-select')).toBeDisabled();
+    await expect(page.getByTestId(`roster-remove-${second}`)).toBeDisabled();
+    await expect(page.getByTestId('roster-refresh')).toBeDisabled();
+    release();
+    await expect(page.getByTestId(`roster-row-${second}`)).toBeVisible();
+    await page.unroute(`${API}/api/default-roster`);
+  });
+
   test('a failed default-roster read leaves legacy Starting agent usable', async ({ page }) => {
     const rosterPreset = await createPreset({ label: `P4 read recovery ${Date.now()}`, handle: 'p4-read-recovery', harness: 'fake' });
     await setRoster([rosterPreset]);
@@ -275,6 +351,17 @@ test.describe('Phase 4 Settings and default-roster UI', () => {
     await expect(page.locator('.nx-settings-head h1')).toHaveText('Settings');
     await expect(page.getByTestId('agent-preset-settings')).toHaveCount(0);
     expect(managementRequests).toEqual([]);
+  });
+
+  test('an admin sees management controls and receives the authoritative reads', async ({ page }) => {
+    const managementRequests: string[] = [];
+    page.on('request', (request) => {
+      const path = new URL(request.url()).pathname;
+      if (path === '/api/agent-presets' || path === '/api/default-roster') managementRequests.push(path);
+    });
+    await openSettings(page, 'next-e2e-admin-token');
+    await expect(page.getByTestId('agent-preset-settings')).toBeVisible();
+    expect(managementRequests).toEqual(expect.arrayContaining(['/api/agent-presets', '/api/default-roster']));
   });
 
   test('Settings, roster ordering, and both creation choices fit at 390px', async ({ page }) => {
@@ -402,6 +489,38 @@ test.describe('Phase 4 Settings and default-roster UI', () => {
     await dialog.getByTestId('create-go').click();
     expect((await successRequest).postDataJSON()).toMatchObject({ default_roster: true });
     await expect(page).toHaveURL(new RegExp(`room=${roomName.toLowerCase().replaceAll(' ', '-')}`), { timeout: 15_000 });
+  });
+
+  test('normal roster preflight failures stay visible and a selected inconsistent roster can be deselected', async ({ page }) => {
+    const collisionId = await createPreset({
+      label: `P4 owner collision ${Date.now()}`, handle: 'richard', harness: 'fake',
+    });
+    await setRoster([collisionId]);
+    await openRoom(page);
+    await page.getByTestId('create-room').click();
+    const dialog = page.getByTestId('create-channel-dialog');
+    await expect(dialog.getByTestId('create-name')).toBeFocused();
+    await dialog.getByTestId('create-name').fill('P4 collision channel');
+    await dialog.getByTestId('create-folder-alpha-project').click();
+    await dialog.getByTestId('create-roster-select').click();
+    await dialog.getByTestId('create-go').click();
+    await expect(dialog.getByRole('alert')).toContainText(/already in use by the channel owner/i);
+    await expect(dialog.getByTestId('create-roster-select')).toHaveAttribute('aria-pressed', 'true');
+
+    await page.route(`${API}/api/agent-presets`, async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ presets: [] }) });
+        return;
+      }
+      await route.continue();
+    }, { times: 1 });
+    await dialog.getByTestId('create-roster-refresh').click();
+    await expect(dialog.getByTestId('create-roster-inconsistent')).toBeVisible();
+    await expect(dialog.getByTestId('create-roster-deselect')).toBeVisible();
+    await dialog.getByTestId('create-roster-deselect').click();
+    await expect(dialog.getByTestId('create-agent-none-note')).toBeVisible();
+    await expect(dialog.getByTestId('create-roster-deselect')).toHaveCount(0);
+    await dialog.getByTestId('create-close').click();
   });
 
   test('first-channel onboarding uses the same roster choice and wire contract', async ({ page }) => {

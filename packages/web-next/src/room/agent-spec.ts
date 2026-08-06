@@ -366,6 +366,7 @@ export function agentPresetInputFromConfig(input: {
   handle: string;
   config: AgentConfig;
   adapters: readonly AdapterLike[];
+  originalLaunch?: AgentPreset['acp_launch'];
 }): AgentPresetInput {
   const label = input.label.trim();
   const handle = input.handle.trim();
@@ -394,6 +395,15 @@ export function agentPresetInputFromConfig(input: {
   if (resolved.harness === 'acp') {
     if (resolved.acp_provider !== undefined) {
       return { ...base, acp_provider: resolved.acp_provider };
+    }
+    const executable = input.config.acpExecutable?.trim() ?? '';
+    const renderedArgs = input.config.acpArgs ?? '';
+    if (
+      input.originalLaunch !== undefined
+      && input.originalLaunch.executable === executable
+      && input.originalLaunch.argv.join('\n') === renderedArgs
+    ) {
+      return { ...base, acp_launch: input.originalLaunch };
     }
     const launch = acpLaunchFromConfig({ ...input.config, harness: 'acp' });
     if (launch === undefined) throw new Error('A custom ACP executable is required.');

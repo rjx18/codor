@@ -53,6 +53,7 @@ export function CreateChannelDialog(props: {
   // A server error about the starting agent belongs beside the agent name, not in
   // a generic banner at the bottom where it reads as unrelated to the field.
   const [agentError, setAgentError] = useState<string>();
+  const nameRef = useRef<HTMLInputElement>(null);
 
   const owner = me(members, selfId);
   const canReadDefaultRoster = owner?.kind === 'human' && owner.role === 'owner';
@@ -158,14 +159,15 @@ export function CreateChannelDialog(props: {
       (room) => props.onCreated(room),
       (failure: unknown) => {
         const message = failure instanceof Error ? failure.message : String(failure);
-        if (isAgentFieldError(message)) setAgentError(message);
+        if (defaultRosterSelected) setError(message);
+        else if (isAgentFieldError(message)) setAgentError(message);
         else setError(message);
       },
     ).finally(() => setBusy(false));
   };
 
   return (
-    <Modal label="Create channel" onClose={props.onClose} testid="create-channel-dialog" structured>
+    <Modal label="Create channel" onClose={props.onClose} testid="create-channel-dialog" structured initialFocus={nameRef}>
       {/* Native form so Enter submits from any field. */}
       <form onSubmit={(event) => { event.preventDefault(); submit(); }}>
       <div className="nx-dialog-head">
@@ -187,6 +189,7 @@ export function CreateChannelDialog(props: {
       <label className="nx-field">
         <span className="nx-label">Name</span>
         <input
+          ref={nameRef}
           value={name}
           required
           onChange={(e) => setName(e.target.value)}

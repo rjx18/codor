@@ -1,0 +1,219 @@
+id: agent-presets-p4-review-fix-state-integrity
+title: Phase 4 review fix - keep management drafts and roster creation errors
+  recoverable at every asynchronous boundary
+notes: >-
+  This is one bounded review-fix for Phase 4 commit
+  b7ffea52325c104d237d7a8d2f7df1106ff1a458. Independent review confirmed the
+  exact parent, clean worktree, applied Harn state, declared file scope, web
+  449/449 unit tests, web build, and room38 9/9 browser suite. It also found
+  concrete uncovered failures in the implemented Phase 4 contracts. This plan
+  corrects those failures without changing protocol schemas, Store, daemon,
+  server, authorization ranks, adapter discovery, Add agent behavior, room or
+  member lifecycle, persistence, relay/cloud state, CLI, or Phase 5.
+
+  The normal Create Channel failure classifier still sends every error
+  containing `handle` to the Starting-agent field. With the default roster
+  selected that field is hidden, so real Phase 3 preflight failures such as a
+  duplicate roster handle or owner collision leave the open dialog with no
+  visible diagnostic. Route every roster-selected create failure to the visible
+  form alert and retain the selected group and hidden draft for correction or
+  retry; keep the existing field-specific placement only for legacy Starting
+  agent requests. The normal dialog also still lets Modal focus its first DOM
+  control, the Close button, although the locked Phase 4 focus contract requires
+  the channel-name input. Supply that input as the explicit initial focus while
+  preserving focus trap, Escape, and return-to-opener behavior.
+
+  A selected roster whose refreshed preset list becomes inconsistent currently
+  loses its selection button while defaultRosterSelected remains true. The UI
+  tells the operator to use Starting agent but provides no way to deselect the
+  group, leaving the draft hidden until the whole dialog is abandoned. Keep a
+  selected-state control or an explicit keyboard-operable Use Starting agent
+  action in every inconsistent/error rendering so the exact draft can always be
+  restored. Never silently omit the missing reference or submit a different
+  group client-side; the daemon remains authoritative if the operator chooses to
+  retry the selected roster after a transient read problem.
+
+  Settings preset and roster mutations disable only their submit buttons today.
+  Their text, canonical agent controls, add/remove/reorder controls, and roster
+  reload remain editable while the request is delayed. A successful response
+  then closes the preset editor or replaces the roster draft and silently
+  discards those newer edits. Make each submitted draft a stable transaction:
+  while its write is pending, disable every control that can mutate or reload
+  that draft (including harness refresh where applicable), allow no duplicate
+  write, and leave the exact submitted draft visible; on failure re-enable it
+  unchanged for retry, and on success reconcile only the matching authoritative
+  response. Alternatively a generation/snapshot guard may preserve newer edits,
+  but a stale response must never close or overwrite them. Closing or unmounting
+  must also invalidate pending read callbacks.
+
+  The Settings editor opens directly from the full list record and never uses
+  the existing addressed read, so a preset edited or deleted after listing can
+  be overwritten from stale values. Resolve Edit through fetchAgentPreset(id)
+  before opening the modal, show an item-scoped pending/error/retry state,
+  require the returned id to match the requested id, and invalidate that read
+  when Add, another Edit, refresh, or unmount supersedes it. A 404, malformed
+  body, or schema-valid mismatched id must leave the list and any newer action
+  unchanged.
+
+  The web runtime currently parses only preset list/addressed reads. Create and
+  update accept an unvalidated `preset`, while default-roster reads and writes
+  accept an unvalidated `roster`; malformed success bodies can therefore close
+  the editor, fail to update a row, or crash roster rendering. Parse every
+  management response through AgentPresetSchema or DefaultRosterSchema at the
+  transport boundary, and assert addressed preset responses retain the requested
+  id. Preserve the existing bearer, origin, relayFetch, HTTP method, request
+  body, and actionable non-2xx errors. Add direct and active-relay unit evidence
+  for malformed create/update/roster success and mismatched addressed ids.
+
+  Finally, the canonical line editor cannot represent every schema-valid custom
+  ACP argv: empty arguments and arguments containing newlines are allowed by
+  AcpLaunchConfigSchema, but joining then splitting non-empty lines silently
+  rewrites them when an operator edits only the preset label or policy. Retain
+  the original structured launch on a full-replacement save whenever the
+  executable and rendered argument text remain unchanged; once the operator
+  deliberately changes those fields, compile the established non-empty
+  one-literal-argument-per-line representation. Unit tests must prove byte-exact
+  preservation for empty and embedded-newline arguments plus intentional edited
+  conversion. Do not change the shared Add agent/Create Channel line semantics
+  or broaden the protocol.
+
+  Extend the isolated Phase 4 browser evidence to prove fresh addressed reads,
+  404/malformed/mismatched/delayed read supersession, disabled or
+  generation-safe pending preset and roster drafts, visible duplicate-handle
+  roster preflight failure, channel-name initial focus, selected
+  inconsistent-roster deselection, and owner/admin visibility with lower-role
+  absence/no management requests. A narrowly seeded admin human/token may be
+  added to the existing isolated harness only for this authorization evidence.
+  Keep direct and hosted journeys, 390px geometry, axe scans, all existing Phase
+  4 tests, and no direct /api escape from the hosted SPA.
+assumptions:
+  reviewed:
+    - id: settings-manages-individual-agent-presets-through-canonical-controls
+      outcome: unchanged
+      reason: The functional CRUD contract remains the same; the fix closes stale
+        read, malformed response, and delayed-write paths that could overwrite
+        or discard a newer operator draft.
+    - id: settings-manages-one-separate-ordered-default-roster
+      outcome: unchanged
+      reason: The singleton ordered-reference editor remains separate and atomic;
+        pending controls and strict response parsing now prevent an obsolete
+        save or reload from replacing newer local order.
+    - id: create-channel-roster-choice-preserves-starting-agent-draft
+      outcome: unchanged
+      reason: The same exclusive choice and untouched draft remain; every
+        inconsistent/error state now permits deselection and real preflight
+        failures stay visible while the roster is selected.
+    - id: agent-preset-management-is-authorized-and-transport-neutral
+      outcome: unchanged
+      reason: Schema parsing and id correlation are added after the existing
+        relayFetch response without changing routes, request bodies, bearer
+        handling, direct/hosted selection, or capability checks.
+    - id: individual-agent-presets-are-bounded-catalog-validated-configurations
+      outcome: unchanged
+      reason: Strict version-1 fields and server catalog validation remain
+        authoritative; the browser now rejects malformed success projections and
+        preserves every valid original custom launch when unrelated fields
+        change.
+    - id: default-roster-is-one-versioned-ordered-preset-reference-group
+      outcome: unchanged
+      reason: Strict response parsing retains the singleton id, schema version,
+        duplicate-free ordered references, and atomic full replacement.
+    - id: default-roster-channel-selection-is-exclusive-and-preflighted
+      outcome: unchanged
+      reason: The browser still sends only literal default_roster true; duplicate or
+        owner-colliding handles remain daemon preflight failures, now surfaced
+        in the visible selected-roster form alert.
+    - id: agent-selection-shows-detected-acp-and-advanced-custom
+      outcome: unchanged
+      reason: Canonical selector and one-nonempty-line custom editing stay unchanged;
+        Settings merely retains an original schema-valid structured argv when
+        the command controls were not changed.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: A focused admin browser fixture proves existing manage_agents UI
+        visibility while member/lower principals still issue no eager management
+        reads; no role rank or server authorization changes.
+    - id: modal-dialogs-layer-above-room-chrome
+      outcome: unchanged
+      reason: The shared Modal portal, focus trap, Escape, and focus restoration stay
+        intact; normal Create Channel now supplies the intended name input as
+        its initial focus target.
+anchors:
+  settings-manages-individual-agent-presets-through-canonical-controls:
+    settings-agent-preset-editor-mapping:
+      action: change
+      reason: Preserve an unchanged original structured custom ACP argv exactly while
+        retaining canonical conversion after deliberate command edits.
+    settings-agent-preset-management-surface:
+      action: change
+      reason: Add fresh correlated addressed reads, invalidate superseded callbacks,
+        and make pending preset writes unable to discard newer edits.
+    settings-agent-preset-management-regression:
+      action: change
+      reason: Prove read races/404/malformed/id mismatch, pending-state integrity,
+        custom argv preservation, and admin/lower-role behavior.
+  settings-manages-one-separate-ordered-default-roster:
+    settings-default-roster-management-surface:
+      action: change
+      reason: Freeze or guard every draft mutation/reload across one pending atomic
+        replacement and reconcile only its strict matching response.
+    settings-default-roster-management-regression:
+      action: change
+      reason: Prove delayed success cannot erase a newer order and malformed success
+        stays recoverable.
+  create-channel-roster-choice-preserves-starting-agent-draft:
+    default-roster-create-choice:
+      action: change
+      reason: Preserve an accessible deselect path when a selected summary becomes
+        inconsistent or a refresh fails.
+    default-roster-channel-dialog-selection:
+      action: change
+      reason: Route roster-selected preflight failures to the visible form alert and
+        focus the channel-name input on open.
+    default-roster-create-ui-regression:
+      action: change
+      reason: Prove visible duplicate-handle failure, exact draft recovery from an
+        inconsistent selected summary, initial focus, and unchanged
+        direct/hosted behavior.
+  agent-preset-management-is-authorized-and-transport-neutral:
+    agent-preset-rest-boundary:
+      action: change
+      reason: Parse every preset/roster success response strictly and correlate
+        addressed preset ids without changing transport or requests.
+files:
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/runtime/api.spec.ts
+  - packages/web-next/src/room/agent-spec.ts
+  - packages/web-next/src/room/agent-spec.spec.ts
+  - packages/web-next/src/room/DefaultRosterChoice.tsx
+  - packages/web-next/src/room/CreateChannel.tsx
+  - packages/web-next/src/surfaces/AgentPresetSettings.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room38-agent-preset-settings.e2e.spec.ts
+verification: Run pnpm --filter @codor/web-next test; pnpm --filter
+  @codor/protocol test; pnpm --filter @codor/switchboard exec vitest run
+  src/agent-presets.spec.ts src/store.spec.ts src/daemon.spec.ts
+  src/server.spec.ts; pnpm --filter @codor/protocol build; pnpm --filter
+  @codor/switchboard build; pnpm --filter @codor/web-next build; and pnpm
+  --filter @codor/web-next exec playwright test
+  tests/room38-agent-preset-settings.e2e.spec.ts
+  tests/room37-agent-presets.e2e.spec.ts tests/room10-dialogs.e2e.spec.ts
+  tests/room6-settings.e2e.spec.ts tests/room29-onboarding.e2e.spec.ts with
+  isolated harness ports after the workspace build. The new focused assertions
+  must prove strict create/update/roster parsing and addressed-id correlation in
+  native and active relay transport; fresh edit reads and supersession; 404,
+  malformed, mismatched, delayed, and failed response recovery; no mutation of
+  preset or roster drafts while writes are pending; exact valid custom argv
+  preservation; selected-inconsistent roster deselection; visible real
+  duplicate-handle create failure; channel-name initial focus and return focus;
+  owner/admin management visibility plus lower-role absence/no requests; and all
+  prior direct/hosted, accessibility, and phone contracts. Rerun harn find
+  --plan agent-presets-p4-review-fix-state-integrity, harn plan check
+  agent-presets-p4-review-fix-state-integrity, harn check
+  agent-presets-p4-review-fix-state-integrity, and the staged Harn check/apply
+  gate before exactly one review-fix commit. Do not change protocol, Store,
+  daemon, server, authorization, Add agent, member/runtime lifecycle, room
+  persistence, relay/cloud state, CLI, styles, first-channel production UI, or
+  Phase 5.
+applied:
+  applied_at: 2026-08-06T11:51:00.989Z

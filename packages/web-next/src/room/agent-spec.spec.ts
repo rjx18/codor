@@ -154,6 +154,34 @@ describe('individual preset snapshots', () => {
     })).toThrow(/executable/i);
   });
 
+  it('preserves a schema-valid custom argv when unrelated fields are edited', () => {
+    const originalLaunch = {
+      executable: '/tools/custom-acp',
+      argv: ['', 'line one\nline two', '--profile=review'],
+    };
+    const input = agentPresetInputFromConfig({
+      label: 'Renamed custom', handle: 'custom',
+      config: {
+        ...config(), harness: 'acp', acpExecutable: originalLaunch.executable,
+        acpArgs: originalLaunch.argv.join('\n'), policy: 'workspace-write',
+      },
+      adapters: [acpGeneric],
+      originalLaunch,
+    });
+    expect(input.acp_launch).toEqual(originalLaunch);
+
+    const deliberatelyEdited = agentPresetInputFromConfig({
+      label: 'Edited custom', handle: 'custom',
+      config: {
+        ...config(), harness: 'acp', acpExecutable: originalLaunch.executable,
+        acpArgs: 'new\nargument', policy: 'workspace-write',
+      },
+      adapters: [acpGeneric],
+      originalLaunch,
+    });
+    expect(deliberatelyEdited.acp_launch).toEqual({ executable: originalLaunch.executable, argv: ['new', 'argument'] });
+  });
+
   it('maps native reusable fields, clears stale ACP values, and suffixes the handle', () => {
     const result = applyAgentPreset({
       preset: durablePreset({

@@ -218,6 +218,10 @@ const viewer = daemon.store.addMember('eng', {
   kind: 'human', handle: 'viewer', display_name: 'Viewer', role: 'member',
 });
 const VIEWER_TOKEN = 'next-e2e-viewer-token';
+const admin = daemon.store.addMember('eng', {
+  kind: 'human', handle: 'admin', display_name: 'Admin', role: 'admin',
+});
+const ADMIN_TOKEN = 'next-e2e-admin-token';
 
 // Ops carries the failure state: its latest run failed and its author is dead.
 const relay = daemon.spawnMember('ops', { harness: 'fake', handle: 'relay', cwd: dir });
@@ -1735,6 +1739,7 @@ await startServer({
   },
   principals: [
     { token: VIEWER_TOKEN, member_id: viewer.id },
+    { token: ADMIN_TOKEN, member_id: admin.id },
     { token: RECOVERY_VIEWER_TOKEN, member_id: onlooker.id },
   ],
   voiceProvider: 'codex',

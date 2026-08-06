@@ -297,4 +297,60 @@ describe('agent preset runtime API', () => {
     await expect(fetchAgentPresets({ token: 'secret' })).rejects.toThrow();
     await expect(fetchAgentPreset(preset.id, { token: 'secret' })).rejects.toThrow();
   });
+
+  it('strictly validates mutation projections and correlates addressed ids on native and relay transport', async () => {
+    const malformedPreset = { ...preset, label: '' };
+    const malformedRoster = { ...roster, schema_version: 99 };
+    const nativeFetch = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'POST') return Promise.resolve(respond({ preset: malformedPreset }));
+      if (method === 'PUT' && url.includes('/api/agent-presets/')) {
+        return Promise.resolve(respond({ preset: malformedPreset }));
+      }
+      if (method === 'PUT') return Promise.resolve(respond({ roster: malformedRoster }));
+      if (url.endsWith('/api/default-roster')) return Promise.resolve(respond({ roster: malformedRoster }));
+      return Promise.resolve(respond({ preset: { ...preset, id: '01ARZ3NDEKTSV4RRFFQ69G5FAW' } }));
+    });
+    vi.stubGlobal('fetch', nativeFetch);
+
+    await expect(createAgentPreset({
+      label: 'Create', handle: 'create', harness: 'codex',
+    }, { token: 'secret' })).rejects.toThrow();
+    await expect(updateAgentPreset(preset.id, {
+      label: 'Update', handle: 'update', harness: 'codex',
+    }, { token: 'secret' })).rejects.toThrow();
+    await expect(fetchDefaultRoster({ token: 'secret' })).rejects.toThrow();
+    await expect(replaceDefaultRoster({ preset_ids: [] }, { token: 'secret' })).rejects.toThrow();
+    await expect(fetchAgentPreset(preset.id, { token: 'secret' })).rejects.toThrow(/did not match requested preset/);
+
+    const relayFetch = vi.fn((path: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'POST') return Promise.resolve(respond({ preset: malformedPreset }));
+      if (method === 'PUT' && path.includes('/api/agent-presets/')) {
+        return Promise.resolve(respond({ preset: malformedPreset }));
+      }
+      if (method === 'PUT') return Promise.resolve(respond({ roster: malformedRoster }));
+      if (path.includes('/api/agent-presets/')) {
+        return Promise.resolve(respond({ preset: { ...preset, id: '01ARZ3NDEKTSV4RRFFQ69G5FAW' } }));
+      }
+      return Promise.resolve(respond({ roster: malformedRoster }));
+    });
+    setRelayTransport({ origin: 'https://relay.example', fetch: relayFetch });
+    await expect(createAgentPreset({
+      label: 'Create', handle: 'create', harness: 'codex',
+    }, { token: 'relay-secret', origin: 'https://relay.example' })).rejects.toThrow();
+    await expect(updateAgentPreset(preset.id, {
+      label: 'Update', handle: 'update', harness: 'codex',
+    }, { token: 'relay-secret', origin: 'https://relay.example' })).rejects.toThrow();
+    await expect(fetchDefaultRoster({ token: 'relay-secret', origin: 'https://relay.example' })).rejects.toThrow();
+    await expect(replaceDefaultRoster({ preset_ids: [] }, {
+      token: 'relay-secret', origin: 'https://relay.example',
+    })).rejects.toThrow();
+    await expect(fetchAgentPreset(preset.id, {
+      token: 'relay-secret', origin: 'https://relay.example',
+    })).rejects.toThrow(/did not match requested preset/);
+    expect(relayFetch).toHaveBeenCalledWith('/api/default-roster', expect.objectContaining({
+      headers: { authorization: 'Bearer relay-secret' },
+    }));
+  });
 });

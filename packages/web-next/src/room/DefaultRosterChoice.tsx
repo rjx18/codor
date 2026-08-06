@@ -125,12 +125,23 @@ export function DefaultRosterChoice(props: {
       {state.error !== undefined && (
         <div className="nx-roster-choice-error" role="alert" data-testid={`${id}-roster-error`}>
           <span>Couldn’t load the default roster. Starting agent remains available.</span>
+          {props.selected && (
+            <Button
+              variant="quiet"
+              type="button"
+              data-testid={`${id}-roster-deselect`}
+              onClick={() => props.onSelectedChange(false)}
+            >
+              Use Starting agent
+            </Button>
+          )}
           <Button variant="quiet" type="button" data-testid={`${id}-roster-retry`} onClick={state.refresh}>
             Retry
           </Button>
         </div>
       )}
-      {state.roster !== undefined && state.presets !== undefined && !summary.inconsistent && (
+      {state.roster !== undefined && state.presets !== undefined
+        && state.error === undefined && !summary.inconsistent && (
         <button
           type="button"
           className={`nx-roster-choice-card ${props.selected ? 'is-selected' : ''}`}
@@ -146,10 +157,21 @@ export function DefaultRosterChoice(props: {
           <span className="nx-check" aria-hidden="true" />
         </button>
       )}
-      {state.roster !== undefined && state.presets !== undefined && summary.inconsistent && (
+      {state.roster !== undefined && state.presets !== undefined
+        && state.error === undefined && summary.inconsistent && (
         <div className="nx-roster-inconsistent" role="alert" data-testid={`${id}-roster-inconsistent`}>
           <strong>Roster needs attention</strong>
           <span>{summary.text}. Reload it in Settings or use Starting agent.</span>
+          {props.selected && (
+            <Button
+              variant="quiet"
+              type="button"
+              data-testid={`${id}-roster-deselect`}
+              onClick={() => props.onSelectedChange(false)}
+            >
+              Use Starting agent
+            </Button>
+          )}
           <Button variant="quiet" type="button" onClick={state.refresh}>Reload</Button>
         </div>
       )}

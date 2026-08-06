@@ -12,7 +12,7 @@ import type {
   Room,
   WireEvent,
 } from '@codor/protocol';
-import { AgentPresetSchema } from '@codor/protocol';
+import { AgentPresetSchema, DefaultRosterSchema } from '@codor/protocol';
 
 import { openForBrowser, persistBrowserRoomKey } from './crypto.js';
 import { relayFetch } from './relay-transport.js';
@@ -212,7 +212,11 @@ export async function fetchAgentPreset(id: string, options: ApiOptions): Promise
     `/api/agent-presets/${encodeURIComponent(id)}`,
     options,
   );
-  return AgentPresetSchema.parse(body.preset);
+  const preset = AgentPresetSchema.parse(body.preset);
+  if (preset.id !== id) {
+    throw new Error(`preset response id ${preset.id} did not match requested preset ${id}`);
+  }
+  return preset;
 }
 
 export async function createAgentPreset(
@@ -222,7 +226,7 @@ export async function createAgentPreset(
   const body = await sendJson<{ preset: AgentPreset }>(
     '/api/agent-presets', 'POST', input, options,
   );
-  return body.preset;
+  return AgentPresetSchema.parse(body.preset);
 }
 
 export async function updateAgentPreset(
@@ -233,7 +237,7 @@ export async function updateAgentPreset(
   const body = await sendJson<{ preset: AgentPreset }>(
     `/api/agent-presets/${encodeURIComponent(id)}`, 'PUT', input, options,
   );
-  return body.preset;
+  return AgentPresetSchema.parse(body.preset);
 }
 
 export async function deleteAgentPreset(id: string, options: ApiOptions): Promise<void> {
@@ -241,18 +245,18 @@ export async function deleteAgentPreset(id: string, options: ApiOptions): Promis
 }
 
 export async function fetchDefaultRoster(options: ApiOptions): Promise<DefaultRoster> {
-  const body = await fetchJson<{ roster: DefaultRoster }>('/api/default-roster', options);
-  return body.roster;
+  const body = await fetchJson<{ roster: unknown }>('/api/default-roster', options);
+  return DefaultRosterSchema.parse(body.roster);
 }
 
 export async function replaceDefaultRoster(
   input: DefaultRosterInput,
   options: ApiOptions,
 ): Promise<DefaultRoster> {
-  const body = await sendJson<{ roster: DefaultRoster }>(
+  const body = await sendJson<{ roster: unknown }>(
     '/api/default-roster', 'PUT', input, options,
   );
-  return body.roster;
+  return DefaultRosterSchema.parse(body.roster);
 }
 // harn:end agent-preset-management-is-authorized-and-transport-neutral
 
